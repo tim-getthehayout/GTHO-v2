@@ -19,11 +19,14 @@ export default [
         clearInterval: 'readonly',
         URL: 'readonly',
         navigator: 'readonly',
+        Node: 'readonly',
+        HTMLElement: 'readonly',
+        Text: 'readonly',
       },
     },
     rules: {
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      'no-console': ['error', { allow: [] }],
+      'no-console': 'error',
     },
   },
   {

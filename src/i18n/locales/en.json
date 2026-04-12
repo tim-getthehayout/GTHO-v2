@@ -1,0 +1,70 @@
+{
+  "app": {
+    "name": "Get The Hay Out",
+    "version": "v2"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "events": "Events",
+    "locations": "Locations",
+    "animals": "Animals",
+    "feed": "Feed",
+    "reports": "Reports",
+    "settings": "Settings"
+  },
+  "action": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "close": "Close",
+    "open": "Open",
+    "archive": "Archive",
+    "restore": "Restore",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export"
+  },
+  "unit": {
+    "kg": "kg",
+    "lbs": "lbs",
+    "ha": "ha",
+    "acres": "acres",
+    "cm": "cm",
+    "in": "in",
+    "L": "L",
+    "gal": "gal"
+  },
+  "event": {
+    "status": {
+      "active": "Active",
+      "closed": "Closed"
+    },
+    "daysOn": "{days} days on pasture"
+  },
+  "location": {
+    "type": {
+      "confinement": "Confinement",
+      "land": "Land"
+    },
+    "landUse": {
+      "pasture": "Pasture",
+      "mixedUse": "Mixed Use",
+      "crop": "Crop"
+    }
+  },
+  "animal": {},
+  "feed": {},
+  "survey": {},
+  "harvest": {},
+  "amendment": {},
+  "health": {},
+  "settings": {},
+  "error": {},
+  "validation": {}
+}

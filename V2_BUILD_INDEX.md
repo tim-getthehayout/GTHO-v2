@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.2 Core Loop — CP-11 through CP-19 complete. All 11 Supabase migrations applied. 538 tests passing.
-**Next up:** CP-20 (Event close — no move).
+**Active work:** Phase 3.2 Core Loop — CP-11 through CP-20 complete. All 11 Supabase migrations applied. 538 tests passing.
+**Next up:** CP-21 (Dashboard).
 
 ---
 

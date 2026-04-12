@@ -78,6 +78,12 @@ export function renderEventsScreen(container) {
       el('div', { className: 'sheet-backdrop', onClick: () => moveWizardSheet && moveWizardSheet.close() }),
       el('div', { className: 'sheet-panel', id: 'move-wizard-sheet-panel' }),
     ]),
+
+    // Close event sheet (z-index 210)
+    el('div', { className: 'sheet-wrap', id: 'close-event-sheet-wrap', style: { zIndex: '210' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => closeEventSheet && closeEventSheet.close() }),
+      el('div', { className: 'sheet-panel', id: 'close-event-sheet-panel' }),
+    ]),
   ]);
 
   container.appendChild(screenEl);
@@ -185,6 +191,13 @@ function renderEventCard(evt, operationId) {
             'data-testid': `events-add-group-btn-${evt.id}`,
             onClick: () => openGroupAddSheet(evt, operationId),
           }, [t('event.addGroupTitle')]),
+        ]),
+        el('div', { className: 'btn-row', style: { marginTop: 'var(--space-2)' } }, [
+          el('button', {
+            className: 'btn btn-red btn-sm',
+            'data-testid': `events-close-event-btn-${evt.id}`,
+            onClick: () => openCloseEventSheet(evt, operationId),
+          }, [t('event.closeEvent')]),
         ]),
       ]) : null,
 
@@ -1388,5 +1401,101 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unit
   } catch (err) {
     statusEl.appendChild(el('span', {}, [err.message]));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Close Event — no move (CP-20)
+// ---------------------------------------------------------------------------
+
+let closeEventSheet = null;
+
+function openCloseEventSheet(evt, _operationId) {
+  if (!closeEventSheet) {
+    closeEventSheet = new Sheet('close-event-sheet-wrap');
+  }
+
+  const panel = document.getElementById('close-event-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const inputs = {};
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.closeEventTitle')]));
+
+  // Date out
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.dateOut')]));
+  inputs.dateOut = el('input', {
+    type: 'date', className: 'auth-input', value: todayStr,
+    'data-testid': 'close-event-date-out',
+  });
+  panel.appendChild(inputs.dateOut);
+
+  // Time out
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.timeOut')]));
+  inputs.timeOut = el('input', {
+    type: 'time', className: 'auth-input', value: '',
+    'data-testid': 'close-event-time-out',
+  });
+  panel.appendChild(inputs.timeOut);
+
+  // Feed check placeholder
+  panel.appendChild(el('div', {
+    className: 'form-hint',
+    style: { fontStyle: 'italic', marginTop: 'var(--space-4)' },
+  }, [t('event.feedPlaceholder')]));
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'close-event-status' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+    el('button', {
+      className: 'btn btn-red',
+      'data-testid': 'close-event-save',
+      onClick: () => {
+        clear(statusEl);
+        const dateOut = inputs.dateOut.value;
+        const timeOut = inputs.timeOut.value || null;
+        if (!dateOut) {
+          statusEl.appendChild(el('span', {}, ['Close date is required']));
+          return;
+        }
+        try {
+          // Close all open paddock windows
+          const pws = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
+          for (const pw of pws) {
+            update('eventPaddockWindows', pw.id, {
+              dateClosed: dateOut,
+              timeClosed: timeOut,
+            }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          }
+          // Close all open group windows
+          const gws = getAll('eventGroupWindows').filter(w => w.eventId === evt.id && !w.dateLeft);
+          for (const gw of gws) {
+            update('eventGroupWindows', gw.id, {
+              dateLeft: dateOut,
+              timeLeft: timeOut,
+            }, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+          }
+          // Set event date_out
+          update('events', evt.id, {
+            dateOut,
+            timeOut,
+          }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+          // TODO: Create paddock_observation type='close'
+          closeEventSheet.close();
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('event.closeEvent')]),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'close-event-cancel',
+      onClick: () => closeEventSheet.close(),
+    }, [t('action.cancel')]),
+  ]));
+
+  closeEventSheet.open();
 }
 

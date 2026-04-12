@@ -108,7 +108,11 @@
     "dateOut": "Date Out",
     "timeOut": "Time Out",
     "feedTransferPlaceholder": "Feed transfer available in Phase 3.3",
-    "noActiveEvents": "No active events to join."
+    "noActiveEvents": "No active events to join.",
+    "closeEvent": "Close Event",
+    "closeEventTitle": "Close Event",
+    "closeEventConfirm": "Close this event? All open windows will be closed.",
+    "eventClosed": "Event closed"
   },
   "location": {
     "title": "Locations",

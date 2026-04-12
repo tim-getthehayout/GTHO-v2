@@ -1,5 +1,7 @@
 # Phase 3.1 — Scaffold
 
+> **Note:** The authoritative build spec is in V2_BUILD_INDEX.md. This file contains the detailed checkpoint breakdown for Claude Code.
+
 ## Summary
 
 Set up the v2 application foundation: Vite project, utilities, all 50 entity files with migrations, the store/sync data layer, UI framework, and i18n. No feature screens yet — this phase builds the infrastructure that all features plug into. When done, the app shell loads, the router works, and a round-trip test proves data flows from UI → store → localStorage → Supabase shape → back.

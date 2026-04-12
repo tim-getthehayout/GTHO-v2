@@ -3,7 +3,7 @@
 **Purpose:** Master index for the v2 rebuild. Maps every design doc, tracks design and build progress, and serves as the handoff document between sessions. **Any new session starts here.**
 
 **Last updated:** 2026-04-12
-**Current phase:** Phase 2 — Design (COMPLETE)
+**Current phase:** Phase 3 — Build (IN PROGRESS)
 
 ---
 
@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.1 Scaffold — spec written (`github/issues/phase-3-1-scaffold.md`). 10 checkpoints: Vite init → utils → 50 entities across 4 batches → i18n → store/sync → UI framework → app shell.
-**Next up:** Claude Code picks up `phase-3-1-scaffold.md` and builds CP-1 through CP-10 sequentially.
+**Active work:** Phase 3.1 Scaffold — CP-1 through CP-10 complete (539 tests). Phase 3.2 Core Loop spec written — 13 checkpoints (CP-11 through CP-23).
+**Next up:** Claude Code builds Phase 3.2 starting with CP-11 (Auth flow).
 
 ---
 
@@ -48,7 +48,7 @@
 
 ## Design Doc Library
 
-All design docs live in this repo (App-Migration-Project). Claude Code reads them during Phase 3 but does not edit them.
+All design docs live in this repo (GTHO-v2). Claude Code reads them during Phase 3 but does not edit them. Cowork owns all design doc changes.
 
 | Document | Answers | Status | Notes |
 |----------|---------|--------|-------|
@@ -137,6 +137,81 @@ Decisions made during design sessions that affect multiple docs. Each decision h
 
 ---
 
+## Phase 3 — Build Specifications
+
+Implementation specs for Claude Code. Each sub-phase has sequenced checkpoints with acceptance criteria. Complete one checkpoint before starting the next. Commit after each.
+
+### Phase 3.1 — Scaffold
+
+**Goal:** Set up the v2 application foundation. When done, the app shell loads, the router works, and a round-trip test proves data flows from UI → store → localStorage → Supabase shape → back.
+
+**What this phase does NOT include:** No feature UI, no Supabase connection, no auth, no registered calculations, no PWA/service worker.
+
+| CP | What to build | Key deliverables | Tests |
+|----|--------------|-----------------|-------|
+| CP-1 | Vite project init | package.json, vite.config.js, index.html shell, .gitignore, .env.example, eslint | Build passes |
+| CP-2 | Core utilities | logger.js, date-utils.js, validators.js, units.js, calc-registry.js | 4 test files, all 6 unit conversions |
+| CP-3 | Entities D1 (5) | operation.js, farm.js, farm-setting.js, operation-member.js, user-preference.js + migration SQL | Shape round-trip tests × 5 |
+| CP-4 | Entities D2–D4 (9) | location.js, forage-type.js, animal-class.js, animal.js, group.js, animal-group-membership.js, feed-type.js, batch.js, batch-adjustment.js + 3 migrations | Shape round-trip tests × 9 |
+| CP-5 | Entities D5–D7 (11) | event.js, event-paddock-window.js, event-group-window.js, event-feed-entry.js, event-feed-check.js, event-feed-check-item.js, survey.js, survey-draft-entry.js, paddock-observation.js, harvest-event.js, harvest-event-field.js + 3 migrations | Shape round-trip tests × 11 |
+| CP-6 | Entities D8–D11 (25) | All remaining entities + 4 migrations. D8 nutrients (10), D9 health (10), D10 quality (1), D11 infra (5 — including npk-price-history.js) | Shape round-trip tests × 25. Total: 50 entities |
+| CP-7 | i18n | i18n.js with t()/loadLocale(), en.json skeleton | Key lookup, interpolation, missing key fallback |
+| CP-8 | Data layer | store.js, local-storage.js, sync-adapter.js (interface), custom-sync.js (Supabase impl), supabase-client.js | Store init/getters/actions/subscribers, localStorage round-trip |
+| CP-9 | UI framework | dom.js, sheet.js, router.js, header.js, main.css with design system tokens | DOM builder, sheet toggle, route mapping |
+| CP-10 | App shell | Wire main.js boot, 7 placeholder screens, integration test | Full round-trip: create → read → shape → subscriber. App boots clean. |
+
+**Schema source of truth:** V2_SCHEMA_DESIGN.md. Copy column names, types, and constraints exactly. Do not invent fields.
+
+**Entity pattern:** Every file exports `FIELDS`, `create()`, `validate()`, `toSupabaseShape()`, `fromSupabaseShape()`. Build D1 (CP-3) as the template, then batch the rest.
+
+---
+
+### Phase 3.2 — Core Loop
+
+**Goal:** First usable screens. User can log in, set up operation/farm, create locations and animal groups, create and manage grazing events (including sub-moves, group changes, and the full move wizard), view the dashboard, and sync to Supabase with offline support.
+
+**What this phase does NOT include:** No feed delivery/checks/transfer, no surveys, no amendments/manure, no health records, no calculations/formulas, no reports, no rotation calendar, no harvest, no batch/feed inventory management, no PWA. Screens that reference feed or computed metrics show placeholder "—" until Phase 3.3.
+
+**Prerequisites:** Phase 3.1 complete. v2 Supabase project created with D1–D5 migrations applied. `.env` configured.
+
+| CP | What to build | Spec source | Acceptance criteria |
+|----|--------------|-------------|---------------------|
+| CP-11 | Auth flow | V2_INFRASTRUCTURE.md §5, V2_DESIGN_SYSTEM.md auth overlay | Login/signup against Supabase Auth. Session persists across reload. Unauthenticated users blocked. |
+| CP-12 | Onboarding wizard | V2_SCHEMA_DESIGN.md D1, A19, A27, A39 | Creates operation + farm + farm_settings + member + preferences + seeds animal_classes with NRCS defaults + seeds reference tables. App navigates to dashboard. Returning users skip. |
+| CP-13 | Settings screen (basic) | V2_SCHEMA_DESIGN.md §1.3/§1.5, V2_INFRASTRUCTURE.md §1 | Unit toggle works app-wide. Farm settings save. Sync status displays. Logout works. |
+| CP-14 | Locations screen | V2_SCHEMA_DESIGN.md D2, V2_DESIGN_SYSTEM.md §4.4, A3, A15, A17 | Location CRUD. Filter pills by type/land_use. Forage type CRUD. Area in user's unit. Confinement shows capture_percent. |
+| CP-15 | Animals — Groups & Classes | V2_SCHEMA_DESIGN.md D3, A14, A27, A30 | Group CRUD. Class editing (rates, names). Group filter pills. |
+| CP-16 | Animals — Individual animals | V2_SCHEMA_DESIGN.md D3 §3.2/§3.4 | Animal CRUD. Group assignment creates/closes memberships. Search/filter. Column sorting. |
+| CP-17 | Events — Create & List | V2_UX_FLOWS.md §11, §1.2, V2_SCHEMA_DESIGN.md D5 | Event creation with location + group. Event list with status. Event card displays paddock/group windows. Location picker with Ready/Recovering/In Use/Confinement sections. |
+| CP-18 | Paddock & Group windows | V2_UX_FLOWS.md §2, §3, V2_DESIGN_SYSTEM.md §3.5 z-index | Sub-move open/close with observations. Primary paddock close disabled. Group add/remove. Advance Strip button wired. Event card updates live. |
+| CP-19 | Move wizard | V2_UX_FLOWS.md §1 (full flow), V2_DESIGN_SYSTEM.md §3.12 | Close source → create destination. Strip graze flags. Join existing event. Save actions in correct order. Feed transfer shows placeholder. |
+| CP-20 | Event close (no move) | V2_UX_FLOWS.md §9 | All windows closed. Event status → closed. Observation created. Feed check shows placeholder. |
+| CP-21 | Dashboard | V2_DESIGN_SYSTEM.md §4.1, §3.13, §3.8 | Group cards with location status. Move action opens wizard. Mobile collapse/expand. Desktop 2-col grid. FAB with creation options. Reactive updates. |
+| CP-22 | Supabase sync wiring | V2_APP_ARCHITECTURE.md §5, V2_INFRASTRUCTURE.md §3.4–3.5, A10, A24 | Online write → Supabase. Offline queue → flush on reconnect. Pull merges remote. Dead letters after 5 failures. Sync indicator. App works offline. |
+| CP-23 | Integration smoke test | — | Playwright e2e: signup → onboard → create locations → create group + animals → create event → sub-move → move wizard → close event → verify persistence. |
+
+**Onboarding design note:** The onboarding UX flow is not detailed in V2_UX_FLOWS.md. CP-12 defines the minimum needed to bootstrap the data model. If any step needs richer UI, flag as `DESIGN REQUIRED`. Polished onboarding is Phase 3.5.
+
+**`data-testid` convention:** `[screen]-[element]-[identifier]`. Examples: `locations-card-{id}`, `events-move-btn`, `dashboard-group-card-{id}`, `move-wizard-step-2`. Apply to every interactive element and list container starting in CP-14.
+
+**Confinement NPK routing:** Move wizard and event close reference manure batch transactions for confinement locations. Do not build this — log a TODO in code. Wired in Phase 3.3 when amendments/manure system is built.
+
+---
+
+### Phase 3.3 — Assessment (spec not yet written)
+
+**Scope:** Feed inventory management, feed delivery/checks/transfer, surveys, amendments, harvest, calculation engine (register all 35 formulas), reports, health records.
+
+### Phase 3.4 — Advanced (spec not yet written)
+
+**Scope:** Rotation calendar, export/import, migration tool (v1 → v2 data).
+
+### Phase 3.5 — Polish (spec not yet written)
+
+**Scope:** PWA/service worker, sync hardening, performance, accessibility, onboarding polish, cutover to production.
+
+---
+
 ## Handoff Template
 
 When a session ends, update "Current Focus" above and write a session brief file to `session_briefs/`:
@@ -164,6 +239,7 @@ When a session ends, update "Current Focus" above and write a session brief file
 | 2026-04-12 | Session 8b — UX flows review | 8 issues found and resolved. 3 new sections added (§11 Event Card, §12 Batch Adjustment, §13 Feed Day Goal). 3 new decisions (A41–A43). Schema amended: farm_settings +forage_quality_scale_min/max. Confinement close handling added. Feed delivery expanded. Sub-move terminology bridged (A42). Time fields added consistently across all flows. |
 | 2026-04-12 | Session 9 — Migration plan review | 12 issues found and resolved. 16 new transform sections (§2.9–§2.24). §2.7 expanded to 5-way health event split (+heat records). §2.8 rewritten for 3-table extraction (operations+farms+farm_settings). All imperial unit conversions confirmed. v1 bugs documented (weight_per_unit_kg stores lbs, soil_tests default lbs/acre). NPK deposits used for validation-only parity check. Calc count corrected (42→35). Migration plan DRAFT → APPROVED. |
 | 2026-04-12 | Session 10 — Design system review | 6 issues found and resolved. §4.8 stale "anchor/primary" → "primary". §1.8 threshold color mapping added (forage quality bands, feed days-on-hand urgency). §3.15 strip grazing progress component added. §5.3 i18n integration note added. §6 relationship table expanded (+schema, +infrastructure). §4.7 v2 sync note added. UX flows amended: §2.2 primary paddock rule, §11.1/§11.2 primary label + Close button disabled. Design system DRAFT → APPROVED. **Phase 2 — Design complete. All 7 docs APPROVED.** |
+| 2026-04-12 | Session 11 — Phase 3 prep | Repo migrated to GTHO-v2 (fresh repo, pushed to GitHub). CLAUDE.md rewritten for combined docs + code repo — added Invention Required rule, Architecture Audit, and Corrections logging from failed v2 rebuild. Phase 3.1 Scaffold spec written (10 checkpoints, detailed build order). Phase 3.2 Core Loop spec written (13 checkpoints: auth, onboarding, settings, locations, animals, events, move wizard, dashboard, sync). Both specs integrated into Build Index. TASKS.md updated. Build index phase status: Phase 3 IN PROGRESS. |
 
 ---
 

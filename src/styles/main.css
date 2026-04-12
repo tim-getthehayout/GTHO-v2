@@ -989,6 +989,79 @@ body {
   background: var(--color-green-light);
 }
 
+/* Move wizard dots */
+.wiz-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: var(--space-5);
+}
+
+.wiz-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--border2);
+}
+
+.wiz-dot.active {
+  background: var(--color-green-base);
+}
+
+.wiz-dot.done {
+  background: var(--color-green-light-2);
+}
+
+/* Wizard steps */
+.wiz-step {
+  display: none;
+}
+
+.wiz-step.on {
+  display: block;
+}
+
+/* Destination type cards */
+.dest-type-card {
+  padding: var(--space-5);
+  border: 1.5px solid var(--border2);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.dest-type-card:hover {
+  background: var(--bg2);
+}
+
+.dest-type-card.selected {
+  border-color: var(--color-green-base);
+  background: var(--color-green-light);
+  color: var(--color-green-dark);
+}
+
+/* Close/open split */
+.close-open-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.close-open-section {
+  padding: var(--space-4);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.close-open-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: var(--space-3);
+}
+
 /* Hidden utility */
 .hidden {
   display: none !important;

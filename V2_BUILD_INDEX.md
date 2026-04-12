@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.1 Scaffold — CP-1 through CP-10 complete (539 tests). Phase 3.2 Core Loop spec written — 13 checkpoints (CP-11 through CP-23).
-**Next up:** Claude Code builds Phase 3.2 starting with CP-11 (Auth flow).
+**Active work:** Phase 3.2 Core Loop — CP-11 through CP-17 complete. All 11 Supabase migrations applied. 538 tests passing.
+**Next up:** CP-18 (Paddock & Group windows).
 
 ---
 

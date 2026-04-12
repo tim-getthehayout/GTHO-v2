@@ -543,6 +543,452 @@ body {
 .sync-error { background: var(--color-red-base); }
 .sync-offline { background: var(--text3); }
 
+/* Filter pills */
+.filter-pills {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-2);
+}
+
+.fp {
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-family);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fp.active {
+  background: var(--color-green-base);
+  color: #fff;
+  border-color: var(--color-green-base);
+}
+
+/* Type badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-green {
+  background: var(--color-green-light);
+  color: var(--color-green-dark);
+}
+
+.badge-teal {
+  background: var(--color-teal-light);
+  color: var(--color-teal-dark);
+}
+
+.badge-purple {
+  background: var(--color-purple-light);
+  color: var(--color-purple-dark);
+}
+
+.badge-amber {
+  background: var(--color-amber-light);
+  color: var(--color-amber-dark);
+}
+
+/* Location list */
+.loc-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.loc-card {
+  padding: 14px 16px;
+}
+
+.loc-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.loc-card-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.loc-card-detail {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.loc-card-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+/* Forage type rows */
+.ft-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.ft-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.ft-row:last-child {
+  border-bottom: none;
+}
+
+.ft-row-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ft-row-detail {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* Section divider */
+.section-divider {
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+/* Screen action bar (title + add button) */
+.screen-action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-5);
+}
+
+/* Form select */
+.auth-select {
+  padding: 9px 12px;
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-family: var(--font-family);
+  color: var(--text);
+  background: var(--bg);
+  width: 100%;
+  appearance: auto;
+}
+
+.auth-select:focus {
+  outline: none;
+  border-color: var(--color-green-base);
+}
+
+/* Group cards */
+.grp-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.grp-card {
+  padding: 14px 16px;
+}
+
+.grp-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.grp-card-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.grp-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.grp-card-detail {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 3px;
+}
+
+.grp-card-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+/* Class rows */
+.cls-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.cls-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.cls-row:last-child {
+  border-bottom: none;
+}
+
+.cls-row-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cls-row-detail {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* Species section header */
+.species-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text2);
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.species-header:first-child {
+  margin-top: 0;
+}
+
+/* Tab strip */
+.tab-strip {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-5);
+}
+
+.tab-btn {
+  padding: var(--space-3) var(--space-5);
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-family);
+  color: var(--text2);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab-btn.active {
+  color: var(--color-green-base);
+  border-bottom-color: var(--color-green-base);
+}
+
+/* Animal table */
+.animal-table-wrap {
+  overflow-x: auto;
+}
+
+.animal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.animal-table th {
+  text-align: left;
+  padding: var(--space-3) var(--space-3);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.animal-table th:hover {
+  color: var(--text);
+}
+
+.animal-table th .sort-arrow {
+  margin-left: 2px;
+  font-size: 10px;
+}
+
+.animal-table td {
+  padding: var(--space-3) var(--space-3);
+  border-bottom: 0.5px solid var(--border);
+  vertical-align: middle;
+}
+
+.animal-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Search bar */
+.search-bar {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.search-input {
+  flex: 1;
+  padding: 7px 12px;
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-family: var(--font-family);
+  color: var(--text);
+  background: var(--bg);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-green-base);
+}
+
+/* Event list */
+.event-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Event card */
+.event-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.event-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.event-card-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.event-card-date {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+.event-card-body {
+  padding: 12px 16px;
+}
+
+.event-card-section {
+  margin-bottom: var(--space-4);
+}
+
+.event-card-section:last-child {
+  margin-bottom: 0;
+}
+
+.event-card-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text2);
+  margin-bottom: var(--space-3);
+}
+
+/* Window rows inside event cards */
+.window-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.window-row + .window-row {
+  border-top: 0.5px solid var(--border);
+}
+
+.window-name {
+  font-weight: 500;
+}
+
+.window-detail {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* Location picker sections in create sheet */
+.loc-picker-section {
+  margin-bottom: var(--space-4);
+}
+
+.loc-picker-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text2);
+  margin-bottom: var(--space-2);
+}
+
+.loc-picker-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.loc-picker-item:hover {
+  background: var(--bg2);
+}
+
+.loc-picker-item.selected {
+  border-color: var(--color-green-base);
+  background: var(--color-green-light);
+}
+
 /* Hidden utility */
 .hidden {
   display: none !important;

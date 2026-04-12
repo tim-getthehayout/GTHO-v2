@@ -30,9 +30,9 @@
 
 ## Current Focus
 
-**Phase:** 2 — Design
-**Active work:** V2_DESIGN_SYSTEM.md APPROVED (2026-04-12). 6 issues resolved. All 7 design docs now APPROVED.
-**Next up:** Phase 2 complete. Ready for Phase 3 — Build.
+**Phase:** 3 — Build
+**Active work:** Phase 3.1 Scaffold — spec written (`github/issues/phase-3-1-scaffold.md`). 10 checkpoints: Vite init → utils → 50 entities across 4 batches → i18n → store/sync → UI framework → app shell.
+**Next up:** Claude Code picks up `phase-3-1-scaffold.md` and builds CP-1 through CP-10 sequentially.
 
 ---
 
@@ -42,7 +42,7 @@
 |-------|-------------|--------|
 | Phase 1 — Audit | Exhaustive catalog of v1 features, data, and behavior | APPROVED |
 | Phase 2 — Design | Complete spec for every table, pattern, formula, and flow | APPROVED |
-| Phase 3 — Build | Claude Code implements from Phase 2 specs | — |
+| Phase 3 — Build | Claude Code implements from Phase 2 specs | IN PROGRESS |
 
 ---
 

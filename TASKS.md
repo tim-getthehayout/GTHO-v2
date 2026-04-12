@@ -1,45 +1,40 @@
 # Tasks
 
 ## Phase 1 — Audit
-- [x] **v1 Feature Audit** - GTHO_V1_FEATURE_AUDIT.md — 58 catalog entries, 40 capabilities, 12 anti-patterns
+- [x] **v1 Feature Audit** — GTHO_V1_FEATURE_AUDIT.md — 58 catalog entries, 40 capabilities, 12 anti-patterns
 
 ## Phase 2 — Design Docs
-- [x] **V2_BUILD_INDEX.md** - Master tracker and session handoff doc
-- [x] **V2_SCHEMA_DESIGN.md** - 12 event tables approved, remaining domains PENDING
-- [ ] **V2_APP_ARCHITECTURE.md** - Draft — needs Tim review
-- [ ] **V2_CALCULATION_SPEC.md** - Draft — 42 formulas, needs Tim review
-- [ ] **V2_UX_FLOWS.md** - Draft — move wizard, feed check, survey flows, needs Tim review
-- [ ] **V2_INFRASTRUCTURE.md** - Draft — units, i18n, logging, RLS, testing, AI
-- [ ] **V2_MIGRATION_PLAN.md** - Draft — v1→v2 data, rollout phases, cutover
+- [x] **V2_BUILD_INDEX.md** — Master tracker and session handoff doc
+- [x] **V2_SCHEMA_DESIGN.md** — 51 tables across 11 domains, all approved
+- [x] **V2_APP_ARCHITECTURE.md** — Store, sync, DOM builder, sheets, router — approved
+- [x] **V2_CALCULATION_SPEC.md** — 35 formulas, registerCalc() pattern — approved
+- [x] **V2_UX_FLOWS.md** — 13 user interaction flows — approved
+- [x] **V2_INFRASTRUCTURE.md** — Units, i18n, logging, RLS, testing, CI, PWA — approved
+- [x] **V2_DESIGN_SYSTEM.md** — Color tokens, typography, spacing, components — approved
+- [x] **V2_MIGRATION_PLAN.md** — 24 transform sections, cutover plan — approved
 
-## Schema — Approved Domains
-- [x] **D2: Locations** - locations table designed and approved
-- [x] **D5: Event System** - events, paddock windows, group windows — approved
-- [x] **D5: Feed System** - feed entries, feed checks, feed check items — approved
-- [x] **D6: Surveys** - surveys, draft entries, paddock observations — approved
-- [x] **D7: Harvest** - harvest events, harvest event fields — approved
+## Phase 3 — Build
 
-## Schema — Pending Domains
-- [ ] **D1: Operation & Farm Setup** - operations, farms, operation_members
-- [ ] **D2: Forage Types** - forage_types reference table
-- [ ] **D3: Animals & Groups** - animals, groups, memberships, animal_classes
-- [ ] **D4: Feed Inventory** - feed_types, batches
-- [ ] **D8: Nutrients & Amendments** - amendments, amendment_locations, input_products, soil_tests, manure
-- [ ] **D9: Livestock Health** - BCS, treatments, breeding, calving, treatment_types, ai_bulls
-- [ ] **D10: Feed Quality** - batch_nutritional_profiles
-- [ ] **D11: App Infrastructure** - app_logs, submissions, todos, release_notes
+### 3.1 Scaffold (spec: `github/issues/phase-3-1-scaffold.md`)
+- [ ] **CP-1** — Vite project init, build tooling, eslint
+- [ ] **CP-2** — Core utilities: logger, date-utils, validators, units, calc-registry
+- [ ] **CP-3** — Entity files D1: operations, farms, farm_settings, operation_members, user_preferences
+- [ ] **CP-4** — Entity files D2–D4: locations, animals, groups, feed inventory (9 entities)
+- [ ] **CP-5** — Entity files D5–D7: events, surveys, harvest (11 entities)
+- [ ] **CP-6** — Entity files D8–D11: nutrients, health, quality, infra (25 entities)
+- [ ] **CP-7** — i18n setup: t() function, en.json skeleton
+- [ ] **CP-8** — Data layer: store, localStorage, sync adapter, Supabase client
+- [ ] **CP-9** — UI framework: DOM builder, sheet class, router, header, CSS tokens
+- [ ] **CP-10** — App shell wiring + integration test
 
-## Architecture Walkthrough
-- [x] **Group 1: Core Patterns** - Store, SyncAdapter, DOM builder, Sheet class, registerCalc() — all adopted
-- [x] **Group 2: Calculations** - 42 formulas reviewed, per-class rates, price stamping, 3-tier config approved
-- [ ] **Group 3: UI & UX** - Router, reactive subscribers, reports, dashboard widgets, move wizard
-- [ ] **Group 4: AI & Voice** - 3-phase inference, conversational parsing, guided scripts, source audit
-- [ ] **Group 5: Infrastructure** - Units, i18n, logging, feedback, RLS, testing, CI, PWA
-- [ ] **Group 6: Migration** - Data pipeline, rollout phases, cutover plan
+### 3.2 Core Loop (spec needed)
+- [ ] Events, locations, animals, dashboard, offline sync
 
-## Phase 3 — Build (not started)
-- [ ] **Phase 3.1: Scaffold** - CP 1-6: Vite, store, entities, sync, router, sheet, DOM, i18n, units, logger
-- [ ] **Phase 3.2: Core Loop** - CP 7-14: Events, locations, animals, dashboard, offline sync
-- [ ] **Phase 3.3: Assessment** - CP 15-21: Surveys, feed mgmt, calc engine, reports
-- [ ] **Phase 3.4: Advanced** - CP 22-32: Voice, rotation calendar, export/import, migration tool
-- [ ] **Phase 3.5: Polish** - PWA, sync hardening, perf, accessibility, cutover
+### 3.3 Assessment (spec needed)
+- [ ] Surveys, feed management, calc engine, reports
+
+### 3.4 Advanced (spec needed)
+- [ ] Rotation calendar, export/import, migration tool
+
+### 3.5 Polish (spec needed)
+- [ ] PWA, sync hardening, performance, accessibility, cutover

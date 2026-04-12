@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.2 Core Loop — CP-11 through CP-22 complete. All 11 Supabase migrations applied. 538 tests passing.
-**Next up:** CP-23 (Integration smoke test — Playwright e2e).
+**Active work:** Phase 3.2 Core Loop — **COMPLETE** (CP-11 through CP-23). All 11 Supabase migrations applied. 538 unit tests passing. Playwright e2e spec written.
+**Next up:** Phase 3.3 — Assessment (spec not yet written).
 
 ---
 

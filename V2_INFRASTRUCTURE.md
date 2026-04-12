@@ -279,7 +279,7 @@ All four must pass.
 
 v2 gets its own Supabase project. Fresh schema, no legacy tables. v1 continues serving until cutover.
 
-### 7.2 Environment Configuration
+### 7.2 Environment Configuration & Build-Phase Access
 
 `.env.build` (gitignored):
 ```
@@ -287,6 +287,20 @@ SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 ```
+
+**Build-phase workflow:**
+
+1. **Phase 3.1 (Scaffold):** No Supabase access needed. Store, entities, router, DOM builder, i18n, units, logger, and calc-registry are all built and tested locally against mocks and localStorage.
+2. **Phase 3.2+ (Core Loop onward):** Tim creates `.env.build` once with the v2 Supabase project credentials. Claude Code reads this file for all database operations going forward:
+   - **Service role key** — apply migration SQL via Supabase CLI (`supabase db push`) or direct REST API. Run schema changes without RLS restrictions.
+   - **Anon key** — E2E test runs against the live dev project, simulating real authenticated user flows.
+3. **Post-build cleanup:** `.env.build` is deleted. Production app uses environment-injected keys only (GitHub Pages environment variables or runtime config).
+
+**Rules:**
+- `.env.build` is gitignored — Claude Code never commits it
+- Claude Code never hardcodes keys in source files
+- If `.env.build` is missing when needed, Claude Code stops and asks Tim to create it rather than inventing a workaround
+- Tim creates the v2 Supabase project and provides the file contents at Phase 3.2 kickoff
 
 ### 7.3 PWA Setup
 

@@ -10,5 +10,12 @@ Allow a single paddock to be grazed in stages (strips) within one event. User se
 
 ---
 
+### OI-0002 — Unit System: No Schema Column
+**Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P2
+
+CP-13 spec says "unit system toggle (metric/imperial)" on Farm Settings. V2_SCHEMA_DESIGN.md has no `unit_system` column on `farm_settings` or `user_preferences`. **Workaround for now:** Store as a localStorage-only preference (`gtho_v2_unit_system`, default `'imperial'`). This works offline and doesn't require a schema change. When Tim decides the correct column/table, migrate from localStorage to Supabase.
+
+---
+
 ## Closed
 

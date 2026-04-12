@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.2 Core Loop — CP-11 through CP-21 complete. All 11 Supabase migrations applied. 538 tests passing.
-**Next up:** CP-22 (Supabase sync wiring).
+**Active work:** Phase 3.2 Core Loop — CP-11 through CP-22 complete. All 11 Supabase migrations applied. 538 tests passing.
+**Next up:** CP-23 (Integration smoke test — Playwright e2e).
 
 ---
 

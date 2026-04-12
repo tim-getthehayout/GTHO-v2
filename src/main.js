@@ -1,6 +1,7 @@
 /** @file Application entry point — boot sequence per V2_APP_ARCHITECTURE.md */
 
-import { init as initStore } from './data/store.js';
+import { init as initStore, setSyncAdapter } from './data/store.js';
+import { CustomSync } from './data/custom-sync.js';
 import { loadLocale } from './i18n/i18n.js';
 import { route, initRouter } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
@@ -66,6 +67,17 @@ function showAuth(app) {
 function showApp(app) {
   // Init store — load from localStorage
   initStore();
+
+  // Wire sync adapter
+  const syncAdapter = new CustomSync();
+  setSyncAdapter(syncAdapter);
+
+  // Listen for online/offline to flush queue
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => syncAdapter.flush());
+    // Attempt initial flush in case we have queued items
+    syncAdapter.flush();
+  }
 
   // Check if onboarding needed (no operations for this user)
   if (needsOnboarding()) {

@@ -3,6 +3,18 @@
     "name": "Get The Hay Out",
     "version": "v2"
   },
+  "dashboard": {
+    "title": "Dashboard",
+    "noGroups": "No groups yet. Create groups and animals to get started.",
+    "notOnEvent": "Not on pasture",
+    "daysOn": "{days}d on pasture",
+    "headCount": "{count} head",
+    "move": "Move",
+    "createEvent": "New Event",
+    "addLocation": "New Location",
+    "addGroup": "New Group",
+    "metricsPlaceholder": "Metrics in Phase 3.3"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "events": "Events",

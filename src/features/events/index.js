@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, subscribe } from '../../data/store.js';
+import { getAll, getById, add, update, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
@@ -48,6 +48,30 @@ export function renderEventsScreen(container) {
 
     // Create event sheet
     renderCreateEventSheetMarkup(),
+
+    // Sub-move open sheet (z-index 210)
+    el('div', { className: 'sheet-wrap', id: 'submove-open-sheet-wrap', style: { zIndex: '210' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => submoveOpenSheet && submoveOpenSheet.close() }),
+      el('div', { className: 'sheet-panel', id: 'submove-open-sheet-panel' }),
+    ]),
+
+    // Sub-move close sheet (z-index 210)
+    el('div', { className: 'sheet-wrap', id: 'submove-close-sheet-wrap', style: { zIndex: '210' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => submoveCloseSheet && submoveCloseSheet.close() }),
+      el('div', { className: 'sheet-panel', id: 'submove-close-sheet-panel' }),
+    ]),
+
+    // Group add sheet (z-index 210)
+    el('div', { className: 'sheet-wrap', id: 'group-add-sheet-wrap', style: { zIndex: '210' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => groupAddSheet && groupAddSheet.close() }),
+      el('div', { className: 'sheet-panel', id: 'group-add-sheet-panel' }),
+    ]),
+
+    // Group remove sheet (z-index 210)
+    el('div', { className: 'sheet-wrap', id: 'group-remove-sheet-wrap', style: { zIndex: '210' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => groupRemoveSheet && groupRemoveSheet.close() }),
+      el('div', { className: 'sheet-panel', id: 'group-remove-sheet-panel' }),
+    ]),
   ]);
 
   container.appendChild(screenEl);
@@ -82,14 +106,17 @@ function renderEventList(rootContainer) {
     return (b.dateIn || '').localeCompare(a.dateIn || '');
   });
 
+  const operations = getAll('operations');
+  const operationId = operations[0]?.id;
+
   const list = el('div', { className: 'event-list' });
   for (const evt of sorted) {
-    list.appendChild(renderEventCard(evt));
+    list.appendChild(renderEventCard(evt, operationId));
   }
   listEl.appendChild(list);
 }
 
-function renderEventCard(evt) {
+function renderEventCard(evt, operationId) {
   const isActive = !evt.dateOut;
   const paddockWindows = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id);
   const groupWindows = getAll('eventGroupWindows').filter(w => w.eventId === evt.id);
@@ -129,10 +156,26 @@ function renderEventCard(evt) {
     // Body
     el('div', { className: 'event-card-body' }, [
       // Paddock windows section
-      paddockWindows.length ? renderPaddockWindowsSection(sortedPW) : null,
+      paddockWindows.length ? renderPaddockWindowsSection(sortedPW, isActive, evt, operationId) : null,
 
       // Group windows section
-      groupWindows.length ? renderGroupWindowsSection(groupWindows, unitSys) : null,
+      groupWindows.length ? renderGroupWindowsSection(groupWindows, unitSys, isActive, evt, operationId) : null,
+
+      // Action buttons for active events
+      isActive ? el('div', { className: 'event-card-section' }, [
+        el('div', { className: 'btn-row' }, [
+          el('button', {
+            className: 'btn btn-outline btn-sm',
+            'data-testid': `events-submove-btn-${evt.id}`,
+            onClick: () => openSubmoveOpenSheet(evt, operationId),
+          }, [t('event.subMove')]),
+          el('button', {
+            className: 'btn btn-outline btn-sm',
+            'data-testid': `events-add-group-btn-${evt.id}`,
+            onClick: () => openGroupAddSheet(evt, operationId),
+          }, [t('event.addGroupTitle')]),
+        ]),
+      ]) : null,
 
       // Feed/metrics placeholders
       el('div', { className: 'event-card-section' }, [
@@ -142,7 +185,7 @@ function renderEventCard(evt) {
   ]);
 }
 
-function renderPaddockWindowsSection(windows) {
+function renderPaddockWindowsSection(windows, eventIsActive, evt, operationId) {
   return el('div', { className: 'event-card-section' }, [
     el('div', { className: 'event-card-section-title' }, [t('event.paddockWindows')]),
     ...windows.map((w, idx) => {
@@ -150,6 +193,31 @@ function renderPaddockWindowsSection(windows) {
       const locName = loc ? loc.name : w.locationId.slice(0, 8);
       const isOpen = !w.dateClosed;
       const isPrimary = idx === 0;
+
+      const rightSide = [];
+      rightSide.push(el('span', {
+        className: `badge ${isOpen ? 'badge-green' : 'badge-amber'}`,
+      }, [isOpen ? t('event.windowOpen') : t('event.windowClosed')]));
+
+      // Close button for non-primary open windows on active events
+      if (eventIsActive && isOpen) {
+        if (isPrimary) {
+          rightSide.push(el('button', {
+            className: 'btn btn-outline btn-xs',
+            disabled: 'true',
+            title: t('event.primaryCannotClose'),
+            'data-testid': `events-close-window-${w.id}`,
+            style: { opacity: '0.4', cursor: 'not-allowed', marginLeft: 'var(--space-2)' },
+          }, [t('event.closeWindow')]));
+        } else {
+          rightSide.push(el('button', {
+            className: 'btn btn-outline btn-xs',
+            'data-testid': `events-close-window-${w.id}`,
+            style: { marginLeft: 'var(--space-2)' },
+            onClick: () => openSubmoveCloseSheet(w, operationId),
+          }, [t('event.closeWindow')]));
+        }
+      }
 
       return el('div', {
         className: 'window-row',
@@ -164,21 +232,33 @@ function renderPaddockWindowsSection(windows) {
             w.dateOpened + (w.dateClosed ? ` — ${w.dateClosed}` : ''),
           ]),
         ]),
-        el('span', {
-          className: `badge ${isOpen ? 'badge-green' : 'badge-amber'}`,
-        }, [isOpen ? t('event.windowOpen') : t('event.windowClosed')]),
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' } }, rightSide),
       ]);
     }),
   ]);
 }
 
-function renderGroupWindowsSection(windows, unitSys) {
+function renderGroupWindowsSection(windows, unitSys, eventIsActive, _evt, _operationId) {
   return el('div', { className: 'event-card-section' }, [
     el('div', { className: 'event-card-section-title' }, [t('event.groupWindows')]),
     ...windows.map(w => {
       const group = getById('groups', w.groupId);
       const groupName = group ? group.name : w.groupId.slice(0, 8);
       const isOpen = !w.dateLeft;
+
+      const rightSide = [];
+      rightSide.push(el('span', {
+        className: `badge ${isOpen ? 'badge-green' : 'badge-amber'}`,
+      }, [isOpen ? t('event.windowOpen') : t('event.windowClosed')]));
+
+      if (eventIsActive && isOpen) {
+        rightSide.push(el('button', {
+          className: 'btn btn-outline btn-xs',
+          'data-testid': `events-remove-group-${w.id}`,
+          style: { marginLeft: 'var(--space-2)' },
+          onClick: () => openGroupRemoveSheet(w),
+        }, [t('action.close')]));
+      }
 
       return el('div', {
         className: 'window-row',
@@ -190,9 +270,7 @@ function renderGroupWindowsSection(windows, unitSys) {
             `${w.headCount} head · ${display(w.avgWeightKg, 'weight', unitSys, 0)} avg`,
           ]),
         ]),
-        el('span', {
-          className: `badge ${isOpen ? 'badge-green' : 'badge-amber'}`,
-        }, [isOpen ? t('event.windowOpen') : t('event.windowClosed')]),
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' } }, rightSide),
       ]);
     }),
   ]);
@@ -539,5 +617,357 @@ function saveEvent(selection, inputs, operationId, farmId, unitSys, statusEl) {
   } catch (err) {
     statusEl.appendChild(el('span', {}, [err.message]));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Sub-move open sheet (CP-18)
+// ---------------------------------------------------------------------------
+
+let submoveOpenSheet = null;
+
+function openSubmoveOpenSheet(evt, operationId) {
+  if (!submoveOpenSheet) {
+    submoveOpenSheet = new Sheet('submove-open-sheet-wrap');
+  }
+
+  const panel = document.getElementById('submove-open-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+
+  const locations = getAll('locations').filter(l => !l.archived);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const selection = { locationId: null };
+  const inputs = {};
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.openWindowTitle')]));
+
+  // Date
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.dateOpened')]));
+  inputs.dateOpened = el('input', {
+    type: 'date', className: 'auth-input', value: todayStr,
+    'data-testid': 'submove-open-date',
+  });
+  panel.appendChild(inputs.dateOpened);
+
+  // Time
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.timeOpened')]));
+  inputs.timeOpened = el('input', {
+    type: 'time', className: 'auth-input', value: '',
+    'data-testid': 'submove-open-time',
+  });
+  panel.appendChild(inputs.timeOpened);
+
+  // Location picker
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectLocation')]));
+  const locPickerEl = el('div', { 'data-testid': 'submove-open-location-picker' });
+  renderLocationPicker(locPickerEl, locations, selection);
+  panel.appendChild(locPickerEl);
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-open-status' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+    el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'submove-open-save',
+      onClick: () => {
+        clear(statusEl);
+        if (!selection.locationId) {
+          statusEl.appendChild(el('span', {}, [t('event.selectLocation')]));
+          return;
+        }
+        try {
+          const pw = PaddockWindowEntity.create({
+            operationId,
+            eventId: evt.id,
+            locationId: selection.locationId,
+            dateOpened: inputs.dateOpened.value,
+            timeOpened: inputs.timeOpened.value || null,
+          });
+          add('eventPaddockWindows', pw, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          submoveOpenSheet.close();
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('action.save')]),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'submove-open-cancel',
+      onClick: () => submoveOpenSheet.close(),
+    }, [t('action.cancel')]),
+  ]));
+
+  submoveOpenSheet.open();
+}
+
+// ---------------------------------------------------------------------------
+// Sub-move close sheet (CP-18)
+// ---------------------------------------------------------------------------
+
+let submoveCloseSheet = null;
+
+function openSubmoveCloseSheet(paddockWindow, _operationId) {
+  if (!submoveCloseSheet) {
+    submoveCloseSheet = new Sheet('submove-close-sheet-wrap');
+  }
+
+  const panel = document.getElementById('submove-close-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const loc = getById('locations', paddockWindow.locationId);
+  const locName = loc ? loc.name : '';
+  const inputs = {};
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.closeWindowTitle')]));
+  panel.appendChild(el('p', { className: 'form-hint', style: { marginBottom: 'var(--space-4)' } }, [locName]));
+
+  // Date
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.dateClosed')]));
+  inputs.dateClosed = el('input', {
+    type: 'date', className: 'auth-input', value: todayStr,
+    'data-testid': 'submove-close-date',
+  });
+  panel.appendChild(inputs.dateClosed);
+
+  // Time
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.timeClosed')]));
+  inputs.timeClosed = el('input', {
+    type: 'time', className: 'auth-input', value: '',
+    'data-testid': 'submove-close-time',
+  });
+  panel.appendChild(inputs.timeClosed);
+
+  // TODO: Observation fields (forage height, cover, quality) — Phase 3.3
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-close-status' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+    el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'submove-close-save',
+      onClick: () => {
+        clear(statusEl);
+        try {
+          update('eventPaddockWindows', paddockWindow.id, {
+            dateClosed: inputs.dateClosed.value,
+            timeClosed: inputs.timeClosed.value || null,
+          }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          submoveCloseSheet.close();
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('action.save')]),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'submove-close-cancel',
+      onClick: () => submoveCloseSheet.close(),
+    }, [t('action.cancel')]),
+  ]));
+
+  submoveCloseSheet.open();
+}
+
+// ---------------------------------------------------------------------------
+// Group add sheet (CP-18)
+// ---------------------------------------------------------------------------
+
+let groupAddSheet = null;
+
+function openGroupAddSheet(evt, operationId) {
+  if (!groupAddSheet) {
+    groupAddSheet = new Sheet('group-add-sheet-wrap');
+  }
+
+  const panel = document.getElementById('group-add-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+
+  const groups = getAll('groups').filter(g => !g.archived);
+  const unitSys = getUnitSystem();
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const selection = { groupId: null };
+  const inputs = {};
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.addGroupTitle')]));
+
+  // Date
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.dateJoined')]));
+  inputs.dateJoined = el('input', {
+    type: 'date', className: 'auth-input', value: todayStr,
+    'data-testid': 'group-add-date',
+  });
+  panel.appendChild(inputs.dateJoined);
+
+  // Time
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.timeJoined')]));
+  inputs.timeJoined = el('input', {
+    type: 'time', className: 'auth-input', value: '',
+    'data-testid': 'group-add-time',
+  });
+  panel.appendChild(inputs.timeJoined);
+
+  // Group picker
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectGroup')]));
+  const groupPickerEl = el('div', { 'data-testid': 'group-add-picker' });
+  renderGroupPickerSimple(groupPickerEl, groups, selection);
+  panel.appendChild(groupPickerEl);
+
+  // Head count
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.headCount')]));
+  inputs.headCount = el('input', {
+    type: 'number', className: 'auth-input settings-input', value: '',
+    'data-testid': 'group-add-head-count',
+  });
+  panel.appendChild(inputs.headCount);
+
+  // Avg weight
+  const wLabel = `${t('event.avgWeight')} (${unitSys === 'imperial' ? 'lbs' : 'kg'})`;
+  panel.appendChild(el('label', { className: 'form-label' }, [wLabel]));
+  inputs.avgWeight = el('input', {
+    type: 'number', className: 'auth-input settings-input', value: '',
+    'data-testid': 'group-add-avg-weight',
+  });
+  panel.appendChild(inputs.avgWeight);
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'group-add-status' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+    el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'group-add-save',
+      onClick: () => {
+        clear(statusEl);
+        if (!selection.groupId) {
+          statusEl.appendChild(el('span', {}, [t('event.selectGroup')]));
+          return;
+        }
+        const hc = parseInt(inputs.headCount.value, 10);
+        let aw = parseFloat(inputs.avgWeight.value);
+        if (!hc || hc < 1) {
+          statusEl.appendChild(el('span', {}, ['Head count must be at least 1']));
+          return;
+        }
+        if (!aw || aw <= 0) {
+          statusEl.appendChild(el('span', {}, ['Average weight is required']));
+          return;
+        }
+        if (unitSys === 'imperial') {
+          aw = convert(aw, 'weight', 'toMetric');
+        }
+        try {
+          const gw = GroupWindowEntity.create({
+            operationId,
+            eventId: evt.id,
+            groupId: selection.groupId,
+            dateJoined: inputs.dateJoined.value,
+            timeJoined: inputs.timeJoined.value || null,
+            headCount: hc,
+            avgWeightKg: aw,
+          });
+          add('eventGroupWindows', gw, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+          groupAddSheet.close();
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('action.save')]),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'group-add-cancel',
+      onClick: () => groupAddSheet.close(),
+    }, [t('action.cancel')]),
+  ]));
+
+  groupAddSheet.open();
+}
+
+function renderGroupPickerSimple(container, groups, selection) {
+  clear(container);
+  for (const group of groups) {
+    const isSelected = selection.groupId === group.id;
+    container.appendChild(el('div', {
+      className: `loc-picker-item${isSelected ? ' selected' : ''}`,
+      'data-testid': `group-add-item-${group.id}`,
+      onClick: () => {
+        selection.groupId = group.id;
+        renderGroupPickerSimple(container, groups, selection);
+      },
+    }, [el('span', {}, [group.name])]));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Group remove sheet (CP-18)
+// ---------------------------------------------------------------------------
+
+let groupRemoveSheet = null;
+
+function openGroupRemoveSheet(groupWindow) {
+  if (!groupRemoveSheet) {
+    groupRemoveSheet = new Sheet('group-remove-sheet-wrap');
+  }
+
+  const panel = document.getElementById('group-remove-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+
+  const group = getById('groups', groupWindow.groupId);
+  const groupName = group ? group.name : '';
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const inputs = {};
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.removeGroupTitle')]));
+  panel.appendChild(el('p', { className: 'form-hint', style: { marginBottom: 'var(--space-4)' } }, [groupName]));
+
+  // Date
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.dateLeft')]));
+  inputs.dateLeft = el('input', {
+    type: 'date', className: 'auth-input', value: todayStr,
+    'data-testid': 'group-remove-date',
+  });
+  panel.appendChild(inputs.dateLeft);
+
+  // Time
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.timeLeft')]));
+  inputs.timeLeft = el('input', {
+    type: 'time', className: 'auth-input', value: '',
+    'data-testid': 'group-remove-time',
+  });
+  panel.appendChild(inputs.timeLeft);
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'group-remove-status' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+    el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'group-remove-save',
+      onClick: () => {
+        clear(statusEl);
+        try {
+          update('eventGroupWindows', groupWindow.id, {
+            dateLeft: inputs.dateLeft.value,
+            timeLeft: inputs.timeLeft.value || null,
+          }, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+          groupRemoveSheet.close();
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('action.save')]),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'group-remove-cancel',
+      onClick: () => groupRemoveSheet.close(),
+    }, [t('action.cancel')]),
+  ]));
+
+  groupRemoveSheet.open();
 }
 

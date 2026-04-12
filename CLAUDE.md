@@ -18,7 +18,7 @@
 ## Git Workflow
 
 - **`main`** — single branch, all work committed directly
-- **`dev`** — created when app code needs a staging/deploy pipeline (not yet)
+- **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages on every push to main. Site at `https://tim-getthehayout.github.io/GTHO-v2/`
 - Commit after each completed checkpoint or substantive edit
 - **Never use worktree isolation** (`isolation: "worktree"`)
 

@@ -281,6 +281,22 @@ v2 gets its own Supabase project. Fresh schema, no legacy tables. v1 continues s
 
 ### 7.2 Environment Configuration & Build-Phase Access
 
+Two access paths to Supabase during the build phase:
+
+**Path 1: Supabase MCP Connector (build-time tooling)**
+
+The Supabase MCP connector is connected to Cowork and available to Claude Code sessions. It provides authenticated access to the v2 Supabase project for:
+- Applying migration SQL and managing schema changes
+- Querying tables to verify data during development
+- Managing database configuration, auth, and storage
+- Inspecting RLS policies and project settings
+
+This is the preferred path for all build-time database operations. No keys in files, no cleanup needed.
+
+**Path 2: `.env.build` (app runtime client)**
+
+The app's Supabase client (`@supabase/supabase-js`) needs URL and anon key at runtime. These come from a gitignored environment file:
+
 `.env.build` (gitignored):
 ```
 SUPABASE_URL=https://xxx.supabase.co
@@ -288,19 +304,30 @@ SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 ```
 
-**Build-phase workflow:**
+Vite loads this file automatically. The app code references these via `import.meta.env.SUPABASE_URL`, etc.
+
+**When each path is used:**
+
+| Task | Path | Why |
+|------|------|-----|
+| Apply migration SQL | MCP | Direct project access, no key management |
+| Verify table data during build | MCP | Query without writing client code |
+| Inspect RLS policies | MCP | Project management tool |
+| App runtime Supabase client init | `.env.build` | Vite injects at build time |
+| E2E tests (Playwright) | `.env.build` | Tests run the real app, which needs the client |
+| CI pipeline | GitHub Secrets | Production builds use injected env vars |
+
+**Build-phase timeline:**
 
 1. **Phase 3.1 (Scaffold):** No Supabase access needed. Store, entities, router, DOM builder, i18n, units, logger, and calc-registry are all built and tested locally against mocks and localStorage.
-2. **Phase 3.2+ (Core Loop onward):** Tim creates `.env.build` once with the v2 Supabase project credentials. Claude Code reads this file for all database operations going forward:
-   - **Service role key** — apply migration SQL via Supabase CLI (`supabase db push`) or direct REST API. Run schema changes without RLS restrictions.
-   - **Anon key** — E2E test runs against the live dev project, simulating real authenticated user flows.
-3. **Post-build cleanup:** `.env.build` is deleted. Production app uses environment-injected keys only (GitHub Pages environment variables or runtime config).
+2. **Phase 3.2+ (Core Loop onward):** MCP connector handles schema operations. `.env.build` exists on the dev machine for running the app and E2E tests.
+3. **Post-build cleanup:** `.env.build` is deleted. Production app uses GitHub Secrets for environment-injected keys. MCP connector remains available for ongoing database management.
 
 **Rules:**
 - `.env.build` is gitignored — Claude Code never commits it
 - Claude Code never hardcodes keys in source files
-- If `.env.build` is missing when needed, Claude Code stops and asks Tim to create it rather than inventing a workaround
-- Tim creates the v2 Supabase project and provides the file contents at Phase 3.2 kickoff
+- Prefer MCP over `.env.build` for any operation that doesn't require the running app
+- If `.env.build` is missing when needed for app runtime, Claude Code stops and asks Tim to create it rather than inventing a workaround
 
 ### 7.3 PWA Setup
 

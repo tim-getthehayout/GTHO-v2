@@ -184,9 +184,11 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
     }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
 
     // 5. Confinement NPK routing — create manure_batch_transaction for capture locations
-    // TODO: Full NPK calculation requires excretion rates × head count × duration.
-    // For now, create a placeholder transaction with volumeKg=0 that the calc engine
-    // (CP-44) will populate. This wires the data flow; amounts are computed later.
+    // volumeKg=0 is a deliberate placeholder (OI-0014 verified 2026-04-13):
+    // Real volume = excretion_rate × avg_weight × head_count × duration × capture_pct/100
+    // This requires NPK-1 calc inputs (group windows, animal classes, event duration).
+    // Reports will compute via NPK-1 at display time, not from this stored value.
+    // The stored record's purpose is to link the event to the manure batch for tracing.
     for (const pw of confinementPWs) {
       // Find or use a default manure batch for this location
       const manureBatches = getAll('manureBatches').filter(

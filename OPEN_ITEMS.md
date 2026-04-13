@@ -24,14 +24,6 @@ The admin reference console (reports screen) renders all 35 formulas grouped by 
 
 ---
 
-### OI-0014 — Event Close Manure Transaction volumeKg Placeholder
-**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P3
-**Checkpoint:** CP-30
-
-`src/features/events/close.js` creates `manure_batch_transaction` records with `volumeKg = 0` when closing events at confinement locations. Comment says "calc engine (CP-44) will populate." This is intentional — full volume requires excretion rates × head count × duration, which the calc engine computes at display time. Verified this is architecturally sound.
-
-**Fix:** No code change needed now. When Phase 3.4 reports (amendments summary, NPK applied per paddock) display manure input volumes, confirm the display path uses the computed calc value (UNT-2 or equivalent) rather than the stored zero. Flag this when writing the amendments report if values look wrong.
-
 ---
 
 ### OI-0015 — Header Shows Farm Name, Needs Operation Name + Farm Picker
@@ -124,6 +116,12 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ---
 
 ## Closed
+
+### OI-0014 — Event Close Manure Transaction volumeKg Placeholder
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
+**Resolution:** Verified architecturally sound. `volumeKg=0` is a deliberate placeholder — the stored record links the event to the manure batch for tracing. Real volume requires NPK-1 calc inputs (excretion_rate × avg_weight × head_count × duration × capture_pct). Reports will compute at display time via NPK-1, not from the stored column. Code comment updated in `close.js` to document this decision. No functional change needed until Phase 3.4 amendments reports are built — re-verify when writing that display path.
+
+---
 
 ### OI-0011 — Feed Screen Metrics Still Show Placeholders
 **Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build

@@ -2,50 +2,6 @@
 
 ## Open
 
-### OI-0001 — Strip Grazing: Partial Paddock Windows
-**Added:** 2026-04-12 | **Area:** v2-design | **Priority:** P2
-**Spec:** `github/issues/strip-grazing-paddock-windows.md`
-
-Allow a single paddock to be grazed in stages (strips) within one event. User selects "Strip graze" in the move wizard for the destination paddock. Three new columns on `event_paddock_windows`: `is_strip_graze` (boolean flag for UI), `strip_group_id` (UUID linking strips in a sequence), `area_pct` (percentage of paddock per strip). Reuses existing observation, feed, and group window models with no new tables. Calculation layer needs updates for effective area in stocking density, rotation calendar per-strip recovery, and NPK distribution.
-
----
-
-### OI-0002 — Unit System: No Schema Column
-**Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P2
-
-CP-13 spec says "unit system toggle (metric/imperial)" on Farm Settings. V2_SCHEMA_DESIGN.md has no `unit_system` column on `farm_settings` or `user_preferences`. **Workaround for now:** Store as a localStorage-only preference (`gtho_v2_unit_system`, default `'imperial'`). This works offline and doesn't require a schema change. When Tim decides the correct column/table, migrate from localStorage to Supabase.
-
----
-
-### OI-0009 — Desktop Layout: Nav Sidebar Overlaps Main Content
-**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
-
-At desktop breakpoints (≥900px), the sidebar nav overlaps the main content area. **Root cause:** `src/styles/main.css` line ~202 — `.header-nav` uses `position: fixed` at the `min-width: 900px` media query, which removes it from document flow. The grid layout on `#app` reserves a 220px left column, but the fixed-positioned nav doesn't occupy it, so `.app-content` renders underneath the nav.
-
-**Fix options (pick one):**
-1. **Remove `position: fixed`** from `.header-nav` in the desktop media query and let the CSS Grid handle sidebar placement naturally. Cleanest approach.
-2. **Add `margin-left: 220px`** to `.app-content` in the desktop media query to offset for the fixed nav.
-
-**Spec:** `github/issues/fix-desktop-layout-overlap.md`
-**Fix:** Add `grid-column: 2` to `.app-content` in the desktop media query. One-line CSS change.
-
----
-
-### OI-0010 — Dashboard Home Screen Not Rendering Per v1 / Missing §17 Implementation
-**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P1
-
-The dashboard home screen was built without an assembly spec — V2_UX_FLOWS.md had no dedicated section for the home screen. As a result, the dashboard is missing: farm overview stats row (5 metrics desktop / 3 mobile), group card body content (composition, location bar, DMI, NPK, actions), view toggle (groups/locations), mobile bottom nav, period selector pills, open tasks section, survey draft card, weaning nudge, and proper header (farm name instead of "GTHO v2").
-
-**Resolution:** §17 added to V2_UX_FLOWS.md (14 subsections, §17.1–§17.14) covering complete home screen assembly. Claude Code should rebuild the dashboard feature from this spec.
-
-**Dependencies:**
-- OI-0009 must be fixed first (layout overlap blocks visual verification)
-- Todos feature UI (`src/features/todos/`) needs to be created — entities exist (`todo.js`, `todo-assignment.js`), store/sync registered, but no screen/sheet/route. §17.9–§17.11 spec the UI.
-- `#/todos` route needs to be added to router and nav (both mobile bottom nav and desktop sidebar), with badge showing open count.
-- `user_preferences.home_view_mode` default should be `'locations'` for new users (schema currently defaults to `'groups'`).
-
----
-
 ### OI-0008 — CP-17: Location Picker Recovery Section Always Empty
 **Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P3
 **Checkpoint:** CP-17
@@ -57,6 +13,30 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ---
 
 ## Closed
+
+### OI-0001 — Strip Grazing: Partial Paddock Windows
+**Added:** 2026-04-12 | **Closed:** 2026-04-13 | **Area:** v2-design
+**Resolution:** Design integrated into main docs. Schema (V2_SCHEMA_DESIGN.md §5.2 event_paddock_windows) has `is_strip_graze`, `strip_group_id`, `area_pct`. Calc spec (V2_CALCULATION_SPEC.md) NPK-3, FOR-1, REC-1 updated for effective strip area. UX flows (V2_UX_FLOWS.md) §1.4 (move wizard strip graze option), §2.4 (advance strip action), §11 (event card strip progress) all documented. Design system §3.15 covers strip grazing progress component. Decision logged as A45 in V2_BUILD_INDEX.md. Spec remains at `github/issues/strip-grazing-paddock-windows.md` for Claude Code when this work is picked up during the rotation calendar (CP-54) or a dedicated checkpoint.
+
+---
+
+### OI-0002 — Unit System: No Schema Column
+**Added:** 2026-04-12 | **Closed:** 2026-04-13 | **Area:** v2-build
+**Resolution:** Design decision made: unit system lives on `operations` (operation-wide, same rationale as currency). Schema amended — `operations.unit_system text NOT NULL DEFAULT 'imperial' CHECK IN ('metric','imperial')`. Decision logged as A44 in V2_BUILD_INDEX.md. V2_INFRASTRUCTURE.md §1.3 added. V2_MIGRATION_PLAN.md §2.8 updated. Implementation spec written: `github/issues/unit-system-operations-migration.md` — includes localStorage → operation migration path, full list of unit-sensitive settings that must re-render on toggle, and input field conversion behavior.
+
+---
+
+### OI-0009 — Desktop Layout: Nav Sidebar Overlaps Main Content
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
+**Resolution:** Added `grid-column: 2` to `.app-content` in the `@media (min-width: 900px)` block of `src/styles/main.css`. This places the main content in the `1fr` column (right side), while the fixed nav covers the 220px left column. GH issue #1.
+
+---
+
+### OI-0010 — Dashboard Home Screen Not Rendering Per v1 / Missing §17 Implementation
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
+**Resolution:** Complete rebuild of dashboard per V2_UX_FLOWS.md §17. Header bar updated to show farm name. Farm overview stats row (5-metric desktop, 3-metric mobile with threshold colors). Period selector pills (24h/3d/7d/30d/All). View toggle (Groups/Locations, default locations for new users). Group cards with composition line, location status bar, DMI progress, NPK deposited, action buttons (Move/Place/Weights/Edit), and collapse/expand on mobile. Location cards with active events by location, group lists, feed status, strip graze info, and unplaced groups section. Open tasks section (4 compact todo cards + Add task + All tasks link). Survey draft card (conditional). Weaning nudge (conditional). Mobile bottom nav (7 items, fixed bottom). Todos feature UI created: `src/features/todos/` with todo list screen (`#/todos` route), 3-axis filter bar (status/user/location), todo create/edit sheet, todo card component (compact + full modes). Todos nav entry with red badge (open count) on both desktop sidebar and mobile bottom nav. GH issue #2.
+
+---
 
 ### OI-0003 — Animal Notes: No Schema Table
 **Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-design
@@ -85,4 +65,12 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ### OI-0005 — CP-23: E2E Test Has Wrong Selectors and Was Never Run
 **Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-build
 **Resolution:** Fixed 3 onboarding selector mismatches (`onboarding-op-name` → `onboarding-operation-name`, `onboarding-next` → step-specific `onboarding-next-1/2/3`, `.onboarding` → `[data-testid="onboarding-wizard"]`). Changed auth flow from signup to login (Supabase rejects fake email domains). Added `beforeAll` guard requiring E2E_EMAIL/E2E_PASSWORD env vars. All 35 selectors verified against source. Playwright browsers confirmed installed. Test requires pre-created Supabase auth account to run.
+
+---
+
+## Change Log
+
+| Date | Session | Changes |
+|------|---------|---------|
+| 2026-04-13 | Strip grazing + unit system integration | OI-0001 closed — strip grazing design integrated into V2_SCHEMA_DESIGN.md, V2_CALCULATION_SPEC.md, V2_UX_FLOWS.md, V2_DESIGN_SYSTEM.md; A45 logged. OI-0002 closed — `operations.unit_system` column added to schema; A44 logged; V2_INFRASTRUCTURE.md §1.3 added; V2_MIGRATION_PLAN.md §2.8 updated; implementation spec written to `github/issues/unit-system-operations-migration.md` covering entity update, store action, settings re-render on toggle, onboarding selector, and localStorage → operation migration. |
 

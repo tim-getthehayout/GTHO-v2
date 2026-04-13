@@ -2,7 +2,7 @@
 
 **Purpose:** Master index for the v2 rebuild. Maps every design doc, tracks design and build progress, and serves as the handoff document between sessions. **Any new session starts here.**
 
-**Last updated:** 2026-04-12
+**Last updated:** 2026-04-13
 **Current phase:** Phase 3 — Build (IN PROGRESS)
 
 ---
@@ -32,7 +32,7 @@
 
 **Phase:** 3 — Build
 **Active work:** Phase 3.3 Assessment — **COMPLETE** (CP-24 through CP-53). All 35 calculation formulas registered. 4 report tabs + dashboard real metrics. 563 tests passing.
-**Next up:** Phase 3.4 — Advanced (CP-54: Rotation calendar).
+**Next up:** Phase 3.4 — Advanced (CP-54: Rotation calendar). Two specs are also ready for pickup: `github/issues/unit-system-operations-migration.md` (closes OI-0002, small migration) and `github/issues/strip-grazing-paddock-windows.md` (implements OI-0001, can be bundled with CP-54 since rotation calendar surfaces strip-level recovery).
 
 ---
 
@@ -134,6 +134,8 @@ Decisions made during design sessions that affect multiple docs. Each decision h
 | A41 | Forage quality scale farm-configurable | forage_quality_scale_min/max on farm_settings (default 1–100). Operations using RFQ can set 0–200+. forage_condition (poor/fair/good/excellent) is a separate categorical assessment unaffected by scale. | 2026-04-12 |
 | A42 | "Sub-move" retained as user-facing term | Backend is event_paddock_windows. UI says "Sub-move" for adding/removing paddock windows mid-event. UX flows doc bridges both terms. Farmers know "sub-move" from v1. | 2026-04-12 |
 | A43 | Feed day goal is farm-level | feed_day_goal on farm_settings (default 90, range 7–365). UI label: "Days of Stored Feed on Hand." Different farms may have different feed security targets. | 2026-04-12 |
+| A44 | Unit system on operations, not farms or users | `operations.unit_system` (metric/imperial, default imperial). Same rationale as currency (A20): a user doesn't think in acres at one farm and hectares at another. Storage is always metric (V2_INFRASTRUCTURE.md §1.1); column only controls display. Resolves OI-0002. On toggle, all unit-sensitive settings re-render in place (same stored metric value, new display). | 2026-04-13 |
+| A45 | Strip grazing via sequential paddock windows | Large paddocks grazed in stages ("strip graze") are represented as multiple `event_paddock_windows` rows on the same `location_id` within one event, linked by a shared `strip_group_id`. Three columns added: `is_strip_graze` (UI trigger), `strip_group_id` (analytical link), `area_pct` (size of each strip). No new tables. Reuses observation, feed, and group window models unchanged. Calc layer uses effective area (paddock_area × area_pct/100) for stocking density, NPK, and per-strip recovery. Resolves OI-0001. | 2026-04-13 |
 
 ---
 
@@ -317,6 +319,7 @@ When a session ends, update "Current Focus" above and write a session brief file
 | 2026-04-12 | Session 11 — Phase 3 prep | Repo migrated to GTHO-v2 (fresh repo, pushed to GitHub). CLAUDE.md rewritten for combined docs + code repo — added Invention Required rule, Architecture Audit, and Corrections logging from failed v2 rebuild. Phase 3.1 Scaffold spec written (10 checkpoints, detailed build order). Phase 3.2 Core Loop spec written (13 checkpoints: auth, onboarding, settings, locations, animals, events, move wizard, dashboard, sync). Both specs integrated into Build Index. TASKS.md updated. Build index phase status: Phase 3 IN PROGRESS. |
 | 2026-04-12 | Session 11b — UX flow gap fill | V2_UX_FLOWS.md: added §14 (7 reusable health recording components + group session mode + quick-action bar), §15 (4 entity CRUD forms), §16 (field mode complete UX). Component-first approach — each form documented once with entry points × context pre-fill mapped. V2_DESIGN_SYSTEM.md: added §7 (6 new component patterns for quick-action bar, field mode home/nav, health sheet layout, group session progress, BCS chip selector). OI-0003 opened: animal_notes schema gap (D9 has no notes table; v1 had health event type 'note'). Phase 3.3–3.5 build specs written (42 checkpoints). V2_INFRASTRUCTURE.md: §7.2 dual Supabase access paths (MCP connector + .env.build). |
 | 2026-04-12 | Session 12 — Build index resequence | Field mode (was CP-63 in Phase 3.5) moved into Phase 3.3 as CP-34 (after Health weight & BCS). Rationale: features from CP-35 onward build with field mode natively instead of retrofitting in 3.5. Feed delivery (CP-27), feed check (CP-28), move wizard (CP-19) need field mode retrofit in CP-34. All CPs after CP-33 renumbered +1. Phase 3.3: CP-24–CP-53 (was CP-52). Phase 3.4: CP-54–CP-58 (was CP-53–CP-57). Phase 3.5: CP-59–CP-65 (was CP-58–CP-65, minus field mode). Cross-references updated. Total checkpoint count unchanged (65). |
+| 2026-04-13 | Session 13 — Strip grazing + unit system integration | OI-0001 closed: strip grazing design confirmed integrated across V2_SCHEMA_DESIGN.md (event_paddock_windows: is_strip_graze/strip_group_id/area_pct), V2_CALCULATION_SPEC.md (NPK-3/FOR-1/REC-1 effective area), V2_UX_FLOWS.md (§1.4 move wizard, §2.4 advance strip, §11 event card), V2_DESIGN_SYSTEM.md §3.15. Decision A45 logged. OI-0002 closed: Tim decided unit system lives on `operations` (A44). V2_SCHEMA_DESIGN.md §1.1 amended — `unit_system text NOT NULL DEFAULT 'imperial' CHECK IN ('metric','imperial')`. V2_INFRASTRUCTURE.md §1.3 added (unit system storage). V2_MIGRATION_PLAN.md §2.8 updated (default 'imperial'). Implementation spec written: `github/issues/unit-system-operations-migration.md` covering entity update, store action, settings re-render on toggle (every unit-sensitive settings field updates in place), onboarding selector, and localStorage → operation migration path. |
 
 ---
 

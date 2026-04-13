@@ -120,6 +120,7 @@ v1 stores all config in a single JSONB blob on `operation_settings.data`. v2 spl
 | herdName | name | Direct copy |
 | — | timezone | New in v2. Set to Tim's timezone during migration. |
 | — | currency | Default 'USD' (v1 has no currency field). |
+| — | unit_system | Default `'imperial'`. v1 has no unit toggle — it operates exclusively in imperial units (lbs, acres, inches). New operations created post-migration default to `'imperial'` and can switch in Settings. |
 
 **farms** (create one "Home Farm" record per A18):
 

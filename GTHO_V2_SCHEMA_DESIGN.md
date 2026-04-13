@@ -49,6 +49,7 @@ The root entities that everything else FKs into. Design priority: keep `operatio
 | name | text | NOT NULL | Operation name (v1: herdName) |
 | timezone | text | NULL | IANA timezone (e.g. 'America/Chicago'). New in v2 — needed for window model date math. |
 | currency | text | NOT NULL, DEFAULT 'USD' | ISO 4217 code. Truly operation-wide — all farms share one currency. |
+| unit_system | text | NOT NULL, DEFAULT 'imperial', CHECK (unit_system IN ('metric','imperial')) | Display unit preference. Operation-wide (A44) — same rationale as currency. Storage is always metric (§1.1 V2_INFRASTRUCTURE.md); this column only controls display conversion. |
 | archived | boolean | DEFAULT false | Soft delete |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
@@ -56,6 +57,7 @@ The root entities that everything else FKs into. Design priority: keep `operatio
 **Design decisions:**
 - **No herd_type:** V1 had a single herd_type field ('cattle', 'sheep', etc.). Dropped because an operation can have multiple species — the species mix is defined by which `animal_classes` rows exist (A14). Onboarding UX can ask "what do you run?" to pre-populate classes.
 - **Currency on operations, not farms:** An operation doesn't run one farm in USD and another in NZD. All NPK prices, costs, and values share one currency. The prices themselves can differ per farm (freight differentials), but the currency is the same.
+- **Unit system on operations (A44):** Same rationale as currency. A user doesn't think in acres at the home farm and hectares at the leased place — it's one measurement convention across the whole operation. Storage is always metric (V2_INFRASTRUCTURE.md §1.1); `unit_system` only controls the display layer. Default `'imperial'` matches v1's behavior so migrated operations read unchanged.
 - **Timezone:** The window model (A1) makes date boundaries matter. UTC timestamps are converted to local dates for display and calculation using the operation's timezone.
 
 ```sql
@@ -64,6 +66,7 @@ CREATE TABLE operations (
   name        text NOT NULL,
   timezone    text,
   currency    text NOT NULL DEFAULT 'USD',
+  unit_system text NOT NULL DEFAULT 'imperial' CHECK (unit_system IN ('metric','imperial')),
   archived    boolean DEFAULT false,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
@@ -2406,6 +2409,7 @@ CREATE TABLE release_notes (
 | 2026-04-12 | app_logs (amended) | Added operation_id (nullable, no FK, best-effort context) and context jsonb (structured metadata for dead letters and error context). Infrastructure review harmonization — aligns schema with V2_INFRASTRUCTURE.md §3. Added future schema note for AI/voice tables in D11. |
 | 2026-04-12 | animal_classes, animal_calving_records, farm_settings, npk_price_history (amended/new) | Calculation spec review: excretion columns renamed _pct → _rate (NRCS standard unit). Species split 'cattle' → 'beef_cattle'/'dairy_cattle' for distinct lactation logic and DMI rates. Added dmi_pct_lactating on animal_classes. Added dried_off_date on animal_calving_records for dairy dry-off tracking. Removed default_dm_per_aud_kg from farm_settings (DMI lives on class, seeded at onboarding). Excretion rates and DMI are 2-tier: class → NRCS code constant. New table npk_price_history (D8.10) resolves A16 — per-farm price tracking over time. |
 | 2026-04-12 | farm_settings (amended) | UX flows review: Added forage_quality_scale_min/max (A41) for farm-configurable forage quality assessment range (default 1–100, expandable for RFQ or other scales). |
+| 2026-04-13 | operations (amended) | Added unit_system column (text NOT NULL DEFAULT 'imperial', CHECK IN ('metric','imperial')). Resolves OI-0002. Decision A44: unit system is operation-wide, same rationale as currency. Storage remains metric per V2_INFRASTRUCTURE.md §1.1; column controls display layer only. |
 
 ---
 

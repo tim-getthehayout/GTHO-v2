@@ -30,8 +30,17 @@ export function display(value, measureType, decimals) { ... }
 ```
 
 - `convert()` handles bidirectional conversion with named keys
-- `display()` reads user preference from store settings, formats with correct unit label
+- `display()` reads the operation's `unit_system` from the store and formats with the correct unit label
 - All conversion logic in one file — feature code never does unit math
+
+### 1.3 Unit System Storage (A44)
+
+`operations.unit_system` (text, `'metric'` or `'imperial'`, default `'imperial'`) is the single source of truth for display units across the whole operation. Rationale: same as currency (A20) — a user doesn't think in acres at one farm and hectares at another. The toggle sets one value that applies to every farm in the operation.
+
+- Set once during onboarding; editable from Settings
+- Read via `store.getOperation().unitSystem`
+- `units.display()` consults this value on every call — no caching outside the store
+- Storage remains metric (§1.1) — this column only controls the display layer
 
 ---
 

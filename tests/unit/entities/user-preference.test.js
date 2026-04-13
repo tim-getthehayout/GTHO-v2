@@ -10,7 +10,8 @@ describe('entity: user-preference', () => {
     const keys = Object.keys(FIELDS);
     expect(keys).toContain('homeViewMode');
     expect(keys).toContain('fieldModeQuickActions');
-    expect(keys).toHaveLength(9);
+    expect(keys).toContain('activeFarmId');
+    expect(keys).toHaveLength(10);
   });
 
   it('every FIELDS entry has sbColumn', () => {
@@ -25,6 +26,7 @@ describe('entity: user-preference', () => {
       expect(record.homeViewMode).toBe('groups');
       expect(record.defaultViewMode).toBe('detail');
       expect(record.statPeriodDays).toBe(14);
+      expect(record.activeFarmId).toBeNull();
       expect(record.fieldModeQuickActions).toBeNull();
     });
   });
@@ -65,6 +67,18 @@ describe('entity: user-preference', () => {
         fieldModeQuickActions: ['move', 'feed', 'survey'],
       });
       const roundTripped = fromSupabaseShape(toSupabaseShape(record));
+      expect(roundTripped).toEqual(record);
+    });
+  });
+
+  describe('shape round-trip with activeFarmId', () => {
+    it('preserves activeFarmId through round-trip', () => {
+      const farmId = '770e8400-e29b-41d4-a716-446655440000';
+      const record = create({
+        operationId: OP_ID, userId: USER_ID, activeFarmId: farmId,
+      });
+      const roundTripped = fromSupabaseShape(toSupabaseShape(record));
+      expect(roundTripped.activeFarmId).toBe(farmId);
       expect(roundTripped).toEqual(record);
     });
   });

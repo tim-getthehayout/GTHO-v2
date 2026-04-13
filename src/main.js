@@ -17,6 +17,7 @@ import { renderFeedScreen } from './features/feed/index.js';
 import { renderAnimalsScreen } from './features/animals/index.js';
 import { renderReportsScreen } from './features/reports/index.js';
 import { renderSettingsScreen } from './features/settings/index.js';
+import { renderTodosScreen } from './features/todos/index.js';
 import { renderSurveysScreen } from './features/surveys/index.js';
 import { renderFieldModeHome } from './features/field-mode/index.js';
 import { renderSoilTestsScreen } from './features/amendments/soil-tests.js';
@@ -132,6 +133,7 @@ function showApp(app) {
   route('#/animals', renderAnimalsScreen);
   route('#/reports', renderReportsScreen);
   route('#/settings', renderSettingsScreen);
+  route('#/todos', renderTodosScreen);
   route('#/surveys', renderSurveysScreen);
   route('#/soil-tests', renderSoilTestsScreen);
   route('#/amendments', renderAmendmentsScreen);

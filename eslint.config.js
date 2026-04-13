@@ -48,6 +48,8 @@ export default [
         beforeEach: 'readonly',
         afterEach: 'readonly',
         vi: 'readonly',
+        process: 'readonly',
+        test: 'readonly',
       },
     },
   },

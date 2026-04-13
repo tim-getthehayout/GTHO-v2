@@ -4,7 +4,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { navigate } from '../../ui/router.js';
-import { getAll, getById, add, subscribe } from '../../data/store.js';
+import { getAll, getById, add, subscribe, getVisibleEvents, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
@@ -163,7 +163,7 @@ function renderEventList(rootContainer) {
   if (!listEl) return;
   clear(listEl);
 
-  const events = getAll('events');
+  const events = getVisibleEvents();
 
   if (!events.length) {
     listEl.appendChild(el('p', { className: 'form-hint', 'data-testid': 'events-empty' }, [t('event.empty')]));
@@ -211,7 +211,10 @@ function renderEventCard(evt, operationId) {
     // Header
     el('div', { className: 'event-card-header' }, [
       el('div', {}, [
-        el('div', { className: 'event-card-title' }, [titleText]),
+        el('div', { className: 'event-card-title' }, [
+          titleText,
+          ...(!getActiveFarmId() ? [renderFarmChip(evt.farmId)] : []),
+        ]),
         el('div', { className: 'event-card-date' }, [
           evt.dateIn + (evt.timeIn ? ` ${evt.timeIn}` : ''),
         ]),
@@ -288,6 +291,11 @@ function renderEventCard(evt, operationId) {
       ]),
     ].filter(Boolean)),
   ]);
+}
+
+function renderFarmChip(farmId) {
+  const farm = getById('farms', farmId);
+  return el('span', { className: 'farm-chip' }, [farm?.name || '']);
 }
 
 /**

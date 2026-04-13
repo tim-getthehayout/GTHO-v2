@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { getAll, getById, subscribe } from '../../data/store.js';
+import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getVisibleLocations, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
@@ -135,11 +135,11 @@ function renderDesktopStats(period, rootContainer) {
   const unitSys = getUnitSystem();
 
   // Header line
-  const groups = getAll('groups').filter(g => !g.archived);
+  const groups = getVisibleGroups().filter(g => !g.archived);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
   const totalHead = memberships.length;
   const groupCount = groups.length;
-  const activeEvents = getAll('events').filter(e => !e.dateOut);
+  const activeEvents = getVisibleEvents().filter(e => !e.dateOut);
   const activeCount = activeEvents.length;
 
   const headerText = `${totalHead} head \u00B7 ${groupCount} groups \u00B7 ${activeCount} active`;
@@ -763,8 +763,8 @@ function renderGroupCard(group, unitSys) {
 // ---------------------------------------------------------------------------
 
 function renderLocationsView(gridEl) {
-  const activeEvents = getAll('events').filter(e => !e.dateOut);
-  const groups = getAll('groups').filter(g => !g.archived);
+  const activeEvents = getVisibleEvents().filter(e => !e.dateOut);
+  const groups = getVisibleGroups().filter(g => !g.archived);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
 
   if (!activeEvents.length && !groups.length) {

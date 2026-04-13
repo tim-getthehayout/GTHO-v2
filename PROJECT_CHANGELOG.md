@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-13 | All-farms mode filtering (GH-5) — dashboard, events, locations, animals screens use getVisibleEvents/Locations/Groups(). Farm chips on event cards in all-farms mode. 575 tests. | src/features/events/index.js, src/features/locations/index.js, src/features/animals/index.js, src/features/dashboard/index.js |
 | 2026-04-13 | Move wizard farm chip + cross-farm event markers (GH-5) — farm chip on Step 2 location picker scopes to dest farm without mutating active_farm_id. Cross-farm moves set sourceEventId. Event cards show directional markers (← from / → to) with farm names. CSS for cross-farm-marker, wizard-farm-chip, farm-chip. 575 tests. | src/features/events/move-wizard.js, src/features/events/index.js, src/styles/main.css |
 | 2026-04-13 | Header redesign + farm picker + user menu (GH-5) — left cluster: operation name (18px/700) + farm picker button (multi-farm: chevron, single: plain text). Right cluster: sync dot + build stamp + Field Mode + user menu (28px circle with initials). Farm picker dropdown with All Farms + alphabetical farm list. User menu popover with email + Log Out (confirm only if unsynced writes). 575 tests. | src/ui/header.js, src/styles/main.css, src/i18n/locales/en.json |
 | 2026-04-13 | Store API for multi-farm context (GH-5) — getActiveFarmId(), setActiveFarm(farmId), getVisibleLocations/Groups/Events(). Deleted-farm fallback. 5 new store tests. 575 tests. | src/data/store.js, tests/unit/store.test.js |

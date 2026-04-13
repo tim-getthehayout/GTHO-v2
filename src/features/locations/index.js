@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
+import { getAll, getById, add, update, remove, subscribe, getVisibleLocations, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import * as LocationEntity from '../../entities/location.js';
@@ -131,7 +131,7 @@ function renderLocationList(rootContainer) {
   if (!listEl) return;
   clear(listEl);
 
-  const locations = getAll('locations');
+  const locations = getVisibleLocations();
   const filtered = filterLocations(locations);
   const operations = getAll('operations');
   const farms = getAll('farms');

@@ -79,6 +79,7 @@
 - [x] **OI-0016** — Dose units CRUD (add/edit/archive)
 - [x] **OI-0017** — Product add dialog unit selection (amendment input products)
 - [x] **OI-0018** — Sync status indicator in app header
+- [x] **GH-5** — Header redesign + multi-farm context (OI-0015, OI-0019): schema migration 014, entity updates, store API, header component, farm picker, user menu, move wizard farm chip, cross-farm markers, all-farms mode filtering
 
 ### 3.4 Advanced
 - [ ] **CP-54** — Rotation calendar

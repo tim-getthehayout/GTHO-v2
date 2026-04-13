@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, add, update, remove, subscribe } from '../../data/store.js';
+import { getAll, add, update, remove, subscribe, getVisibleGroups, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import * as GroupEntity from '../../entities/group.js';
@@ -140,7 +140,7 @@ function renderTabContent(rootContainer, operationId, farmId) {
 // ---------------------------------------------------------------------------
 
 function renderGroupsTab(rootContainer, operationId, farmId) {
-  const groups = getAll('groups').filter(g => !g.archived);
+  const groups = getVisibleGroups().filter(g => !g.archived);
 
   const wrap = el('div', {}, [
     el('div', { className: 'screen-action-bar' }, [

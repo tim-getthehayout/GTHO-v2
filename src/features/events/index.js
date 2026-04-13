@@ -106,6 +106,12 @@ export function renderEventsScreen(container) {
       el('div', { className: 'sheet-backdrop', onClick: () => closeEventSheet && closeEventSheet.close() }),
       el('div', { className: 'sheet-panel', id: 'close-event-sheet-panel' }),
     ]),
+
+    // Advance strip sheet (z-index 210)
+    el('div', { className: 'sheet-wrap', id: 'advance-strip-sheet-wrap', style: { zIndex: '210' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => advanceStripSheet && advanceStripSheet.close() }),
+      el('div', { className: 'sheet-panel', id: 'advance-strip-sheet-panel' }),
+    ]),
   ]);
 
   container.appendChild(screenEl);
@@ -203,6 +209,14 @@ function renderEventCard(evt, operationId) {
             'data-testid': `events-move-btn-${evt.id}`,
             onClick: () => openMoveWizard(evt, operationId, evt.farmId),
           }, [t('event.moveWizard')]),
+          // Advance Strip button — visible when event has open strip graze window
+          ...(paddockWindows.some(w => w.isStripGraze && !w.dateClosed) ? [
+            el('button', {
+              className: 'btn btn-outline btn-sm',
+              'data-testid': `events-advance-strip-btn-${evt.id}`,
+              onClick: () => openAdvanceStripSheet(evt, operationId),
+            }, [t('event.advanceStrip')]),
+          ] : []),
           el('button', {
             className: 'btn btn-outline btn-sm',
             'data-testid': `events-submove-btn-${evt.id}`,
@@ -1524,5 +1538,145 @@ function openCloseEventSheet(evt, _operationId) {
   ]));
 
   closeEventSheet.open();
+}
+
+// ---------------------------------------------------------------------------
+// Advance Strip (OI-0006)
+// ---------------------------------------------------------------------------
+
+let advanceStripSheet = null;
+
+function openAdvanceStripSheet(evt, operationId) {
+  if (!advanceStripSheet) {
+    advanceStripSheet = new Sheet('advance-strip-sheet-wrap');
+  }
+
+  const panel = document.getElementById('advance-strip-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Find the open strip graze window
+  const allPWs = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id);
+  const openStrip = allPWs.find(w => w.isStripGraze && !w.dateClosed);
+  if (!openStrip) return;
+
+  // Count strips in this group
+  const stripGroupWindows = allPWs.filter(w => w.stripGroupId === openStrip.stripGroupId);
+  const completedStrips = stripGroupWindows.filter(w => w.dateClosed).length;
+  const currentStripNum = completedStrips + 1;
+  // Estimate total from area_pct (each strip is same size)
+  const totalStrips = openStrip.areaPct > 0 ? Math.round(100 / openStrip.areaPct) : 1;
+
+  const loc = getById('locations', openStrip.locationId);
+  const locName = loc ? loc.name : '';
+
+  const inputs = {};
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.advanceStrip')]));
+  panel.appendChild(el('p', { className: 'form-hint', style: { marginBottom: 'var(--space-4)' } }, [
+    t('event.stripOf', { current: currentStripNum, total: totalStrips }) + ' — ' + locName,
+  ]));
+
+  // Phase 1: Close current strip
+  const closeSection = el('div', { className: 'close-open-section' }, [
+    el('div', { className: 'close-open-section-title' }, [t('event.closeWindow')]),
+  ]);
+  closeSection.appendChild(el('label', { className: 'form-label' }, [t('event.dateClosed')]));
+  inputs.dateClosed = el('input', {
+    type: 'date', className: 'auth-input', value: todayStr,
+    'data-testid': 'advance-strip-date-closed',
+  });
+  closeSection.appendChild(inputs.dateClosed);
+  closeSection.appendChild(el('label', { className: 'form-label' }, [t('event.timeClosed')]));
+  inputs.timeClosed = el('input', {
+    type: 'time', className: 'auth-input', value: '',
+    'data-testid': 'advance-strip-time-closed',
+  });
+  closeSection.appendChild(inputs.timeClosed);
+  panel.appendChild(closeSection);
+
+  // Phase 2: Open next strip (if not ending early)
+  const openSection = el('div', { className: 'close-open-section' }, [
+    el('div', { className: 'close-open-section-title' }, [t('event.openWindow')]),
+  ]);
+  openSection.appendChild(el('label', { className: 'form-label' }, [t('event.dateOpened')]));
+  inputs.dateOpened = el('input', {
+    type: 'date', className: 'auth-input', value: todayStr,
+    'data-testid': 'advance-strip-date-opened',
+  });
+  openSection.appendChild(inputs.dateOpened);
+  openSection.appendChild(el('label', { className: 'form-label' }, [t('event.timeOpened')]));
+  inputs.timeOpened = el('input', {
+    type: 'time', className: 'auth-input', value: '',
+    'data-testid': 'advance-strip-time-opened',
+  });
+  openSection.appendChild(inputs.timeOpened);
+  panel.appendChild(openSection);
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'advance-strip-status' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+    el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'advance-strip-save',
+      onClick: () => {
+        clear(statusEl);
+        try {
+          // Close current strip window
+          update('eventPaddockWindows', openStrip.id, {
+            dateClosed: inputs.dateClosed.value,
+            timeClosed: inputs.timeClosed.value || null,
+          }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          createObservation(operationId, openStrip.locationId, 'close', openStrip.id, new Date().toISOString());
+
+          // Open next strip window
+          const nextPW = PaddockWindowEntity.create({
+            operationId,
+            eventId: evt.id,
+            locationId: openStrip.locationId,
+            dateOpened: inputs.dateOpened.value,
+            timeOpened: inputs.timeOpened.value || null,
+            isStripGraze: true,
+            stripGroupId: openStrip.stripGroupId,
+            areaPct: openStrip.areaPct,
+          });
+          add('eventPaddockWindows', nextPW, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          createObservation(operationId, openStrip.locationId, 'open', nextPW.id, new Date().toISOString());
+
+          advanceStripSheet.close();
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('event.advanceStrip')]),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'advance-strip-end-early',
+      onClick: () => {
+        clear(statusEl);
+        try {
+          // Close current strip without opening next
+          update('eventPaddockWindows', openStrip.id, {
+            dateClosed: inputs.dateClosed.value,
+            timeClosed: inputs.timeClosed.value || null,
+          }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          createObservation(operationId, openStrip.locationId, 'close', openStrip.id, new Date().toISOString());
+          advanceStripSheet.close();
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('event.endStripEarly')]),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'advance-strip-cancel',
+      onClick: () => advanceStripSheet.close(),
+    }, [t('action.cancel')]),
+  ]));
+
+  advanceStripSheet.open();
 }
 

@@ -21,16 +21,6 @@ CP-13 spec says "unit system toggle (metric/imperial)" on Farm Settings. V2_SCHE
 
 ---
 
-### OI-0006 — CP-18: Advance Strip Button Not Rendered
-**Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P2
-**Checkpoint:** CP-18
-
-Acceptance criteria says "Advance Strip button wired." The button is not rendered on event cards. The i18n key (`event.advanceStrip`) exists but no code references it in the event card render. No strip progress bar visualization (§3.15 of design system) is rendered either.
-
-**What's needed:** On event cards with any `is_strip_graze=true` open paddock window: render "Advance Strip" button that opens a combined close-current-strip + open-next-strip sheet. Display strip progress bar showing completed/active/upcoming strips.
-
-**Partially blocked by:** Observation fields (forage height in/out) are Phase 3.3, so the close/open forms would be date/time only for now. The button and basic mechanic can be wired.
-
 ---
 
 ---
@@ -56,6 +46,12 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ### OI-0004 — CP-22: Pull/Merge from Supabase Not Implemented
 **Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-build
 **Resolution:** Built sync registry (`src/data/sync-registry.js`) mapping all 50 entity types to table names + `fromSupabaseShape`. Added `mergeRemote()` to store (remote wins when `updated_at` newer, 5 unit tests). Added `pullAllRemote()` orchestrator (`src/data/pull-remote.js`). Wired into boot (flush queue then pull) and reconnect (window 'online' → flush then pull).
+
+---
+
+### OI-0006 — CP-18: Advance Strip Button Not Rendered
+**Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-build
+**Resolution:** Advance Strip button now renders on event cards when any paddock window has `isStripGraze=true` and is open. Sheet has two phases: close current strip (date/time) + open next strip (date/time). "End strip early" closes without opening next. Strip progress label shows "Strip N of M — Location". Creates close + open observations. Forage fields deferred to Phase 3.3. Strip progress bar visualization (§3.15) deferred — label only for now.
 
 ---
 

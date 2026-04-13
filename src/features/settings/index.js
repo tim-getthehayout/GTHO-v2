@@ -12,6 +12,11 @@ import {
   renderTreatmentTypesSection, renderDoseUnitsSection,
   renderHealthRefSheetMarkups,
 } from '../health/reference-tables.js';
+import {
+  renderProductCategoriesSection, renderProductsSection,
+  renderSpreadersSection, renderProductUnitsSection,
+  renderAmendmentRefSheetMarkups,
+} from '../amendments/reference-tables.js';
 
 /**
  * Render the settings screen.
@@ -39,10 +44,16 @@ export function renderSettingsScreen(container) {
     renderTreatmentCategoriesSection(operationId),
     renderTreatmentTypesSection(operationId),
     renderDoseUnitsSection(),
+    // Amendment reference tables (CP-38)
+    renderProductCategoriesSection(operationId),
+    renderProductsSection(operationId),
+    renderSpreadersSection(operationId),
+    renderProductUnitsSection(),
     renderAccountSection(),
     renderSyncSection(),
     // Sheet markups for health reference tables
     ...renderHealthRefSheetMarkups(),
+    ...renderAmendmentRefSheetMarkups(),
   ]);
 
   container.appendChild(sections);

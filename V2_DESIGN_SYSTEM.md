@@ -303,6 +303,39 @@ Field mode: sheets expand to full-screen on mobile (`width: 100%`, `border-radiu
 - Active: `--green-l` bg, `--green-d` text, 600 weight
 - Sync strip: bottom, border-top, 11px text, `--text2`
 
+**Header bar (both mobile and desktop):**
+
+Left cluster — identity (two lines stacked, `flex-direction: column`, `gap: 2px`):
+- Line 1: operation name. 18px/700, `--text`, letter-spacing `-0.3px`. Truncate with ellipsis if overflow.
+- Line 2: farm picker button. 14px/500, `--text2`, `display: inline-flex, align-items: center, gap: 4px`. Chevron ▾ is a 10px glyph with `--text3` color. Plain text (no chevron, no background) in single-farm ops. Transparent background in multi-farm ops; `--bg2` on hover; focus ring `--green` 2px.
+
+Right cluster — actions (`display: flex, gap: 10px, align-items: center`):
+- Sync dot (§3.14)
+- Build stamp. 11px, `--text2`. Format: `bYYYYMMDD.HHMM`. Hidden below 360px viewport.
+- Field Mode button. `btn btn-green btn-xs`.
+- User menu button. 28×28 circle, `--bg2` background, 1px `--border` border, `border-radius: 50%`. Initials in 11px/600 `--text2`, centered. Focus ring `--green` 2px.
+
+**Farm picker (sheet on mobile, dropdown on desktop):**
+- Mobile: full-screen sheet per §3.5.
+- Desktop: dropdown menu — `position: absolute`, anchored below the farm picker button with 4px gap, `min-width: 240px`, `--bg` background, 1px `--border`, `--radius-l`, shadow `--shadow-md`, `z-index: 200`.
+- Rows: 44px tall (touch target), 12px horizontal padding, 13px/500, hover `--bg2`.
+- Active row: checkmark on the right, `--green` text on the label.
+- "All farms" pinned to top, divider before "+ Add farm" at bottom.
+
+**User menu popover:**
+- 240px wide, anchored below user menu button with 4px gap.
+- `--bg` background, 0.5px `--border`, `--radius-l`, shadow `--shadow-md`, `z-index: 200`.
+- Rows (44px tall, 12px padding):
+  - Email row: 13px/500 email (2-line ellipsis), 11px/400 `--text3` "Signed in" label below.
+  - Divider: `--border` 0.5px.
+  - Log Out: 13px/500, left-aligned, color `--text` default, `--red` on hover. If unsynced writes exist, Log Out triggers a confirm dialog before clearing session.
+
+**Cross-farm event marker (§11 event card, §18.6 flow):**
+- 11px, `--text2`, `display: inline-flex, align-items: center, gap: 4px`.
+- Arrow glyph (←/→) in 10px, `--text2`. Farm name in 11px/500.
+- Rendered below the event title and above the paddock summary.
+- Clickable: hover underlines the farm name; tap navigates to paired event.
+
 ### 3.7 Filter Pills / Chips
 
 | Variant | Class | Default | Active/Selected |
@@ -573,7 +606,8 @@ Used by BCS Recording Sheet (§14.3). Row of numbered chips.
 | Date | Session | Changes |
 |------|---------|---------|
 | 2026-04-12 | Session 11 — Component gap fill | Added §7: quick-action bar, field mode home screen, field mode nav header, health recording sheet layout, group session progress bar, BCS chip selector. Patterns support V2_UX_FLOWS.md §14–§16. |
+| 2026-04-13 | Header + multi-farm context design | Extended §3.6 Navigation with header bar patterns: left cluster (operation name + farm picker), right cluster (sync dot, build stamp, Field Mode, user menu button), farm picker (sheet/dropdown specs), user menu popover (email + Log Out), and cross-farm event marker style for event cards. Supports V2_UX_FLOWS.md §17.2 and new §18. |
 
 ---
 
-*End of document. For UX flows see V2_UX_FLOWS.md. For code patterns see V2_APP_ARCHITECTURE.md. For schemas see GTHO_V2_SCHEMA_DESIGN.md.*
+*End of document. For UX flows see V2_UX_FLOWS.md. For code patterns see V2_APP_ARCHITECTURE.md. For schemas see V2_SCHEMA_DESIGN.md.*

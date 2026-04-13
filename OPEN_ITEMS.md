@@ -24,53 +24,6 @@ The admin reference console (reports screen) renders all 35 formulas grouped by 
 
 ---
 
----
-
-### OI-0015 — Header Shows Farm Name, Needs Operation Name + Farm Picker
-**Added:** 2026-04-13 | **Area:** v2-design | **Priority:** P2 | **Status:** open — DESIGN REQUIRED, do not build
-
-The header currently shows the farm name as the primary identifier. It should show the **operation name** (the top-level identity). Users with multiple farms also have no way to switch which farm they're currently working in — all farm-scoped data (locations, groups, events) needs to be filtered by an active farm, but there's no UI for choosing.
-
-**Impact:** Single-farm operations see a cosmetic wording issue (farm name and operation name are often the same). Multi-farm operations literally can't navigate between farms — a blocker for the core multi-farm use case.
-
-**Proposed approach (pending Tim's approval):**
-
-1. **Header displays both:** Operation Name (primary, bold) and Farm Name (secondary, below). On mobile where space is tight, stack or truncate.
-2. **Active farm concept:** Add `active_farm_id` to `user_preferences` (not `operations` — farm context is per-user, a phone user and a tablet user might be working different farms simultaneously). Default to the first farm if unset.
-3. **Farm picker placement:**
-   - Desktop: dropdown next to the farm name in the header, or in the sidebar under the logo strip
-   - Mobile: tap the farm name to open a farm picker sheet
-4. **App-wide filtering:** Every farm-scoped query (locations, groups, events) filters by `store.getActiveFarmId()`. Store exposes `setActiveFarm(farmId)` action. All relevant feature screens subscribe to active farm changes and re-render.
-5. **Onboarding:** First farm is created during onboarding; becomes the default active farm for that user.
-6. **Single-farm UX:** If operation has only one farm, picker is hidden (just displays operation + farm names). As soon as a second farm exists, picker appears.
-
-**Design questions for Tim before build:**
-- Is active farm per-user (my proposal) or per-device/session?
-- Are there any features that should span all farms (e.g., operation-wide reports), and if so, do they need an "All farms" option in the picker?
-- Should switching farms require confirmation if there's unsaved work (e.g., survey drafts)?
-
-**Spec sources that need updates once approved:** V2_UX_FLOWS.md (new section for farm switching), V2_DESIGN_SYSTEM.md §3.6 (header/sidebar), V2_SCHEMA_DESIGN.md §1.5 (user_preferences +active_farm_id).
-
----
-
----
-
----
-
-### OI-0019 — No Logout Affordance in Header (v1 Parity)
-**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
-**Checkpoint:** CP-03 (header) / auth UX
-
-In v1, tapping the user icon in the top-right of the header opened a menu that included Log Out. v2 has no logout affordance in the header — users must dig through Settings (or can't find it at all). This is a v1 parity regression.
-
-**Fix:** Add a user/account icon to the top-right of the app header. Tap opens a small popover/menu with at minimum: user email/name (read-only), Log Out action. Confirm logout if there are unsynced writes. Once farm picker (OI-0015) lands, that popover can host both controls, or they can be separate icons — design decision to bundle with OI-0015 resolution.
-
-**Depends on / coordinates with:** OI-0015 (farm picker — same header real estate, same "who am I working as" concern). Consider designing these together.
-
-**Spec sources that need updates:** V2_DESIGN_SYSTEM.md §3.6 (header), V2_UX_FLOWS.md (auth/logout flow).
-
----
-
 ### OI-0008 — CP-17: Location Picker Recovery Section Always Empty
 **Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P3
 **Checkpoint:** CP-17
@@ -82,6 +35,18 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ---
 
 ## Closed
+
+### OI-0019 — No Logout Affordance in Header (v1 Parity)
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-design → v2-build
+**Resolution:** Designed alongside OI-0015 since they share the same header real estate. User menu button (circle with initials) added to right cluster; tap opens popover with user email and Log Out. Logout triggers confirm dialog only when unsynced writes exist in the queue. Field Mode exits first before logout. Full spec: `github/issues/header-redesign-and-multi-farm-context.md`.
+
+---
+
+### OI-0015 — Header Shows Farm Name, Needs Operation Name + Farm Picker
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-design → v2-build
+**Resolution:** Full design locked. Key decisions: (1) `user_preferences.active_farm_id uuid NULL` — per-user, syncs across devices, null = "All farms" mode; (2) "All farms" mode supported — farm-scoped screens aggregate with per-record farm chips; (3) switch-with-unsaved-work shows a confirm dialog (Switch anyway / Cancel), drafts stay tied to their source farm; (4) active farm scopes display, not permissions — wizards include a **farm chip** at the top of destination pickers so cross-farm moves work without context switching; (5) **no event straddles farms** — whole-group cross-farm moves close the source event and open a new event linked by `events.source_event_id`; (6) individual animal cross-farm moves are membership edits only, no new event; (7) **build stamp restored** to header right cluster for testing diagnostics; (8) event cards render directional markers ("← from {farm}" / "→ to {farm}") when `source_event_id` links to an event on a different farm. Doc updates applied to V2_SCHEMA_DESIGN.md (§1.5, §5.1), V2_UX_FLOWS.md (§1, §17.2, new §18), V2_DESIGN_SYSTEM.md (§3.6). Full spec: `github/issues/header-redesign-and-multi-farm-context.md`.
+
+---
 
 ### OI-0017 — Product Add Dialog Missing Unit Selection
 **Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
@@ -173,4 +138,5 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 |------|---------|---------|
 | 2026-04-13 | Strip grazing + unit system integration | OI-0001 closed — strip grazing design integrated into V2_SCHEMA_DESIGN.md, V2_CALCULATION_SPEC.md, V2_UX_FLOWS.md, V2_DESIGN_SYSTEM.md; A45 logged. OI-0002 closed — `operations.unit_system` column added to schema; A44 logged; V2_INFRASTRUCTURE.md §1.3 added; V2_MIGRATION_PLAN.md §2.8 updated; implementation spec written to `github/issues/unit-system-operations-migration.md` covering entity update, store action, settings re-render on toggle, onboarding selector, and localStorage → operation migration. |
 | 2026-04-13 | Pre-CP-54 audit + nits | Added OI-0011 (feed metrics placeholders, P2), OI-0012 (calc test gap, P2), OI-0013 (calc reference descriptions spot-check, P2), OI-0014 (event close manure volumeKg placeholder, P3) from audit. Added Tim nits: OI-0015 (header: operation name + farm picker, P2, DESIGN REQUIRED), OI-0016 (dose units CRUD, P3), OI-0017 (product add dialog missing unit selection, P2), OI-0018 (sync status not in app header, P2), OI-0019 (no logout affordance in header — v1 parity regression, P2). |
+| 2026-04-13 | Header + multi-farm context design | OI-0015 closed — full design locked for header redesign (operation name + farm picker + user menu + build stamp) and multi-farm context (active_farm_id, "All farms" mode, cross-farm move pattern, no-straddling-events rule, source_event_id linkage). OI-0019 closed — bundled into same design (user menu popover with Log Out). Spec written to `github/issues/header-redesign-and-multi-farm-context.md`. Doc updates applied to V2_SCHEMA_DESIGN.md §1.5 and §5.1 (two new columns), V2_UX_FLOWS.md §17.2 (rewritten), §1 (farm chip on pickers), new §18 (farm switching), V2_DESIGN_SYSTEM.md §3.6 (extended with farm picker + user menu patterns). |
 

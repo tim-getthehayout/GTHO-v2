@@ -266,6 +266,7 @@ CREATE TABLE operation_members (
 | id | uuid | PK | |
 | operation_id | uuid | NOT NULL, FK → operations | RLS scope |
 | user_id | uuid | NOT NULL, FK → auth.users | Which user |
+| active_farm_id | uuid | NULL, FK → farms ON DELETE SET NULL | Currently-selected farm for this user. NULL = "All farms" mode (aggregate across all farms in the operation). Set by the farm picker in the app header. |
 | home_view_mode | text | NOT NULL, DEFAULT 'groups' | 'groups' or 'locations' — home screen layout |
 | default_view_mode | text | NOT NULL, DEFAULT 'detail' | 'field' or 'detail' — mobile users in the paddock set to 'field' |
 | stat_period_days | integer | NOT NULL, DEFAULT 14 | Dashboard stat period (7, 14, 30, 365) |
@@ -278,12 +279,15 @@ CREATE TABLE operation_members (
 - **Separate from operation_members:** Members table is about access control (who can see what). Preferences are about UI personalization. Different concerns, different tables.
 - **field_mode_quick_actions as text[]:** A small ordered list of UI shortcuts, not relational data. Array position = button order. Postgres native array, not JSONB.
 - **NULL quick_actions = system defaults:** The app defines a default button set. Users only get a row value when they customize.
+- **active_farm_id is per-user, not per-device:** A user's farm selection syncs across their phone and tablet. Decided 2026-04-13 alongside OI-0015 resolution. `NULL` is a valid value meaning "All farms" (aggregate mode). `ON DELETE SET NULL` so deleting a farm doesn't orphan the user; store falls back to the first available farm at read time.
+- **Active farm scopes display, not permissions:** RLS is unchanged by this column. The app uses it as a UI filter. Wizards whose destination is farm-scoped (move wizard, etc.) include a farm chip so users can target other farms without changing `active_farm_id`.
 
 ```sql
 CREATE TABLE user_preferences (
   id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   operation_id              uuid NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
   user_id                   uuid NOT NULL REFERENCES auth.users(id),
+  active_farm_id            uuid REFERENCES farms(id) ON DELETE SET NULL,
   home_view_mode            text NOT NULL DEFAULT 'groups'
                               CHECK (home_view_mode IN ('groups', 'locations')),
   default_view_mode         text NOT NULL DEFAULT 'detail'
@@ -804,11 +808,12 @@ The event parent record. Deliberately thin — most detail lives in child tables
 |--------|------|-------------|-------|
 | id | uuid | PK | |
 | operation_id | uuid | NOT NULL, FK → operations | RLS scope |
-| farm_id | uuid | NOT NULL, FK → farms | |
+| farm_id | uuid | NOT NULL, FK → farms | An event belongs to exactly one farm — no event straddles farms. Cross-farm moves produce **two** linked events (see `source_event_id`). |
 | date_in | date | NOT NULL | Event start date |
 | time_in | text | NULL | Optional time of day (HH:MM) |
 | date_out | date | NULL | NULL = event still open |
 | time_out | text | NULL | |
+| source_event_id | uuid | NULL, FK → events ON DELETE SET NULL | When this event was created by a cross-farm move, points back to the (now-closed) source event on the other farm. NULL for regular within-farm events. Enables event cards to render "← Moved from {farm}" / "→ Moved to {farm}" markers on each side of the move pair. |
 | notes | text | NULL | |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
@@ -819,6 +824,8 @@ The event parent record. Deliberately thin — most detail lives in child tables
 - **No status column** — status is derived: `date_out IS NULL` → active, otherwise closed
 - **No noPasture flag** — inferred from location type (if all paddock windows point to confinement locations, it's a confinement event)
 - **date_out** set by the close/move sequence, not editable directly
+- **No events straddle farms:** `farm_id NOT NULL` enforces this at the schema level. All `event_paddock_windows` for a given event must reference locations on the same farm as `events.farm_id`. A whole-group cross-farm move closes the source event on Farm 1 (sets `date_out`) and opens a **new** event on Farm 2 with `source_event_id` pointing back. Individual animal cross-farm moves are membership edits only (`animal_group_memberships`) and do not create or close any event.
+- **source_event_id is one-directional:** The destination event points to the source. To find the destination from the source, query `events WHERE source_event_id = :this_id`. A source event can have at most one destination (a split-plus-cross-farm produces one split + one move pair). `ON DELETE SET NULL` preserves the destination event's history if the source is ever deleted.
 
 ```sql
 CREATE TABLE events (
@@ -829,6 +836,7 @@ CREATE TABLE events (
   time_in           text,
   date_out          date,
   time_out          text,
+  source_event_id   uuid REFERENCES events(id) ON DELETE SET NULL,
   notes             text,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()

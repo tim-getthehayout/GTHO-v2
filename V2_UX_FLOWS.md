@@ -20,6 +20,8 @@ User chooses:
 
 ### 1.2 Step 2a: Location Picker (New Location)
 
+**Farm chip (top of picker):** Label reads "Farm: {farmName}" with chevron ▾, styled per §3.7 filter pill. Defaults to the current `active_farm_id` (or the first farm if in All farms mode). Tap opens a short menu of farms the user has access to. Selecting a different farm re-filters the section lists below to show that farm's locations. The chip selection is scoped to this wizard instance only — it does NOT change `active_farm_id`. When the destination farm differs from the source event's farm, the wizard is a cross-farm move: on save, the new destination event's `source_event_id` is set to the closing source event's id (§5.1).
+
 Four sections, each showing location cards:
 
 | Section | Filter | Card shows |
@@ -32,6 +34,8 @@ Four sections, each showing location cards:
 Each card shows enough info to make a grazing decision without opening another screen.
 
 ### 1.3 Step 2b: Existing Event Picker (Join Existing)
+
+**Farm chip (top of picker):** Same behavior as §1.2 — filters the list to events on the selected farm. Default is current active farm. Joining an event on a different farm from the source is a valid cross-farm move: the source event closes, animals migrate to the existing destination event (`animal_group_memberships` update), and the destination event's `event_group_windows` extend to include the arriving group.
 
 List of active events with: location name(s), group(s) already on it, days open.
 
@@ -877,15 +881,25 @@ The home screen is the default view (`#/`) and the most-visited screen. It provi
 
 ### 17.2 Header Bar
 
-The header bar is sticky top on both mobile and desktop.
+The header bar is sticky top on both mobile and desktop. Two clusters: identity on the left, actions on the right.
+
+**Left cluster — identity (two lines):**
 
 | Element | Source | Notes |
 |---------|--------|-------|
-| Farm name | `store.getAll('farms')[0].name` | Replaces the hardcoded "GTHO v2" title. If no farm exists (pre-onboarding), show "Get The Hay Out". |
-| Sync indicator | §3.14 sync dot | 8×8px circle. States: `.sync-ok` (green, online), `.sync-pending` (amber, queued writes), `.sync-off` (`--text3`, offline), `.sync-err` (red, error). Doubles as offline/online status indicator. |
-| Build version | `<meta name="app-version">` | Small text (`11px, --text2`) beside sync dot. Format: `bYYYYMMDD.HHMM`. |
-| Feedback button | — | `btn btn-outline btn-xs`. Opens feedback sheet. Shows unread badge (red dot with count) if unread feedback exists. Positioned in header, not floating. |
-| Field mode toggle | — | `btn btn-green btn-xs`. Navigates to `#/field`. Positioned right side of header. |
+| Operation name | `store.getAll('operations')[0].name` | Line 1, primary identity. 18px/700, `--text`, letter-spacing `-0.3px`. Truncates with ellipsis on narrow viewports before the farm picker does. If no operation exists (pre-onboarding), show "Get The Hay Out". |
+| Farm picker | `store.getActiveFarmId()` → farm name, or "All farms" when null | Line 2, secondary. 14px/500, `--text2`. Behavior by context: single-farm op = plain text, no chevron, not interactive. Multi-farm op = chevron ▾, tappable. All-farms mode = "All farms" in `--text3` muted color with chevron. Tap opens the farm picker (sheet on mobile, dropdown on desktop — §3.6). |
+
+**Right cluster — actions, left-to-right:**
+
+| Element | Source | Notes |
+|---------|--------|-------|
+| Sync indicator | §3.14 sync dot | 8×8px circle. States: `.sync-ok` (green, online), `.sync-pending` (amber, queued writes), `.sync-off` (`--text3`, offline), `.sync-err` (red, error). Tap navigates to `#/settings` sync panel. |
+| Build stamp | `<meta name="app-version">` | 11px, `--text2`. Format: `bYYYYMMDD.HHMM`. Hidden below 360px viewport width. Diagnostic value only — always visible during testing. |
+| Field mode toggle | — | `btn btn-green btn-xs`. Navigates to `#/field`. Hidden while already in Field Mode. |
+| User menu | `auth.user.email` initials | 28×28 circle button, `--bg2` bg, 1px `--border`, initials in 11px/600 `--text2`. Tap opens user menu popover (§3.6 user menu popover pattern) with user email (read-only) and Log Out action. |
+
+**Switching farms with unsaved work:** When the user selects a different farm in the picker and there's an unsaved survey draft or an open wizard scoped to the current farm, show a confirm dialog: title "Unsaved work on {currentFarmName}", body "You have an unsaved {draftType} — it'll be kept here and you can return to it later.", buttons [Switch anyway] (primary `--green`) · [Cancel] (ghost). Drafts stay scoped to the farm they were started on — no discard from this dialog; discard lives inside the draft itself. See §18 for the full flow.
 
 **Desktop sidebar** follows §3.6 exactly: 220px fixed, logo strip (32×32 icon, green bg, rounded, 14px bold farm name, 11px subtitle), nav items with hover (`--bg2`) and active (`--green-l` bg, `--green-d` text, 600 weight), sync strip at bottom (border-top, 11px, `--text2`).
 
@@ -1155,12 +1169,105 @@ If no groups qualify, this section is not rendered.
 
 ---
 
+## 18. Farm Switching & Multi-Farm Context
+
+Defines how a user moves between farms within an operation and how cross-farm actions are handled. Added 2026-04-13 with OI-0015 resolution.
+
+### 18.1 Active Farm
+
+Stored in `user_preferences.active_farm_id` — per-user, syncs across devices. `NULL` = "All farms" mode (aggregate across every farm in the operation).
+
+- **Scopes display, not permissions.** RLS is unchanged. The app uses `active_farm_id` to filter what's shown on farm-scoped screens (dashboard, locations, groups, events). Any farm the user has access to via `operation_members` is still accessible via cross-farm wizard paths.
+- **Default for new users:** the first farm created during onboarding becomes the default `active_farm_id`. If the referenced farm is later deleted, the store falls back to the first available farm and writes that back to preferences.
+
+### 18.2 Farm Picker
+
+Entry point: the farm picker button on line 2 of the header left cluster (§17.2).
+
+- **Single-farm op** (farms.length === 1): picker is non-interactive plain text.
+- **Multi-farm op, specific farm active:** tap opens picker.
+- **Multi-farm op, All farms active:** "All farms" label shown in `--text3` muted color, tap opens picker.
+
+Picker presentation:
+- **Mobile:** full-screen sheet (§3.5), titled "Switch farm".
+- **Desktop:** dropdown anchored below the picker button.
+
+Picker contents:
+1. "All farms" row (pinned top, radio-style, active mark if currently null)
+2. Farms — alphabetical, radio-style, active mark on current
+3. Divider
+4. "+ Add farm" → `#/settings/farms`
+
+### 18.3 Switching with Unsaved Work
+
+Before `store.setActiveFarm(farmId)` commits, check for unsaved drafts scoped to the current farm. Unsaved drafts currently include: survey drafts (`surveys.is_draft = true`) and any open wizard (move, feed delivery, etc.).
+
+If any exist, show modal:
+- **Title:** "Unsaved work on {currentFarmName}"
+- **Body:** "You have an unsaved {draftType} — it'll be kept here and you can return to it later."
+- **Buttons:** [Switch anyway] (primary `--green`) · [Cancel] (ghost)
+
+On *Switch anyway*: proceed with `setActiveFarm(farmId)`. Draft remains in place, scoped to its source farm; when the user returns to that farm, the draft banner re-appears. On *Cancel*: close modal, keep current selection.
+
+No discard action in this modal — discard lives inside the draft itself (survey draft card, wizard cancel).
+
+### 18.4 Cross-Farm Moves (Whole Group)
+
+Flow: same as within-farm move (§1) with one addition — the **farm chip** at the top of the destination picker (§1.2 Step 2a, §1.3 Step 2b) lets the user select a location or existing event on another farm.
+
+Data effect:
+- Source event on Farm 1 closes (sets `date_out`, closes all paddock windows, captures residual / manure / NPK per §1.5).
+- A **new** event is created on Farm 2 (new `events` row, with `farm_id` = Farm 2). Its `source_event_id` column points back to the source event.
+- If the destination step was "Join Existing" instead of "New Location", no new event is created — `animal_group_memberships` shift from source event's group to destination event's group at the chosen timestamp, and the destination event's `event_group_windows` extend to include the arrivals.
+
+**Rule (enforced by schema):** no event straddles farms. `events.farm_id NOT NULL` plus the invariant that all of an event's `event_paddock_windows` must reference locations on the same farm as `events.farm_id`. The wizard enforces this by scoping the location list under the farm chip.
+
+### 18.5 Cross-Farm Moves (Individual Animal)
+
+Flow: from the animal detail sheet, "Change group" action → group picker with farm chip at top.
+
+Data effect: no event is closed or opened.
+- End `animal_group_memberships` for this animal in its current group at time T.
+- Start `animal_group_memberships` for this animal in the destination group at time T.
+- Both source and destination events stay open. Event cards show a sub-entry for the membership change on that day.
+
+### 18.6 Cross-Farm Event Card Markers (§11)
+
+When an event has `source_event_id` pointing to an event on a different farm (i.e., this event is the destination half of a cross-farm move), the card header shows:
+
+- **"← Moved from {sourceFarmName}"** — tappable, jumps to the paired source event.
+
+When another event's `source_event_id` points to this event AND that other event is on a different farm (i.e., this event is the source half):
+
+- **"→ Moved to {destFarmName}"** — tappable, jumps to the paired destination event.
+
+Style: 11px, `--text2`, with arrow glyph. Rendered below the event title, above the paddock summary.
+
+### 18.7 All Farms Mode — Screen Behavior
+
+When `active_farm_id` is null, farm-scoped screens aggregate across all farms in the operation. To keep records readable, each record on an aggregated screen shows a small `{farmName}` chip (§3.7 filter pill style, inactive variant).
+
+- **Dashboard (§17.3):** Farm Overview subtitle reads "All farms — {N} farms, {totalHead} head". Stats aggregate across farms. Group and location cards show a farm chip.
+- **Locations screen:** location rows show a farm chip.
+- **Events screen:** event rows show a farm chip.
+- **Groups screen:** group rows show a farm chip.
+- **Move wizard (source step):** group picker shows groups across all farms with farm chips. Destination step already handles cross-farm targeting regardless of mode.
+
+In single-farm mode (specific `active_farm_id`), farm chips are hidden — they're noise when every record is on the same farm.
+
+### 18.8 Field Mode Interaction
+
+Field Mode is locked to the farm that was active when the user entered Field Mode. The farm picker is hidden while in Field Mode — switching farms requires exiting Field Mode first. Log out while in Field Mode exits Field Mode cleanly before clearing the session.
+
+---
+
 ## Change Log
 
 | Date | Session | Changes |
 |------|---------|---------|
 | 2026-04-12 | Session 11 — UX flow gap fill | Added §14 (reusable health & recording components — 10 subsections covering weight, BCS, treatment, breeding, heat, calving, note, group sessions, quick-action bar), §15 (entity CRUD forms — animal, group, location, feed type), §16 (field mode — home screen, navigation, heat quick-access, feed loop). Component-first approach: each form documented once with entry points and context pre-fill mapped. |
 | 2026-04-13 | Session — Dashboard & todos spec | Added §17 (home screen / dashboard + todos). 14 subsections covering: screen layout (mobile/desktop), header bar, farm overview stats (desktop 5-metric, mobile 3-metric with thresholds), view toggle (groups/locations, default changed to locations for new users), group card anatomy (body elements, conditional logic, action buttons, collapse/expand), location card anatomy, open tasks dashboard section, todos screen with 3-axis filtering, todo create/edit sheet, todo card anatomy, survey draft card, weaning nudge. Derived from v1 `renderHome()` + `renderTodos()` code review against v2 schema D11.3/D11.4. FAB removed — feedback button moved to header. |
+| 2026-04-13 | Header + multi-farm context design | OI-0015 & OI-0019 resolved. §17.2 Header Bar rewritten — left cluster now shows operation name + farm picker, right cluster adds user menu button and restores build stamp. §1.2 and §1.3 (move wizard location + existing event pickers) gained a farm chip at the top enabling cross-farm targeting. New §18 Farm Switching & Multi-Farm Context added (8 subsections): active farm semantics, farm picker UX, switch-with-unsaved-work confirm, cross-farm whole-group moves (no-straddling-events rule, source_event_id linkage), cross-farm individual animal moves (membership-only), event card cross-farm markers, All farms aggregate mode behavior, Field Mode interaction. |
 
 ---
 

@@ -15,7 +15,7 @@
 
 ## Phase 3 — Build
 
-### 3.1 Scaffold (BUILDING — 539 tests)
+### 3.1 Scaffold (COMPLETE — 538 tests)
 - [x] **CP-1** — Vite project init, build tooling, eslint
 - [x] **CP-2** — Core utilities: logger, date-utils, validators, units, calc-registry
 - [x] **CP-3** — Entity files D1: operations, farms, farm_settings, operation_members, user_preferences
@@ -27,32 +27,66 @@
 - [x] **CP-9** — UI framework: DOM builder, sheet class, router, header, CSS tokens
 - [x] **CP-10** — App shell wiring + integration test
 
-### 3.2 Core Loop
-- [ ] **CP-11** — Auth flow: login, signup, session management
-- [ ] **CP-12** — Onboarding wizard: operation + farm + species + class seeding
-- [ ] **CP-13** — Settings screen: farm config, unit toggle, user preferences, sync status
-- [ ] **CP-14** — Locations screen: CRUD, filter pills, forage type management
-- [ ] **CP-15** — Animals — Groups & Classes: group CRUD, class editing
-- [ ] **CP-16** — Animals — Individual animals: animal CRUD, group assignment, search
-- [ ] **CP-17** — Events — Create & List: event creation, event log, event card display
-- [ ] **CP-18** — Paddock & Group windows: sub-moves, group add/remove, primary paddock rule
-- [ ] **CP-19** — Move wizard: close source → create destination, strip graze, join existing
-- [ ] **CP-20** — Event close (no move): close sequence, observations
-- [ ] **CP-21** — Dashboard: group cards, stats, FAB, mobile/desktop layout
-- [ ] **CP-22** — Supabase sync wiring: online/offline, queue flush, dead letters, pull/merge
-- [ ] **CP-23** — Integration smoke test: Playwright e2e for full core loop
+### 3.2 Core Loop (COMPLETE — 538 tests)
+- [x] **CP-11** — Auth flow: login, signup, session management
+- [x] **CP-12** — Onboarding wizard: operation + farm + species + class seeding
+- [x] **CP-13** — Settings screen: farm config, unit toggle, user preferences, sync status
+- [x] **CP-14** — Locations screen: CRUD, filter pills, forage type management
+- [x] **CP-15** — Animals — Groups & Classes: group CRUD, class editing
+- [x] **CP-16** — Animals — Individual animals: animal CRUD, group assignment, search
+- [x] **CP-17** — Events — Create & List: event creation, event log, event card display
+- [x] **CP-18** — Paddock & Group windows: sub-moves, group add/remove, primary paddock rule
+- [x] **CP-19** — Move wizard: close source → create destination, strip graze, join existing
+- [x] **CP-20** — Event close (no move): close sequence, observations
+- [x] **CP-21** — Dashboard: group cards, stats, FAB, mobile/desktop layout
+- [x] **CP-22** — Supabase sync wiring: online/offline, queue flush, dead letters, pull/merge
+- [x] **CP-23** — Integration smoke test: Playwright e2e for full core loop
 
-### 3.3 Assessment (spec not yet written)
-- [ ] Feed inventory, delivery, checks, transfer
-- [ ] Surveys and pasture observations
-- [ ] Amendments and manure management
-- [ ] Health records (treatments, breeding, calving, BCS, weights)
-- [ ] Calculation engine (register all 35 formulas)
-- [ ] Harvest recording
-- [ ] Reports
+### 3.3 Assessment (COMPLETE — 563 tests)
+- [x] **CP-24** — Feed types CRUD
+- [x] **CP-25** — Batch inventory with adjustments
+- [x] **CP-26** — Feed day goal banner
+- [x] **CP-27** — Feed delivery from events
+- [x] **CP-28** — Feed check
+- [x] **CP-29** — Feed transfer in move wizard
+- [x] **CP-30** — Event close full version (feed check + confinement NPK)
+- [x] **CP-31** — Survey workflow (bulk/single, draft entries, commit to observations)
+- [x] **CP-32** — Health reference tables (AI sires, treatment categories/types, dose units)
+- [x] **CP-33** — Weight & BCS recording
+- [x] **CP-34** — Field mode
+- [x] **CP-35** — Treatment recording
+- [x] **CP-36** — Breeding & heat recording
+- [x] **CP-37** — Calving (calf creation, class reassignment)
+- [x] **CP-38** — Amendment reference tables (product categories, input products, spreaders)
+- [x] **CP-39** — Soil tests
+- [x] **CP-40** — Amendment entry
+- [x] **CP-41** — Manure system (batches + transaction ledger)
+- [x] **CP-42** — NPK price history
+- [x] **CP-43** — Harvest recording
+- [x] **CP-44** — Feed quality / batch profiles
+- [x] **CP-45** — Calc engine core (9 formulas)
+- [x] **CP-46** — Calc engine feed & forage (20 formulas)
+- [x] **CP-47** — Calc engine advanced (6 formulas, all 35 registered)
+- [x] **CP-48–51** — Reports (4 tabs + reference console)
+- [x] **CP-52** — Dashboard full metrics (real DMI, feed cost, days on pasture)
+- [x] **CP-53** — E2E smoke test updated
 
-### 3.4 Advanced (spec not yet written)
-- [ ] Rotation calendar, export/import, migration tool
+### Pre-3.4 Work Items
+- [ ] **Unit system migration** — Move unit_system from localStorage to operations table (A44, spec: github/issues/unit-system-operations-migration.md)
+- [ ] **Strip grazing paddock windows** — Full strip graze workflow: toggle, area/pct input, per-strip recovery, progress bar (A45, spec: github/issues/strip-grazing-paddock-windows.md)
 
-### 3.5 Polish (spec not yet written)
-- [ ] PWA, sync hardening, performance, accessibility, cutover
+### 3.4 Advanced
+- [ ] **CP-54** — Rotation calendar
+- [ ] **CP-55** — Export/import
+- [ ] **CP-56** — v1 migration tool
+- [ ] **CP-57** — Migration validation
+- [ ] **CP-58** — Migration UI
+
+### 3.5 Polish
+- [ ] **CP-59** — PWA / service worker
+- [ ] **CP-60** — Sync hardening
+- [ ] **CP-61** — Performance optimization
+- [ ] **CP-62** — Accessibility audit
+- [ ] **CP-63** — Theme polish
+- [ ] **CP-64** — Cutover prep
+- [ ] **CP-65** — Production launch

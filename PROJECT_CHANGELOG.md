@@ -2,6 +2,10 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-13 | docs: integrate A44 unit system + A45 strip grazing across specs; close OI-0001, OI-0002 — schema design, infrastructure, migration plan, build index, open items updated; new implementation spec for unit system migration | GTHO_V2_SCHEMA_DESIGN.md, V2_INFRASTRUCTURE.md, V2_MIGRATION_PLAN.md, V2_BUILD_INDEX.md, OPEN_ITEMS.md, github/issues/unit-system-operations-migration.md |
+| 2026-04-13 | OI-0009: Fix desktop layout overlap — add grid-column: 2 to .app-content in desktop media query | src/styles/main.css |
+| 2026-04-13 | OI-0010: Complete dashboard rebuild per §17 — stats row (5 desktop / 3 mobile), period pills, view toggle, group cards (composition, location bar, DMI, NPK, actions), location cards, open tasks section, survey draft card, weaning nudge, mobile bottom nav, header with farm name | src/features/dashboard/index.js, src/ui/header.js, src/styles/main.css, src/i18n/locales/en.json |
+| 2026-04-13 | Todos feature UI — list screen with 3-axis filters, create/edit sheet, card component, #/todos route, nav entries with badge | src/features/todos/index.js, src/features/todos/todo-card.js, src/features/todos/todo-sheet.js, src/main.js, src/ui/header.js |
 | 2026-04-11 | Initial scaffold — repo setup with doc structure and issue tracking | CLAUDE.md, PROJECT_CHANGELOG.md, OPEN_ITEMS.md, IMPROVEMENTS.md, github/issues/ |
 | 2026-04-12 | CP-1: Vite project init — package.json, vite.config.js, index.html, src/main.js, .gitignore, .env.example, eslint.config.js, vitest harness | package.json, vite.config.js, index.html, src/main.js, .gitignore, .env.example, eslint.config.js, tests/unit/setup.test.js |
 | 2026-04-12 | CP-2: Core utilities — logger, date-utils, validators, units (6 types), calc-registry with 89 passing tests | src/utils/logger.js, date-utils.js, validators.js, units.js, calc-registry.js + 4 test files |

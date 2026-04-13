@@ -9,6 +9,9 @@ import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { createObservation, renderLocationPicker } from './index.js';
+import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
+import * as FeedCheckEntity from '../../entities/event-feed-check.js';
+import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -262,11 +265,53 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     panel.appendChild(openSection);
   }
 
-  // Feed transfer placeholder
-  panel.appendChild(el('div', {
-    className: 'form-hint',
-    style: { fontStyle: 'italic', marginTop: 'var(--space-4)' },
-  }, [t('event.feedTransferPlaceholder')]));
+  // Feed transfer section (CP-29)
+  const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
+  const transferToggles = [];
+
+  if (feedEntries.length) {
+    const feedSection = el('div', { className: 'close-open-section', style: { marginTop: 'var(--space-4)' } }, [
+      el('div', { className: 'close-open-section-title' }, [t('event.feedTransfer')]),
+    ]);
+
+    // Group feed entries by batch × location
+    const feedGroups = {};
+    for (const entry of feedEntries) {
+      const key = `${entry.batchId}|${entry.locationId}`;
+      if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
+      feedGroups[key].total += entry.quantity;
+    }
+
+    for (const [key, group] of Object.entries(feedGroups)) {
+      const batch = getById('batches', group.batchId);
+      const loc = getById('locations', group.locationId);
+      const batchName = batch ? batch.name : '?';
+      const locName = loc ? loc.name : '?';
+
+      const checkbox = el('input', {
+        type: 'checkbox',
+        checked: 'true',
+        'data-testid': `move-wizard-transfer-${key.replace('|', '-')}`,
+      });
+      transferToggles.push({ key, batchId: group.batchId, locationId: group.locationId, total: group.total, checkbox });
+
+      feedSection.appendChild(el('label', {
+        style: { display: 'flex', alignItems: 'center', gap: 'var(--space-3)', padding: '6px 0', cursor: 'pointer' },
+      }, [
+        checkbox,
+        el('span', { style: { fontSize: '13px' } }, [
+          `${batchName} → ${locName}: ${group.total} ${batch?.unit || ''}`,
+        ]),
+      ]));
+    }
+
+    panel.appendChild(feedSection);
+  } else {
+    panel.appendChild(el('div', {
+      className: 'form-hint',
+      style: { fontStyle: 'italic', marginTop: 'var(--space-4)' },
+    }, [t('event.feedTransferNone')]));
+  }
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'move-wizard-status' });
   panel.appendChild(statusEl);
@@ -279,7 +324,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     el('button', {
       className: 'btn btn-green',
       'data-testid': 'move-wizard-save',
-      onClick: () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl),
+      onClick: () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl, transferToggles),
     }, [t('action.done')]),
   ]));
 
@@ -294,7 +339,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   }
 }
 
-function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl) {
+function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles) {
   clear(statusEl);
   statusEl.className = 'auth-error';
 
@@ -309,8 +354,36 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
   try {
     // --- CLOSE SOURCE (Steps 1-5 of save sequence) ---
 
-    // Step 1: Feed check (placeholder — Phase 3.3)
-    // TODO: Create feed check with is_close_reading when feed system is built
+    // Step 1: Create close-reading feed check if feed entries exist
+    const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
+    if (feedEntries.length) {
+      const check = FeedCheckEntity.create({
+        operationId,
+        eventId: sourceEvent.id,
+        date: dateOut,
+        time: timeOut,
+        isCloseReading: true,
+      });
+      add('eventFeedChecks', check, FeedCheckEntity.validate,
+        FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
+
+      // Create check items with remaining = 0 (all consumed or transferred)
+      const feedGroups = {};
+      for (const entry of feedEntries) {
+        const key = `${entry.batchId}|${entry.locationId}`;
+        if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId };
+      }
+      for (const group of Object.values(feedGroups)) {
+        const checkItem = FeedCheckItemEntity.create({
+          feedCheckId: check.id,
+          batchId: group.batchId,
+          locationId: group.locationId,
+          remainingQuantity: 0,
+        });
+        add('eventFeedCheckItems', checkItem, FeedCheckItemEntity.validate,
+          FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+      }
+    }
 
     // Step 2: Close all open paddock windows
     const sourcePWs = getAll('eventPaddockWindows').filter(w => w.eventId === sourceEvent.id && !w.dateClosed);
@@ -390,8 +463,24 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       // Step 7: Open observation for destination paddock
       createObservation(operationId, state.locationId, 'open', newPW.id, new Date().toISOString());
 
-      // Step 8: Feed transfer (placeholder — Phase 3.3)
-      // TODO: Create feed transfer entries
+      // Step 8: Feed transfer — create entries on destination with source_event_id
+      if (transferToggles && transferToggles.length) {
+        for (const toggle of transferToggles) {
+          if (!toggle.checkbox.checked) continue;
+          const transferEntry = FeedEntryEntity.create({
+            operationId,
+            eventId: newEvent.id,
+            batchId: toggle.batchId,
+            locationId: state.locationId,
+            date: dateIn,
+            time: timeIn,
+            quantity: toggle.total,
+            sourceEventId: sourceEvent.id,
+          });
+          add('eventFeedEntries', transferEntry, FeedEntryEntity.validate,
+            FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+        }
+      }
 
     } else {
       // Join existing event — add group windows

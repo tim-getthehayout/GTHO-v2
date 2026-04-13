@@ -522,6 +522,23 @@
     "queueCount": "{count} items queued",
     "saved": "Settings saved"
   },
+  "fieldMode": {
+    "title": "Field Mode",
+    "enter": "Field",
+    "exit": "Detail",
+    "home": "Home",
+    "feedAnimals": "Feed Animals",
+    "harvest": "Harvest",
+    "survey": "Multi-Pasture Survey",
+    "animals": "Animals",
+    "activeEvents": "Active Events",
+    "tasks": "Tasks",
+    "noActiveEvents": "No active events.",
+    "noTasks": "No tasks.",
+    "fedToday": "Fed",
+    "notFed": "Not fed",
+    "done": "Done"
+  },
   "error": {
     "generic": "Something went wrong. Please try again."
   },

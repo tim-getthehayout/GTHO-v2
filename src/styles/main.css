@@ -1274,6 +1274,86 @@ body {
   margin-top: var(--space-3);
 }
 
+/* Field mode */
+.field-mode-header {
+  background: var(--color-green-dark);
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #fff;
+}
+
+.field-mode-header-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: var(--space-2) var(--space-3);
+}
+
+.field-mode-header-title {
+  font-size: 12px;
+  color: var(--color-green-light);
+  font-weight: 500;
+}
+
+.field-mode-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.field-mode-tile {
+  min-height: 120px;
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-sm);
+  border: 0.5px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: var(--font-family);
+  color: var(--text);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.field-mode-tile:active {
+  opacity: 0.82;
+}
+
+.field-mode-tile-icon {
+  font-size: 32px;
+}
+
+/* Field mode: full-screen sheets on mobile */
+body.field-mode .sheet-panel {
+  border-radius: 0;
+  max-height: 100vh;
+  max-width: 100%;
+}
+
+/* Feed status dot */
+.feed-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.feed-dot-fed { background: var(--color-green-base); }
+.feed-dot-unfed { background: var(--color-amber-base); }
+
 /* Hidden utility */
 .hidden {
   display: none !important;

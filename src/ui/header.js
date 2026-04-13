@@ -1,7 +1,9 @@
-/** @file App header with nav links and farm switcher placeholder */
+/** @file App header with nav links and field mode toggle */
 
 import { el } from './dom.js';
 import { t } from '../i18n/i18n.js';
+import { navigate } from './router.js';
+import { setFieldMode } from '../utils/preferences.js';
 
 /**
  * Render the app header into the given container.
@@ -19,7 +21,17 @@ export function renderHeader(container) {
   ]);
 
   const header = el('header', { className: 'app-header' }, [
-    el('div', { className: 'header-title' }, [t('app.name')]),
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+      el('div', { className: 'header-title' }, [t('app.name')]),
+      el('button', {
+        className: 'btn btn-green btn-xs',
+        'data-testid': 'header-field-mode-toggle',
+        onClick: () => {
+          setFieldMode(true);
+          navigate('#/field');
+        },
+      }, [t('fieldMode.enter')]),
+    ]),
     nav,
   ]);
 

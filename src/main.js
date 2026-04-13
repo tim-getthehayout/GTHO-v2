@@ -18,6 +18,8 @@ import { renderAnimalsScreen } from './features/animals/index.js';
 import { renderReportsScreen } from './features/reports/index.js';
 import { renderSettingsScreen } from './features/settings/index.js';
 import { renderSurveysScreen } from './features/surveys/index.js';
+import { renderFieldModeHome } from './features/field-mode/index.js';
+import { getFieldMode, setFieldMode } from './utils/preferences.js';
 
 /**
  * Boot the application.
@@ -95,6 +97,14 @@ function showApp(app) {
     return;
   }
 
+  // Check for field mode (URL param or preference)
+  const urlParams = new window.URLSearchParams(window.location.search);
+  if (urlParams.has('field')) {
+    setFieldMode(true);
+  } else if (getFieldMode()) {
+    document.body.classList.add('field-mode');
+  }
+
   // Render header
   renderHeader(app);
 
@@ -104,6 +114,7 @@ function showApp(app) {
 
   // Register routes
   route('#/', renderDashboard);
+  route('#/field', renderFieldModeHome);
   route('#/events', renderEventsScreen);
   route('#/locations', renderLocationsScreen);
   route('#/feed', renderFeedScreen);

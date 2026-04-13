@@ -20,6 +20,11 @@ import { renderSettingsScreen } from './features/settings/index.js';
 import { renderSurveysScreen } from './features/surveys/index.js';
 import { renderFieldModeHome } from './features/field-mode/index.js';
 import { renderSoilTestsScreen } from './features/amendments/soil-tests.js';
+import { renderAmendmentsScreen } from './features/amendments/entry.js';
+import { renderManureScreen } from './features/amendments/manure.js';
+import { renderNpkPricesScreen } from './features/amendments/npk-prices.js';
+import { renderHarvestScreen } from './features/harvest/index.js';
+import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { getFieldMode, setFieldMode } from './utils/preferences.js';
 
 /**
@@ -124,6 +129,11 @@ function showApp(app) {
   route('#/settings', renderSettingsScreen);
   route('#/surveys', renderSurveysScreen);
   route('#/soil-tests', renderSoilTestsScreen);
+  route('#/amendments', renderAmendmentsScreen);
+  route('#/manure', renderManureScreen);
+  route('#/npk-prices', renderNpkPricesScreen);
+  route('#/harvest', renderHarvestScreen);
+  route('#/feed-quality', renderFeedQualityScreen);
 
   // Init router — renders the current hash route
   initRouter(content);

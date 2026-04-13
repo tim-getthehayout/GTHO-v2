@@ -1,13 +1,14 @@
 /** @file Entity: operations — V2_SCHEMA_DESIGN.md §1.1 */
 
 export const FIELDS = {
-  id:        { type: 'uuid',        required: false, sbColumn: 'id' },
-  name:      { type: 'text',        required: true,  sbColumn: 'name' },
-  timezone:  { type: 'text',        required: false, sbColumn: 'timezone' },
-  currency:  { type: 'text',        required: false, sbColumn: 'currency' },
-  archived:  { type: 'boolean',     required: false, sbColumn: 'archived' },
-  createdAt: { type: 'timestamptz', required: false, sbColumn: 'created_at' },
-  updatedAt: { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
+  id:         { type: 'uuid',        required: false, sbColumn: 'id' },
+  name:       { type: 'text',        required: true,  sbColumn: 'name' },
+  timezone:   { type: 'text',        required: false, sbColumn: 'timezone' },
+  currency:   { type: 'text',        required: false, sbColumn: 'currency' },
+  unitSystem: { type: 'text',        required: false, sbColumn: 'unit_system' },
+  archived:   { type: 'boolean',     required: false, sbColumn: 'archived' },
+  createdAt:  { type: 'timestamptz', required: false, sbColumn: 'created_at' },
+  updatedAt:  { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
 
 /**
@@ -21,6 +22,7 @@ export function create(data = {}) {
     name: data.name ?? '',
     timezone: data.timezone ?? null,
     currency: data.currency ?? 'USD',
+    unitSystem: data.unitSystem ?? 'imperial',
     archived: data.archived ?? false,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
@@ -37,6 +39,10 @@ export function validate(record) {
   if (!record.name || typeof record.name !== 'string' || record.name.trim() === '') {
     errors.push('name is required');
   }
+  const validUnits = ['metric', 'imperial'];
+  if (record.unitSystem && !validUnits.includes(record.unitSystem)) {
+    errors.push(`unitSystem must be one of: ${validUnits.join(', ')}`);
+  }
   return { valid: errors.length === 0, errors };
 }
 
@@ -51,6 +57,7 @@ export function toSupabaseShape(record) {
     name: record.name,
     timezone: record.timezone,
     currency: record.currency,
+    unit_system: record.unitSystem,
     archived: record.archived,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
@@ -68,6 +75,7 @@ export function fromSupabaseShape(row) {
     name: row.name,
     timezone: row.timezone,
     currency: row.currency,
+    unitSystem: row.unit_system,
     archived: row.archived,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

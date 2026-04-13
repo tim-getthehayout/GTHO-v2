@@ -42,6 +42,7 @@ export function renderOnboarding(container, onComplete) {
   const data = {
     operationName: '',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    unitSystem: 'imperial',
     farmName: '',
     farmArea: '',
     species: [],
@@ -97,6 +98,19 @@ export function renderOnboarding(container, onComplete) {
       nameInput,
       el('label', { className: 'form-label' }, [t('onboarding.timezone')]),
       tzInput,
+      el('label', { className: 'form-label' }, [t('settings.unitSystem')]),
+      el('div', { className: 'btn-row' }, [
+        el('button', {
+          className: `btn btn-sm ${data.unitSystem === 'imperial' ? 'btn-green' : 'btn-outline'}`,
+          'data-testid': 'onboarding-unit-imperial',
+          onClick: () => { data.unitSystem = 'imperial'; render(); },
+        }, [t('settings.imperial')]),
+        el('button', {
+          className: `btn btn-sm ${data.unitSystem === 'metric' ? 'btn-green' : 'btn-outline'}`,
+          'data-testid': 'onboarding-unit-metric',
+          onClick: () => { data.unitSystem = 'metric'; render(); },
+        }, [t('settings.metric')]),
+      ]),
       el('div', { className: 'btn-row wizard-actions' }, [
         el('button', {
           className: 'btn btn-green',
@@ -233,6 +247,10 @@ export function renderOnboarding(container, onComplete) {
           el('span', { className: 'review-value' }, [data.operationName]),
         ]),
         el('div', { className: 'review-row' }, [
+          el('span', { className: 'review-label' }, [t('settings.unitSystem')]),
+          el('span', { className: 'review-value' }, [data.unitSystem === 'metric' ? t('settings.metric') : t('settings.imperial')]),
+        ]),
+        el('div', { className: 'review-row' }, [
           el('span', { className: 'review-label' }, [t('onboarding.farmLabel')]),
           el('span', { className: 'review-value' }, [data.farmName]),
         ]),
@@ -281,6 +299,7 @@ async function executeOnboarding(data) {
   const operation = createOperation({
     name: data.operationName,
     timezone: data.timezone,
+    unitSystem: data.unitSystem,
   });
   add('operations', operation, validateOperation);
 

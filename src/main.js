@@ -26,7 +26,7 @@ import { renderManureScreen } from './features/amendments/manure.js';
 import { renderNpkPricesScreen } from './features/amendments/npk-prices.js';
 import { renderHarvestScreen } from './features/harvest/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
-import { getFieldMode, setFieldMode } from './utils/preferences.js';
+import { getFieldMode, setFieldMode, migrateUnitSystemFromLocalStorage } from './utils/preferences.js';
 
 // Register all calculations on import (CP-45/46/47)
 import './calcs/core.js';
@@ -97,6 +97,9 @@ function showApp(app) {
     // Initial sync: flush pending queue, then pull remote data
     syncAdapter.flush().then(() => pullAllRemote());
   }
+
+  // Migrate legacy unit system from localStorage to operation (A44)
+  migrateUnitSystemFromLocalStorage();
 
   // Check if onboarding needed (no operations for this user)
   if (needsOnboarding()) {

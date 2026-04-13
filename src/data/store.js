@@ -1,6 +1,7 @@
 /** @file Store — single data access point. See V2_APP_ARCHITECTURE.md §4. */
 
 import { saveToStorage, loadFromStorage } from './local-storage.js';
+import { validate as validateOperation, toSupabaseShape as operationToSb } from '../entities/operation.js';
 
 /**
  * All entity type keys used in the store.
@@ -216,6 +217,49 @@ export function remove(entityType, id, table) {
 
   // Notify
   notify(entityType);
+}
+
+// --- Convenience Getters ---
+
+/**
+ * Get the current operation (first/only operation).
+ * @returns {object|undefined}
+ */
+export function getOperation() {
+  const op = state.operations[0];
+  return op ? { ...op } : undefined;
+}
+
+// --- Dedicated Actions ---
+
+/**
+ * Set the unit system on the current operation.
+ * validate → mutate → persist → queue sync → notify
+ * @param {'metric'|'imperial'} value
+ * @returns {object} The updated operation
+ */
+export function setUnitSystem(value) {
+  const index = state.operations.findIndex(() => true);
+  if (index === -1) {
+    throw new Error('No operation exists to set unit system on');
+  }
+
+  const updated = { ...state.operations[index], unitSystem: value, updatedAt: new Date().toISOString() };
+
+  const result = validateOperation(updated);
+  if (!result.valid) {
+    throw new Error(`Validation failed for operation: ${result.errors.join(', ')}`);
+  }
+
+  state.operations[index] = updated;
+  saveToStorage('operations', state.operations);
+
+  if (syncAdapter) {
+    syncAdapter.push('operations', operationToSb(updated));
+  }
+
+  notify('operations');
+  return updated;
 }
 
 // --- Subscribers ---

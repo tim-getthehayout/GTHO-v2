@@ -4,7 +4,7 @@ import { FIELDS, create, validate, toSupabaseShape, fromSupabaseShape } from '..
 
 describe('entity: operation', () => {
   it('exports FIELDS with all columns', () => {
-    expect(Object.keys(FIELDS)).toEqual(['id', 'name', 'timezone', 'currency', 'archived', 'createdAt', 'updatedAt']);
+    expect(Object.keys(FIELDS)).toEqual(['id', 'name', 'timezone', 'currency', 'unitSystem', 'archived', 'createdAt', 'updatedAt']);
   });
 
   it('every FIELDS entry has sbColumn', () => {
@@ -27,6 +27,16 @@ describe('entity: operation', () => {
       expect(record.currency).toBe('AUD');
       expect(record.timezone).toBe('Australia/Sydney');
     });
+
+    it('defaults unitSystem to imperial', () => {
+      const record = create({ name: 'Test' });
+      expect(record.unitSystem).toBe('imperial');
+    });
+
+    it('accepts unitSystem override', () => {
+      const record = create({ name: 'Test', unitSystem: 'metric' });
+      expect(record.unitSystem).toBe('metric');
+    });
   });
 
   describe('validate', () => {
@@ -46,6 +56,19 @@ describe('entity: operation', () => {
       const record = create({ name: '   ' });
       expect(validate(record).valid).toBe(false);
     });
+
+    it('passes for valid unitSystem values', () => {
+      expect(validate(create({ name: 'T', unitSystem: 'metric' })).valid).toBe(true);
+      expect(validate(create({ name: 'T', unitSystem: 'imperial' })).valid).toBe(true);
+    });
+
+    it('fails for invalid unitSystem', () => {
+      const record = create({ name: 'T' });
+      record.unitSystem = 'metric-us';
+      const result = validate(record);
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]).toContain('unitSystem');
+    });
   });
 
   describe('shape round-trip', () => {
@@ -63,6 +86,16 @@ describe('entity: operation', () => {
       expect(sb.created_at).toBe(record.createdAt);
       expect(sb.updated_at).toBe(record.updatedAt);
       expect(sb.name).toBe('Test');
+      expect(sb.unit_system).toBe(record.unitSystem);
+    });
+  });
+
+  describe('shape round-trip with unitSystem', () => {
+    it('preserves metric unitSystem', () => {
+      const record = create({ name: 'Metric Op', unitSystem: 'metric' });
+      const roundTripped = fromSupabaseShape(toSupabaseShape(record));
+      expect(roundTripped.unitSystem).toBe('metric');
+      expect(roundTripped).toEqual(record);
     });
   });
 });

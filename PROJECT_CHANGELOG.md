@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-13 | Unit system migration (A44) — move unit_system from localStorage to operations table. SQL migration 013, entity update (FIELDS/validate/shape), store.setUnitSystem() action, preferences.js reads from store, settings toggle rewired, onboarding adds unit selector, boot-time localStorage migration. 568 tests. | supabase/migrations/013, src/entities/operation.js, src/data/store.js, src/utils/preferences.js, src/features/settings/index.js, src/features/onboarding/index.js, src/main.js, tests/unit/entities/operation.test.js |
 | 2026-04-13 | docs: integrate A44 unit system + A45 strip grazing across specs; close OI-0001, OI-0002 — schema design, infrastructure, migration plan, build index, open items updated; new implementation spec for unit system migration | GTHO_V2_SCHEMA_DESIGN.md, V2_INFRASTRUCTURE.md, V2_MIGRATION_PLAN.md, V2_BUILD_INDEX.md, OPEN_ITEMS.md, github/issues/unit-system-operations-migration.md |
 | 2026-04-13 | OI-0009: Fix desktop layout overlap — add grid-column: 2 to .app-content in desktop media query | src/styles/main.css |
 | 2026-04-13 | OI-0010: Complete dashboard rebuild per §17 — stats row (5 desktop / 3 mobile), period pills, view toggle, group cards (composition, location bar, DMI, NPK, actions), location cards, open tasks section, survey draft card, weaning nudge, mobile bottom nav, header with farm name | src/features/dashboard/index.js, src/ui/header.js, src/styles/main.css, src/i18n/locales/en.json |

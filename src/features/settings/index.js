@@ -2,10 +2,9 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { getAll, update, getSyncAdapter } from '../../data/store.js';
+import { getAll, update, getSyncAdapter, getOperation, setUnitSystem } from '../../data/store.js';
 import { validate as validateFarmSetting } from '../../entities/farm-setting.js';
 import { validate as validateUserPref } from '../../entities/user-preference.js';
-import { getUnitSystem, setUnitSystem } from '../../utils/preferences.js';
 import { logout } from '../auth/session.js';
 import {
   renderAiBullsSection, renderTreatmentCategoriesSection,
@@ -60,7 +59,7 @@ export function renderSettingsScreen(container) {
 }
 
 function renderUnitSection(rootContainer) {
-  const current = getUnitSystem();
+  const current = getOperation()?.unitSystem ?? 'imperial';
 
   return el('div', { className: 'card settings-card' }, [
     el('h3', { className: 'settings-section-title' }, [t('settings.unitSystem')]),

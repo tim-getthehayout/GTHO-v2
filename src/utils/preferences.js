@@ -1,22 +1,42 @@
-/** @file Client-side preferences stored in localStorage (not Supabase) */
+/** @file Client-side preferences — field mode in localStorage, unit system on operations (A44) */
 
-const UNIT_SYSTEM_KEY = 'gtho_v2_unit_system';
+import { getOperation, setUnitSystem as storeSetUnitSystem } from '../data/store.js';
+
 const FIELD_MODE_KEY = 'gtho_v2_field_mode';
+const LEGACY_UNIT_KEY = 'gtho_v2_unit_system';
 
 /**
- * Get the user's unit system preference.
+ * Get the user's unit system preference from the operation.
+ * Falls back to 'imperial' if no operation exists yet (pre-onboarding).
  * @returns {'metric'|'imperial'}
  */
 export function getUnitSystem() {
-  return localStorage.getItem(UNIT_SYSTEM_KEY) || 'imperial';
+  const op = getOperation();
+  return op?.unitSystem ?? 'imperial';
 }
 
 /**
- * Set the user's unit system preference.
+ * Set the unit system on the current operation via the store.
  * @param {'metric'|'imperial'} system
  */
 export function setUnitSystem(system) {
-  localStorage.setItem(UNIT_SYSTEM_KEY, system);
+  storeSetUnitSystem(system);
+}
+
+/**
+ * One-time migration: if the legacy localStorage key exists,
+ * write it to the operation and delete the key.
+ * Call once during boot after store is initialized.
+ */
+export function migrateUnitSystemFromLocalStorage() {
+  const legacy = localStorage.getItem(LEGACY_UNIT_KEY);
+  if (!legacy) return;
+
+  const op = getOperation();
+  if (op && op.unitSystem === 'imperial' && (legacy === 'metric' || legacy === 'imperial')) {
+    storeSetUnitSystem(legacy);
+  }
+  localStorage.removeItem(LEGACY_UNIT_KEY);
 }
 
 /**

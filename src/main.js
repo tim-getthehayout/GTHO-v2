@@ -27,6 +27,11 @@ import { renderHarvestScreen } from './features/harvest/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { getFieldMode, setFieldMode } from './utils/preferences.js';
 
+// Register all calculations on import (CP-45/46/47)
+import './calcs/core.js';
+import './calcs/feed-forage.js';
+import './calcs/advanced.js';
+
 /**
  * Boot the application.
  * Sequence: load locale → check session → if auth'd show app, else show auth overlay

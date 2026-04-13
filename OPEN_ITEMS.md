@@ -2,6 +2,83 @@
 
 ## Open
 
+### OI-0011 — Feed Screen Metrics Still Show Placeholders
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** CP-25/CP-26 (Phase 3.3)
+
+Feed screen header shows `daysOnHand = null` with a code comment "placeholder until CP-27 provides consumption data." CP-27 (feed delivery) and CP-28 (feed check) have both shipped, so the data is available. Acceptance criteria for CP-25 says the feed screen should show "DM on hand, daily run rate, days on hand." CP-26 says the feed day goal progress bar should color based on days on hand vs goal. Currently the progress bar has nothing to compare against.
+
+**Fix:** Wire daily run rate (sum DMI consumption per day from DMI-1 across active events), DM on hand (sum batch.remaining × dm_pct across non-archived batches), and days on hand (DM on hand ÷ daily run rate). Update the progress bar threshold coloring per V2_DESIGN_SYSTEM.md §1.8. Files: `src/features/feed/index.js`.
+
+---
+
+### OI-0012 — Calc Test Coverage Gap
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** CP-45/CP-46/CP-47
+
+All 35 formulas are registered correctly, but `tests/unit/calcs.test.js` contains only 13 test cases — thin coverage for a module the dashboard and reports now depend on. Critical gaps: DMI-1 contains a specific v1 bug fix (residual lookup by date, not array index — V2_CALCULATION_SPEC.md §4) with no regression test; DMI-2 lactation logic (A38, beef vs dairy branching) untested; FED family residual interpolation untested; CST-1/2/3 cost math untested.
+
+**Fix:** Add ~10 targeted tests. Priority: DMI-1 residual-by-date regression, DMI-2 lactation branching (beef calf-in-class vs dairy dried_off_date), FED-1 residual interpolation, CST-1 feed cost per group, REC-1 recovery window with strip graze area_pct. Files: `tests/unit/calcs.test.js`.
+
+---
+
+### OI-0013 — Reference Console Description Spot-Check
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** CP-45/CP-46/CP-47
+
+The admin reference console (reports screen) renders all 35 formulas grouped by domain. Nobody has verified the displayed descriptions match V2_CALCULATION_SPEC.md verbatim. Tim uses this console to audit what the app is doing — mismatched descriptions undermine trust.
+
+**Fix:** Read each `registerCalc()` call in `src/calcs/core.js`, `feed-forage.js`, `advanced.js`. Compare the `description` and `formula` fields against V2_CALCULATION_SPEC.md §4. Correct any drift. No behavior change — metadata only.
+
+---
+
+### OI-0014 — Event Close Manure Transaction volumeKg Placeholder
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P3
+**Checkpoint:** CP-30
+
+`src/features/events/close.js` creates `manure_batch_transaction` records with `volumeKg = 0` when closing events at confinement locations. Comment says "calc engine (CP-44) will populate." This is intentional — full volume requires excretion rates × head count × duration, which the calc engine computes at display time. Verified this is architecturally sound.
+
+**Fix:** No code change needed now. When Phase 3.4 reports (amendments summary, NPK applied per paddock) display manure input volumes, confirm the display path uses the computed calc value (UNT-2 or equivalent) rather than the stored zero. Flag this when writing the amendments report if values look wrong.
+
+---
+
+### OI-0015 — Header Shows Farm Name, Needs Operation Name + Farm Picker
+**Added:** 2026-04-13 | **Area:** v2-design | **Priority:** P2 | **Status:** open — DESIGN REQUIRED, do not build
+
+The header currently shows the farm name as the primary identifier. It should show the **operation name** (the top-level identity). Users with multiple farms also have no way to switch which farm they're currently working in — all farm-scoped data (locations, groups, events) needs to be filtered by an active farm, but there's no UI for choosing.
+
+**Impact:** Single-farm operations see a cosmetic wording issue (farm name and operation name are often the same). Multi-farm operations literally can't navigate between farms — a blocker for the core multi-farm use case.
+
+**Proposed approach (pending Tim's approval):**
+
+1. **Header displays both:** Operation Name (primary, bold) and Farm Name (secondary, below). On mobile where space is tight, stack or truncate.
+2. **Active farm concept:** Add `active_farm_id` to `user_preferences` (not `operations` — farm context is per-user, a phone user and a tablet user might be working different farms simultaneously). Default to the first farm if unset.
+3. **Farm picker placement:**
+   - Desktop: dropdown next to the farm name in the header, or in the sidebar under the logo strip
+   - Mobile: tap the farm name to open a farm picker sheet
+4. **App-wide filtering:** Every farm-scoped query (locations, groups, events) filters by `store.getActiveFarmId()`. Store exposes `setActiveFarm(farmId)` action. All relevant feature screens subscribe to active farm changes and re-render.
+5. **Onboarding:** First farm is created during onboarding; becomes the default active farm for that user.
+6. **Single-farm UX:** If operation has only one farm, picker is hidden (just displays operation + farm names). As soon as a second farm exists, picker appears.
+
+**Design questions for Tim before build:**
+- Is active farm per-user (my proposal) or per-device/session?
+- Are there any features that should span all farms (e.g., operation-wide reports), and if so, do they need an "All farms" option in the picker?
+- Should switching farms require confirmation if there's unsaved work (e.g., survey drafts)?
+
+**Spec sources that need updates once approved:** V2_UX_FLOWS.md (new section for farm switching), V2_DESIGN_SYSTEM.md §3.6 (header/sidebar), V2_SCHEMA_DESIGN.md §1.5 (user_preferences +active_farm_id).
+
+---
+
+### OI-0016 — Dose Units: No Add/Edit UI
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P3
+**Checkpoint:** CP-32
+
+CP-32 shipped a dose_units list display in health reference tables, but no add/edit CRUD UI. Users can only use the seeded defaults (ml, cc, mg, g, tab, etc.). A user who needs a unit the seeds don't cover (e.g., "pellet," "scoop," "packet," or custom-labeled bottles) has no way to add it.
+
+**Fix:** Add dose unit CRUD to `src/features/health/reference-tables.js` alongside the existing categories and types patterns. Fields per V2_SCHEMA_DESIGN.md D9 dose_units: id, operation_id, name, abbreviation, is_archived, created_at, updated_at. Standard pattern: list with edit/archive actions + create sheet. No schema change needed.
+
+---
+
 ### OI-0008 — CP-17: Location Picker Recovery Section Always Empty
 **Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P3
 **Checkpoint:** CP-17

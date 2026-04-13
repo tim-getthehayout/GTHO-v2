@@ -77,6 +77,8 @@ let productSheet = null;
 export function renderProductsSection(operationId) {
   const products = getAll('inputProducts').filter(p => !p.archived);
   const categories = getAll('inputProductCategories').filter(c => !c.archived);
+  const productUnits = getAll('inputProductUnits').filter(u => !u.archived);
+  const unitMap = new Map(productUnits.map(u => [u.id, u.name]));
 
   return el('div', { className: 'card settings-card', 'data-testid': 'settings-input-products' }, [
     el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
@@ -93,7 +95,7 @@ export function renderProductsSection(operationId) {
           return el('div', { className: 'ft-row' }, [
             el('div', {}, [
               el('div', { className: 'ft-row-name' }, [p.name]),
-              el('div', { className: 'ft-row-detail' }, [`${cat ? cat.name : '—'} · NPK: ${npk}`]),
+              el('div', { className: 'ft-row-detail' }, [`${cat ? cat.name : '—'}${p.unitId ? ` · ${unitMap.get(p.unitId) || '?'}` : ''} · NPK: ${npk}`]),
             ]),
             el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
               el('button', { className: 'btn btn-outline btn-xs', onClick: () => openProductSheet(p, operationId, categories) }, [t('action.edit')]),
@@ -133,6 +135,16 @@ function openProductSheet(existing, operationId, categories) {
   npkRow.appendChild(inputs.kPct);
   panel.appendChild(npkRow);
 
+  // Unit selection from input_product_units
+  const productUnits = getAll('inputProductUnits').filter(u => !u.archived);
+  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.productUnit')]));
+  inputs.unitId = el('select', { className: 'auth-select', 'data-testid': 'product-sheet-unit' }, [
+    el('option', { value: '' }, ['—']),
+    ...productUnits.map(u => el('option', { value: u.id }, [u.name])),
+  ]);
+  if (existing?.unitId) inputs.unitId.value = existing.unitId;
+  panel.appendChild(inputs.unitId);
+
   panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.productCost')]));
   inputs.costPerUnit = el('input', { type: 'number', className: 'auth-input settings-input', value: existing?.costPerUnit ?? '' });
   panel.appendChild(inputs.costPerUnit);
@@ -146,6 +158,7 @@ function openProductSheet(existing, operationId, categories) {
       const data = {
         operationId, name: inputs.name.value.trim(),
         categoryId: inputs.categoryId.value || null,
+        unitId: inputs.unitId.value || null,
         nPct: parseNum(inputs.nPct.value), pPct: parseNum(inputs.pPct.value), kPct: parseNum(inputs.kPct.value),
         costPerUnit: parseNum(inputs.costPerUnit.value),
       };

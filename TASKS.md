@@ -74,6 +74,11 @@
 ### Pre-3.4 Work Items
 - [x] **Unit system migration** — Move unit_system from localStorage to operations table (A44, GH-3)
 - [x] **Strip grazing paddock windows** — Dual area/pct input, progress bar visualization, unit-aware (A45, GH-4)
+- [x] **OI-0011** — Feed screen metrics wired to live data (DM on hand, run rate, days on hand)
+- [x] **OI-0014** — Manure volumeKg placeholder verified as architecturally correct
+- [x] **OI-0016** — Dose units CRUD (add/edit/archive)
+- [x] **OI-0017** — Product add dialog unit selection (amendment input products)
+- [x] **OI-0018** — Sync status indicator in app header
 
 ### 3.4 Advanced
 - [ ] **CP-54** — Rotation calendar

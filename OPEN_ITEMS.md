@@ -53,20 +53,6 @@ The header currently shows the farm name as the primary identifier. It should sh
 
 ---
 
-### OI-0017 — Product Add Dialog Missing Unit Selection
-**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
-**Checkpoint:** CP-25/26 (feed & health product creation)
-
-When adding a product (feed item or health product), the create dialog does not expose a unit-of-measure selection field. Users can't pick bag/lb/kg/ml/tab/etc. at creation time, so downstream quantity math and display are either missing a unit or using a fallback.
-
-**Fix:** Add unit selection to both product create sheets:
-- Feed items (`src/features/feed/...`) — pull from feed unit list (kg/lb/bag/ton).
-- Health products (`src/features/health/...`) — pull from dose_units (ml/cc/mg/g/tab/...).
-
-Field exists in entity specs per V2_SCHEMA_DESIGN.md (F6 feed_items.default_unit, H3 health_products.default_dose_unit_id). This is a UI wiring gap, not a schema gap. Validate on save. Save persists the chosen unit ID; display uses it wherever quantity is shown.
-
-**Note:** This interacts with OI-0016 (dose units CRUD) — if a user can't find the unit they need, the CRUD from OI-0016 is the escape hatch.
-
 ---
 
 ---
@@ -96,6 +82,12 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ---
 
 ## Closed
+
+### OI-0017 — Product Add Dialog Missing Unit Selection
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
+**Resolution:** Added unit selection (from `inputProductUnits`) to the input product create/edit sheet in `src/features/amendments/reference-tables.js`. Saves `unitId` on the product. Unit name shown in product list. Feed type sheet already had a unit selector (bale/ton/kg/lb). Treatment recording sheet already had dose unit selector. The gap was only on amendment input products.
+
+---
 
 ### OI-0018 — Sync Status Not Shown in App Header
 **Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build

@@ -7,6 +7,7 @@ import { getAll, add, update, remove } from '../../data/store.js';
 import * as AiBullEntity from '../../entities/ai-bull.js';
 import * as TreatmentCategoryEntity from '../../entities/treatment-category.js';
 import * as TreatmentTypeEntity from '../../entities/treatment-type.js';
+import * as DoseUnitEntity from '../../entities/dose-unit.js';
 
 // ---------------------------------------------------------------------------
 // AI Bulls section
@@ -235,17 +236,66 @@ function openTypeSheet(existing, operationId, categories) {
 // Dose units section (read-only list — seeded at onboarding)
 // ---------------------------------------------------------------------------
 
+let doseUnitSheet = null;
+
 export function renderDoseUnitsSection() {
   const units = getAll('doseUnits').filter(u => !u.archived);
 
   return el('div', { className: 'card settings-card', 'data-testid': 'settings-dose-units' }, [
-    el('h3', { className: 'settings-section-title' }, [t('health.doseUnits')]),
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+      el('h3', { className: 'settings-section-title', style: { marginBottom: '0' } }, [t('health.doseUnits')]),
+      el('button', {
+        className: 'btn btn-outline btn-xs',
+        'data-testid': 'settings-add-dose-unit',
+        onClick: () => openDoseUnitSheet(null),
+      }, [t('health.addDoseUnit')]),
+    ]),
     units.length
       ? el('div', { className: 'ft-list' }, units.map(u =>
-          el('div', { className: 'ft-row' }, [el('span', { className: 'ft-row-name' }, [u.name])])
+          el('div', { className: 'ft-row', 'data-testid': `settings-dose-unit-${u.id}` }, [
+            el('span', { className: 'ft-row-name' }, [u.name]),
+            el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
+              el('button', { className: 'btn btn-outline btn-xs', onClick: () => openDoseUnitSheet(u) }, [t('action.edit')]),
+              el('button', { className: 'btn btn-outline btn-xs', onClick: () => {
+                if (window.confirm(t('health.confirmDelete'))) {
+                  update('doseUnits', u.id, { archived: true }, DoseUnitEntity.validate, DoseUnitEntity.toSupabaseShape, 'dose_units');
+                }
+              }}, [t('action.archive')]),
+            ]),
+          ])
         ))
       : el('p', { className: 'form-hint' }, [t('health.doseUnitEmpty')]),
   ]);
+}
+
+function openDoseUnitSheet(existing) {
+  if (!doseUnitSheet) doseUnitSheet = new Sheet('dose-unit-sheet-wrap');
+  const panel = document.getElementById('dose-unit-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [existing ? t('health.editDoseUnit') : t('health.addDoseUnit')]));
+  const nameInput = el('input', { type: 'text', className: 'auth-input', value: existing?.name || '', 'data-testid': 'dose-unit-sheet-name' });
+  panel.appendChild(el('label', { className: 'form-label' }, [t('health.doseUnitName')]));
+  panel.appendChild(nameInput);
+
+  const statusEl = el('div', { className: 'auth-error' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+    el('button', { className: 'btn btn-green', onClick: () => {
+      clear(statusEl);
+      const data = { name: nameInput.value.trim() };
+      try {
+        if (existing) update('doseUnits', existing.id, data, DoseUnitEntity.validate, DoseUnitEntity.toSupabaseShape, 'dose_units');
+        else add('doseUnits', DoseUnitEntity.create(data), DoseUnitEntity.validate, DoseUnitEntity.toSupabaseShape, 'dose_units');
+        doseUnitSheet.close();
+      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+    }}, [t('action.save')]),
+    el('button', { className: 'btn btn-outline', onClick: () => doseUnitSheet.close() }, [t('action.cancel')]),
+  ]));
+
+  doseUnitSheet.open();
 }
 
 /**
@@ -265,6 +315,10 @@ export function renderHealthRefSheetMarkups() {
     el('div', { className: 'sheet-wrap', id: 'treatment-type-sheet-wrap' }, [
       el('div', { className: 'sheet-backdrop', onClick: () => typeSheet && typeSheet.close() }),
       el('div', { className: 'sheet-panel', id: 'treatment-type-sheet-panel' }),
+    ]),
+    el('div', { className: 'sheet-wrap', id: 'dose-unit-sheet-wrap' }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => doseUnitSheet && doseUnitSheet.close() }),
+      el('div', { className: 'sheet-panel', id: 'dose-unit-sheet-panel' }),
     ]),
   ];
 }

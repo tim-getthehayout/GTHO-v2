@@ -53,16 +53,6 @@ The header currently shows the farm name as the primary identifier. It should sh
 
 ---
 
-### OI-0016 — Dose Units: No Add/Edit UI
-**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P3
-**Checkpoint:** CP-32
-
-CP-32 shipped a dose_units list display in health reference tables, but no add/edit CRUD UI. Users can only use the seeded defaults (ml, cc, mg, g, tab, etc.). A user who needs a unit the seeds don't cover (e.g., "pellet," "scoop," "packet," or custom-labeled bottles) has no way to add it.
-
-**Fix:** Add dose unit CRUD to `src/features/health/reference-tables.js` alongside the existing categories and types patterns. Fields per V2_SCHEMA_DESIGN.md D9 dose_units: id, operation_id, name, abbreviation, is_archived, created_at, updated_at. Standard pattern: list with edit/archive actions + create sheet. No schema change needed.
-
----
-
 ### OI-0017 — Product Add Dialog Missing Unit Selection
 **Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
 **Checkpoint:** CP-25/26 (feed & health product creation)
@@ -116,6 +106,12 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ---
 
 ## Closed
+
+### OI-0016 — Dose Units: No Add/Edit UI
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
+**Resolution:** Added dose unit CRUD to `src/features/health/reference-tables.js` — add/edit sheet, archive action, list with testids. Follows existing category/type pattern. No schema change needed (table exists). Seed data preserved; users can now extend.
+
+---
 
 ### OI-0014 — Event Close Manure Transaction volumeKg Placeholder
 **Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build

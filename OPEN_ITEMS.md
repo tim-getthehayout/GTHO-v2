@@ -17,11 +17,32 @@ CP-13 spec says "unit system toggle (metric/imperial)" on Farm Settings. V2_SCHE
 
 ---
 
----
+### OI-0009 — Desktop Layout: Nav Sidebar Overlaps Main Content
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
+
+At desktop breakpoints (≥900px), the sidebar nav overlaps the main content area. **Root cause:** `src/styles/main.css` line ~202 — `.header-nav` uses `position: fixed` at the `min-width: 900px` media query, which removes it from document flow. The grid layout on `#app` reserves a 220px left column, but the fixed-positioned nav doesn't occupy it, so `.app-content` renders underneath the nav.
+
+**Fix options (pick one):**
+1. **Remove `position: fixed`** from `.header-nav` in the desktop media query and let the CSS Grid handle sidebar placement naturally. Cleanest approach.
+2. **Add `margin-left: 220px`** to `.app-content` in the desktop media query to offset for the fixed nav.
+
+**Spec:** `github/issues/fix-desktop-layout-overlap.md`
+**Fix:** Add `grid-column: 2` to `.app-content` in the desktop media query. One-line CSS change.
 
 ---
 
----
+### OI-0010 — Dashboard Home Screen Not Rendering Per v1 / Missing §17 Implementation
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P1
+
+The dashboard home screen was built without an assembly spec — V2_UX_FLOWS.md had no dedicated section for the home screen. As a result, the dashboard is missing: farm overview stats row (5 metrics desktop / 3 mobile), group card body content (composition, location bar, DMI, NPK, actions), view toggle (groups/locations), mobile bottom nav, period selector pills, open tasks section, survey draft card, weaning nudge, and proper header (farm name instead of "GTHO v2").
+
+**Resolution:** §17 added to V2_UX_FLOWS.md (14 subsections, §17.1–§17.14) covering complete home screen assembly. Claude Code should rebuild the dashboard feature from this spec.
+
+**Dependencies:**
+- OI-0009 must be fixed first (layout overlap blocks visual verification)
+- Todos feature UI (`src/features/todos/`) needs to be created — entities exist (`todo.js`, `todo-assignment.js`), store/sync registered, but no screen/sheet/route. §17.9–§17.11 spec the UI.
+- `#/todos` route needs to be added to router and nav (both mobile bottom nav and desktop sidebar), with badge showing open count.
+- `user_preferences.home_view_mode` default should be `'locations'` for new users (schema currently defaults to `'groups'`).
 
 ---
 

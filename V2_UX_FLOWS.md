@@ -802,11 +802,365 @@ When "Feed Animals" tile is selected:
 
 ---
 
+## 17. Home Screen (Dashboard) & Todos
+
+The home screen is the default view (`#/`) and the most-visited screen. It provides a real-time overview of the operation: farm performance stats, group/location cards, open tasks, survey prompts, and weaning alerts. V1 reference: `renderHome()` (index.html line 5533).
+
+### 17.1 Screen Layout
+
+**Desktop (≥900px):**
+```
+┌─────────┬──────────────────────────────────────────┐
+│ sidebar │ Header: Farm name · sync dot · version   │
+│ 220px   │         [Feedback] [Field]               │
+│         ├──────────────────────────────────────────┤
+│ nav     │ Farm Overview          [24h][3d][7d][30d][All]
+│ items   │ {totalHead} head · {groupCount} groups · │
+│         │ {activeCount} active                     │
+│         │ ┌────────┬────────┬────────┬────────┬────────┐
+│         │ │Past.DMI│Fd Cost │Past. % │NPK/Ac  │NPK Val │
+│         │ └────────┴────────┴────────┴────────┴────────┘
+│         │                                          │
+│         │ View: [Groups] [Locations]               │
+│         │ ┌─────────────┐ ┌─────────────┐         │
+│         │ │ Group Card  │ │ Group Card  │ 2-col   │
+│         │ │ (expanded)  │ │ (expanded)  │         │
+│         │ └─────────────┘ └─────────────┘         │
+│         │                                          │
+│         │ My open tasks              [All tasks]   │
+│         │ ┌─ task card (compact) ──┐               │
+│         │ └────────────────────────┘ up to 4       │
+│         │ [+ Add task]                             │
+│         │                                          │
+│         │ {Survey card if draft exists}            │
+│         │ {Weaning nudge if applicable}            │
+│ sync    │                                          │
+│ strip   │                                          │
+└─────────┴──────────────────────────────────────────┘
+```
+
+**Mobile (<900px):**
+```
+┌──────────────────────────┐
+│ Header: Farm name · sync │
+│         [Feedback] [Field]│
+├──────────────────────────┤
+│ Grazing performance      │
+│ [24h][3d][7d][30d]       │
+│ ┌────────┬────────┬──────┐
+│ │Past. % │NPK/ac  │Fd $/d│  3-col
+│ └────────┴────────┴──────┘
+│                          │
+│ View: [Groups][Locations]│
+│ ┌── Group Card ──────▼──┐│ collapsed
+│ ├── Group Card ──────▼──┤│ by default
+│ └── Group Card ──────▼──┘│
+│                          │
+│ My open tasks  [All tasks]│
+│ ┌── task (compact) ─────┐│
+│ └────────────────────────┘│ up to 4
+│ [+ Add task]              │
+│                          │
+│ {Survey card}            │
+│ {Weaning nudge}          │
+│                          │
+├──────────────────────────┤
+│ bnav: Home Animals Todos │
+│        Events Locations  │
+│        Feed Settings     │
+└──────────────────────────┘
+```
+
+**Rendering order:** Header → stats row → view toggle → group/location grid → open tasks section → survey card (if draft exists) → weaning nudge (if applicable).
+
+**No FAB.** V1's floating action button opened the feedback sheet. V2 replaces this with a feedback button in the header bar (see §17.2).
+
+### 17.2 Header Bar
+
+The header bar is sticky top on both mobile and desktop.
+
+| Element | Source | Notes |
+|---------|--------|-------|
+| Farm name | `store.getAll('farms')[0].name` | Replaces the hardcoded "GTHO v2" title. If no farm exists (pre-onboarding), show "Get The Hay Out". |
+| Sync indicator | §3.14 sync dot | 8×8px circle. States: `.sync-ok` (green, online), `.sync-pending` (amber, queued writes), `.sync-off` (`--text3`, offline), `.sync-err` (red, error). Doubles as offline/online status indicator. |
+| Build version | `<meta name="app-version">` | Small text (`11px, --text2`) beside sync dot. Format: `bYYYYMMDD.HHMM`. |
+| Feedback button | — | `btn btn-outline btn-xs`. Opens feedback sheet. Shows unread badge (red dot with count) if unread feedback exists. Positioned in header, not floating. |
+| Field mode toggle | — | `btn btn-green btn-xs`. Navigates to `#/field`. Positioned right side of header. |
+
+**Desktop sidebar** follows §3.6 exactly: 220px fixed, logo strip (32×32 icon, green bg, rounded, 14px bold farm name, 11px subtitle), nav items with hover (`--bg2`) and active (`--green-l` bg, `--green-d` text, 600 weight), sync strip at bottom (border-top, 11px, `--text2`).
+
+**Nav items:** Dashboard, Events, Locations, Animals, Feed, **Todos**, Reports, Settings. (V1 had 9 screens including Pastures and Feedback; v2 merges Pastures into Locations and moves Feedback to the header.)
+
+**Todos badge:** The Todos nav item shows a red badge with the count of non-closed todos (same pattern as v1's `updateTodoBadge()`). Badge uses §3.6 badge pattern: absolute positioned, `--red` bg, 9px white text.
+
+**Mobile bottom nav:** Follows §3.6 bottom nav pattern. Fixed bottom, full width (max 480px), `z-index: 100`, flex row. Each item: column layout, 22×22 icon, 10px label. Active: `--green` color. Items: Home, Animals, Todos, Events, Locations, Feed, Settings.
+
+### 17.3 Farm Overview Stats — Desktop
+
+Rendered by `renderDesktopDashboardHeader()`. Shows above the view toggle.
+
+**Header line:** "Farm Overview" label (left) with summary text: `"{totalHead} head · {groupCount} groups · {activeCount} active"`. Period pills (right).
+
+**Period selector pills:** 5 options — `24h`, `3d`, `7d`, `30d`, `All`. Active pill: `--green` bg, white text, filled. Inactive pill: `--border2` border, transparent bg, `--text2` text. Selection stored in `user_preferences.home_stats_period` (or localStorage fallback). Default: `7d`.
+
+**5 metric cells** in a `repeat(5, 1fr)` grid, 10px gap. Each cell follows §3.8 (`.m-cell`, `--bg2`, `--radius`, 12px padding):
+
+| Metric | Color | Display | Sub-label | Calculation |
+|--------|-------|---------|-----------|-------------|
+| Pasture DMI | `--green` | lbs (1k+ as "Xk") | "lbs DM" | Sum pasture DMI from events in period, pro-rated by days |
+| Feed Cost | `--amber` | "$XX.XX" | "stored feed" | Sum feed entry costs from all events in period |
+| Pasture % | `--teal` | "XX%" or "--" | "avg, N closed events" or "estimated, open events" or "no grazing events" | Avg pasture % from closed events, or open event estimate |
+| NPK / Acre | `--purple-d` | "XX.X /ac" or "--" | "N{X}/P{X}/K{X} lbs · {X.XX} ac" | Total N+P+K divided by total paddock acres |
+| NPK Value | `--blue` | "${XX.XX}/ac" or "--" | "${X} total · {X.XX} ac" | (N×$nPrice + P×$pPrice + K×$kPrice) / acres |
+
+**Empty state:** If no events match the selected period, show "No events in this period" in `--text2`, 13px, centered.
+
+### 17.4 Farm Overview Stats — Mobile
+
+Rendered by `renderMobilePerformanceStrip()`. Different metrics and layout from desktop.
+
+**Header line:** "Grazing performance" (left). Period pills (right): 4 options — `24h`, `3d`, `7d`, `30d` (no "All" on mobile). Same pill styling as desktop.
+
+**3 metric cells** in a `1fr 1fr 1fr` grid, 8px gap:
+
+| Metric | Color | Threshold colors |
+|--------|-------|-----------------|
+| Pasture % | `--teal` | ≥70%: `--green`, 40–70%: `--amber`, <40%: `--red` |
+| NPK / Acre | `--purple-d` | No thresholds — always purple |
+| Feed Cost / Day | `--amber` | <$2/hd/day: `--green`, $2–5: `--amber`, >$5: `--red` |
+
+Threshold colors apply to the value text. Labels remain `--text2`.
+
+### 17.5 View Toggle: Groups / Locations
+
+A pill-style toggle below the stats row, above the card grid. Follows v1's `renderHomeViewToggle()`.
+
+```
+View: [Groups] [Locations]
+```
+
+**Styling:** Two buttons side-by-side with 4px gap. Active button: `--green` border, `--green` bg, white text. Inactive button: `--border2` border, transparent bg, `--text2` text. Rounded corners (`--radius`).
+
+**State:** Stored in `user_preferences.home_view_mode`. Values: `'groups'` or `'locations'`. **System default for new users: `'locations'`** (v2 change from v1's default of `'groups'`). Toggling calls store update, persists preference, and re-renders the card grid.
+
+On desktop the toggle spans `grid-column: 1 / -1` (above the 2-column card grid).
+
+### 17.6 Groups View — Group Cards
+
+Default card grid when `home_view_mode = 'groups'`. One card per animal group (non-archived).
+
+**Grid:** Single column on mobile, `1fr 1fr` on desktop with 14px gap. Design system §3.13 + §2.3.
+
+**Card header** (always visible):
+- **Color bar:** 4px wide, left edge, per-group color from `groups.color`
+- **Title line:** Group name (14px, 600 weight)
+- **Subtitle line:** `"{headCount} head · avg {avgWeight} lbs"` + location info if placed: `" · {locationName}"` or `" · Not placed"` if no active event
+- **Chevron:** `--text3`, rotates 180° when expanded. Hidden on desktop (cards always expanded).
+
+**Card body** (collapsed on mobile, always shown on desktop):
+
+Rendered top-to-bottom in this order. Each sub-element is conditional:
+
+1. **Composition line** — Animal counts by sex or class. E.g., "12 cows · 4 heifers · 1 bull". Only shows if group has animals with class/sex data. Font: 12px, `--text2`.
+
+2. **Location status bar** — Only shows if group has an active event. Uses `.grp-loc-bar` (§3.13): `--bg2` bg, `--radius`, `9px 12px` padding. Contains:
+   - Location name with green "grazing" badge (`.badge` with `--green-l` bg, `--green-d` text)
+   - Day count: "Day {N}" (days since event open)
+   - Sub-move count (if >0 sub-moves): "{N} sub-moves"
+   - Feed entry count: "{N} feedings"
+   - Feed cost: "${XX.XX}"
+
+3. **DMI target + progress** — Only shows if `group.dmiTarget > 0` AND feed entries exist for the active event. Shows: "DMI: {consumed} / {target} lbs" with a progress bar (§3.10). Progress bar fill: `--green` if on track, `--amber` if behind pace.
+
+4. **NPK deposited** — Only shows if group has animals with `bodyWeight > 0`. Shows: "NPK deposited: N{X} P{X} K{X} lbs". Font: 12px, `--text2`. Calculated from group head count, average weight, and days on pasture.
+
+5. **Action buttons** — Flex wrap row, each button `flex: 1, min-width: 80px`:
+
+| Button | Style | Condition | Action |
+|--------|-------|-----------|--------|
+| Move | `btn btn-teal` (filled) | Group has active event | Opens event edit sheet |
+| Place | `btn btn-teal` (filled) | Group has NO active event | Opens move wizard (§1) |
+| Split | `btn btn-outline` | Only if active event exists | Opens split sheet |
+| Weights | `btn btn-outline` | Always | Opens weight recording (§14.1) |
+| Edit | `btn btn-outline` | Always | Opens group edit sheet (§15.2) |
+
+**Collapse/expand behavior (mobile):**
+- Tap target: full header row (not just chevron)
+- Toggle: instant (CSS class toggle, no animation)
+- Multiple cards can be open simultaneously
+- Auto-expand: cards with active events start expanded
+- State preserved across re-renders (track expanded card IDs before re-render, re-apply after)
+
+**Empty state:** When no groups exist, show a card centered on screen: "No groups set up yet" (16px, 600 weight) + "Add your animal classes and groups in Settings to get started." (13px, `--text2`) + CTA button: `btn btn-teal btn-sm` → navigates to `#/settings`.
+
+### 17.7 Locations View — Location Cards
+
+Alternate card grid when `home_view_mode = 'locations'`. Shows active events grouped by location, plus an unplaced groups section.
+
+**Grid:** Same layout as groups view (single column mobile, `1fr 1fr` desktop, 14px gap).
+
+**Active event cards** — one per active event (location-centric):
+- **Header:** Location name (14px, 600 weight) + type badge (land_use value — using §3.3 chip pattern): pasture → `--green`, mixed-use → `--teal`, confinement → `--amber`, crop → `--purple`
+- **Body:**
+  - Groups present: list of group names with head counts. E.g., "Cows (24 head) · Heifers (12 head)"
+  - Days in: "Day {N}" since event opened
+  - Feed status: "{N} feedings · ${XX.XX} cost"
+  - Sub-paddock status (if strip graze): "Strip {N} of {M}"
+  - Action buttons: Move (opens event edit), Survey (opens paddock survey §7), Edit (opens event edit)
+
+**Unplaced groups section** — below active event cards:
+- Section header: "Unplaced groups" (`.sec` label)
+- One row per unplaced group: group name + head count + "Place" button (`btn btn-teal btn-sm`)
+- If no unplaced groups, section is hidden
+
+**Empty state:** If no active events exist, show: "No active events. Place a group to start grazing." (13px, `--text2`, centered).
+
+### 17.8 Open Tasks Section (Dashboard)
+
+Shows below the group/location card grid. Displays up to 4 open (non-closed) todos.
+
+**Layout:**
+```
+┌──────────────────────────────────────────┐
+│ My open tasks                [All tasks] │
+│ ┌── todo card (compact) ────────────────┐│
+│ ├── todo card (compact) ────────────────┤│
+│ ├── todo card (compact) ────────────────┤│
+│ └── todo card (compact) ────────────────┘│
+│ [+ Add task]                             │
+└──────────────────────────────────────────┘
+```
+
+- Section header: "My open tasks" (`.sec` label, left) + "All tasks" button (`btn btn-outline btn-xs`, right) → navigates to `#/todos`
+- Cards: up to 4 todos where `status !== 'closed'`, rendered with `compact = true` (no paddock/animal/note detail — title, status pill, and assignee avatars only). See §17.11 for card anatomy.
+- "+ Add task" button: `btn btn-outline btn-sm`, full width, opens todo create sheet (§17.10)
+- Empty state: "No open tasks" (13px, `--text2`)
+
+### 17.9 Todos Screen (`#/todos`)
+
+Dedicated full-screen list of all todos. Accessible from nav (both mobile bottom nav and desktop sidebar) and from dashboard "All tasks" button.
+
+**Filter bar** — three rows of filter pills above the list:
+
+1. **Status filters:** "Open" (default on), "In progress" (default on), "Closed" (default off). Toggle on/off. At least one must be active. Uses §3.7 filter pill pattern.
+2. **User filters:** One pill per operation member. "All" clears filter. Default: show all.
+3. **Location filters:** One pill per location that has todos. "(no location)" for unlinked todos. "All" clears filter. Default: show all.
+
+**Sort:** Newest first (descending by `created_at`).
+
+**List:** Scrollable list of todo cards (full detail, not compact). See §17.11 for card anatomy.
+
+**Empty state:** "No tasks match these filters" (§3.11 empty pattern).
+
+**Actions:**
+- Tap any card → opens todo edit sheet (§17.10)
+- "+ Add task" button at bottom: `btn btn-outline btn-sm` → opens todo create sheet
+
+**Summary line:** Below filters, above list: "{N} tasks shown" (12px, `--text2`).
+
+### 17.10 Todo Create/Edit Sheet
+
+Standard sheet (§3.4 sheet pattern) for creating or editing a todo.
+
+**Title:** "New task" (create) or "Edit task" (edit).
+
+**Fields:**
+
+| Field | Input | Required | Notes |
+|-------|-------|----------|-------|
+| Title | text input | Yes | Placeholder: "e.g. Check water trough in North paddock" |
+| Assignees | multi-select chips | No | One chip per operation member. Tap to toggle. Uses `todo_assignments` junction table. |
+| Status | select | Yes | Options: Open, In progress, Closed. Default: Open. |
+| Location | select | No | Options: all locations + "— none —". V2 uses `location_id` FK (v1 used paddock name string). |
+| Animal | select | No | Options: all active animals (tag number + name) + "— none —". |
+| Due date | date input | No | V2 addition — column exists in schema but v1 didn't sync it. |
+| Note | textarea | No | Placeholder: "Additional details..." |
+
+**Pre-population contexts:**
+- From animal quick-action bar (§14.9): `animal_id` pre-selected
+- From move wizard: `location_id` pre-selected to the destination paddock
+- From dashboard "+ Add task": all fields empty
+
+**Save behavior:** Validate title (required). Create or update todo in store → persist → queue sync → notify. Update todo badge count. Re-render home/todos screen.
+
+**Delete:** Edit mode only. Red delete button at bottom: `btn btn-red btn-sm`. Confirms before deleting. Queues Supabase delete.
+
+### 17.11 Todo Card Anatomy
+
+Used in both the dashboard (compact) and todos screen (full).
+
+```
+┌─────────────────────────────────────────────┐
+│ ▌ Task title                    [Status pill]│
+│ ▌ 📍 Location name · 🐄 Tag #42            │  ← hidden in compact mode
+│ ▌ Note preview (80 chars max)...            │  ← hidden in compact mode
+│ ▌ 👤 👤 avatars                             │
+└─────────────────────────────────────────────┘
+```
+
+**Status bar:** 4px vertical bar on the left edge (same pattern as group card color bar):
+- Open: `--amber`
+- In progress: `--blue`
+- Closed: `--green`
+
+**Status pill** (top right): Uses status pill pattern.
+- Open: `.sp-open` (amber)
+- In progress: `.sp-progress` (blue)
+- Closed: `.sp-closed` (green, card gets `.closed` class — reduced opacity)
+
+**Title:** 14px, 600 weight, line-height 1.4.
+
+**Detail line** (full mode only): 12px, `--text2`. Shows location name (if linked) and animal tag (if linked), joined with " · ". Prefixed with 📍 and 🐄 respectively.
+
+**Note preview** (full mode only): 12px, `--text2`, line-height 1.4. First 80 characters of note, ellipsis if truncated.
+
+**Assignee avatars:** Flex row, 6px gap. Each avatar is a small circle (24px) with initials or user icon. Shown in both compact and full modes.
+
+**Tap action:** Opens todo edit sheet (§17.10).
+
+### 17.12 Survey Draft Card
+
+Shows on the dashboard below the tasks section when an incomplete survey draft exists in the store.
+
+**Condition:** `store.getAll('surveys').some(s => s.status === 'draft')`.
+
+**Card:** Standard card (§3.1) with amber banner style (`.ban-amber`):
+- Title: "Survey in progress" (14px, 600 weight)
+- Subtitle: survey location name + date started (12px, `--text2`)
+- CTA button: `btn btn-amber btn-sm` → opens the survey sheet (§7) with draft pre-loaded
+
+If no draft surveys exist, this card is not rendered (no empty state needed).
+
+### 17.13 Weaning Nudge
+
+Shows on the dashboard below the survey card when any animal group has calves approaching their weaning age target.
+
+**Condition:** Group has calves where `(today - calf.birthDate)` is within 14 days of the weaning target age. Precedence: uses `group.weaning_target_days` if set, otherwise falls back to `animal_classes.weaning_target_days` for the group's class.
+
+**Card:** Standard card (§3.1) with teal banner style (`.ban-teal`):
+- Title: "Weaning alert" (14px, 600 weight)
+- Body: "Group {name} has {N} calves at {avgDays} days — weaning target is {targetDays} days." (13px)
+- One card per qualifying group (rendered in a stack if multiple)
+
+If no groups qualify, this section is not rendered.
+
+### 17.14 Design Notes
+
+- **Render order matters.** The dashboard renders top-to-bottom: stats → toggle → cards → tasks → survey → weaning. Each section is independently conditional — missing data hides the section, it doesn't show an empty placeholder (except stats and tasks which have explicit empty states).
+- **View toggle default.** New users default to Locations view (`home_view_mode = 'locations'`). This is a v2 change from v1 (which defaulted to Groups). Schema column `user_preferences.home_view_mode` has `DEFAULT 'groups'` — the application layer overrides this for new onboarding users.
+- **Stats period persistence.** The selected period pill persists across sessions. If no `home_stats_period` preference exists, default to `'7d'`.
+- **Calculation cross-references.** Stats row metrics connect to registered calculations in V2_CALCULATION_SPEC.md: Pasture DMI → DMI-1, Feed Cost → COST-1, Pasture % → DMI-3, NPK/Acre → NPK-1, NPK Value → NPK-2. The stat functions pass the selected period to filter event data.
+- **Todo screen is a route.** `#/todos` is a first-class route in the router, with a nav entry (including badge) on both mobile bottom nav and desktop sidebar.
+- **Todos entity already exists.** `src/entities/todo.js` and `src/entities/todo-assignment.js` are built. The feature UI (`src/features/todos/`) is what needs to be created.
+
+---
+
 ## Change Log
 
 | Date | Session | Changes |
 |------|---------|---------|
 | 2026-04-12 | Session 11 — UX flow gap fill | Added §14 (reusable health & recording components — 10 subsections covering weight, BCS, treatment, breeding, heat, calving, note, group sessions, quick-action bar), §15 (entity CRUD forms — animal, group, location, feed type), §16 (field mode — home screen, navigation, heat quick-access, feed loop). Component-first approach: each form documented once with entry points and context pre-fill mapped. |
+| 2026-04-13 | Session — Dashboard & todos spec | Added §17 (home screen / dashboard + todos). 14 subsections covering: screen layout (mobile/desktop), header bar, farm overview stats (desktop 5-metric, mobile 3-metric with thresholds), view toggle (groups/locations, default changed to locations for new users), group card anatomy (body elements, conditional logic, action buttons, collapse/expand), location card anatomy, open tasks dashboard section, todos screen with 3-axis filtering, todo create/edit sheet, todo card anatomy, survey draft card, weaning nudge. Derived from v1 `renderHome()` + `renderTodos()` code review against v2 schema D11.3/D11.4. FAB removed — feedback button moved to header. |
 
 ---
 

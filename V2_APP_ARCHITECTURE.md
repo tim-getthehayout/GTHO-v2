@@ -143,19 +143,37 @@ src/
     todo-assignment.js
     release-note.js
   features/
-    events/               — Event creation, editing, close sequence
-    feed/                 — Feed delivery, checks, transfers
+    events/               — Event list, event card, close sequence
+      index.js            — Screen render, event list, event card renderer
+      move-wizard.js      — 3-step move wizard (§1)
+      submove.js          — Paddock window open/close, advance strip (§2)
+      group-windows.js    — Group add/remove (§3)
+      close.js            — Event close sheet (§9)
+    feed/                 — Feed delivery, checks, transfers, inventory
+      index.js            — Feed screen render, batch list, feed day goal
+      delivery.js         — Feed delivery sheet (§4) — shared: events, field mode
+      check.js            — Feed check sheet (§5) — shared: events, move wizard, field mode
+      transfer.js         — Feed transfer (§6) — invoked from move wizard
     locations/            — Location management
     surveys/              — Survey workflow
     harvest/              — Harvest recording
-    animals/              — Animal/group management
-    health/               — Treatments, breeding, calving, heats, BCS, weights
+    animals/              — Animal/group management, per-animal quick-action bar (§14.10)
+    health/               — Reusable recording sheets (§14): weight, BCS, treatment, breeding, heat, calving, note
+      weight.js           — Weight Recording sheet (§14.2) — shared: animal edit, quick-action, group session, calving
+      bcs.js              — BCS Recording sheet (§14.3) — shared: animal edit, quick-action, group session
+      treatment.js        — Treatment Recording sheet (§14.4) — shared: animal edit, quick-action, group session
+      breeding.js         — Breeding Recording sheet (§14.5) — shared: animal edit, quick-action
+      heat.js             — Heat Recording sheet (§14.6) — shared: animal edit, quick-action, field mode
+      calving.js          — Calving Recording sheet (§14.7) — from animal edit only
+      note.js             — Animal Note sheet (§14.8) — shared: animal edit, quick-action
+      group-session.js    — Group session wrapper (§14.9) — iterates weight/BCS/treatment
     amendments/           — Soil tests, amendment recording, manure batches, spreaders
     auth/                 — Login, signup, session management (loads before main app)
     onboarding/           — Setup wizard: species selection, class seeding, reference table defaults
     reports/              — Report generation
     settings/             — Settings, calc reference console
     dashboard/            — Home screen widgets
+    field-mode/           — Field mode home screen, navigation, action tiles (§16)
   ui/
     dom.js                — DOM builder: el(), text(), clear()
     sheet.js              — Sheet lifecycle class
@@ -185,6 +203,9 @@ supabase/
 - Feature code lives in `src/features/`, organized by domain
 - Utils are stateless pure functions
 - No circular imports between layers (data → entities → utils only; features → everything)
+- **One sheet per file.** Each sheet handler (open/close/save + DOM) lives in its own file within the feature directory. `index.js` handles the screen render and list; domain-specific sheets get their own files. This prevents central-hub screens (events, animals) from growing into monoliths.
+- **Shared sheets live in their domain, not their caller.** Feed delivery is a feed feature — it lives in `feed/delivery.js` even though it's opened from event cards, field mode, and the feed screen. Health recording sheets live in `health/`. The caller imports the sheet's `open` function; the sheet doesn't know who called it.
+- **Feature file size limit: ~500 lines.** If a feature file exceeds 500 lines, split it. This is a guideline, not a hard rule — but if you're past 500 lines and the file contains multiple sheet handlers, it must be split before the next commit.
 
 ---
 

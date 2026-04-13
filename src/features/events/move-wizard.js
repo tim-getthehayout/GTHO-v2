@@ -38,6 +38,7 @@ export function openMoveWizard(sourceEvent, operationId, farmId) {
     destType: null,        // 'new' | 'join'
     locationId: null,
     existingEventId: null,
+    destFarmId: farmId,    // Farm chip selection (default = source farm)
     stripGraze: false,
     stripSizePct: 100,
     stripCount: 1,
@@ -111,8 +112,27 @@ function renderStep2(panel, state, render, operationId, sourceEvent) {
   ]));
 
   if (state.destType === 'new') {
-    // Location picker
-    const locations = getAll('locations').filter(l => !l.archived);
+    // Farm chip — scopes location picker to a specific farm (GH-5)
+    const allFarms = getAll('farms').filter(f => !f.archived);
+    if (allFarms.length > 1) {
+      const destFarm = allFarms.find(f => f.id === state.destFarmId);
+      const farmChip = el('div', { className: 'wizard-farm-chip', 'data-testid': 'move-wizard-farm-chip' }, [
+        el('span', {}, [`Farm: ${destFarm?.name || '?'}`]),
+        el('select', {
+          className: 'auth-select', style: { marginLeft: 'var(--space-2)', maxWidth: '160px' },
+          'data-testid': 'move-wizard-farm-select',
+        }, allFarms.map(f => el('option', { value: f.id, ...(f.id === state.destFarmId ? { selected: 'true' } : {}) }, [f.name]))),
+      ]);
+      farmChip.querySelector('select').addEventListener('change', (e) => {
+        state.destFarmId = e.target.value;
+        state.locationId = null; // Reset location when farm changes
+        render();
+      });
+      panel.appendChild(farmChip);
+    }
+
+    // Location picker — filtered by destination farm
+    const locations = getAll('locations').filter(l => !l.archived && l.farmId === state.destFarmId);
     const selection = { locationId: state.locationId };
     const pickerEl = el('div', { 'data-testid': 'move-wizard-location-picker' });
     renderLocationPicker(pickerEl, locations, selection);
@@ -469,11 +489,14 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       const timeIn = inputs.timeIn.value || null;
 
       // Step 6: Create new event
+      // Cross-farm move: use destination farm, link back via sourceEventId
+      const isCrossFarm = state.destFarmId && state.destFarmId !== farmId;
       const newEvent = EventEntity.create({
         operationId,
-        farmId,
+        farmId: state.destFarmId || farmId,
         dateIn,
         timeIn,
+        sourceEventId: isCrossFarm ? sourceEvent.id : null,
       });
       add('events', newEvent, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
 

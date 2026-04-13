@@ -3,6 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
+import { navigate } from '../../ui/router.js';
 import { getAll, getById, add, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert } from '../../utils/units.js';
@@ -224,6 +225,9 @@ function renderEventCard(evt, operationId) {
       ]),
     ]),
 
+    // Cross-farm markers (GH-5)
+    ...renderCrossFarmMarkers(evt),
+
     // Body
     el('div', { className: 'event-card-body' }, [
       // Paddock windows section
@@ -284,6 +288,45 @@ function renderEventCard(evt, operationId) {
       ]),
     ].filter(Boolean)),
   ]);
+}
+
+/**
+ * Render cross-farm move markers on event cards (GH-5).
+ * "← Moved from {farm}" when sourceEventId links to a different farm.
+ * "→ Moved to {farm}" when another event's sourceEventId points here from a different farm.
+ */
+function renderCrossFarmMarkers(evt) {
+  const markers = [];
+  const farms = getAll('farms');
+  const farmMap = new Map(farms.map(f => [f.id, f.name]));
+
+  // Incoming: this event has sourceEventId from a different farm
+  if (evt.sourceEventId) {
+    const sourceEvt = getById('events', evt.sourceEventId);
+    if (sourceEvt && sourceEvt.farmId !== evt.farmId) {
+      const srcFarmName = farmMap.get(sourceEvt.farmId) || '?';
+      markers.push(el('div', {
+        className: 'cross-farm-marker',
+        'data-testid': `cross-farm-from-${evt.id}`,
+        style: { cursor: 'pointer' },
+        onClick: () => navigate(`#/events`),
+      }, [`\u2190 Moved from ${srcFarmName}`]));
+    }
+  }
+
+  // Outgoing: another event's sourceEventId points to this event from a different farm
+  const destEvents = getAll('events').filter(e => e.sourceEventId === evt.id && e.farmId !== evt.farmId);
+  for (const dest of destEvents) {
+    const destFarmName = farmMap.get(dest.farmId) || '?';
+    markers.push(el('div', {
+      className: 'cross-farm-marker',
+      'data-testid': `cross-farm-to-${evt.id}`,
+      style: { cursor: 'pointer' },
+      onClick: () => navigate(`#/events`),
+    }, [`\u2192 Moved to ${destFarmName}`]));
+  }
+
+  return markers;
 }
 
 function renderPaddockWindowsSection(windows, eventIsActive, evt, operationId) {

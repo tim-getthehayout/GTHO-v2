@@ -1571,6 +1571,38 @@ body.field-mode .sheet-panel {
   color: var(--red);
 }
 
+/* Cross-farm move markers on event cards */
+.cross-farm-marker {
+  font-size: 11px;
+  color: var(--text2);
+  padding: 2px var(--space-4);
+  background: var(--bg2);
+  border-radius: var(--radius-sm);
+  margin: 0 var(--space-3) var(--space-2);
+}
+
+/* Farm chip in wizard pickers */
+.wizard-farm-chip {
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) 0;
+  font-size: 13px;
+  color: var(--text2);
+  margin-bottom: var(--space-3);
+}
+
+/* Farm name chip on cards in All-farms mode */
+.farm-chip {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text3);
+  background: var(--bg2);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  margin-left: var(--space-2);
+}
+
 /* Nav link with badge */
 .nav-link-badge {
   position: relative;

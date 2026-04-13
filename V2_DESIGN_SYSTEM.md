@@ -506,4 +506,74 @@ v2 uses CSS custom properties organized by category in `src/ui/tokens.css`:
 
 ---
 
+## 7. Additional Component Patterns (Session 11)
+
+Patterns for components added in V2_UX_FLOWS.md §14–§16 that were not in v1's visual audit.
+
+### 7.1 Per-Animal Quick-Action Bar
+
+Horizontal row of icon buttons on each animal list item. Sits below the animal's primary info (tag, name, class, weight).
+
+- **Layout:** Flexbox row, `gap: var(--space-3)`, horizontally scrollable on overflow (mobile)
+- **Button style:** Ghost buttons (no background), icon + label text, `font-size: var(--font-xs)`, `color: var(--neutral-600)`
+- **Active state:** `color: var(--primary-600)`, `background: var(--primary-50)`, `border-radius: var(--radius-md)`
+- **Female-only buttons** (Breeding): hidden for male animals via conditional render, not CSS
+- **Mobile collapse (< 640px):** Show first 4 icons inline, remaining in "⋯" overflow menu (Sheet pattern, bottom-anchored)
+- **Tap target:** Minimum 44×44px per button (accessibility)
+
+### 7.2 Field Mode Home Screen
+
+Replaces standard dashboard when field mode is active.
+
+- **Action tiles:** 2×2 CSS Grid, `gap: var(--space-5)`. Each tile: `min-height: 120px`, `border-radius: var(--radius-lg)`, `background: var(--neutral-0)`, `box-shadow: var(--shadow-sm)`. Icon (32px) centered above label text. `font-size: var(--font-lg)`, `font-weight: 600`. Touch target fills entire tile.
+- **Active events section:** Below tiles. Each event row: card pattern (§3.1) with `padding: var(--space-4)`. Location name bold, group + head count secondary, day count badge (§3.3) right-aligned. "Move" button right side, `--primary-600` accent.
+- **Feed status dot:** 8px circle, `background: var(--green-500)` (fed today) or `var(--amber-500)` (not fed). Positioned left of location name.
+- **Tasks section:** Bottom. Standard list items (§3.9) with type icon left, description center, due indicator right. Color follows threshold mapping (§1.8) for urgency.
+
+### 7.3 Field Mode Navigation Header
+
+Simplified header replacing standard tab bar.
+
+- **Background:** `var(--primary-700)` (darker than standard header to visually distinguish field mode)
+- **Left button:** "← Detail" (on home) or "⌂ Home" (on sub-screens). `color: var(--neutral-0)`, `font-size: var(--font-md)`
+- **Center:** "Field Mode" label, `font-size: var(--font-sm)`, `color: var(--primary-200)`
+- **Right:** Sync indicator (§3.14)
+
+### 7.4 Health Recording Sheet Layout
+
+Standard layout for all health recording sheets (§14.2–§14.8). Extends Sheet pattern (§3.5).
+
+- **Header:** Entity context bar — animal tag, name, class badge. `background: var(--neutral-50)`, `padding: var(--space-4)`, `border-bottom: 1px solid var(--neutral-200)`.
+- **Previous value reference:** When recording weight or BCS, show last recorded value in a muted info row below header. `color: var(--neutral-500)`, `font-size: var(--font-sm)`. "Last: 1,245 lbs on Mar 12" or "Last BCS: 6.5 on Feb 28".
+- **Form body:** Standard form inputs (§3.4), `padding: var(--space-5)`.
+- **Field mode override:** Full-screen sheet. "Done" button replaces close icon. No backdrop dismiss.
+
+### 7.5 Group Session Progress Bar
+
+For group weight/BCS/treatment sessions (§14.9).
+
+- **Position:** Fixed at top of sheet, below header
+- **Style:** Progress bar (§3.10) with count label: "4 of 23 — [Animal Tag]"
+- **Skip button:** Right-aligned in progress row, ghost style, "Skip →"
+- **Summary card (completion):** Card pattern (§3.1) with green header. Count recorded, count skipped. For BCS: "3 flagged as likely cull". For weight: group average weight.
+
+### 7.6 Chip Selector (BCS Score)
+
+Used by BCS Recording Sheet (§14.3). Row of numbered chips.
+
+- **Layout:** Flexbox row, `gap: var(--space-2)`, centered
+- **Chip:** `min-width: 40px`, `height: 40px`, `border-radius: var(--radius-full)`, `border: 2px solid var(--neutral-300)`, `font-weight: 600`, centered text
+- **Selected state:** `background: var(--primary-600)`, `color: var(--neutral-0)`, `border-color: var(--primary-600)`
+- **Half-score:** Long-press on a chip shows a ".5" option between it and the next chip. Half-score chip is smaller (32px) with `font-size: var(--font-xs)`.
+
+---
+
+## Change Log
+
+| Date | Session | Changes |
+|------|---------|---------|
+| 2026-04-12 | Session 11 — Component gap fill | Added §7: quick-action bar, field mode home screen, field mode nav header, health recording sheet layout, group session progress bar, BCS chip selector. Patterns support V2_UX_FLOWS.md §14–§16. |
+
+---
+
 *End of document. For UX flows see V2_UX_FLOWS.md. For code patterns see V2_APP_ARCHITECTURE.md. For schemas see GTHO_V2_SCHEMA_DESIGN.md.*

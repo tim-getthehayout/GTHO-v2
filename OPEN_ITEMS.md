@@ -17,5 +17,18 @@ CP-13 spec says "unit system toggle (metric/imperial)" on Farm Settings. V2_SCHE
 
 ---
 
+### OI-0003 — Animal Notes: No Schema Table
+**Added:** 2026-04-12 | **Area:** v2-design | **Priority:** P2
+**Ref:** V2_UX_FLOWS.md §14.8
+
+V1 stored per-animal notes as health events (`type: 'note'`). V2 schema (D9) splits health events into separate tables (weights, BCS, treatments, breeding, heat, calving) but has no `animal_notes` table. Quick notes are a daily workflow for farmers — "limping on left front", "separated from herd", etc.
+
+**Option A (recommended):** Add `animal_notes` table: id, operation_id, animal_id, noted_at, note, created_at, updated_at. Follows D9 pattern.
+**Option B:** Drop standalone notes. Use `animals.notes` field for general notes only; health observations go into specific record types.
+
+**Decision needed before:** CP-33 (health record reference tables).
+
+---
+
 ## Closed
 

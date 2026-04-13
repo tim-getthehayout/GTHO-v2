@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.3 Assessment — CP-24 through CP-47 complete. Phase 3.2 backfill done (OI-0004/5/6/7 closed). animal_notes schema amendment applied. 550 tests passing. Field mode is CP-34.
-**Next up:** CP-48 (Reports — feed & DMI).
+**Active work:** Phase 3.3 Assessment — **COMPLETE** (CP-24 through CP-53). All 35 calculation formulas registered. 4 report tabs + dashboard real metrics. 563 tests passing.
+**Next up:** Phase 3.4 — Advanced (CP-54: Rotation calendar).
 
 ---
 

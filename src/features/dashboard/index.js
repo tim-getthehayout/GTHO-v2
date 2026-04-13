@@ -1,4 +1,4 @@
-/** @file Dashboard screen — CP-21. Group cards with location status, move action, FAB. */
+/** @file Dashboard screen — CP-21 + CP-52. Group cards with real metrics (DMI, feed cost, days on pasture). */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
@@ -7,6 +7,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { display } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import { navigate } from '../../ui/router.js';
+import { getCalcByName } from '../../utils/calc-registry.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -154,10 +155,8 @@ function renderGroupCard(group) {
         ].filter(Boolean)),
       ]),
 
-      // Metrics placeholder
-      el('div', { className: 'form-hint', style: { fontStyle: 'italic', marginBottom: 'var(--space-3)' } }, [
-        t('dashboard.metricsPlaceholder'),
-      ]),
+      // Live metrics (CP-52)
+      renderGroupMetrics(group, activeEvent, unitSys),
 
       // Action buttons
       isOnPasture ? el('div', { className: 'dash-actions' }, [
@@ -180,6 +179,86 @@ function renderGroupCard(group) {
   ]);
 
   return card;
+}
+
+// ---------------------------------------------------------------------------
+// CP-52: Live group metrics
+// ---------------------------------------------------------------------------
+
+/**
+ * Render real computed metrics for a group card:
+ *  - Total daily DMI (via DMI-2 calc)
+ *  - Feed cost (via CST-1 calc from eventFeedEntries)
+ *  - Days on pasture (already shown in badge; repeated in metric row for quick scan)
+ *
+ * @param {object} group
+ * @param {object|null} activeEvent
+ * @param {string} unitSys
+ * @returns {HTMLElement}
+ */
+function renderGroupMetrics(group, activeEvent, unitSys) {
+  const dmi2 = getCalcByName('DMI-2');
+  const cst1 = getCalcByName('CST-1');
+
+  let dmiDisplay = '—';
+  let costDisplay = '—';
+  let daysDisplay = '—';
+
+  if (activeEvent) {
+    const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === activeEvent.id && gw.groupId === group.id && !gw.dateLeft);
+    const animalClasses = getAll('animalClasses');
+
+    if (dmi2 && gws.length) {
+      const gw = gws[0];
+      const cls = animalClasses.find(ac => ac.id === gw.animalClassId) ?? null;
+      const dmiKgPerDay = dmi2.fn({
+        headCount: gw.headCount ?? 0,
+        avgWeightKg: gw.avgWeightKg ?? 0,
+        dmiPct: cls?.dmiPct ?? 2.5,
+        dmiPctLactating: cls?.dmiPctLactating ?? (cls?.dmiPct ?? 2.5),
+        isLactating: false,
+      });
+      dmiDisplay = `${display(dmiKgPerDay, 'weight', unitSys, 1)}/day`;
+    }
+
+    if (cst1) {
+      const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === activeEvent.id);
+      const batches = getAll('batches');
+      const batchMap = new Map(batches.map(b => [b.id, b]));
+      const costEntries = feedEntries.map(fe => ({
+        qtyUnits: fe.quantity,
+        costPerUnit: batchMap.get(fe.batchId)?.costPerUnit ?? 0,
+      }));
+      const cost = cst1.fn({ entries: costEntries });
+      costDisplay = `$${cost.toFixed(2)}`;
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const days = activeEvent.dateIn ? daysBetweenInclusive(activeEvent.dateIn, todayStr) : 0;
+    daysDisplay = `${days}d`;
+  }
+
+  return el('div', {
+    className: 'dash-metrics',
+    'data-testid': `dashboard-metrics-${group.id}`,
+    style: {
+      display: 'flex',
+      gap: 'var(--space-4)',
+      marginBottom: 'var(--space-3)',
+      fontSize: '12px',
+      color: 'var(--text2)',
+    },
+  }, [
+    el('span', { 'data-testid': `dashboard-dmi-${group.id}` }, [
+      t('dashboard.dmi') + ': ' + dmiDisplay,
+    ]),
+    el('span', { 'data-testid': `dashboard-feedcost-${group.id}` }, [
+      t('dashboard.feedCost') + ': ' + costDisplay,
+    ]),
+    el('span', { 'data-testid': `dashboard-days-${group.id}` }, [
+      t('dashboard.daysOnPasture') + ': ' + daysDisplay,
+    ]),
+  ]);
 }
 
 // ---------------------------------------------------------------------------

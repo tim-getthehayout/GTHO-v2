@@ -467,7 +467,18 @@
     "currentWeight": "Current weight",
     "lastBcs": "Last BCS",
     "noWeight": "—",
-    "noBcs": "—"
+    "noBcs": "—",
+    "recordTreatment": "Treatment",
+    "treatmentTitle": "Record Treatment",
+    "treatmentType": "Treatment Type",
+    "treatmentProduct": "Product",
+    "treatmentDose": "Dose Amount",
+    "treatmentDoseUnit": "Dose Unit",
+    "treatmentWithdrawal": "Withdrawal Date",
+    "treatmentDate": "Date",
+    "treatmentNotes": "Notes",
+    "treatmentSaved": "Treatment recorded",
+    "noTreatmentType": "None"
   },
   "auth": {
     "login": "Log In",

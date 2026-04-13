@@ -12,6 +12,7 @@ import * as AnimalEntity from '../../entities/animal.js';
 import * as MembershipEntity from '../../entities/animal-group-membership.js';
 import { openWeightSheet, renderWeightSheetMarkup } from '../health/weight.js';
 import { openBcsSheet, renderBcsSheetMarkup } from '../health/bcs.js';
+import { openTreatmentSheet, renderTreatmentSheetMarkup } from '../health/treatment.js';
 
 /** Current tab: 'groups' | 'classes' | 'animals' */
 let activeTab = 'groups';
@@ -75,6 +76,7 @@ export function renderAnimalsScreen(container) {
     // Health sheets (CP-33)
     renderWeightSheetMarkup(),
     renderBcsSheetMarkup(),
+    renderTreatmentSheetMarkup(),
   ]);
 
   container.appendChild(screenEl);
@@ -818,6 +820,11 @@ function renderAnimalTable(wrap, allAnimals, operationId, farmId, _rootContainer
               'data-testid': `animals-animal-bcs-${animal.id}`,
               onClick: () => openBcsSheet(animal, operationId),
             }, [t('health.recordBcs')]),
+            el('button', {
+              className: 'btn btn-outline btn-xs',
+              'data-testid': `animals-animal-treatment-${animal.id}`,
+              onClick: () => openTreatmentSheet(animal, operationId),
+            }, [t('health.recordTreatment')]),
           ]),
         ]),
       ]);

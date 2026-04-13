@@ -30,6 +30,7 @@ export const ENTITY_TYPES = [
   'aiBulls', 'treatmentCategories', 'treatmentTypes', 'doseUnits',
   'animalBcsScores', 'animalTreatments', 'animalBreedingRecords',
   'animalHeatRecords', 'animalCalvingRecords', 'animalWeightRecords',
+  'animalNotes',
   // D10: Feed Quality
   'batchNutritionalProfiles',
   // D11: App Infrastructure

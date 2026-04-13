@@ -47,6 +47,7 @@ import { fromSupabaseShape as fromAnimalBreedingRecord } from '../entities/anima
 import { fromSupabaseShape as fromAnimalHeatRecord } from '../entities/animal-heat-record.js';
 import { fromSupabaseShape as fromAnimalCalvingRecord } from '../entities/animal-calving-record.js';
 import { fromSupabaseShape as fromAnimalWeightRecord } from '../entities/animal-weight-record.js';
+import { fromSupabaseShape as fromAnimalNote } from '../entities/animal-note.js';
 import { fromSupabaseShape as fromBatchNutritionalProfile } from '../entities/batch-nutritional-profile.js';
 import { fromSupabaseShape as fromSubmission } from '../entities/submission.js';
 import { fromSupabaseShape as fromTodo } from '../entities/todo.js';
@@ -103,6 +104,7 @@ export const SYNC_REGISTRY = {
   animalHeatRecords:        { table: 'animal_heat_records',       from: fromAnimalHeatRecord },
   animalCalvingRecords:     { table: 'animal_calving_records',    from: fromAnimalCalvingRecord },
   animalWeightRecords:      { table: 'animal_weight_records',     from: fromAnimalWeightRecord },
+  animalNotes:              { table: 'animal_notes',              from: fromAnimalNote },
   batchNutritionalProfiles: { table: 'batch_nutritional_profiles', from: fromBatchNutritionalProfile },
   submissions:              { table: 'submissions',               from: fromSubmission },
   todos:                    { table: 'todos',                     from: fromTodo },

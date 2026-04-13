@@ -97,10 +97,36 @@ export function renderFeedScreen(container) {
 function renderFeedDayGoalBanner() {
   const farmSettings = getAll('farmSettings')[0];
   const goal = farmSettings?.feedDayGoal ?? 90;
+  const unitSys = getUnitSystem();
 
-  // Days on hand requires feed delivery consumption data (CP-27) — placeholder for now
-  // When CP-27+ are done, calculate: daysOnHand = totalDmOnHand / dailyDmRunRate
-  const daysOnHand = null;
+  // DM on hand: sum(batch.remaining × dm_pct/100) for non-archived batches
+  const batches = getAll('batches').filter(b => !b.archived);
+  const feedTypes = getAll('feedTypes');
+  const ftMap = new Map(feedTypes.map(ft => [ft.id, ft]));
+  let totalDmKg = 0;
+  for (const b of batches) {
+    const dm = b.dmPct ?? ftMap.get(b.feedTypeId)?.dmPct ?? 100;
+    totalDmKg += (b.remaining ?? 0) * (dm / 100);
+  }
+
+  // Daily run rate: average daily DM delivered over last 30 days
+  const entries = getAll('eventFeedEntries');
+  const today = new Date();
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - 30);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const recentEntries = entries.filter(e => e.date >= cutoffStr);
+  let recentDmKg = 0;
+  for (const e of recentEntries) {
+    const batch = batches.find(b => b.id === e.batchId) || getAll('batches').find(b => b.id === e.batchId);
+    const dm = batch?.dmPct ?? ftMap.get(batch?.feedTypeId)?.dmPct ?? 100;
+    recentDmKg += (e.quantity ?? 0) * (dm / 100);
+  }
+  const daySpan = Math.max(1, Math.round((today - cutoff) / (1000 * 60 * 60 * 24)));
+  const dailyRunRateKg = recentEntries.length > 0 ? recentDmKg / daySpan : 0;
+
+  // Days on hand
+  const daysOnHand = dailyRunRateKg > 0 ? Math.round(totalDmKg / dailyRunRateKg) : null;
 
   // Progress bar: green ≥ goal, amber 33–99%, red < 33%
   let pct = 0;
@@ -110,6 +136,12 @@ function renderFeedDayGoalBanner() {
     if (pct < 33) progressClass = 'progress-red';
     else if (pct < 100) progressClass = 'progress-amber';
   }
+
+  // Format DM on hand and run rate in user's unit system
+  const dmOnHandDisplay = display(totalDmKg, 'weight', unitSys, 0);
+  const runRateDisplay = dailyRunRateKg > 0
+    ? `${display(dailyRunRateKg, 'weight', unitSys, 0)}/day`
+    : '—';
 
   return el('div', {
     className: 'card',
@@ -128,6 +160,21 @@ function renderFeedDayGoalBanner() {
         ]),
       ]),
       el('div', { className: 'form-hint' }, [t('feed.feedDayGoalHint')]),
+    ]),
+    // Three stat cells: DM on Hand, Daily Run Rate, Days on Hand
+    el('div', { style: { display: 'flex', gap: 'var(--space-4)', marginTop: 'var(--space-3)' } }, [
+      el('div', { 'data-testid': 'feed-dm-on-hand' }, [
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('feed.dmOnHand')]),
+        el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [dmOnHandDisplay]),
+      ]),
+      el('div', { 'data-testid': 'feed-run-rate' }, [
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('feed.runRate')]),
+        el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [runRateDisplay]),
+      ]),
+      el('div', { 'data-testid': 'feed-days-on-hand' }, [
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('feed.daysOnHand')]),
+        el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [daysOnHand != null ? `${daysOnHand}` : '—']),
+      ]),
     ]),
     el('div', { className: 'progress-bar', style: { marginTop: 'var(--space-3)' } }, [
       el('div', {

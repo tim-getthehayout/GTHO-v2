@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-13 | Wire feed screen metrics to live data (closes OI-0011) — DM on hand (batch.remaining × dm_pct), daily run rate (30-day avg DM delivered), days on hand (DM ÷ rate). Three stat cells in goal banner. Progress bar threshold coloring active. 568 tests. | src/features/feed/index.js, OPEN_ITEMS.md |
 | 2026-04-13 | docs: add OI-0017 (product unit selection), OI-0018 (header sync status), OI-0019 (header logout) to OPEN_ITEMS.md | OPEN_ITEMS.md |
 | 2026-04-13 | Strip grazing UI (A45) — dual area/pct input in move wizard with auto-derivation and unit awareness, strip progress bar visualization per §3.15 on event cards and dashboard (active/completed/upcoming states, proportional widths), per-window area_pct labels. Standalone commit before CP-54. 568 tests. | src/features/events/move-wizard.js, src/features/events/index.js, src/features/dashboard/index.js, src/styles/main.css, src/i18n/locales/en.json |
 | 2026-04-13 | Unit system migration (A44) — move unit_system from localStorage to operations table. SQL migration 013, entity update (FIELDS/validate/shape), store.setUnitSystem() action, preferences.js reads from store, settings toggle rewired, onboarding adds unit selector, boot-time localStorage migration. 568 tests. | supabase/migrations/013, src/entities/operation.js, src/data/store.js, src/utils/preferences.js, src/features/settings/index.js, src/features/onboarding/index.js, src/main.js, tests/unit/entities/operation.test.js |

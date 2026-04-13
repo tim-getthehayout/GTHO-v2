@@ -2,14 +2,6 @@
 
 ## Open
 
-### OI-0011 — Feed Screen Metrics Still Show Placeholders
-**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
-**Checkpoint:** CP-25/CP-26 (Phase 3.3)
-
-Feed screen header shows `daysOnHand = null` with a code comment "placeholder until CP-27 provides consumption data." CP-27 (feed delivery) and CP-28 (feed check) have both shipped, so the data is available. Acceptance criteria for CP-25 says the feed screen should show "DM on hand, daily run rate, days on hand." CP-26 says the feed day goal progress bar should color based on days on hand vs goal. Currently the progress bar has nothing to compare against.
-
-**Fix:** Wire daily run rate (sum DMI consumption per day from DMI-1 across active events), DM on hand (sum batch.remaining × dm_pct across non-archived batches), and days on hand (DM on hand ÷ daily run rate). Update the progress bar threshold coloring per V2_DESIGN_SYSTEM.md §1.8. Files: `src/features/feed/index.js`.
-
 ---
 
 ### OI-0012 — Calc Test Coverage Gap
@@ -132,6 +124,12 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ---
 
 ## Closed
+
+### OI-0011 — Feed Screen Metrics Still Show Placeholders
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
+**Resolution:** Wired DM on hand (sum batch.remaining × dm_pct for non-archived batches), daily run rate (average daily DM delivered over 30 days from event_feed_entries), and days on hand (DM on hand ÷ run rate) into feed day goal banner. Progress bar threshold coloring now works. Three stat cells added below the heading. Unit-aware via display().
+
+---
 
 ### OI-0001 — Strip Grazing: Partial Paddock Windows
 **Added:** 2026-04-12 | **Closed:** 2026-04-13 | **Area:** v2-design

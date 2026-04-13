@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   init, getAll, getById, getByField, add, update, remove,
   subscribe, setSyncAdapter, mergeRemote, _reset, ENTITY_TYPES,
+  getActiveFarmId, setActiveFarm, getVisibleEvents,
 } from '../../src/data/store.js';
 
 // Simple entity helpers for testing
@@ -148,6 +149,67 @@ describe('store', () => {
       unsub();
       add('locations', { id: '1', name: 'Test' }, validateOk);
       expect(cb).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('active farm', () => {
+    it('getActiveFarmId returns null when no prefs', () => {
+      expect(getActiveFarmId()).toBeNull();
+    });
+
+    it('setActiveFarm persists and getActiveFarmId returns it', () => {
+      add('userPreferences', {
+        id: 'p1', operationId: 'op1', userId: 'u1',
+        homeViewMode: 'groups', defaultViewMode: 'detail',
+        statPeriodDays: 14, activeFarmId: null,
+        fieldModeQuickActions: null,
+      }, validateOk);
+      add('farms', { id: 'f1', name: 'Farm 1' }, validateOk);
+      setActiveFarm('f1');
+      expect(getActiveFarmId()).toBe('f1');
+    });
+
+    it('setActiveFarm(null) sets All farms mode', () => {
+      add('userPreferences', {
+        id: 'p1', operationId: 'op1', userId: 'u1',
+        homeViewMode: 'groups', defaultViewMode: 'detail',
+        statPeriodDays: 14, activeFarmId: 'f1',
+        fieldModeQuickActions: null,
+      }, validateOk);
+      setActiveFarm(null);
+      expect(getActiveFarmId()).toBeNull();
+    });
+
+    it('setActiveFarm falls back to first farm if id not found', () => {
+      add('userPreferences', {
+        id: 'p1', operationId: 'op1', userId: 'u1',
+        homeViewMode: 'groups', defaultViewMode: 'detail',
+        statPeriodDays: 14, activeFarmId: null,
+        fieldModeQuickActions: null,
+      }, validateOk);
+      add('farms', { id: 'f1', name: 'Farm 1' }, validateOk);
+      setActiveFarm('nonexistent');
+      expect(getActiveFarmId()).toBe('f1');
+    });
+
+    it('getVisibleEvents filters by active farm', () => {
+      add('userPreferences', {
+        id: 'p1', operationId: 'op1', userId: 'u1',
+        homeViewMode: 'groups', defaultViewMode: 'detail',
+        statPeriodDays: 14, activeFarmId: null,
+        fieldModeQuickActions: null,
+      }, validateOk);
+      add('events', { id: 'e1', farmId: 'f1', operationId: 'op1', dateIn: '2024-01-01' }, validateOk);
+      add('events', { id: 'e2', farmId: 'f2', operationId: 'op1', dateIn: '2024-01-01' }, validateOk);
+
+      // All farms mode
+      expect(getVisibleEvents()).toHaveLength(2);
+
+      // Set specific farm
+      add('farms', { id: 'f1', name: 'Farm 1' }, validateOk);
+      setActiveFarm('f1');
+      expect(getVisibleEvents()).toHaveLength(1);
+      expect(getVisibleEvents()[0].id).toBe('e1');
     });
   });
 

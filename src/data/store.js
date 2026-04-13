@@ -2,6 +2,7 @@
 
 import { saveToStorage, loadFromStorage } from './local-storage.js';
 import { validate as validateOperation, toSupabaseShape as operationToSb } from '../entities/operation.js';
+import { validate as validateUserPref, toSupabaseShape as userPrefToSb } from '../entities/user-preference.js';
 
 /**
  * All entity type keys used in the store.
@@ -260,6 +261,82 @@ export function setUnitSystem(value) {
 
   notify('operations');
   return updated;
+}
+
+/**
+ * Get the active farm ID from user preferences.
+ * Returns null for "All farms" mode.
+ * @returns {string|null}
+ */
+export function getActiveFarmId() {
+  const prefs = state.userPreferences[0];
+  return prefs?.activeFarmId ?? null;
+}
+
+/**
+ * Set the active farm for display filtering.
+ * Pass null for "All farms" mode.
+ * validate → mutate → persist → sync → notify
+ * @param {string|null} farmId
+ */
+export function setActiveFarm(farmId) {
+  const index = state.userPreferences.findIndex(() => true);
+  if (index === -1) return;
+
+  // If farmId is set but doesn't exist, fall back to first available farm
+  if (farmId != null) {
+    const farmExists = state.farms.some(f => f.id === farmId);
+    if (!farmExists) {
+      farmId = state.farms.length ? state.farms[0].id : null;
+    }
+  }
+
+  const updated = { ...state.userPreferences[index], activeFarmId: farmId, updatedAt: new Date().toISOString() };
+
+  const result = validateUserPref(updated);
+  if (!result.valid) return;
+
+  state.userPreferences[index] = updated;
+  saveToStorage('userPreferences', state.userPreferences);
+
+  if (syncAdapter) {
+    syncAdapter.push('user_preferences', userPrefToSb(updated));
+  }
+
+  notify('userPreferences');
+}
+
+/**
+ * Get locations filtered by active farm. Null = all locations.
+ * @returns {Array}
+ */
+export function getVisibleLocations() {
+  const farmId = getActiveFarmId();
+  const all = (state.locations || []).map(r => ({ ...r }));
+  if (!farmId) return all;
+  return all.filter(l => l.farmId === farmId);
+}
+
+/**
+ * Get groups filtered by active farm (via group.farmId).
+ * @returns {Array}
+ */
+export function getVisibleGroups() {
+  const farmId = getActiveFarmId();
+  const all = (state.groups || []).map(r => ({ ...r }));
+  if (!farmId) return all;
+  return all.filter(g => g.farmId === farmId);
+}
+
+/**
+ * Get events filtered by active farm.
+ * @returns {Array}
+ */
+export function getVisibleEvents() {
+  const farmId = getActiveFarmId();
+  const all = (state.events || []).map(r => ({ ...r }));
+  if (!farmId) return all;
+  return all.filter(e => e.farmId === farmId);
 }
 
 // --- Subscribers ---

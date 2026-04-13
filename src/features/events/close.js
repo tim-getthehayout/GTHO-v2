@@ -1,21 +1,20 @@
-/** @file Close event sheet — CP-20. */
+/** @file Close event sheet — CP-20/CP-30. Full version with feed check + confinement NPK. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, update } from '../../data/store.js';
+import { getAll, getById, add, update } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
+import * as FeedCheckEntity from '../../entities/event-feed-check.js';
+import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
+import * as ManureTxEntity from '../../entities/manure-batch-transaction.js';
 import { createObservation } from './index.js';
-
-// ---------------------------------------------------------------------------
-// Close Event — no move (CP-20)
-// ---------------------------------------------------------------------------
 
 let closeEventSheet = null;
 
-export function openCloseEventSheet(evt, _operationId) {
+export function openCloseEventSheet(evt, operationId) {
   if (!closeEventSheet) {
     closeEventSheet = new Sheet('close-event-sheet-wrap');
   }
@@ -45,11 +44,65 @@ export function openCloseEventSheet(evt, _operationId) {
   });
   panel.appendChild(inputs.timeOut);
 
-  // Feed check placeholder
-  panel.appendChild(el('div', {
-    className: 'form-hint',
-    style: { fontStyle: 'italic', marginTop: 'var(--space-4)' },
-  }, [t('event.feedPlaceholder')]));
+  // Optional feed check (CP-30) — show if feed entries exist
+  const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === evt.id);
+  const feedCheckInputs = [];
+
+  if (feedEntries.length) {
+    panel.appendChild(el('div', {
+      className: 'close-open-section-title',
+      style: { marginTop: 'var(--space-4)' },
+    }, [t('feed.feedCheck')]));
+
+    // Group by batch × location
+    const feedGroups = {};
+    for (const entry of feedEntries) {
+      const key = `${entry.batchId}|${entry.locationId}`;
+      if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
+      feedGroups[key].total += entry.quantity;
+    }
+
+    for (const [key, group] of Object.entries(feedGroups)) {
+      const batch = getById('batches', group.batchId);
+      const loc = getById('locations', group.locationId);
+      const batchName = batch ? batch.name : '?';
+      const locName = loc ? loc.name : '?';
+
+      const remainingInput = el('input', {
+        type: 'number', className: 'auth-input settings-input',
+        value: '0', placeholder: '0',
+        'data-testid': `close-event-feed-${key.replace('|', '-')}`,
+      });
+      feedCheckInputs.push({ batchId: group.batchId, locationId: group.locationId, input: remainingInput });
+
+      panel.appendChild(el('div', {
+        className: 'card-inset',
+        style: { marginTop: 'var(--space-2)', padding: 'var(--space-3)' },
+      }, [
+        el('div', { style: { fontWeight: '500', fontSize: '13px' } }, [
+          `${batchName} → ${locName}`,
+        ]),
+        el('div', { className: 'form-hint' }, [
+          `${t('feed.feedCheckStarted')}: ${group.total} ${batch?.unit || ''}`,
+        ]),
+        el('label', { className: 'form-label' }, [t('feed.feedCheckRemaining')]),
+        remainingInput,
+      ]));
+    }
+  }
+
+  // Confinement NPK info
+  const pws = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id);
+  const confinementPWs = pws.filter(w => {
+    const loc = getById('locations', w.locationId);
+    return loc && loc.capturePercent && loc.capturePercent > 0;
+  });
+  if (confinementPWs.length) {
+    panel.appendChild(el('div', {
+      className: 'form-hint',
+      style: { marginTop: 'var(--space-4)', fontStyle: 'italic' },
+    }, ['Confinement NPK will be routed to manure batches on close.']));
+  }
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'close-event-status' });
   panel.appendChild(statusEl);
@@ -58,42 +111,7 @@ export function openCloseEventSheet(evt, _operationId) {
     el('button', {
       className: 'btn btn-red',
       'data-testid': 'close-event-save',
-      onClick: () => {
-        clear(statusEl);
-        const dateOut = inputs.dateOut.value;
-        const timeOut = inputs.timeOut.value || null;
-        if (!dateOut) {
-          statusEl.appendChild(el('span', {}, ['Close date is required']));
-          return;
-        }
-        try {
-          // Close all open paddock windows + create close observations
-          const pws = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
-          for (const pw of pws) {
-            update('eventPaddockWindows', pw.id, {
-              dateClosed: dateOut,
-              timeClosed: timeOut,
-            }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-            createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString());
-          }
-          // Close all open group windows
-          const gws = getAll('eventGroupWindows').filter(w => w.eventId === evt.id && !w.dateLeft);
-          for (const gw of gws) {
-            update('eventGroupWindows', gw.id, {
-              dateLeft: dateOut,
-              timeLeft: timeOut,
-            }, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
-          }
-          // Set event date_out
-          update('events', evt.id, {
-            dateOut,
-            timeOut,
-          }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
-          closeEventSheet.close();
-        } catch (err) {
-          statusEl.appendChild(el('span', {}, [err.message]));
-        }
-      },
+      onClick: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl),
     }, [t('event.closeEvent')]),
     el('button', {
       className: 'btn btn-outline',
@@ -103,4 +121,94 @@ export function openCloseEventSheet(evt, _operationId) {
   ]));
 
   closeEventSheet.open();
+}
+
+function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl) {
+  clear(statusEl);
+  const dateOut = inputs.dateOut.value;
+  const timeOut = inputs.timeOut.value || null;
+  if (!dateOut) {
+    statusEl.appendChild(el('span', {}, ['Close date is required']));
+    return;
+  }
+
+  try {
+    // 1. Create feed check if feed was delivered
+    if (feedCheckInputs.length) {
+      const check = FeedCheckEntity.create({
+        operationId,
+        eventId: evt.id,
+        date: dateOut,
+        time: timeOut,
+        isCloseReading: true,
+      });
+      add('eventFeedChecks', check, FeedCheckEntity.validate,
+        FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
+
+      for (const item of feedCheckInputs) {
+        const remaining = parseFloat(item.input.value) || 0;
+        const checkItem = FeedCheckItemEntity.create({
+          feedCheckId: check.id,
+          batchId: item.batchId,
+          locationId: item.locationId,
+          remainingQuantity: remaining,
+        });
+        add('eventFeedCheckItems', checkItem, FeedCheckItemEntity.validate,
+          FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+      }
+    }
+
+    // 2. Close all open paddock windows + create close observations
+    const openPWs = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
+    for (const pw of openPWs) {
+      update('eventPaddockWindows', pw.id, {
+        dateClosed: dateOut,
+        timeClosed: timeOut,
+      }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+      createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString());
+    }
+
+    // 3. Close all open group windows
+    const openGWs = getAll('eventGroupWindows').filter(w => w.eventId === evt.id && !w.dateLeft);
+    for (const gw of openGWs) {
+      update('eventGroupWindows', gw.id, {
+        dateLeft: dateOut,
+        timeLeft: timeOut,
+      }, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+    }
+
+    // 4. Set event date_out
+    update('events', evt.id, {
+      dateOut,
+      timeOut,
+    }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+
+    // 5. Confinement NPK routing — create manure_batch_transaction for capture locations
+    // TODO: Full NPK calculation requires excretion rates × head count × duration.
+    // For now, create a placeholder transaction with volumeKg=0 that the calc engine
+    // (CP-44) will populate. This wires the data flow; amounts are computed later.
+    for (const pw of confinementPWs) {
+      // Find or use a default manure batch for this location
+      const manureBatches = getAll('manureBatches').filter(
+        mb => mb.sourceLocationId === pw.locationId
+      );
+      if (manureBatches.length) {
+        const tx = ManureTxEntity.create({
+          operationId,
+          batchId: manureBatches[0].id,
+          type: 'input',
+          transactionDate: dateOut,
+          volumeKg: 0, // Populated by calc engine
+          sourceEventId: evt.id,
+          notes: 'Auto-created on event close (confinement capture)',
+        });
+        add('manureBatchTransactions', tx, ManureTxEntity.validate,
+          ManureTxEntity.toSupabaseShape, 'manure_batch_transactions');
+      }
+    }
+
+    closeEventSheet.close();
+  } catch (err) {
+    statusEl.appendChild(el('span', {}, [err.message]));
+  }
 }

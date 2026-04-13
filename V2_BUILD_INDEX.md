@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.3 Assessment — CP-24 through CP-29 complete. Phase 3.2 backfill done (OI-0004/5/6/7 closed). animal_notes schema amendment applied. 550 tests passing.
-**Next up:** CP-30 (Event close — full version).
+**Active work:** Phase 3.3 Assessment — CP-24 through CP-30 complete. Phase 3.2 backfill done (OI-0004/5/6/7 closed). animal_notes schema amendment applied. 550 tests passing.
+**Next up:** CP-31 (Survey workflow).
 
 ---
 

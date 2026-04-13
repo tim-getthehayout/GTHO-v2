@@ -287,56 +287,104 @@ function renderEventCard(evt, operationId) {
 }
 
 function renderPaddockWindowsSection(windows, eventIsActive, evt, operationId) {
-  return el('div', { className: 'event-card-section' }, [
+  // Group strip windows by stripGroupId for progress bar rendering
+  const stripGroups = new Map();
+  for (const w of windows) {
+    if (w.isStripGraze && w.stripGroupId) {
+      if (!stripGroups.has(w.stripGroupId)) stripGroups.set(w.stripGroupId, []);
+      stripGroups.get(w.stripGroupId).push(w);
+    }
+  }
+
+  const children = [
     el('div', { className: 'event-card-section-title' }, [t('event.paddockWindows')]),
-    ...windows.map((w, idx) => {
-      const loc = getById('locations', w.locationId);
-      const locName = loc ? loc.name : w.locationId.slice(0, 8);
-      const isOpen = !w.dateClosed;
-      const isPrimary = idx === 0;
+  ];
 
-      const rightSide = [];
-      rightSide.push(el('span', {
-        className: `badge ${isOpen ? 'badge-green' : 'badge-amber'}`,
-      }, [isOpen ? t('event.windowOpen') : t('event.windowClosed')]));
+  // Render strip progress bars (§3.15)
+  for (const [groupId, strips] of stripGroups) {
+    const sorted = [...strips].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || ''));
+    const loc = getById('locations', sorted[0].locationId);
+    const locName = loc ? loc.name : '';
+    const totalStrips = sorted[0].areaPct > 0 ? Math.round(100 / sorted[0].areaPct) : sorted.length;
+    const completedCount = sorted.filter(s => s.dateClosed).length;
+    const currentIdx = sorted.findIndex(s => !s.dateClosed);
 
-      // Close button for non-primary open windows on active events
-      if (eventIsActive && isOpen) {
-        if (isPrimary) {
-          rightSide.push(el('button', {
-            className: 'btn btn-outline btn-xs',
-            disabled: 'true',
-            title: t('event.primaryCannotClose'),
-            'data-testid': `events-close-window-${w.id}`,
-            style: { opacity: '0.4', cursor: 'not-allowed', marginLeft: 'var(--space-2)' },
-          }, [t('event.closeWindow')]));
-        } else {
-          rightSide.push(el('button', {
-            className: 'btn btn-outline btn-xs',
-            'data-testid': `events-close-window-${w.id}`,
-            style: { marginLeft: 'var(--space-2)' },
-            onClick: () => openSubmoveCloseSheet(w, operationId),
-          }, [t('event.closeWindow')]));
-        }
+    children.push(el('div', {
+      className: 'strip-progress',
+      'data-testid': `strip-progress-${groupId}`,
+    }, [
+      el('div', { className: 'strip-progress-label' }, [
+        `Strip ${currentIdx >= 0 ? currentIdx + 1 : completedCount} of ${totalStrips}${locName ? ` — ${locName}` : ''}`,
+      ]),
+      el('div', { className: 'strip-progress-bars' },
+        Array.from({ length: totalStrips }, (_, i) => {
+          let state;
+          if (i < completedCount) state = 'completed';
+          else if (i === currentIdx) state = 'active';
+          else state = 'upcoming';
+          const pct = sorted[i]?.areaPct ?? sorted[0]?.areaPct ?? (100 / totalStrips);
+          return el('div', {
+            className: `strip-bar strip-${state}`,
+            style: { width: `${pct}%` },
+            'data-testid': `strip-bar-${groupId}-${i}`,
+          });
+        })
+      ),
+    ]));
+  }
+
+  // Render individual window rows
+  for (let idx = 0; idx < windows.length; idx++) {
+    const w = windows[idx];
+    const loc = getById('locations', w.locationId);
+    const locName = loc ? loc.name : w.locationId.slice(0, 8);
+    const isOpen = !w.dateClosed;
+    const isPrimary = idx === 0;
+
+    const rightSide = [];
+    rightSide.push(el('span', {
+      className: `badge ${isOpen ? 'badge-green' : 'badge-amber'}`,
+    }, [isOpen ? t('event.windowOpen') : t('event.windowClosed')]));
+
+    // Close button for non-primary open windows on active events
+    if (eventIsActive && isOpen) {
+      if (isPrimary) {
+        rightSide.push(el('button', {
+          className: 'btn btn-outline btn-xs',
+          disabled: 'true',
+          title: t('event.primaryCannotClose'),
+          'data-testid': `events-close-window-${w.id}`,
+          style: { opacity: '0.4', cursor: 'not-allowed', marginLeft: 'var(--space-2)' },
+        }, [t('event.closeWindow')]));
+      } else {
+        rightSide.push(el('button', {
+          className: 'btn btn-outline btn-xs',
+          'data-testid': `events-close-window-${w.id}`,
+          style: { marginLeft: 'var(--space-2)' },
+          onClick: () => openSubmoveCloseSheet(w, operationId),
+        }, [t('event.closeWindow')]));
       }
+    }
 
-      return el('div', {
-        className: 'window-row',
-        'data-testid': `events-paddock-window-${w.id}`,
-      }, [
-        el('div', {}, [
-          el('span', { className: 'window-name' }, [
-            locName,
-            isPrimary ? ` (${t('event.primary')})` : '',
-          ]),
-          el('div', { className: 'window-detail' }, [
-            w.dateOpened + (w.dateClosed ? ` — ${w.dateClosed}` : ''),
-          ]),
+    children.push(el('div', {
+      className: 'window-row',
+      'data-testid': `events-paddock-window-${w.id}`,
+    }, [
+      el('div', {}, [
+        el('span', { className: 'window-name' }, [
+          locName,
+          isPrimary ? ` (${t('event.primary')})` : '',
+          w.isStripGraze && w.areaPct < 100 ? ` (${w.areaPct}%)` : '',
         ]),
-        el('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' } }, rightSide),
-      ]);
-    }),
-  ]);
+        el('div', { className: 'window-detail' }, [
+          w.dateOpened + (w.dateClosed ? ` — ${w.dateClosed}` : ''),
+        ]),
+      ]),
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' } }, rightSide),
+    ]));
+  }
+
+  return el('div', { className: 'event-card-section' }, children);
 }
 
 function renderGroupWindowsSection(windows, unitSys, eventIsActive, _evt, _operationId) {

@@ -955,6 +955,41 @@ body {
   color: var(--text2);
 }
 
+/* Strip grazing progress — §3.15 */
+.strip-progress {
+  margin-bottom: var(--space-3);
+}
+
+.strip-progress-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+  margin-bottom: var(--space-2);
+}
+
+.strip-progress-bars {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+}
+
+.strip-bar {
+  height: 12px;
+  border-radius: var(--radius-sm);
+}
+
+.strip-active {
+  background: var(--green);
+}
+
+.strip-completed {
+  background: var(--bg3);
+}
+
+.strip-upcoming {
+  background: var(--bg2);
+}
+
 /* Location picker sections in create sheet */
 .loc-picker-section {
   margin-bottom: var(--space-4);

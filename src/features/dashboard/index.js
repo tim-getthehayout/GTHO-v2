@@ -805,12 +805,32 @@ function renderLocationsView(gridEl) {
       feedCost = cst1.fn({ entries: feedEntries.map(fe => ({ qtyUnits: fe.quantity, costPerUnit: batchMap.get(fe.batchId)?.costPerUnit ?? 0 })) });
     }
 
-    // Strip graze status
+    // Strip graze status — progress bar per §3.15
     const stripPws = getAll('eventPaddockWindows').filter(w => w.eventId === event.id && w.isStripGraze);
-    let stripLabel = null;
+    let stripEl = null;
     if (stripPws.length > 0) {
-      const closedStrips = stripPws.filter(w => w.dateClosed);
-      stripLabel = `Strip ${closedStrips.length + 1} of ${stripPws.length}`;
+      const sorted = [...stripPws].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || ''));
+      const totalStrips = sorted[0].areaPct > 0 ? Math.round(100 / sorted[0].areaPct) : sorted.length;
+      const completedCount = sorted.filter(s => s.dateClosed).length;
+      const currentIdx = sorted.findIndex(s => !s.dateClosed);
+      stripEl = el('div', { className: 'strip-progress' }, [
+        el('div', { className: 'strip-progress-label' }, [
+          `Strip ${currentIdx >= 0 ? currentIdx + 1 : completedCount} of ${totalStrips}`,
+        ]),
+        el('div', { className: 'strip-progress-bars' },
+          Array.from({ length: totalStrips }, (_, i) => {
+            let barState;
+            if (i < completedCount) barState = 'completed';
+            else if (i === currentIdx) barState = 'active';
+            else barState = 'upcoming';
+            const pct = sorted[i]?.areaPct ?? sorted[0]?.areaPct ?? (100 / totalStrips);
+            return el('div', {
+              className: `strip-bar strip-${barState}`,
+              style: { width: `${pct}%` },
+            });
+          })
+        ),
+      ]);
     }
 
     // Type badge
@@ -828,7 +848,7 @@ function renderLocationsView(gridEl) {
         `Day ${dayCount}`,
         feedCount > 0 ? ` \u00B7 ${feedCount} feedings \u00B7 $${feedCost.toFixed(2)} cost` : '',
       ]),
-      stripLabel ? el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-2)' } }, [stripLabel]) : null,
+      stripEl,
       el('div', { className: 'dash-actions' }, [
         el('button', { className: 'btn btn-teal btn-sm', onClick: () => navigate('#/events') }, [t('dashboard.move')]),
         el('button', { className: 'btn btn-outline btn-sm', onClick: () => navigate('#/surveys') }, [t('dashboard.survey')]),

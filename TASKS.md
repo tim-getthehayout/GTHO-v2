@@ -72,8 +72,8 @@
 - [x] **CP-53** — E2E smoke test updated
 
 ### Pre-3.4 Work Items
-- [ ] **Unit system migration** — Move unit_system from localStorage to operations table (A44, spec: github/issues/unit-system-operations-migration.md)
-- [ ] **Strip grazing paddock windows** — Full strip graze workflow: toggle, area/pct input, per-strip recovery, progress bar (A45, spec: github/issues/strip-grazing-paddock-windows.md)
+- [x] **Unit system migration** — Move unit_system from localStorage to operations table (A44, GH-3)
+- [x] **Strip grazing paddock windows** — Dual area/pct input, progress bar visualization, unit-aware (A45, GH-4)
 
 ### 3.4 Advanced
 - [ ] **CP-54** — Rotation calendar

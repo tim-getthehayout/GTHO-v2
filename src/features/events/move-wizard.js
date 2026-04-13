@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
+import { convert, unitLabel } from '../../utils/units.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
@@ -141,33 +142,82 @@ function renderStep2(panel, state, render, operationId, sourceEvent) {
 
     // Strip size inputs (only if strip graze enabled)
     if (state.stripGraze) {
+      const loc = state.locationId ? getById('locations', state.locationId) : null;
+      const paddockAreaHa = loc?.areaHectares || 0;
+      const unitSys = getUnitSystem();
+      const areaUnit = unitLabel('area', unitSys);
+
+      // Area input (acres or hectares depending on unit system)
+      const displayArea = paddockAreaHa > 0
+        ? (unitSys === 'imperial'
+          ? convert(paddockAreaHa * state.stripSizePct / 100, 'area', 'toImperial')
+          : paddockAreaHa * state.stripSizePct / 100)
+        : '';
+      panel.appendChild(el('label', { className: 'form-label' }, [`${t('event.stripArea')} (${areaUnit})`]));
+      const stripAreaInput = el('input', {
+        type: 'number',
+        className: 'auth-input settings-input',
+        value: displayArea !== '' ? parseFloat(displayArea.toFixed(2)) : '',
+        'data-testid': 'move-wizard-strip-area',
+        ...(paddockAreaHa <= 0 ? { disabled: 'true', placeholder: t('event.selectLocationFirst') } : {}),
+      });
+      stripAreaInput.addEventListener('input', () => {
+        if (paddockAreaHa <= 0) return;
+        let areaInHa = parseFloat(stripAreaInput.value) || 0;
+        if (unitSys === 'imperial') {
+          areaInHa = convert(areaInHa, 'area', 'toMetric');
+        }
+        state.stripSizePct = paddockAreaHa > 0 ? Math.round((areaInHa / paddockAreaHa) * 100) : 100;
+        state.stripCount = state.stripSizePct > 0 ? Math.ceil(100 / state.stripSizePct) : 1;
+        // Update percentage input without re-rendering
+        if (pctInput) pctInput.value = state.stripSizePct;
+        if (countInput) countInput.value = state.stripCount;
+      });
+      panel.appendChild(stripAreaInput);
+
+      // Percentage input
       panel.appendChild(el('label', { className: 'form-label' }, [t('event.stripSize')]));
-      const stripSizeInput = el('input', {
+      const pctInput = el('input', {
         type: 'number',
         className: 'auth-input settings-input',
         value: state.stripSizePct,
         'data-testid': 'move-wizard-strip-size',
       });
-      stripSizeInput.addEventListener('input', () => {
-        const val = parseFloat(stripSizeInput.value) || 0;
+      pctInput.addEventListener('input', () => {
+        const val = parseFloat(pctInput.value) || 0;
         state.stripSizePct = val;
         state.stripCount = val > 0 ? Math.ceil(100 / val) : 1;
+        // Update area input
+        if (paddockAreaHa > 0 && stripAreaInput) {
+          let areaVal = paddockAreaHa * val / 100;
+          if (unitSys === 'imperial') areaVal = convert(areaVal, 'area', 'toImperial');
+          stripAreaInput.value = parseFloat(areaVal.toFixed(2));
+        }
+        if (countInput) countInput.value = state.stripCount;
       });
-      panel.appendChild(stripSizeInput);
+      panel.appendChild(pctInput);
 
+      // Count input
       panel.appendChild(el('label', { className: 'form-label' }, [t('event.stripCount')]));
-      const stripCountInput = el('input', {
+      const countInput = el('input', {
         type: 'number',
         className: 'auth-input settings-input',
         value: state.stripCount,
         'data-testid': 'move-wizard-strip-count',
       });
-      stripCountInput.addEventListener('input', () => {
-        const val = parseInt(stripCountInput.value, 10) || 1;
+      countInput.addEventListener('input', () => {
+        const val = parseInt(countInput.value, 10) || 1;
         state.stripCount = val;
         state.stripSizePct = val > 0 ? Math.round(100 / val) : 100;
+        // Update area + pct inputs
+        if (pctInput) pctInput.value = state.stripSizePct;
+        if (paddockAreaHa > 0 && stripAreaInput) {
+          let areaVal = paddockAreaHa * state.stripSizePct / 100;
+          if (unitSys === 'imperial') areaVal = convert(areaVal, 'area', 'toImperial');
+          stripAreaInput.value = parseFloat(areaVal.toFixed(2));
+        }
       });
-      panel.appendChild(stripCountInput);
+      panel.appendChild(countInput);
     }
   } else {
     // Existing event picker

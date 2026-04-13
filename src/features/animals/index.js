@@ -13,6 +13,8 @@ import * as MembershipEntity from '../../entities/animal-group-membership.js';
 import { openWeightSheet, renderWeightSheetMarkup } from '../health/weight.js';
 import { openBcsSheet, renderBcsSheetMarkup } from '../health/bcs.js';
 import { openTreatmentSheet, renderTreatmentSheetMarkup } from '../health/treatment.js';
+import { openBreedingSheet, renderBreedingSheetMarkup } from '../health/breeding.js';
+import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 
 /** Current tab: 'groups' | 'classes' | 'animals' */
 let activeTab = 'groups';
@@ -77,6 +79,8 @@ export function renderAnimalsScreen(container) {
     renderWeightSheetMarkup(),
     renderBcsSheetMarkup(),
     renderTreatmentSheetMarkup(),
+    renderBreedingSheetMarkup(),
+    renderHeatSheetMarkup(),
   ]);
 
   container.appendChild(screenEl);
@@ -825,6 +829,16 @@ function renderAnimalTable(wrap, allAnimals, operationId, farmId, _rootContainer
               'data-testid': `animals-animal-treatment-${animal.id}`,
               onClick: () => openTreatmentSheet(animal, operationId),
             }, [t('health.recordTreatment')]),
+            el('button', {
+              className: 'btn btn-outline btn-xs',
+              'data-testid': `animals-animal-breeding-${animal.id}`,
+              onClick: () => openBreedingSheet(animal, operationId),
+            }, [t('health.recordBreeding')]),
+            el('button', {
+              className: 'btn btn-outline btn-xs',
+              'data-testid': `animals-animal-heat-${animal.id}`,
+              onClick: () => openHeatSheet(animal, operationId),
+            }, [t('health.recordHeat')]),
           ]),
         ]),
       ]);

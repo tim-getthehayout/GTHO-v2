@@ -7,6 +7,11 @@ import { validate as validateFarmSetting } from '../../entities/farm-setting.js'
 import { validate as validateUserPref } from '../../entities/user-preference.js';
 import { getUnitSystem, setUnitSystem } from '../../utils/preferences.js';
 import { logout } from '../auth/session.js';
+import {
+  renderAiBullsSection, renderTreatmentCategoriesSection,
+  renderTreatmentTypesSection, renderDoseUnitsSection,
+  renderHealthRefSheetMarkups,
+} from '../health/reference-tables.js';
 
 /**
  * Render the settings screen.
@@ -22,13 +27,22 @@ export function renderSettingsScreen(container) {
     return;
   }
 
+  const operationId = getAll('operations')[0]?.id;
+
   const sections = el('div', { className: 'settings-sections', 'data-testid': 'settings-screen' }, [
     el('h1', { className: 'screen-heading' }, [t('settings.title')]),
     renderUnitSection(container),
     renderFarmSection(farmSettings, container),
     renderPrefSection(userPrefs, container),
+    // Health reference tables (CP-32)
+    renderAiBullsSection(operationId),
+    renderTreatmentCategoriesSection(operationId),
+    renderTreatmentTypesSection(operationId),
+    renderDoseUnitsSection(),
     renderAccountSection(),
     renderSyncSection(),
+    // Sheet markups for health reference tables
+    ...renderHealthRefSheetMarkups(),
   ]);
 
   container.appendChild(sections);

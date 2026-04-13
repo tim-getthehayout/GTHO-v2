@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-13 | Schema migration 014: multi-farm context (GH-5) — user_preferences.active_farm_id (uuid NULL FK farms ON DELETE SET NULL) + events.source_event_id (uuid NULL FK events ON DELETE SET NULL) | supabase/migrations/014_multi_farm_context.sql |
 | 2026-04-13 | Product add dialogs expose unit selection (closes OI-0017) — added unitId selector from inputProductUnits to amendment input product create/edit sheet. Feed type and treatment recording sheets already had unit fields. 568 tests. | src/features/amendments/reference-tables.js, OPEN_ITEMS.md |
 | 2026-04-13 | Sync status indicator in app header (closes OI-0018) — compact dot-based indicator (idle/syncing/offline/error) in header-right. Tap navigates to settings sync panel. Reuses existing getSyncAdapter().getStatus(). 568 tests. | src/ui/header.js, src/styles/main.css, OPEN_ITEMS.md |
 | 2026-04-13 | Dose units CRUD (closes OI-0016) — add/edit sheet, archive action in settings health reference tables. Follows existing category/type pattern. 568 tests. | src/features/health/reference-tables.js, src/i18n/locales/en.json, OPEN_ITEMS.md |

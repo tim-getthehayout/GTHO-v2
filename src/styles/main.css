@@ -1226,6 +1226,54 @@ body {
   background: var(--bg2);
 }
 
+/* Progress bar */
+.progress-bar {
+  height: 6px;
+  background: var(--bg3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: var(--space-2);
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.progress-green { background: var(--color-green-base); }
+.progress-amber { background: var(--color-amber-base); }
+.progress-red { background: var(--color-red-base); }
+
+/* Batch card */
+.batch-card {
+  padding: 12px 14px;
+  margin-bottom: var(--space-3);
+}
+
+.batch-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.batch-card-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.batch-card-detail {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+.batch-card-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
 /* Hidden utility */
 .hidden {
   display: none !important;

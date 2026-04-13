@@ -33,18 +33,6 @@ Acceptance criteria says "Advance Strip button wired." The button is not rendere
 
 ---
 
-### OI-0007 — CP-17/18/20: Paddock Observations Not Created
-**Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P2
-**Checkpoints:** CP-17, CP-18, CP-20
-
-Multiple acceptance criteria reference observation creation:
-- CP-18: "Sub-move open/close **with observations**"
-- CP-20: "**Observation created**" on event close
-
-Currently no `paddock_observation` records are created anywhere — on window open, window close, or event close. TODOs exist in code (`events/index.js` lines 767, 1298, 1325, 1376, 1485) but no OPEN_ITEMS entry existed.
-
-**What's needed:** Create `paddock_observation` records (type='open' on window open, type='close' on window close and event close). The observation entity (`src/entities/paddock-observation.js`) exists. Fields like forage height, cover, quality are Phase 3.3 — but the observation record itself (with source, source_id, observed_at, type) should be created now.
-
 ---
 
 ### OI-0008 — CP-17: Location Picker Recovery Section Always Empty
@@ -68,6 +56,12 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ### OI-0004 — CP-22: Pull/Merge from Supabase Not Implemented
 **Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-build
 **Resolution:** Built sync registry (`src/data/sync-registry.js`) mapping all 50 entity types to table names + `fromSupabaseShape`. Added `mergeRemote()` to store (remote wins when `updated_at` newer, 5 unit tests). Added `pullAllRemote()` orchestrator (`src/data/pull-remote.js`). Wired into boot (flush queue then pull) and reconnect (window 'online' → flush then pull).
+
+---
+
+### OI-0007 — CP-17/18/20: Paddock Observations Not Created
+**Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-build
+**Resolution:** Added `createObservation()` helper. Observations now created at all 5 locations: event creation (open), sub-move open (open), sub-move close (close), move wizard (close per source window + open for destination), event close (close per window). Forage height/cover/quality fields remain null until Phase 3.3 populates them.
 
 ---
 

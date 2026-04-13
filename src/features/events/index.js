@@ -10,9 +10,31 @@ import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
+import * as ObservationEntity from '../../entities/paddock-observation.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
+
+/**
+ * Create a paddock observation record.
+ * @param {string} operationId
+ * @param {string} locationId
+ * @param {'open'|'close'} type
+ * @param {string} sourceId - The paddock window ID
+ * @param {string} observedAt - ISO timestamp
+ */
+function createObservation(operationId, locationId, type, sourceId, observedAt) {
+  const obs = ObservationEntity.create({
+    operationId,
+    locationId,
+    type,
+    source: 'event',
+    sourceId,
+    observedAt,
+  });
+  add('paddockObservations', obs, ObservationEntity.validate,
+    ObservationEntity.toSupabaseShape, 'paddock_observations');
+}
 
 // ---------------------------------------------------------------------------
 // Main render
@@ -625,6 +647,9 @@ function saveEvent(selection, inputs, operationId, farmId, unitSys, statusEl) {
     });
     add('eventPaddockWindows', paddockWindow, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
 
+    // Create open observation for the paddock
+    createObservation(operationId, selection.locationId, 'open', paddockWindow.id, new Date().toISOString());
+
     // 3. Create group window
     const groupWindow = GroupWindowEntity.create({
       operationId,
@@ -709,6 +734,7 @@ function openSubmoveOpenSheet(evt, operationId) {
             timeOpened: inputs.timeOpened.value || null,
           });
           add('eventPaddockWindows', pw, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          createObservation(operationId, selection.locationId, 'open', pw.id, new Date().toISOString());
           submoveOpenSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));
@@ -780,6 +806,7 @@ function openSubmoveCloseSheet(paddockWindow, _operationId) {
             dateClosed: inputs.dateClosed.value,
             timeClosed: inputs.timeClosed.value || null,
           }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          createObservation(paddockWindow.operationId, paddockWindow.locationId, 'close', paddockWindow.id, new Date().toISOString());
           submoveCloseSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));
@@ -1304,6 +1331,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unit
         dateClosed: dateOut,
         timeClosed: timeOut,
       }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+      createObservation(operationId, pw.locationId, 'close', pw.id, new Date().toISOString());
     }
 
     // Step 3: Close all open group windows
@@ -1321,8 +1349,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unit
       timeOut,
     }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
 
-    // Step 5: Paddock observation (placeholder — observation fields deferred)
-    // TODO: Create paddock_observation type='close' with residual data
+    // Step 5: Close observations already created in Step 2 loop above
 
     // --- CREATE DESTINATION (Steps 6-9) ---
 
@@ -1372,8 +1399,8 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unit
         add('eventGroupWindows', newGW, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
       }
 
-      // Step 7: Open observation (placeholder)
-      // TODO: Create paddock_observation type='open'
+      // Step 7: Open observation for destination paddock
+      createObservation(operationId, state.locationId, 'open', newPW.id, new Date().toISOString());
 
       // Step 8: Feed transfer (placeholder — Phase 3.3)
       // TODO: Create feed transfer entries
@@ -1461,13 +1488,14 @@ function openCloseEventSheet(evt, _operationId) {
           return;
         }
         try {
-          // Close all open paddock windows
+          // Close all open paddock windows + create close observations
           const pws = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
           for (const pw of pws) {
             update('eventPaddockWindows', pw.id, {
               dateClosed: dateOut,
               timeClosed: timeOut,
             }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+            createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString());
           }
           // Close all open group windows
           const gws = getAll('eventGroupWindows').filter(w => w.eventId === evt.id && !w.dateLeft);
@@ -1482,7 +1510,6 @@ function openCloseEventSheet(evt, _operationId) {
             dateOut,
             timeOut,
           }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
-          // TODO: Create paddock_observation type='close'
           closeEventSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

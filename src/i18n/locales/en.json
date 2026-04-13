@@ -499,7 +499,22 @@
     "heatTitle": "Record Heat Observation",
     "heatDate": "Date",
     "heatNotes": "Notes",
-    "heatSaved": "Heat recorded"
+    "heatSaved": "Heat recorded",
+    "recordCalving": "Calving",
+    "calvingTitle": "Record Calving",
+    "calvingDate": "Calving Date",
+    "calvingStillbirth": "Stillbirth",
+    "calvingCalfTag": "Calf Tag #",
+    "calvingCalfSex": "Calf Sex",
+    "calvingCalfWeight": "Calf Birth Weight",
+    "calvingCalfClass": "Calf Class",
+    "calvingCalfGroup": "Assign Calf to Group",
+    "calvingDriedOff": "Dried Off Date (dairy)",
+    "calvingNotes": "Notes",
+    "calvingSaved": "Calving recorded",
+    "calvingReassignPrompt": "Reassign dam class? (e.g., heifer → cow)",
+    "calvingReassignYes": "Reassign",
+    "calvingReassignNo": "Keep current"
   },
   "auth": {
     "login": "Log In",

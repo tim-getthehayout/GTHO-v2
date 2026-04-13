@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.3 Assessment — CP-24 through CP-36 complete. Phase 3.2 backfill done (OI-0004/5/6/7 closed). animal_notes schema amendment applied. 550 tests passing. Field mode is CP-34 (all CPs after CP-33 renumbered +1).
-**Next up:** CP-37 (Health — calving).
+**Active work:** Phase 3.3 Assessment — CP-24 through CP-37 complete. Phase 3.2 backfill done (OI-0004/5/6/7 closed). animal_notes schema amendment applied. 550 tests passing. Field mode is CP-34 (all CPs after CP-33 renumbered +1).
+**Next up:** CP-38 (Amendment — reference tables).
 
 ---
 

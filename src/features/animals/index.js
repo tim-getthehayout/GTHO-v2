@@ -15,6 +15,7 @@ import { openBcsSheet, renderBcsSheetMarkup } from '../health/bcs.js';
 import { openTreatmentSheet, renderTreatmentSheetMarkup } from '../health/treatment.js';
 import { openBreedingSheet, renderBreedingSheetMarkup } from '../health/breeding.js';
 import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
+import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
 
 /** Current tab: 'groups' | 'classes' | 'animals' */
 let activeTab = 'groups';
@@ -81,6 +82,7 @@ export function renderAnimalsScreen(container) {
     renderTreatmentSheetMarkup(),
     renderBreedingSheetMarkup(),
     renderHeatSheetMarkup(),
+    renderCalvingSheetMarkup(),
   ]);
 
   container.appendChild(screenEl);
@@ -839,6 +841,11 @@ function renderAnimalTable(wrap, allAnimals, operationId, farmId, _rootContainer
               'data-testid': `animals-animal-heat-${animal.id}`,
               onClick: () => openHeatSheet(animal, operationId),
             }, [t('health.recordHeat')]),
+            el('button', {
+              className: 'btn btn-outline btn-xs',
+              'data-testid': `animals-animal-calving-${animal.id}`,
+              onClick: () => openCalvingSheet(animal, operationId),
+            }, [t('health.recordCalving')]),
           ]),
         ]),
       ]);

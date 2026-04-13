@@ -19,6 +19,7 @@ import { renderReportsScreen } from './features/reports/index.js';
 import { renderSettingsScreen } from './features/settings/index.js';
 import { renderSurveysScreen } from './features/surveys/index.js';
 import { renderFieldModeHome } from './features/field-mode/index.js';
+import { renderSoilTestsScreen } from './features/amendments/soil-tests.js';
 import { getFieldMode, setFieldMode } from './utils/preferences.js';
 
 /**
@@ -122,6 +123,7 @@ function showApp(app) {
   route('#/reports', renderReportsScreen);
   route('#/settings', renderSettingsScreen);
   route('#/surveys', renderSurveysScreen);
+  route('#/soil-tests', renderSoilTestsScreen);
 
   // Init router — renders the current hash route
   initRouter(content);

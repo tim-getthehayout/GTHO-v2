@@ -79,6 +79,48 @@ CP-32 shipped a dose_units list display in health reference tables, but no add/e
 
 ---
 
+### OI-0017 — Product Add Dialog Missing Unit Selection
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** CP-25/26 (feed & health product creation)
+
+When adding a product (feed item or health product), the create dialog does not expose a unit-of-measure selection field. Users can't pick bag/lb/kg/ml/tab/etc. at creation time, so downstream quantity math and display are either missing a unit or using a fallback.
+
+**Fix:** Add unit selection to both product create sheets:
+- Feed items (`src/features/feed/...`) — pull from feed unit list (kg/lb/bag/ton).
+- Health products (`src/features/health/...`) — pull from dose_units (ml/cc/mg/g/tab/...).
+
+Field exists in entity specs per V2_SCHEMA_DESIGN.md (F6 feed_items.default_unit, H3 health_products.default_dose_unit_id). This is a UI wiring gap, not a schema gap. Validate on save. Save persists the chosen unit ID; display uses it wherever quantity is shown.
+
+**Note:** This interacts with OI-0016 (dose units CRUD) — if a user can't find the unit they need, the CRUD from OI-0016 is the escape hatch.
+
+---
+
+### OI-0018 — Sync Status Not Shown in App Header
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** CP-13 (sync adapter UI) / CP-03 (header)
+
+Sync status is only visible at the bottom of the Settings screen. A user in any other screen has no indication of whether the app is online, syncing, or stalled — so they don't know if their edits have been written back.
+
+**Fix:** Add a compact sync indicator to the app header (top bar) that reflects the same state as the Settings sync panel. States to render: idle/synced, syncing (spinner), offline (cloud-off icon), error (red dot + tap to open Settings sync panel). Tap target opens the Settings sync section for details. Reuse the store sync state — do not duplicate logic.
+
+**Spec sources that may need updates:** V2_DESIGN_SYSTEM.md §3.6 (header components), V2_UX_FLOWS.md (sync visibility flow if not already covered).
+
+---
+
+### OI-0019 — No Logout Affordance in Header (v1 Parity)
+**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** CP-03 (header) / auth UX
+
+In v1, tapping the user icon in the top-right of the header opened a menu that included Log Out. v2 has no logout affordance in the header — users must dig through Settings (or can't find it at all). This is a v1 parity regression.
+
+**Fix:** Add a user/account icon to the top-right of the app header. Tap opens a small popover/menu with at minimum: user email/name (read-only), Log Out action. Confirm logout if there are unsynced writes. Once farm picker (OI-0015) lands, that popover can host both controls, or they can be separate icons — design decision to bundle with OI-0015 resolution.
+
+**Depends on / coordinates with:** OI-0015 (farm picker — same header real estate, same "who am I working as" concern). Consider designing these together.
+
+**Spec sources that need updates:** V2_DESIGN_SYSTEM.md §3.6 (header), V2_UX_FLOWS.md (auth/logout flow).
+
+---
+
 ### OI-0008 — CP-17: Location Picker Recovery Section Always Empty
 **Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P3
 **Checkpoint:** CP-17
@@ -150,4 +192,5 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 | Date | Session | Changes |
 |------|---------|---------|
 | 2026-04-13 | Strip grazing + unit system integration | OI-0001 closed — strip grazing design integrated into V2_SCHEMA_DESIGN.md, V2_CALCULATION_SPEC.md, V2_UX_FLOWS.md, V2_DESIGN_SYSTEM.md; A45 logged. OI-0002 closed — `operations.unit_system` column added to schema; A44 logged; V2_INFRASTRUCTURE.md §1.3 added; V2_MIGRATION_PLAN.md §2.8 updated; implementation spec written to `github/issues/unit-system-operations-migration.md` covering entity update, store action, settings re-render on toggle, onboarding selector, and localStorage → operation migration. |
+| 2026-04-13 | Pre-CP-54 audit + nits | Added OI-0011 (feed metrics placeholders, P2), OI-0012 (calc test gap, P2), OI-0013 (calc reference descriptions spot-check, P2), OI-0014 (event close manure volumeKg placeholder, P3) from audit. Added Tim nits: OI-0015 (header: operation name + farm picker, P2, DESIGN REQUIRED), OI-0016 (dose units CRUD, P3), OI-0017 (product add dialog missing unit selection, P2), OI-0018 (sync status not in app header, P2), OI-0019 (no logout affordance in header — v1 parity regression, P2). |
 

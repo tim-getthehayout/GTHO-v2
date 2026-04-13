@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-13 | Sync status indicator in app header (closes OI-0018) — compact dot-based indicator (idle/syncing/offline/error) in header-right. Tap navigates to settings sync panel. Reuses existing getSyncAdapter().getStatus(). 568 tests. | src/ui/header.js, src/styles/main.css, OPEN_ITEMS.md |
 | 2026-04-13 | Dose units CRUD (closes OI-0016) — add/edit sheet, archive action in settings health reference tables. Follows existing category/type pattern. 568 tests. | src/features/health/reference-tables.js, src/i18n/locales/en.json, OPEN_ITEMS.md |
 | 2026-04-13 | Verify manure volumeKg placeholder (closes OI-0014) — confirmed placeholder is architecturally correct (reports compute via NPK-1 at display time, not stored column). Updated code comment in close.js. | src/features/events/close.js, OPEN_ITEMS.md |
 | 2026-04-13 | Wire feed screen metrics to live data (closes OI-0011) — DM on hand (batch.remaining × dm_pct), daily run rate (30-day avg DM delivered), days on hand (DM ÷ rate). Three stat cells in goal banner. Progress bar threshold coloring active. 568 tests. | src/features/feed/index.js, OPEN_ITEMS.md |

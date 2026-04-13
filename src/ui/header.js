@@ -4,7 +4,7 @@ import { el } from './dom.js';
 import { t } from '../i18n/i18n.js';
 import { navigate } from './router.js';
 import { setFieldMode } from '../utils/preferences.js';
-import { getAll, subscribe } from '../data/store.js';
+import { getAll, subscribe, getSyncAdapter } from '../data/store.js';
 import { getOpenTodoCount } from '../features/todos/index.js';
 
 /** Unsubscribe functions */
@@ -42,6 +42,7 @@ export function renderHeader(container) {
         el('div', { className: 'header-title' }, [farmName]),
       ]),
       el('div', { className: 'header-right' }, [
+        renderSyncIndicator(),
         el('button', {
           className: 'btn btn-green btn-xs',
           'data-testid': 'header-field-mode-toggle',
@@ -122,6 +123,37 @@ function renderBottomNav(todoCount) {
   }
 
   return nav;
+}
+
+/**
+ * Render compact sync status indicator for the header bar.
+ * States: idle (green dot), syncing (amber dot), offline (grey dot), error (red dot).
+ * Tap navigates to Settings sync panel.
+ */
+function renderSyncIndicator() {
+  const adapter = getSyncAdapter();
+  let status;
+  try {
+    status = adapter ? adapter.getStatus() : 'offline';
+  } catch {
+    status = 'offline';
+  }
+
+  const dotClass = {
+    idle: 'sync-ok',
+    syncing: 'sync-pending',
+    error: 'sync-err',
+    offline: 'sync-off',
+  }[status] || 'sync-off';
+
+  return el('button', {
+    className: 'header-sync-btn',
+    'data-testid': 'header-sync-status',
+    title: status,
+    onClick: () => navigate('#/settings'),
+  }, [
+    el('span', { className: `sync-dot ${dotClass}` }),
+  ]);
 }
 
 /**

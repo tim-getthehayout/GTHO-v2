@@ -69,16 +69,6 @@ Field exists in entity specs per V2_SCHEMA_DESIGN.md (F6 feed_items.default_unit
 
 ---
 
-### OI-0018 — Sync Status Not Shown in App Header
-**Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
-**Checkpoint:** CP-13 (sync adapter UI) / CP-03 (header)
-
-Sync status is only visible at the bottom of the Settings screen. A user in any other screen has no indication of whether the app is online, syncing, or stalled — so they don't know if their edits have been written back.
-
-**Fix:** Add a compact sync indicator to the app header (top bar) that reflects the same state as the Settings sync panel. States to render: idle/synced, syncing (spinner), offline (cloud-off icon), error (red dot + tap to open Settings sync panel). Tap target opens the Settings sync section for details. Reuse the store sync state — do not duplicate logic.
-
-**Spec sources that may need updates:** V2_DESIGN_SYSTEM.md §3.6 (header components), V2_UX_FLOWS.md (sync visibility flow if not already covered).
-
 ---
 
 ### OI-0019 — No Logout Affordance in Header (v1 Parity)
@@ -106,6 +96,12 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ---
 
 ## Closed
+
+### OI-0018 — Sync Status Not Shown in App Header
+**Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
+**Resolution:** Added compact sync indicator to `src/ui/header.js` — dot-based (sync-ok/sync-pending/sync-err/sync-off classes from existing §3.14 design tokens). Reads from `getSyncAdapter().getStatus()`. Tap navigates to `#/settings`. CSS button in `.header-sync-btn`. No duplicate logic — reuses existing store sync state.
+
+---
 
 ### OI-0016 — Dose Units: No Add/Edit UI
 **Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build

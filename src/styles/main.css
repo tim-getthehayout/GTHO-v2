@@ -1412,6 +1412,15 @@ body.field-mode .sheet-panel {
   gap: var(--space-3);
 }
 
+.header-sync-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+
 /* Nav link with badge */
 .nav-link-badge {
   position: relative;

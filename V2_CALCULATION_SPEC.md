@@ -2,7 +2,7 @@
 
 **Status:** APPROVED
 **Source:** Prior CALCULATION_REGISTRY.md + interactive design sessions
-**Purpose:** Catalog every formula in the app (35 formulas across 10 domains), document the registerCalc() pattern, specify the reference console, and flag v1 bugs to fix. Claude Code implements calculations from this spec.
+**Purpose:** Catalog every formula in the app (37 formulas across 11 domains), document the registerCalc() pattern, specify the reference console, and flag v1 bugs to fix. Claude Code implements calculations from this spec.
 
 ---
 
@@ -193,7 +193,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Inputs: event_paddock_windows (dates + location), daily DMI (DMI-3), event_feed_entries + event_feed_check_items (stored feed delivered and consumed per paddock, time-filtered)
 - Output: grass_dmi_kg per paddock (total DMI for window minus stored feed consumed in that window)
 
-### 4.3 Forage Domain (5 formulas)
+### 4.3 Forage Domain (6 formulas)
 
 **FOR-1: Standing Forage DM**
 - Computes: Harvestable dry matter available for grazing
@@ -221,6 +221,14 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Computes: Actual AUDs used vs estimated AUDs available
 - Inputs: Actual (head × weight × days), estimated AUDs (FOR-2)
 - Output: efficiency_pct
+
+**FOR-6: Forecast Standing DM at Date**
+- Computes: Projected standing dry matter for a paddock at a future date, used by the rotation calendar's future forecast blocks
+- Inputs: most_recent_close_observation (observed_at, residual height, forecast growth model from forage_types), recovery_min_days, recovery_max_days (REC-1 inputs), target_date, area_hectares, forage_cover_pct
+- Output: `{ forecast_dm_kg, confidence: 'min' | 'mid' | 'max' | 'past_max' }` — `confidence = 'min'` when `target_date ≤ earliest_return`, `'mid'` when between min and max recovery, `'max'` when at window_closes, `'past_max'` when beyond
+- **Rule:** `target_date < observed_at` is invalid — this formula is forecast-only. For present DM use FOR-1.
+- **Strip grazing:** Same rule as FOR-1 — each strip has its own close observation and its own forecast curve. The whole-paddock forecast = sum of strip forecasts at `target_date`.
+- **Used by:** rotation calendar Estimated Status View (gradient rendering) and CAP-1 (demand-side coverage).
 
 ### 4.4 Animal Metrics Domain (3 formulas)
 
@@ -332,6 +340,26 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Inputs: weight_kg, unit preference (tonnes/gallons/cubic yards/loads)
 - v1 bug: Water density used instead of slurry density. **v2 fix:** Configurable density (default 8.7 lbs/gal for slurry).
 
+### 4.11 Capacity Forecast Domain (1 formula)
+
+**CAP-1: Period Capacity Coverage**
+- Computes: Fraction of a selected period that a paddock can feed a set of groups, given forecast standing DM — the engine behind the rotation calendar's DM Forecast View (§4.3, §19 in V2_UX_FLOWS.md)
+- Inputs:
+  - `paddock` (area, forage_cover, forage_type linkage — feeds FOR-6)
+  - `groups[]` — one or more animal groups (from ANI-1)
+  - `period_days` — 1, 3, or custom number of days selected in the Dry Matter Forecaster
+  - `start_date` — typically the paddock's `earliest_return` (from REC-1) when we first consider it available
+- Output:
+  - `{ dm_available_kg, dm_demand_kg, coverage_fraction, covers_hours, shortfall_lbs_hay, surplus_hours }`
+  - `coverage_fraction = min(1, dm_available_kg / dm_demand_kg)` where `dm_available_kg = FOR-6(paddock, start_date + period_days).forecast_dm_kg` and `dm_demand_kg = Σ(group.total_dmi_kg_per_day from ANI-1) × period_days`
+  - `covers_hours = coverage_fraction × period_days × 24`
+  - `shortfall_lbs_hay = max(0, (dm_demand_kg − dm_available_kg)) × 2.20462` (rendered in tan segment label)
+  - `surplus_hours = max(0, (dm_available_kg − dm_demand_kg) / (Σ(group.total_dmi_kg_per_day) / 24))` (rendered in `+ Xd Yh` surplus chip when coverage_fraction = 1)
+- **Never-grazed paddock rule:** when no close observation exists, FOR-6 returns `forecast_dm_kg = 0` and `confidence = 'min'`; CAP-1 treats the paddock as 100% shortfall and the calendar labels it "Est. <lbs> hay needed — survey to confirm". A post-graze survey unblocks a real forecast.
+- **Multi-group rule:** `dm_demand_kg` sums DMI across all selected groups. The calendar's mode indicator and past-event block labels collapse to "Multiple Groups (N)" (V2_UX_FLOWS.md §19.2) — no calc-side change, only presentation.
+- **Strip grazing:** `dm_available_kg` sums across strips via the FOR-6 strip-grazing rule.
+- **v2-only:** No v1 equivalent. New for CP-54.
+
 ---
 
 ## 5. Critical v1 Bugs — Must Fix in v2
@@ -348,6 +376,14 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 | 8 | Utilization % is global (FOR-1) | Legume 60%, grass 40% — can't differentiate | Per-forage-type on forage_types table |
 | 9 | No event price snapshots (CST-3) | Reports use wrong prices | Same fix as #3 — npk_price_history lookup |
 | 10 | Weaning age hardcoded by species (ANI-3) | Dairy 60 days, beef 180 — can't differentiate | Per-class on animal_classes. beef_cattle/dairy_cattle species split provides distinct defaults. |
+
+---
+
+## Change Log
+
+| Date | Session | Changes |
+|------|---------|---------|
+| 2026-04-13 | Rotation calendar design (CP-54) | Added FOR-6 (Forecast Standing DM at Date) to the Forage domain and new §4.11 Capacity Forecast domain with CAP-1 (Period Capacity Coverage). Both formulas are required by CP-54 — FOR-6 drives the Estimated Status View DM gradient, and CAP-1 drives the DM Forecast View capacity split and surplus chip. Total formulas: 35 → 37. Domains: 10 → 11. |
 
 ---
 

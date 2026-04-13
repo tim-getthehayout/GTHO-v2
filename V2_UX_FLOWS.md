@@ -1261,6 +1261,109 @@ Field Mode is locked to the farm that was active when the user entered Field Mod
 
 ---
 
+## 19. Rotation Calendar (Events)
+
+The rotation calendar is the primary visualization of grazing history and forward-looking forecasts. It lives on the Events screen (§4.3) — the Events screen *is* the rotation calendar. Reports does not mount a second copy; any season-scale view the user wants is reachable by changing Zoom + Jump on the Events screen. See V2_DESIGN_SYSTEM.md §4.3 for visual anatomy.
+
+### 19.1 View Modes
+
+Two mutually-exclusive modes drive the appearance of future (right-of-Today) blocks:
+
+- **Estimated Status View** (default when no groups are selected in the Dry Matter Forecaster). Each paddock's forecast block spans min-recovery-date → max-recovery-date per REC-1. Rendered as an ambient horizontal DM gradient (`--green-wash` → `--green-base`). No demand-side reasoning — this is the "is it ready yet?" view.
+- **DM Forecast View** (active when one or more groups are selected and a period is chosen). Each paddock's forecast block spans min-recovery-date → (min + period). Rendered as a capacity split: green segment width = fraction of the selected period the paddock can supply for the selected groups (via CAP-1); tan segment width = the shortfall (lbs of hay). Full green + `+ Xd Yh` surplus chip when DM ≥ demand.
+
+The mode indicator pill (top-right of the screen header) shows which mode is active. Swapping modes does not refresh past blocks; only future blocks re-render.
+
+### 19.2 Past Event Blocks
+
+Rendered left of the Today line, one block per event overlapping the visible range. Block color = green (pasture), lighter green (sub-move destination), tan (hay / stored feed overlap). Labels follow the multi-group rule: single-group events show the group name; multi-group events collapse to `Multiple Groups (N)` with a dotted-underline hover tooltip listing all groups. Strip-grazed active events render proportional vertical bands (one per strip, width proportional to strip area) behind the label; strip-grazed closed events collapse to a single block with a `Strip k/N` note in Line 2.
+
+Linked paddock groups render a dashed outer outline across all member rows plus a dotted connector on the left edge; the primary row carries full block content while linked rows show a reduced `↳ linked to <primary>` block.
+
+Active (currently-open) events render with an inset white ring + dark-green outer ring plus a `NOW` chip in Line 1.
+
+Click a past block → open the event edit sheet (§11.2).
+
+### 19.3 Future Forecast Blocks
+
+Rendered right of the Today line. Presence and appearance driven by view mode (§19.1). Min/max recovery dates (from REC-1) flank the block with small tick marks and dates. Never-grazed paddocks render 100% tan with an `Est. <lbs> hay needed — survey to confirm` label and route the user to the survey flow on click (§7). Active events render no forecast — instead a dashed `Grazing in progress — forecast available after close` label sits in their right-of-Today space.
+
+Click a future block → open the paddock detail sheet with the forecast breakdown pre-filled.
+
+### 19.4 Toolbar + Controls
+
+**Timeline Selection lightbox** — two stacked rows: Zoom (Day · Week · Month · Last 90 days) and Jump (Today · Last 30d · This year · Pick date…). Zoom controls column density; Jump scrolls the timeline to a preset range. **Default on first load: Zoom = Week, Jump = Today.** (Revisit after real user feedback — the Week/Today bet trades daily detail for one week of context in each direction; if users report wanting more context by default, bump to Month.)
+
+**Dry Matter Forecaster lightbox** — two stacked rows: Groups (multi-select chip picker with ＋ Add / Clear) and Period (1 day · 3 days · Custom…). Picking one or more groups switches the view into DM Forecast mode; clearing all groups returns to Estimated Status mode.
+
+**Show Confinement Locations pill** — far-right on/off toggle. Default OFF — confinement locations are excluded from the paddock list. Toggling ON expands the list and the sidebar rows to match.
+
+### 19.5 Sidebar
+
+Right-hand column mirrors the left paddock column structure: 40px header, one 72px row per visible paddock aligned 1:1 with the timeline, 28px totals footer anchored at the bottom. Each paddock row shows AUDS, pasture %, NPK, and event-count note scoped to the visible range. Totals footer shows range totals + average feed cost. Recomputes on any pan, zoom, group change, or period change.
+
+### 19.6 Empty States
+
+Never-grazed paddocks show `No activity · survey needed` in the sidebar row and render the never-grazed tan forecast block (§19.3). The CTA routes to the Fields → Survey flow rather than to Move wizard, because forecasts require a post-graze observation to compute.
+
+When no paddocks at all exist for the farm, the calendar collapses to a full-bleed empty state pointing to Fields → `+ Add location`.
+
+### 19.7 Mobile Adaptation
+
+**The rotation calendar is not rendered on mobile (below 900px).** Mobile Events falls back to the v1 list pattern: active-rotation banner at top (GRZ-11 — paddock chips with status colors, date in, feeding count, groups), followed by the events log list (§19.8 / GRZ-10). Rationale: the calendar's value comes from horizontal scale and side-by-side paddock comparison, neither of which survive a phone viewport — a scannable list beats a squeezed grid.
+
+### 19.8 List View
+
+Reuses the v1 events log (GRZ-10) — this is both the desktop Calendar/List toggle target and the mobile default.
+
+Parent row displays: location (multi-paddock chip summary), date range (or "ongoing"), days, groups summary, active/closed badge, feed cost, pasture %, recovery window, edit button. Sub-move thread renders as an indented sub-list under the parent (active sub-moves get teal badge; returned get grey). Summary metrics per event: AU, Pasture AUDS, ADA, Pasture DMI, Stored Feed DMI, NPK (closed only), DMI Variance (100%-stored-feed closed events only). Filter dropdown: All / Open / Closed. Tap an event to open the event edit sheet. The list is unaffected by Dry Matter Forecaster state.
+
+### 19.9 Interactions & Deep Linking
+
+**Click targets.** Past block → event edit sheet (§11.2). Future block (Estimated Status View) → paddock detail sheet. Future block (DM Forecast View) → paddock detail sheet with forecast breakdown pre-filled. Never-grazed tan block → survey flow (§7). Sidebar row → filters the timeline to that paddock only (tap again to clear the filter).
+
+**Pan gestures.**
+- Desktop: horizontal scroll pans the timeline; vertical scroll pans the paddock list.
+- Touch: one-finger horizontal swipe pans the timeline; vertical swipe pans the paddock list.
+- Sidebar and Today line stay anchored (sticky) during pan.
+
+**Zoom gestures.**
+- Desktop: scroll-wheel while holding `ctrl` (Windows/Linux) or `cmd` (macOS) zooms.
+- Touch: pinch-to-zoom.
+- Clicking a Zoom preset (Day · Week · Month · Last 90 days) jumps directly to that zoom.
+
+**Keyboard shortcuts (desktop calendar focused).**
+- `←` / `→` — pan by one day at current zoom
+- `Shift + ←` / `Shift + →` — pan by one week
+- `T` — jump to Today
+- `Esc` — close any open lightbox or popover (farm picker, user menu, period custom input, etc.)
+
+**Deep-linking state.** Calendar state is fully URL-addressable so a user can share a specific view:
+
+```
+#/events?zoom={day|week|month|last90}
+        &anchor={today|last30|thisYear|YYYY-MM-DD}
+        &groups={id1},{id2},...
+        &period={days | blank}
+        &showConfinement={0|1}
+        &view={calendar|list}
+```
+
+Any omitted parameter falls back to its default. Changes to state update the URL without a full route change (history.replaceState).
+
+**First-load defaults.** `zoom=week`, `anchor=today`, `groups=[]`, `period=null`, `showConfinement=false`, `view=calendar`. Forecaster starting empty → Estimated Status View is the default mode.
+
+**State persistence policy.** Calendar state is NOT persisted to `user_preferences` in v2.0. It lives in session memory and the URL only. Rationale: the URL is enough for deep-linking and sharing; sticky defaults are a small follow-up (one column + one getter/setter) that should be driven by user feedback, not pre-emptively. When user feedback asks for sticky defaults, add a `user_preferences.events_calendar_state jsonb` column and persist on change.
+
+**Paddock sort order.** Paddocks render in the order locations appear in `store.locations` (stable sort by creation order / `locations.id`). Custom ordering (drag-to-reorder or a priority field) is out of scope for v2.0 — revisit once users report needing it.
+
+**Accessibility.**
+- All interactive elements (past/future blocks, lightbox pills, legend items, sidebar rows, view toggle, mode indicator, confinement pill) must have visible focus outlines meeting WCAG 2.1 AA contrast (3px outline, `--green-dark`, 3:1 min against adjacent content).
+- Block labels that rely on tooltips (multi-group `Multiple Groups (N)` dotted underline) must also expose the group list via `aria-label` for screen readers.
+- Strip bands' color-alternation is decorative; label text on top must have `text-shadow` strong enough to pass 4.5:1 contrast against the darkest band color.
+
+---
+
 ## Change Log
 
 | Date | Session | Changes |
@@ -1268,6 +1371,7 @@ Field Mode is locked to the farm that was active when the user entered Field Mod
 | 2026-04-12 | Session 11 — UX flow gap fill | Added §14 (reusable health & recording components — 10 subsections covering weight, BCS, treatment, breeding, heat, calving, note, group sessions, quick-action bar), §15 (entity CRUD forms — animal, group, location, feed type), §16 (field mode — home screen, navigation, heat quick-access, feed loop). Component-first approach: each form documented once with entry points and context pre-fill mapped. |
 | 2026-04-13 | Session — Dashboard & todos spec | Added §17 (home screen / dashboard + todos). 14 subsections covering: screen layout (mobile/desktop), header bar, farm overview stats (desktop 5-metric, mobile 3-metric with thresholds), view toggle (groups/locations, default changed to locations for new users), group card anatomy (body elements, conditional logic, action buttons, collapse/expand), location card anatomy, open tasks dashboard section, todos screen with 3-axis filtering, todo create/edit sheet, todo card anatomy, survey draft card, weaning nudge. Derived from v1 `renderHome()` + `renderTodos()` code review against v2 schema D11.3/D11.4. FAB removed — feedback button moved to header. |
 | 2026-04-13 | Header + multi-farm context design | OI-0015 & OI-0019 resolved. §17.2 Header Bar rewritten — left cluster now shows operation name + farm picker, right cluster adds user menu button and restores build stamp. §1.2 and §1.3 (move wizard location + existing event pickers) gained a farm chip at the top enabling cross-farm targeting. New §18 Farm Switching & Multi-Farm Context added (8 subsections): active farm semantics, farm picker UX, switch-with-unsaved-work confirm, cross-farm whole-group moves (no-straddling-events rule, source_event_id linkage), cross-farm individual animal moves (membership-only), event card cross-farm markers, All farms aggregate mode behavior, Field Mode interaction. |
+| 2026-04-13 | Rotation calendar design (CP-54) | Added §19 Rotation Calendar — 9 subsections covering view modes (Estimated Status + DM Forecast), past event blocks (linked, strip-grazed, active, sub-move), future forecast blocks (capacity split, surplus, never-grazed → survey CTA), toolbar lightboxes (Timeline Selection + Dry Matter Forecaster), confinement pill, sidebar mirroring paddock column, empty states, mobile fallback (no calendar below 900px — v1 GRZ-11 banner + GRZ-10 list), List view (v1 GRZ-10 pattern), and **§19.9 Interactions & Deep Linking** (click targets, pan/zoom gestures, keyboard shortcuts, deep-link URL schema, first-load defaults Zoom=Week/Jump=Today, state persistence policy deferred from user_preferences to a follow-up, paddock sort order, accessibility). Calendar lives only on the Events screen — Reports does not mount a second copy. Bundles strip-grazing from OI-0001. |
 
 ---
 

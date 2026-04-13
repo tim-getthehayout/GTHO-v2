@@ -39,6 +39,14 @@ git push
 **Why:** The App-Migration-Project repo hit this repeatedly. Every new session started with a broken git state because a prior Claude Code or Cowork agent session had created a worktree and didn't clean up on exit. The get-the-hay-out repo already had the rule; App-Migration-Project didn't until Session 10 added it manually. This should be standard.
 **Where:** project-scaffold SKILL.md — when generating CLAUDE.md for a new project, include the no-worktree rule if the git workflow section specifies single-branch or docs-only.
 
+### 5. Base docs carry the design; github/issues/ specs are handoff wrappers only
+**Plugin:** project-infrastructure
+**Skill:** doc-workflow, deploy-gate
+**What:** When writing a spec file to `github/issues/`, it must NOT contain design decisions that aren't also captured in a base design doc (V2_DESIGN_SYSTEM, V2_UX_FLOWS, V2_CALCULATION_SPEC, V2_SCHEMA_DESIGN). The spec is a handoff wrapper: summary, references to the base doc sections that define the design, implementation acceptance criteria (file paths, build order, test plan), GH-4-style bundling notes. If a design detail appears only in the spec, stop and migrate it to the appropriate base doc before finalizing the spec.
+**Why:** In the CP-54 rotation calendar session (2026-04-13), Tim caught that the first-draft spec had keyboard shortcuts, URL deep-link schema, state persistence policy, and accessibility requirements that weren't in any base doc. If the spec file had later been archived or deleted after implementation, those design decisions would have been lost. The principle: "if we deleted every `github/issues/` spec, the design should still be fully captured." Specs decay (they close when built); base docs are the living source of truth.
+**How to apply:** Add a check to the Cowork Delivery Gate item 3 ("Spec files written"): before finalizing a spec, audit for design content that belongs in a base doc and migrate it. Consider a "Design source of truth" section at the top of every spec (as seen in `rotation-calendar-events-screen.md`) that indexes every base-doc section the spec depends on — this makes the audit self-enforcing because anything not referenceable by section number is a sign it hasn't been integrated.
+**Where:** deploy-gate SKILL.md §Cowork Delivery Gate item 3, and the project-scaffold spec template (`github/issues/_TEMPLATE.md`) — add a required "Design source of truth" section referencing base docs.
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

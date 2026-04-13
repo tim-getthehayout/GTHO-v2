@@ -429,7 +429,45 @@ Group filter pills at top (All, Cow-Calf Herd, Ewe Flock, Stockers, Unassigned �
 
 ### 4.3 Events Screen
 
-Active rotation banner (green): "Active rotation on N locations — move cows here, move sheep there" with location pill links. Tab strip: Event Log | Rotation Calendar. Event log: chronological list of events, each row showing group, location, date range, active/closed badge. Sub-move indicators inline. Rotation calendar (desktop only): paddock rows × month columns, colored cells for grazing/sub-move duration.
+The Events screen **is** the rotation calendar. Active rotation quick-access lives on the Home/Dashboard screen — not here.
+
+**Header strip.** Left: `View:` label + view toggle (`📅 Calendar` | `📋 List`), Calendar is the default. Right: mode indicator pill — reads `DM Forecast View · <group summary> · <period>` when the Dry Matter Forecaster has at least one group selected, otherwise reads `Estimated Status View` (grey). Multi-group summary collapses to `Multiple Groups (N)` with a dotted underline and hover tooltip listing every group when more than one is selected; shows the group name directly when exactly one.
+
+**Toolbar.** Two titled lightboxes sit left-aligned, side-by-side:
+
+- **Timeline Selection** — Zoom row (Day · Week · Month · Last 90 days) stacked over Jump row (Today · Last 30d · This year · Pick date…). Default on first load: Zoom = Week, Jump = Today.
+- **Dry Matter Forecaster** — Groups row (multi-select chip picker with ＋ Add / Clear) stacked over Period row (1 day · 3 days · Custom…)
+
+`Show Confinement Locations` on/off pill is anchored to the far right of the toolbar row (default OFF — confinement locations hidden from the paddock list).
+
+**Legend strip.** Two groups separated by a thin divider. The Past group is always shown: Pasture grazing · Sub-move · Hay / stored feed · Active now · Linked paddocks · Strip-grazed. The Future group is conditional on the current view mode: in Estimated Status View it shows the DM gradient swatch and the No-data / survey-needed swatch; in DM Forecast View it shows the capacity-split swatch, the surplus swatch, and the No-data swatch.
+
+**Calendar grid.** Three columns: paddock column (180px, fixed), timeline (flex), sidebar (260px, fixed). Each row is 72px tall. Top axis (40px) above the timeline shows day/week/month labels scaled to the active Zoom. Bottom axis (28px) mirrors the top for readability when scrolled. A vertical `TODAY` line pierces the full grid height with a small date pill at the top axis.
+
+**Paddock column.** One row per paddock. Each row renders name, acreage, and up to one status tag: `Primary · linked` / `Linked to <primary>` / `● Active · strip k/N` / `Sub-move destination` / `Never grazed`. Confinement locations are omitted unless the right-hand pill is toggled on. Paddocks are sorted by primary key (configurable in Fields later; out of scope for CP-54).
+
+**Past event blocks (left of the Today line).** Solid green rectangle centered in the paddock row, spanning date-in → date-out. Two lines of overlay text:
+- Line 1: `<group> · <AUDS> · <days>d` — multi-group rule applies (`Multiple Groups (N)` + tooltip when >1)
+- Line 2: `Pasture <p>% · Feed <f>% · <DMI> DMI · <hd> hd`
+
+Hay / stored-feed overlap renders as a thinner tan block anchored to the bottom edge of the row for the day(s) it applies, with `Hay <amount> <unit>` label. Sub-moves between paddocks render as a lighter-green block on the destination row plus a thin vertical arrow connecting the two rows at the move date. Linked paddock groups (primary + linked) are wrapped in a dashed outer outline with a dotted connector on the left edge spanning all member rows; the primary row carries the full block content, linked rows show a `↳ linked to <primary>` reduced block.
+
+**Active event.** The currently-open event gets an inset white ring + dark-green outer ring (`inset 0 0 0 3px white, inset 0 0 0 5px dark-green`) plus a small `NOW` chip in Line 1. Strip-grazed active events render the block with proportional vertical band segments — one band per strip, width proportional to strip area, colors alternating shades of green — behind the label text (label sits on top, readable via text-shadow). Past strip grazing (closed events) renders as a normal single block with a `Strip k/N` note in Line 2 (no bands).
+
+**Future forecast blocks (right of the Today line).** Driven by the active view mode:
+
+- **Estimated Status View** (default — no groups selected). One forecast block per paddock, spanning min-recovery-date → max-recovery-date as computed by REC-1. Visual: ambient horizontal DM gradient (`--green-wash` → `--green-base`) indicating readiness confidence. Min/Max date tick marks flank the block with small labels.
+- **DM Forecast View** (one or more groups + a period selected). One forecast block per paddock spanning min-recovery-date → (min-recovery-date + period). Visual: capacity split — green segment width = fraction of the period that the paddock's estimated standing DM can supply for the selected groups, tan segment width = remaining fraction. Green segment labels `Covers <d> <h>`, tan segment labels `<lbs> hay`. When DM ≥ demand, the block renders full green with a small `+ <surplus>` chip (format `+ Xd Yh`). Never-grazed paddocks render as 100% tan with label `Est. <lbs> hay needed — survey to confirm`.
+
+Currently-active events render no forecast block — instead the space right of the Today line shows a dashed `Grazing in progress — forecast available after close` label. Forecasts require a post-graze observation to compute.
+
+**Sidebar (right column).** Mirrors the left paddock column: 40px header (`Summary` + visible date range), 7 × 72px paddock rows aligned 1:1 with the timeline rows, 28px totals footer anchored at the bottom. Each paddock row shows AUDS, pasture %, NPK triplet, and a per-row event-count note. Footer shows totals + average feed cost for the visible range. Recomputes on pan/zoom.
+
+**Interactions.** Click a past block → open the event edit sheet (§4.8). Click a future block → open the paddock detail sheet with the forecast breakdown pre-filled. Full interaction spec — pan/zoom gestures, keyboard shortcuts, deep-link URL schema, paddock sort order, accessibility — lives in V2_UX_FLOWS.md §19.9. Sidebar and Today line stay anchored on scroll.
+
+**Mobile.** The rotation calendar is **not rendered below 900px**. Mobile Events falls back to the v1 list pattern: an active-rotation banner at top (GRZ-11 — paddock chips with status colors, date in, feeding count, groups) followed by the events log list (GRZ-10 — see List view below). This keeps the mobile Events screen focused on quick scan + tap-to-edit without trying to squeeze a horizontal timeline onto a phone.
+
+**List view.** Reuses the v1 events log (GRZ-10). Parent rows show: location (multi-paddock chip summary), date range (or "ongoing"), days, groups summary, active/closed badge, feed cost, pasture %, recovery window, edit button. Sub-move thread renders as an indented sub-list under the parent (active sub-moves get teal badge; returned get grey). Summary metrics per event: AU, Pasture AUDS, ADA, Pasture DMI, Stored Feed DMI, NPK (closed only), DMI Variance (100%-stored-feed closed events only). Filter dropdown: All / Open / Closed. Tap an event to open the event edit sheet.
 
 ### 4.4 Fields Screen
 
@@ -441,7 +479,9 @@ Tab strip: Locations | Surveys. Filter pills: All, Pasture, Mixed-Use, Crop, Con
 
 ### 4.6 Reports Screen
 
-7-tab strip: Rotation Calendar, NPK Fertility, Feed & DMI Trends, Animal Performance, Season Summary, Pasture Surveys, Weaning. Rotation calendar tab: legend (pasture grazing, sub-move, active now), paddock rows × month columns, season totals sidebar (AUDS, Pasture %, NPK, OM lbs, Feed cost, Events per paddock).
+6-tab strip, in this order: **Feed & DMI Trends** (default), NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning.
+
+The rotation calendar does **not** appear in Reports — it lives on the Events screen (§4.3) and covers both action-first and read-first use cases via its own zoom/jump controls. Keeping a single copy avoids divergent "Reports-only" behavior and eliminates duplicate render/calc code.
 
 ### 4.7 Settings Screen
 
@@ -607,6 +647,7 @@ Used by BCS Recording Sheet (§14.3). Row of numbered chips.
 |------|---------|---------|
 | 2026-04-12 | Session 11 — Component gap fill | Added §7: quick-action bar, field mode home screen, field mode nav header, health recording sheet layout, group session progress bar, BCS chip selector. Patterns support V2_UX_FLOWS.md §14–§16. |
 | 2026-04-13 | Header + multi-farm context design | Extended §3.6 Navigation with header bar patterns: left cluster (operation name + farm picker), right cluster (sync dot, build stamp, Field Mode, user menu button), farm picker (sheet/dropdown specs), user menu popover (email + Log Out), and cross-farm event marker style for event cards. Supports V2_UX_FLOWS.md §17.2 and new §18. |
+| 2026-04-13 | Rotation calendar design (CP-54) | §4.3 Events Screen rewritten — the Events screen IS the rotation calendar. Covers header strip (View: toggle + mode indicator pill with multi-group compression rule), toolbar (two lightboxes: Timeline Selection + Dry Matter Forecaster, plus Show Confinement Locations on/off pill), conditional legend (Past always; Future swaps content by mode), 3-column calendar grid (paddock column / timeline / sidebar), past event blocks (multi-group label rule, proportional strip-graze bands, active NOW white ring, linked-paddock dashed outline + dotted connector), future forecast blocks (two view modes), today line with date pill, 1:1 sidebar mirror (40px header + 72px per paddock row + 28px totals footer), list view (v1 GRZ-10 pattern), mobile fallback (no calendar below 900px — GRZ-11 banner + GRZ-10 list). §4.6 Reports Screen: Rotation Calendar tab **removed** — calendar lives only on Events. Tab strip now 6 tabs (Feed & DMI Trends default, NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning). Supports V2_UX_FLOWS.md §19. |
 
 ---
 

@@ -116,11 +116,11 @@ body {
   background: var(--bg);
 }
 
-.header-title {
+.header-title,
+.header-op-name {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  margin-bottom: var(--space-3);
 }
 
 .header-nav {
@@ -1402,8 +1402,8 @@ body.field-mode .sheet-panel {
 
 .header-left {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  flex-direction: column;
+  gap: 2px;
 }
 
 .header-right {
@@ -1419,6 +1419,156 @@ body.field-mode .sheet-panel {
   padding: 4px;
   display: flex;
   align-items: center;
+}
+
+/* Farm picker button in header */
+.header-farm-picker {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text2);
+  padding: 0;
+  text-align: left;
+}
+
+.header-farm-all {
+  color: var(--text3);
+}
+
+.header-farm-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text2);
+}
+
+/* Build stamp */
+.header-build-stamp {
+  font-size: 11px;
+  color: var(--text2);
+}
+
+@media (max-width: 359px) {
+  .header-build-stamp { display: none; }
+}
+
+/* User menu button (circle with initials) */
+.header-user-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* Farm picker overlay + menu */
+.farm-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+}
+
+.farm-picker-menu {
+  position: fixed;
+  top: 52px;
+  left: 16px;
+  z-index: 501;
+  background: var(--bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-md);
+  min-width: 200px;
+  max-width: 280px;
+  padding: var(--space-2) 0;
+}
+
+.farm-picker-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text3);
+  padding: var(--space-2) var(--space-4);
+}
+
+.farm-picker-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--space-3) var(--space-4);
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.farm-picker-row:hover {
+  background: var(--bg2);
+}
+
+.farm-picker-active {
+  font-weight: 600;
+  color: var(--green);
+}
+
+/* User menu popover */
+.user-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+}
+
+.user-menu-popover {
+  position: fixed;
+  z-index: 501;
+  width: 240px;
+  background: var(--bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-3) 0;
+}
+
+.user-menu-email {
+  padding: var(--space-2) var(--space-4);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-divider {
+  border-top: 0.5px solid var(--border);
+  margin: var(--space-2) 0;
+}
+
+.user-menu-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--space-3) var(--space-4);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.user-menu-logout:hover {
+  color: var(--red);
 }
 
 /* Nav link with badge */

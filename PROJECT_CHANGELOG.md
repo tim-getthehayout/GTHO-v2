@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-13 | Header redesign + farm picker + user menu (GH-5) — left cluster: operation name (18px/700) + farm picker button (multi-farm: chevron, single: plain text). Right cluster: sync dot + build stamp + Field Mode + user menu (28px circle with initials). Farm picker dropdown with All Farms + alphabetical farm list. User menu popover with email + Log Out (confirm only if unsynced writes). 575 tests. | src/ui/header.js, src/styles/main.css, src/i18n/locales/en.json |
 | 2026-04-13 | Store API for multi-farm context (GH-5) — getActiveFarmId(), setActiveFarm(farmId), getVisibleLocations/Groups/Events(). Deleted-farm fallback. 5 new store tests. 575 tests. | src/data/store.js, tests/unit/store.test.js |
 | 2026-04-13 | Entity updates for multi-farm context (GH-5) — user-preference.js +activeFarmId, event.js +sourceEventId. FIELDS, create, validate, toSupabaseShape, fromSupabaseShape all updated. 2 new round-trip tests. 570 tests. | src/entities/user-preference.js, src/entities/event.js, tests/unit/entities/user-preference.test.js, tests/unit/entities/event.test.js |
 | 2026-04-13 | Schema migration 014: multi-farm context (GH-5) — user_preferences.active_farm_id (uuid NULL FK farms ON DELETE SET NULL) + events.source_event_id (uuid NULL FK events ON DELETE SET NULL) | supabase/migrations/014_multi_farm_context.sql |

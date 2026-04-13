@@ -3,6 +3,11 @@
     "name": "Get The Hay Out",
     "version": "v2"
   },
+  "header": {
+    "allFarms": "All farms",
+    "switchFarm": "Switch farm",
+    "logoutConfirm": "You have unsynced changes. Log out anyway?"
+  },
   "dashboard": {
     "title": "Dashboard",
     "farmOverview": "Farm Overview",

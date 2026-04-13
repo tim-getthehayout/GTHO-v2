@@ -2,6 +2,7 @@
 
 import { init as initStore, setSyncAdapter } from './data/store.js';
 import { CustomSync } from './data/custom-sync.js';
+import { pullAllRemote } from './data/pull-remote.js';
 import { loadLocale } from './i18n/i18n.js';
 import { route, initRouter } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
@@ -72,11 +73,14 @@ function showApp(app) {
   const syncAdapter = new CustomSync();
   setSyncAdapter(syncAdapter);
 
-  // Listen for online/offline to flush queue
+  // Listen for online/offline to flush queue then pull
   if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => syncAdapter.flush());
-    // Attempt initial flush in case we have queued items
-    syncAdapter.flush();
+    window.addEventListener('online', async () => {
+      await syncAdapter.flush();
+      await pullAllRemote();
+    });
+    // Initial sync: flush pending queue, then pull remote data
+    syncAdapter.flush().then(() => pullAllRemote());
   }
 
   // Check if onboarding needed (no operations for this user)

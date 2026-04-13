@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   init, getAll, getById, getByField, add, update, remove,
-  subscribe, setSyncAdapter, _reset, ENTITY_TYPES,
+  subscribe, setSyncAdapter, mergeRemote, _reset, ENTITY_TYPES,
 } from '../../src/data/store.js';
 
 // Simple entity helpers for testing
@@ -147,6 +147,51 @@ describe('store', () => {
       const unsub = subscribe('locations', cb);
       unsub();
       add('locations', { id: '1', name: 'Test' }, validateOk);
+      expect(cb).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('mergeRemote', () => {
+    it('adds new records from remote', () => {
+      const result = mergeRemote('locations', [
+        { id: 'r1', name: 'Remote Paddock', updatedAt: '2026-04-12T10:00:00Z' },
+      ]);
+      expect(result).toEqual({ added: 1, updated: 0 });
+      expect(getAll('locations')).toHaveLength(1);
+      expect(getById('locations', 'r1').name).toBe('Remote Paddock');
+    });
+
+    it('updates existing record when remote is newer', () => {
+      add('locations', { id: 'x1', name: 'Old', updatedAt: '2026-04-12T08:00:00Z' }, validateOk);
+      const result = mergeRemote('locations', [
+        { id: 'x1', name: 'Updated', updatedAt: '2026-04-12T10:00:00Z' },
+      ]);
+      expect(result).toEqual({ added: 0, updated: 1 });
+      expect(getById('locations', 'x1').name).toBe('Updated');
+    });
+
+    it('keeps local record when local is newer', () => {
+      add('locations', { id: 'x2', name: 'Local Newer', updatedAt: '2026-04-12T12:00:00Z' }, validateOk);
+      const result = mergeRemote('locations', [
+        { id: 'x2', name: 'Remote Older', updatedAt: '2026-04-12T08:00:00Z' },
+      ]);
+      expect(result).toEqual({ added: 0, updated: 0 });
+      expect(getById('locations', 'x2').name).toBe('Local Newer');
+    });
+
+    it('notifies subscribers on merge', () => {
+      const cb = vi.fn();
+      subscribe('locations', cb);
+      mergeRemote('locations', [
+        { id: 'n1', name: 'New', updatedAt: '2026-04-12T10:00:00Z' },
+      ]);
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not notify when nothing changed', () => {
+      const cb = vi.fn();
+      subscribe('locations', cb);
+      mergeRemote('locations', []);
       expect(cb).not.toHaveBeenCalled();
     });
   });

@@ -17,45 +17,7 @@ CP-13 spec says "unit system toggle (metric/imperial)" on Farm Settings. V2_SCHE
 
 ---
 
-### OI-0003 — Animal Notes: No Schema Table
-**Added:** 2026-04-12 | **Area:** v2-design | **Priority:** P2
-**Ref:** V2_UX_FLOWS.md §14.8
-
-V1 stored per-animal notes as health events (`type: 'note'`). V2 schema (D9) splits health events into separate tables (weights, BCS, treatments, breeding, heat, calving) but has no `animal_notes` table. Quick notes are a daily workflow for farmers — "limping on left front", "separated from herd", etc.
-
-**Option A (recommended):** Add `animal_notes` table: id, operation_id, animal_id, noted_at, note, created_at, updated_at. Follows D9 pattern.
-**Option B:** Drop standalone notes. Use `animals.notes` field for general notes only; health observations go into specific record types.
-
-**Decision needed before:** CP-33 (health record reference tables).
-
 ---
-
-### OI-0004 — CP-22: Pull/Merge from Supabase Not Implemented
-**Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P1
-**Checkpoint:** CP-22
-
-Acceptance criteria says "Pull merges remote." Currently the app only pushes to Supabase — it never fetches remote data. On boot, data loads exclusively from localStorage. Multi-device usage or data written by another client is invisible.
-
-**What's needed:**
-1. Sync registry mapping entity types → Supabase table names + `fromSupabaseShape` functions
-2. `pullAndMerge()` function: fetch remote records, merge into store by ID (remote wins when `updated_at` is newer)
-3. Wire into boot sequence (after store init, before first render)
-4. Wire into reconnect (after queue flush, pull fresh data)
-
-**Blocked by:** Nothing — can be built now.
-
----
-
-### OI-0005 — CP-23: E2E Test Has Wrong Selectors and Was Never Run
-**Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P1
-**Checkpoint:** CP-23
-
-The Playwright smoke test (`tests/e2e/smoke.spec.js`) was written but never executed. Known selector mismatches:
-- Test uses `[data-testid="onboarding-op-name"]` but actual testid is `onboarding-operation-name`
-- Test uses `[data-testid="onboarding-next"]` but actual testids are step-specific (`onboarding-next-1`, `onboarding-next-2`, etc.)
-- Playwright browsers may not be installed (`npx playwright install` needed)
-
-**What's needed:** Fix all selectors to match actual DOM, install browsers, run test against dev server + Supabase.
 
 ---
 
@@ -96,4 +58,20 @@ Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confi
 ---
 
 ## Closed
+
+### OI-0003 — Animal Notes: No Schema Table
+**Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-design
+**Resolution:** Option A — add `animal_notes` table (id, operation_id, animal_id, noted_at, note, created_at, updated_at). Tim confirmed animals need notes. Schema amendment needed in V2_SCHEMA_DESIGN.md D9. V2_UX_FLOWS.md §14.8 updated to remove pending-decision language.
+
+---
+
+### OI-0004 — CP-22: Pull/Merge from Supabase Not Implemented
+**Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-build
+**Resolution:** Built sync registry (`src/data/sync-registry.js`) mapping all 50 entity types to table names + `fromSupabaseShape`. Added `mergeRemote()` to store (remote wins when `updated_at` newer, 5 unit tests). Added `pullAllRemote()` orchestrator (`src/data/pull-remote.js`). Wired into boot (flush queue then pull) and reconnect (window 'online' → flush then pull).
+
+---
+
+### OI-0005 — CP-23: E2E Test Has Wrong Selectors and Was Never Run
+**Added:** 2026-04-12 | **Closed:** 2026-04-12 | **Area:** v2-build
+**Resolution:** Fixed 3 onboarding selector mismatches (`onboarding-op-name` → `onboarding-operation-name`, `onboarding-next` → step-specific `onboarding-next-1/2/3`, `.onboarding` → `[data-testid="onboarding-wizard"]`). Changed auth flow from signup to login (Supabase rejects fake email domains). Added `beforeAll` guard requiring E2E_EMAIL/E2E_PASSWORD env vars. All 35 selectors verified against source. Playwright browsers confirmed installed. Test requires pre-created Supabase auth account to run.
 

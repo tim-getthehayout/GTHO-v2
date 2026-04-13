@@ -3,63 +3,61 @@
  * Prerequisites:
  *   - .env configured with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
  *   - Supabase project with migrations applied
- *   - Test user credentials in E2E_EMAIL / E2E_PASSWORD env vars
- *     (or use signup flow for fresh accounts)
+ *   - E2E_EMAIL and E2E_PASSWORD env vars set to a valid test account.
+ *     Create this account manually in Supabase Auth before running.
  *
- * Run: npx playwright test tests/e2e/smoke.spec.js
+ * Run: E2E_EMAIL=you@real.com E2E_PASSWORD=pass npx playwright test tests/e2e/smoke.spec.js
  */
 
 import { test, expect } from '@playwright/test';
 
-const TEST_EMAIL = process.env.E2E_EMAIL || `test+${Date.now()}@example.com`;
-const TEST_PASSWORD = process.env.E2E_PASSWORD || 'TestPassword123!';
+const TEST_EMAIL = process.env.E2E_EMAIL;
+const TEST_PASSWORD = process.env.E2E_PASSWORD;
+
+test.beforeAll(() => {
+  if (!TEST_EMAIL || !TEST_PASSWORD) {
+    throw new Error('E2E_EMAIL and E2E_PASSWORD env vars are required. Create a test account in Supabase Auth first.');
+  }
+});
 
 test.describe('Phase 3.2 Integration Smoke Test', () => {
   test('full flow: signup → onboard → locations → animals → events → move → close', async ({ page }) => {
     await page.goto('/');
 
     // ---------------------------------------------------------------
-    // Step 1: Auth — signup (or login if account exists)
+    // Step 1: Auth — login with pre-existing test account
     // ---------------------------------------------------------------
-    // Wait for auth overlay
-    await expect(page.locator('.auth-overlay')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="auth-overlay"]')).toBeVisible({ timeout: 15000 });
 
-    // Switch to signup
-    const switchBtn = page.locator('text=Don\'t have an account');
-    if (await switchBtn.isVisible()) {
-      await switchBtn.click();
+    // Ensure we're in login mode (default)
+    const authMode = page.locator('[data-testid="auth-mode"]');
+    if (await authMode.textContent() === 'Sign Up') {
+      await page.locator('[data-testid="auth-toggle"]').click();
     }
 
     await page.locator('[data-testid="auth-email"]').fill(TEST_EMAIL);
     await page.locator('[data-testid="auth-password"]').fill(TEST_PASSWORD);
-
-    // If confirm password visible (signup mode)
-    const confirmPw = page.locator('[data-testid="auth-confirm-password"]');
-    if (await confirmPw.isVisible()) {
-      await confirmPw.fill(TEST_PASSWORD);
-    }
-
     await page.locator('[data-testid="auth-submit"]').click();
 
     // Wait for either dashboard or onboarding
-    await expect(page.locator('[data-testid="dashboard-screen"], .onboarding')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="dashboard-screen"], [data-testid="onboarding-wizard"]')).toBeVisible({ timeout: 15000 });
 
     // ---------------------------------------------------------------
     // Step 2: Onboarding (if needed)
     // ---------------------------------------------------------------
-    const onboarding = page.locator('.onboarding');
+    const onboarding = page.locator('[data-testid="onboarding-wizard"]');
     if (await onboarding.isVisible()) {
       // Step 1: Operation name
-      await page.locator('[data-testid="onboarding-op-name"]').fill('Smoke Test Ranch');
-      await page.locator('[data-testid="onboarding-next"]').click();
+      await page.locator('[data-testid="onboarding-operation-name"]').fill('Smoke Test Ranch');
+      await page.locator('[data-testid="onboarding-next-1"]').click();
 
       // Step 2: Farm name
       await page.locator('[data-testid="onboarding-farm-name"]').fill('Main Farm');
-      await page.locator('[data-testid="onboarding-next"]').click();
+      await page.locator('[data-testid="onboarding-next-2"]').click();
 
-      // Step 3: Select species
-      await page.locator('text=Beef Cattle').click();
-      await page.locator('[data-testid="onboarding-next"]').click();
+      // Step 3: Select species (click the beef_cattle toggle)
+      await page.locator('[data-testid="onboarding-species-beef_cattle"]').click();
+      await page.locator('[data-testid="onboarding-next-3"]').click();
 
       // Step 4: Review & confirm
       await page.locator('[data-testid="onboarding-confirm"]').click();

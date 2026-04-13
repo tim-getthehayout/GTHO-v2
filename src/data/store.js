@@ -246,6 +246,45 @@ function notify(entityType) {
   }
 }
 
+// --- Merge (pull from remote) ---
+
+/**
+ * Merge remote records into the store for a given entity type.
+ * Remote wins when updated_at is newer. New records are added.
+ * @param {string} entityType
+ * @param {Array<object>} remoteRecords - Already converted via fromSupabaseShape
+ * @returns {{ added: number, updated: number }}
+ */
+export function mergeRemote(entityType, remoteRecords) {
+  let added = 0;
+  let updated = 0;
+
+  for (const remote of remoteRecords) {
+    const localIdx = state[entityType].findIndex(r => r.id === remote.id);
+    if (localIdx === -1) {
+      // New record from remote
+      state[entityType].push(remote);
+      added++;
+    } else {
+      // Existing — remote wins if newer
+      const local = state[entityType][localIdx];
+      const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+      const remoteTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
+      if (remoteTime >= localTime) {
+        state[entityType][localIdx] = remote;
+        updated++;
+      }
+    }
+  }
+
+  if (added > 0 || updated > 0) {
+    saveToStorage(entityType, state[entityType]);
+    notify(entityType);
+  }
+
+  return { added, updated };
+}
+
 /**
  * Reset the store (for testing).
  */

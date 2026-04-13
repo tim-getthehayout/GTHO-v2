@@ -10,6 +10,8 @@ import * as GroupEntity from '../../entities/group.js';
 import * as AnimalClassEntity from '../../entities/animal-class.js';
 import * as AnimalEntity from '../../entities/animal.js';
 import * as MembershipEntity from '../../entities/animal-group-membership.js';
+import { openWeightSheet, renderWeightSheetMarkup } from '../health/weight.js';
+import { openBcsSheet, renderBcsSheetMarkup } from '../health/bcs.js';
 
 /** Current tab: 'groups' | 'classes' | 'animals' */
 let activeTab = 'groups';
@@ -69,6 +71,10 @@ export function renderAnimalsScreen(container) {
 
     // Animal sheet (always in DOM)
     renderAnimalSheetMarkup(),
+
+    // Health sheets (CP-33)
+    renderWeightSheetMarkup(),
+    renderBcsSheetMarkup(),
   ]);
 
   container.appendChild(screenEl);
@@ -79,6 +85,8 @@ export function renderAnimalsScreen(container) {
   unsubs.push(subscribe('animalClasses', () => renderTabContent(container, operationId, farmId)));
   unsubs.push(subscribe('animalGroupMemberships', () => renderTabContent(container, operationId, farmId)));
   unsubs.push(subscribe('animals', () => renderTabContent(container, operationId, farmId)));
+  unsubs.push(subscribe('animalWeightRecords', () => renderTabContent(container, operationId, farmId)));
+  unsubs.push(subscribe('animalBcsScores', () => renderTabContent(container, operationId, farmId)));
 }
 
 // ---------------------------------------------------------------------------
@@ -685,6 +693,23 @@ function renderAnimalTable(wrap, allAnimals, operationId, farmId, _rootContainer
     if (!m.dateLeft) currentGroupMap[m.animalId] = m.groupId;
   }
 
+  // Latest weight and BCS per animal (CP-33)
+  const unitSys = getUnitSystem();
+  const allWeights = getAll('animalWeightRecords');
+  const latestWeightMap = {};
+  for (const w of allWeights) {
+    if (!latestWeightMap[w.animalId] || w.recordedAt > latestWeightMap[w.animalId].recordedAt) {
+      latestWeightMap[w.animalId] = w;
+    }
+  }
+  const allBcs = getAll('animalBcsScores');
+  const latestBcsMap = {};
+  for (const b of allBcs) {
+    if (!latestBcsMap[b.animalId] || b.scoredAt > latestBcsMap[b.animalId].scoredAt) {
+      latestBcsMap[b.animalId] = b;
+    }
+  }
+
   // Sort
   const sorted = [...filtered].sort((a, b) => {
     let cmp = 0;
@@ -752,8 +777,18 @@ function renderAnimalTable(wrap, allAnimals, operationId, farmId, _rootContainer
       const grp = grpId ? groupMap[grpId] : null;
       const displayName = animal.tagNum || animal.name || animal.eid || animal.id.slice(0, 8);
 
+      const latestWeight = latestWeightMap[animal.id];
+      const latestBcs = latestBcsMap[animal.id];
+      const weightDisplay = latestWeight
+        ? display(latestWeight.weightKg, 'weight', unitSys, 0)
+        : t('health.noWeight');
+      const bcsDisplay = latestBcs ? `BCS ${latestBcs.score}` : t('health.noBcs');
+
       return el('tr', { 'data-testid': `animals-animal-row-${animal.id}` }, [
-        el('td', { style: { fontWeight: '500' } }, [displayName]),
+        el('td', {}, [
+          el('div', { style: { fontWeight: '500' } }, [displayName]),
+          el('div', { className: 'ft-row-detail' }, [`${weightDisplay} · ${bcsDisplay}`]),
+        ]),
         el('td', {}, [cls ? cls.name : t('animal.noClass')]),
         el('td', {}, [grp ? grp.name : t('animal.noGroup')]),
         el('td', {}, [animal.sex === 'male' ? t('animal.sexMale') : t('animal.sexFemale')]),
@@ -773,6 +808,16 @@ function renderAnimalTable(wrap, allAnimals, operationId, farmId, _rootContainer
                 }
               },
             }, [t('action.delete')]),
+            el('button', {
+              className: 'btn btn-outline btn-xs',
+              'data-testid': `animals-animal-weight-${animal.id}`,
+              onClick: () => openWeightSheet(animal, operationId),
+            }, [t('health.recordWeight')]),
+            el('button', {
+              className: 'btn btn-outline btn-xs',
+              'data-testid': `animals-animal-bcs-${animal.id}`,
+              onClick: () => openBcsSheet(animal, operationId),
+            }, [t('health.recordBcs')]),
           ]),
         ]),
       ]);

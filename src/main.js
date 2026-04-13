@@ -17,6 +17,7 @@ import { renderFeedScreen } from './features/feed/index.js';
 import { renderAnimalsScreen } from './features/animals/index.js';
 import { renderReportsScreen } from './features/reports/index.js';
 import { renderSettingsScreen } from './features/settings/index.js';
+import { renderSurveysScreen } from './features/surveys/index.js';
 
 /**
  * Boot the application.
@@ -109,6 +110,7 @@ function showApp(app) {
   route('#/animals', renderAnimalsScreen);
   route('#/reports', renderReportsScreen);
   route('#/settings', renderSettingsScreen);
+  route('#/surveys', renderSurveysScreen);
 
   // Init router — renders the current hash route
   initRouter(content);

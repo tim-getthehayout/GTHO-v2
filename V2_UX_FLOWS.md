@@ -553,21 +553,22 @@ Planning target for stored feed inventory. Drives the feed screen's color-coded 
 
 ### 14.8 Animal Note Sheet
 
-**Design note:** V1 stored notes as health events (`type: 'note'`) in an array on the animal record. V2 splits health events into separate tables (D9.5–D9.10) but does not define a dedicated `animal_notes` table. Two options:
+**Schema:** `animal_notes` (D9.11) — `noted_at` (timestamptz), `note` (text). Schema amendment: add `animal_notes` table to D9 (id, operation_id, animal_id, noted_at, note, created_at, updated_at). Follows the same pattern as other D9 health record tables. Preserves the quick-note workflow that farmers use daily ("limping on left front", "separated from herd").
 
-**Option A (recommended):** Add `animal_notes` table to schema (id, operation_id, animal_id, noted_at, note, created_at, updated_at). Lightweight, follows the same pattern as other D9 tables. Preserves the quick-note workflow that farmers use daily.
-
-**Option B:** Drop per-animal notes as a standalone record type. Animal-level notes live only in the `animals.notes` text field. Health-specific observations go into the appropriate record type (treatment notes, BCS notes, etc.).
-
-**OPEN_ITEMS entry required** — Tim to decide before CP-33 implementation. If Option A: schema update needed. If Option B: remove note quick-action button from component inventory.
-
-**Pending decision, the sheet would follow Option A:**
+**Fields:**
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| Date | date picker | today | |
+| Date | date picker | today | Maps to `noted_at` |
 | Time | time picker | now | Optional |
 | Note | textarea (3 rows) | — | Required. Free-form observation. |
+
+**Context pre-fill by entry point:**
+
+| Entry Point | Pre-filled | After save |
+|-------------|-----------|------------|
+| Animal edit sheet → health timeline "+" | `animal_id` | Refresh health timeline |
+| Per-animal quick-action button | `animal_id` | Close sheet, refresh animal row |
 
 ### 14.9 Group Session Mode
 
@@ -748,11 +749,9 @@ Scrollable list of all active events. Each row shows:
 
 **Tasks (bottom section):**
 
-Pending animal todos and time-sensitive items:
-- Animals with withdrawal dates ending soon
-- Overdue survey nudge (if last bulk survey > N days)
-- Animals approaching weaning target date
-- Upcoming expected calving dates
+The user's pending tasks from the todo table, filtered to the current user. Each row shows task description, associated animal/group (if any), and due date. Tap opens the task detail. "Add task" button at bottom.
+
+**Note:** Time-sensitive alerts (withdrawal dates ending soon, overdue survey nudges, weaning targets, upcoming calving dates) belong on the **detail home screen** as dashboard widgets — not in field mode. Field mode tasks are the user's explicit todo list, not system-derived alerts.
 
 ### 16.3 Field Mode Navigation
 

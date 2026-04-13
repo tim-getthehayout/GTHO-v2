@@ -33,6 +33,9 @@ export function renderFeedScreen(container) {
   const screenEl = el('div', { 'data-testid': 'feed-screen' }, [
     el('h1', { className: 'screen-heading' }, [t('feed.title')]),
 
+    // Feed day goal banner (CP-26)
+    renderFeedDayGoalBanner(),
+
     // Batches section
     el('div', { 'data-testid': 'feed-batches-section' }, [
       el('div', { className: 'screen-action-bar' }, [
@@ -42,10 +45,6 @@ export function renderFeedScreen(container) {
           'data-testid': 'feed-add-batch-btn',
           onClick: () => openBatchSheet(null, operationId),
         }, [t('feed.addBatch')]),
-      ]),
-      // Feed metrics placeholder (daily run rate, DM on hand, days on hand)
-      el('div', { className: 'form-hint', style: { fontStyle: 'italic', marginBottom: 'var(--space-4)' } }, [
-        t('feed.metricsPlaceholder'),
       ]),
       el('div', { 'data-testid': 'feed-batch-list' }),
     ]),
@@ -89,6 +88,54 @@ export function renderFeedScreen(container) {
   unsubs.push(subscribe('feedTypes', () => renderFeedTypeList(container)));
   unsubs.push(subscribe('batches', () => renderBatchList(container, operationId)));
   unsubs.push(subscribe('batchAdjustments', () => renderBatchList(container, operationId)));
+}
+
+// ---------------------------------------------------------------------------
+// Feed day goal banner (CP-26)
+// ---------------------------------------------------------------------------
+
+function renderFeedDayGoalBanner() {
+  const farmSettings = getAll('farmSettings')[0];
+  const goal = farmSettings?.feedDayGoal ?? 90;
+
+  // Days on hand requires feed delivery consumption data (CP-27) — placeholder for now
+  // When CP-27+ are done, calculate: daysOnHand = totalDmOnHand / dailyDmRunRate
+  const daysOnHand = null;
+
+  // Progress bar: green ≥ goal, amber 33–99%, red < 33%
+  let pct = 0;
+  let progressClass = 'progress-green';
+  if (daysOnHand != null && goal > 0) {
+    pct = Math.min((daysOnHand / goal) * 100, 100);
+    if (pct < 33) progressClass = 'progress-red';
+    else if (pct < 100) progressClass = 'progress-amber';
+  }
+
+  return el('div', {
+    className: 'card',
+    style: { marginBottom: 'var(--space-5)' },
+    'data-testid': 'feed-day-goal-banner',
+  }, [
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+      el('div', {}, [
+        el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--text2)' } }, [
+          t('feed.feedDayGoalLabel'),
+        ]),
+        el('div', { style: { fontSize: '20px', fontWeight: '600', marginTop: '2px' } }, [
+          daysOnHand != null
+            ? `${daysOnHand} / ${goal} days`
+            : t('feed.daysOnHandValue', { goal }),
+        ]),
+      ]),
+      el('div', { className: 'form-hint' }, [t('feed.feedDayGoalHint')]),
+    ]),
+    el('div', { className: 'progress-bar', style: { marginTop: 'var(--space-3)' } }, [
+      el('div', {
+        className: `progress-fill ${progressClass}`,
+        style: { width: `${pct}%` },
+      }),
+    ]),
+  ]);
 }
 
 // ---------------------------------------------------------------------------

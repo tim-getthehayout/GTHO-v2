@@ -240,7 +240,7 @@ Implementation specs for Claude Code. Each sub-phase has sequenced checkpoints w
 | CP-51 | Dashboard — full metrics | V2_DESIGN_SYSTEM.md §4.1 | Dashboard stat cells now show real computed values (replacing "—" placeholders from 3.2): Pasture DMI, Feed Cost, Pasture %, NPK/Acre, NPK Value. Group cards show feed info, DMI split bars. All values from calc engine. |
 | CP-52 | Integration smoke test | — | Playwright e2e: full lifecycle — create batch → deliver feed → feed check → survey → record amendment → harvest → calving → move with feed transfer → close event → verify all calcs compute → verify reports render. |
 
-**Health records UX note:** V2_UX_FLOWS.md does not contain dedicated health record flows (BCS, treatments, breeding, heat, calving, weight). CP-33 through CP-36 build from schema design + v1 animal screen patterns (per-animal action buttons: Weight, BCS, Treatment, Breeding). If any checkpoint requires UX decisions beyond what the schema defines, flag as `DESIGN REQUIRED` in OPEN_ITEMS.md and build the minimum viable version.
+**Health records UX note:** V2_UX_FLOWS.md §14 now contains full component-first flows for all health record types (Weight §14.2, BCS §14.3, Treatment §14.4, Breeding §14.5, Heat §14.6, Calving §14.7, Note §14.8). Each sheet is documented once with all entry points and context pre-fill behavior. §14.9 covers group session mode. §14.10 covers the per-animal quick-action bar. CP-33 through CP-36 should build from these flows. `animal_notes` table needs schema amendment (OI-0003, confirmed).
 
 **Confinement NPK routing:** CP-30 wires event close → manure batch input. CP-40 wires manure batch → amendment application. These two checkpoints complete the confinement nutrient loop that was deferred from Phase 3.2.
 

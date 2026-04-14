@@ -4,6 +4,19 @@
 
 ---
 
+### OI-0051 — Migration Summary Screen: Add "Copy Error Log" Button
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** pre-Tier-3-testing
+**Status:** open — code addition required
+
+The migration summary screen (`src/features/settings/v1-import.js`) shows success/failure/parity results and auto-downloads unparseable dose CSV, but provides no way to capture the error log for troubleshooting. During Tier 3 testing (real v1 data on the deployed site), Tim needs an easy way to share errors without opening DevTools.
+
+**What to add:** A "Copy error log" button on all three migration result screens (success, parity failure, error). On tap, collects the last 50 `app_logs` entries (from in-memory logger buffer or Supabase query), any migration-specific warnings from the `audit` object, and the `result` object summary. Formats as text, copies to clipboard. Toast: "Error log copied."
+
+**Where:** `showV1SuccessReport()`, `showV1ParityReport()`, and the error card in `handleV1Import()` — add button to each.
+
+---
+
 ### OI-0050 — Onboarding & Settings Records Never Sync to Supabase
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P1
 **Checkpoint:** pre-CP-66

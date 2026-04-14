@@ -51,10 +51,27 @@ Every data change starts with a migration SQL file, then the entity file, then f
 
 For every new field:
 1. SQL migration in `supabase/migrations/`
-2. Entity file updated (`FIELDS`, `validate()`, `toSupabaseShape()`, `fromSupabaseShape()`)
-3. Store getter/action updated
-4. Feature code uses the field
-5. Test covers the field
+2. **Execute the migration against Supabase** (see rule below)
+3. Entity file updated (`FIELDS`, `validate()`, `toSupabaseShape()`, `fromSupabaseShape()`)
+4. Store getter/action updated
+5. Feature code uses the field
+6. Test covers the field
+
+### Migration Execution Rule — Write + Run + Verify
+
+**Every migration SQL file must be executed against the Supabase database in the same session it is created.** Writing a `.sql` file to `supabase/migrations/` is not sufficient — the database does not auto-apply migrations. A migration file that exists only on disk means the code references columns and policies that don't exist in Supabase, causing silent sync failures.
+
+**Required sequence for every migration:**
+1. **Write** the migration file to `supabase/migrations/NNN_description.sql`
+2. **Execute** the SQL against Supabase via MCP (or provide the SQL for manual execution if MCP is unavailable)
+3. **Verify** the change landed by querying the schema: `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'TABLE' AND column_name = 'NEW_COLUMN';` (for new columns) or the equivalent check for policies, tables, or functions
+4. **Report** the verification result in the commit message: "Migration NNN applied and verified"
+
+If step 2 or 3 fails, do not proceed with entity/feature code. Fix the migration first.
+
+**Why this matters:** Migrations 013–017 were committed as files but never executed (OI-0053). The app wrote to localStorage normally but every Supabase sync failed — columns didn't exist, RLS policies were wrong. The failure was silent to the user because the app reads from localStorage first. This class of bug is invisible until someone checks Supabase directly or tries to use a second device.
+
+**Origin:** OI-0053 — five migrations committed but never executed against Supabase. Blocked all sync for onboarding and migration testing.
 
 ### Data Mutation Pattern
 

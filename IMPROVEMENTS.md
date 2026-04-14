@@ -87,6 +87,21 @@ expect(data).toHaveLength(1);
 ```
 **Where:** project-scaffold SKILL.md — include in e2e test template. deploy-gate SKILL.md — add "e2e tests verify backend state" as a pre-deploy check for apps with sync layers.
 
+### 9. Migration SQL must be executed against the database, not just committed as a file
+**Plugin:** project-infrastructure
+**Skill:** deploy-gate, project-scaffold
+**What:** Any project using Supabase (or any external database) must enforce that migration SQL files are executed against the live database in the same session they are created. Writing a `.sql` file to a `migrations/` directory is step 1 of 3 — the file must also be executed and the result verified by querying the schema. CLAUDE.md should include a "Migration Execution Rule" with three mandatory steps: Write → Execute → Verify.
+**Why:** OI-0053 — five migrations (013–017) were committed as `.sql` files but never executed against Supabase. The app code referenced columns and RLS policies that didn't exist in the database. Every Supabase sync call failed silently — records saved to localStorage but never reached the server. The failure was invisible because the app reads from localStorage first. This went undetected until Tier 3 migration testing, when we inspected the dead letter queue and found every record had been rejected. The root cause: the process said "SQL migration in `supabase/migrations/`" but didn't say "execute it." Claude Code interpreted the instruction literally — it wrote the file and moved on.
+**How to apply:**
+1. CLAUDE.md template gains a "Migration Execution Rule" section after "Schema-First Development":
+   - **Write** the `.sql` file
+   - **Execute** via MCP (or provide SQL for manual execution if MCP unavailable)
+   - **Verify** with a schema query: `SELECT column_name FROM information_schema.columns WHERE table_name = 'X' AND column_name = 'Y';`
+   - **Report** verification in commit message: "Migration NNN applied and verified"
+2. deploy-gate gains a pre-deploy check: "All migration files in `supabase/migrations/` have been executed against the database. Query `information_schema.columns` to confirm latest columns exist."
+3. The project-scaffold template for CLAUDE.md includes this rule by default for any project with a `supabase/` directory.
+**Where:** project-scaffold SKILL.md (CLAUDE.md template), deploy-gate SKILL.md (add migration verification check), doc-workflow SKILL.md (migration handoff protocol when Cowork specs a schema change).
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

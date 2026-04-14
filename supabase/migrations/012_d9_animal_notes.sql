@@ -13,7 +13,23 @@ CREATE TABLE animal_notes (
 
 ALTER TABLE animal_notes ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY animal_notes_all ON animal_notes FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY animal_notes_insert ON animal_notes FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY animal_notes_select ON animal_notes FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_notes_update ON animal_notes FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_notes_delete ON animal_notes FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL

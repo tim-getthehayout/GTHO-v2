@@ -109,15 +109,15 @@ export class CustomSync extends SyncAdapter {
     return () => this._statusListeners.delete(callback);
   }
 
-  async push(table, record) {
+  async push(table, record, operation = 'upsert') {
     const online = await this.isOnline();
     if (!online) {
-      this._enqueue('push', table, record);
+      this._enqueue(operation, table, record);
       this._setStatus('offline');
       return { id: record.id, success: true, error: undefined };
     }
 
-    return this._pushToRemote(table, record);
+    return this._pushToRemote(table, record, operation);
   }
 
   async pushBatch(table, records) {
@@ -193,16 +193,24 @@ export class CustomSync extends SyncAdapter {
   /**
    * Push a single record to Supabase with retry logic.
    */
-  async _pushToRemote(table, record) {
+  async _pushToRemote(table, record, operation = 'upsert') {
     if (!supabase) {
-      this._enqueue('push', table, record);
+      this._enqueue(operation, table, record);
       return { id: record.id, success: false, error: 'No Supabase client' };
     }
 
     this._setStatus('syncing');
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      const { error } = await supabase.from(table).upsert(record, { onConflict: 'id' });
+      let result;
+      if (operation === 'insert') {
+        result = await supabase.from(table).insert(record);
+      } else if (operation === 'update') {
+        result = await supabase.from(table).update(record).eq('id', record.id);
+      } else {
+        result = await supabase.from(table).upsert(record, { onConflict: 'id' });
+      }
+      const { error } = result;
 
       if (!error) {
         this._setStatus('idle');
@@ -262,8 +270,9 @@ export class CustomSync extends SyncAdapter {
       const remaining = [];
 
       for (const entry of queue) {
-        if (entry.operation === 'push') {
-          const result = await this._pushToRemote(entry.table, entry.record);
+        const op = entry.operation === 'push' ? 'upsert' : entry.operation;
+        if (op === 'insert' || op === 'update' || op === 'upsert') {
+          const result = await this._pushToRemote(entry.table, entry.record, op);
           if (!result.success) {
             entry.attempts++;
             entry.errors.push({ attempt: entry.attempts, error: result.error, at: new Date().toISOString() });

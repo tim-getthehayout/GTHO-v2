@@ -14,7 +14,23 @@ CREATE TABLE surveys (
 );
 
 ALTER TABLE surveys ENABLE ROW LEVEL SECURITY;
-CREATE POLICY surveys_all ON surveys FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY surveys_insert ON surveys FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY surveys_select ON surveys FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY surveys_update ON surveys FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY surveys_delete ON surveys FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -38,7 +54,27 @@ CREATE TABLE survey_draft_entries (
 );
 
 ALTER TABLE survey_draft_entries ENABLE ROW LEVEL SECURITY;
-CREATE POLICY survey_draft_entries_all ON survey_draft_entries FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY survey_draft_entries_insert ON survey_draft_entries FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY survey_draft_entries_select ON survey_draft_entries FOR SELECT
+  USING (survey_id IN (
+    SELECT id FROM surveys WHERE operation_id IN (
+      SELECT operation_id FROM operation_members
+      WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    )
+  ));
+
+CREATE POLICY survey_draft_entries_update ON survey_draft_entries FOR UPDATE
+  USING (survey_id IN (
+    SELECT id FROM surveys WHERE operation_id IN (
+      SELECT operation_id FROM operation_members
+      WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    )
+  ));
+
+CREATE POLICY survey_draft_entries_delete ON survey_draft_entries FOR DELETE
   USING (survey_id IN (
     SELECT id FROM surveys WHERE operation_id IN (
       SELECT operation_id FROM operation_members
@@ -69,7 +105,23 @@ CREATE TABLE paddock_observations (
 );
 
 ALTER TABLE paddock_observations ENABLE ROW LEVEL SECURITY;
-CREATE POLICY paddock_observations_all ON paddock_observations FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY paddock_observations_insert ON paddock_observations FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY paddock_observations_select ON paddock_observations FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY paddock_observations_update ON paddock_observations FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY paddock_observations_delete ON paddock_observations FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL

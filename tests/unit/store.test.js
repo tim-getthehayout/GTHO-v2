@@ -85,7 +85,7 @@ describe('store', () => {
       setSyncAdapter({ push: pushMock });
 
       add('locations', { id: '1', name: 'Test' }, validateOk, toSb, 'locations');
-      expect(pushMock).toHaveBeenCalledWith('locations', { id: '1', name: 'Test' });
+      expect(pushMock).toHaveBeenCalledWith('locations', { id: '1', name: 'Test' }, 'insert');
     });
 
     it('update validates before mutating', () => {

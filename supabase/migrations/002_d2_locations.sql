@@ -22,7 +22,23 @@ CREATE TABLE forage_types (
 
 ALTER TABLE forage_types ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY forage_types_all ON forage_types FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY forage_types_insert ON forage_types FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY forage_types_select ON forage_types FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY forage_types_update ON forage_types FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY forage_types_delete ON forage_types FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -48,7 +64,23 @@ CREATE TABLE locations (
 
 ALTER TABLE locations ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY locations_all ON locations FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY locations_insert ON locations FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY locations_select ON locations FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY locations_update ON locations FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY locations_delete ON locations FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL

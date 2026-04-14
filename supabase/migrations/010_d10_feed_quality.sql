@@ -26,8 +26,11 @@ CREATE TABLE batch_nutritional_profiles (
 );
 
 ALTER TABLE batch_nutritional_profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY batch_nutritional_profiles_all ON batch_nutritional_profiles FOR ALL
-  USING (operation_id IN (
-    SELECT operation_id FROM operation_members
-    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
-  ));
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY batch_nutritional_profiles_insert ON batch_nutritional_profiles FOR INSERT WITH CHECK (true);
+CREATE POLICY batch_nutritional_profiles_select ON batch_nutritional_profiles FOR SELECT
+  USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = auth.uid() AND accepted_at IS NOT NULL));
+CREATE POLICY batch_nutritional_profiles_update ON batch_nutritional_profiles FOR UPDATE
+  USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = auth.uid() AND accepted_at IS NOT NULL));
+CREATE POLICY batch_nutritional_profiles_delete ON batch_nutritional_profiles FOR DELETE
+  USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = auth.uid() AND accepted_at IS NOT NULL));

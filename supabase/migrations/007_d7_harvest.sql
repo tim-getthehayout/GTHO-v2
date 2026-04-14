@@ -12,7 +12,23 @@ CREATE TABLE harvest_events (
 );
 
 ALTER TABLE harvest_events ENABLE ROW LEVEL SECURITY;
-CREATE POLICY harvest_events_all ON harvest_events FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY harvest_events_insert ON harvest_events FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY harvest_events_select ON harvest_events FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY harvest_events_update ON harvest_events FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY harvest_events_delete ON harvest_events FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -35,7 +51,27 @@ CREATE TABLE harvest_event_fields (
 );
 
 ALTER TABLE harvest_event_fields ENABLE ROW LEVEL SECURITY;
-CREATE POLICY harvest_event_fields_all ON harvest_event_fields FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY harvest_event_fields_insert ON harvest_event_fields FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY harvest_event_fields_select ON harvest_event_fields FOR SELECT
+  USING (harvest_event_id IN (
+    SELECT id FROM harvest_events WHERE operation_id IN (
+      SELECT operation_id FROM operation_members
+      WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    )
+  ));
+
+CREATE POLICY harvest_event_fields_update ON harvest_event_fields FOR UPDATE
+  USING (harvest_event_id IN (
+    SELECT id FROM harvest_events WHERE operation_id IN (
+      SELECT operation_id FROM operation_members
+      WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    )
+  ));
+
+CREATE POLICY harvest_event_fields_delete ON harvest_event_fields FOR DELETE
   USING (harvest_event_id IN (
     SELECT id FROM harvest_events WHERE operation_id IN (
       SELECT operation_id FROM operation_members

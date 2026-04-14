@@ -13,7 +13,23 @@ CREATE TABLE input_product_categories (
 );
 
 ALTER TABLE input_product_categories ENABLE ROW LEVEL SECURITY;
-CREATE POLICY input_product_categories_all ON input_product_categories FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY input_product_categories_insert ON input_product_categories FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY input_product_categories_select ON input_product_categories FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY input_product_categories_update ON input_product_categories FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY input_product_categories_delete ON input_product_categories FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -57,7 +73,23 @@ CREATE TABLE input_products (
 );
 
 ALTER TABLE input_products ENABLE ROW LEVEL SECURITY;
-CREATE POLICY input_products_all ON input_products FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY input_products_insert ON input_products FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY input_products_select ON input_products FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY input_products_update ON input_products FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY input_products_delete ON input_products FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -75,7 +107,23 @@ CREATE TABLE spreaders (
 );
 
 ALTER TABLE spreaders ENABLE ROW LEVEL SECURITY;
-CREATE POLICY spreaders_all ON spreaders FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY spreaders_insert ON spreaders FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY spreaders_select ON spreaders FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY spreaders_update ON spreaders FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY spreaders_delete ON spreaders FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -114,7 +162,23 @@ CREATE TABLE soil_tests (
 );
 
 ALTER TABLE soil_tests ENABLE ROW LEVEL SECURITY;
-CREATE POLICY soil_tests_all ON soil_tests FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY soil_tests_insert ON soil_tests FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY soil_tests_select ON soil_tests FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY soil_tests_update ON soil_tests FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY soil_tests_delete ON soil_tests FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -147,7 +211,23 @@ CREATE TABLE manure_batches (
 );
 
 ALTER TABLE manure_batches ENABLE ROW LEVEL SECURITY;
-CREATE POLICY manure_batches_all ON manure_batches FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY manure_batches_insert ON manure_batches FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY manure_batches_select ON manure_batches FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY manure_batches_update ON manure_batches FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY manure_batches_delete ON manure_batches FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -171,7 +251,23 @@ CREATE TABLE amendments (
 );
 
 ALTER TABLE amendments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY amendments_all ON amendments FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY amendments_insert ON amendments FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY amendments_select ON amendments FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY amendments_update ON amendments FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY amendments_delete ON amendments FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -203,7 +299,23 @@ CREATE TABLE amendment_locations (
 );
 
 ALTER TABLE amendment_locations ENABLE ROW LEVEL SECURITY;
-CREATE POLICY amendment_locations_all ON amendment_locations FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY amendment_locations_insert ON amendment_locations FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY amendment_locations_select ON amendment_locations FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY amendment_locations_update ON amendment_locations FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY amendment_locations_delete ON amendment_locations FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -225,7 +337,23 @@ CREATE TABLE manure_batch_transactions (
 );
 
 ALTER TABLE manure_batch_transactions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY manure_batch_transactions_all ON manure_batch_transactions FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY manure_batch_transactions_insert ON manure_batch_transactions FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY manure_batch_transactions_select ON manure_batch_transactions FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY manure_batch_transactions_update ON manure_batch_transactions FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY manure_batch_transactions_delete ON manure_batch_transactions FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -246,7 +374,23 @@ CREATE TABLE npk_price_history (
 );
 
 ALTER TABLE npk_price_history ENABLE ROW LEVEL SECURITY;
-CREATE POLICY npk_price_history_all ON npk_price_history FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY npk_price_history_insert ON npk_price_history FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY npk_price_history_select ON npk_price_history FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY npk_price_history_update ON npk_price_history FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY npk_price_history_delete ON npk_price_history FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL

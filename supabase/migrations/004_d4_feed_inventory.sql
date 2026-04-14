@@ -23,7 +23,23 @@ CREATE TABLE feed_types (
 
 ALTER TABLE feed_types ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY feed_types_all ON feed_types FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY feed_types_insert ON feed_types FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY feed_types_select ON feed_types FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY feed_types_update ON feed_types FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY feed_types_delete ON feed_types FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -52,7 +68,23 @@ CREATE TABLE batches (
 
 ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY batches_all ON batches FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY batches_insert ON batches FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY batches_select ON batches FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY batches_update ON batches FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY batches_delete ON batches FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -73,7 +105,23 @@ CREATE TABLE batch_adjustments (
 
 ALTER TABLE batch_adjustments ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY batch_adjustments_all ON batch_adjustments FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY batch_adjustments_insert ON batch_adjustments FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY batch_adjustments_select ON batch_adjustments FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY batch_adjustments_update ON batch_adjustments FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY batch_adjustments_delete ON batch_adjustments FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL

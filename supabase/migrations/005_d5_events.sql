@@ -16,7 +16,23 @@ CREATE TABLE events (
 );
 
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
-CREATE POLICY events_all ON events FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY events_insert ON events FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY events_select ON events FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY events_update ON events FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY events_delete ON events FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -41,7 +57,23 @@ CREATE TABLE event_paddock_windows (
 );
 
 ALTER TABLE event_paddock_windows ENABLE ROW LEVEL SECURITY;
-CREATE POLICY event_paddock_windows_all ON event_paddock_windows FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY event_paddock_windows_insert ON event_paddock_windows FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY event_paddock_windows_select ON event_paddock_windows FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY event_paddock_windows_update ON event_paddock_windows FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY event_paddock_windows_delete ON event_paddock_windows FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -64,7 +96,23 @@ CREATE TABLE event_group_windows (
 );
 
 ALTER TABLE event_group_windows ENABLE ROW LEVEL SECURITY;
-CREATE POLICY event_group_windows_all ON event_group_windows FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY event_group_windows_insert ON event_group_windows FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY event_group_windows_select ON event_group_windows FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY event_group_windows_update ON event_group_windows FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY event_group_windows_delete ON event_group_windows FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -86,7 +134,23 @@ CREATE TABLE event_feed_entries (
 );
 
 ALTER TABLE event_feed_entries ENABLE ROW LEVEL SECURITY;
-CREATE POLICY event_feed_entries_all ON event_feed_entries FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY event_feed_entries_insert ON event_feed_entries FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY event_feed_entries_select ON event_feed_entries FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY event_feed_entries_update ON event_feed_entries FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY event_feed_entries_delete ON event_feed_entries FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -106,7 +170,23 @@ CREATE TABLE event_feed_checks (
 );
 
 ALTER TABLE event_feed_checks ENABLE ROW LEVEL SECURITY;
-CREATE POLICY event_feed_checks_all ON event_feed_checks FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY event_feed_checks_insert ON event_feed_checks FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY event_feed_checks_select ON event_feed_checks FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY event_feed_checks_update ON event_feed_checks FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY event_feed_checks_delete ON event_feed_checks FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -123,7 +203,27 @@ CREATE TABLE event_feed_check_items (
 );
 
 ALTER TABLE event_feed_check_items ENABLE ROW LEVEL SECURITY;
-CREATE POLICY event_feed_check_items_all ON event_feed_check_items FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY event_feed_check_items_insert ON event_feed_check_items FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY event_feed_check_items_select ON event_feed_check_items FOR SELECT
+  USING (feed_check_id IN (
+    SELECT id FROM event_feed_checks WHERE operation_id IN (
+      SELECT operation_id FROM operation_members
+      WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    )
+  ));
+
+CREATE POLICY event_feed_check_items_update ON event_feed_check_items FOR UPDATE
+  USING (feed_check_id IN (
+    SELECT id FROM event_feed_checks WHERE operation_id IN (
+      SELECT operation_id FROM operation_members
+      WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    )
+  ));
+
+CREATE POLICY event_feed_check_items_delete ON event_feed_check_items FOR DELETE
   USING (feed_check_id IN (
     SELECT id FROM event_feed_checks WHERE operation_id IN (
       SELECT operation_id FROM operation_members

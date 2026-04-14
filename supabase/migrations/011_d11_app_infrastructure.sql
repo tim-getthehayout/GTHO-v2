@@ -49,7 +49,23 @@ CREATE TABLE submissions (
 );
 
 ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY submissions_all ON submissions FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY submissions_insert ON submissions FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY submissions_select ON submissions FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY submissions_update ON submissions FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY submissions_delete ON submissions FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -72,7 +88,23 @@ CREATE TABLE todos (
 );
 
 ALTER TABLE todos ENABLE ROW LEVEL SECURITY;
-CREATE POLICY todos_all ON todos FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY todos_insert ON todos FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY todos_select ON todos FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY todos_update ON todos FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY todos_delete ON todos FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -88,7 +120,27 @@ CREATE TABLE todo_assignments (
 );
 
 ALTER TABLE todo_assignments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY todo_assignments_all ON todo_assignments FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY todo_assignments_insert ON todo_assignments FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY todo_assignments_select ON todo_assignments FOR SELECT
+  USING (todo_id IN (
+    SELECT id FROM todos WHERE operation_id IN (
+      SELECT operation_id FROM operation_members
+      WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    )
+  ));
+
+CREATE POLICY todo_assignments_update ON todo_assignments FOR UPDATE
+  USING (todo_id IN (
+    SELECT id FROM todos WHERE operation_id IN (
+      SELECT operation_id FROM operation_members
+      WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    )
+  ));
+
+CREATE POLICY todo_assignments_delete ON todo_assignments FOR DELETE
   USING (todo_id IN (
     SELECT id FROM todos WHERE operation_id IN (
       SELECT operation_id FROM operation_members

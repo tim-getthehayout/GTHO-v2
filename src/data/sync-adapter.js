@@ -8,9 +8,10 @@ export class SyncAdapter {
    * Push a single record to remote.
    * @param {string} table
    * @param {object} record - Supabase-shaped (snake_case)
+   * @param {string} [operation] - 'insert', 'update', or 'upsert' (default)
    * @returns {Promise<{id: string, success: boolean, error?: string}>}
    */
-  async push(_table, _record) {
+  async push(_table, _record, _operation) {
     throw new Error('SyncAdapter.push() not implemented');
   }
 

@@ -7,7 +7,7 @@
 ### OI-0054 — Sync Adapter Uses Upsert Which Requires UPDATE Policy to Pass on INSERT
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P0
 **Checkpoint:** pre-Tier-3-testing
-**Status:** open — code fix + RLS migration required
+**Status:** closed — fixed 2026-04-14
 
 **Problem:** `custom-sync.js` line 205 uses `.upsert(record, { onConflict: 'id' })` for every write. Supabase treats upsert as INSERT + UPDATE, requiring both policies to pass. During onboarding, the `operation_members` row doesn't exist yet, so any UPDATE policy that checks membership fails. This cascades to every table: operations (rejected despite `WITH CHECK (true)` on INSERT, because upsert also evaluates UPDATE policy) → operation_members (FK violation because operations row didn't land) → all other tables (RLS violation because no member row exists).
 

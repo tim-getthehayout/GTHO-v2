@@ -17,4 +17,6 @@ export const BACKUP_MIGRATIONS = {
   15: (b) => { b.schema_version = 16; return b; },
   // 016 → 017: RLS policy fix (OI-0053). No backup shape change.
   16: (b) => { b.schema_version = 17; return b; },
+  // 017 → 018: Granular RLS policies (OI-0054). No backup shape change.
+  17: (b) => { b.schema_version = 18; return b; },
 };

@@ -60,7 +60,23 @@ CREATE TABLE farms (
 
 ALTER TABLE farms ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY farms_all ON farms FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY farms_insert ON farms FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY farms_select ON farms FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY farms_update ON farms FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY farms_delete ON farms FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -110,7 +126,23 @@ CREATE TABLE farm_settings (
 
 ALTER TABLE farm_settings ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY farm_settings_all ON farm_settings FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY farm_settings_insert ON farm_settings FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY farm_settings_select ON farm_settings FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY farm_settings_update ON farm_settings FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY farm_settings_delete ON farm_settings FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL

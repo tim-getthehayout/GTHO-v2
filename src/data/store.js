@@ -143,9 +143,9 @@ export function add(entityType, record, validateFn, toSupabaseFn, table) {
   // 3. Persist to localStorage
   saveToStorage(entityType, state[entityType]);
 
-  // 4. Queue sync
+  // 4. Queue sync (insert for new records)
   if (syncAdapter && toSupabaseFn && table) {
-    syncAdapter.push(table, toSupabaseFn(record));
+    syncAdapter.push(table, toSupabaseFn(record), 'insert');
   }
 
   // 5. Notify subscribers
@@ -184,9 +184,9 @@ export function update(entityType, id, changes, validateFn, toSupabaseFn, table)
   // 3. Persist
   saveToStorage(entityType, state[entityType]);
 
-  // 4. Queue sync
+  // 4. Queue sync (update for existing records)
   if (syncAdapter && toSupabaseFn && table) {
-    syncAdapter.push(table, toSupabaseFn(updated));
+    syncAdapter.push(table, toSupabaseFn(updated), 'update');
   }
 
   // 5. Notify
@@ -256,7 +256,7 @@ export function setUnitSystem(value) {
   saveToStorage('operations', state.operations);
 
   if (syncAdapter) {
-    syncAdapter.push('operations', operationToSb(updated));
+    syncAdapter.push('operations', operationToSb(updated), 'update');
   }
 
   notify('operations');
@@ -300,7 +300,7 @@ export function setActiveFarm(farmId) {
   saveToStorage('userPreferences', state.userPreferences);
 
   if (syncAdapter) {
-    syncAdapter.push('user_preferences', userPrefToSb(updated));
+    syncAdapter.push('user_preferences', userPrefToSb(updated), 'update');
   }
 
   notify('userPreferences');

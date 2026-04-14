@@ -15,7 +15,23 @@ CREATE TABLE ai_bulls (
 );
 
 ALTER TABLE ai_bulls ENABLE ROW LEVEL SECURITY;
-CREATE POLICY ai_bulls_all ON ai_bulls FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY ai_bulls_insert ON ai_bulls FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY ai_bulls_select ON ai_bulls FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY ai_bulls_update ON ai_bulls FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY ai_bulls_delete ON ai_bulls FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -37,7 +53,23 @@ CREATE TABLE treatment_categories (
 );
 
 ALTER TABLE treatment_categories ENABLE ROW LEVEL SECURITY;
-CREATE POLICY treatment_categories_all ON treatment_categories FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY treatment_categories_insert ON treatment_categories FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY treatment_categories_select ON treatment_categories FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY treatment_categories_update ON treatment_categories FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY treatment_categories_delete ON treatment_categories FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -55,7 +87,23 @@ CREATE TABLE treatment_types (
 );
 
 ALTER TABLE treatment_types ENABLE ROW LEVEL SECURITY;
-CREATE POLICY treatment_types_all ON treatment_types FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY treatment_types_insert ON treatment_types FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY treatment_types_select ON treatment_types FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY treatment_types_update ON treatment_types FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY treatment_types_delete ON treatment_types FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -86,7 +134,23 @@ CREATE TABLE animal_bcs_scores (
 );
 
 ALTER TABLE animal_bcs_scores ENABLE ROW LEVEL SECURITY;
-CREATE POLICY animal_bcs_scores_all ON animal_bcs_scores FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY animal_bcs_scores_insert ON animal_bcs_scores FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY animal_bcs_scores_select ON animal_bcs_scores FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_bcs_scores_update ON animal_bcs_scores FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_bcs_scores_delete ON animal_bcs_scores FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -109,7 +173,23 @@ CREATE TABLE animal_treatments (
 );
 
 ALTER TABLE animal_treatments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY animal_treatments_all ON animal_treatments FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY animal_treatments_insert ON animal_treatments FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY animal_treatments_select ON animal_treatments FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_treatments_update ON animal_treatments FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_treatments_delete ON animal_treatments FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -134,7 +214,23 @@ CREATE TABLE animal_breeding_records (
 );
 
 ALTER TABLE animal_breeding_records ENABLE ROW LEVEL SECURITY;
-CREATE POLICY animal_breeding_records_all ON animal_breeding_records FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY animal_breeding_records_insert ON animal_breeding_records FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY animal_breeding_records_select ON animal_breeding_records FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_breeding_records_update ON animal_breeding_records FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_breeding_records_delete ON animal_breeding_records FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -152,7 +248,23 @@ CREATE TABLE animal_heat_records (
 );
 
 ALTER TABLE animal_heat_records ENABLE ROW LEVEL SECURITY;
-CREATE POLICY animal_heat_records_all ON animal_heat_records FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY animal_heat_records_insert ON animal_heat_records FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY animal_heat_records_select ON animal_heat_records FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_heat_records_update ON animal_heat_records FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_heat_records_delete ON animal_heat_records FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -175,7 +287,23 @@ CREATE TABLE animal_calving_records (
 );
 
 ALTER TABLE animal_calving_records ENABLE ROW LEVEL SECURITY;
-CREATE POLICY animal_calving_records_all ON animal_calving_records FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY animal_calving_records_insert ON animal_calving_records FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY animal_calving_records_select ON animal_calving_records FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_calving_records_update ON animal_calving_records FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_calving_records_delete ON animal_calving_records FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
@@ -195,7 +323,23 @@ CREATE TABLE animal_weight_records (
 );
 
 ALTER TABLE animal_weight_records ENABLE ROW LEVEL SECURITY;
-CREATE POLICY animal_weight_records_all ON animal_weight_records FOR ALL
+-- Updated: FOR ALL policies split to granular INSERT/SELECT/UPDATE/DELETE (OI-0054, migration 018)
+CREATE POLICY animal_weight_records_insert ON animal_weight_records FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY animal_weight_records_select ON animal_weight_records FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_weight_records_update ON animal_weight_records FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members
+    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY animal_weight_records_delete ON animal_weight_records FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members
     WHERE user_id = auth.uid() AND accepted_at IS NOT NULL

@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.4 Advanced — CP-55 (Export — JSON backup) **COMPLETE**. Migration 015 (`operations.schema_version`), backup-export.js (49 tables, Supabase-read with pagination, §5.2 envelope), backup-migrations.js (empty registry at v14), Settings export button with confirm/progress/download flow, offline/sync guard. 653 tests passing.
-**Next up:** CP-56 — Import — JSON restore. Spec at V2_MIGRATION_PLAN.md §5.7–§5.9. Needs its own spec file in `github/issues/`.
+**Active work:** Phase 3.4 Advanced — CP-56 (Import — JSON restore) **COMPLETE**. backup-import.js (§5.7 steps 1-10, FK-ordered replace per §5.3a, two-pass animals/events, reference table upsert, auto-backup safety net, parity check). Settings import button with preview/confirm/progress flow. 680 tests passing.
+**Next up:** CP-57 — v1 → v2 migration tool. Spec at V2_MIGRATION_PLAN.md §1–§2.
 
 ---
 

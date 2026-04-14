@@ -4,6 +4,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, update, getSyncAdapter, getOperation, setUnitSystem } from '../../data/store.js';
 import { canExport, exportOperationBackup, downloadBackup } from '../../data/backup-export.js';
+import { validateBackup, getBackupPreview, importOperationBackup } from '../../data/backup-import.js';
 import { validate as validateFarmSetting } from '../../entities/farm-setting.js';
 import { validate as validateUserPref } from '../../entities/user-preference.js';
 import { logout } from '../auth/session.js';
@@ -232,14 +233,36 @@ function renderSyncSection() {
     onClick: () => handleExportClick(opName, operation),
   }, [t('settings.exportBackup')]);
 
+  // Import backup button (§20.3)
+  const fileInput = el('input', {
+    type: 'file',
+    accept: '.json',
+    style: { display: 'none' },
+    'data-testid': 'settings-import-file-input',
+    onChange: (e) => handleImportFileSelect(e, operation),
+  });
+
+  const importBtn = el('button', {
+    className: 'btn btn-outline btn-sm',
+    'data-testid': 'settings-import-backup-btn',
+    onClick: () => {
+      const check = canExport(); // same gate as export
+      if (!check.ok) {
+        showExportToast(t('settings.exportSyncPending'));
+        return;
+      }
+      fileInput.click();
+    },
+  }, [t('settings.importBackup')]);
+
   return el('div', { className: 'card settings-card' }, [
     el('h3', { className: 'settings-section-title' }, [t('settings.syncAndData')]),
     el('div', { className: 'sync-status', 'data-testid': 'settings-sync-status' }, [
       el('span', { className: `sync-dot sync-${status}` }),
       el('span', {}, [statusLabels[status] || status]),
     ]),
-    el('div', { style: { marginTop: 'var(--space-4)' } }, [exportBtn]),
-    // Export confirm/progress sheets mount here
+    el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [exportBtn, importBtn, fileInput]),
+    // Export/import sheets mount here
     el('div', { id: 'export-sheet-mount' }),
   ]);
 }
@@ -358,6 +381,190 @@ function showExportToast(message) {
 
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 4000);
+}
+
+// ---------------------------------------------------------------------------
+// Import flow (CP-56)
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle file selection for import.
+ * @param {Event} e
+ * @param {object} operation
+ */
+async function handleImportFileSelect(e, operation) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  const mount = document.getElementById('export-sheet-mount');
+  if (!mount) return;
+  clear(mount);
+
+  let backup;
+  try {
+    const text = await file.text();
+    backup = JSON.parse(text);
+  } catch {
+    showExportToast(t('settings.importInvalidJson'));
+    return;
+  }
+
+  // Step 1: Validate
+  const validation = validateBackup(backup);
+  if (!validation.valid) {
+    showExportToast(validation.error);
+    return;
+  }
+
+  // Step 3: Preview sheet
+  const preview = getBackupPreview(backup);
+  const previewSheet = el('div', {
+    className: 'card',
+    style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)' },
+    'data-testid': 'import-preview-sheet',
+  }, [
+    el('h3', { style: { marginBottom: 'var(--space-3)' } }, [t('settings.importPreviewTitle')]),
+    el('div', { className: 'import-preview-grid' }, [
+      previewRow(t('settings.importTargetOp'), operation?.name || '—'),
+      previewRow(t('settings.importExportDate'), preview.exportedAt),
+      previewRow(t('settings.importExportedBy'), preview.exportedByEmail),
+      previewRow(t('settings.importSchemaVersion'), `v${preview.schemaVersion}`),
+      previewRow(t('settings.importFarms'), String(preview.counts.farms || 0)),
+      previewRow(t('settings.importEvents'), String(preview.counts.events || 0)),
+      previewRow(t('settings.importAnimals'), String(preview.counts.animals || 0)),
+      previewRow(t('settings.importBatches'), String(preview.counts.batches || 0)),
+      previewRow(t('settings.importTodos'), String(preview.counts.todos || 0)),
+    ]),
+    el('p', {
+      style: { color: 'var(--color-red-base)', fontSize: '0.875rem', marginTop: 'var(--space-4)', fontWeight: '600' },
+    }, [t('settings.importDestructiveWarning')]),
+    el('p', {
+      style: { fontSize: '0.8125rem', color: 'var(--text2)', marginTop: 'var(--space-2)' },
+    }, [t('settings.importAutoBackupNote')]),
+    el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [
+      el('button', {
+        className: 'btn btn-red btn-sm',
+        'data-testid': 'import-replace-btn',
+        onClick: () => showSecondConfirm(mount, backup, operation),
+      }, [t('settings.importReplaceAll')]),
+      el('button', {
+        className: 'btn btn-outline btn-sm',
+        onClick: () => clear(mount),
+      }, [t('action.cancel')]),
+    ]),
+  ]);
+
+  mount.appendChild(previewSheet);
+}
+
+function previewRow(label, value) {
+  return el('div', { className: 'import-preview-row' }, [
+    el('span', { className: 'import-preview-label' }, [label]),
+    el('span', { className: 'import-preview-value' }, [value]),
+  ]);
+}
+
+/**
+ * Show the second-step destructive confirmation (§5.7.3).
+ */
+function showSecondConfirm(mount, backup, operation) {
+  clear(mount);
+  mount.appendChild(el('div', {
+    className: 'card',
+    style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)', borderColor: 'var(--color-red-base)' },
+    'data-testid': 'import-second-confirm',
+  }, [
+    el('p', { style: { fontWeight: '600', color: 'var(--color-red-base)' } }, [
+      t('settings.importSecondConfirm'),
+    ]),
+    el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [
+      el('button', {
+        className: 'btn btn-red btn-sm',
+        'data-testid': 'import-final-confirm-btn',
+        onClick: () => runImport(mount, backup, operation),
+      }, [t('settings.importYesReplace')]),
+      el('button', {
+        className: 'btn btn-outline btn-sm',
+        onClick: () => clear(mount),
+      }, [t('action.cancel')]),
+    ]),
+  ]));
+}
+
+/**
+ * Run the actual import with progress UI (§5.7 step 10).
+ */
+async function runImport(mount, backup, operation) {
+  clear(mount);
+
+  const phaseLabel = el('span', {}, ['Validating']);
+  const detailLabel = el('span', { style: { fontSize: '0.8125rem', color: 'var(--text2)' } }, ['']);
+  const progressLabel = el('span', {}, ['0%']);
+  const progressFill = el('div', { className: 'export-progress-fill' });
+  const progressBar = el('div', { className: 'export-progress-bar' }, [progressFill]);
+
+  const progressSheet = el('div', {
+    className: 'card',
+    style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)' },
+    'data-testid': 'import-progress-sheet',
+  }, [
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)' } }, [
+      phaseLabel,
+      progressLabel,
+    ]),
+    detailLabel,
+    el('div', { style: { marginTop: 'var(--space-3)' } }, [progressBar]),
+  ]);
+
+  mount.appendChild(progressSheet);
+
+  const result = await importOperationBackup(
+    backup,
+    operation.id,
+    (phase, detail, pct) => {
+      phaseLabel.textContent = phase;
+      detailLabel.textContent = detail;
+      progressLabel.textContent = `${pct}%`;
+      progressFill.style.width = `${pct}%`;
+    }
+  );
+
+  clear(mount);
+
+  if (result.success) {
+    mount.appendChild(el('div', {
+      className: 'card',
+      style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)', color: 'var(--color-green-dark)' },
+      'data-testid': 'import-success',
+    }, [t('settings.importSuccess')]));
+  } else if (result.parityResult && !result.parityResult.pass) {
+    // Parity failure — show mismatch report
+    const rows = result.parityResult.mismatches.map(m =>
+      el('div', { className: 'import-preview-row' }, [
+        el('span', { className: 'import-preview-label' }, [m.table]),
+        el('span', { className: 'import-preview-value' }, [`expected ${m.expected}, got ${m.actual}`]),
+      ])
+    );
+    mount.appendChild(el('div', {
+      className: 'card',
+      style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)' },
+      'data-testid': 'import-parity-report',
+    }, [
+      el('p', { style: { color: 'var(--color-red-base)', fontWeight: '600', marginBottom: 'var(--space-3)' } }, [
+        t('settings.importParityFailed'),
+      ]),
+      ...rows,
+      el('p', { style: { fontSize: '0.8125rem', color: 'var(--text2)', marginTop: 'var(--space-3)' } }, [
+        t('settings.importParityRevert').replace('{filename}', result.autoBackupFileName || ''),
+      ]),
+    ]));
+  } else {
+    mount.appendChild(el('div', {
+      className: 'card',
+      style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)', color: 'var(--color-red-base)' },
+      'data-testid': 'import-error',
+    }, [result.error || t('settings.importError')]));
+  }
 }
 
 function rerender(container) {

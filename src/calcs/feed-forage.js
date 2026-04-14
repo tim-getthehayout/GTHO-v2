@@ -331,7 +331,7 @@ registerCalc({
 registerCalc({
   name: 'CST-2',
   category: 'cost',
-  description: 'Unit cost of a batch (cost_total / quantity_original)',
+  description: 'Unit cost of a batch (bidirectional)',
   formula: 'cost_per_unit = cost_total / quantity_original',
   source: 'V2_CALCULATION_SPEC.md §4.5',
   inputs: [

@@ -710,13 +710,13 @@ function renderGroupCard(group, unitSys) {
       isOnPasture ? el('div', { className: 'grp-loc-bar' }, [
         el('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' } }, [
           el('span', { style: { fontWeight: '500' } }, [locationName]),
-          el('span', { className: 'badge badge-green' }, ['grazing']),
-          el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [`Day ${dayCount}`]),
+          el('span', { className: 'badge badge-green' }, [t('dashboard.grazing')]),
+          el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('dashboard.dayLabel', { count: dayCount })]),
           subMoveCount > 0
-            ? el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [`${subMoveCount} sub-moves`])
+            ? el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('dashboard.subMovesLabel', { count: subMoveCount })])
             : null,
           feedCount > 0
-            ? el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [`${feedCount} feedings`])
+            ? el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('dashboard.feedingsLabel', { count: feedCount })])
             : null,
           feedCost > 0
             ? el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [`$${feedCost.toFixed(2)}`])
@@ -845,8 +845,8 @@ function renderLocationsView(gridEl) {
         groupLines.join(' \u00B7 '),
       ]),
       el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-2)' } }, [
-        `Day ${dayCount}`,
-        feedCount > 0 ? ` \u00B7 ${feedCount} feedings \u00B7 $${feedCost.toFixed(2)} cost` : '',
+        t('dashboard.dayLabel', { count: dayCount }),
+        feedCount > 0 ? ` \u00B7 ${t('dashboard.feedingsLabel', { count: feedCount })} \u00B7 $${feedCost.toFixed(2)}` : '',
       ]),
       stripEl,
       el('div', { className: 'dash-actions' }, [
@@ -950,7 +950,7 @@ function renderSurveyDraft(rootContainer) {
     ]),
     el('button', {
       className: 'btn btn-sm',
-      style: { background: 'var(--color-amber-base)', color: '#fff' },
+      style: { background: 'var(--color-amber-base)', color: 'var(--white, #fff)' },
       onClick: () => navigate('#/surveys'),
     }, [t('dashboard.continueSurvey')]),
   ]));

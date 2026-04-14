@@ -74,7 +74,7 @@ export function openWeightSheet(animal, operationId) {
         clear(statusEl);
         let weightKg = parseFloat(weightInput.value);
         if (!weightKg || weightKg <= 0) {
-          statusEl.appendChild(el('span', {}, ['Weight is required']));
+          statusEl.appendChild(el('span', {}, [t('validation.weightRequired')]));
           return;
         }
         if (unitSys === 'imperial') weightKg = convert(weightKg, 'weight', 'toMetric');

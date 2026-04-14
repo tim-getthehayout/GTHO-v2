@@ -1,6 +1,7 @@
 /** @file Reference console — admin screen listing all registered calculations. */
 
 import { el } from '../../ui/dom.js';
+import { t } from '../../i18n/i18n.js';
 import { getAllCalcs, getCalcsByCategory } from '../../utils/calc-registry.js';
 
 /**
@@ -36,7 +37,7 @@ export function renderReferenceConsole() {
   });
 
   return el('div', { 'data-testid': 'reference-console' }, [
-    el('h2', { className: 'screen-heading' }, [`Calculation Reference (${calcs.length} formulas)`]),
+    el('h2', { className: 'screen-heading' }, [t('reports.calcRefTitle', { count: calcs.length })]),
     ...sections,
   ]);
 }

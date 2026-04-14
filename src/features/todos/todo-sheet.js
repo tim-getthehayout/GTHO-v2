@@ -129,7 +129,7 @@ function renderSheetContent(prefill) {
   const locations = store.getAll('locations');
   contentEl.appendChild(el('label', { className: 'form-label' }, [t('todos.fieldLocation')]));
   const locationSelect = el('select', { className: 'auth-select', 'data-testid': 'todo-location-select' }, [
-    el('option', { value: '' }, ['\u2014 none \u2014']),
+    el('option', { value: '' }, [t('form.noneOption')]),
     ...locations.map(loc =>
       el('option', { value: loc.id, ...(locationVal === loc.id ? { selected: 'selected' } : {}) }, [loc.name])
     ),
@@ -140,7 +140,7 @@ function renderSheetContent(prefill) {
   const animals = store.getAll('animals').filter(a => a.status !== 'culled');
   contentEl.appendChild(el('label', { className: 'form-label' }, [t('todos.fieldAnimal')]));
   const animalSelect = el('select', { className: 'auth-select', 'data-testid': 'todo-animal-select' }, [
-    el('option', { value: '' }, ['\u2014 none \u2014']),
+    el('option', { value: '' }, [t('form.noneOption')]),
     ...animals.map(a =>
       el('option', { value: a.id, ...(animalVal === a.id ? { selected: 'selected' } : {}) }, [
         `${a.tagNum || ''} ${a.name || ''}`.trim() || a.id,

@@ -761,7 +761,7 @@ function openBatchAdjustSheet(batch, operationId) {
         clear(statusEl);
         const newQty = parseFloat(inputs.newQty.value);
         if (isNaN(newQty) || newQty < 0) {
-          statusEl.appendChild(el('span', {}, ['Quantity must be 0 or greater']));
+          statusEl.appendChild(el('span', {}, [t('validation.quantityNonNegative')]));
           return;
         }
         const delta = newQty - batch.remaining;

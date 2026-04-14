@@ -155,7 +155,7 @@ export function openDeliverFeedSheet(evt, operationId) {
         }
         const qty = parseFloat(inputs.quantity.value);
         if (!qty || qty <= 0) {
-          statusEl.appendChild(el('span', {}, ['Quantity must be greater than 0']));
+          statusEl.appendChild(el('span', {}, [t('validation.quantityPositive')]));
           return;
         }
         try {

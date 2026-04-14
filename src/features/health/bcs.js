@@ -76,7 +76,7 @@ export function openBcsSheet(animal, operationId) {
         clear(statusEl);
         const score = parseFloat(scoreInput.value);
         if (!score || score < 1 || score > maxScore) {
-          statusEl.appendChild(el('span', {}, [`Score must be 1–${maxScore}`]));
+          statusEl.appendChild(el('span', {}, [t('validation.bcsScoreRange', { max: maxScore })]));
           return;
         }
         try {

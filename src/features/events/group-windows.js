@@ -86,11 +86,11 @@ export function openGroupAddSheet(evt, operationId) {
         const hc = parseInt(inputs.headCount.value, 10);
         let aw = parseFloat(inputs.avgWeight.value);
         if (!hc || hc < 1) {
-          statusEl.appendChild(el('span', {}, ['Head count must be at least 1']));
+          statusEl.appendChild(el('span', {}, [t('validation.headCountMin')]));
           return;
         }
         if (!aw || aw <= 0) {
-          statusEl.appendChild(el('span', {}, ['Average weight is required']));
+          statusEl.appendChild(el('span', {}, [t('validation.avgWeightRequired')]));
           return;
         }
         if (unitSys === 'imperial') {

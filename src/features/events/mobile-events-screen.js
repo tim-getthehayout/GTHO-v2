@@ -65,7 +65,7 @@ function renderActiveRotationBanner() {
     const days = Math.max(1, Math.round((new Date(today) - new Date(event.dateIn)) / 86400000) + 1);
 
     chips.push(el('div', { className: 'active-rotation-banner__detail' }, [
-      `Day ${days} · ${allFeedEntries.filter(fe => fe.eventId === event.id).length} feedings · ${groupWindows.length} group${groupWindows.length !== 1 ? 's' : ''}`,
+      t('event.detailSummary', { days, feedings: allFeedEntries.filter(fe => fe.eventId === event.id).length, groups: groupWindows.length }),
     ]));
   }
 

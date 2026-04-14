@@ -98,7 +98,7 @@ function renderAmendmentList(rootContainer, operationId) {
             [date, qtyLabel, paddockNames].filter(Boolean).join(' · '),
           ]),
           amendment.costOverride != null
-            ? el('div', { className: 'form-hint' }, [`$${amendment.costOverride}`])
+            ? el('div', { className: 'form-hint' }, [t('event.costDisplay', { value: amendment.costOverride })])
             : el('span', {}),
         ]),
         el('button', {

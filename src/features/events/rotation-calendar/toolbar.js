@@ -124,7 +124,7 @@ function renderForecaster(onUpdate) {
         },
         'aria-label': 'Add group to forecaster',
       }, [
-        el('option', { value: '' }, ['\uFF0B Add']),
+        el('option', { value: '' }, [t('calendar.addGroup')]),
         ...availableGroups.map(g => el('option', { value: g.id }, [g.name])),
       ])
     : null;

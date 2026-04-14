@@ -42,9 +42,9 @@ export function renderEventsLog(container) {
       onChange: (e) => { filter = e.target.value; render(); },
       'aria-label': 'Filter events',
     }, [
-      el('option', { value: 'all', ...(filter === 'all' ? { selected: 'selected' } : {}) }, ['All']),
-      el('option', { value: 'open', ...(filter === 'open' ? { selected: 'selected' } : {}) }, ['Open']),
-      el('option', { value: 'closed', ...(filter === 'closed' ? { selected: 'selected' } : {}) }, ['Closed']),
+      el('option', { value: 'all', ...(filter === 'all' ? { selected: 'selected' } : {}) }, [t('filter.all')]),
+      el('option', { value: 'open', ...(filter === 'open' ? { selected: 'selected' } : {}) }, [t('filter.open')]),
+      el('option', { value: 'closed', ...(filter === 'closed' ? { selected: 'selected' } : {}) }, [t('filter.closed')]),
     ]);
 
     const filterBar = el('div', { className: 'events-log__filter' }, [filterSelect]);
@@ -104,7 +104,7 @@ export function renderEventsLog(container) {
       // Badge
       const badge = el('span', {
         className: `events-log__badge events-log__badge--${isActive ? 'active' : 'closed'}`,
-      }, [isActive ? 'Active' : 'Closed']);
+      }, [isActive ? t('filter.active') : t('filter.closed')]);
 
       // Meta row
       const meta = el('div', { className: 'events-log__meta' }, [

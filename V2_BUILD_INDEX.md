@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.4 Advanced — CP-55 through CP-58 **COMPLETE**. 747 tests passing. Pre-migration audit in progress (Tier 1: Claude Code programmatic audits; Tier 2: Cowork spec alignment). CP-54 (Rotation calendar) deferred — not blocking migration path.
-**Next up:** Tier 3 — test migration with real v1 data. Then CP-54 (Rotation calendar) or Phase 3.5 (Polish).
+**Active work:** Phase 3.4 Advanced — CP-55 through CP-58 **COMPLETE**. 779 tests passing. Pre-migration audit complete (Tier 1 programmatic audits, Tier 2 spec alignment, audit findings fixes — all committed). CP-54 (Rotation calendar) deferred — not blocking migration path.
+**Next up:** Tier 3 — test migration with real v1 data on the deployed site. Then CP-54 (Rotation calendar) or Phase 3.5 (Polish).
 
 ---
 

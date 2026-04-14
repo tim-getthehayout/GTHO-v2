@@ -421,15 +421,17 @@ New pattern — no v1 equivalent. Displays strip grazing state within a paddock 
 
 **Desktop:** Farm title + sync indicator + build version + Field mode toggle in header. Farm Overview section: 5-column stats row (Pasture DMI, Feed Cost, Pasture %, NPK/Acre, NPK Value). View toggle: Groups | Locations. 2-column group card grid. Each group card: name, head count, avg weight, location → expanded body with paddock location bar (green "grazing" badge, day count, feeding count, dollar amount, AU, AUDS, DMI, sub-move info, DMI target, pasture vs feed percentage bar, NPK deposited) → action buttons (Move, Split, Weights, Edit). FAB (+) bottom-right.
 
-**Mobile:** Same content, but single-column. Group cards collapsed by default with chevron. Stats in 2-column grid (4 items, wrapping). Bottom nav: Home, Animals, Events, Fields, Feed, (plus Feedback, Reports, Settings via more).
+**Mobile:** Same content, but single-column. Group cards collapsed by default with chevron. Stats in 2-column grid (4 items, wrapping). Bottom nav: Home, Animals, Rotation Calendar, Fields, Feed, (plus Feedback, Reports, Settings via more). The Rotation Calendar item routes to `#/events` — the route id is preserved; only the visible label changed.
 
 ### 4.2 Animals Screen
 
 Group filter pills at top (All, Cow-Calf Herd, Ewe Flock, Stockers, Unassigned — each with color dot). Search bar. Config buttons row (Classes, Treatments, AI Sires). Groups section with "+ Add group" button. Each group card: name, active/paddock badge, sex breakdown, head count + avg weight + DMI target, action buttons (Edit, Split, Weights, ×). Below: sortable animal table (Tag/ID, Class, Group, Weight) with per-animal action button row (Edit, Weight, Note, Treatment, Breeding, BCS, Todo).
 
-### 4.3 Events Screen
+### 4.3 Rotation Calendar Screen
 
-The Events screen **is** the rotation calendar. Active rotation quick-access lives on the Home/Dashboard screen — not here.
+**Nav label:** "Rotation Calendar." **Route:** `#/events` (route id preserved; testids `nav-events` / `bnav-events` also preserved). Internally the screen is still referred to as the Events screen; externally (nav, page headings, marketing copy) it is "Rotation Calendar." Both names appear throughout these docs — treat them as synonyms.
+
+The Rotation Calendar screen **is** the rotation calendar visualization. Active rotation quick-access lives on the Home/Dashboard screen — not here.
 
 **Header strip.** Left: `View:` label + view toggle (`📅 Calendar` | `📋 List`), Calendar is the default. Right: mode indicator pill — reads `DM Forecast View · <group summary> · <period>` when the Dry Matter Forecaster has at least one group selected, otherwise reads `Estimated Status View` (grey). Multi-group summary collapses to `Multiple Groups (N)` with a dotted underline and hover tooltip listing every group when more than one is selected; shows the group name directly when exactly one.
 
@@ -649,6 +651,7 @@ Used by BCS Recording Sheet (§14.3). Row of numbered chips.
 | 2026-04-13 | Header + multi-farm context design | Extended §3.6 Navigation with header bar patterns: left cluster (operation name + farm picker), right cluster (sync dot, build stamp, Field Mode, user menu button), farm picker (sheet/dropdown specs), user menu popover (email + Log Out), and cross-farm event marker style for event cards. Supports V2_UX_FLOWS.md §17.2 and new §18. |
 | 2026-04-13 | Rotation calendar design (CP-54) | §4.3 Events Screen rewritten — the Events screen IS the rotation calendar. Covers header strip (View: toggle + mode indicator pill with multi-group compression rule), toolbar (two lightboxes: Timeline Selection + Dry Matter Forecaster, plus Show Confinement Locations on/off pill), conditional legend (Past always; Future swaps content by mode), 3-column calendar grid (paddock column / timeline / sidebar), past event blocks (multi-group label rule, proportional strip-graze bands, active NOW white ring, linked-paddock dashed outline + dotted connector), future forecast blocks (two view modes), today line with date pill, 1:1 sidebar mirror (40px header + 72px per paddock row + 28px totals footer), list view (v1 GRZ-10 pattern), mobile fallback (no calendar below 900px — GRZ-11 banner + GRZ-10 list). §4.6 Reports Screen: Rotation Calendar tab **removed** — calendar lives only on Events. Tab strip now 6 tabs (Feed & DMI Trends default, NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning). Supports V2_UX_FLOWS.md §19. |
 | 2026-04-13 | CP-54 pre-build reconciliation | §4.6 updated: Calc Reference console renders alongside the 6 report tabs in v2.0 (it was never actually removed from Reports in code, and no Settings home exists yet). Planned destination is Settings → Developer, tracked in OPEN_ITEMS.md as OI-0020 for a future CP. No change to the 6 report-tab set or to §4.3. |
+| 2026-04-13 | Nav label rename: Events → Rotation Calendar | §4.1 mobile nav item list updated to "Rotation Calendar" with a note that the route `#/events` is preserved. §4.3 section header renamed "Events Screen" → "Rotation Calendar Screen" with a mapping note that "Events screen" and "Rotation Calendar screen" refer to the same screen and that route id / testids / internal function names are unchanged. Label-only alignment with Claude Code commit `59833ea`. |
 
 ---
 

@@ -347,7 +347,7 @@ Hash-based routing. Routes map to render functions.
 ```js
 const routes = {
   '#/':           renderDashboard,
-  '#/events':     renderEventsScreen,
+  '#/events':     renderEventsScreen,     // nav label: "Rotation Calendar" (2026-04-13)
   '#/locations':  renderLocationsScreen,   // was #/pastures in v1
   '#/feed':       renderFeedScreen,
   '#/animals':    renderAnimalsScreen,
@@ -357,6 +357,8 @@ const routes = {
 ```
 
 Unknown hash → fallback to dashboard. Navigation via `window.location.hash = '#/events'`.
+
+**Display-label / route-id mapping.** The `#/events` route renders as "Rotation Calendar" in the sidebar and mobile bottom-nav; testids `nav-events` and `bnav-events` are preserved. This is a label-only alignment with the user-facing name of the screen — internal references (route id, function name `renderEventsScreen`, testids, feature directory `src/features/events/`) are intentionally unchanged.
 
 **Not top-level routes (accessed as sub-screens):**
 - Health (treatments, breeding, calving, heats, BCS, weights) — accessed from animal edit dialog and animal screen within `#/animals`

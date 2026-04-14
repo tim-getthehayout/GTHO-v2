@@ -47,6 +47,27 @@ git push
 **How to apply:** Add a check to the Cowork Delivery Gate item 3 ("Spec files written"): before finalizing a spec, audit for design content that belongs in a base doc and migrate it. Consider a "Design source of truth" section at the top of every spec (as seen in `rotation-calendar-events-screen.md`) that indexes every base-doc section the spec depends on — this makes the audit self-enforcing because anything not referenceable by section number is a sign it hasn't been integrated.
 **Where:** deploy-gate SKILL.md §Cowork Delivery Gate item 3, and the project-scaffold spec template (`github/issues/_TEMPLATE.md`) — add a required "Design source of truth" section referencing base docs.
 
+### 6. Spec files use a "thin pointer" format — concrete template
+**Plugin:** project-infrastructure
+**Skill:** doc-workflow, project-scaffold (`github/issues/_TEMPLATE.md`)
+**What:** Entry #5 establishes the principle ("base docs are source of truth; specs are handoff wrappers"). This entry adds the concrete format that makes the principle self-enforcing. Every spec file in `github/issues/` has four sections and no more:
+
+1. **Summary** — one paragraph of scope, in prose. No acceptance criteria here.
+2. **Single Source of Truth** — bulleted list of every base-doc section the spec depends on, formatted `**{Doc}.md §X.Y** — short description`. This section IS the design index — if a design decision isn't referenceable from this list by section number, it doesn't belong in the spec (migrate it to a base doc first).
+3. **Implementation Checklist** — checkboxes that reference `§X.Y step N` of the base doc rather than restating the step. Example: `[ ] Pending-writes gate + offline gate per §5.7 step 2, matching CP-55's refusal toast wording.` This forces the implementer to read the base doc and keeps the spec immune to drift.
+4. **Related / Notes** — cross-references to other CPs, OIs, related decisions. No design content.
+
+**Why:** Entry #5 said "audit the spec for design content that belongs in a base doc." That's a manual check that's easy to skip. This template makes drift physically awkward — you can't write acceptance criteria without referencing the base doc section, and you can't list a "Single Source of Truth" entry that doesn't exist. The 2026-04-13 CP-56 session proved this out: a first-draft spec duplicated ~90 lines of acceptance criteria from V2_MIGRATION_PLAN.md §5.7, those duplicates drifted during the OI-0021/OI-0022 decisions, and the fix was to rewrite the spec in the thin-pointer format. When that pattern became memory/policy, future spec drafting started from the right place.
+
+**How to apply:**
+- `github/issues/_TEMPLATE.md` should ship with the four-section skeleton pre-populated. The "Single Source of Truth" section is required (even if it only has one line).
+- `doc-workflow` SKILL.md should codify the rule: "a spec file is never written; it's assembled by pointing at existing base-doc sections. If you can't fill the Single Source of Truth list, the design isn't done yet — stop and write the base-doc sections first."
+- The Cowork Delivery Gate check in entry #5 becomes mechanical: grep the spec file for any paragraph-length prose outside "Summary" and "Related / Notes" — if found, it's drift.
+
+**Where:** project-scaffold SKILL.md (update spec template), doc-workflow SKILL.md (add "thin pointer format" section after the spec-ownership section), deploy-gate SKILL.md (Cowork Delivery Gate item 3 — make the check grep-able).
+
+**Related memory:** `feedback_specs_in_base_docs.md` in user auto-memory captures this as a per-user rule; promoting it to the plugin makes it default for every Cowork project.
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

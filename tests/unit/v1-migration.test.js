@@ -478,6 +478,132 @@ describe('v1-migration (CP-57)', () => {
     });
   });
 
+  describe('§2.12 — Observation type inference (OI-0048)', () => {
+    it('sets type=close for event_close observations', () => {
+      const v1 = makeV1({
+        pastures: [{ id: 'p1', name: 'North' }],
+        paddockObservations: [
+          { id: 'obs1', pastureId: 'p1', observedAt: '2025-06-10T10:00:00Z', source: 'event_close', sourceId: 'e1' },
+        ],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      expect(envelope.tables.paddock_observations[0].type).toBe('close');
+    });
+
+    it('sets type=open for event_open observations', () => {
+      const v1 = makeV1({
+        pastures: [{ id: 'p1', name: 'North' }],
+        paddockObservations: [
+          { id: 'obs1', pastureId: 'p1', observedAt: '2025-06-01T10:00:00Z', source: 'event_open', sourceId: 'e1' },
+        ],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      expect(envelope.tables.paddock_observations[0].type).toBe('open');
+    });
+
+    it('sets type=open for survey observations', () => {
+      const v1 = makeV1({
+        pastures: [{ id: 'p1', name: 'North' }],
+        paddockObservations: [
+          { id: 'obs1', pastureId: 'p1', observedAt: '2025-05-20T10:00:00Z', source: 'survey', sourceId: 's1' },
+        ],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      expect(envelope.tables.paddock_observations[0].type).toBe('open');
+    });
+
+    it('sets type=close for sub_move_close observations', () => {
+      const v1 = makeV1({
+        pastures: [{ id: 'p1', name: 'North' }],
+        paddockObservations: [
+          { id: 'obs1', pastureId: 'p1', observedAt: '2025-06-05T10:00:00Z', source: 'sub_move_close', sourceId: 'e1' },
+        ],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      expect(envelope.tables.paddock_observations[0].type).toBe('close');
+    });
+  });
+
+  describe('§2.5 — Feed transfer source linking (OI-0049)', () => {
+    it('links paired transfer entries via source_event_id', () => {
+      const v1 = makeV1({
+        pastures: [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }],
+        feedTypes: [{ id: 'ft1', name: 'Hay' }],
+        batches: [{ id: 'b1', typeId: 'ft1', quantity: 50, remaining: 40, unit: 'bale' }],
+        events: [
+          {
+            id: 'e1', pastureId: 'p1', dateIn: '2025-06-01',
+            groups: [], feedResidualChecks: [], subMoves: [],
+            feedEntries: [
+              { id: 'fe1', batchId: 'b1', qty: -3, kind: 'transfer', transferPairId: 'tp1', date: '2025-06-05' },
+            ],
+          },
+          {
+            id: 'e2', pastureId: 'p2', dateIn: '2025-06-05',
+            groups: [], feedResidualChecks: [], subMoves: [],
+            feedEntries: [
+              { id: 'fe2', batchId: 'b1', qty: 3, kind: 'transfer', transferPairId: 'tp1', date: '2025-06-05' },
+            ],
+          },
+        ],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      const entries = envelope.tables.event_feed_entries;
+      expect(entries).toHaveLength(2);
+
+      // Both should have positive quantity
+      expect(entries[0].quantity).toBe(3);
+      expect(entries[1].quantity).toBe(3);
+
+      // The negative-side entry (source) should link to dest event
+      const sourceEntry = entries.find(e => e.event_id === envelope.tables.events.find(ev => ev.notes == null || true)?.id);
+      // Both entries should have non-null source_event_id
+      const withLinks = entries.filter(e => e.source_event_id != null);
+      expect(withLinks.length).toBe(2);
+    });
+
+    it('leaves non-transfer entries with null source_event_id', () => {
+      const v1 = makeV1({
+        pastures: [{ id: 'p1', name: 'A' }],
+        feedTypes: [{ id: 'ft1', name: 'Hay' }],
+        batches: [{ id: 'b1', typeId: 'ft1', quantity: 50, remaining: 40, unit: 'bale' }],
+        events: [{
+          id: 'e1', pastureId: 'p1', dateIn: '2025-06-01',
+          groups: [], feedResidualChecks: [], subMoves: [],
+          feedEntries: [
+            { id: 'fe1', batchId: 'b1', qty: 5, date: '2025-06-05' },
+          ],
+        }],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      expect(envelope.tables.event_feed_entries[0].source_event_id).toBeNull();
+    });
+
+    it('reports transfer pair stats in audit', () => {
+      const v1 = makeV1({
+        pastures: [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }],
+        feedTypes: [{ id: 'ft1', name: 'Hay' }],
+        batches: [{ id: 'b1', typeId: 'ft1', quantity: 50, remaining: 40, unit: 'bale' }],
+        events: [
+          {
+            id: 'e1', pastureId: 'p1', dateIn: '2025-06-01',
+            groups: [], feedResidualChecks: [], subMoves: [],
+            feedEntries: [{ id: 'fe1', batchId: 'b1', qty: -3, kind: 'transfer', transferPairId: 'tp1', date: '2025-06-05' }],
+          },
+          {
+            id: 'e2', pastureId: 'p2', dateIn: '2025-06-05',
+            groups: [], feedResidualChecks: [], subMoves: [],
+            feedEntries: [{ id: 'fe2', batchId: 'b1', qty: 3, kind: 'transfer', transferPairId: 'tp1', date: '2025-06-05' }],
+          },
+        ],
+      });
+      const { audit } = transformV1ToV2(v1, baseOpts);
+      expect(audit.transferPairsFound).toBe(1);
+      expect(audit.transferPairsLinked).toBe(2);
+      expect(audit.transferPairsOrphaned).toBe(0);
+    });
+  });
+
   describe('§2.14 — Animal Classes', () => {
     it('converts weight to kg and sets species to beef_cattle', () => {
       const v1 = makeV1({

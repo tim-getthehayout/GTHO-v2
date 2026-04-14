@@ -754,7 +754,9 @@
     "importV1DoseWarning": "{count} treatment dose(s) could not be parsed and will need manual review.",
     "importV1DoseCsvDownloaded": "{count} unparseable dose(s) exported to CSV in Downloads.",
     "importV1Warnings": "{count} warning(s) during transform.",
-    "importV1WarningsSummary": "{count} warning(s) logged during transform. Check browser console for details."
+    "importV1WarningsSummary": "{count} warning(s) logged during transform. Check browser console for details.",
+    "importV1CopyErrorLog": "Copy error log",
+    "importV1ErrorLogCopied": "Error log copied"
   },
   "fieldMode": {
     "title": "Field Mode",

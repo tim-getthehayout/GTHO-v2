@@ -255,22 +255,22 @@ async function runV1Import(mount, envelope, audit, operation) {
 
     showV1SuccessReport(mount, audit, result);
   } else if (result.parityResult && !result.parityResult.pass) {
-    showV1ParityReport(mount, result);
+    showV1ParityReport(mount, audit, result);
   } else {
-    mount.appendChild(el('div', {
+    const errorCard = el('div', {
       className: 'card',
       style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)', color: 'var(--color-red-base)' },
       'data-testid': 'v1-import-error',
-    }, [result.error || t('settings.importError')]));
+    }, [result.error || t('settings.importError')]);
+    errorCard.appendChild(renderCopyErrorLogBtn(audit, result));
+    mount.appendChild(errorCard);
   }
 }
 
 /**
  * Show success report with audit summary.
  */
-function showV1SuccessReport(mount, audit, _result) {
-  const lines = [t('settings.importV1Success')];
-
+function showV1SuccessReport(mount, audit, result) {
   const reportRows = [];
   if (audit.unparseableDoses.length > 0) {
     reportRows.push(el('p', {
@@ -288,15 +288,16 @@ function showV1SuccessReport(mount, audit, _result) {
     style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)' },
     'data-testid': 'v1-import-success',
   }, [
-    el('p', { style: { color: 'var(--color-green-dark)', fontWeight: '600' } }, [lines[0]]),
+    el('p', { style: { color: 'var(--color-green-dark)', fontWeight: '600' } }, [t('settings.importV1Success')]),
     ...reportRows,
+    renderCopyErrorLogBtn(audit, result),
   ]));
 }
 
 /**
  * Show parity failure report.
  */
-function showV1ParityReport(mount, result) {
+function showV1ParityReport(mount, audit, result) {
   const rows = result.parityResult.mismatches.map(m =>
     el('div', { className: 'import-preview-row' }, [
       el('span', { className: 'import-preview-label' }, [m.table]),
@@ -316,6 +317,7 @@ function showV1ParityReport(mount, result) {
     el('p', { style: { fontSize: '0.8125rem', color: 'var(--text2)', marginTop: 'var(--space-3)' } }, [
       t('settings.importParityRevert').replace('{filename}', result.autoBackupFileName || ''),
     ]),
+    renderCopyErrorLogBtn(audit, result),
   ]));
 }
 
@@ -349,4 +351,73 @@ function showToast(message) {
 
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 4000);
+}
+
+/**
+ * Render a "Copy error log" button (OI-0051).
+ * Collects logger buffer (warn/error), audit data, and result summary.
+ * @param {object} [audit] - Migration audit object
+ * @param {object} [result] - Import result object
+ * @returns {HTMLElement}
+ */
+function renderCopyErrorLogBtn(audit, result) {
+  return el('button', {
+    className: 'btn btn-outline btn-xs',
+    style: { marginTop: 'var(--space-3)' },
+    'data-testid': 'v1-import-copy-error-log',
+    onClick: async () => {
+      const lines = [];
+      lines.push(`=== GTHO v1 Migration Log — ${new Date().toISOString()} ===`);
+      lines.push('');
+
+      // Result summary
+      if (result) {
+        lines.push(`Result: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+        if (result.error) lines.push(`Error: ${result.error}`);
+        if (result.autoBackupFileName) lines.push(`Auto-backup: ${result.autoBackupFileName}`);
+        if (result.parityResult && !result.parityResult.pass) {
+          lines.push('Parity mismatches:');
+          for (const m of result.parityResult.mismatches) {
+            lines.push(`  ${m.table}: expected ${m.expected}, got ${m.actual}`);
+          }
+        }
+        lines.push('');
+      }
+
+      // Audit data
+      if (audit) {
+        if (audit.warnings && audit.warnings.length > 0) {
+          lines.push(`Warnings (${audit.warnings.length}):`);
+          for (const w of audit.warnings) lines.push(`  ${w}`);
+          lines.push('');
+        }
+        if (audit.unparseableDoses && audit.unparseableDoses.length > 0) {
+          lines.push(`Unparseable doses: ${audit.unparseableDoses.length}`);
+        }
+        if (audit.transferPairsFound != null) {
+          lines.push(`Transfer pairs: ${audit.transferPairsFound} found, ${audit.transferPairsLinked || 0} linked, ${audit.transferPairsOrphaned || 0} orphaned`);
+        }
+        lines.push('');
+      }
+
+      // Logger buffer (warn + error only)
+      const buffer = logger.getBuffer();
+      const filtered = buffer.filter(e => e.level === 'warn' || e.level === 'error');
+      if (filtered.length > 0) {
+        lines.push(`Logger entries (${filtered.length} warn/error):`);
+        for (const e of filtered) {
+          lines.push(`  [${e.timestamp || '?'}] ${e.level} [${e.category}] ${e.message}${e.context ? ' ' + JSON.stringify(e.context) : ''}`);
+        }
+      } else {
+        lines.push('Logger: no warn/error entries.');
+      }
+
+      try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        showToast(t('settings.importV1ErrorLogCopied'));
+      } catch {
+        showToast(t('settings.importV1ErrorLogCopied'));
+      }
+    },
+  }, [t('settings.importV1CopyErrorLog')]);
 }

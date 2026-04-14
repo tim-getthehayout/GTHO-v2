@@ -512,6 +512,28 @@ export function transformV1ToV2(v1, opts) {
   const v2FeedChecks = [];
   const v2FeedCheckItems = [];
 
+  // §2.5: Build transfer pair index BEFORE event loop (OI-0049)
+  const transferPairIndex = new Map();
+  for (const ev of ensure('events')) {
+    const fes = ev.feedEntries || ev.feed_entries || [];
+    for (const fe of fes) {
+      if (fe.kind === 'transfer' && (fe.transferPairId || fe.transfer_pair_id)) {
+        const pairId = fe.transferPairId || fe.transfer_pair_id;
+        const qty = fe.qty ?? fe.quantity ?? 0;
+        const entry = transferPairIndex.get(String(pairId)) || {};
+        if (qty < 0) {
+          entry.sourceEventV1Id = ev.id;
+        } else {
+          entry.destEventV1Id = ev.id;
+        }
+        transferPairIndex.set(String(pairId), entry);
+      }
+    }
+  }
+  audit.transferPairsFound = transferPairIndex.size;
+  let transferPairsLinked = 0;
+  let transferPairsOrphaned = 0;
+
   for (const ev of ensure('events')) {
     const eventId = ids.events.remap(ev.id);
 
@@ -619,7 +641,29 @@ export function transformV1ToV2(v1, opts) {
       }
 
       const qty = fe.qty ?? fe.quantity ?? 0;
-      // §2.5: negative qty = transfer out. Create positive entry.
+
+      // §2.5: Resolve transfer link via transferPairId (OI-0049)
+      let sourceEventId = null;
+      const pairId = fe.transferPairId || fe.transfer_pair_id;
+      if (fe.kind === 'transfer' && pairId) {
+        const pair = transferPairIndex.get(String(pairId));
+        if (pair) {
+          if (qty < 0 && pair.destEventV1Id) {
+            sourceEventId = ids.events.remap(pair.destEventV1Id);
+            transferPairsLinked++;
+          } else if (qty >= 0 && pair.sourceEventV1Id) {
+            sourceEventId = ids.events.remap(pair.sourceEventV1Id);
+            transferPairsLinked++;
+          } else {
+            transferPairsOrphaned++;
+            audit.warnings.push(`Transfer pair ${pairId}: missing ${qty < 0 ? 'dest' : 'source'} side.`);
+          }
+        } else {
+          transferPairsOrphaned++;
+          audit.warnings.push(`Transfer pair ${pairId} not found in index.`);
+        }
+      }
+
       v2FeedEntries.push({
         id: crypto.randomUUID(),
         operation_id: opId,
@@ -630,7 +674,7 @@ export function transformV1ToV2(v1, opts) {
         date: fe.date || eventDateIn || null,
         time: fe.time || null,
         quantity: Math.abs(qty),
-        source_event_id: null, // transfer linking not fully reconstructible from v1
+        source_event_id: sourceEventId,
         created_at: now,
         updated_at: now,
       });
@@ -917,6 +961,7 @@ export function transformV1ToV2(v1, opts) {
   // ── §2.12: Paddock Observations ────────────────────────────────
   const v2Observations = [];
   for (const obs of ensure('paddockObservations')) {
+    const rawSource = obs.source || '';
     const sourceMap = {
       survey: 'survey',
       event_open: 'event',
@@ -924,13 +969,16 @@ export function transformV1ToV2(v1, opts) {
       sub_move_open: 'event',
       sub_move_close: 'event',
     };
-    const source = sourceMap[obs.source] || 'event';
+    const source = sourceMap[rawSource] || 'event';
+
+    // Infer type from raw v1 source string (OI-0048)
+    const obsType = rawSource.includes('close') ? 'close' : 'open';
 
     // Resolve source_id
     let sourceId = null;
     if (obs.sourceId || obs.source_id) {
       const rawSourceId = obs.sourceId || obs.source_id;
-      if (obs.source === 'survey') {
+      if (rawSource === 'survey') {
         sourceId = ids.surveys.remap(rawSourceId);
       } else {
         sourceId = ids.events.remap(rawSourceId);
@@ -942,7 +990,7 @@ export function transformV1ToV2(v1, opts) {
       operation_id: opId,
       location_id: ids.locations.remap(obs.pastureId || obs.pasture_id),
       observed_at: obs.observedAt || obs.observed_at || now,
-      type: obs.type || 'open',
+      type: obsType,
       source,
       source_id: sourceId,
       forage_height_cm: obs.vegHeight != null ? obs.vegHeight * INCHES_TO_CM : null,
@@ -1268,6 +1316,8 @@ export function transformV1ToV2(v1, opts) {
   for (const [table, rows] of Object.entries(envelope.tables)) {
     audit.counts[table] = rows.length;
   }
+  audit.transferPairsLinked = transferPairsLinked;
+  audit.transferPairsOrphaned = transferPairsOrphaned;
 
   logger.info('migration', 'v1 transform complete', {
     v1_pastures: ensure('pastures').length,

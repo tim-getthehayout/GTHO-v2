@@ -15,4 +15,6 @@ export const BACKUP_MIGRATIONS = {
   14: (b) => { b.schema_version = 15; return b; },
   // 015 → 016: invite_token on operation_members (CP-66). Not in backup (§5.4 excludes operation_members).
   15: (b) => { b.schema_version = 16; return b; },
+  // 016 → 017: RLS policy fix (OI-0053). No backup shape change.
+  16: (b) => { b.schema_version = 17; return b; },
 };

@@ -15,8 +15,8 @@ import { logger } from '../utils/logger.js';
 /** Current build's supported format_version. */
 const SUPPORTED_FORMAT_VERSION = 1;
 
-/** Current build's schema_version (must match migration 015 default). */
-const CURRENT_SCHEMA_VERSION = 16;
+/** Current build's schema_version (must match latest migration). */
+const CURRENT_SCHEMA_VERSION = 17;
 
 /**
  * FK-dependency insert order per V2_MIGRATION_PLAN.md §5.3a — authoritative.

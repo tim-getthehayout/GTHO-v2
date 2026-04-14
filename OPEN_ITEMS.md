@@ -7,15 +7,9 @@
 ### OI-0053 — operation_members RLS Policy Infinite Recursion Blocks All Sync
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P0
 **Checkpoint:** pre-Tier-3-testing
-**Status:** open — Supabase SQL fix required
+**Status:** closed — fixed 2026-04-14
 
-The `operation_members` table has a single `FOR ALL` RLS policy that queries itself: `USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = auth.uid() ...))`. Supabase detects infinite recursion and rejects the query. This blocks inserting the first operation_member row during onboarding, which cascades — every other table's RLS checks fail because they verify membership via operation_members.
-
-**Root cause:** `001_d1_operations_farms.sql` line 137–141. The `FOR ALL` policy combines read and write checks into a single self-referential query.
-
-**Fix:** Drop `operation_members_all`, replace with four granular policies (SELECT, INSERT, UPDATE, DELETE). The INSERT policy uses `user_id = auth.uid()` as a non-recursive bootstrap path. See `SESSION_BRIEF_2026-04-14_supabase-migrations-rls-fix.md` for full SQL.
-
-**Also discovered:** Migrations 014, 015, 016 were never applied to the Supabase instance. Three columns missing: `user_preferences.active_farm_id`, `operations.schema_version`, `operation_members.invite_token`. Plus `dose_units` and `input_product_units` may have RLS enabled outside of migrations.
+Dropped `operation_members_all` (FOR ALL, self-referential → infinite recursion). Replaced with 4 granular policies: SELECT (own row + operation members), INSERT (self-bootstrap via `user_id = auth.uid()` + admin/owner invite), UPDATE (admin/owner), DELETE (owner only). Applied missing migrations 014–016 to Supabase. Disabled RLS on `dose_units` and `input_product_units` (no `operation_id` column). Migration 017 written. Migration 001 updated for fresh DB setups. Schema version bumped to 17.
 
 **Spec file:** `github/issues/SESSION_BRIEF_2026-04-14_supabase-migrations-rls-fix.md`
 

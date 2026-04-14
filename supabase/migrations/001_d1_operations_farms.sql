@@ -134,10 +134,35 @@ CREATE TABLE operation_members (
 
 ALTER TABLE operation_members ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY operation_members_all ON operation_members FOR ALL
+-- Fixed: original FOR ALL policy caused infinite recursion (OI-0053, migration 017)
+CREATE POLICY operation_members_select ON operation_members FOR SELECT
+  USING (user_id = auth.uid() OR operation_id IN (
+    SELECT om.operation_id FROM operation_members om
+    WHERE om.user_id = auth.uid() AND om.accepted_at IS NOT NULL
+  ));
+
+CREATE POLICY operation_members_insert ON operation_members FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    OR operation_id IN (
+      SELECT om.operation_id FROM operation_members om
+      WHERE om.user_id = auth.uid() AND om.accepted_at IS NOT NULL
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+CREATE POLICY operation_members_update ON operation_members FOR UPDATE
   USING (operation_id IN (
-    SELECT operation_id FROM operation_members
-    WHERE user_id = auth.uid() AND accepted_at IS NOT NULL
+    SELECT om.operation_id FROM operation_members om
+    WHERE om.user_id = auth.uid() AND om.accepted_at IS NOT NULL
+    AND om.role IN ('owner', 'admin')
+  ));
+
+CREATE POLICY operation_members_delete ON operation_members FOR DELETE
+  USING (operation_id IN (
+    SELECT om.operation_id FROM operation_members om
+    WHERE om.user_id = auth.uid() AND om.accepted_at IS NOT NULL
+    AND om.role = 'owner'
   ));
 
 -- §1.5 user_preferences

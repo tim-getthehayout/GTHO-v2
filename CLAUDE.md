@@ -182,6 +182,10 @@ Default to root cause. If you catch yourself mapping new data into a field that 
 - **IMPROVEMENTS.md** — anyone can log discoveries
 - **TASKS.md** — Cowork updates design tasks, Claude Code updates build tasks
 
+### TASKS.md Completion Rule
+
+When a task tracked in TASKS.md is completed — whether a design task (Cowork) or a build task (Claude Code) — update TASKS.md in the same session. Check the box, and if the description needs updating to reflect what was actually delivered, update it. Do not leave completed work unchecked across sessions.
+
 ### Spec File Handoff (from Cowork)
 
 Cowork writes spec files to `github/issues/`. Files without a `GH-` prefix are unfiled — Claude Code should:

@@ -81,12 +81,14 @@
 - [x] **OI-0018** — Sync status indicator in app header
 - [x] **GH-5** — Header redesign + multi-farm context (OI-0015, OI-0019): schema migration 014, entity updates, store API, header component, farm picker, user menu, move wizard farm chip, cross-farm markers, all-farms mode filtering
 
+### Pre-3.4 Design Work
+- [x] **CP-57 pre-work** — Reconcile V2_MIGRATION_PLAN.md §1–§2 with Phase 3.2–3.4 schema changes. Closed 13 OIs (OI-0023 through OI-0035). Added §1.5 (v1 export shape), §1.6 (CP-57 architecture), §1.7 (tool UX), §2.25 (npk_price_history), §5.11a (schema version bump convention). CLAUDE.md Code Quality Check #6 added.
+
 ### 3.4 Advanced
 - [ ] **CP-54** — Rotation calendar
-- [ ] **CP-55** — Export/import
-- [ ] **CP-56** — v1 migration tool
-- [ ] **CP-57** — Migration validation
-- [ ] **CP-58** — Migration UI
+- [ ] **CP-55** — JSON backup export
+- [ ] **CP-56** — JSON backup import/restore
+- [ ] **CP-57** — v1 → v2 migration tool
 
 ### 3.5 Polish
 - [ ] **CP-59** — PWA / service worker

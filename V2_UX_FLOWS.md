@@ -1375,7 +1375,7 @@ Any omitted parameter falls back to its default. Changes to state update the URL
 In order from top to bottom:
 
 1. **Account** — name, email (read-only), Log Out button. Matches the user-menu popover's Log Out affordance but surfaced for discoverability.
-2. **Operation** — operation name (editable, admin-only), currency (read-only display of the currency code; editable by admin), **unit system** toggle (see §20.2), operation members list (admin only; link to member management).
+2. **Operation** — operation name (editable, admin-only), currency (read-only display of the currency code; editable by admin), **unit system** toggle (see §20.2), operation members row (admin/owner: tap opens Member Management sheet, §20.7; team_member: read-only chip showing member count).
 3. **Active Farm** — farm picker (same component as header, §3.6); opens the farm picker sheet/dropdown. Below the picker, per-farm settings are rendered for the currently-active farm.
 4. **Farm Settings (active farm)** — all 12 `farm_settings` fields with inline edit (NPK prices, manure_kg_per_head_day, residual_height_cm defaults, utilization_pct default, recovery day defaults, forage_quality_scale_min/max, feed_day_goal, default view mode). Field grouping mirrors V2_SCHEMA_DESIGN.md §1.3.
 5. **Preferences** — per-user UI prefs from `user_preferences`: default home view (groups/locations), field mode auto-enter, quick-action bar configuration.
@@ -1460,6 +1460,20 @@ Desktop: all sections rendered as a single scrollable column with section header
 - Calc reference console: lives in Reports (see §4.6 of V2_DESIGN_SYSTEM.md; OI-0020 deferred a move to Settings).
 - Feedback & support: the feedback button sits in the header (§17.2), not here.
 - Billing / subscription: deferred until commercialization.
+
+### 20.7 Member Management & Invite
+
+**Full spec:** `github/issues/CP-66_member-management-invite.md`
+
+**Entry point:** Settings → Section 2 (Operation) → "Members" row. Admin/owner taps to open Member Management sheet. Team members see a read-only count chip ("3 members").
+
+**Member list:** Full-height sheet. Ordered: owner → admins → team_members → pending invites. Each row: display name (or email if pending), role badge, status badge ("you" / "⏳ pending"). Admin actions: change role, remove member, copy/regenerate/cancel invite link.
+
+**Invite creation:** "Invite member" button at bottom of sheet. Inline form: display name, email, role (Admin / Team Member). Creates pending `operation_members` row with `invite_token`, auto-copies shareable link to clipboard. No email sent — admin shares the link via text, email, WhatsApp, etc.
+
+**Invite acceptance:** Invitee opens `{app_url}/#invite={token}`. If not signed in, sees sign-in prompt with invite context. After auth, app calls `claim_invite_by_token` RPC → sets user_id, accepted_at, nulls token. Fallback: email-based claim on sign-in (v1 parity via `claim_pending_invite` RPC).
+
+**Owner protection:** Owner row has no action buttons. Operation must always have exactly one owner.
 
 ---
 

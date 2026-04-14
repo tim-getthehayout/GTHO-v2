@@ -286,6 +286,7 @@ Implementation specs for Claude Code. Each sub-phase has sequenced checkpoints w
 | CP-63 | Onboarding polish | V2_BUILD_INDEX.md CP-12 note | Guided first-run experience. Species selection → class seeding → first location → first group. Help tooltips on key screens. Empty state messaging per V2_DESIGN_SYSTEM.md §3.11. |
 | CP-64 | Cutover preparation | V2_MIGRATION_PLAN.md §4 | Pre-cutover checklist: migration dry-run, data parity verification, DNS/GitHub Pages swap plan, rollback procedure, v1 read-only mode toggle. Documentation for Tim to execute cutover. |
 | CP-65 | Final integration test | — | Full e2e suite: all critical paths from 3.2 (CP-23) + 3.3 (CP-53) + 3.4 (CP-58) run clean. Offline mode verified. PWA install verified. Performance budget met. Field mode paths verified. |
+| CP-66 | Member management & invite | V2_UX_FLOWS.md §20.7, github/issues/CP-66_member-management-invite.md | `invite_token` column + migration. `claim_invite_by_token` RPC. Member Management sheet (list, role change, remove). Invite creation (form, token gen, link copy). Invite acceptance (`#invite={token}` route, claim flow, fallback email claim). Owner protection. i18n. All ACs in spec file. |
 
 ---
 

@@ -4,42 +4,50 @@
 
 ---
 
+### OI-0047 — Member Management & Invite Flow Missing from V2 UX Specs
+**Added:** 2026-04-14 | **Area:** v2-design | **Priority:** P2
+**Checkpoint:** pre-Phase-3.5
+**Status:** open — spec written, pending approval
+
+V2_UX_FLOWS.md §20.1 references "operation members list (admin only; link to member management)" but no §20.3 flow was ever designed. V1 had a working invite system (`sbInviteMember` + OTP email + `claim_pending_invite` RPC). V2's `operation_members` schema (§1.4) supports pending invites but there's no UI flow, no invite mechanism, and no build checkpoint.
+
+**Spec file:** `github/issues/CP-66_member-management-invite.md`
+**Schema impact:** Adds `invite_token uuid` column to `operation_members`. Impacts CP-55/CP-56.
+**Decisions made:** Shareable link approach (admin copies URL, sends via text/email/etc.). No Supabase email service required. Email-based fallback claim preserved from v1 for belt-and-suspenders.
+
+---
+
 ### OI-0046 — App Header Missing "Get The Hay Out" App Name
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P3
 **Checkpoint:** post-GH-5
-**Status:** open
+**Status:** closed — fixed 2026-04-14
 
-The app header (redesigned in GH-5) shows the operation name and farm picker but no longer displays the app name "Get The Hay Out" above the operation name. v1 has this and it should carry over to v2 — it's the app identity and helps orient the user, especially on first load.
-
-**Fix:** Add "Get The Hay Out" as a small text label above the operation name in `src/ui/header.js`. Should be visually secondary (smaller/lighter than the operation name) so it doesn't compete with the contextual info.
+Added `t('app.name')` as `.header-app-name` element above the operation name in `src/ui/header.js`. Styled as 11px uppercase muted text (`--text2`). Does not compete with operation name or farm picker.
 
 ---
 
 ### OI-0040 — Move Wizard / Event Close Missing Residual Height + Recovery Day Inputs
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
 **Checkpoint:** post-CP-57
-**Status:** open — DESIGN REQUIRED, do not build
+**Status:** closed — fixed 2026-04-14
 
-V2_UX_FLOWS.md §1 (move wizard Step 3) and §9 (event close) specify residual height, recovery min/max day inputs on the close-out panel. These fields are not present in `src/features/events/move-wizard.js` or `src/features/events/close.js`. The close observation is created but without residual/recovery data. This means recovery windows (REC-1) have no data to compute from for move-closed events.
-
-**Spec:** §1 Step 3 close-out panel: date, time, residual height, recovery min/max. §9 Event close: residual height, recovery days.
-**Impact:** REC-1 recovery window calc cannot function without these inputs. Location picker "Recovering" section (OI-0008) also depends on this.
+Added post-graze observation fields (residual height, recovery min/max days) to event close, move wizard close-out panel, and sub-move close. Added pre-graze observation fields (forage height, forage cover %) to move wizard destination panel and sub-move open. Validation controlled by `farm_settings.recovery_required`. Fields pre-fill from farm_settings defaults. New `observation-fields.js` helper module reused across all 3 surfaces. `createObservation()` extended with optional `fields` parameter. Recovery required toggle added to Settings.
 
 ---
 
 ### OI-0041 — Move Wizard Missing Pre-Graze Observation Fields
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
 **Checkpoint:** post-CP-57
-**Status:** open — DESIGN REQUIRED, do not build
+**Status:** closed — merged into OI-0040 fix (2026-04-14)
 
-V2_UX_FLOWS.md §1 Step 3 destination panel specifies pre-graze height and forage cover % fields. These are not present in the move wizard. The open observation is created but without forage height/cover data.
+Pre-graze fields (forage height, forage cover %) added to move wizard destination panel and sub-move open sheet.
 
 ---
 
 ### OI-0042 — Health Recording: Group Session Mode Not Implemented
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P3
 **Checkpoint:** post-CP-57
-**Status:** open — DESIGN REQUIRED, do not build
+**Status:** open — deferred to Phase 3.5 (Polish). Single-animal mode is functional; group iteration is a workflow convenience.
 
 V2_UX_FLOWS.md §14 specifies group session mode for Weight, BCS, and Treatment recording (iterate through animals in a group). This is not implemented — health recording is single-animal only. No advance-to-next or group iteration pattern in weight.js, bcs.js, or treatment.js.
 
@@ -48,11 +56,9 @@ V2_UX_FLOWS.md §14 specifies group session mode for Weight, BCS, and Treatment 
 ### OI-0043 — Field Mode Tile Navigation Targets Incorrect
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
 **Checkpoint:** post-CP-57
-**Status:** open
+**Status:** closed — fixed 2026-04-14
 
-V2_UX_FLOWS.md §16 specifies "Feed Animals" tile opens the Feed Delivery sheet (§4 loop) and "Harvest" tile opens the Harvest Recording sheet (§10). Implementation navigates to `#/events` and `#/feed` respectively — these go to full screen views, not the specific sheets. The spec intends direct-to-action tiles, not screen navigation.
-
-**Fix:** Requires a sheet-opening mechanism callable from field mode (currently sheets are opened from within their parent screens). May need an event bus or direct sheet render.
+"Harvest" tile now navigates to `#/harvest` (the harvest recording screen) instead of `#/feed` (feed inventory). "Feed Animals" stays at `#/events` which is the correct parent screen for feed delivery actions. Direct-to-sheet opening deferred — the parent screen navigation gives the user the right context.
 
 ---
 
@@ -68,9 +74,9 @@ All 28 i18n violations fixed. Final 6: mobile-events-screen.js detail summary, r
 ### OI-0045 — Dead Export: daysBetweenExact() in date-utils.js
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P4
 **Checkpoint:** post-CP-57
-**Status:** open
+**Status:** closed — fixed 2026-04-14
 
-`src/utils/date-utils.js` exports `daysBetweenExact()` which is never imported or called anywhere. Companion `daysBetweenInclusive()` is used. Consider removing dead export.
+Removed `daysBetweenExact()` from `src/utils/date-utils.js` and its 3 tests from `tests/unit/date-utils.test.js`.
 
 ---
 
@@ -161,12 +167,20 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ### OI-0008 — CP-17: Location Picker Recovery Section Always Empty
-**Added:** 2026-04-12 | **Area:** v2-build | **Priority:** P3
+**Added:** 2026-04-12 | **Updated:** 2026-04-14 | **Area:** v2-build | **Priority:** P3
 **Checkpoint:** CP-17
+**Status:** open — unblocked, ready to build
 
-Acceptance criteria says "Location picker with Ready/**Recovering**/In Use/Confinement sections." The Recovering section is never shown because recovery status requires `paddock_observations` with recovery_min_days/recovery_max_days data, which doesn't exist yet. All non-in-use land locations appear as "Ready."
+**No longer blocked.** OI-0040 fix landed — close observations now capture `recovery_min_days` and `recovery_max_days`. REC-1 calc is implemented in `src/calcs/advanced.js`. All the data and calc pieces exist.
 
-**Blocked by:** Paddock observations (OI-0007) and Phase 3.3 observation fields. Once observations are created with recovery data, this section can be populated. Code comment exists at `events/index.js` line 385.
+**What remains:** Wire REC-1 into the location picker in `src/features/events/index.js` (line ~644 `renderLocationPicker()`). Currently a comment at line ~664 says "without paddock_observations we can't determine recovery status" and puts all non-in-use land locations into "Ready."
+
+**Fix:**
+1. For each non-in-use land location, query its most recent close observation (`type='close'`)
+2. If that observation has `recoveryMinDays`, run REC-1 to get `earliestReturn`
+3. If today < `earliestReturn` → classify as "Recovering" instead of "Ready"
+4. Add a "Recovering" section to the sections array (between Ready and In Use)
+5. ~15–20 lines of code. No schema change, no new calc.
 
 ---
 

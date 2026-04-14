@@ -498,4 +498,190 @@ PWA optimization, offline sync hardening, performance, accessibility, feedback s
 
 ---
 
+## 5. Backup Format (CP-55 / CP-56)
+
+This section defines v2's own backup/restore format — separate from the v1→v2 migration tool in §1–2. v1→v2 migration reads v1's export shape and applies 24 transforms. This section defines the v2 JSON backup that v2 exports and re-imports into itself to protect against data loss, to move an operation between Supabase projects, and to seed test/staging environments.
+
+**Scope note.** CP-55 implements the export. CP-56 implements the import. Both read from this single canonical format definition. Any schema or state-shape change must update this section in the same commit — see `CLAUDE.md` → "Export/Import Spec Sync Rule."
+
+### 5.1 Design Principles
+
+1. **Round-trip or nothing.** Export → Import on the same schema version must reproduce state byte-equivalent (modulo timestamp metadata fields). If a field is not in this spec, it is not backed up.
+2. **Forward-compatible import.** Backups taken on older schema versions must import into newer builds via a migration chain — one migration function per schema version bump, applied in order.
+3. **Reject newer backups.** A backup whose `schema_version` is greater than the current build refuses to import, with a clear error. Users must update their client first.
+4. **Operation-scoped.** One backup contains exactly one operation's data. Multi-operation users export one file per operation.
+5. **No auth material.** Access control (operation_members, RLS rules, auth tokens, passwords) is never in the backup. Access control belongs to the Supabase project, not the data.
+6. **Diagnostic noise excluded.** `app_logs` is not in the backup. Logs are recovery scaffolding, not user data.
+
+### 5.2 File Format
+
+**File name:** `gtho-v2-backup__{operation-slug}__{YYYY-MM-DD_HHmm}__schema-v{N}.json`
+
+- `operation-slug` = kebab-case of `operations.name`, truncated to 48 chars, ASCII-only (non-ASCII replaced with `-`).
+- `YYYY-MM-DD_HHmm` = export timestamp in operation's configured timezone (fallback: UTC).
+- `N` = `schema_version` (integer).
+
+**MIME:** `application/json`. **Encoding:** UTF-8. **Line endings:** `\n`. **Indentation:** 2-space pretty-print (readable by humans; small enough for any real-world operation).
+
+**Top-level shape:**
+
+```json
+{
+  "format": "gtho-v2-backup",
+  "format_version": 1,
+  "schema_version": 14,
+  "exported_at": "2026-04-13T18:22:00Z",
+  "exported_by": {
+    "user_id": "uuid",
+    "email": "tim@6knot.com"
+  },
+  "operation_id": "uuid",
+  "build_stamp": "b20260413.1822",
+  "counts": {
+    "farms": 2,
+    "events": 847,
+    "animals": 312,
+    "batches": 56,
+    "todos": 14
+  },
+  "tables": {
+    "operations": [ /* 1 row */ ],
+    "farms": [ /* N rows */ ],
+    /* ... all included tables ... */
+  }
+}
+```
+
+The `counts` block is metadata for the import preview sheet (V2_UX_FLOWS.md §20.3); CP-55 populates it on export, CP-56 reads it to build the confirm dialog without parsing every table first.
+
+`format_version` ticks independently of `schema_version` — `format_version` covers changes to the envelope itself (e.g., if `counts` becomes nested, or `exported_by` adds fields). `schema_version` covers changes to what's inside `tables`.
+
+### 5.3 Tables Included
+
+Every table in V2_SCHEMA_DESIGN.md is included **except** the exclusions in §5.4. The authoritative list as of `schema_version` 14 (2026-04-13):
+
+**D1 — Operation & Farm Setup**
+operations, farms, farm_settings, user_preferences
+
+**D2 — Locations**
+locations, forage_types
+
+**D3 — Animals & Groups**
+animal_classes, animals, groups, animal_group_memberships
+
+**D4 — Feed Inventory**
+feed_types, batches, batch_adjustments
+
+**D5 — Event System**
+events, event_paddock_windows, event_group_windows, event_feed_entries, event_feed_checks, event_feed_check_items
+
+**D6 — Surveys**
+surveys, survey_draft_entries, paddock_observations
+
+**D7 — Harvest**
+harvest_events, harvest_event_fields
+
+**D8 — Nutrients & Amendments**
+input_product_categories, input_product_units, input_products, spreaders, soil_tests, amendments, amendment_locations, manure_batches, manure_batch_transactions, npk_price_history
+
+**D9 — Livestock Health**
+ai_bulls, treatment_categories, treatment_types, dose_units, animal_bcs_scores, animal_treatments, animal_breeding_records, animal_heat_records, animal_calving_records, animal_weight_records, animal_notes
+
+**D10 — Feed Quality**
+batch_nutritional_profiles
+
+**D11 — App Infrastructure**
+submissions, todos, todo_assignments
+
+Reference tables (`treatment_categories`, `treatment_types`, `dose_units`, `input_product_categories`, `input_product_units`, `forage_types`, `animal_classes`) are included because users extend them. On import, CP-56 merges by `id` — user-added rows overwrite any seed collision; seed rows not in the backup are left as-is.
+
+### 5.4 Tables Excluded
+
+- **`operation_members`** — access control, managed per-Supabase-project, never in the backup.
+- **`app_logs`** — diagnostic noise (A24). Grows unbounded. Not part of user data.
+- **`release_notes`** — global published content, not per-operation.
+
+### 5.5 Column Serialization Rules
+
+- **UUIDs:** serialized as lowercase canonical strings (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
+- **Timestamps:** ISO 8601 UTC with `Z` suffix. Nanosecond precision is truncated to millisecond.
+- **Dates:** `YYYY-MM-DD`.
+- **Numerics:** JSON numbers. No quoting. NaN/Infinity are invalid and must not appear.
+- **Enums:** lowercase string, matching the CHECK constraint exactly.
+- **Booleans:** JSON `true`/`false`.
+- **Nullable columns:** `null`, not omitted.
+- **JSONB columns:** nested JSON object (not a stringified blob).
+- **Arrays:** JSON arrays (e.g., `paddocks[]`, `assignedTo[]` — though most array-like v1 shapes are normalized in v2).
+
+All values are stored in **metric** (V2_INFRASTRUCTURE.md §1.1). The backup is unit-system-agnostic; `operations.unit_system` is exported like any other column and controls display only.
+
+### 5.6 Export Procedure (CP-55)
+
+1. **Online check.** Refuse export if the sync queue has pending writes or the app is offline. The backup must include the latest committed state; pending writes risk truncation. Show toast: "Sync pending — retry when sync completes."
+2. **Resolve operation scope.** Backup contains the operation identified by the user's currently-selected operation. If a user belongs to multiple operations, the UI picks the active one implicitly; no operation picker in the export flow.
+3. **Read from Supabase, not local store.** Export reads fresh from Supabase to ensure the backup reflects the server of record, not a stale local cache. A long-lived operation export may require pagination per table (1000 rows per page).
+4. **Assemble envelope.** Fill `format`, `format_version` (currently `1`), `schema_version`, `exported_at`, `exported_by`, `operation_id`, `build_stamp`, `counts`, and each table's row array.
+5. **Write & download.** Serialize with `JSON.stringify(envelope, null, 2)`. Create a blob, trigger download via hidden `<a download>`. Name per §5.2.
+6. **Log the export.** `logger.info('backup', 'export complete', { operation_id, row_count, file_bytes })`. No app_logs row for the contents — only the event of exporting.
+7. **Progress UI.** Show a progress sheet ("Exporting… 40%") that updates per table. For operations with >10,000 total rows, the export must not block the main thread; use `setTimeout` yields between tables.
+
+### 5.7 Import Procedure (CP-56)
+
+CP-56 detail lives here for single-source; its acceptance criteria will be extracted into its own spec file when picked up.
+
+1. **File validation.** Parse JSON. Reject if `format !== "gtho-v2-backup"`. Reject if `format_version` is greater than the current build's supported `format_version`. Reject if `schema_version` is greater than the current build's `schema_version`. All three reject paths show a clear error naming the mismatch and what to do (upgrade client, or use an older backup).
+2. **Preview sheet.** Read `counts`, render preview: export date, farms/events/animals/batches/todos counts, schema version. Two buttons: Cancel and "Replace All Data" (red, two-step confirmation).
+3. **Migrate forward if needed.** If `backup.schema_version < current.schema_version`, apply the migration chain in order — one function per version bump. Each function receives the backup JSON and returns a new backup JSON at the next version. Migration functions are registered in `src/data/backup-migrations.js` keyed by `from_version`.
+4. **Wholesale replace.** For each included table, delete all existing rows for this `operation_id`, then insert the backup rows. Wrap in a transaction where possible (Supabase `rpc` for cross-table atomicity; if unavailable, per-table with a failure-rollback).
+5. **Re-seed local store.** After Supabase write succeeds, call `store.hydrate()` to reload state from Supabase into local memory.
+6. **Post-import verification.** Run a small parity check: row counts in each table match `counts` ±0. On mismatch, surface the delta and prompt the user to retry or revert (backups kept in localStorage for 24h for this purpose).
+
+### 5.8 Missing-Table and Missing-Column Handling
+
+- **Missing table in backup** (because it did not exist at export time): CP-56 treats it as an empty array. No error.
+- **Missing column in a row** (because the column was added after export): CP-56 uses the column's default per V2_SCHEMA_DESIGN.md. Non-nullable columns without a default cause a per-row error surfaced in the import report.
+- **Extra table in backup** (because the table was removed between export and import): CP-56 drops the extra table silently, logs a warning. A migration function registered for that version bump can re-home the data if needed.
+- **Extra column in a row** (because the column was removed): dropped silently.
+- **Renamed column:** the migration function for the version bump that did the rename maps old name → new name explicitly. Backups taken before the rename transform through the migration; the raw JSON keys never match the post-rename schema without it.
+
+### 5.9 Migration Chain Registry
+
+`src/data/backup-migrations.js`:
+
+```
+export const BACKUP_MIGRATIONS = {
+  // from_version → transform(backup) → backup at next version
+  // Example (no entries yet because CP-55 is the first version):
+  // 14: (b) => { b.tables.whatever.forEach(r => r.new_field = defaultValue); b.schema_version = 15; return b; },
+};
+```
+
+When the schema next changes, the diff flags "CP-55/CP-56 spec impact" and a migration entry is added here in lockstep. The initial CP-55 export ships with `schema_version = 14` (latest migration number applied as of 2026-04-13) and an empty `BACKUP_MIGRATIONS`.
+
+### 5.10 Security & Privacy
+
+- Backups contain PII (user email, farm addresses if stored, animal identifiers, veterinary notes). The export triggers a download to the user's device; it is not automatically uploaded anywhere.
+- The UI warns before export: "This file contains your full operation data including animal records and notes. Store it somewhere private."
+- There is no in-app backup history or cloud backup storage in CP-55/CP-56. Users manage files themselves. A cloud backup feature is a Phase 3.5+ consideration.
+- `exported_by.email` is included for provenance. If this is later determined to be a leak vector (e.g., sharing backups between users), replace with `user_id` only in a future `format_version` bump.
+
+### 5.11 Schema Version Stamping
+
+`schema_version` is the highest migration number in `supabase/migrations/` at the time of export. On boot, the app computes this by reading a stamp stored in `operations` (column `schema_version INTEGER NOT NULL DEFAULT 1`). The stamp advances when migrations run. CP-55 reads `operations.schema_version` and writes it into the backup envelope. CP-56 uses it to select the migration chain.
+
+**Pre-CP-55 data.** Operations that existed before CP-55 ships do not have a `schema_version` column populated — migration `015_schema_version_stamp.sql` will be added alongside CP-55 to backfill the current value for every existing operation.
+
+### 5.12 Round-Trip Test
+
+Every new migration adds a round-trip test in `tests/unit/backup-roundtrip.spec.js`:
+
+1. Build a seeded state at `schema_version = N` (fixture JSON).
+2. Export. Assert every included table, every column, every row present and byte-equal to expected.
+3. Import the just-exported backup on a clean state. Assert the state matches the original seed.
+4. Import a backup fixture at `schema_version = N-1`. Assert the migration chain runs and final state matches the expected post-migration seed.
+
+This test is the canary for "did we forget to flag an export/import spec impact?" — if a schema change lands without updating §5.3 and the test fixture, the round-trip fails.
+
+---
+
 *End of document. For data schemas see V2_SCHEMA_DESIGN.md. For code patterns see V2_APP_ARCHITECTURE.md. For formulas see V2_CALCULATION_SPEC.md. For UX flows see V2_UX_FLOWS.md.*

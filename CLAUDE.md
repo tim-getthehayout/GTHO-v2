@@ -127,6 +127,33 @@ Before committing code, verify these consistency checks:
 
 Any corrective work on code that has already been committed must be logged in OPEN_ITEMS.md **before** beginning the fix: what is wrong, why it is wrong (which spec it violates), what the correct behavior should be, and which other files are affected. This ensures Tim always has visibility into what is being corrected and why. Do not silently fix and commit.
 
+## Export/Import Spec Sync Rule
+
+v2 maintains its own backup/restore format (CP-55 export, CP-56 import). Any change that alters the shape of app state — a new Supabase table, a new column, a new entity field, a renamed/removed field, a JSONB shape change, a migration number bump — can break backup/restore if the spec is not updated in lockstep.
+
+**Rule:** Every schema or state-shape change must be flagged at the time it is proposed as "impacts CP-55/CP-56 spec." The flag includes what needs to be added, renamed, or removed in the export payload, and whether CP-56 needs a migration rule so older backups still import.
+
+**Why this matters:** v1 burned us with "UI fields without Supabase columns = silent data loss" (see `Known Traps`). The same class of bug in v2 is "schema field without export/import spec entry = backup round-trip silently drops data." The backup is only a backup if everything round-trips.
+
+**When to flag:**
+
+| Change type | What the spec flag must cover |
+|---|---|
+| New Supabase table | Export includes the table. Import reads it. CP-56 handles missing-table case for old backups (empty default). |
+| New column | Export serializes the column. Import reads it. CP-56 handles missing-column case for old backups. |
+| Renamed column | Export uses the new name. CP-56 maps old name → new name for old backups. |
+| Removed column | Export omits. CP-56 either drops the field or migrates it forward. Document which. |
+| New entity field (in-memory only) | If the field is persisted to Supabase, same as column rule. If memory-only and derived, note that it is excluded from export. |
+| JSONB shape change | Export serializes the new shape. CP-56 transforms old shape → new shape. |
+| Schema version bump | `schema_version` stamp in the backup JSON must tick. CP-56's migration chain covers the new version. |
+
+**How to apply:**
+
+1. When Cowork specs a schema change, it must include a "CP-55/CP-56 spec impact" line in the spec file under `github/issues/`.
+2. When Claude Code implements a schema change, verify that impact line is present and that CP-55/CP-56 specs reflect it. If they do not, add an entry to `OPEN_ITEMS.md` flagging the drift **before** committing the schema change.
+3. Once CP-55 and CP-56 specs exist, they are the authoritative enumeration of what is in a backup. Any subsequent schema change that is not reflected in those specs is a drift and must be corrected in the same commit (or explicitly deferred with an OPEN_ITEMS entry naming the follow-up).
+4. This rule applies from 2026-04-13 forward. Existing pre-CP-55 schema amendments (strip grazing columns, `operations.unit_system`, `user_preferences.active_farm_id`, `events.source_event_id`, `npk_price_history`, `animal_notes`, `animal_classes` rename/splits, `animal_calving_records.dried_off_date`, `farm_settings` forage quality scale, `app_logs` +operation_id/+context) are handled by the initial CP-55 spec write-up — they do not need retroactive flags.
+
 ## Fix Root Causes, Not Symptoms
 
 When encountering a bug or missing capability, identify and fix the root cause. Do not overload existing fields, skip schema changes, or use workarounds unless the user explicitly chooses that path after seeing the options.

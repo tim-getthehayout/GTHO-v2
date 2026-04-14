@@ -1364,6 +1364,105 @@ Any omitted parameter falls back to its default. Changes to state update the URL
 
 ---
 
+## 20. Settings Screen
+
+**Route:** `#/settings`. Entered from the user-menu popover (§17.2, "Settings" row) or — on mobile — the bottom-nav Settings tab.
+
+**Scope:** Per-user, per-operation, per-farm configuration plus data actions. The settings screen is the single location where a user tunes how the app behaves. It is not a dashboard; it does not show live metrics.
+
+### 20.1 Sections
+
+In order from top to bottom:
+
+1. **Account** — name, email (read-only), Log Out button. Matches the user-menu popover's Log Out affordance but surfaced for discoverability.
+2. **Operation** — operation name (editable, admin-only), currency (read-only display of the currency code; editable by admin), **unit system** toggle (see §20.2), operation members list (admin only; link to member management).
+3. **Active Farm** — farm picker (same component as header, §3.6); opens the farm picker sheet/dropdown. Below the picker, per-farm settings are rendered for the currently-active farm.
+4. **Farm Settings (active farm)** — all 12 `farm_settings` fields with inline edit (NPK prices, manure_kg_per_head_day, residual_height_cm defaults, utilization_pct default, recovery day defaults, forage_quality_scale_min/max, feed_day_goal, default view mode). Field grouping mirrors V2_SCHEMA_DESIGN.md §1.3.
+5. **Preferences** — per-user UI prefs from `user_preferences`: default home view (groups/locations), field mode auto-enter, quick-action bar configuration.
+6. **Sync & Data** — sync status indicator (same component as header, §3.6 right cluster), manual "Push all to Supabase" recovery button, **Export backup (CP-55)**, **Import backup (CP-56)**, **Migrate from v1 (CP-57)**.
+7. **About** — app version (build stamp), release notes link, feedback link, open-source license list.
+
+The Operation, Farm Settings, and some Preferences sections are gated by role (admin vs member). Member-role users see read-only chips where admin sees inline editors.
+
+### 20.2 Unit System Toggle
+
+**Location:** Section 2 (Operation), row labelled "Unit system," two-segment control: `[Metric] [Imperial]`. Default is `Imperial` (matches `operations.unit_system` column default, A44).
+
+**Scope:** The toggle writes to `operations.unit_system` and therefore takes effect across every user of the operation on every farm. The scope is intentional — see A44 rationale: a farmer does not think in acres at one farm and hectares at another.
+
+**Action (on toggle):**
+
+1. Optimistic update: `store.setUnitSystem('metric' | 'imperial')` — writes new value to local state, queues Supabase write, notifies subscribers.
+2. Re-render all unit-sensitive surfaces on-screen. No page reload. Storage is always metric (V2_INFRASTRUCTURE.md §1.1); the toggle only changes how stored metric values are formatted for display and how user-entered values are converted on save.
+3. Sync failure path: if Supabase write fails after three retries, revert local state and show a toast ("Couldn't save unit preference. Still in {previous}."). Do not leave the UI in a state where the toggle shows one value but stored `operations.unit_system` is the other.
+
+**Fields that re-render on toggle:**
+
+The following are unit-sensitive and must re-render their displayed value (and their input hints/labels when in an edit state):
+
+- Areas: paddock area, farm area, field area (ha ↔ ac)
+- Weights: animal weight, group average weight, head weight, target weight (kg ↔ lb)
+- Distances / heights: residual height, pasture height, pre-graze height (cm ↔ in)
+- Feed masses: batch weight, feed delivery quantity, feed check remaining (kg ↔ lb)
+- DMI per head per day (kg DM/head/day ↔ lb DM/head/day)
+- Manure rate: kg/head/day ↔ lb/head/day
+- Harvest yield: kg ↔ lb (total) and kg/ha ↔ lb/ac (per area)
+- NPK prices: $/kg ↔ $/lb (currency unaffected; just the denominator)
+- Stocking density: AUDs/ha ↔ AUDs/ac
+- Spreader capacity: kg per load ↔ lb per load
+
+When the active screen contains any of these fields, the toggle must re-format them immediately. Screens not currently mounted inherit the new unit system on next mount.
+
+**Input field conversion:**
+
+Form inputs honor the active unit system for both label and numeric parsing:
+
+- Imperial active → input accepts user-entered imperial value (e.g. "40 ac"); form converts to metric on save (16.19 ha → stored as `area_ha`).
+- Metric active → input accepts user-entered metric value; saves as-is.
+- If the user toggles unit system while a form is open with an in-progress numeric edit, the editor re-renders converting the current value (not the stored value) so the user's in-progress magnitude is preserved. Unsaved-form state survives the toggle.
+
+**localStorage migration on boot (for users who upgraded from a pre-A44 v2 build):**
+
+1. On app boot, after loading `operations` from Supabase, check if `operations.unit_system` is null/empty.
+2. If null, check localStorage for a legacy `gtho.unitSystem` key.
+3. If legacy key exists, write its value to `operations.unit_system` via `store.setUnitSystem()`, then delete the legacy key. Log the one-time migration via `logger.info('unit_system', 'migrated from localStorage', { value })`.
+4. If neither is present, default to `'imperial'`.
+5. This migration runs at most once per operation per device; `operations.unit_system` being NOT NULL prevents repeat.
+
+**Field Mode behavior:**
+
+Field Mode (§16) inherits the active unit system. Toggling unit system while Field Mode is active behaves identically — the farmer in a paddock changing units does not need to exit Field Mode to do so.
+
+### 20.3 Sync & Data Section
+
+**Export backup** (CP-55): button; on tap, opens a confirm sheet — "Export backup of {operation name}? This downloads a file containing all data for this operation." Confirm triggers download. File name: see V2_MIGRATION_PLAN.md §5.2. No preview — the file is the full operation. Downloads respect the browser's default download location. Disabled if offline (the export needs a fresh read from Supabase to ensure nothing in the sync queue is missing). An offline toast explains this.
+
+**Import backup** (CP-56): button; on tap, opens a native file picker filtered to `.json`. Selected file is parsed and validated before the user commits: shows a preview sheet with backup metadata (export date, schema version, counts: farms, events, animals, batches, todos) and a destructive warning — "Restoring will REPLACE all current operation data." Two buttons: `[Cancel]` and `[Replace All Data]`. The replace button is red (`--danger`) and requires a second tap confirmation for destructive safety.
+
+**Migrate from v1** (CP-57): visible only when `operations` is empty (onboarding path) or when feature flag `v2.migration.enabled` is true. Launches the migration wizard. Not part of normal settings flow.
+
+**Manual "Push all to Supabase"**: recovery tool. Button label "Resync to server." On tap, confirm sheet then runs `pushAllToSupabase()` (re-queues every record). Shows a progress toast. Used when the sync queue is suspected of drift.
+
+### 20.4 Mobile vs Desktop
+
+Mobile: each section collapses to an accordion row; tap to expand. Only one section expanded at a time. Sections 1 and 6 auto-expand on first visit for discoverability (Account for identity confirmation, Sync & Data for backup awareness).
+
+Desktop: all sections rendered as a single scrollable column with section headers and `--bg2` card backgrounds. No accordion. Sticky section nav on left (≥1200px only) with anchor links.
+
+### 20.5 Accessibility
+
+- The unit-system toggle is a `role="radiogroup"` with two `role="radio"` segments, keyboard-navigable via arrow keys. Label "Unit system" is `aria-labelledby` on the group.
+- Destructive buttons (Replace All Data, Resync to server confirm) require a two-step interaction — either dialog confirm or press-and-hold for 500ms — never a single unprompted tap.
+- Section headers are `<h2>`; subsection field groups use `<fieldset>` + `<legend>`. Screen readers announce section context when focus enters a new section.
+
+### 20.6 Out of Scope for This Screen
+
+- Calc reference console: lives in Reports (see §4.6 of V2_DESIGN_SYSTEM.md; OI-0020 deferred a move to Settings).
+- Feedback & support: the feedback button sits in the header (§17.2), not here.
+- Billing / subscription: deferred until commercialization.
+
+---
+
 ## Change Log
 
 | Date | Session | Changes |
@@ -1371,6 +1470,7 @@ Any omitted parameter falls back to its default. Changes to state update the URL
 | 2026-04-12 | Session 11 — UX flow gap fill | Added §14 (reusable health & recording components — 10 subsections covering weight, BCS, treatment, breeding, heat, calving, note, group sessions, quick-action bar), §15 (entity CRUD forms — animal, group, location, feed type), §16 (field mode — home screen, navigation, heat quick-access, feed loop). Component-first approach: each form documented once with entry points and context pre-fill mapped. |
 | 2026-04-13 | Session — Dashboard & todos spec | Added §17 (home screen / dashboard + todos). 14 subsections covering: screen layout (mobile/desktop), header bar, farm overview stats (desktop 5-metric, mobile 3-metric with thresholds), view toggle (groups/locations, default changed to locations for new users), group card anatomy (body elements, conditional logic, action buttons, collapse/expand), location card anatomy, open tasks dashboard section, todos screen with 3-axis filtering, todo create/edit sheet, todo card anatomy, survey draft card, weaning nudge. Derived from v1 `renderHome()` + `renderTodos()` code review against v2 schema D11.3/D11.4. FAB removed — feedback button moved to header. |
 | 2026-04-13 | Header + multi-farm context design | OI-0015 & OI-0019 resolved. §17.2 Header Bar rewritten — left cluster now shows operation name + farm picker, right cluster adds user menu button and restores build stamp. §1.2 and §1.3 (move wizard location + existing event pickers) gained a farm chip at the top enabling cross-farm targeting. New §18 Farm Switching & Multi-Farm Context added (8 subsections): active farm semantics, farm picker UX, switch-with-unsaved-work confirm, cross-farm whole-group moves (no-straddling-events rule, source_event_id linkage), cross-farm individual animal moves (membership-only), event card cross-farm markers, All farms aggregate mode behavior, Field Mode interaction. |
+| 2026-04-13 | Settings screen + unit-system toggle (GH-3 base-doc fill) | Added §20 Settings Screen (7 top-level sections). §20.2 documents the unit-system toggle mechanics: `store.setUnitSystem()` action, sync-failure revert, full list of unit-sensitive fields that re-render on toggle, input-field conversion rules, localStorage → `operations.unit_system` one-time migration on boot, Field Mode inheritance. §20.3 documents Export/Import/Migrate/Resync actions in the Sync & Data section (forward references to V2_MIGRATION_PLAN.md §5). Closes the GH-3 base-doc integration gap identified in the 2026-04-13 reconciliation audit. |
 | 2026-04-13 | Rotation calendar design (CP-54) | Added §19 Rotation Calendar — 9 subsections covering view modes (Estimated Status + DM Forecast), past event blocks (linked, strip-grazed, active, sub-move), future forecast blocks (capacity split, surplus, never-grazed → survey CTA), toolbar lightboxes (Timeline Selection + Dry Matter Forecaster), confinement pill, sidebar mirroring paddock column, empty states, mobile fallback (no calendar below 900px — v1 GRZ-11 banner + GRZ-10 list), List view (v1 GRZ-10 pattern), and **§19.9 Interactions & Deep Linking** (click targets, pan/zoom gestures, keyboard shortcuts, deep-link URL schema, first-load defaults Zoom=Week/Jump=Today, state persistence policy deferred from user_preferences to a follow-up, paddock sort order, accessibility). Calendar lives only on the Events screen — Reports does not mount a second copy. Bundles strip-grazing from OI-0001. |
 
 ---

@@ -225,3 +225,4 @@ These burned us in v1 — don't repeat them in v2:
 - Duplicate function definitions silently overwrite each other
 - Mutation functions that forget to notify subscribers = stale UI
 - Unit confusion: always store metric, display converted
+- **FK-ordering in backup restore.** Supabase enforces FK integrity at write time. Any wholesale delete/insert (CP-56 import, migration tooling, test fixture setup) must iterate tables in FK-dependency order — parents before children for inserts, children before parents for deletes. The authoritative order lives in **V2_MIGRATION_PLAN.md §5.3a**. Every schema change that adds a table or FK must update §5.3a in the same commit. Self-referential tables (currently `animals`, `events`) use the two-pass pattern documented in §5.3a.

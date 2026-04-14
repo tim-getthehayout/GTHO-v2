@@ -595,6 +595,73 @@ submissions, todos, todo_assignments
 
 Reference tables (`treatment_categories`, `treatment_types`, `dose_units`, `input_product_categories`, `input_product_units`, `forage_types`, `animal_classes`) are included because users extend them. On import, CP-56 merges by `id` — user-added rows overwrite any seed collision; seed rows not in the backup are left as-is.
 
+The domain grouping above is for human readability. **Implementers must use §5.3a below for the authoritative insert/delete order** — domain order is not FK-safe on its own.
+
+### 5.3a Insert / Delete Order (FK-Dependency Ordering)
+
+Supabase enforces foreign-key integrity at write time. A wholesale replace that ignores FK ordering fails immediately:
+
+- **Inserts** must run parents → children (a child row cannot reference a parent that has not been inserted yet).
+- **Deletes** must run children → parents (a parent row cannot be deleted while child rows still reference it — unless the FK is `ON DELETE CASCADE`, in which case the child is implicitly removed with its parent, but relying on that silently loses audit trail and is forbidden in the restore path).
+
+**Rule:** Inserts iterate the list below top-to-bottom. Deletes iterate the list bottom-to-top. The list below is the authoritative ordering for CP-56 and must be updated in lockstep with any schema change that adds a new table or FK (per the Export/Import Spec Sync Rule).
+
+1. `operations`
+2. `farms`
+3. `forage_types`
+4. `animal_classes`
+5. `feed_types`
+6. `ai_bulls`
+7. `spreaders`
+8. `input_product_categories`
+9. `input_product_units`
+10. `treatment_categories`
+11. `dose_units`
+12. `farm_settings`
+13. `user_preferences`
+14. `locations`
+15. `animals` — **two-pass** because of self-referential `dam_id` / `sire_animal_id`: pass 1 inserts all rows with self-FKs set to `NULL`; pass 2 issues `UPDATE` statements to set `dam_id` and `sire_animal_id`.
+16. `groups`
+17. `batches`
+18. `treatment_types`
+19. `input_products`
+20. `animal_group_memberships`
+21. `batch_adjustments`
+22. `batch_nutritional_profiles`
+23. `soil_tests`
+24. `surveys`
+25. `events` — **two-pass** because of self-referential `source_event_id`: pass 1 inserts with `source_event_id` set to `NULL`; pass 2 `UPDATE`s to set `source_event_id`.
+26. `manure_batches`
+27. `amendments`
+28. `amendment_locations`
+29. `manure_batch_transactions`
+30. `npk_price_history`
+31. `event_paddock_windows`
+32. `event_group_windows`
+33. `event_feed_entries`
+34. `event_feed_checks`
+35. `event_feed_check_items`
+36. `paddock_observations`
+37. `survey_draft_entries`
+38. `harvest_events`
+39. `harvest_event_fields`
+40. `animal_weight_records`
+41. `animal_treatments`
+42. `animal_bcs_scores`
+43. `animal_breeding_records`
+44. `animal_heat_records`
+45. `animal_calving_records`
+46. `animal_notes`
+47. `todos`
+48. `todo_assignments`
+49. `submissions`
+
+**Verification rule.** During CP-56 implementation, Claude Code must cross-check this list against every `FOREIGN KEY` / `REFERENCES` clause in `supabase/migrations/*.sql`. If any FK points from a table to one that appears later in this list (an "upward" reference), the list is wrong and must be corrected in the same commit.
+
+**Two-pass tables.** Any table with a self-referential nullable FK uses the two-pass pattern above. As of `schema_version` 14, these are `animals` (dam/sire) and `events` (source_event_id). When a new self-referential FK lands, flag it as impacting §5.3a and extend the two-pass list here.
+
+**`todo_assignments.user_id`** references `operation_members`, which is excluded from the backup (§5.4). Restoring an operation into a Supabase project that does not already have the referenced `operation_members` rows will fail. This is accepted: backups are intended to restore into the same project or one where operation access has been re-provisioned first.
+
 ### 5.4 Tables Excluded
 
 - **`operation_members`** — access control, managed per-Supabase-project, never in the backup.
@@ -627,14 +694,35 @@ All values are stored in **metric** (V2_INFRASTRUCTURE.md §1.1). The backup is 
 
 ### 5.7 Import Procedure (CP-56)
 
-CP-56 detail lives here for single-source; its acceptance criteria will be extracted into its own spec file when picked up.
+CP-56 detail lives here as the single source of truth. This section, together with §5.2, §5.3, §5.3a, §5.4, §5.5, §5.8, and §5.9, is the complete CP-56 specification. The `github/issues/cp-56-*.md` file is a thin pointer to this section.
 
 1. **File validation.** Parse JSON. Reject if `format !== "gtho-v2-backup"`. Reject if `format_version` is greater than the current build's supported `format_version`. Reject if `schema_version` is greater than the current build's `schema_version`. All three reject paths show a clear error naming the mismatch and what to do (upgrade client, or use an older backup).
-2. **Preview sheet.** Read `counts`, render preview: export date, farms/events/animals/batches/todos counts, schema version. Two buttons: Cancel and "Replace All Data" (red, two-step confirmation).
-3. **Migrate forward if needed.** If `backup.schema_version < current.schema_version`, apply the migration chain in order — one function per version bump. Each function receives the backup JSON and returns a new backup JSON at the next version. Migration functions are registered in `src/data/backup-migrations.js` keyed by `from_version`.
-4. **Wholesale replace.** For each included table, delete all existing rows for this `operation_id`, then insert the backup rows. Wrap in a transaction where possible (Supabase `rpc` for cross-table atomicity; if unavailable, per-table with a failure-rollback).
-5. **Re-seed local store.** After Supabase write succeeds, call `store.hydrate()` to reload state from Supabase into local memory.
-6. **Post-import verification.** Run a small parity check: row counts in each table match `counts` ±0. On mismatch, surface the delta and prompt the user to retry or revert (backups kept in localStorage for 24h for this purpose).
+2. **Pending-writes gate.** Refuse import if the sync queue has pending writes or the app is offline. The wholesale replace would silently overwrite unsynced local work. Toast: "Sync pending — retry when sync completes." Same gate CP-55 uses on export (§5.6.1).
+3. **Preview sheet.** Read `counts`, render preview: target operation name ("Replacing data in: {operations.name}"), export date (`exported_at` in operation timezone), exporter email, schema version, counts (farms, events, animals, batches, todos). Two buttons: `[Cancel]` and `[Replace All Data]` (red, `--danger`). Second tap on Replace triggers a second-step confirm: "This cannot be undone. Replace all operation data?" Only the second Yes proceeds.
+4. **Auto-backup of current state** (the revert safety net). Before the destructive replace runs, CP-56 calls the CP-55 export path (§5.6) to produce a fresh backup of the current operation state and triggers a browser download with the name `gtho-v2-auto-backup-before-restore__{operation-slug}__{YYYY-MM-DD_HHmm}__schema-v{N}.json`. If the auto-backup export fails for any reason (network, CP-55 refusal, download blocked), CP-56 halts with a clear error — the import does not proceed without a safety net. A toast confirms: "Saved a backup of your current data to Downloads as {filename}." See §5.7a for the full revert mechanism rationale.
+5. **Migrate the imported backup forward if needed.** If `backup.schema_version < current.schema_version`, apply `BACKUP_MIGRATIONS` (§5.9) in order — one function per version bump. After the chain, assert `backup.schema_version === current.schema_version` before continuing. If any migration is missing for a required `from_version`, refuse with a clear error naming the gap.
+6. **Wholesale replace — transaction strategy.** Client-side per-table replace, in FK-dependency order per §5.3a, with halt-on-first-failure. For each table (iterating §5.3a top-to-bottom for deletes, then top-to-bottom again for inserts):
+   - **Deletes:** iterate §5.3a **bottom-to-top**. For each table, `DELETE FROM {table} WHERE operation_id = $1` (for `operation_id`-scoped tables) or an equivalent scoped delete for tables keyed by a parent FK.
+   - **Inserts:** iterate §5.3a **top-to-bottom**. For each table, insert backup rows in batches of up to 500 rows per `POST`. Self-referential tables (§5.3a — currently `animals` and `events`) use the two-pass pattern: pass 1 inserts with self-FKs `NULL`; pass 2 issues `UPDATE` statements to set them.
+   - **On any failure**, halt immediately. Log `logger.error('backup', 'import failed', { stage, table, error })`. Do not attempt to continue with subsequent tables.
+   - **Reference-table rows** (`treatment_categories`, `treatment_types`, `dose_units`, `input_product_categories`, `input_product_units`, `forage_types`, `animal_classes`) merge by `id` instead of delete-then-insert: backup rows `UPSERT` onto existing seed rows; seed rows not in the backup are untouched (§5.3).
+   - No atomicity across tables. The auto-backup file from step 4 is the rollback mechanism.
+7. **Re-seed local store.** After the last successful insert, call `store.hydrate()` to reload state from Supabase into local memory. All subscribers re-render.
+8. **Post-import parity check.** Compare `counts` in the imported backup against post-import row counts in Supabase for each counted table (farms, events, animals, batches, todos). Also compare `backup.tables[t].length` against post-import row counts for every other table in §5.3a. On mismatch, surface a report sheet listing per-table expected vs actual, and instruct the user: "Import verification failed. Your pre-import backup is saved in Downloads as {filename} — import that file to return to your prior state."
+9. **Log the import.** `logger.info('backup', 'import complete', { operation_id, row_count, migrations_applied })` on success. Error paths log via `logger.error('backup', 'import failed', { stage, ... })`.
+10. **Progress UI.** Non-blocking progress sheet names the current phase and table: `Validating` → `Saving current data (auto-backup)` → `Migrating (vN → vM)` → `Replacing data ({table})` → `Refreshing` → `Verifying`. Phase label is visible throughout.
+
+### 5.7a Revert Mechanism (Design Decision)
+
+The revert safety net for CP-56 is an **auto-downloaded pre-import backup file**, not an in-app stash.
+
+**How revert works.** If a user wants to undo an import — either because the post-import parity check failed, because the imported data turned out to be wrong, or because they changed their mind — they import the auto-backup file that CP-56 downloaded to their disk in step 4 above. There is no in-app "Revert" button. Revert = "Settings → Import backup → pick the `gtho-v2-auto-backup-before-restore__…` file."
+
+**Why not localStorage / IndexedDB / Supabase side table.** A pre-import snapshot of a real operation routinely exceeds localStorage's ~5 MB per-origin quota. IndexedDB solves size but adds a second durable-storage surface to maintain. A Supabase side table would require schema, RLS, retention policy, and cleanup — a meaningful build for a recovery path that is rarely exercised. The auto-downloaded file reuses the CP-55 export code, has no size limit, is durable across browser-data wipes, and gives the user explicit ownership of their recovery path.
+
+**Tradeoffs accepted.** The user sees two downloads in quick succession (auto-backup, then any other artifact the session produces). The preview sheet copy warns of this explicitly. The user is responsible for not deleting the auto-backup file before they are confident the new import is good. After 30 days or whatever their own retention habits are, the file is their responsibility.
+
+**Failure mode.** If CP-56 cannot produce the auto-backup (sync queue pending, offline, download blocked, disk full), it halts before the destructive replace. The import does not proceed without a safety net — this is a hard rule. The user sees a clear error and can retry after resolving the underlying issue.
 
 ### 5.8 Missing-Table and Missing-Column Handling
 

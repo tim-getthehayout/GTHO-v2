@@ -4,6 +4,19 @@
 
 ---
 
+### OI-0049 — Onboarding & Settings Records Never Sync to Supabase
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P1
+**Checkpoint:** pre-CP-66
+**Status:** open — code fix required
+
+All 10 `add()` calls in `src/features/onboarding/index.js` and all 5 `update()` calls in `src/features/settings/index.js` are missing `toSupabaseFn` and `table` params. Records save to localStorage but never queue a Supabase write. After onboarding, operations, farms, farm_settings, operation_members, user_preferences, and seeded reference data exist only in localStorage. Settings changes also never sync. Blocks CP-66 (invites need operation_members in Supabase) and all multi-user functionality.
+
+**Spec file:** `github/issues/BUG_onboarding-settings-sync-gap.md`
+**Fix:** Import each entity's `toSupabaseShape` and pass it + table name to each `add()`/`update()` call.
+**Recovery for existing users:** "Resync to server" button pushes all localStorage data to Supabase.
+
+---
+
 ### OI-0048 — Migration: Observation Type Inference Defaults All to 'open'
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
 **Checkpoint:** post-CP-57

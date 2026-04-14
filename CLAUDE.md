@@ -96,6 +96,20 @@ All dynamic content uses the DOM builder (`el()`, `text()`, `clear()`). No inner
 4. Every store action follows: validate → mutate → persist → queue sync → notify
 5. No hardcoded English — all user-facing strings use `t()`
 6. Every new migration file must: (a) end with `UPDATE operations SET schema_version = N;` (b) add a `BACKUP_MIGRATIONS` entry in `src/data/backup-migrations.js` — no-op is fine: `N-1: (b) => { b.schema_version = N; return b; },` (c) if the migration adds a table or FK, update V2_MIGRATION_PLAN.md §5.3 and §5.3a. See V2_MIGRATION_PLAN.md §5.11a for rationale. "Always do it, no judgment calls."
+7. **Store call param-count check:** Every `add()` call must have 5 params (`entityType, record, validateFn, toSupabaseFn, table`). Every `update()` call must have 6 params (`entityType, id, changes, validateFn, toSupabaseFn, table`). Every `remove()` call must have 3 params (`entityType, id, table`). Missing sync params (`toSupabaseFn`, `table`) cause silent data loss — records save to localStorage but never sync to Supabase. Grep for `add('` and `update('` with fewer than the required param count as a pre-commit sanity check. **Origin:** OI-0049 — onboarding and settings had 15 broken calls that went undetected because the app reads from localStorage first.
+
+### E2E Testing — Verify Supabase, Not Just UI
+
+E2E tests must verify that data reaches Supabase, not just that the UI renders correctly. After any write operation in an e2e test (onboarding, settings change, event creation, animal add, etc.), query Supabase directly to confirm the record exists. The app reads from localStorage first, so a broken sync path is invisible to UI-only assertions.
+
+**Pattern for e2e sync verification:**
+```js
+// After UI action that creates a record:
+const { data } = await supabase.from('table_name').select('id').eq('id', expectedId);
+expect(data).toHaveLength(1);
+```
+
+**Why this matters:** A sync bug in onboarding (OI-0049) went undetected through all prior testing because e2e tests only checked localStorage/UI state. The app appeared to work perfectly in single-user mode while no data existed in Supabase.
 
 ## Invention Required — Stop and Flag
 

@@ -284,9 +284,13 @@ Implementation specs for Claude Code. Each sub-phase has sequenced checkpoints w
 | CP-61 | Performance | — | Lighthouse score ≥ 90 (performance). Lazy-load report screens. Virtual scroll for animal lists > 100 items. Bundle size audit. |
 | CP-62 | Accessibility | V2_DESIGN_SYSTEM.md §5.2 | WCAG 2.1 AA. 44px touch targets on all interactive elements. Keyboard navigation for all sheets. Screen reader labels. Color contrast verification. Focus management on sheet open/close. |
 | CP-63 | Onboarding polish | V2_BUILD_INDEX.md CP-12 note | Guided first-run experience. Species selection → class seeding → first location → first group. Help tooltips on key screens. Empty state messaging per V2_DESIGN_SYSTEM.md §3.11. |
-| CP-64 | Cutover preparation | V2_MIGRATION_PLAN.md §4 | Pre-cutover checklist: migration dry-run, data parity verification, DNS/GitHub Pages swap plan, rollback procedure, v1 read-only mode toggle. Documentation for Tim to execute cutover. |
-| CP-65 | Final integration test | — | Full e2e suite: all critical paths from 3.2 (CP-23) + 3.3 (CP-53) + 3.4 (CP-58) run clean. Offline mode verified. PWA install verified. Performance budget met. Field mode paths verified. |
+| CP-64 | Cutover preparation | V2_MIGRATION_PLAN.md §4 | Pre-cutover checklist: migration dry-run, **data parity verification** (see below), DNS/GitHub Pages swap plan, rollback procedure, v1 read-only mode toggle. Documentation for Tim to execute cutover. |
+| CP-65 | Final integration test | — | Full e2e suite: all critical paths from 3.2 (CP-23) + 3.3 (CP-53) + 3.4 (CP-58) run clean. Offline mode verified. PWA install verified. Performance budget met. Field mode paths verified. **Supabase sync verification on every write path** (see below). |
 | CP-66 | Member management & invite | V2_UX_FLOWS.md §20.7, github/issues/CP-66_member-management-invite.md | `invite_token` column + migration. `claim_invite_by_token` RPC. Member Management sheet (list, role change, remove). Invite creation (form, token gen, link copy). Invite acceptance (`#invite={token}` route, claim flow, fallback email claim). Owner protection. i18n. All ACs in spec file. |
+
+**CP-64 data parity check (concrete definition):** Onboard a fresh test account, run through every major flow (create locations, groups, animals, events, move, close, feed, survey, settings changes), then compare localStorage state vs. Supabase state table by table. Every record in localStorage must have a matching row in Supabase with identical field values. Any mismatch = sync bug. This catches the class of bug found in OI-0049 where records existed locally but never synced.
+
+**CP-65 Supabase sync verification:** Every e2e test that performs a write operation must include a Supabase query asserting the record exists in the database, not just in the UI or localStorage. This applies to: onboarding (all 10 entity types), settings changes, event CRUD, animal CRUD, feed entries, surveys, todos. See CLAUDE.md "E2E Testing — Verify Supabase, Not Just UI" for the pattern.
 
 ---
 

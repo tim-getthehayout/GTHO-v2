@@ -18,6 +18,7 @@ import {
   renderSpreadersSection, renderProductUnitsSection,
   renderAmendmentRefSheetMarkups,
 } from '../amendments/reference-tables.js';
+import { renderV1ImportButton } from './v1-import.js';
 
 /**
  * Render the settings screen.
@@ -118,10 +119,24 @@ function renderFarmSection(fs, _rootContainer) {
     ]);
   });
 
+  // Recovery required toggle
+  const recoveryCheckbox = el('input', {
+    type: 'checkbox',
+    checked: fs.recoveryRequired ? 'checked' : undefined,
+    'data-testid': 'settings-farm-recoveryRequired',
+  });
+  const recoveryToggle = el('div', { className: 'settings-field' }, [
+    el('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' } }, [
+      recoveryCheckbox,
+      t('settings.recoveryRequired'),
+    ]),
+  ]);
+
   const statusEl = el('div', { className: 'auth-info', 'data-testid': 'settings-farm-status' });
 
   return el('div', { className: 'card settings-card' }, [
     el('h3', { className: 'settings-section-title' }, [t('settings.farmSettings')]),
+    recoveryToggle,
     ...fieldEls,
     el('button', {
       className: 'btn btn-green btn-sm',
@@ -132,6 +147,7 @@ function renderFarmSection(fs, _rootContainer) {
           const val = inputs[f.key].value;
           changes[f.key] = val === '' ? null : parseFloat(val);
         }
+        changes.recoveryRequired = recoveryCheckbox.checked;
         try {
           update('farmSettings', fs.id, changes, validateFarmSetting);
           clear(statusEl);
@@ -255,15 +271,19 @@ function renderSyncSection() {
     },
   }, [t('settings.importBackup')]);
 
+  // v1 import button (CP-57 — §1.7)
+  const sheetMount = el('div', { id: 'export-sheet-mount' });
+  const v1ImportBtn = renderV1ImportButton(sheetMount, operation);
+
   return el('div', { className: 'card settings-card' }, [
     el('h3', { className: 'settings-section-title' }, [t('settings.syncAndData')]),
     el('div', { className: 'sync-status', 'data-testid': 'settings-sync-status' }, [
       el('span', { className: `sync-dot sync-${status}` }),
       el('span', {}, [statusLabels[status] || status]),
     ]),
-    el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [exportBtn, importBtn, fileInput]),
+    el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [exportBtn, importBtn, fileInput, v1ImportBtn]),
     // Export/import sheets mount here
-    el('div', { id: 'export-sheet-mount' }),
+    sheetMount,
   ]);
 }
 
@@ -542,7 +562,7 @@ async function runImport(mount, backup, operation) {
     const rows = result.parityResult.mismatches.map(m =>
       el('div', { className: 'import-preview-row' }, [
         el('span', { className: 'import-preview-label' }, [m.table]),
-        el('span', { className: 'import-preview-value' }, [`expected ${m.expected}, got ${m.actual}`]),
+        el('span', { className: 'import-preview-value' }, [t('event.parityExpected', { expected: m.expected, actual: m.actual })]),
       ])
     );
     mount.appendChild(el('div', {

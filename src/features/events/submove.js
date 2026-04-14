@@ -6,6 +6,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import { createObservation, renderLocationPicker } from './index.js';
+import { getFarmSettings, renderPreGrazeFields, renderPostGrazeFields } from './observation-fields.js';
 
 // ---------------------------------------------------------------------------
 // Sub-move open sheet (CP-18)
@@ -51,6 +52,11 @@ export function openSubmoveOpenSheet(evt, operationId) {
   renderLocationPicker(locPickerEl, locations, selection);
   panel.appendChild(locPickerEl);
 
+  // Pre-graze observation fields (OI-0041)
+  const farmSettings = getFarmSettings();
+  const preGraze = renderPreGrazeFields(farmSettings);
+  panel.appendChild(preGraze.container);
+
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-open-status' });
   panel.appendChild(statusEl);
 
@@ -64,6 +70,8 @@ export function openSubmoveOpenSheet(evt, operationId) {
           statusEl.appendChild(el('span', {}, [t('event.selectLocation')]));
           return;
         }
+        const pgv = preGraze.validate();
+        if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
         try {
           const pw = PaddockWindowEntity.create({
             operationId,
@@ -73,7 +81,7 @@ export function openSubmoveOpenSheet(evt, operationId) {
             timeOpened: inputs.timeOpened.value || null,
           });
           add('eventPaddockWindows', pw, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-          createObservation(operationId, selection.locationId, 'open', pw.id, new Date().toISOString());
+          createObservation(operationId, selection.locationId, 'open', pw.id, new Date().toISOString(), preGraze.getValues());
           submoveOpenSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));
@@ -129,7 +137,10 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   });
   panel.appendChild(inputs.timeClosed);
 
-  // TODO: Observation fields (forage height, cover, quality) — Phase 3.3
+  // Post-graze observation fields (OI-0040)
+  const farmSettings2 = getFarmSettings();
+  const postGraze = renderPostGrazeFields(farmSettings2);
+  panel.appendChild(postGraze.container);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-close-status' });
   panel.appendChild(statusEl);
@@ -140,12 +151,14 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
       'data-testid': 'submove-close-save',
       onClick: () => {
         clear(statusEl);
+        const pgv = postGraze.validate();
+        if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
         try {
           update('eventPaddockWindows', paddockWindow.id, {
             dateClosed: inputs.dateClosed.value,
             timeClosed: inputs.timeClosed.value || null,
           }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-          createObservation(paddockWindow.operationId, paddockWindow.locationId, 'close', paddockWindow.id, new Date().toISOString());
+          createObservation(paddockWindow.operationId, paddockWindow.locationId, 'close', paddockWindow.id, new Date().toISOString(), postGraze.getValues());
           submoveCloseSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

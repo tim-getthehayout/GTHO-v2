@@ -54,8 +54,9 @@ export function renderHeader(container) {
 
   const header = el('header', { className: 'app-header', 'data-testid': 'app-header' }, [
     el('div', { className: 'header-bar' }, [
-      // Left cluster: operation name + farm picker
+      // Left cluster: app name + operation name + farm picker
       el('div', { className: 'header-left' }, [
+        el('div', { className: 'header-app-name', 'data-testid': 'header-app-name' }, [t('app.name')]),
         el('div', { className: 'header-op-name', 'data-testid': 'header-op-name' }, [opName]),
         isMultiFarm
           ? el('button', {

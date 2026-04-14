@@ -13,6 +13,7 @@ import { createObservation, renderLocationPicker } from './index.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
+import { getFarmSettings, renderPostGrazeFields, renderPreGrazeFields } from './observation-fields.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -310,9 +311,15 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   });
   closeSection.appendChild(inputs.timeOut);
 
+  // Post-graze observation fields on close-out section (OI-0040)
+  const farmSettings = getFarmSettings();
+  const postGraze = renderPostGrazeFields(farmSettings);
+  closeSection.appendChild(postGraze.container);
+
   panel.appendChild(closeSection);
 
   // Open destination section (only for new location)
+  let preGraze = null;
   if (state.destType === 'new') {
     const openSection = el('div', { className: 'close-open-section' }, [
       el('div', { className: 'close-open-section-title' }, [t('event.openDest')]),
@@ -331,6 +338,10 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
       'data-testid': 'move-wizard-time-in',
     });
     openSection.appendChild(inputs.timeIn);
+
+    // Pre-graze observation fields on destination section (OI-0041)
+    preGraze = renderPreGrazeFields(farmSettings);
+    openSection.appendChild(preGraze.container);
 
     panel.appendChild(openSection);
   }
@@ -394,7 +405,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     el('button', {
       className: 'btn btn-green',
       'data-testid': 'move-wizard-save',
-      onClick: () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl, transferToggles),
+      onClick: () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl, transferToggles, postGraze, preGraze),
     }, [t('action.done')]),
   ]));
 
@@ -409,15 +420,25 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   }
 }
 
-function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles) {
+function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze) {
   clear(statusEl);
   statusEl.className = 'auth-error';
 
   const dateOut = inputs.dateOut.value;
   const timeOut = inputs.timeOut.value || null;
 
+  // Validate observation fields (OI-0040/OI-0041)
+  if (postGraze) {
+    const pv = postGraze.validate();
+    if (!pv.valid) { statusEl.appendChild(el('span', {}, [pv.errors.join(', ')])); return; }
+  }
+  if (preGraze) {
+    const pv = preGraze.validate();
+    if (!pv.valid) { statusEl.appendChild(el('span', {}, [pv.errors.join(', ')])); return; }
+  }
+
   if (!dateOut) {
-    statusEl.appendChild(el('span', {}, ['Close date is required']));
+    statusEl.appendChild(el('span', {}, [t('validation.closeDateRequired')]));
     return;
   }
 
@@ -462,7 +483,8 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         dateClosed: dateOut,
         timeClosed: timeOut,
       }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-      createObservation(operationId, pw.locationId, 'close', pw.id, new Date().toISOString());
+      createObservation(operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
+        postGraze ? postGraze.getValues() : {});
     }
 
     // Step 3: Close all open group windows
@@ -534,7 +556,8 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       }
 
       // Step 7: Open observation for destination paddock
-      createObservation(operationId, state.locationId, 'open', newPW.id, new Date().toISOString());
+      createObservation(operationId, state.locationId, 'open', newPW.id, new Date().toISOString(),
+        preGraze ? preGraze.getValues() : {});
 
       // Step 8: Feed transfer — create entries on destination with source_event_id
       if (transferToggles && transferToggles.length) {

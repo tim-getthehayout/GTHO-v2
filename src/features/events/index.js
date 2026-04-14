@@ -33,8 +33,14 @@ let unsubs = [];
  * @param {'open'|'close'} type
  * @param {string} sourceId - The paddock window ID
  * @param {string} observedAt - ISO timestamp
+ * @param {object} [fields] - Optional observation data fields
+ * @param {number} [fields.forageHeightCm]
+ * @param {number} [fields.forageCoverPct]
+ * @param {number} [fields.residualHeightCm]
+ * @param {number} [fields.recoveryMinDays]
+ * @param {number} [fields.recoveryMaxDays]
  */
-export function createObservation(operationId, locationId, type, sourceId, observedAt) {
+export function createObservation(operationId, locationId, type, sourceId, observedAt, fields = {}) {
   const obs = ObservationEntity.create({
     operationId,
     locationId,
@@ -42,6 +48,7 @@ export function createObservation(operationId, locationId, type, sourceId, obser
     source: 'event',
     sourceId,
     observedAt,
+    ...fields,
   });
   add('paddockObservations', obs, ObservationEntity.validate,
     ObservationEntity.toSupabaseShape, 'paddock_observations');
@@ -789,15 +796,15 @@ function saveEvent(selection, inputs, operationId, farmId, unitSys, statusEl) {
   let avgWeightKg = parseFloat(inputs.avgWeight.value);
 
   if (!dateIn) {
-    statusEl.appendChild(el('span', {}, ['Start date is required']));
+    statusEl.appendChild(el('span', {}, [t('validation.startDateRequired')]));
     return;
   }
   if (!headCount || headCount < 1) {
-    statusEl.appendChild(el('span', {}, ['Head count must be at least 1']));
+    statusEl.appendChild(el('span', {}, [t('validation.headCountMin')]));
     return;
   }
   if (!avgWeightKg || avgWeightKg <= 0) {
-    statusEl.appendChild(el('span', {}, ['Average weight is required']));
+    statusEl.appendChild(el('span', {}, [t('validation.avgWeightRequired')]));
     return;
   }
 

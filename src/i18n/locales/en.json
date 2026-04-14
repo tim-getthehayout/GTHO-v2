@@ -25,7 +25,11 @@
     "unplacedGroups": "Unplaced groups",
     "surveyInProgress": "Survey in progress",
     "continueSurvey": "Continue survey",
-    "weaningAlert": "Weaning alert"
+    "weaningAlert": "Weaning alert",
+    "grazing": "grazing",
+    "dayLabel": "Day {count}",
+    "subMovesLabel": "{count} sub-moves",
+    "feedingsLabel": "{count} feedings"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -142,7 +146,16 @@
     "closeEvent": "Close Event",
     "closeEventTitle": "Close Event",
     "closeEventConfirm": "Close this event? All open windows will be closed.",
-    "eventClosed": "Event closed"
+    "eventClosed": "Event closed",
+    "forageHeight": "Forage Height",
+    "forageCoverPct": "Forage Cover %",
+    "residualHeight": "Residual Height",
+    "recoveryMinDays": "Recovery Min Days",
+    "recoveryMaxDays": "Recovery Max Days",
+    "obsRequired": "Required",
+    "obsOptional": "Optional",
+    "preGrazeObs": "Pre-Graze Observations",
+    "postGrazeObs": "Post-Graze Observations"
   },
   "location": {
     "title": "Locations",
@@ -723,7 +736,22 @@
     "importSuccess": "Backup restored successfully.",
     "importError": "Import failed. Please try again.",
     "importParityFailed": "Import verification failed. Mismatches detected:",
-    "importParityRevert": "Your pre-import backup is saved in Downloads as {filename} — import that file to return to your prior state."
+    "importParityRevert": "Your pre-import backup is saved in Downloads as {filename} — import that file to return to your prior state.",
+    "importFromV1": "Import from v1",
+    "importV1SyncPending": "Sync pending — retry when sync completes.",
+    "importV1NotV1": "This file does not appear to be a v1 export.",
+    "importV1Transforming": "Transforming v1 data...",
+    "importV1TransformFailed": "v1 transform failed",
+    "importV1PreviewTitle": "Import from GTHO v1",
+    "importV1PreviewDesc": "The following v1 data will be transformed and imported into your v2 operation. This will replace all existing data.",
+    "importV1AutoBackupNote": "If you have existing v2 data, a backup will be saved to Downloads automatically before replacing.",
+    "importV1SecondConfirm": "This will replace all operation data with the transformed v1 data. Continue?",
+    "importV1Starting": "Starting v1 import...",
+    "importV1Success": "v1 data imported successfully!",
+    "importV1DoseWarning": "{count} treatment dose(s) could not be parsed and will need manual review.",
+    "importV1DoseCsvDownloaded": "{count} unparseable dose(s) exported to CSV in Downloads.",
+    "importV1Warnings": "{count} warning(s) during transform.",
+    "importV1WarningsSummary": "{count} warning(s) logged during transform. Check browser console for details."
   },
   "fieldMode": {
     "title": "Field Mode",
@@ -790,7 +818,8 @@
     "noEventData": "No events recorded yet.",
     "noSurveyData": "No paddock observations yet.",
     "unclassified": "Unclassified",
-    "uncategorized": "Uncategorized"
+    "uncategorized": "Uncategorized",
+    "calcRefTitle": "Calculation Reference ({count} formulas)"
   },
   "todos": {
     "title": "Todos",
@@ -821,5 +850,31 @@
   "error": {
     "generic": "Something went wrong. Please try again."
   },
-  "validation": {}
+  "calendar": {
+    "addGroup": "＋ Add"
+  },
+  "event": {
+    "detailSummary": "Day {days} · {feedings} feedings · {groups} group(s)",
+    "parityExpected": "expected {expected}, got {actual}",
+    "costDisplay": "${value}"
+  },
+  "validation": {
+    "weightRequired": "Weight is required",
+    "quantityPositive": "Quantity must be greater than 0",
+    "quantityNonNegative": "Quantity must be 0 or greater",
+    "startDateRequired": "Start date is required",
+    "closeDateRequired": "Close date is required",
+    "headCountMin": "Head count must be at least 1",
+    "avgWeightRequired": "Average weight is required",
+    "bcsScoreRange": "Score must be 1–{max}"
+  },
+  "filter": {
+    "all": "All",
+    "open": "Open",
+    "closed": "Closed",
+    "active": "Active"
+  },
+  "form": {
+    "noneOption": "— none —"
+  }
 }

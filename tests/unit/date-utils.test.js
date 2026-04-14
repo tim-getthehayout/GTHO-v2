@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   today, formatDate, formatDateTime, addDays,
-  daysBetweenInclusive, daysBetweenExact, startOfDay,
+  daysBetweenInclusive, startOfDay,
   isValidDateString, parseDate,
 } from '../../src/utils/date-utils.js';
 
@@ -68,20 +68,6 @@ describe('date-utils', () => {
 
     it('3 days apart = 3', () => {
       expect(daysBetweenInclusive('2024-01-01', '2024-01-03')).toBe(3);
-    });
-  });
-
-  describe('daysBetweenExact', () => {
-    it('same day = 0', () => {
-      expect(daysBetweenExact('2024-01-01', '2024-01-01')).toBe(0);
-    });
-
-    it('adjacent days = 1', () => {
-      expect(daysBetweenExact('2024-01-01', '2024-01-02')).toBe(1);
-    });
-
-    it('3 days apart = 2', () => {
-      expect(daysBetweenExact('2024-01-01', '2024-01-03')).toBe(2);
     });
   });
 

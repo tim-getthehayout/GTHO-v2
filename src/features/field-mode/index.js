@@ -34,7 +34,7 @@ export function renderFieldModeHome(container) {
       el('button', {
         className: 'field-mode-tile',
         'data-testid': 'field-mode-tile-harvest',
-        onClick: () => navigate('#/feed'),
+        onClick: () => navigate('#/harvest'),
       }, [
         el('div', { className: 'field-mode-tile-icon' }, ['\uD83D\uDE9C']),
         t('fieldMode.harvest'),

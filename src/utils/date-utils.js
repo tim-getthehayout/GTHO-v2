@@ -74,19 +74,6 @@ export function daysBetweenInclusive(start, end) {
   return Math.round(ms / 86_400_000) + 1;
 }
 
-/**
- * Difference in exact days between two dates.
- * daysBetweenExact('2024-01-01', '2024-01-03') === 2
- * @param {Date|string} start
- * @param {Date|string} end
- * @returns {number}
- */
-export function daysBetweenExact(start, end) {
-  const s = startOfDay(start);
-  const e = startOfDay(end);
-  const ms = e.getTime() - s.getTime();
-  return Math.round(ms / 86_400_000);
-}
 
 /**
  * Strip time from a date, returning midnight UTC.

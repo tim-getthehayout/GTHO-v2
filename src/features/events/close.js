@@ -11,6 +11,7 @@ import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import * as ManureTxEntity from '../../entities/manure-batch-transaction.js';
 import { createObservation } from './index.js';
+import { getFarmSettings, renderPostGrazeFields } from './observation-fields.js';
 
 let closeEventSheet = null;
 
@@ -104,6 +105,11 @@ export function openCloseEventSheet(evt, operationId) {
     }, ['Confinement NPK will be routed to manure batches on close.']));
   }
 
+  // Post-graze observation fields (OI-0040)
+  const farmSettings = getFarmSettings();
+  const postGraze = renderPostGrazeFields(farmSettings);
+  panel.appendChild(postGraze.container);
+
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'close-event-status' });
   panel.appendChild(statusEl);
 
@@ -111,7 +117,7 @@ export function openCloseEventSheet(evt, operationId) {
     el('button', {
       className: 'btn btn-red',
       'data-testid': 'close-event-save',
-      onClick: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl),
+      onClick: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze),
     }, [t('event.closeEvent')]),
     el('button', {
       className: 'btn btn-outline',
@@ -123,13 +129,22 @@ export function openCloseEventSheet(evt, operationId) {
   closeEventSheet.open();
 }
 
-function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl) {
+function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze) {
   clear(statusEl);
   const dateOut = inputs.dateOut.value;
   const timeOut = inputs.timeOut.value || null;
   if (!dateOut) {
-    statusEl.appendChild(el('span', {}, ['Close date is required']));
+    statusEl.appendChild(el('span', {}, [t('validation.closeDateRequired')]));
     return;
+  }
+
+  // Validate post-graze observation fields
+  if (postGraze) {
+    const obsValidation = postGraze.validate();
+    if (!obsValidation.valid) {
+      statusEl.appendChild(el('span', {}, [obsValidation.errors.join(', ')]));
+      return;
+    }
   }
 
   try {
@@ -165,7 +180,8 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
         dateClosed: dateOut,
         timeClosed: timeOut,
       }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-      createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString());
+      createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
+        postGraze ? postGraze.getValues() : {});
     }
 
     // 3. Close all open group windows

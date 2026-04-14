@@ -11,6 +11,8 @@
  */
 
 export const BACKUP_MIGRATIONS = {
-  // No entries yet — CP-55 ships at schema_version = 14 (migration 015).
-  // Future schema changes add entries here in lockstep per CLAUDE.md "Export/Import Spec Sync Rule."
+  // 014 → 015: schema_version column on operations (no backup shape change — column already in envelope)
+  14: (b) => { b.schema_version = 15; return b; },
+  // 015 → 016: invite_token on operation_members (CP-66). Not in backup (§5.4 excludes operation_members).
+  15: (b) => { b.schema_version = 16; return b; },
 };

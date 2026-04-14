@@ -1129,6 +1129,26 @@ body {
 .obs-required { background: var(--color-red-light, #fde8e8); color: var(--color-red-base); }
 .obs-optional { background: var(--color-green-light, #e8f5e9); color: var(--color-green-dark); }
 
+/* Member management (CP-66) */
+.member-list { margin-top: var(--space-3); }
+.member-row {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: var(--space-3); border-bottom: 0.5px solid var(--border);
+  gap: var(--space-3);
+}
+.member-row:last-child { border-bottom: none; }
+.member-row-info { flex: 1; min-width: 0; }
+.member-row-name { font-weight: 600; font-size: 14px; }
+.member-row-detail { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.member-row-badges { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+.member-row-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.badge-amber { background: var(--color-amber-light, #fff3e0); color: var(--color-amber-dark, #e65100); }
+.badge-outline { background: var(--surface2, var(--surface)); color: var(--text2); border: 0.5px solid var(--border); }
+.invite-banner {
+  padding: var(--space-4); background: var(--color-green-light, #e8f5e9);
+  color: var(--color-green-dark); text-align: center; font-weight: 500;
+}
+
 /* Dashboard */
 .dash-grid {
   display: flex;

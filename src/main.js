@@ -1,3 +1,4 @@
+/* global sessionStorage */
 /** @file Application entry point — boot sequence per V2_APP_ARCHITECTURE.md */
 
 import { init as initStore, setSyncAdapter } from './data/store.js';
@@ -10,6 +11,11 @@ import { el, clear } from './ui/dom.js';
 import { initSession, onAuthChange } from './features/auth/session.js';
 import { renderAuthOverlay } from './features/auth/index.js';
 import { needsOnboarding, renderOnboarding } from './features/onboarding/index.js';
+import {
+  extractInviteToken, clearInviteHash, claimInviteByToken,
+  claimPendingInviteByEmail, userHasOperation,
+} from './features/auth/invite-claim.js';
+import { t } from './i18n/i18n.js';
 import { renderDashboard } from './features/dashboard/index.js';
 import { renderEventsScreen } from './features/events/index.js';
 import { renderLocationsScreen } from './features/locations/index.js';
@@ -45,20 +51,49 @@ async function boot() {
   // 2. Get app container
   const app = document.getElementById('app');
 
-  // 3. Check existing session
+  // 3. Check for invite token in URL (CP-66)
+  const inviteToken = extractInviteToken();
+
+  // 4. Check existing session
   const user = await initSession();
 
   if (user) {
-    showApp(app);
+    // Handle invite claim if token present
+    if (inviteToken) {
+      await handleInviteClaim(app, inviteToken, user);
+    } else {
+      // Email-based fallback: claim pending invite if user has no operation (v1 parity)
+      const hasOp = await userHasOperation(user.id);
+      if (!hasOp) {
+        await claimPendingInviteByEmail(user.email, user.id);
+      }
+      showApp(app);
+    }
   } else {
-    showAuth(app);
+    if (inviteToken) {
+      showAuth(app, inviteToken);
+    } else {
+      showAuth(app);
+    }
   }
 
-  // 4. Listen for auth state changes (logout, token expiry)
-  onAuthChange((changedUser) => {
+  // 5. Listen for auth state changes (logout, token expiry)
+  onAuthChange(async (changedUser) => {
     clear(app);
     if (changedUser) {
-      showApp(app);
+      // Check for pending invite token stored during auth
+      const storedToken = sessionStorage.getItem('gtho_invite_token');
+      if (storedToken) {
+        sessionStorage.removeItem('gtho_invite_token');
+        await handleInviteClaim(app, storedToken, changedUser);
+      } else {
+        // Email-based fallback on sign-in
+        const hasOp = await userHasOperation(changedUser.id);
+        if (!hasOp) {
+          await claimPendingInviteByEmail(changedUser.email, changedUser.id);
+        }
+        showApp(app);
+      }
     } else {
       showAuth(app);
     }
@@ -68,13 +103,79 @@ async function boot() {
 /**
  * Show the auth overlay.
  * @param {HTMLElement} app
+ * @param {string} [inviteToken] - If present, show invite context banner
  */
-function showAuth(app) {
+function showAuth(app, inviteToken) {
   clear(app);
+  if (inviteToken) {
+    // Store token for post-auth claim
+    sessionStorage.setItem('gtho_invite_token', inviteToken);
+    clearInviteHash();
+    // Show context banner above auth
+    app.appendChild(el('div', {
+      className: 'invite-banner',
+      'data-testid': 'invite-banner',
+    }, [t('members.inviteBanner')]));
+  }
   renderAuthOverlay(app, () => {
     clear(app);
     showApp(app);
   });
+}
+
+/**
+ * Handle invite claim after authentication.
+ * @param {HTMLElement} app
+ * @param {string} token
+ * @param {object} user
+ */
+async function handleInviteClaim(app, token, user) {
+  clearInviteHash();
+
+  // Check if user is already a member of any operation
+  const alreadyMember = await userHasOperation(user.id);
+
+  const result = await claimInviteByToken(token, user.id);
+
+  if (result.success) {
+    showApp(app);
+    // Toast after app renders
+    setTimeout(() => {
+      const toast = el('div', { className: 'export-toast', 'data-testid': 'invite-success-toast' }, [
+        t('members.welcomeToast'),
+      ]);
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 4000);
+    }, 500);
+  } else if (alreadyMember) {
+    // Already a member — just show the app
+    showApp(app);
+    setTimeout(() => {
+      const toast = el('div', { className: 'export-toast', 'data-testid': 'invite-already-member-toast' }, [
+        t('members.alreadyMember'),
+      ]);
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 4000);
+    }, 500);
+  } else {
+    // Invalid/expired token
+    clear(app);
+    app.appendChild(el('div', {
+      className: 'invite-error-screen',
+      'data-testid': 'invite-error',
+      style: { padding: 'var(--space-6)', textAlign: 'center' },
+    }, [
+      el('h2', {}, [t('members.inviteInvalid')]),
+      el('p', { style: { color: 'var(--text2)', marginTop: 'var(--space-3)' } }, [
+        t('members.inviteInvalidDesc'),
+      ]),
+      el('button', {
+        className: 'btn btn-green',
+        style: { marginTop: 'var(--space-4)' },
+        onClick: () => { clear(app); showApp(app); },
+      }, [t('members.goToApp')]),
+    ]));
+  }
 }
 
 /**

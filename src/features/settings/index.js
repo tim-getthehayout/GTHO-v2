@@ -19,6 +19,7 @@ import {
   renderAmendmentRefSheetMarkups,
 } from '../amendments/reference-tables.js';
 import { renderV1ImportButton } from './v1-import.js';
+import { openMemberManagementSheet, getCurrentUserRole, getMemberCount, renderMemberSheetMarkup } from './member-management.js';
 
 /**
  * Render the settings screen.
@@ -41,6 +42,7 @@ export function renderSettingsScreen(container) {
     renderUnitSection(container),
     renderFarmSection(farmSettings, container),
     renderPrefSection(userPrefs, container),
+    renderMembersSection(operationId),
     // Health reference tables (CP-32)
     renderAiBullsSection(operationId),
     renderTreatmentCategoriesSection(operationId),
@@ -56,6 +58,7 @@ export function renderSettingsScreen(container) {
     // Sheet markups for health reference tables
     ...renderHealthRefSheetMarkups(),
     ...renderAmendmentRefSheetMarkups(),
+    renderMemberSheetMarkup(),
   ]);
 
   container.appendChild(sections);
@@ -210,6 +213,37 @@ function renderPrefSection(prefs, rootContainer) {
       ]),
     ]),
   ]);
+}
+
+function renderMembersSection(operationId) {
+  const section = el('div', { className: 'card settings-card', 'data-testid': 'settings-members' }, [
+    el('h3', { className: 'settings-section-title' }, [t('members.sectionTitle')]),
+    el('div', { className: 'member-count-loading' }, [t('members.loading')]),
+  ]);
+
+  // Async load: determine role and member count
+  (async () => {
+    const role = await getCurrentUserRole(operationId);
+    const count = await getMemberCount(operationId);
+    const inner = section.querySelector('.member-count-loading');
+    if (!inner) return;
+    clear(section);
+    section.appendChild(el('h3', { className: 'settings-section-title' }, [t('members.sectionTitle')]));
+
+    if (role === 'owner' || role === 'admin') {
+      section.appendChild(el('button', {
+        className: 'btn btn-outline btn-sm',
+        'data-testid': 'settings-members-btn',
+        onClick: () => openMemberManagementSheet(operationId),
+      }, [t('members.manage', { count })]));
+    } else {
+      section.appendChild(el('span', { className: 'form-hint' }, [
+        t('members.countOnly', { count }),
+      ]));
+    }
+  })();
+
+  return section;
 }
 
 function renderAccountSection() {

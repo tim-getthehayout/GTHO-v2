@@ -135,8 +135,10 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('is initially empty at schema_version 14', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(0);
+    it('has migration entries for 14→15 and 15→16', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(2);
+      expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[15]).toBe('function');
     });
   });
 

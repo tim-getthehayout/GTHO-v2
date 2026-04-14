@@ -28,10 +28,11 @@ import { renderHarvestScreen } from './features/harvest/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { getFieldMode, setFieldMode, migrateUnitSystemFromLocalStorage } from './utils/preferences.js';
 
-// Register all calculations on import (CP-45/46/47)
+// Register all calculations on import (CP-45/46/47, CP-54)
 import './calcs/core.js';
 import './calcs/feed-forage.js';
 import './calcs/advanced.js';
+import './calcs/capacity.js';
 
 /**
  * Boot the application.

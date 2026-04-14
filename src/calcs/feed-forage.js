@@ -1,4 +1,4 @@
-/** @file Feed/forage calculation registrations — CP-46. 20 formulas (DMI, FOR, CST, FED domains). */
+/** @file Feed/forage calculation registrations — CP-46/CP-54. 21 formulas (DMI, FOR, CST, FED domains). */
 
 import { registerCalc } from '../utils/calc-registry.js';
 
@@ -420,6 +420,61 @@ registerCalc({
   },
   fn({ remainingDmKg }) {
     return remainingDmKg * 0.93;
+  },
+});
+
+// FOR-6: Forecast Standing DM at Date
+registerCalc({
+  name: 'FOR-6',
+  category: 'forage',
+  description: 'Projected standing dry matter for a paddock at a future date, used by rotation calendar future forecast blocks',
+  formula: 'forecast_dm_kg = (growth_cm_per_day × days_since_close × effective_area × cover_pct/100 × dm_kg_per_cm_per_ha) + residual_dm_kg',
+  source: 'V2_CALCULATION_SPEC.md §4.3',
+  notes: 'Forecast-only: target_date < observed_at is invalid. Strip grazing: each strip has its own close observation and forecast curve; whole-paddock forecast = sum of strip forecasts.',
+  inputs: [
+    { name: 'observedAt', type: 'date', unit: 'ISO date', notes: 'Close observation date' },
+    { name: 'residualHeightCm', type: 'number', unit: 'cm' },
+    { name: 'targetDate', type: 'date', unit: 'ISO date' },
+    { name: 'areaHectares', type: 'number', unit: 'ha' },
+    { name: 'areaPct', type: 'number', unit: '%', notes: 'Strip grazing only; use 100 for whole paddock' },
+    { name: 'coverPct', type: 'number', unit: '%' },
+    { name: 'dmKgPerCmPerHa', type: 'number', unit: 'kg/cm/ha', configKey: 'forage_types.dm_kg_per_cm_per_ha' },
+    { name: 'growthCmPerDay', type: 'number', unit: 'cm/day', configKey: 'forage_types.growth_cm_per_day' },
+    { name: 'recoveryMinDays', type: 'integer', unit: 'days' },
+    { name: 'recoveryMaxDays', type: 'integer', unit: 'days' },
+  ],
+  output: { type: 'object', shape: '{ forecastDmKg, confidence }', unit: 'kg / enum' },
+  example: {
+    inputs: {
+      observedAt: '2024-06-01', residualHeightCm: 5, targetDate: '2024-06-22',
+      areaHectares: 2, areaPct: 100, coverPct: 80, dmKgPerCmPerHa: 110,
+      growthCmPerDay: 0.5, recoveryMinDays: 21, recoveryMaxDays: 35,
+    },
+    output: { forecastDmKg: 1848, confidence: 'min' },
+  },
+  fn({ observedAt, residualHeightCm, targetDate, areaHectares, areaPct, coverPct, dmKgPerCmPerHa, growthCmPerDay, recoveryMinDays, recoveryMaxDays }) {
+    const obsDate = new Date(observedAt);
+    const tgtDate = new Date(targetDate);
+    const daysSinceClose = Math.round((tgtDate - obsDate) / 86400000);
+    if (daysSinceClose < 0) return { forecastDmKg: 0, confidence: 'min' };
+
+    const effectiveArea = areaHectares * ((areaPct ?? 100) / 100);
+    const grownHeight = growthCmPerDay * daysSinceClose;
+    const totalHeight = residualHeightCm + grownHeight;
+    const forecastDmKg = totalHeight * effectiveArea * (coverPct / 100) * dmKgPerCmPerHa;
+
+    let confidence;
+    if (daysSinceClose <= recoveryMinDays) {
+      confidence = 'min';
+    } else if (daysSinceClose < recoveryMaxDays) {
+      confidence = 'mid';
+    } else if (daysSinceClose === recoveryMaxDays) {
+      confidence = 'max';
+    } else {
+      confidence = 'past_max';
+    }
+
+    return { forecastDmKg, confidence };
   },
 });
 

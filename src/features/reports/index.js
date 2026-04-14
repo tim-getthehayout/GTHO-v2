@@ -1,4 +1,4 @@
-/** @file Reports screen — CP-48 through CP-51. Report tabs + reference console. */
+/** @file Reports screen — CP-48 through CP-51, CP-54. Report tabs + reference console. */
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, getById } from '../../data/store.js';
@@ -16,6 +16,8 @@ const TABS = [
   { key: 'npk',       labelKey: 'reports.tabNpk' },
   { key: 'animals',   labelKey: 'reports.tabAnimals' },
   { key: 'season',    labelKey: 'reports.tabSeason' },
+  { key: 'surveys',   labelKey: 'reports.tabSurveys' },
+  { key: 'weaning',   labelKey: 'reports.tabWeaning' },
   { key: 'reference', labelKey: 'reports.tabReference' },
 ];
 
@@ -49,6 +51,8 @@ export function renderReportsScreen(container) {
       case 'npk':       contentEl.appendChild(renderNpkTab()); break;
       case 'animals':   contentEl.appendChild(renderAnimalsTab()); break;
       case 'season':    contentEl.appendChild(renderSeasonTab()); break;
+      case 'surveys':   contentEl.appendChild(renderPlaceholderTab('Pasture Surveys')); break;
+      case 'weaning':   contentEl.appendChild(renderPlaceholderTab('Weaning')); break;
       case 'reference': contentEl.appendChild(renderReferenceConsole()); break;
     }
   };
@@ -67,6 +71,21 @@ export function renderReportsScreen(container) {
 
   // Render initial tab
   renderTab(activeTab);
+}
+
+// ---------------------------------------------------------------------------
+// Placeholder tabs (CP-54: Pasture Surveys, Weaning — pending implementation)
+// ---------------------------------------------------------------------------
+
+function renderPlaceholderTab(tabName) {
+  return el('div', {
+    'data-testid': `reports-placeholder-${tabName.toLowerCase().replace(/\s+/g, '-')}`,
+    style: { padding: 'var(--space-8)', textAlign: 'center' },
+  }, [
+    el('p', { style: { color: 'var(--text2)' } }, [
+      `${tabName} reports coming soon.`,
+    ]),
+  ]);
 }
 
 // ---------------------------------------------------------------------------

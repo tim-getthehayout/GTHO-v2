@@ -1,4 +1,4 @@
-/** @file Events screen — CP-17. Event create & list with location picker. */
+/** @file Events screen — CP-17, CP-54. Orchestrates calendar/list view + mobile fallback. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
@@ -18,6 +18,10 @@ import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
 import { openCloseEventSheet } from './close.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
+import { readStateFromUrl, getCalendarState } from './calendar-state.js';
+import { renderCalendarGrid } from './rotation-calendar/calendar-grid.js';
+import { renderEventsLog } from './list-view/events-log.js';
+import { renderMobileEventsScreen } from './mobile-events-screen.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -62,19 +66,35 @@ export function renderEventsScreen(container) {
   const operationId = operations[0].id;
   const farmId = farms[0].id;
 
-  const screenEl = el('div', { 'data-testid': 'events-screen' }, [
-    el('div', { className: 'screen-action-bar' }, [
-      el('h1', { className: 'screen-heading', style: { marginBottom: '0' } }, [t('event.title')]),
-      el('button', {
-        className: 'btn btn-green btn-sm',
-        'data-testid': 'events-create-btn',
-        onClick: () => openCreateEventSheet(operationId, farmId),
-      }, [t('event.createEvent')]),
-    ]),
+  // Read calendar state from URL (deep-link support)
+  readStateFromUrl();
 
-    // Event list
-    el('div', { 'data-testid': 'events-list' }),
+  // Mobile fallback: no calendar below 900px (§19.7)
+  const isMobile = window.innerWidth < 900;
 
+  const screenEl = el('div', { className: 'events-screen', 'data-testid': 'events-screen' });
+
+  if (isMobile) {
+    // Mobile: GRZ-11 banner + GRZ-10 events log, no calendar
+    renderMobileEventsScreen(screenEl);
+  } else {
+    // Desktop: calendar or list view based on state
+    const calendarContainer = el('div', { 'data-testid': 'calendar-container' });
+    renderCalendarGrid(calendarContainer);
+
+    screenEl.appendChild(calendarContainer);
+
+    // If list view is active, also render the events log below the header strip
+    const state = getCalendarState();
+    if (state.view === 'list') {
+      const listContainer = el('div');
+      renderEventsLog(listContainer);
+      screenEl.appendChild(listContainer);
+    }
+  }
+
+  // Sheet wrappers (needed by both views for event management actions)
+  const sheetsContainer = el('div', { className: 'events-sheets' }, [
     // Create event sheet
     renderCreateEventSheetMarkup(),
 
@@ -133,12 +153,17 @@ export function renderEventsScreen(container) {
     ]),
   ]);
 
+  screenEl.appendChild(sheetsContainer);
   container.appendChild(screenEl);
-  renderEventList(container);
 
-  unsubs.push(subscribe('events', () => renderEventList(container)));
-  unsubs.push(subscribe('eventPaddockWindows', () => renderEventList(container)));
-  unsubs.push(subscribe('eventGroupWindows', () => renderEventList(container)));
+  // Create event button (floating action for mobile, or accessible from list view)
+  // Keep subscriptions for sheet-based event management
+  unsubs.push(subscribe('events', () => {
+    const state = getCalendarState();
+    if (isMobile || state.view === 'list') {
+      // Re-render will happen via the calendar grid's own re-render, or via list refresh
+    }
+  }));
 }
 
 // Backdrop sheet refs — lazily resolved so each sub-module owns its own Sheet instance.

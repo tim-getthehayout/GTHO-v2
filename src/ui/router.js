@@ -39,7 +39,8 @@ export function navigate(hash) {
  * Handle the current hash route.
  */
 function handleRoute() {
-  const hash = window.location.hash || '#/';
+  const rawHash = window.location.hash || '#/';
+  const hash = rawHash.split('?')[0];
   const renderFn = routes[hash] || routes['#/'];
 
   if (appContainer && renderFn) {

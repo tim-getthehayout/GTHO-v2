@@ -187,6 +187,14 @@ Cowork writes spec files to `github/issues/`. Files without a `GH-` prefix are u
 1. Create a GitHub issue: `gh issue create --title "TITLE" --body "$(cat github/issues/FILENAME.md)" --label "LABELS"`
 2. Rename the file: `FILENAME.md` → `GH-{number}_FILENAME.md`
 
+### Closing GitHub Issues
+
+When all acceptance criteria in a GitHub issue have been implemented, tested, and committed, close the issue:
+```
+gh issue close {number} --comment "Completed in commit {hash}. All acceptance criteria met, {N} tests passing."
+```
+Close the issue in the same session that completes the work — do not leave implemented issues open.
+
 ### Session Brief Handoff
 
 When a SESSION_BRIEF is provided, look for `## OPEN_ITEMS changes` and apply all entries to `OPEN_ITEMS.md` before starting implementation work.

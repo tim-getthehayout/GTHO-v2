@@ -4,7 +4,7 @@ import { FIELDS, create, validate, toSupabaseShape, fromSupabaseShape } from '..
 
 describe('entity: operation', () => {
   it('exports FIELDS with all columns', () => {
-    expect(Object.keys(FIELDS)).toEqual(['id', 'name', 'timezone', 'currency', 'unitSystem', 'archived', 'createdAt', 'updatedAt']);
+    expect(Object.keys(FIELDS)).toEqual(['id', 'name', 'timezone', 'currency', 'unitSystem', 'schemaVersion', 'archived', 'createdAt', 'updatedAt']);
   });
 
   it('every FIELDS entry has sbColumn', () => {
@@ -95,6 +95,22 @@ describe('entity: operation', () => {
       const record = create({ name: 'Metric Op', unitSystem: 'metric' });
       const roundTripped = fromSupabaseShape(toSupabaseShape(record));
       expect(roundTripped.unitSystem).toBe('metric');
+      expect(roundTripped).toEqual(record);
+    });
+  });
+
+  describe('schemaVersion (CP-55)', () => {
+    it('defaults to 14', () => {
+      const record = create({ name: 'Test' });
+      expect(record.schemaVersion).toBe(14);
+    });
+
+    it('round-trips through Supabase shape', () => {
+      const record = create({ name: 'Test', schemaVersion: 15 });
+      const sb = toSupabaseShape(record);
+      expect(sb.schema_version).toBe(15);
+      const roundTripped = fromSupabaseShape(sb);
+      expect(roundTripped.schemaVersion).toBe(15);
       expect(roundTripped).toEqual(record);
     });
   });

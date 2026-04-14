@@ -2821,3 +2821,39 @@ body.field-mode .sheet-panel {
   color: var(--text2);
   margin-top: var(--space-2);
 }
+
+/* ── Export backup — CP-55 ──────────────────────────────────────── */
+
+.export-progress-bar {
+  height: 8px;
+  background: var(--bg3);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.export-progress-fill {
+  height: 100%;
+  background: var(--color-green-base);
+  border-radius: var(--radius-full);
+  width: 0;
+  transition: width 0.2s ease;
+}
+
+.export-toast {
+  position: fixed;
+  bottom: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: #fff;
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  z-index: 9999;
+  animation: toast-fade 4s ease forwards;
+}
+
+@keyframes toast-fade {
+  0%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}

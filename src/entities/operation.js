@@ -1,14 +1,15 @@
-/** @file Entity: operations — V2_SCHEMA_DESIGN.md §1.1 */
+/** @file Entity: operations — V2_SCHEMA_DESIGN.md §1.1, CP-55 schema_version */
 
 export const FIELDS = {
-  id:         { type: 'uuid',        required: false, sbColumn: 'id' },
-  name:       { type: 'text',        required: true,  sbColumn: 'name' },
-  timezone:   { type: 'text',        required: false, sbColumn: 'timezone' },
-  currency:   { type: 'text',        required: false, sbColumn: 'currency' },
-  unitSystem: { type: 'text',        required: false, sbColumn: 'unit_system' },
-  archived:   { type: 'boolean',     required: false, sbColumn: 'archived' },
-  createdAt:  { type: 'timestamptz', required: false, sbColumn: 'created_at' },
-  updatedAt:  { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
+  id:            { type: 'uuid',        required: false, sbColumn: 'id' },
+  name:          { type: 'text',        required: true,  sbColumn: 'name' },
+  timezone:      { type: 'text',        required: false, sbColumn: 'timezone' },
+  currency:      { type: 'text',        required: false, sbColumn: 'currency' },
+  unitSystem:    { type: 'text',        required: false, sbColumn: 'unit_system' },
+  schemaVersion: { type: 'integer',     required: false, sbColumn: 'schema_version' },
+  archived:      { type: 'boolean',     required: false, sbColumn: 'archived' },
+  createdAt:     { type: 'timestamptz', required: false, sbColumn: 'created_at' },
+  updatedAt:     { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
 
 /**
@@ -23,6 +24,7 @@ export function create(data = {}) {
     timezone: data.timezone ?? null,
     currency: data.currency ?? 'USD',
     unitSystem: data.unitSystem ?? 'imperial',
+    schemaVersion: data.schemaVersion ?? 14,
     archived: data.archived ?? false,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
@@ -58,6 +60,7 @@ export function toSupabaseShape(record) {
     timezone: record.timezone,
     currency: record.currency,
     unit_system: record.unitSystem,
+    schema_version: record.schemaVersion,
     archived: record.archived,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
@@ -76,6 +79,7 @@ export function fromSupabaseShape(row) {
     timezone: row.timezone,
     currency: row.currency,
     unitSystem: row.unit_system,
+    schemaVersion: row.schema_version,
     archived: row.archived,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

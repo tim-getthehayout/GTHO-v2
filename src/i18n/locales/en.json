@@ -687,13 +687,22 @@
     "account": "Account",
     "displayName": "Display Name",
     "email": "Email",
+    "syncAndData": "Sync & Data",
     "syncStatus": "Sync Status",
     "syncIdle": "Connected",
     "syncSyncing": "Syncing…",
     "syncError": "Sync Error",
     "syncOffline": "Offline",
     "queueCount": "{count} items queued",
-    "saved": "Settings saved"
+    "saved": "Settings saved",
+    "exportBackup": "Export backup",
+    "exportConfirmBody": "Export backup of {name}? This downloads a file containing all data for this operation.",
+    "exportPrivacyWarning": "This file contains your full operation data including animal records and notes. Store it somewhere private.",
+    "exportConfirm": "Export",
+    "exportSyncPending": "Sync pending — retry when sync completes.",
+    "exportingLabel": "Exporting…",
+    "exportSuccess": "Backup exported successfully.",
+    "exportError": "Export failed. Please try again."
   },
   "fieldMode": {
     "title": "Field Mode",

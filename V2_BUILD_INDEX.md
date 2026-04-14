@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.4 Advanced — CP-54 (Rotation calendar) **COMPLETE** (commit `7141425`). GH-4 strip grazing bundled and landed with it. OI-0001 closed.
-**Next up:** CP-55 — Export — JSON backup. **Ready for pickup.** Backup format defined authoritatively in V2_MIGRATION_PLAN.md §5 (12 subsections covering design principles, envelope shape, tables included/excluded, serialization rules, export procedure, CP-56 import details, missing-column handling, migration chain registry, security, schema version stamping, round-trip test). V2_UX_FLOWS.md §20 Settings Screen added — closes the GH-3 reconciliation gap and defines entry points for Export/Import/Migrate/Resync. CLAUDE.md "Export/Import Spec Sync Rule" added so future schema changes stay in sync with §5. Implementation spec at `github/issues/cp-55-export-json-backup.md`. Initial `schema_version` is 14 (reflecting all amendments through 2026-04-13: strip grazing columns, `operations.unit_system`, `user_preferences.active_farm_id`, `events.source_event_id`, `npk_price_history`, `animal_notes`, `animal_classes` rename/splits, `animal_calving_records.dried_off_date`, `farm_settings` forage quality scale, `app_logs` +operation_id/+context). Migration 015 stamps `operations.schema_version` and ships with CP-55.
+**Active work:** Phase 3.4 Advanced — CP-55 (Export — JSON backup) **COMPLETE**. Migration 015 (`operations.schema_version`), backup-export.js (49 tables, Supabase-read with pagination, §5.2 envelope), backup-migrations.js (empty registry at v14), Settings export button with confirm/progress/download flow, offline/sync guard. 653 tests passing.
+**Next up:** CP-56 — Import — JSON restore. Spec at V2_MIGRATION_PLAN.md §5.7–§5.9. Needs its own spec file in `github/issues/`.
 
 ---
 

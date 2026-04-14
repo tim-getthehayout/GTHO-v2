@@ -1,8 +1,9 @@
-/** @file Settings screen — farm settings, user prefs, account, sync status */
+/** @file Settings screen — farm settings, user prefs, account, sync status, backup */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, update, getSyncAdapter, getOperation, setUnitSystem } from '../../data/store.js';
+import { canExport, exportOperationBackup, downloadBackup } from '../../data/backup-export.js';
 import { validate as validateFarmSetting } from '../../entities/farm-setting.js';
 import { validate as validateUserPref } from '../../entities/user-preference.js';
 import { logout } from '../auth/session.js';
@@ -221,13 +222,142 @@ function renderSyncSection() {
     offline: t('settings.syncOffline'),
   };
 
+  const operation = getOperation();
+  const opName = operation ? operation.name : '';
+
+  // Export backup button (§20.3)
+  const exportBtn = el('button', {
+    className: 'btn btn-outline btn-sm',
+    'data-testid': 'settings-export-backup-btn',
+    onClick: () => handleExportClick(opName, operation),
+  }, [t('settings.exportBackup')]);
+
   return el('div', { className: 'card settings-card' }, [
-    el('h3', { className: 'settings-section-title' }, [t('settings.syncStatus')]),
+    el('h3', { className: 'settings-section-title' }, [t('settings.syncAndData')]),
     el('div', { className: 'sync-status', 'data-testid': 'settings-sync-status' }, [
       el('span', { className: `sync-dot sync-${status}` }),
       el('span', {}, [statusLabels[status] || status]),
     ]),
+    el('div', { style: { marginTop: 'var(--space-4)' } }, [exportBtn]),
+    // Export confirm/progress sheets mount here
+    el('div', { id: 'export-sheet-mount' }),
   ]);
+}
+
+/**
+ * Handle export button click — show confirm, then progress, then download.
+ * @param {string} opName
+ * @param {object} operation
+ */
+function handleExportClick(opName, operation) {
+  const check = canExport();
+  if (!check.ok) {
+    showExportToast(t('settings.exportSyncPending'));
+    return;
+  }
+
+  if (!operation) return;
+
+  // Show confirm sheet
+  const mount = document.getElementById('export-sheet-mount');
+  if (!mount) return;
+  clear(mount);
+
+  const warningText = t('settings.exportPrivacyWarning');
+  const confirmText = t('settings.exportConfirmBody').replace('{name}', opName);
+
+  const confirmSheet = el('div', {
+    className: 'card',
+    style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)' },
+    'data-testid': 'export-confirm-sheet',
+  }, [
+    el('p', { style: { marginBottom: 'var(--space-3)' } }, [confirmText]),
+    el('p', { style: { fontSize: '0.8125rem', color: 'var(--text2)', marginBottom: 'var(--space-4)' } }, [warningText]),
+    el('div', { className: 'btn-row' }, [
+      el('button', {
+        className: 'btn btn-green btn-sm',
+        'data-testid': 'export-confirm-btn',
+        onClick: () => runExport(mount, operation),
+      }, [t('settings.exportConfirm')]),
+      el('button', {
+        className: 'btn btn-outline btn-sm',
+        onClick: () => clear(mount),
+      }, [t('action.cancel')]),
+    ]),
+  ]);
+
+  mount.appendChild(confirmSheet);
+}
+
+/**
+ * Run the actual export with progress UI.
+ * @param {HTMLElement} mount
+ * @param {object} operation
+ */
+async function runExport(mount, operation) {
+  clear(mount);
+
+  const progressLabel = el('span', {}, ['0%']);
+  const progressBar = el('div', { className: 'export-progress-bar' });
+  const progressFill = el('div', { className: 'export-progress-fill' });
+  progressBar.appendChild(progressFill);
+
+  const progressSheet = el('div', {
+    className: 'card',
+    style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)' },
+    'data-testid': 'export-progress-sheet',
+  }, [
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-3)' } }, [
+      el('span', {}, [t('settings.exportingLabel')]),
+      progressLabel,
+    ]),
+    progressBar,
+  ]);
+
+  mount.appendChild(progressSheet);
+
+  try {
+    const { json, fileName } = await exportOperationBackup(
+      operation.id,
+      (_table, pct) => {
+        progressLabel.textContent = `${pct}%`;
+        progressFill.style.width = `${pct}%`;
+      }
+    );
+
+    downloadBackup(json, fileName);
+
+    clear(mount);
+    mount.appendChild(el('div', {
+      className: 'card',
+      style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)', color: 'var(--color-green-dark)' },
+      'data-testid': 'export-success',
+    }, [t('settings.exportSuccess')]));
+  } catch (err) {
+    clear(mount);
+    mount.appendChild(el('div', {
+      className: 'card',
+      style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)', color: 'var(--color-red-base)' },
+      'data-testid': 'export-error',
+    }, [t('settings.exportError')]));
+  }
+}
+
+/**
+ * Show a temporary toast message.
+ * @param {string} message
+ */
+function showExportToast(message) {
+  const existing = document.querySelector('[data-testid="export-toast"]');
+  if (existing) existing.remove();
+
+  const toast = el('div', {
+    className: 'export-toast',
+    'data-testid': 'export-toast',
+  }, [message]);
+
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
 }
 
 function rerender(container) {

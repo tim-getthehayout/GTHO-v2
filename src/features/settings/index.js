@@ -5,8 +5,9 @@ import { t } from '../../i18n/i18n.js';
 import { getAll, update, getSyncAdapter, getOperation, setUnitSystem } from '../../data/store.js';
 import { canExport, exportOperationBackup, downloadBackup } from '../../data/backup-export.js';
 import { validateBackup, getBackupPreview, importOperationBackup } from '../../data/backup-import.js';
-import { validate as validateFarmSetting } from '../../entities/farm-setting.js';
-import { validate as validateUserPref } from '../../entities/user-preference.js';
+import { pushAllToSupabase } from '../../data/push-all.js';
+import { validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
+import { validate as validateUserPref, toSupabaseShape as prefToSb } from '../../entities/user-preference.js';
 import { logout } from '../auth/session.js';
 import {
   renderAiBullsSection, renderTreatmentCategoriesSection,
@@ -152,7 +153,7 @@ function renderFarmSection(fs, _rootContainer) {
         }
         changes.recoveryRequired = recoveryCheckbox.checked;
         try {
-          update('farmSettings', fs.id, changes, validateFarmSetting);
+          update('farmSettings', fs.id, changes, validateFarmSetting, fsToSb, 'farm_settings');
           clear(statusEl);
           statusEl.className = 'auth-info';
           statusEl.appendChild(el('span', {}, [t('settings.saved')]));
@@ -177,7 +178,7 @@ function renderPrefSection(prefs, rootContainer) {
           className: `btn btn-sm ${prefs.defaultViewMode === 'detail' ? 'btn-green' : 'btn-outline'}`,
           'data-testid': 'settings-pref-detail',
           onClick: () => {
-            update('userPreferences', prefs.id, { defaultViewMode: 'detail' }, validateUserPref);
+            update('userPreferences', prefs.id, { defaultViewMode: 'detail' }, validateUserPref, prefToSb, 'user_preferences');
             rerender(rootContainer);
           },
         }, [t('settings.viewDetail')]),
@@ -185,7 +186,7 @@ function renderPrefSection(prefs, rootContainer) {
           className: `btn btn-sm ${prefs.defaultViewMode === 'field' ? 'btn-green' : 'btn-outline'}`,
           'data-testid': 'settings-pref-field',
           onClick: () => {
-            update('userPreferences', prefs.id, { defaultViewMode: 'field' }, validateUserPref);
+            update('userPreferences', prefs.id, { defaultViewMode: 'field' }, validateUserPref, prefToSb, 'user_preferences');
             rerender(rootContainer);
           },
         }, [t('settings.viewField')]),
@@ -198,7 +199,7 @@ function renderPrefSection(prefs, rootContainer) {
           className: `btn btn-sm ${prefs.homeViewMode === 'groups' ? 'btn-green' : 'btn-outline'}`,
           'data-testid': 'settings-pref-groups',
           onClick: () => {
-            update('userPreferences', prefs.id, { homeViewMode: 'groups' }, validateUserPref);
+            update('userPreferences', prefs.id, { homeViewMode: 'groups' }, validateUserPref, prefToSb, 'user_preferences');
             rerender(rootContainer);
           },
         }, [t('settings.homeGroups')]),
@@ -206,7 +207,7 @@ function renderPrefSection(prefs, rootContainer) {
           className: `btn btn-sm ${prefs.homeViewMode === 'locations' ? 'btn-green' : 'btn-outline'}`,
           'data-testid': 'settings-pref-locations',
           onClick: () => {
-            update('userPreferences', prefs.id, { homeViewMode: 'locations' }, validateUserPref);
+            update('userPreferences', prefs.id, { homeViewMode: 'locations' }, validateUserPref, prefToSb, 'user_preferences');
             rerender(rootContainer);
           },
         }, [t('settings.homeLocations')]),
@@ -316,6 +317,21 @@ function renderSyncSection() {
       el('span', {}, [statusLabels[status] || status]),
     ]),
     el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [exportBtn, importBtn, fileInput, v1ImportBtn]),
+    el('button', {
+      className: 'btn btn-outline btn-sm',
+      style: { marginTop: 'var(--space-3)' },
+      'data-testid': 'settings-resync-btn',
+      onClick: async (e) => {
+        e.target.disabled = true;
+        e.target.textContent = t('settings.resyncing');
+        const { queued } = await pushAllToSupabase();
+        e.target.textContent = t('settings.resyncDone', { count: queued });
+        setTimeout(() => {
+          e.target.textContent = t('settings.resync');
+          e.target.disabled = false;
+        }, 3000);
+      },
+    }, [t('settings.resync')]),
     // Export/import sheets mount here
     sheetMount,
   ]);

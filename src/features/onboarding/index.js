@@ -4,17 +4,17 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { add, getAll } from '../../data/store.js';
 import { getUser } from '../auth/session.js';
-import { create as createOperation, validate as validateOperation } from '../../entities/operation.js';
-import { create as createFarm, validate as validateFarm } from '../../entities/farm.js';
-import { create as createFarmSetting, validate as validateFarmSetting } from '../../entities/farm-setting.js';
-import { create as createOpMember, validate as validateOpMember } from '../../entities/operation-member.js';
-import { create as createUserPref, validate as validateUserPref } from '../../entities/user-preference.js';
-import { create as createAnimalClass, validate as validateAnimalClass } from '../../entities/animal-class.js';
-import { create as createTreatmentCat, validate as validateTreatmentCat } from '../../entities/treatment-category.js';
-import { create as createInputProductCat, validate as validateInputProductCat } from '../../entities/input-product-category.js';
-import { create as createForageType, validate as validateForageType } from '../../entities/forage-type.js';
-import { create as createDoseUnit, validate as validateDoseUnit } from '../../entities/dose-unit.js';
-import { create as createInputProductUnit, validate as validateInputProductUnit } from '../../entities/input-product-unit.js';
+import { create as createOperation, validate as validateOperation, toSupabaseShape as opToSb } from '../../entities/operation.js';
+import { create as createFarm, validate as validateFarm, toSupabaseShape as farmToSb } from '../../entities/farm.js';
+import { create as createFarmSetting, validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
+import { create as createOpMember, validate as validateOpMember, toSupabaseShape as memberToSb } from '../../entities/operation-member.js';
+import { create as createUserPref, validate as validateUserPref, toSupabaseShape as prefToSb } from '../../entities/user-preference.js';
+import { create as createAnimalClass, validate as validateAnimalClass, toSupabaseShape as classToSb } from '../../entities/animal-class.js';
+import { create as createTreatmentCat, validate as validateTreatmentCat, toSupabaseShape as treatCatToSb } from '../../entities/treatment-category.js';
+import { create as createInputProductCat, validate as validateInputProductCat, toSupabaseShape as prodCatToSb } from '../../entities/input-product-category.js';
+import { create as createForageType, validate as validateForageType, toSupabaseShape as forageToSb } from '../../entities/forage-type.js';
+import { create as createDoseUnit, validate as validateDoseUnit, toSupabaseShape as doseUnitToSb } from '../../entities/dose-unit.js';
+import { create as createInputProductUnit, validate as validateInputProductUnit, toSupabaseShape as prodUnitToSb } from '../../entities/input-product-unit.js';
 import {
   ANIMAL_CLASSES_BY_SPECIES,
   DEFAULT_TREATMENT_CATEGORIES,
@@ -301,7 +301,7 @@ async function executeOnboarding(data) {
     timezone: data.timezone,
     unitSystem: data.unitSystem,
   });
-  add('operations', operation, validateOperation);
+  add('operations', operation, validateOperation, opToSb, 'operations');
 
   // 2. Create farm
   const farm = createFarm({
@@ -309,14 +309,14 @@ async function executeOnboarding(data) {
     name: data.farmName,
     areaHectares: data.farmArea ? parseFloat(data.farmArea) : null,
   });
-  add('farms', farm, validateFarm);
+  add('farms', farm, validateFarm, farmToSb, 'farms');
 
   // 3. Create farm_settings with defaults
   const farmSettings = createFarmSetting({
     farmId: farm.id,
     operationId: operation.id,
   });
-  add('farmSettings', farmSettings, validateFarmSetting);
+  add('farmSettings', farmSettings, validateFarmSetting, fsToSb, 'farm_settings');
 
   // 4. Create operation_member (current user as owner)
   const member = createOpMember({
@@ -327,14 +327,14 @@ async function executeOnboarding(data) {
     role: 'owner',
     acceptedAt: new Date().toISOString(),
   });
-  add('operationMembers', member, validateOpMember);
+  add('operationMembers', member, validateOpMember, memberToSb, 'operation_members');
 
   // 5. Create user_preferences with defaults
   const prefs = createUserPref({
     operationId: operation.id,
     userId: userId,
   });
-  add('userPreferences', prefs, validateUserPref);
+  add('userPreferences', prefs, validateUserPref, prefToSb, 'user_preferences');
 
   // 6. Seed animal_classes based on species selection
   for (const species of data.species) {
@@ -353,7 +353,7 @@ async function executeOnboarding(data) {
         excretionKRate: cls.excretionKRate,
         weaningAgeDays: cls.weaningAgeDays,
       });
-      add('animalClasses', animalClass, validateAnimalClass);
+      add('animalClasses', animalClass, validateAnimalClass, classToSb, 'animal_classes');
     }
   }
 
@@ -363,7 +363,7 @@ async function executeOnboarding(data) {
       operationId: operation.id,
       name,
       isDefault: true,
-    }), validateTreatmentCat);
+    }), validateTreatmentCat, treatCatToSb, 'treatment_categories');
   }
 
   // 8. Seed default input_product_categories
@@ -372,7 +372,7 @@ async function executeOnboarding(data) {
       operationId: operation.id,
       name,
       isDefault: true,
-    }), validateInputProductCat);
+    }), validateInputProductCat, prodCatToSb, 'input_product_categories');
   }
 
   // 9. Seed default forage_types
@@ -385,20 +385,20 @@ async function executeOnboarding(data) {
       minResidualHeightCm: ft.minResidualHeightCm,
       utilizationPct: ft.utilizationPct,
       isSeeded: true,
-    }), validateForageType);
+    }), validateForageType, forageToSb, 'forage_types');
   }
 
   // 10. Seed default dose_units (shared — no operation_id)
   if (getAll('doseUnits').length === 0) {
     for (const name of DEFAULT_DOSE_UNITS) {
-      add('doseUnits', createDoseUnit({ name }), validateDoseUnit);
+      add('doseUnits', createDoseUnit({ name }), validateDoseUnit, doseUnitToSb, 'dose_units');
     }
   }
 
   // 11. Seed default input_product_units (shared — no operation_id)
   if (getAll('inputProductUnits').length === 0) {
     for (const name of DEFAULT_INPUT_PRODUCT_UNITS) {
-      add('inputProductUnits', createInputProductUnit({ name }), validateInputProductUnit);
+      add('inputProductUnits', createInputProductUnit({ name }), validateInputProductUnit, prodUnitToSb, 'input_product_units');
     }
   }
 }

@@ -4,7 +4,7 @@
 
 ---
 
-### OI-0049 — Onboarding & Settings Records Never Sync to Supabase
+### OI-0050 — Onboarding & Settings Records Never Sync to Supabase
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P1
 **Checkpoint:** pre-CP-66
 **Status:** open — code fix required

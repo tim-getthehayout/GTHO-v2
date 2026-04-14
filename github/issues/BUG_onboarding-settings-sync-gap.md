@@ -86,7 +86,7 @@ Same pattern for `update()` — add `toSupabaseFn` and `table` as params 5 and 6
 
 ## Related OIs
 
-- OI-0049 (new — onboarding & settings sync gap)
+- OI-0050 (new — onboarding & settings sync gap)
 
 ## Notes
 

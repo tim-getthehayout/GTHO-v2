@@ -72,14 +72,14 @@ git push
 **Plugin:** project-infrastructure
 **Skill:** deploy-gate
 **What:** Add a pre-commit check that verifies every `add()` call has 5 params, every `update()` call has 6 params, and every `remove()` call has 3 params when calling through the store. Missing sync params (`toSupabaseFn`, `table`) cause records to save to localStorage but silently skip Supabase sync. A simple grep/regex check catches this at commit time.
-**Why:** OI-0049 — 15 broken calls across onboarding and settings went undetected through all unit and e2e tests because the app reads from localStorage first. The sync gap was invisible to UI-level testing. A single-user tester would never notice; the bug only surfaces in multi-user scenarios or when localStorage is cleared.
+**Why:** OI-0050 — 15 broken calls across onboarding and settings went undetected through all unit and e2e tests because the app reads from localStorage first. The sync gap was invisible to UI-level testing. A single-user tester would never notice; the bug only surfaces in multi-user scenarios or when localStorage is cleared.
 **Where:** deploy-gate SKILL.md — add as a code quality check. CLAUDE.md template — include in the "Code Quality Checks" section for any project using a store + sync adapter pattern.
 
 ### 8. E2E tests must verify Supabase state, not just UI state
 **Plugin:** project-infrastructure
 **Skill:** deploy-gate, project-scaffold
 **What:** E2E tests for any app with a sync layer must include Supabase (or backend) verification after every write operation. The test should query the database directly to confirm the record exists, not just check that the UI rendered correctly. The app's localStorage-first read pattern makes broken sync paths invisible to UI-only assertions.
-**Why:** Same root cause as #7 (OI-0049). The smoke test (CP-23) ran through the full onboarding and event lifecycle, all assertions passed, but zero records existed in Supabase. The e2e test was testing "does the UI work with localStorage" rather than "does the full system work." This is a general principle for any offline-first app.
+**Why:** Same root cause as #7 (OI-0050). The smoke test (CP-23) ran through the full onboarding and event lifecycle, all assertions passed, but zero records existed in Supabase. The e2e test was testing "does the UI work with localStorage" rather than "does the full system work." This is a general principle for any offline-first app.
 **How to apply:** After any e2e step that creates or updates a record, add a direct database query assertion:
 ```js
 const { data } = await supabase.from('table').select('id').eq('id', expectedId);

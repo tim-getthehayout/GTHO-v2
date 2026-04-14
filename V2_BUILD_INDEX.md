@@ -2,7 +2,7 @@
 
 **Purpose:** Master index for the v2 rebuild. Maps every design doc, tracks design and build progress, and serves as the handoff document between sessions. **Any new session starts here.**
 
-**Last updated:** 2026-04-13
+**Last updated:** 2026-04-14
 **Current phase:** Phase 3 — Build (IN PROGRESS)
 
 ---
@@ -31,8 +31,8 @@
 ## Current Focus
 
 **Phase:** 3 — Build
-**Active work:** Phase 3.4 Advanced — CP-56 (Import — JSON restore) **COMPLETE**. backup-import.js (§5.7 steps 1-10, FK-ordered replace per §5.3a, two-pass animals/events, reference table upsert, auto-backup safety net, parity check). Settings import button with preview/confirm/progress flow. 680 tests passing.
-**Next up:** CP-57 — v1 → v2 migration tool. Spec at V2_MIGRATION_PLAN.md §1–§2.
+**Active work:** Phase 3.4 Advanced — CP-55 through CP-58 **COMPLETE**. 747 tests passing. Pre-migration audit in progress (Tier 1: Claude Code programmatic audits; Tier 2: Cowork spec alignment). CP-54 (Rotation calendar) deferred — not blocking migration path.
+**Next up:** Tier 3 — test migration with real v1 data. Then CP-54 (Rotation calendar) or Phase 3.5 (Polish).
 
 ---
 
@@ -266,8 +266,8 @@ Implementation specs for Claude Code. Each sub-phase has sequenced checkpoints w
 | CP-54 | Rotation calendar | V2_DESIGN_SYSTEM.md §4.3, V2_UX_FLOWS.md §19, V2_CALCULATION_SPEC.md FOR-6 / CAP-1, GH-6 (implementation spec), GH-4 strip-grazing (bundled) | Continuous zoomable timeline (Day / Week / Month / Last 90 days presets; Jump presets: Today, Last 30d, Last 90d, This year, Pick date…). Paddock-row × date-column grid with Today line, top + bottom date axes. Past event blocks (group · AUDS · days · pasture/feed% · DMI · head; multi-group rule: "Multiple Groups (N)" + hover tooltip). Active event: white-ring NOW indicator. Linked paddocks: dashed outline + dotted connector, primary carries full block. Strip-grazed active: proportional vertical bands behind label. Sub-moves: lighter-green destination block + thin connector arrow. Two view modes: **Estimated Status** (ambient DM gradient between min/max recovery dates) and **DM Forecast** (capacity split: period covered vs hay needed, with surplus chip when DM ≥ demand). Mode indicator pill at top-right. Two titled lightboxes: Timeline Selection (Zoom/Jump; default Zoom = Week, Jump = Today) + Dry Matter Forecaster (multi-select Groups, Period; defaults to no groups selected → Estimated Status View). Show Confinement Locations on/off pill. Legend split Past (always) / Future (mode-conditional). Right sidebar mirrors paddock column rows 1:1 with visible-range totals footer. Lives only on the Events screen — no Reports copy (any season-scale view is reachable by changing Zoom + Jump). Calendar/List view toggle in the header; List view reuses v1 GRZ-10 event log (parent row + sub-move thread + All/Open/Closed filter). Mobile: calendar is NOT rendered below 900px — mobile Events falls back to a GRZ-11 active-rotation banner + GRZ-10 events log. Bundles GH-4 strip grazing (OI-0001 closed by this CP). |
 | CP-55 | Export — JSON backup | V2_MIGRATION_PLAN.md §5 (authoritative format); V2_UX_FLOWS.md §20.3 (UX entry points); `github/issues/cp-55-export-json-backup.md` (implementation spec) | Export operation-scoped state to a JSON file matching §5 envelope. Download via browser with the §5.2 file name. `schema_version` stamped from `operations.schema_version` (backfilled by migration 015). Excludes `operation_members`, `app_logs`, `release_notes`. Reads from Supabase (not local store) and refuses when the sync queue has pending writes. Progress UI non-blocking. Round-trip test added. |
 | CP-56 | Import — JSON restore | V2_MIGRATION_PLAN.md §5.7–§5.9 | Validate envelope (`format`, `format_version`, `schema_version`). Refuse newer-than-current schema. Preview sheet with `counts`. Two-step destructive confirm. Apply migration chain for older backups (registry in `src/data/backup-migrations.js`). Wholesale replace per-operation. Re-hydrate store from Supabase post-write. Post-import parity check against `counts`. Handles missing/extra tables and columns per §5.8. |
-| CP-57 | v1 → v2 migration tool | V2_MIGRATION_PLAN.md §1–§2 (all 24 transforms) | Read v1 JSON export. Apply all 24 transform sections: ID remapping, imperial→metric unit conversions, JSONB extraction, 5-way health event split, batch normalization. Validation with NPK parity check. Preview screen before commit. |
-| CP-58 | Integration test — migration | — | Playwright e2e: export v1 backup → run migration tool → verify all data appears correctly in v2 screens → verify calculations produce expected values → verify no data loss. |
+| CP-57 | v1 → v2 migration tool | V2_MIGRATION_PLAN.md §1–§2 (all 25 transforms) | **BUILT.** 25 transforms, dose parsing, NPK parity data, CP-56 pipeline reuse. 50 migration-specific tests. OI-0037 (schema_version import) and OI-0038 (skipAutoBackup) fixed. |
+| CP-58 | Integration test — migration | — | **BUILT.** 17 unit integration tests using v1 fixture, 7 Playwright e2e tests for UI flow. 747 total tests passing. |
 
 ---
 

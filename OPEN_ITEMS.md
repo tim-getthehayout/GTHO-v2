@@ -4,6 +4,45 @@
 
 ---
 
+### OI-0039 — §2.25 Spec Text Describes Per-Element Rows but Schema Uses Single Row
+**Added:** 2026-04-14 | **Closed:** 2026-04-14 | **Area:** v2-design | **Priority:** P3
+**Checkpoint:** CP-57
+**Status:** closed — spec updated 2026-04-14
+
+**Resolution:** V2_MIGRATION_PLAN.md §2.25 rewritten to match the implemented schema: one row per effective date with three price columns (`n_price_per_kg`, `p_price_per_kg`, `k_price_per_kg`), not three rows with an `element` discriminator. Code was already correct. Spec-only fix.
+
+---
+
+### OI-0037 — CP-57 Drift: schema_version hardcoded instead of imported from backup-import.js
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P1
+**Checkpoint:** CP-57
+**Status:** closed — fixed 2026-04-14
+
+**What is wrong:** `src/data/v1-migration.js` defines its own `CURRENT_SCHEMA_VERSION = 14` constant. §2.8 says "Read dynamically — same constant or derivation that CP-55 export uses per §5.11." If a new migration lands, v1-migration.js would retain stale value.
+
+**Spec violated:** V2_MIGRATION_PLAN.md §2.8 (`schema_version` row) and §1.6 (`schema_version: current build's schema version (read dynamically per §5.11)`).
+
+**Correct behavior:** Import `CURRENT_SCHEMA_VERSION` from `backup-import.js` (the single source of truth) instead of declaring a duplicate constant.
+
+**Files affected:** `src/data/v1-migration.js`
+
+---
+
+### OI-0038 — CP-57 Drift: auto-backup not skipped for empty operations per §1.6
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** CP-57
+**Status:** closed — fixed 2026-04-14
+
+**What is wrong:** `src/features/settings/v1-import.js` calls `importOperationBackup()` unconditionally. §1.6 says "CP-57 skips the auto-backup step when the target operation has no existing data." On first migration an empty operation produces a useless auto-backup download.
+
+**Spec violated:** V2_MIGRATION_PLAN.md §1.6 (CP-57 Architecture — CP-56 steps that CP-57 skips).
+
+**Correct behavior:** Add a `skipAutoBackup` option to `importOperationBackup()`. CP-57 passes `skipAutoBackup: true` when the target operation is empty (no events, animals, or locations). CP-56's own import path never sets it.
+
+**Files affected:** `src/data/backup-import.js`, `src/features/settings/v1-import.js`, `src/data/v1-migration.js`
+
+---
+
 ### OI-0036 — Remove v1 Import Option from Settings After Cutover
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P4
 **Checkpoint:** post-cutover
@@ -36,20 +75,18 @@ The Calc Reference console (renders all registered formulas grouped by domain) c
 ### OI-0012 — Calc Test Coverage Gap
 **Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
 **Checkpoint:** CP-45/CP-46/CP-47
+**Status:** closed — fixed 2026-04-14
 
-All 35 formulas are registered correctly, but `tests/unit/calcs.test.js` contains only 13 test cases — thin coverage for a module the dashboard and reports now depend on. Critical gaps: DMI-1 contains a specific v1 bug fix (residual lookup by date, not array index — V2_CALCULATION_SPEC.md §4) with no regression test; DMI-2 lactation logic (A38, beef vs dairy branching) untested; FED family residual interpolation untested; CST-1/2/3 cost math untested.
-
-**Fix:** Add ~10 targeted tests. Priority: DMI-1 residual-by-date regression, DMI-2 lactation branching (beef calf-in-class vs dairy dried_off_date), FED-1 residual interpolation, CST-1 feed cost per group, REC-1 recovery window with strip graze area_pct. Files: `tests/unit/calcs.test.js`.
+Added 29 targeted tests to `tests/unit/calcs.test.js` (13 → 42 total): DMI-1 residual-by-date regression (3 tests), DMI-2 lactation branching beef vs dairy (3 tests), DMI-5 interpolation (2 tests), FED-1 residual percentage (3 tests), CST-1 feed cost (2 tests), CST-2 batch unit cost (2 tests), CST-3 NPK value (2 tests), REC-1 strip graze independent recovery (1 test). All requested coverage gaps addressed.
 
 ---
 
 ### OI-0013 — Reference Console Description Spot-Check
 **Added:** 2026-04-13 | **Area:** v2-build | **Priority:** P2
 **Checkpoint:** CP-45/CP-46/CP-47
+**Status:** closed — fixed 2026-04-14
 
-The admin reference console (reports screen) renders all 35 formulas grouped by domain. Nobody has verified the displayed descriptions match V2_CALCULATION_SPEC.md verbatim. Tim uses this console to audit what the app is doing — mismatched descriptions undermine trust.
-
-**Fix:** Read each `registerCalc()` call in `src/calcs/core.js`, `feed-forage.js`, `advanced.js`. Compare the `description` and `formula` fields against V2_CALCULATION_SPEC.md §4. Correct any drift. No behavior change — metadata only.
+Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, advanced.js, capacity.js) against V2_CALCULATION_SPEC.md §4. Found 1 mismatch: CST-2 description said "cost_total / quantity_original" but spec says "bidirectional" — corrected. All other 36 descriptions match (some code descriptions add clarifying detail beyond the spec, which is acceptable).
 
 ---
 

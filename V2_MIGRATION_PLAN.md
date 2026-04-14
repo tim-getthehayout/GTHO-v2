@@ -553,11 +553,12 @@ These tables need ID remapping and operation_id scoping but no structural change
 
 v1 stores only current NPK prices in `operation_settings` JSONB (`nPrice`/`pPrice`/`kPrice`). Tim has never changed these values, so there is no price history to extract.
 
-**Action:** Create one `npk_price_history` row per element (N, P, K) with:
+**Action:** Create one `npk_price_history` row with all three prices:
 - `effective_date` = migration date
-- `price_per_kg` = v1 value converted from $/lb → $/kg (÷ 0.453592, same conversion as §2.8 farm_settings)
+- `n_price_per_kg` = v1 `nPrice` converted from $/lb → $/kg (÷ 0.453592, same conversion as §2.8 farm_settings)
+- `p_price_per_kg` = v1 `pPrice` converted from $/lb → $/kg
+- `k_price_per_kg` = v1 `kPrice` converted from $/lb → $/kg
 - `farm_id` = FK to the migrated farm
-- `element` = `'n'`, `'p'`, or `'k'`
 
 This seeds the price history so v2 reports can look up prices by date from day one.
 

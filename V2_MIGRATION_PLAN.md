@@ -44,6 +44,113 @@ After migration, generate:
 - Validation failures (with row-level detail)
 - Orphaned records
 - Skipped records (and why)
+- **Unparseable doses** (CSV download) — animal tag, date, raw dose text, treatment type. Auto-downloads alongside the import results. Tim reviews and manually fixes in v2 if needed.
+- **NPK parity check** — for every migrated event with v1 `event_npk_deposits` data, compare v2 NPK-1 calc output against v1 stored values. Flag deltas > 1% with per-event detail. See §2.23.
+
+### 1.5 v1 Export Shape
+
+v1's `exportDataJSON()` serializes the entire `S` state object via `JSON.stringify(S, null, 2)`. The backup is a flat JSON object with the keys below. This is the authoritative input shape for CP-57 transforms.
+
+**Source:** v1 `ensureDataArrays()` + ARCHITECTURE.md Data Model section. Pinned to v1 codebase as of 2026-04-14.
+
+**Arrays (26):**
+
+| v1 Key | Description | §2 Transform |
+|--------|-------------|--------------|
+| `pastures` | All locations. `locationType`: `"pasture"` or `"confinement"` | §2.1 |
+| `events` | Grazing events. Nested: `feedEntries[]`, `groups[]`, `feedResidualChecks[]`, `npkLedger[]`, `subMoves[]`, `forageCoverIn`, `forageCoverOut` | §2.2, §2.3, §2.4, §2.5, §2.6 |
+| `feedTypes` | Feed type templates (unit, DM%, category, NPK%, forageTypeId, cuttingNum, harvestActive, defaultWeightLbs) | §2.24 |
+| `batches` | Feed batches (typeId links to feedType) | §2.16 |
+| `manureBatches` | Manure batches from confinement events | §2.19 |
+| `inputProducts` | Commercial amendment products | §2.24 |
+| `inputApplications` | Amendment application records | §2.20 |
+| `animalClasses` | Species/class definitions (weight, DMI%) | §2.14 |
+| `animalGroups` | Named herd compositions (id, name, color, animalIds[], classes[], archived) | §2.13 |
+| `animals` | Individual animal records | §2.15 |
+| `users` | Farm users (legacy shim — retained for todo assignment) | §2.24 (operation_members) |
+| `todos` | Farm task records | §2.21 |
+| `feedback` | Submissions (Supabase table: `submissions`) | §2.24 |
+| `surveys` | Pasture survey ratings | §2.11 |
+| `treatmentTypes` | Treatment type templates (id, name, category, archived) | §2.24 |
+| `aiBulls` | AI sire records | §2.24 |
+| `paddockObservations` | Unified paddock condition log | §2.12 |
+| `animalWeightRecords` | Weight time series (id, animalId, recordedAt, weightLbs, note, source) | §2.9 |
+| `animalGroupMemberships` | Group membership ledger (id, animalId, groupId, dateJoined, dateLeft) | §2.24 |
+| `inputApplicationLocations` | Amendment location ledger (id, applicationId, pastureId, acres, NPK lbs) | §2.20 |
+| `manureBatchTransactions` | Manure batch transaction ledger | §2.19 |
+| `farms` | Farm grouping for all land | §2.8 (merge into v2 farms) |
+| `soilTests` | Soil test records per field | §2.22 |
+| `forageTypes` | Forage nutritional reference library (id, name, dmPct, NPK per tonne DM, isSeeded) | §2.10 |
+| `harvestEvents` | Harvest events with nested `fields[]` | §2.18 |
+| `batchNutritionalProfiles` | Per-batch NPK data (empty — Tim has no feed test data) | §2.24 (straight remap) |
+
+**Objects/Scalars:**
+
+| v1 Key | Description | §2 Transform |
+|--------|-------------|--------------|
+| `herd` | Legacy herd summary {name, type, count, weight, dmi} | §2.8 (herd.name → operations.name). Rest dropped — superseded by animalGroups. |
+| `settings` | All settings — see sub-fields below | §2.8 (split across operations, farms, farm_settings, user_preferences) |
+| `errorLog` | Client-side error log (capped 200) | Dropped. Diagnostic noise. |
+| `setupUpdatedAt` | ISO timestamp for Drive merge | Dropped. v2 uses per-record updated_at. |
+| `testerName` | Farmer name for feedback attribution | Dropped. v2 uses auth identity. |
+| `version` | Legacy field (always `'v1.2'`) | Dropped. |
+| `_herdMigrated` | Migration flag | Dropped. |
+| `_groupsMigrated` | Migration flag | Dropped. |
+| `_paddocksMigrated` | Migration flag | Dropped. |
+
+**`settings` sub-fields (relevant to migration):**
+
+| v1 Sub-field | Default | §2 Target |
+|-------------|---------|-----------|
+| `nPrice` / `pPrice` / `kPrice` | 0.55 / 0.65 / 0.42 | §2.8 farm_settings (convert $/lb → $/kg) + §2.25 npk_price_history |
+| `nExc` / `pExc` / `kExc` | 0.32 / 0.09 / 0.30 | §2.8 → animal_classes excretion rates (if populated) |
+| `manureVolumeRate` | 65 gal/AU/day | §2.8 farm_settings.default_manure_rate_kg_per_day |
+| `manureLoadLbs` | 8000 | Dropped. v2 uses spreaders table (§2.24). |
+| `manureVolumeUnit` | `'loads'` | Dropped. Display pref only. |
+| `homeStats` | Array of stat keys | §2.24 user_preferences |
+| `homeStatPeriod` | `'7d'` | §2.24 user_preferences |
+| `homeViewMode` | `'groups'` | §2.24 user_preferences |
+| `auWeight` | 1000 lbs | §2.8 farm_settings.default_au_weight_kg (× 0.453592) |
+| `recoveryRequired` | false | §2.8 farm_settings |
+| `recoveryMinDays` / `recoveryMaxDays` | 30 / 60 | §2.8 farm_settings |
+| `thresholds` | {} | §2.8 farm_settings (threshold_* fields) |
+| `feedDayGoal` | 90 | §2.8 farm_settings |
+| `weanTargets` | {cattle:205, sheep:60, goat:60} | §2.14 animal_classes.weaning_age_days |
+| `residualGrazeHeight` | (from operations row) | §2.8 farm_settings.default_residual_height_cm (× 2.54) |
+| `forageUtilizationPct` | (from operations row) | §2.8 farm_settings.default_utilization_pct |
+| `dmPerAUD` | (from operations row) | Dropped. v2 derives from per-class DMI (A39). |
+
+### 1.6 CP-57 Architecture — Reuse of CP-56 Import Pipeline
+
+CP-57's job is: read v1 JSON → apply 24 transforms → produce a v2-shaped backup envelope (same format as CP-55 §5.2) → feed that envelope into the CP-56 import pipeline (§5.7).
+
+**Why reuse:** CP-56 already handles FK-ordering (§5.3a), wholesale replace, parity check, progress UI, and error handling. Building a parallel write path would duplicate all of that.
+
+**CP-56 steps that CP-57 skips:**
+- **Auto-backup (§5.7 step 4):** On first migration the v2 operation is empty — there is nothing to back up. CP-57 skips the auto-backup step when the target operation has no existing data. (On subsequent re-runs where data already exists, the auto-backup runs normally.)
+
+**Synthesized envelope:**
+- `format`: `"gtho-v2-backup"`
+- `format_version`: current (currently `1`)
+- `schema_version`: current build's schema version (read dynamically per §5.11)
+- `exported_at`: migration timestamp
+- `exported_by`: Tim's auth identity
+- `operation_id`: the new v2 operation UUID
+- `build_stamp`: current build
+- `counts`: computed from transformed data
+- `tables`: all transformed v2 tables
+
+### 1.7 CP-57 Tool UX
+
+The v1 migration tool lives in **Settings → Import**, alongside the existing CP-56 "Import backup" option. Two entry points in the same section:
+- "Import backup" — restores a v2 backup (CP-56)
+- "Import from v1" — reads a v1 JSON export, transforms, and imports (CP-57 → CP-56)
+
+**Input:** File upload. Tim exports from v1 via `exportDataJSON()`, picks the file in v2.
+
+**Re-run:** Allowed. Since CP-56 does a wholesale replace, re-running replaces whatever's there. Useful if the first attempt fails or Tim wants to re-run with updated v1 data.
+
+**Post-cutover cleanup:** Remove the "Import from v1" option after Tim is live on v2 and migration is verified (OI-0036).
 
 ---
 
@@ -69,10 +176,13 @@ After migration, generate:
 | avg_weight | — | Dropped. Becomes event_group_window.avg_weight_kg (convert lbs→kg). |
 | status | — | Dropped. Derived from date_out. |
 | no_pasture | — | Dropped. Inferred from location type, or set on paddock window. |
+| — | source_event_id | NULL for all migrated events. New in v2 (GH-5, migration 014) — links cross-farm moves. v1 has no equivalent; all migrated events are origin events. |
 
 ### 2.3 event_sub_moves → event_paddock_windows
 
 v1 sub-moves become additional paddock windows on the parent event. The "anchor paddock" becomes the first paddock window (same date_opened as event date_in).
+
+**Strip grazing columns (A45 — new in v2):** All migrated paddock windows default to full-paddock — `is_strip_graze = false`, `strip_group_id = NULL`, `area_pct = 100`. v1 has no strip graze concept. These match the column defaults in migration 005 (`is_strip_graze DEFAULT false`, `area_pct DEFAULT 100`), but the migration tool sets them explicitly for clarity. Strip grazing is a v2-only workflow; users who want it on previously-migrated events would need to close and re-create.
 
 ### 2.4 event_group_memberships → event_group_windows
 
@@ -105,8 +215,8 @@ Split by type field:
 | 'calving' | — | animal_calving_records | animalId → dam_id. Link calf via calf_id (remap from v1 calf record if exists). Birth weight → animal_weight_records row (source='calving'). dried_off_date: NULL for all migrated records (new in v2 per A38). |
 
 **Notes:**
-- v1 type='note' → append to `animals.notes`. Format: `"[YYYY-MM-DD] note text\n"` per entry, chronological order. The animal record has a text notes field; concatenating preserves the info without adding a new table.
-- v1 dose is freeform text (e.g., "10ml", "2 tabs"). Best-effort parse: regex extracts number → dose_amount, unit string → match to dose_units row. Unparseable entries: copy raw dose text to treatment notes field, leave dose_amount/dose_unit_id NULL. Audit report lists all unparseable doses for manual review.
+- v1 type='note' → `animal_notes` table rows (one per note). `noted_at` from the health event date. `note` from the health event text. v2 has a dedicated `animal_notes` table (migration 012, per OI-0003) — routing notes here preserves per-note timestamps as first-class records. Any pre-existing v1 `animals.notes` free-text stays in the v2 `animals.notes` field as-is (it may contain context that predates the health events system). Minor duplication is possible if v1 wrote the same note to both places — accepted; Tim's note volume is low and doubles are harmless.
+- v1 dose is freeform text (e.g., "10ml", "2 tabs"). Best-effort parse: regex extracts number → dose_amount, unit string → match to dose_units row. Unparseable entries: copy raw dose text to treatment notes field, leave dose_amount/dose_unit_id NULL. Unparseable doses are exported as a **CSV audit file** (auto-downloaded alongside import results) with columns: animal tag, date, raw dose text, treatment type. See §1.4.
 - Birth weight extracted from calving records becomes a separate animal_weight_records row — do not store on calving record (v2 schema stores weight history separately).
 
 ### 2.8 operation_settings JSONB → operations + farms + farm_settings
@@ -121,6 +231,7 @@ v1 stores all config in a single JSONB blob on `operation_settings.data`. v2 spl
 | — | timezone | New in v2. Set to Tim's timezone during migration. |
 | — | currency | Default 'USD' (v1 has no currency field). |
 | — | unit_system | Default `'imperial'`. v1 has no unit toggle — it operates exclusively in imperial units (lbs, acres, inches). New operations created post-migration default to `'imperial'` and can switch in Settings. |
+| — | schema_version | Set to the current schema version at time of migration. Read dynamically — same constant or derivation that CP-55 export uses per §5.11. Required so subsequent CP-55 backups carry the correct version. |
 
 **farms** (create one "Home Farm" record per A18):
 
@@ -251,6 +362,7 @@ Each key in `draftRatings` is a paddock ID. Each value becomes a row:
 | — | excretion_n_rate, excretion_p_rate, excretion_k_rate | NULL. Seed with NRCS defaults post-migration (per A39, A40). |
 | — | weaning_age_days | Populate from v1 operation_settings wean targets by species |
 | — | role | Map from species + class name heuristic (e.g., "Cow" → 'cow', "Calf" → 'calf') |
+| — | archived | `false` for all migrated classes. v1 uses hard delete — any class present in the export is active. |
 
 ### 2.15 animals
 
@@ -435,7 +547,19 @@ These tables need ID remapping and operation_id scoping but no structural change
 - **input_products** — remap IDs. input_product_categories extracted if v1 has implicit categories.
 - **spreaders** — empty (new in v2 per A22). No v1 data to migrate. Tim can set up spreaders in v2 if/when needed.
 - **operation_members** — remap IDs. Role mapping if v1 roles differ.
-- **user_preferences** — new table. Populate from v1 operation_settings UI prefs (selectedMetrics, periodFilter, etc.).
+- **user_preferences** — new table. Populate from v1 operation_settings UI prefs (selectedMetrics, periodFilter, etc.). `active_farm_id = NULL` — puts migrated user in "All farms" mode (v1 has no multi-farm concept; with one farm post-migration the UX is identical, and the preference is neutral if a second farm is added later).
+
+### 2.25 npk_price_history
+
+v1 stores only current NPK prices in `operation_settings` JSONB (`nPrice`/`pPrice`/`kPrice`). Tim has never changed these values, so there is no price history to extract.
+
+**Action:** Create one `npk_price_history` row per element (N, P, K) with:
+- `effective_date` = migration date
+- `price_per_kg` = v1 value converted from $/lb → $/kg (÷ 0.453592, same conversion as §2.8 farm_settings)
+- `farm_id` = FK to the migrated farm
+- `element` = `'n'`, `'p'`, or `'k'`
+
+This seeds the price history so v2 reports can look up prices by date from day one.
 
 ---
 
@@ -758,6 +882,18 @@ When the schema next changes, the diff flags "CP-55/CP-56 spec impact" and a mig
 `schema_version` is the highest migration number in `supabase/migrations/` at the time of export. On boot, the app computes this by reading a stamp stored in `operations` (column `schema_version INTEGER NOT NULL DEFAULT 1`). The stamp advances when migrations run. CP-55 reads `operations.schema_version` and writes it into the backup envelope. CP-56 uses it to select the migration chain.
 
 **Pre-CP-55 data.** Operations that existed before CP-55 ships do not have a `schema_version` column populated — migration `015_schema_version_stamp.sql` will be added alongside CP-55 to backfill the current value for every existing operation.
+
+### 5.11a Schema Version Bump Convention
+
+**Rule: "always do it, no judgment calls."** Every new migration file must:
+
+1. **End with `UPDATE operations SET schema_version = N;`** where N is the migration number. This stamps the DB. No exceptions — even migrations that only add an index or tweak a constraint bump the version.
+2. **Add a `BACKUP_MIGRATIONS` entry** in `src/data/backup-migrations.js`. If the migration does not change the shape of backup data, add a no-op entry that just ticks the version: `N-1: (b) => { b.schema_version = N; return b; },`. If it does change shape (new column, renamed field, new table), add the actual transform.
+3. **If the migration adds a table or FK**, update §5.3 (table list) and §5.3a (FK-dependency ordering) in this file.
+
+**Why "always":** "Sometimes" requires Claude Code to make a judgment call about whether a particular migration needs a bump or a registry entry. Judgment calls are where things get missed. The cost of a no-op migration entry is one line of code. The cost of a missed entry is a broken backup chain that nobody notices until a user tries to restore.
+
+**Enforcement:** CLAUDE.md "Code Quality Checks" item #6 repeats this rule. It is verified before every commit.
 
 ### 5.12 Round-Trip Test
 

@@ -95,6 +95,7 @@ All dynamic content uses the DOM builder (`el()`, `text()`, `clear()`). No inner
 3. Every entity export includes: `FIELDS`, `create()`, `validate()`, `toSupabaseShape()`, `fromSupabaseShape()`
 4. Every store action follows: validate → mutate → persist → queue sync → notify
 5. No hardcoded English — all user-facing strings use `t()`
+6. Every new migration file must: (a) end with `UPDATE operations SET schema_version = N;` (b) add a `BACKUP_MIGRATIONS` entry in `src/data/backup-migrations.js` — no-op is fine: `N-1: (b) => { b.schema_version = N; return b; },` (c) if the migration adds a table or FK, update V2_MIGRATION_PLAN.md §5.3 and §5.3a. See V2_MIGRATION_PLAN.md §5.11a for rationale. "Always do it, no judgment calls."
 
 ## Invention Required — Stop and Flag
 

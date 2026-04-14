@@ -318,6 +318,34 @@ One file swap. No feature code changes.
 | 13 | Dead letter | Write moves to dead_letter with context |
 | 14 | Recovery ("Push All") | Everything re-queued, dead letters retried |
 
+### 5.5 Backup / Import / Export (CP-55, CP-56, CP-57)
+
+**Files:** `src/data/backup-export.js` (CP-55), `src/data/backup-import.js` (CP-56, CP-57), `src/data/backup-migrations.js`
+
+The app supports full-operation JSON backup and restore. CP-55 exports, CP-56 imports, and CP-57 provides the v1 → v2 migration tool (which transforms v1 JSON into a v2 backup envelope and feeds it into the CP-56 import pipeline). The complete specification lives in V2_MIGRATION_PLAN.md §5.2 (export format), §5.7 (import procedure), and §5.9 (backup migration chain).
+
+**Key constants in backup-import.js:**
+
+| Constant | Purpose |
+|---|---|
+| `FK_ORDER` | Authoritative insert/delete order for all tables, matching V2_MIGRATION_PLAN.md §5.3a. Inserts iterate top-to-bottom (parents first). Deletes iterate bottom-to-top (children first). |
+| `TWO_PASS_TABLES` | Tables with self-referential FKs (`animals`: dam_id/sire_animal_id; `events`: source_event_id). Pass 1 inserts with self-FKs NULL; pass 2 updates them. |
+| `REFERENCE_TABLES` | Seed-data tables (`treatment_categories`, `treatment_types`, `dose_units`, `input_product_categories`, `input_product_units`, `forage_types`, `animal_classes`). These upsert by id instead of delete-then-insert, preserving seed rows not in the backup. |
+
+**Delete and parity pattern:** Every user-data table has a direct `operation_id` column (Design Principle #8, no exceptions). Both `deleteTableRows()` and `parityCheck()` use the uniform `WHERE operation_id = $1` filter. No indirect queries through parent FKs are needed.
+
+**Import flow** (10 steps, detail in V2_MIGRATION_PLAN.md §5.7):
+1. Validate envelope (format, version)
+2. Pending-writes gate (refuse if sync queue has pending writes)
+3. Preview sheet with two-step confirmation
+4. Auto-backup current state (downloaded to user's disk — the revert mechanism)
+5. Migrate backup forward through `BACKUP_MIGRATIONS` chain if schema version is behind
+6. Wholesale replace: delete all operation rows (children first per FK_ORDER reverse), then insert backup rows (parents first per FK_ORDER)
+7. Re-seed local store from Supabase (`pullAllRemote()`)
+8. Post-import parity check (backup counts vs Supabase counts per table)
+9. Log result
+10. Progress UI throughout
+
 ---
 
 ## 6. UI Architecture
@@ -447,6 +475,15 @@ One canonical name per concept. Grep must work. No aliases.
 - Supabase: snake_case (`event_paddock_windows`)
 - Files: kebab-case (`event-paddock-window.js`)
 - Mapping is mechanical via entity `sbColumn` names
+
+---
+
+## Change Log
+
+| Date | Session | Changes |
+|------|---------|---------|
+| 2026-04-14 | Tier 3 migration testing — OI-0054 | §5.2: Added write-method-by-operation-type table (insert/update/upsert distinction). Documented OI-0054 origin (upsert bootstrap failure during onboarding). |
+| 2026-04-14 | Tier 3 migration testing — OI-0055 | New §5.5: Backup/Import/Export architecture covering CP-55/CP-56/CP-57. Documents FK_ORDER, TWO_PASS_TABLES, REFERENCE_TABLES, uniform operation_id delete/parity pattern, and the 10-step import flow. |
 
 ---
 

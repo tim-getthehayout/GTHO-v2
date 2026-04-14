@@ -16,7 +16,7 @@ These were established during the audit and confirmed in design sessions:
 5. **No name snapshots** — Link by FK only. Display names resolved from entity cache at render time.
 6. **No JSONB bags** — Normalize into proper child tables. JSONB only for truly unstructured data (conversation threads, etc.).
 7. **Consistent timestamps** — Every table gets `created_at` and `updated_at` with `DEFAULT now()`.
-8. **RLS by operation_id** — Every user-data table has `operation_id uuid NOT NULL` for row-level security.
+8. **RLS by operation_id** — Every user-data table has `operation_id uuid NOT NULL` for row-level security. No exceptions — child and junction tables carry their own `operation_id` even though it's derivable from a parent FK, because every operation-scoped query (RLS policies, backup delete, parity checks) must filter directly without joins. Universal reference tables (`dose_units`, `input_product_units`) and global tables (`release_notes`) have RLS disabled.
 9. **Windows, not anchors** — Events have no anchor paddock. All paddock and group participation is tracked via time windows. An event is open while any paddock window + group window overlap is open.
 10. **Feed delivered to paddocks** — Every feed entry has a location_id (paddock within the event), never dangling at event level.
 
@@ -1028,6 +1028,7 @@ One row per batch per paddock observed in a feed check. Records the absolute rem
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | id | uuid | PK | |
+| operation_id | uuid | NOT NULL, FK → operations | RLS scoping (Design Principle #8) |
 | feed_check_id | uuid | NOT NULL, FK → event_feed_checks ON DELETE CASCADE | Parent check |
 | batch_id | uuid | NOT NULL, FK → batches | Which feed batch |
 | location_id | uuid | NOT NULL, FK → locations | Which paddock |
@@ -1037,13 +1038,14 @@ One row per batch per paddock observed in a feed check. Records the absolute rem
 **Design decisions:**
 - **Absolute remaining, not percentage.** v1 stored both remainingPct and remainingUnits. v2 stores only the absolute quantity. Percentage is derived (remaining / total delivered to this paddock).
 - **Per-batch per-paddock.** A single feed check can observe multiple batches across multiple paddocks. Each combination gets its own row.
-- **No operation_id** on this table — it's inherited from the parent feed check via the FK chain.
+- **operation_id** carried directly for RLS and operation-scoped queries (backup delete, parity check). Matches parent's operation_id — set by app code at insert time. Added in migration 019 (OI-0055).
 - **No updated_at** — check items are immutable once created. To change a reading, delete and recreate.
 - **Calculation layer uses full delivery history.** To compute "started with": sum all deliveries (including transfers in) for this batch at this paddock up through the check date. Subtract remaining_quantity = consumed. This fixes the v1 bug where feed checks only looked at the initial transferred amount and missed subsequent deliveries.
 
 ```sql
 CREATE TABLE event_feed_check_items (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id        uuid NOT NULL REFERENCES operations(id),
   feed_check_id       uuid NOT NULL REFERENCES event_feed_checks(id) ON DELETE CASCADE,
   batch_id            uuid NOT NULL REFERENCES batches(id),
   location_id         uuid NOT NULL REFERENCES locations(id),
@@ -1160,6 +1162,7 @@ One row per paddock in a draft survey. These are the working entries that the fa
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | id | uuid | PK | |
+| operation_id | uuid | NOT NULL, FK → operations | RLS scoping (Design Principle #8) |
 | survey_id | uuid | NOT NULL, FK → surveys ON DELETE CASCADE | Parent survey |
 | location_id | uuid | NOT NULL, FK → locations | Which paddock |
 | forage_height_cm | numeric | NULL | |
@@ -1175,12 +1178,13 @@ One row per paddock in a draft survey. These are the working entries that the fa
 
 **Design decisions:**
 - **Same observation fields as paddock_observations.** When committed, each entry maps 1:1 to a paddock_observation with source='survey'.
-- **No operation_id** — inherited from parent survey via FK chain.
+- **operation_id** carried directly for RLS and operation-scoped queries. Matches parent survey's operation_id — set by app code at insert time. Added in migration 019 (OI-0055).
 - **Editable while draft.** Entries can be added, updated, or removed as the farmer walks paddocks. Once the parent survey is committed, entries are frozen.
 
 ```sql
 CREATE TABLE survey_draft_entries (
   id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id              uuid NOT NULL REFERENCES operations(id),
   survey_id                 uuid NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
   location_id               uuid NOT NULL REFERENCES locations(id),
   forage_height_cm          numeric,
@@ -1239,6 +1243,7 @@ One row per field harvested. Each row creates an associated batch for feed inven
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | id | uuid | PK | |
+| operation_id | uuid | NOT NULL, FK → operations | RLS scoping (Design Principle #8) |
 | harvest_event_id | uuid | NOT NULL, FK → harvest_events ON DELETE CASCADE | Parent harvest |
 | location_id | uuid | NOT NULL, FK → locations | Which field was harvested |
 | feed_type_id | uuid | NOT NULL, FK → feed_types | What was harvested (hay, silage, etc.) |
@@ -1255,10 +1260,12 @@ One row per field harvested. Each row creates an associated batch for feed inven
 - **batch_id links to the inventory batch created from this harvest.** The harvest is the source event; the batch is the inventory record. When the harvest field record is saved, a batch is created with source='harvest', and batch_id is set here for traceability.
 - **Batch inherits dm_pct and weight_per_unit_kg.** These are recorded at harvest time and flow into the batch. If lab results come back later, the batch's values can be updated without changing the harvest record.
 - **cutting_number** tracks first, second, third cutting for the same field in a season. Important for yield tracking and forage quality differences between cuttings.
+- **operation_id** carried directly for RLS and operation-scoped queries. Matches parent harvest event's operation_id — set by app code at insert time. Added in migration 019 (OI-0055).
 
 ```sql
 CREATE TABLE harvest_event_fields (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id        uuid NOT NULL REFERENCES operations(id),
   harvest_event_id    uuid NOT NULL REFERENCES harvest_events(id) ON DELETE CASCADE,
   location_id         uuid NOT NULL REFERENCES locations(id),
   feed_type_id        uuid NOT NULL REFERENCES feed_types(id),
@@ -2350,17 +2357,19 @@ CREATE TABLE todos (
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | id | uuid | PK | |
+| operation_id | uuid | NOT NULL, FK → operations | RLS scoping (Design Principle #8) |
 | todo_id | uuid | NOT NULL, FK → todos ON DELETE CASCADE | |
 | user_id | uuid | NOT NULL, FK → operation_members | Assigned team member |
 | assigned_at | timestamptz | NOT NULL, DEFAULT now() | When the assignment was made |
 
 **Design decisions:**
 - **Composite unique on (todo_id, user_id).** Prevents duplicate assignments.
-- **No operation_id.** Scoped transitively through the todo's operation_id. The junction table is small and only accessed via its parent.
+- **operation_id** carried directly for RLS and operation-scoped queries. Matches parent todo's operation_id — set by app code at insert time. Added in migration 019 (OI-0055).
 
 ```sql
 CREATE TABLE todo_assignments (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id    uuid NOT NULL REFERENCES operations(id),
   todo_id         uuid NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
   user_id         uuid NOT NULL REFERENCES operation_members(id),
   assigned_at     timestamptz NOT NULL DEFAULT now(),
@@ -2428,6 +2437,7 @@ CREATE TABLE release_notes (
 | 2026-04-12 | Session 6 — Infrastructure review | D11.1 app_logs: Added operation_id (nullable, no FK, best-effort) and context (jsonb, dead letter + error metadata). D11 header: Added future schema note for AI/voice tables. Appendix B: Added 2026-04-12 session log entry. |
 | 2026-04-12 | Session 7 — Calculation spec review | D3 animal_classes: excretion_n/p/k_pct → excretion_n/p/k_rate (NRCS unit alignment). Species CHECK updated: 'cattle' → 'beef_cattle' + 'dairy_cattle'. Added dmi_pct_lactating. D9 animal_calving_records: Added dried_off_date for dairy dry-off tracking. |
 | 2026-04-12 | Session 8 — UX flows review | D1 farm_settings: Added forage_quality_scale_min (default 1), forage_quality_scale_max (default 100) for configurable survey assessment range (A41). |
+| 2026-04-14 | Tier 3 migration testing — OI-0055 | Root-cause fix: added `operation_id uuid NOT NULL FK → operations` to four tables that were missing it: §5.6 event_feed_check_items, §6.2 survey_draft_entries, §7.2 harvest_event_fields, §11.4 todo_assignments. Updated column specs, design decision notes, and CREATE TABLE SQL for all four. Design Principle #8 simplified — no longer has exceptions. Migration 019 adds the column + backfill. |
 
 ---
 

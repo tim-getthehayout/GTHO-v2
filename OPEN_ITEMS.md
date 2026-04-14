@@ -4,6 +4,76 @@
 
 ---
 
+### OI-0046 — App Header Missing "Get The Hay Out" App Name
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P3
+**Checkpoint:** post-GH-5
+**Status:** open
+
+The app header (redesigned in GH-5) shows the operation name and farm picker but no longer displays the app name "Get The Hay Out" above the operation name. v1 has this and it should carry over to v2 — it's the app identity and helps orient the user, especially on first load.
+
+**Fix:** Add "Get The Hay Out" as a small text label above the operation name in `src/ui/header.js`. Should be visually secondary (smaller/lighter than the operation name) so it doesn't compete with the contextual info.
+
+---
+
+### OI-0040 — Move Wizard / Event Close Missing Residual Height + Recovery Day Inputs
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** post-CP-57
+**Status:** open — DESIGN REQUIRED, do not build
+
+V2_UX_FLOWS.md §1 (move wizard Step 3) and §9 (event close) specify residual height, recovery min/max day inputs on the close-out panel. These fields are not present in `src/features/events/move-wizard.js` or `src/features/events/close.js`. The close observation is created but without residual/recovery data. This means recovery windows (REC-1) have no data to compute from for move-closed events.
+
+**Spec:** §1 Step 3 close-out panel: date, time, residual height, recovery min/max. §9 Event close: residual height, recovery days.
+**Impact:** REC-1 recovery window calc cannot function without these inputs. Location picker "Recovering" section (OI-0008) also depends on this.
+
+---
+
+### OI-0041 — Move Wizard Missing Pre-Graze Observation Fields
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** post-CP-57
+**Status:** open — DESIGN REQUIRED, do not build
+
+V2_UX_FLOWS.md §1 Step 3 destination panel specifies pre-graze height and forage cover % fields. These are not present in the move wizard. The open observation is created but without forage height/cover data.
+
+---
+
+### OI-0042 — Health Recording: Group Session Mode Not Implemented
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P3
+**Checkpoint:** post-CP-57
+**Status:** open — DESIGN REQUIRED, do not build
+
+V2_UX_FLOWS.md §14 specifies group session mode for Weight, BCS, and Treatment recording (iterate through animals in a group). This is not implemented — health recording is single-animal only. No advance-to-next or group iteration pattern in weight.js, bcs.js, or treatment.js.
+
+---
+
+### OI-0043 — Field Mode Tile Navigation Targets Incorrect
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** post-CP-57
+**Status:** open
+
+V2_UX_FLOWS.md §16 specifies "Feed Animals" tile opens the Feed Delivery sheet (§4 loop) and "Harvest" tile opens the Harvest Recording sheet (§10). Implementation navigates to `#/events` and `#/feed` respectively — these go to full screen views, not the specific sheets. The spec intends direct-to-action tiles, not screen navigation.
+
+**Fix:** Requires a sheet-opening mechanism callable from field mode (currently sheets are opened from within their parent screens). May need an event bus or direct sheet render.
+
+---
+
+### OI-0044 — Remaining i18n Hardcoded Strings (6 low-priority)
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P4
+**Checkpoint:** post-CP-57
+**Status:** closed — fixed 2026-04-14
+
+All 28 i18n violations fixed. Final 6: mobile-events-screen.js detail summary, reports/reference-console.js title, rotation-calendar/toolbar.js add button, settings parity reports, amendments/entry.js currency display.
+
+---
+
+### OI-0045 — Dead Export: daysBetweenExact() in date-utils.js
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P4
+**Checkpoint:** post-CP-57
+**Status:** open
+
+`src/utils/date-utils.js` exports `daysBetweenExact()` which is never imported or called anywhere. Companion `daysBetweenInclusive()` is used. Consider removing dead export.
+
+---
+
 ### OI-0039 — §2.25 Spec Text Describes Per-Element Rows but Schema Uses Single Row
 **Added:** 2026-04-14 | **Closed:** 2026-04-14 | **Area:** v2-design | **Priority:** P3
 **Checkpoint:** CP-57

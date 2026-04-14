@@ -201,22 +201,66 @@ Queued offline, synced on reconnect (unlike app_logs, submissions go through the
 
 ### 5.1 Row-Level Security
 
-Every user-data table has RLS enabled. Two patterns:
+Every user-data table has RLS enabled. Three patterns:
 
-**Standard policy — operation-scoped tables** (most tables: events, animals, locations, batches, etc.)
+**Pattern A — operation-scoped tables (granular policies)**
 
-Access is based on membership, not ownership. This ensures non-owner team members (farm managers, vets, hired hands) can see and work with operation data.
+Most tables: events, animals, locations, batches, farms, farm_settings, animal_classes, forage_types, treatment_categories, input_product_categories, etc. Access is based on membership, not ownership. This ensures non-owner team members (farm managers, vets, hired hands) can see and work with operation data.
+
+**Important: Do not use `FOR ALL` policies.** The sync adapter uses Supabase `.upsert()`, which requires both INSERT and UPDATE policies to pass. A `FOR ALL` policy applies its `USING` clause as the `WITH CHECK` for INSERT, which fails during onboarding because the `operation_members` row doesn't exist yet (chicken-and-egg). Use granular per-command policies instead.
 
 ```sql
-CREATE POLICY "Members see operation data"
-  ON [table_name]
-  FOR ALL
+-- INSERT: any authenticated user can create records
+-- (the operation_id FK ensures they can only insert into valid operations)
+CREATE POLICY "[table]_insert" ON [table_name] FOR INSERT
+  WITH CHECK (true);
+
+-- SELECT: members see their operation's data
+CREATE POLICY "[table]_select" ON [table_name] FOR SELECT
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members WHERE user_id = auth.uid()
+  ));
+
+-- UPDATE: members can update their operation's data
+CREATE POLICY "[table]_update" ON [table_name] FOR UPDATE
+  USING (operation_id IN (
+    SELECT operation_id FROM operation_members WHERE user_id = auth.uid()
+  ));
+
+-- DELETE: members can delete their operation's data
+CREATE POLICY "[table]_delete" ON [table_name] FOR DELETE
   USING (operation_id IN (
     SELECT operation_id FROM operation_members WHERE user_id = auth.uid()
   ));
 ```
 
-**User-scoped tables** (app_logs, user_preferences)
+**Pattern B — operation_members (bootstrap-safe)**
+
+The `operation_members` table is the central authorization table that every other policy depends on. Its policies must avoid self-referential queries that cause infinite recursion, and its INSERT policy must allow the first member row to be created without an existing membership.
+
+```sql
+-- SELECT: users see only their own membership rows
+-- IMPORTANT: Do NOT use a subquery back to operation_members here.
+-- That causes infinite recursion when other tables' policies query this table.
+CREATE POLICY "operation_members_select" ON operation_members FOR SELECT
+  USING (user_id = auth.uid());
+
+-- INSERT: users can insert their own row (onboarding bootstrap)
+-- or owner/admin can invite others
+CREATE POLICY "operation_members_insert" ON operation_members FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    OR operation_id IN (
+      SELECT om.operation_id FROM operation_members om
+      WHERE om.user_id = auth.uid() AND om.accepted_at IS NOT NULL
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+-- UPDATE/DELETE: owner/admin only (standard membership check)
+```
+
+**Pattern C — user-scoped tables** (app_logs, user_preferences)
 
 These tables have no operation_id or use it only as optional context. Scoped directly to the authenticated user.
 
@@ -226,6 +270,16 @@ CREATE POLICY "Users see own records"
   FOR ALL
   USING (user_id = auth.uid());
 ```
+
+**Standalone lookup tables** (dose_units, input_product_units)
+
+These tables have no `operation_id` column and no `user_id` column. RLS is disabled on these tables. They are populated during onboarding with seed data and scoped via FK relationships to operation-owned parent tables.
+
+### 5.1a Onboarding Bootstrap Sequence
+
+During onboarding, records are created in this order: operations → operation_members → farms → farm_settings → user_preferences → seed data (animal_classes, forage_types, treatment_categories, input_product_categories, dose_units, input_product_units). Each INSERT must succeed without requiring the user to already be a member. This is why Pattern A uses `WITH CHECK (true)` for INSERT and Pattern B allows `user_id = auth.uid()` self-insertion.
+
+**Known trap — upsert vs insert:** The sync adapter currently uses `.upsert()` for all writes (see V2_APP_ARCHITECTURE.md §5.2). Supabase evaluates upsert as INSERT + UPDATE, requiring both policies to pass. During onboarding, UPDATE policies that check `operation_members` will fail because the membership row may not exist yet. The sync adapter must be updated to use `.insert()` for new records and `.update()` for existing records (see OI-0054).
 
 ### 5.2 Auth
 

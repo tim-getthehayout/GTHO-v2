@@ -276,8 +276,19 @@ export class SyncAdapter {
 
 - **Offline queue:** Writes enqueued to localStorage when offline. Flushed on reconnect.
 - **Exponential backoff:** 1s → 2s → 4s → 8s → 16s, max 5 retries per write.
-- **Dead letter handling:** After 5 failures, write moves to dead-letter queue with full context (table, record, error, retry count, timestamps). Manual "Push All" in Settings re-queues dead letters.
-- **Conflict resolution:** Last-write-wins by `updated_at`, scoped by `operation_id`. Single user = rare conflicts. Upsert on `id`.
+- **Dead letter handling:** After 5 failures, write moves to dead-letter queue with full context (table, record, error, retry count, timestamps). Manual "Resync to server" in Settings re-queues dead letters.
+- **Conflict resolution:** Last-write-wins by `updated_at`, scoped by `operation_id`. Single user = rare conflicts.
+
+**Write method by operation type:**
+
+| Store action | Sync method | Why |
+|---|---|---|
+| `add()` — new record | `.insert()` | New records must use INSERT so only the INSERT RLS policy is evaluated. Using `.upsert()` triggers INSERT + UPDATE policy checks, which fails during onboarding because UPDATE policies check `operation_members` (which may not exist yet). |
+| `update()` — existing record | `.update().eq('id', id)` | Existing records already passed INSERT; only UPDATE policy needed. |
+| `remove()` — delete | `.delete().eq('id', id)` | Already correct. |
+| Resync / recovery | `.upsert(record, { onConflict: 'id' })` | Recovery path re-pushes all records. By the time recovery runs, the user's `operation_members` row exists, so both INSERT and UPDATE policies pass. Upsert is correct here because we don't know if the record already exists in Supabase. |
+
+**Origin:** OI-0054 — discovered during Tier 3 testing. The sync adapter used `.upsert()` for all writes. During onboarding, every table's INSERT was rejected because Supabase evaluated both INSERT and UPDATE policies, and the UPDATE policy's `operation_members` check failed (the member row didn't exist yet). 24 records dead-lettered on every onboarding attempt.
 
 ### 5.3 Future PowerSync Swap
 

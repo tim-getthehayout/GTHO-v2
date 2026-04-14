@@ -102,6 +102,17 @@ expect(data).toHaveLength(1);
 3. The project-scaffold template for CLAUDE.md includes this rule by default for any project with a `supabase/` directory.
 **Where:** project-scaffold SKILL.md (CLAUDE.md template), deploy-gate SKILL.md (add migration verification check), doc-workflow SKILL.md (migration handoff protocol when Cowork specs a schema change).
 
+### 10. Supabase RLS: never use FOR ALL policies with upsert-based sync adapters
+**Plugin:** project-infrastructure
+**Skill:** project-scaffold, deploy-gate
+**What:** When scaffolding a Supabase-backed project, RLS policies must use granular per-command policies (INSERT, SELECT, UPDATE, DELETE) instead of `FOR ALL`. The INSERT policy should use `WITH CHECK (true)` for operation-scoped tables (FK constraints enforce valid `operation_id`), while SELECT/UPDATE/DELETE check membership. `FOR ALL` policies apply their `USING` clause as the `WITH CHECK` for both INSERT and UPDATE, which fails during bootstrap (first-user onboarding) when the membership row doesn't exist yet. This is especially critical when the sync adapter uses `.upsert()`, which Supabase evaluates as INSERT + UPDATE — requiring both policies to pass.
+**Why:** OI-0054 — 24 records dead-lettered on every onboarding attempt. The `FOR ALL` + `.upsert()` combination meant that even tables with permissive INSERT intent (`WITH CHECK (true)` on the operations table itself) were rejected because the UPDATE path required a membership check that couldn't pass during bootstrap. The failure was silent (localStorage-first app showed success) and took multiple debugging sessions to diagnose because: (a) the error changed character as each layer was fixed (recursion → RLS violation → FK constraint), and (b) the dead letter queue error messages didn't indicate that upsert was the trigger.
+**How to apply:**
+1. CLAUDE.md template for Supabase projects gains a "RLS Policy Rules" section: "Never use `FOR ALL`. Always use granular INSERT/SELECT/UPDATE/DELETE. INSERT uses `WITH CHECK (true)` for operation-scoped tables."
+2. deploy-gate gains a pre-commit check: "grep `FOR ALL` in migration SQL files — if found, flag as potential bootstrap failure."
+3. project-scaffold generates the granular policy pattern in its migration templates.
+**Where:** project-scaffold SKILL.md (migration template, CLAUDE.md template), deploy-gate SKILL.md (add `FOR ALL` grep check).
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

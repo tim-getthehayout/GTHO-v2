@@ -86,9 +86,10 @@
 
 ### 3.4 Advanced
 - [ ] **CP-54** — Rotation calendar
-- [ ] **CP-55** — JSON backup export
-- [ ] **CP-56** — JSON backup import/restore
-- [ ] **CP-57** — v1 → v2 migration tool
+- [x] **CP-55** — JSON backup export
+- [x] **CP-56** — JSON backup import/restore
+- [x] **CP-57** — v1 → v2 migration tool (25 transforms, dose parsing, NPK parity data, CP-56 pipeline reuse, 67 unit tests, 747 total). Audited against reconciled spec — fixed OI-0037 (schema_version import) and OI-0038 (skipAutoBackup for empty operations).
+- [x] **CP-58** — Integration test — migration (17 unit integration tests using v1 fixture, 7 Playwright e2e tests for UI flow, 747 total)
 
 ### 3.5 Polish
 - [ ] **CP-59** — PWA / service worker

@@ -287,9 +287,11 @@ async function parityCheck(backup, operationId) {
  * @param {object} backup - Parsed JSON backup object
  * @param {string} operationId - Current operation ID
  * @param {Function} [onProgress] - Called with (phase, detail, pct)
+ * @param {object} [options]
+ * @param {boolean} [options.skipAutoBackup] - Skip auto-backup step (CP-57 §1.6: empty operation)
  * @returns {Promise<{ success: boolean, error?: string, autoBackupFileName?: string, parityResult?: object }>}
  */
-export async function importOperationBackup(backup, operationId, onProgress) {
+export async function importOperationBackup(backup, operationId, onProgress, options = {}) {
   const progress = (phase, detail, pct) => {
     if (onProgress) onProgress(phase, detail, pct);
   };
@@ -308,15 +310,20 @@ export async function importOperationBackup(backup, operationId, onProgress) {
   }
 
   // Step 4: Auto-backup of current state (§5.7.4)
-  progress('Saving current data (auto-backup)', '', 10);
+  // CP-57 §1.6: skip when target operation is empty (nothing to back up)
   let autoBackupFileName;
-  try {
-    const { json, fileName } = await exportOperationBackup(operationId);
-    autoBackupFileName = fileName.replace('gtho-v2-backup__', 'gtho-v2-auto-backup-before-restore__');
-    downloadBackup(json, autoBackupFileName);
-  } catch (err) {
-    logger.error('backup', 'auto-backup failed, halting import', { error: err.message });
-    return { success: false, error: `Failed to save auto-backup: ${err.message}. Import halted.` };
+  if (options.skipAutoBackup) {
+    logger.info('backup', 'auto-backup skipped (empty operation)', { operation_id: operationId });
+  } else {
+    progress('Saving current data (auto-backup)', '', 10);
+    try {
+      const { json, fileName } = await exportOperationBackup(operationId);
+      autoBackupFileName = fileName.replace('gtho-v2-backup__', 'gtho-v2-auto-backup-before-restore__');
+      downloadBackup(json, autoBackupFileName);
+    } catch (err) {
+      logger.error('backup', 'auto-backup failed, halting import', { error: err.message });
+      return { success: false, error: `Failed to save auto-backup: ${err.message}. Import halted.` };
+    }
   }
 
   // Step 5: Migrate forward if needed (§5.7.5)
@@ -397,5 +404,5 @@ export async function importOperationBackup(backup, operationId, onProgress) {
   };
 }
 
-/** Export FK_ORDER for tests. */
-export { FK_ORDER, REFERENCE_TABLES, TWO_PASS_TABLES };
+/** Export FK_ORDER and CURRENT_SCHEMA_VERSION for tests and CP-57. */
+export { FK_ORDER, REFERENCE_TABLES, TWO_PASS_TABLES, CURRENT_SCHEMA_VERSION };

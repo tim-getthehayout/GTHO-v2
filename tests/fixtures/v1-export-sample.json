@@ -1,0 +1,162 @@
+{
+  "herd": { "name": "Triple J Ranch", "type": "cattle", "count": 50, "weight": 1100, "dmi": 2.5 },
+  "settings": {
+    "herdName": "Triple J Ranch",
+    "auWeight": 1000,
+    "residualGrazeHeight": 4,
+    "forageUtilizationPct": 65,
+    "nPrice": 0.55,
+    "pPrice": 0.65,
+    "kPrice": 0.42,
+    "recoveryRequired": true,
+    "recoveryMinDays": 30,
+    "recoveryMaxDays": 60,
+    "manureVolumeRate": 65,
+    "feedDayGoal": 90,
+    "homeViewMode": "groups",
+    "homeStatPeriod": "14d",
+    "weanTargets": { "cattle": 205 },
+    "thresholds": {}
+  },
+  "forageTypes": [
+    { "id": "ft-1", "name": "Tall Fescue", "dmPct": 30, "nPerTonneDm": 25, "pPerTonneDm": 3.5, "kPerTonneDm": 20, "dmLbsPerInchPerAcre": 200, "isSeeded": false }
+  ],
+  "pastures": [
+    { "id": "p-1", "name": "North Field", "locationType": "paddock", "acres": 12, "forageTypeId": "ft-1" },
+    { "id": "p-2", "name": "South Field", "locationType": "paddock", "acres": 8 },
+    { "id": "p-3", "name": "Winter Barn", "locationType": "barn", "acres": 0.5 }
+  ],
+  "animalClasses": [
+    { "id": "ac-1", "name": "Cow", "weight": 1200, "dmiPct": 2.5 },
+    { "id": "ac-2", "name": "Calf", "weight": 400, "dmiPct": 3.0 }
+  ],
+  "animals": [
+    { "id": "a-1", "tag": "001", "name": "Bessie", "sex": "female", "classId": "ac-1", "birthDate": "2020-03-15", "archived": false },
+    { "id": "a-2", "tag": "002", "name": "Daisy", "sex": "female", "classId": "ac-1", "birthDate": "2021-04-20", "damId": "a-1", "archived": false },
+    { "id": "a-3", "tag": "C01", "name": "Junior", "sex": "male", "classId": "ac-2", "birthDate": "2025-03-10", "damId": "a-1", "archived": false }
+  ],
+  "animalGroups": [
+    { "id": "g-1", "name": "Main Herd", "color": "#4CAF50", "archived": false },
+    { "id": "g-2", "name": "Calves", "color": "#FF9800", "archived": false }
+  ],
+  "animalGroupMemberships": [
+    { "id": "agm-1", "animalId": "a-1", "groupId": "g-1", "dateJoined": "2024-01-01" },
+    { "id": "agm-2", "animalId": "a-2", "groupId": "g-1", "dateJoined": "2024-01-01" },
+    { "id": "agm-3", "animalId": "a-3", "groupId": "g-2", "dateJoined": "2025-03-10" }
+  ],
+  "feedTypes": [
+    { "id": "fdt-1", "name": "Round Bale Hay", "category": "hay", "unit": "bale", "dmPct": 88, "defaultWeightLbs": 800 }
+  ],
+  "batches": [
+    { "id": "b-1", "typeId": "fdt-1", "name": "Spring Hay 2025", "quantity": 50, "remaining": 35, "unit": "bale", "weightPerUnitKg": 800, "dmPct": 88, "purchaseDate": "2025-04-01" }
+  ],
+  "events": [
+    {
+      "id": "e-1",
+      "pastureId": "p-1",
+      "dateIn": "2025-06-01",
+      "dateOut": "2025-06-10",
+      "notes": "Good grazing, forage was lush",
+      "groups": [
+        { "groupId": "g-1", "headSnapshot": 2, "weightSnapshot": 1200, "dateJoined": "2025-06-01" }
+      ],
+      "feedEntries": [
+        { "id": "fe-1", "batchId": "b-1", "qty": 3, "date": "2025-06-05" }
+      ],
+      "feedResidualChecks": [],
+      "subMoves": [
+        { "id": "sm-1", "pastureId": "p-2", "dateOpened": "2025-06-07" }
+      ],
+      "npkLedger": [
+        { "n": 5.2, "p": 0.8, "k": 4.1 }
+      ]
+    },
+    {
+      "id": "e-2",
+      "pastureId": "p-3",
+      "dateIn": "2025-12-01",
+      "notes": "Winter confinement",
+      "groups": [
+        { "groupId": "g-1", "headSnapshot": 2, "weightSnapshot": 1200, "dateJoined": "2025-12-01" },
+        { "groupId": "g-2", "headSnapshot": 1, "weightSnapshot": 400, "dateJoined": "2025-12-01" }
+      ],
+      "feedEntries": [
+        { "id": "fe-2", "batchId": "b-1", "qty": 10, "date": "2025-12-05" }
+      ],
+      "feedResidualChecks": [
+        {
+          "id": "frc-1", "date": "2025-12-10", "isCloseReading": false,
+          "typeChecks": [
+            { "batchId": "b-1", "pastureId": "p-3", "remainingQuantity": 2 }
+          ]
+        }
+      ],
+      "subMoves": [],
+      "npkLedger": []
+    }
+  ],
+  "aiBulls": [
+    { "id": "ab-1", "name": "Angus Prime 221B", "breed": "Angus", "regNum": "ABC-221B" }
+  ],
+  "treatmentTypes": [
+    { "id": "tt-1", "name": "Ivermectin Pour-On", "category": "Dewormer", "archived": false },
+    { "id": "tt-2", "name": "Penicillin", "category": "Antibiotic", "archived": false }
+  ],
+  "animalHealthEvents": [
+    { "animalId": "a-1", "type": "bcs", "score": 6, "date": "2025-06-15" },
+    { "animalId": "a-2", "type": "treatment", "dose": "10ml", "treatmentTypeId": "tt-1", "date": "2025-07-01" },
+    { "animalId": "a-2", "type": "treatment", "dose": "a big squirt", "treatmentTypeId": "tt-2", "date": "2025-08-01" },
+    { "animalId": "a-1", "type": "breeding", "subtype": "ai", "aiBullId": "ab-1", "date": "2025-07-15" },
+    { "animalId": "a-2", "type": "breeding", "subtype": "heat", "date": "2025-08-10" },
+    { "animalId": "a-1", "type": "calving", "calfId": "a-3", "birthWeightLbs": 75, "date": "2025-03-10" },
+    { "animalId": "a-1", "type": "note", "notes": "Limping on left rear", "date": "2025-09-01" }
+  ],
+  "animalWeightRecords": [
+    { "id": "wr-1", "animalId": "a-1", "weightLbs": 1150, "recordedAt": "2025-06-01", "note": "Pre-summer weight" },
+    { "id": "wr-2", "animalId": "a-3", "weightLbs": 350, "recordedAt": "2025-06-01" }
+  ],
+  "surveys": [
+    {
+      "id": "s-1", "status": "committed", "createdAt": "2025-05-20",
+      "draftRatings": {}
+    }
+  ],
+  "paddockObservations": [
+    { "id": "obs-1", "pastureId": "p-1", "observedAt": "2025-05-20T10:00:00Z", "source": "survey", "sourceId": "s-1", "vegHeight": 8, "forageCoverPct": 85, "forageQuality": 75, "forageCondition": "Good" }
+  ],
+  "harvestEvents": [
+    {
+      "id": "he-1", "date": "2025-05-15", "notes": "First cutting",
+      "fields": [
+        { "id": "hef-1", "pastureId": "p-2", "feedTypeId": "fdt-1", "quantity": 25, "weightPerUnitKg": 800, "dmPct": 88, "cuttingNumber": 1 }
+      ]
+    }
+  ],
+  "inputProducts": [
+    { "id": "ip-1", "name": "Urea 46-0-0", "category": "Fertilizer", "nPct": 46, "pPct": 0, "kPct": 0 }
+  ],
+  "inputApplications": [
+    { "id": "ia-1", "appliedAt": "2025-04-01T08:00:00Z", "inputProductId": "ip-1", "totalQty": 500, "notes": "Spring application" }
+  ],
+  "inputApplicationLocations": [
+    { "id": "ial-1", "applicationId": "ia-1", "pastureId": "p-1", "qty": 500, "nKg": 230, "pKg": 0, "kKg": 0, "areaAcres": 12 }
+  ],
+  "soilTests": [
+    { "id": "st-1", "landId": "p-1", "date": "2025-03-01", "n": 45, "p": 22, "k": 180, "pH": 6.2, "organicMatter": 3.5, "lab": "State Ag Lab" }
+  ],
+  "manureBatches": [
+    { "id": "mb-1", "label": "Winter 2025", "sourceLocationId": "p-3", "estimatedVolumeLbs": 20000, "nLbs": 100, "pLbs": 60, "kLbs": 80 }
+  ],
+  "manureBatchTransactions": [
+    { "id": "mbt-1", "batchId": "mb-1", "type": "input", "transactionDate": "2025-12-15", "volumeLbs": 5000, "sourceEventId": "e-2" }
+  ],
+  "todos": [
+    { "id": "td-1", "title": "Fix fence on North Field", "body": "Broken post near gate", "status": "open", "dueDate": "2025-07-01" }
+  ],
+  "feedback": [],
+  "batchNutritionalProfiles": [],
+  "users": [],
+  "farms": [],
+  "errorLog": [],
+  "version": "v1.2"
+}

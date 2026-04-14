@@ -4,6 +4,36 @@
 
 ---
 
+### OI-0048 — Migration: Observation Type Inference Defaults All to 'open'
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** post-CP-57
+**Status:** open — code fix required
+
+`v1-migration.js` line 945 sets `type: obs.type || 'open'` for all migrated observations. V1 observations don't have a `type` field — they encode open/close in the `source` string (`event_open`, `event_close`). The migration maps source correctly but the type field defaults to `'open'` for everything, including `event_close` observations that should be `type: 'close'`.
+
+**Fix:** Infer type from the v1 source string: `type: source === 'event_close' ? 'close' : 'open'`.
+
+**Impact:** Low — downstream code mostly filters by `source`, not `type`. But it's incorrect data and a one-line fix.
+
+**Spec file:** `github/issues/v1-migration-open-event-fixes.md`
+
+---
+
+### OI-0049 — Migration: Feed Transfer Source Linking Dropped
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P1
+**Checkpoint:** post-CP-57
+**Status:** open — code fix required
+
+V1 feed transfers use a `transferPairId` to link paired +/- entries across events (v1 audit §FEE-01: `kind: 'transfer'`, `transferPairId` links the pair). V2_MIGRATION_PLAN.md §2.5 specifies: "If negative, create entry on destination event with source_event_id. Find paired entry, link to its event_id." The migration code (`v1-migration.js` lines 621–636) does NOT implement this — it takes `Math.abs(qty)` and sets `source_event_id: null` for all entries.
+
+Total feed quantities are preserved (numerically correct), but transfer traceability is lost. User has confirmed they have feed transfers in v1 data.
+
+**Fix:** During migration, when processing feed entries: (1) index all feed entries by `transferPairId`, (2) for entries with `kind === 'transfer'` and negative qty, find the paired positive entry via `transferPairId`, (3) set `source_event_id` to the paired entry's remapped event UUID.
+
+**Spec file:** `github/issues/v1-migration-open-event-fixes.md`
+
+---
+
 ### OI-0047 — Member Management & Invite Flow Missing from V2 UX Specs
 **Added:** 2026-04-14 | **Area:** v2-design | **Priority:** P2
 **Checkpoint:** pre-Phase-3.5

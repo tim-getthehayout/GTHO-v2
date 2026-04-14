@@ -479,7 +479,7 @@ Tab strip: Locations | Surveys. Filter pills: All, Pasture, Mixed-Use, Crop, Con
 
 ### 4.6 Reports Screen
 
-6-tab strip, in this order: **Feed & DMI Trends** (default), NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning.
+Report tab strip, in this order: **Feed & DMI Trends** (default), NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning. The Calc Reference console renders alongside these (as the final tab in Reports in v2.0) so the 35+ registered formulas remain browsable; its planned destination is Settings → Developer, tracked in OPEN_ITEMS.md as OI-0020 for a future CP.
 
 The rotation calendar does **not** appear in Reports — it lives on the Events screen (§4.3) and covers both action-first and read-first use cases via its own zoom/jump controls. Keeping a single copy avoids divergent "Reports-only" behavior and eliminates duplicate render/calc code.
 
@@ -648,6 +648,7 @@ Used by BCS Recording Sheet (§14.3). Row of numbered chips.
 | 2026-04-12 | Session 11 — Component gap fill | Added §7: quick-action bar, field mode home screen, field mode nav header, health recording sheet layout, group session progress bar, BCS chip selector. Patterns support V2_UX_FLOWS.md §14–§16. |
 | 2026-04-13 | Header + multi-farm context design | Extended §3.6 Navigation with header bar patterns: left cluster (operation name + farm picker), right cluster (sync dot, build stamp, Field Mode, user menu button), farm picker (sheet/dropdown specs), user menu popover (email + Log Out), and cross-farm event marker style for event cards. Supports V2_UX_FLOWS.md §17.2 and new §18. |
 | 2026-04-13 | Rotation calendar design (CP-54) | §4.3 Events Screen rewritten — the Events screen IS the rotation calendar. Covers header strip (View: toggle + mode indicator pill with multi-group compression rule), toolbar (two lightboxes: Timeline Selection + Dry Matter Forecaster, plus Show Confinement Locations on/off pill), conditional legend (Past always; Future swaps content by mode), 3-column calendar grid (paddock column / timeline / sidebar), past event blocks (multi-group label rule, proportional strip-graze bands, active NOW white ring, linked-paddock dashed outline + dotted connector), future forecast blocks (two view modes), today line with date pill, 1:1 sidebar mirror (40px header + 72px per paddock row + 28px totals footer), list view (v1 GRZ-10 pattern), mobile fallback (no calendar below 900px — GRZ-11 banner + GRZ-10 list). §4.6 Reports Screen: Rotation Calendar tab **removed** — calendar lives only on Events. Tab strip now 6 tabs (Feed & DMI Trends default, NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning). Supports V2_UX_FLOWS.md §19. |
+| 2026-04-13 | CP-54 pre-build reconciliation | §4.6 updated: Calc Reference console renders alongside the 6 report tabs in v2.0 (it was never actually removed from Reports in code, and no Settings home exists yet). Planned destination is Settings → Developer, tracked in OPEN_ITEMS.md as OI-0020 for a future CP. No change to the 6 report-tab set or to §4.3. |
 
 ---
 

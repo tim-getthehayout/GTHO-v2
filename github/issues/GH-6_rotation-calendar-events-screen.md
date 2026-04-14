@@ -31,9 +31,11 @@ Everything a builder needs to know about *what* to render is in the base docs:
 
 ### Calc engine
 
-- [ ] `src/features/forage/forecast-standing-dm.js` — implement FOR-6 per V2_CALCULATION_SPEC.md §4.3. Register via `registerCalc('FOR-6', ...)` with full metadata.
-- [ ] `src/features/capacity/period-capacity-coverage.js` — implement CAP-1 per V2_CALCULATION_SPEC.md §4.11. Register via `registerCalc('CAP-1', ...)` with full metadata.
-- [ ] Both formulas visible in the calc registry debug view (Settings → Calc registry) with the same metadata shape as existing formulas.
+All calcs live in `src/calcs/` and register via `registerCalc()` — same pattern as the 35 existing formulas. Do not introduce a new feature-scoped calc directory.
+
+- [ ] **FOR-6** — add to `src/calcs/feed-forage.js` alongside FOR-1…FOR-5. Implement per V2_CALCULATION_SPEC.md §4.3. Register via `registerCalc('FOR-6', ...)` with full metadata.
+- [ ] **CAP-1** — add to a new `src/calcs/capacity.js` (new §4.11 Capacity Forecast domain → new file). Implement per V2_CALCULATION_SPEC.md §4.11. Register via `registerCalc('CAP-1', ...)` with full metadata.
+- [ ] Both formulas visible in the calc registry reference view with the same metadata shape as existing formulas.
 
 ### State module
 
@@ -54,10 +56,13 @@ Everything a builder needs to know about *what* to render is in the base docs:
 - [ ] Past-block render uses `area_pct` to compute proportional strip band widths per V2_UX_FLOWS §19.2 and §4.3.
 - [ ] FOR-6 sums DM across strips in a strip-grazed paddock per V2_CALCULATION_SPEC §4.3 FOR-6 strip rule.
 
-### Reports screen cleanup
+### Reports screen — confirm §4.6 alignment
 
-- [ ] Remove the Rotation Calendar tab from Reports (§4.6 now lists 6 tabs). Tab order: Feed & DMI Trends (default), NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning.
-- [ ] Confirm no dead links to `#/reports/rotation-calendar` remain anywhere in the codebase (grep + delete).
+Per Claude Code's reconciliation audit (2026-04-13), a Rotation Calendar tab was never actually built in Reports — Reports currently has 5 tabs (feed, npk, animals, season, reference). §4.6 lists the 6 report tabs: Feed & DMI Trends, NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning. See §4.6 for how the Calc Reference console fits alongside those 6 tabs.
+
+- [ ] Add the two missing tabs (Pasture Surveys, Weaning) as placeholder empty-state tabs so the strip matches §4.6.
+- [ ] Verify no dead references to `#/reports/rotation-calendar` exist anywhere in the codebase (grep + delete if any).
+- [ ] Keep the Calc Reference console rendering per §4.6's current guidance (tracked for future relocation under OI-0020 — do not move in this CP).
 
 ### PROJECT_CHANGELOG.md
 

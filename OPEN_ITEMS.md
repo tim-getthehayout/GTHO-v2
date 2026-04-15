@@ -7,7 +7,7 @@
 ### OI-0056 — REFERENCE_TABLES Blocks Import Delete Phase — FK Constraint on operations
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P1
 **Checkpoint:** CP-56 / CP-57
-**Status:** open
+**Status:** closed — fixed 2026-04-14
 
 **Problem:** `backup-import.js` `REFERENCE_TABLES` set includes 5 per-operation tables (`forage_types`, `animal_classes`, `treatment_categories`, `treatment_types`, `input_product_categories`). The `deleteTableRows()` function skips reference tables (they upsert instead of delete-then-insert). But these tables all have `operation_id` FK → `operations`. When the delete loop reaches `operations`, these undeletion rows block the delete with FK constraint violation: `forage_types_operation_id_fkey`.
 

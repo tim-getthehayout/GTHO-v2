@@ -82,12 +82,15 @@ const TWO_PASS_TABLES = {
 };
 
 /**
- * Reference tables that upsert by id instead of delete-then-insert (§5.3 footnote).
+ * Truly global reference tables — upsert by id, no delete (§5.3 footnote).
+ * Only tables WITHOUT operation_id belong here. Per-operation seed data
+ * (forage_types, animal_classes, treatment_categories, treatment_types,
+ * input_product_categories) are operation-scoped and follow normal
+ * delete-then-insert during import. (OI-0056)
  */
 const REFERENCE_TABLES = new Set([
-  'treatment_categories', 'treatment_types', 'dose_units',
-  'input_product_categories', 'input_product_units',
-  'forage_types', 'animal_classes',
+  'dose_units',
+  'input_product_units',
 ]);
 
 const INSERT_BATCH_SIZE = 500;

@@ -164,16 +164,13 @@ describe('backup-import (CP-56)', () => {
   });
 
   describe('REFERENCE_TABLES — upsert instead of delete-then-insert', () => {
-    it('includes all 7 reference tables', () => {
-      const expected = [
-        'treatment_categories', 'treatment_types', 'dose_units',
-        'input_product_categories', 'input_product_units',
-        'forage_types', 'animal_classes',
-      ];
+    it('includes only global reference tables (no operation_id)', () => {
+      // OI-0056: per-operation seed tables removed — only truly global lookups remain
+      const expected = ['dose_units', 'input_product_units'];
       for (const t of expected) {
         expect(REFERENCE_TABLES.has(t), `missing: ${t}`).toBe(true);
       }
-      expect(REFERENCE_TABLES.size).toBe(7);
+      expect(REFERENCE_TABLES.size).toBe(2);
     });
   });
 

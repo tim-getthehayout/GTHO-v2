@@ -6,6 +6,7 @@
 
 import { supabase } from './supabase-client.js';
 import { getSyncAdapter } from './store.js';
+import { REFERENCE_TABLES } from './backup-import.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -111,14 +112,14 @@ export function canExport() {
 async function fetchTable(table, operationId, paginate) {
   if (!supabase) throw new Error('Supabase client not configured');
 
-  // operations table: fetch by id, not operation_id
+  // Global reference tables (dose_units, input_product_units): no operation_id column
+  const isGlobal = REFERENCE_TABLES.has(table);
   const filterCol = table === 'operations' ? 'id' : 'operation_id';
 
   if (!paginate) {
-    const { data, error } = await supabase
-      .from(table)
-      .select('*')
-      .eq(filterCol, operationId);
+    let query = supabase.from(table).select('*');
+    if (!isGlobal) query = query.eq(filterCol, operationId);
+    const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch ${table}: ${error.message}`);
     return data || [];
   }
@@ -129,11 +130,10 @@ async function fetchTable(table, operationId, paginate) {
   let hasMore = true;
 
   while (hasMore) {
-    const { data, error } = await supabase
-      .from(table)
-      .select('*')
-      .eq(filterCol, operationId)
-      .range(offset, offset + PAGE_SIZE - 1);
+    let query = supabase.from(table).select('*');
+    if (!isGlobal) query = query.eq(filterCol, operationId);
+    query = query.range(offset, offset + PAGE_SIZE - 1);
+    const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch ${table} (offset ${offset}): ${error.message}`);
     allRows.push(...(data || []));
     hasMore = (data || []).length === PAGE_SIZE;

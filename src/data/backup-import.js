@@ -281,11 +281,13 @@ async function parityCheck(backup, operationId) {
     const backupRows = backup.tables[table] || [];
     const expected = backupRows.length;
 
-    const filterCol = table === 'operations' ? 'id' : 'operation_id';
-    const { count, error } = await supabase
-      .from(table)
-      .select('*', { count: 'exact', head: true })
-      .eq(filterCol, operationId);
+    const isGlobal = REFERENCE_TABLES.has(table);
+    let query = supabase.from(table).select('*', { count: 'exact', head: true });
+    if (!isGlobal) {
+      const filterCol = table === 'operations' ? 'id' : 'operation_id';
+      query = query.eq(filterCol, operationId);
+    }
+    const { count, error } = await query;
 
     if (error) {
       mismatches.push({ table, expected, actual: -1 });

@@ -177,12 +177,13 @@ export function migrateBackupForward(backup) {
  */
 async function deleteTableRows(table, operationId) {
   if (REFERENCE_TABLES.has(table)) return; // reference tables upsert, don't delete
+  if (table === 'operations') return; // skip — blocked by operation_members FK; updated in insert phase
+  if (table === 'operation_members') return; // skip — managed separately, not replaced during import
 
-  const filterCol = table === 'operations' ? 'id' : 'operation_id';
   const { error } = await supabase
     .from(table)
     .delete()
-    .eq(filterCol, operationId);
+    .eq('operation_id', operationId);
   if (error) throw new Error(`Delete failed on ${table}: ${error.message}`);
 }
 
@@ -196,6 +197,27 @@ async function deleteTableRows(table, operationId) {
  */
 async function insertTableRows(table, rows, operationId) {
   if (!rows || rows.length === 0) return;
+  if (table === 'operation_members') return; // skip — not replaced during import
+
+  // Operations: update existing row instead of insert (can't delete due to FK)
+  if (table === 'operations') {
+    const op = rows[0];
+    if (op) {
+      const { error } = await supabase
+        .from('operations')
+        .update({
+          name: op.name,
+          timezone: op.timezone,
+          currency: op.currency,
+          unit_system: op.unit_system,
+          schema_version: op.schema_version,
+          updated_at: op.updated_at,
+        })
+        .eq('id', operationId);
+      if (error) throw new Error(`Update failed on operations: ${error.message}`);
+    }
+    return;
+  }
 
   const isReference = REFERENCE_TABLES.has(table);
   const twoPassCols = TWO_PASS_TABLES[table];

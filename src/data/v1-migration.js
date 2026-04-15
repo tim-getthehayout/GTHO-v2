@@ -1015,8 +1015,8 @@ export function transformV1ToV2(v1, opts) {
     }
 
     const obsLocationId = ids.locations.remap(obs.pastureId || obs.pasture_id);
-    if (!obsLocationId || !validLocationIds.has(obsLocationId)) {
-      audit.warnings.push(`Observation ${obs.id}: location not in migrated set, skipped.`);
+    if (!validLocationIds.has(obsLocationId)) {
+      audit.warnings.push(`Observation ${obs.id}: location_id ${obsLocationId} not in migrated locations, skipped.`);
       continue;
     }
 
@@ -1174,19 +1174,13 @@ export function transformV1ToV2(v1, opts) {
     updated_at: now,
   }));
 
+  // todo_assignments: user_id FK references operation_members(id), which is excluded
+  // from backup/import (§5.4). v1 user IDs can't be mapped to operation_members rows.
+  // Assignments are dropped; todos themselves migrate fine.
   const v2TodoAssignments = [];
-  for (const td of ensure('todos')) {
-    const assignedTo = td.assignedTo || td.assigned_to || [];
-    for (const assignment of assignedTo) {
-      const userId2 = assignment.userId || assignment.user_id || assignment;
-      v2TodoAssignments.push({
-        id: crypto.randomUUID(),
-        operation_id: opId,
-        todo_id: ids.todos.remap(td.id),
-        user_id: ids.users.remap(userId2),
-        assigned_at: now,
-      });
-    }
+  const v1AssignmentCount = ensure('todos').reduce((sum, td) => sum + (td.assignedTo || td.assigned_to || []).length, 0);
+  if (v1AssignmentCount > 0) {
+    audit.warnings.push(`${v1AssignmentCount} todo assignment(s) dropped (user_id FK to operation_members can't be resolved from v1 data).`);
   }
 
   // ── §2.22: Soil Tests ──────────────────────────────────────────

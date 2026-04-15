@@ -57,12 +57,13 @@ async function boot() {
   // 4. Check existing session
   const user = await initSession();
 
-  // Track whether boot() already rendered the app — prevents onAuthChange
-  // from re-rendering on the initial Supabase session restore event (OI-0052).
-  let bootHandled = false;
+  // Track the last rendered user ID — prevents onAuthChange from
+  // re-rendering when the same user is still signed in (OI-0052).
+  // Supabase fires INITIAL_SESSION + TOKEN_REFRESHED on load.
+  let lastRenderedUserId = null;
 
   if (user) {
-    bootHandled = true;
+    lastRenderedUserId = user.id;
     if (inviteToken) {
       await handleInviteClaim(app, inviteToken, user);
     } else {
@@ -82,12 +83,12 @@ async function boot() {
 
   // 5. Listen for auth state changes (logout, token expiry, sign-in)
   onAuthChange(async (changedUser) => {
-    // Skip the initial session restore — boot() already handled it
-    if (bootHandled) {
-      bootHandled = false;
+    // Skip if same user still signed in (token refresh, initial session restore)
+    if (changedUser && changedUser.id === lastRenderedUserId) {
       return;
     }
 
+    lastRenderedUserId = changedUser?.id || null;
     clear(app);
     if (changedUser) {
       const storedToken = sessionStorage.getItem('gtho_invite_token');
@@ -212,6 +213,7 @@ function showApp(app) {
 
   // Check if onboarding needed (no operations for this user)
   if (needsOnboarding()) {
+    clear(app);
     const onboardingContainer = el('div', { className: 'app-content' });
     app.appendChild(onboardingContainer);
     renderOnboarding(onboardingContainer, () => {

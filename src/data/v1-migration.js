@@ -542,7 +542,7 @@ export function transformV1ToV2(v1, opts) {
       id: eventId,
       operation_id: opId,
       farm_id: farmId,
-      date_in: ev.dateIn || ev.date_in || ev.startDate || null,
+      date_in: ev.dateIn || ev.date_in || ev.startDate || migrationDate,
       time_in: ev.timeIn || ev.time_in || null,
       date_out: ev.dateOut || ev.date_out || ev.endDate || null,
       time_out: ev.timeOut || ev.time_out || null,
@@ -554,14 +554,14 @@ export function transformV1ToV2(v1, opts) {
 
     // §2.3: Anchor paddock → first paddock window
     const anchorPastureId = ev.pastureId || ev.pasture_id;
-    const eventDateIn = ev.dateIn || ev.date_in || ev.startDate;
+    const eventDateIn = ev.dateIn || ev.date_in || ev.startDate || migrationDate;
     if (anchorPastureId) {
       v2PaddockWindows.push({
         id: crypto.randomUUID(),
         operation_id: opId,
         event_id: eventId,
         location_id: ids.locations.remap(anchorPastureId),
-        date_opened: eventDateIn || null,
+        date_opened: eventDateIn,
         time_opened: ev.timeIn || ev.time_in || null,
         date_closed: ev.dateOut || ev.date_out || ev.endDate || null,
         time_closed: ev.timeOut || ev.time_out || null,
@@ -584,7 +584,7 @@ export function transformV1ToV2(v1, opts) {
         operation_id: opId,
         event_id: eventId,
         location_id: ids.locations.remap(smPastureId),
-        date_opened: sm.dateOpened || sm.date_opened || null,
+        date_opened: sm.dateOpened || sm.date_opened || eventDateIn,
         time_opened: sm.timeOpened || sm.time_opened || null,
         date_closed: sm.dateClosed || sm.date_closed || null,
         time_closed: sm.timeClosed || sm.time_closed || null,
@@ -607,7 +607,7 @@ export function transformV1ToV2(v1, opts) {
         operation_id: opId,
         event_id: eventId,
         group_id: ids.groups.remap(groupId),
-        date_joined: g.dateJoined || g.date_joined || eventDateIn || null,
+        date_joined: g.dateJoined || g.date_joined || eventDateIn,
         time_joined: g.timeJoined || g.time_joined || null,
         date_left: g.dateLeft || g.date_left || null,
         time_left: g.timeLeft || g.time_left || null,

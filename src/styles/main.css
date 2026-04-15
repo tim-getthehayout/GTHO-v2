@@ -132,9 +132,15 @@ body {
 }
 
 .header-nav {
-  display: flex;
+  display: none;
   gap: var(--space-3);
   overflow-x: auto;
+}
+
+@media (min-width: 900px) {
+  .header-nav {
+    display: flex;
+  }
 }
 
 .nav-link {

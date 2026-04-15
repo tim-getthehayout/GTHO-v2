@@ -57,12 +57,15 @@ async function boot() {
   // 4. Check existing session
   const user = await initSession();
 
+  // Track whether boot() already rendered the app — prevents onAuthChange
+  // from re-rendering on the initial Supabase session restore event (OI-0052).
+  let bootHandled = false;
+
   if (user) {
-    // Handle invite claim if token present
+    bootHandled = true;
     if (inviteToken) {
       await handleInviteClaim(app, inviteToken, user);
     } else {
-      // Email-based fallback: claim pending invite if user has no operation (v1 parity)
       const hasOp = await userHasOperation(user.id);
       if (!hasOp) {
         await claimPendingInviteByEmail(user.email, user.id);
@@ -77,17 +80,21 @@ async function boot() {
     }
   }
 
-  // 5. Listen for auth state changes (logout, token expiry)
+  // 5. Listen for auth state changes (logout, token expiry, sign-in)
   onAuthChange(async (changedUser) => {
+    // Skip the initial session restore — boot() already handled it
+    if (bootHandled) {
+      bootHandled = false;
+      return;
+    }
+
     clear(app);
     if (changedUser) {
-      // Check for pending invite token stored during auth
       const storedToken = sessionStorage.getItem('gtho_invite_token');
       if (storedToken) {
         sessionStorage.removeItem('gtho_invite_token');
         await handleInviteClaim(app, storedToken, changedUser);
       } else {
-        // Email-based fallback on sign-in
         const hasOp = await userHasOperation(changedUser.id);
         if (!hasOp) {
           await claimPendingInviteByEmail(changedUser.email, changedUser.id);

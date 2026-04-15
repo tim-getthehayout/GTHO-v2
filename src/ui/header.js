@@ -1,3 +1,4 @@
+/* global __BUILD_STAMP__ */
 /** @file App header — operation name, farm picker, sync, build stamp, user menu — GH-5 §17.2 */
 
 import { el, clear } from './dom.js';
@@ -43,7 +44,6 @@ export function renderHeader(container) {
   ]);
 
   // --- Build stamp ---
-  /* global __BUILD_STAMP__ */
   const buildVersion = (typeof __BUILD_STAMP__ !== 'undefined' && __BUILD_STAMP__ !== 'dev')
     ? __BUILD_STAMP__
     : (typeof document !== 'undefined' ? document.querySelector('meta[name="app-version"]')?.content || 'dev' : 'dev');

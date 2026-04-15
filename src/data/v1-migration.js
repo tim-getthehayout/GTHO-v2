@@ -358,6 +358,9 @@ export function transformV1ToV2(v1, opts) {
     };
   });
 
+  // Valid location IDs — for skipping references to unmigrated/archived locations
+  const validLocationIds = new Set(v2Locations.map(l => l.id));
+
   // ── §2.24: Feed Types ──────────────────────────────────────────
   const v2FeedTypes = ensure('feedTypes').map(ft => ({
     id: ids.feedTypes.remap(ft.id),
@@ -555,12 +558,13 @@ export function transformV1ToV2(v1, opts) {
     // §2.3: Anchor paddock → first paddock window
     const anchorPastureId = ev.pastureId || ev.pasture_id;
     const eventDateIn = ev.dateIn || ev.date_in || ev.startDate || migrationDate;
-    if (anchorPastureId) {
+    const anchorLocationId = anchorPastureId ? ids.locations.remap(anchorPastureId) : null;
+    if (anchorLocationId && validLocationIds.has(anchorLocationId)) {
       v2PaddockWindows.push({
         id: crypto.randomUUID(),
         operation_id: opId,
         event_id: eventId,
-        location_id: ids.locations.remap(anchorPastureId),
+        location_id: anchorLocationId,
         date_opened: eventDateIn,
         time_opened: ev.timeIn || ev.time_in || null,
         date_closed: ev.dateOut || ev.date_out || ev.endDate || null,
@@ -579,11 +583,13 @@ export function transformV1ToV2(v1, opts) {
     for (const sm of subMoves) {
       const smPastureId = sm.pastureId || sm.pasture_id;
       if (!smPastureId) continue;
+      const smLocationId = ids.locations.remap(smPastureId);
+      if (!validLocationIds.has(smLocationId)) continue;
       v2PaddockWindows.push({
         id: crypto.randomUUID(),
         operation_id: opId,
         event_id: eventId,
-        location_id: ids.locations.remap(smPastureId),
+        location_id: smLocationId,
         date_opened: sm.dateOpened || sm.date_opened || eventDateIn,
         time_opened: sm.timeOpened || sm.time_opened || null,
         date_closed: sm.dateClosed || sm.date_closed || null,
@@ -632,11 +638,15 @@ export function transformV1ToV2(v1, opts) {
       const subMoveId = fe.subMoveId || fe.sub_move_id;
       if (subMoveId && subMoveLocationMap.has(String(subMoveId))) {
         locationId = subMoveLocationMap.get(String(subMoveId));
-      } else if (anchorPastureId) {
-        locationId = ids.locations.remap(anchorPastureId);
+      } else if (anchorLocationId) {
+        locationId = anchorLocationId;
       } else {
         // Skip feed entry without a resolvable location
         audit.warnings.push(`Feed entry ${fe.id} on event ${ev.id}: no resolvable location, skipped.`);
+        continue;
+      }
+      if (!validLocationIds.has(locationId)) {
+        audit.warnings.push(`Feed entry ${fe.id} on event ${ev.id}: location not in migrated set, skipped.`);
         continue;
       }
 
@@ -710,13 +720,18 @@ export function transformV1ToV2(v1, opts) {
           audit.warnings.push(`Feed check item on event ${ev.id}: no batch_id, skipped.`);
           continue;
         }
-        const locId = tc.pastureId || tc.pasture_id || tc.locationId || tc.location_id;
+        const rawLocId = tc.pastureId || tc.pasture_id || tc.locationId || tc.location_id;
+        const checkItemLocId = rawLocId ? ids.locations.remap(rawLocId) : anchorLocationId;
+        if (!checkItemLocId || !validLocationIds.has(checkItemLocId)) {
+          audit.warnings.push(`Feed check item on event ${ev.id}: location not in migrated set, skipped.`);
+          continue;
+        }
         v2FeedCheckItems.push({
           id: crypto.randomUUID(),
           operation_id: opId,
           feed_check_id: checkId,
           batch_id: ids.batches.remap(batchId),
-          location_id: locId ? ids.locations.remap(locId) : (anchorPastureId ? ids.locations.remap(anchorPastureId) : null),
+          location_id: checkItemLocId,
           remaining_quantity: tc.remainingQuantity ?? tc.remaining_quantity ?? tc.remaining ?? 0,
           created_at: now,
         });
@@ -950,11 +965,13 @@ export function transformV1ToV2(v1, opts) {
     if (s.status === 'draft') {
       const draftRatings = s.draftRatings || s.draft_ratings || {};
       for (const [paddockId, rating] of Object.entries(draftRatings)) {
+        const draftLocId = ids.locations.remap(paddockId);
+        if (!validLocationIds.has(draftLocId)) continue;
         v2SurveyDraftEntries.push({
           id: crypto.randomUUID(),
           operation_id: opId,
           survey_id: surveyId,
-          location_id: ids.locations.remap(paddockId),
+          location_id: draftLocId,
           forage_height_cm: rating.vegHeight != null ? rating.vegHeight * INCHES_TO_CM : null,
           forage_cover_pct: rating.forageCoverPct ?? null,
           forage_quality: rating.rating ?? null,
@@ -998,8 +1015,8 @@ export function transformV1ToV2(v1, opts) {
     }
 
     const obsLocationId = ids.locations.remap(obs.pastureId || obs.pasture_id);
-    if (!obsLocationId) {
-      audit.warnings.push(`Observation ${obs.id}: no resolvable location_id, skipped.`);
+    if (!obsLocationId || !validLocationIds.has(obsLocationId)) {
+      audit.warnings.push(`Observation ${obs.id}: location not in migrated set, skipped.`);
       continue;
     }
 
@@ -1042,11 +1059,16 @@ export function transformV1ToV2(v1, opts) {
 
     const fields = he.fields || [];
     for (const f of fields) {
+      const hefLocId = ids.locations.remap(f.pastureId || f.pasture_id || f.locationId || f.location_id);
+      if (!hefLocId || !validLocationIds.has(hefLocId)) {
+        audit.warnings.push(`Harvest field on event ${he.id}: location not in migrated set, skipped.`);
+        continue;
+      }
       v2HarvestEventFields.push({
         id: crypto.randomUUID(),
         operation_id: opId,
         harvest_event_id: heId,
-        location_id: ids.locations.remap(f.pastureId || f.pasture_id || f.locationId || f.location_id),
+        location_id: hefLocId,
         feed_type_id: ids.feedTypes.remap(f.feedTypeId || f.feed_type_id),
         quantity: f.quantity ?? 0,
         weight_per_unit_kg: f.weightPerUnitKg != null ? f.weightPerUnitKg * LBS_TO_KG
@@ -1112,7 +1134,14 @@ export function transformV1ToV2(v1, opts) {
     updated_at: now,
   }));
 
-  const v2AmendmentLocations = ensure('inputApplicationLocations').map(al => ({
+  const v2AmendmentLocations = ensure('inputApplicationLocations').filter(al => {
+    const locId = ids.locations.remap(al.pastureId || al.pasture_id);
+    if (!locId || !validLocationIds.has(locId)) {
+      audit.warnings.push(`Amendment location ${al.id}: location not in migrated set, skipped.`);
+      return false;
+    }
+    return true;
+  }).map(al => ({
     id: crypto.randomUUID(),
     operation_id: opId,
     amendment_id: ids.amendments.remap(al.applicationId || al.application_id),
@@ -1161,7 +1190,14 @@ export function transformV1ToV2(v1, opts) {
   }
 
   // ── §2.22: Soil Tests ──────────────────────────────────────────
-  const v2SoilTests = ensure('soilTests').map(st => ({
+  const v2SoilTests = ensure('soilTests').filter(st => {
+    const locId = ids.locations.remap(st.landId || st.land_id || st.pastureId || st.pasture_id);
+    if (!locId || !validLocationIds.has(locId)) {
+      audit.warnings.push(`Soil test ${st.id}: location not in migrated set, skipped.`);
+      return false;
+    }
+    return true;
+  }).map(st => ({
     id: ids.soilTests.remap(st.id),
     operation_id: opId,
     location_id: ids.locations.remap(st.landId || st.land_id || st.pastureId || st.pasture_id),

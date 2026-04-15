@@ -43,9 +43,10 @@ export function renderHeader(container) {
   ]);
 
   // --- Build stamp ---
-  const buildVersion = typeof document !== 'undefined'
-    ? document.querySelector('meta[name="app-version"]')?.content || ''
-    : '';
+  /* global __BUILD_STAMP__ */
+  const buildVersion = (typeof __BUILD_STAMP__ !== 'undefined' && __BUILD_STAMP__ !== 'dev')
+    ? __BUILD_STAMP__
+    : (typeof document !== 'undefined' ? document.querySelector('meta[name="app-version"]')?.content || 'dev' : 'dev');
 
   // --- User initials ---
   const user = getUser();
@@ -69,7 +70,7 @@ export function renderHeader(container) {
       // Right cluster: sync → build stamp → field mode → user menu
       el('div', { className: 'header-right' }, [
         renderSyncIndicator(),
-        buildVersion ? el('span', { className: 'header-build-stamp', 'data-testid': 'header-build-stamp' }, [buildVersion]) : null,
+        el('span', { className: 'header-build-stamp', 'data-testid': 'header-build-stamp' }, [buildVersion]),
         el('button', {
           className: 'btn btn-green btn-xs',
           'data-testid': 'header-field-mode-toggle',

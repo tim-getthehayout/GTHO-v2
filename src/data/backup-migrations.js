@@ -38,4 +38,6 @@ export const BACKUP_MIGRATIONS = {
     backup.schema_version = 19;
     return backup;
   },
+  // 019 → 020: Fix operation_members RLS recursion (OI-0058). No backup shape change.
+  19: (b) => { b.schema_version = 20; return b; },
 };

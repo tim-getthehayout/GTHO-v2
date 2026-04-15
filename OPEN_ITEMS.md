@@ -4,6 +4,57 @@
 
 ---
 
+### OI-0058 — operation_members RLS Policies Self-Referential — Infinite Recursion on All Reads
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P0
+**Checkpoint:** pre-Tier-3-testing
+**Status:** closed — fixed 2026-04-14 (SQL applied directly in Supabase)
+
+**Problem:** Migration 017 replaced the `operation_members` `FOR ALL` policy with 4 granular policies, but the SELECT, INSERT, UPDATE, and DELETE policies all contain self-referential subqueries like:
+```sql
+USING (user_id = auth.uid() OR operation_id IN (
+  SELECT om.operation_id FROM operation_members om
+  WHERE om.user_id = auth.uid() AND om.accepted_at IS NOT NULL
+));
+```
+When any other table's RLS policy runs `SELECT operation_id FROM operation_members WHERE user_id = auth.uid()`, Postgres applies operation_members' own SELECT policy, which queries operation_members again → infinite recursion. This was a latent bug since migration 017+018 that surfaced during Tier 3 import testing when pullAll hammered all tables simultaneously and the query planner evaluated both OR branches.
+
+**Impact:** Every `pullAll` query fails with `"infinite recursion detected in policy for relation 'operation_members'"`. The import parity check reads 0 rows for every table → import always reports FAILED regardless of whether inserts succeeded. All background sync reads also fail.
+
+**Fix:** Simplified all 4 operation_members policies to non-recursive versions using only `user_id = auth.uid()`:
+- SELECT: `USING (user_id = auth.uid())`
+- INSERT: `WITH CHECK (user_id = auth.uid())`
+- UPDATE: `USING (user_id = auth.uid())`
+- DELETE: `USING (user_id = auth.uid())`
+
+This is correct for v2's single-user scope. When multi-user operations are added, a `SECURITY DEFINER` function will be needed to break the recursion chain (standard Postgres pattern).
+
+**Migration needed:** Claude Code must write migration 020 capturing this policy change so the migration chain stays in sync with what's in Supabase.
+
+---
+
+### OI-0057 — v1 Migration Transform Leaves animal_classes Excretion Rates Null
+**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
+**Checkpoint:** CP-57
+**Status:** open
+
+**Problem:** `v1-migration.js` §2.14 maps v1 animal classes to v2 format but leaves `excretion_n_rate`, `excretion_p_rate`, `excretion_k_rate` as `null` and `dmi_pct_lactating` as `null` (lines 273-274, comment: "seed with NRCS defaults post-migration"). When the import replaces the v2 onboarding defaults (which have full NRCS values from `seed-data.js`) with the v1-migrated classes, all NPK calculations break — they depend on non-null excretion rates.
+
+**Fix:** In the v1 transform, populate NRCS defaults from `seed-data.js` `ANIMAL_CLASSES_BY_SPECIES.beef_cattle` based on the `role` value returned by `inferRole()`. The role-to-defaults lookup:
+
+| role | excretion_n | excretion_p | excretion_k | dmi_pct_lactating |
+|------|------------|------------|------------|-------------------|
+| cow | 0.145 | 0.041 | 0.136 | 3.0 |
+| heifer | 0.145 | 0.041 | 0.136 | null |
+| bull | 0.145 | 0.041 | 0.136 | null |
+| steer | 0.145 | 0.041 | 0.136 | null |
+| calf | 0.145 | 0.041 | 0.136 | null |
+
+If `inferRole()` returns an unrecognized role, use the cow defaults as fallback (most conservative for NPK).
+
+**Note:** The excretion rates happen to be the same across all beef cattle roles (0.145/0.041/0.136 per NRCS standard). The key difference is `dmi_pct_lactating` — only cows get 3.0, all others null.
+
+---
+
 ### OI-0056 — REFERENCE_TABLES Blocks Import Delete Phase — FK Constraint on operations
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P1
 **Checkpoint:** CP-56 / CP-57
@@ -524,6 +575,8 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 | 2026-04-14 | Tier 3 testing blocked — Supabase sync failures | **OI-0052 added** — onboarding wizard renders 3× due to `onAuthStateChange` firing `INITIAL_SESSION` + `TOKEN_REFRESHED` after `boot()` already called `showApp()`. P2, cosmetic but also causes triple `pullAllRemote()`. **OI-0053 added** — P0 blocker: `operation_members` RLS `FOR ALL` policy has infinite recursion (queries itself). Prevents inserting first member row, which cascades to block all other tables. Also discovered migrations 014–016 never applied to Supabase (missing columns: `active_farm_id`, `schema_version`, `invite_token`). `dose_units` and `input_product_units` have RLS enabled outside of migrations. Session brief written: `SESSION_BRIEF_2026-04-14_supabase-migrations-rls-fix.md`. Build index updated: audit status corrected to complete, test count 747 → 779. |
 | 2026-04-14 | RLS recursion fix + upsert bootstrap discovery | **OI-0053 closed** (partially) — infinite recursion fixed by splitting `FOR ALL` into granular policies on `operation_members`, then further simplifying SELECT to `user_id = auth.uid()` (no self-referential subquery). However, sync still fails because sync adapter uses `.upsert()` which Supabase evaluates as INSERT+UPDATE, requiring UPDATE policies to pass. UPDATE policies check `operation_members` which doesn't exist during onboarding bootstrap → all 24 onboarding records dead-letter. **OI-0054 added** — P0: two-part fix: (1) sync adapter must use `.insert()` for new records and `.update()` for existing, not `.upsert()` for all; (2) split all ~40 `FOR ALL` RLS policies into granular per-command policies with `WITH CHECK (true)` on INSERT. Base docs updated: V2_INFRASTRUCTURE.md §5.1 rewritten with 3 RLS patterns (operation-scoped granular, operation_members bootstrap-safe, user-scoped) + new §5.1a (onboarding bootstrap sequence). V2_APP_ARCHITECTURE.md §5.2 updated with write-method-by-operation-type table. |
 | 2026-04-14 | OI-0054 closed — sync + RLS fix verified | Claude Code implemented both parts: sync adapter now uses `.insert()` for `add()` and `.update()` for `update()` (`.upsert()` only for recovery); migration 018 split all ~40 `FOR ALL` policies into granular INSERT/SELECT/UPDATE/DELETE. Verified: fresh onboard → dead letter queue empty → `operations`, `operation_members`, `animal_classes` (5 rows) all confirmed in Supabase. Supabase sync fully working. Tier 3 migration testing unblocked. |
+| 2026-04-14 | OI-0057 added — v1 animal_classes missing NRCS defaults | v1 transform (`v1-migration.js` §2.14) leaves `excretion_n_rate`, `excretion_p_rate`, `excretion_k_rate`, and `dmi_pct_lactating` as null. When import replaces v2 onboarding defaults (which have full NRCS values) with migrated v1 classes, NPK calcs break. Fix: populate from `seed-data.js` based on `inferRole()` in the transform itself. |
+| 2026-04-14 | OI-0058 added + closed — operation_members RLS infinite recursion | Migration 017 introduced self-referential subqueries in all 4 operation_members policies. Any table's RLS checking `SELECT FROM operation_members` triggered operation_members' own SELECT policy, which queried itself → infinite recursion on all reads. Latent since 017+018, surfaced during Tier 3 import pullAll. Fixed by simplifying all policies to `user_id = auth.uid()` (sufficient for single-user scope). SQL applied directly in Supabase; Claude Code needs migration 020 to capture it. |
 | 2026-04-14 | OI-0056 added — REFERENCE_TABLES blocking import delete | After OI-0055 fix landed, import hit new crash: `forage_types_operation_id_fkey` FK violation when deleting `operations`. Root cause: `REFERENCE_TABLES` set included 5 per-operation tables (`forage_types`, `animal_classes`, `treatment_categories`, `treatment_types`, `input_product_categories`) — `deleteTableRows()` skips them, so their rows block the `operations` delete. Fix: remove these 5 from REFERENCE_TABLES (they're per-operation seed data with `operation_id` FK), keep only `dose_units` and `input_product_units` (truly global, no `operation_id`, per DP#8 exemption). Session brief written for Claude Code. |
 | 2026-04-14 | OI-0055 added — import delete crash on join tables | v1 import (CP-57) crashed on `todo_assignments` delete: `column operation_id does not exist`. Root cause: four child/junction tables (`todo_assignments`, `event_feed_check_items`, `harvest_event_fields`, `survey_draft_entries`) were designed without direct `operation_id`, violating Design Principle #8. Fix: migration 019 adds `operation_id uuid NOT NULL FK → operations` to all four tables, enforcing uniform `WHERE operation_id = $1` with no exceptions. Design docs updated: V2_SCHEMA_DESIGN.md (DP#8 + all 4 table specs), V2_APP_ARCHITECTURE.md (§5.5 backup architecture), V2_MIGRATION_PLAN.md (§5.7 steps 6 & 8). Session brief written for Claude Code. |
 | 2026-04-13 | CP-57 pre-work — per-gap reconciliation OIs logged | Added **OI-0023** through **OI-0034** (12 items) covering every §1–§2 gap between V2_MIGRATION_PLAN.md and current schema/design. Split by concern: OI-0023 (events.source_event_id default), OI-0024 (strip graze defaults on paddock windows), OI-0025 (animal_notes routing — design required), OI-0026 (operations.schema_version stamp), OI-0027 (user_preferences.active_farm_id default), OI-0028 (npk_price_history transform — design required), OI-0029 (animal_classes rename/splits verification), OI-0030 (v1 export JSON shape — spec update), OI-0031 (CP-57 tool UX — design required), OI-0032 (reuse of CP-56 import pipeline — design required), OI-0033 (§2.23 parity check as formal AC), OI-0034 (§2.7 unparseable-dose audit surface — design required). Status tags distinguish SPEC UPDATE REQUIRED (obvious one-liners) from DESIGN REQUIRED (needs Tim's decision). To be walked through one at a time; each closure updates V2_MIGRATION_PLAN.md inline. CP-57 spec file in `github/issues/` written after all 12 close. |

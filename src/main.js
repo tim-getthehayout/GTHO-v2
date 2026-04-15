@@ -190,7 +190,7 @@ async function handleInviteClaim(app, token, user) {
  * Show the authenticated app shell.
  * @param {HTMLElement} app
  */
-function showApp(app) {
+async function showApp(app) {
   // Init store — load from localStorage
   initStore();
 
@@ -205,7 +205,8 @@ function showApp(app) {
       await pullAllRemote();
     });
     // Initial sync: flush pending queue, then pull remote data
-    syncAdapter.flush().then(() => pullAllRemote());
+    await syncAdapter.flush();
+    await pullAllRemote();
   }
 
   // Migrate legacy unit system from localStorage to operation (A44)

@@ -91,8 +91,8 @@ async function handleV1FileSelect(e, mount, operation) {
 
     const { envelope, audit } = transformV1ToV2(v1Data, {
       operationId: operation.id,
-      userId: user?.id || 'unknown',
-      userEmail: user?.email || 'unknown',
+      userId: user?.id || null,
+      userEmail: user?.email || null,
       timezone: operation.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
       existingDoseUnits: doseUnits || [],
     });

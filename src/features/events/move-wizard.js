@@ -21,7 +21,16 @@ import { getFarmSettings, renderPostGrazeFields, renderPreGrazeFields } from './
 
 let moveWizardSheet = null;
 
+function ensureSheetDOM() {
+  if (document.getElementById('move-wizard-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'move-wizard-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => moveWizardSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'move-wizard-sheet-panel' }),
+  ]));
+}
+
 export function openMoveWizard(sourceEvent, operationId, farmId) {
+  ensureSheetDOM();
   if (!moveWizardSheet) {
     moveWizardSheet = new Sheet('move-wizard-sheet-wrap');
   }

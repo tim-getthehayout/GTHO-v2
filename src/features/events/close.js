@@ -15,7 +15,16 @@ import { getFarmSettings, renderPostGrazeFields } from './observation-fields.js'
 
 let closeEventSheet = null;
 
+function ensureSheetDOM() {
+  if (document.getElementById('close-event-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'close-event-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => closeEventSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'close-event-sheet-panel' }),
+  ]));
+}
+
 export function openCloseEventSheet(evt, operationId) {
+  ensureSheetDOM();
   if (!closeEventSheet) {
     closeEventSheet = new Sheet('close-event-sheet-wrap');
   }

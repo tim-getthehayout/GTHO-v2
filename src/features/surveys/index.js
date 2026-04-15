@@ -162,7 +162,16 @@ function renderSurveyList(rootContainer, operationId) {
 
 let createSurveySheet = null;
 
+function ensureCreateSurveySheetDOM() {
+  if (document.getElementById('create-survey-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'create-survey-sheet-wrap' }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => createSurveySheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'create-survey-sheet-panel' }),
+  ]));
+}
+
 export function openCreateSurveySheet(operationId) {
+  ensureCreateSurveySheetDOM();
   if (!createSurveySheet) {
     createSurveySheet = new Sheet('create-survey-sheet-wrap');
   }

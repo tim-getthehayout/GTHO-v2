@@ -4,6 +4,24 @@
 
 ---
 
+### OI-0062 — Sheet DOM Pattern: Ensure-on-First-Use for Cross-Route Sheets
+**Added:** 2026-04-15 | **Area:** v2-build / architecture | **Priority:** P3
+**Checkpoint:** post-3.2
+**Status:** open — DESIGN REQUIRED, do not build
+
+**Problem:** Sheet wrappers are created as part of each route's DOM tree (~30 sheets across the codebase). This works when a sheet is opened from its own route, but breaks when a sheet needs to open from a different route (e.g., dashboard calling move-wizard). The wrapper element doesn't exist in the DOM, so the sheet silently fails to open.
+
+**Partial fix applied (2026-04-15):** Three sheets that the dashboard calls (`move-wizard`, `close-event`, `create-survey`) now use the `ensureSheetDOM()` / ensure-on-first-use pattern — matching what `todo-sheet.js` already does. Each `open*` function checks for its wrapper by ID and creates + appends it to `document.body` if missing. The `getElementById` guard prevents duplicates when the route-level wrappers also exist.
+
+**Remaining work (needs Cowork decision):** The other ~27 sheets still use the route-only pattern. This is fine as long as they're only ever opened from their own route. If future features need to call any of them cross-route, they'll need the same `ensureSheetDOM()` treatment. Options:
+1. **Reactive** — apply the pattern only when a sheet needs cross-route access (current approach)
+2. **Proactive** — migrate all ~30 sheets to ensure-on-first-use and remove the route-level wrappers (cleaner but higher touch count)
+3. **App-shell** — create all sheet wrappers once in `main.js` (cleanest, but couples the shell to all features)
+
+**Doc impact:** If Cowork chooses option 2 or 3, update V2_APP_ARCHITECTURE.md §6.2 (Sheet lifecycle) to document the pattern.
+
+---
+
 ### OI-0061 — Onboarding Race: Duplicate Operation Created When localStorage Cleared
 **Added:** 2026-04-15 | **Area:** v2-build | **Priority:** P0
 **Checkpoint:** 3.2

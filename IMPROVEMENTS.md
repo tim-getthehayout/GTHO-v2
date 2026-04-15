@@ -113,6 +113,17 @@ expect(data).toHaveLength(1);
 3. project-scaffold generates the granular policy pattern in its migration templates.
 **Where:** project-scaffold SKILL.md (migration template, CLAUDE.md template), deploy-gate SKILL.md (add `FOR ALL` grep check).
 
+### 8. Sheet DOM: ensure-on-first-use pattern for cross-route callable sheets
+**Plugin:** project-infrastructure
+**Skill:** app-architecture
+**What:** When a bottom sheet (or any always-in-DOM component) needs to be callable from multiple routes, its `open*` function should ensure its own wrapper exists in the DOM on first use, rather than relying on a specific route to have created the wrapper. The pattern: check `document.getElementById(wrapId)`, and if missing, create the wrapper and append to `document.body`. This makes the sheet self-contained and callable from any route. Route-level wrappers can coexist — the `getElementById` guard prevents duplicates.
+**Why:** Dashboard action buttons called `openMoveWizard()`, `openCloseEventSheet()`, and `openCreateSurveySheet()`, but those functions expected wrapper elements that only existed when the events or surveys route was rendered. The sheets silently failed to open from the dashboard. This is a v1 anti-pattern (duplicate/missing DOM elements causing silent failures).
+**How to apply:**
+1. V2_APP_ARCHITECTURE.md §6.2 (Sheet lifecycle) should document the ensure-on-first-use pattern as the standard for any sheet exported for cross-route use.
+2. The pattern: `function ensureSheetDOM() { if (document.getElementById('my-sheet-wrap')) return; document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'my-sheet-wrap' }, [...])); }` — called at the top of the `open*` function.
+3. Sheets that are only ever opened from their own route can keep the current route-level wrapper pattern.
+**Where:** V2_APP_ARCHITECTURE.md §6.2, CLAUDE.md (optional — add to Implementation Rules if the pattern should be enforced).
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

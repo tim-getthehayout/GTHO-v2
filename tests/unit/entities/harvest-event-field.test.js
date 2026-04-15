@@ -15,7 +15,7 @@ const FT_ID = 'ee0e8400-e29b-41d4-a716-446655440000';
 
 describe('entity: harvest-event-field', () => {
   it('exports FIELDS with sbColumn for every field', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(12);
+    expect(Object.keys(FIELDS)).toHaveLength(13);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }
@@ -23,7 +23,7 @@ describe('entity: harvest-event-field', () => {
 
   describe('validate', () => {
     it('passes for valid record', () => {
-      const r = create({ harvestEventId: HE_ID, locationId: LOC_ID, feedTypeId: FT_ID, quantity: 200, weightPerUnitKg: 500, cuttingNumber: 1 });
+      const r = create({ operationId: OP_ID, harvestEventId: HE_ID, locationId: LOC_ID, feedTypeId: FT_ID, quantity: 200, weightPerUnitKg: 500, cuttingNumber: 1 });
       expect(validate(r)).toEqual({ valid: true, errors: [] });
     });
     it('fails when required fields missing', () => {
@@ -33,7 +33,7 @@ describe('entity: harvest-event-field', () => {
 
   describe('shape round-trip', () => {
     it('round-trips correctly', () => {
-      const r = create({ harvestEventId: HE_ID, locationId: LOC_ID, feedTypeId: FT_ID, quantity: 200, weightPerUnitKg: 500, cuttingNumber: 1 });
+      const r = create({ operationId: OP_ID, harvestEventId: HE_ID, locationId: LOC_ID, feedTypeId: FT_ID, quantity: 200, weightPerUnitKg: 500, cuttingNumber: 1 });
       expect(fromSupabaseShape(toSupabaseShape(r))).toEqual(r);
     });
   });

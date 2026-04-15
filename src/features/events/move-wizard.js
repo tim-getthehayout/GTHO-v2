@@ -466,6 +466,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       }
       for (const group of Object.values(feedGroups)) {
         const checkItem = FeedCheckItemEntity.create({
+          operationId,
           feedCheckId: check.id,
           batchId: group.batchId,
           locationId: group.locationId,

@@ -225,7 +225,7 @@ function openCreateSurveySheet(operationId) {
           if (typeState.value === 'bulk') {
             const locations = getAll('locations').filter(l => !l.archived && l.type === 'land');
             for (const loc of locations) {
-              const entry = DraftEntryEntity.create({ surveyId: survey.id, locationId: loc.id });
+              const entry = DraftEntryEntity.create({ operationId, surveyId: survey.id, locationId: loc.id });
               add('surveyDraftEntries', entry, DraftEntryEntity.validate,
                 DraftEntryEntity.toSupabaseShape, 'survey_draft_entries');
             }
@@ -389,6 +389,7 @@ function saveDraftEntry(survey, existingEntry, inputs, statusEl) {
   };
 
   const data = {
+    operationId: survey.operationId,
     surveyId: survey.id,
     locationId: existingEntry ? existingEntry.locationId : inputs.locationId.value,
     forageHeightCm: parseNum(inputs.forageHeightCm),

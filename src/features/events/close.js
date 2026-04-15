@@ -163,6 +163,7 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
       for (const item of feedCheckInputs) {
         const remaining = parseFloat(item.input.value) || 0;
         const checkItem = FeedCheckItemEntity.create({
+          operationId,
           feedCheckId: check.id,
           batchId: item.batchId,
           locationId: item.locationId,

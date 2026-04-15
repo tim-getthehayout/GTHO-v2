@@ -232,7 +232,7 @@ function saveTodo(titleInput, statusSelect, locationSelect, animalSelect, dueDat
     const oldUserIds = new Set(oldAssignments.map(a => a.userId));
     for (const userId of selectedAssignees) {
       if (!oldUserIds.has(userId)) {
-        const assignment = todoAssignmentEntity.create({ todoId: editingTodo.id, userId });
+        const assignment = todoAssignmentEntity.create({ operationId, todoId: editingTodo.id, userId });
         store.add('todoAssignments', assignment, todoAssignmentEntity.validate, todoAssignmentEntity.toSupabaseShape, 'todo_assignments');
       }
     }
@@ -243,7 +243,7 @@ function saveTodo(titleInput, statusSelect, locationSelect, animalSelect, dueDat
 
     // Create assignments
     for (const userId of selectedAssignees) {
-      const assignment = todoAssignmentEntity.create({ todoId: newTodo.id, userId });
+      const assignment = todoAssignmentEntity.create({ operationId, todoId: newTodo.id, userId });
       store.add('todoAssignments', assignment, todoAssignmentEntity.validate, todoAssignmentEntity.toSupabaseShape, 'todo_assignments');
     }
   }

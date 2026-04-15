@@ -703,6 +703,7 @@ export function transformV1ToV2(v1, opts) {
         const locId = tc.pastureId || tc.pasture_id || tc.locationId || tc.location_id;
         v2FeedCheckItems.push({
           id: crypto.randomUUID(),
+          operation_id: opId,
           feed_check_id: checkId,
           batch_id: batchId ? ids.batches.remap(batchId) : null,
           location_id: locId ? ids.locations.remap(locId) : (anchorPastureId ? ids.locations.remap(anchorPastureId) : null),
@@ -941,6 +942,7 @@ export function transformV1ToV2(v1, opts) {
       for (const [paddockId, rating] of Object.entries(draftRatings)) {
         v2SurveyDraftEntries.push({
           id: crypto.randomUUID(),
+          operation_id: opId,
           survey_id: surveyId,
           location_id: ids.locations.remap(paddockId),
           forage_height_cm: rating.vegHeight != null ? rating.vegHeight * INCHES_TO_CM : null,
@@ -1026,6 +1028,7 @@ export function transformV1ToV2(v1, opts) {
     for (const f of fields) {
       v2HarvestEventFields.push({
         id: crypto.randomUUID(),
+        operation_id: opId,
         harvest_event_id: heId,
         location_id: ids.locations.remap(f.pastureId || f.pasture_id || f.locationId || f.location_id),
         feed_type_id: ids.feedTypes.remap(f.feedTypeId || f.feed_type_id),
@@ -1133,6 +1136,7 @@ export function transformV1ToV2(v1, opts) {
       const userId2 = assignment.userId || assignment.user_id || assignment;
       v2TodoAssignments.push({
         id: crypto.randomUUID(),
+        operation_id: opId,
         todo_id: ids.todos.remap(td.id),
         user_id: ids.users.remap(userId2),
         assigned_at: now,

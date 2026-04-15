@@ -271,6 +271,7 @@ function openHarvestSheet(operationId) {
 
             // Create harvest event field record
             const hef = HarvestEventFieldEntity.create({
+              operationId,
               harvestEventId: harvestEvent.id,
               locationId: row.locationId,
               feedTypeId: row.feedTypeId,

@@ -15,7 +15,7 @@ const FT_ID = 'ee0e8400-e29b-41d4-a716-446655440000';
 
 describe('entity: survey-draft-entry', () => {
   it('exports FIELDS with sbColumn for every field', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(13);
+    expect(Object.keys(FIELDS)).toHaveLength(14);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }
@@ -23,21 +23,21 @@ describe('entity: survey-draft-entry', () => {
 
   describe('validate', () => {
     it('passes for valid record', () => {
-      const r = create({ surveyId: SURV_ID, locationId: LOC_ID, forageHeightCm: 25, forageCondition: 'good' });
+      const r = create({ operationId: '550e8400-e29b-41d4-a716-446655440000', surveyId: SURV_ID, locationId: LOC_ID, forageHeightCm: 25, forageCondition: 'good' });
       expect(validate(r)).toEqual({ valid: true, errors: [] });
     });
     it('fails when required fields missing', () => {
       expect(validate(create()).valid).toBe(false);
     });
     it('fails for invalid forageCondition', () => {
-      const r = create({ surveyId: SURV_ID, locationId: LOC_ID, forageCondition: 'invalid' });
+      const r = create({ operationId: '550e8400-e29b-41d4-a716-446655440000', surveyId: SURV_ID, locationId: LOC_ID, forageCondition: 'invalid' });
       expect(validate(r).valid).toBe(false);
     });
   });
 
   describe('shape round-trip', () => {
     it('round-trips correctly', () => {
-      const r = create({ surveyId: SURV_ID, locationId: LOC_ID, forageHeightCm: 25, forageCondition: 'good' });
+      const r = create({ operationId: '550e8400-e29b-41d4-a716-446655440000', surveyId: SURV_ID, locationId: LOC_ID, forageHeightCm: 25, forageCondition: 'good' });
       expect(fromSupabaseShape(toSupabaseShape(r))).toEqual(r);
     });
   });

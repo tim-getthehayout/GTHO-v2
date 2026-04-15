@@ -15,7 +15,7 @@ const FT_ID = 'ee0e8400-e29b-41d4-a716-446655440000';
 
 describe('entity: event-feed-check-item', () => {
   it('exports FIELDS with sbColumn for every field', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(6);
+    expect(Object.keys(FIELDS)).toHaveLength(7);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }
@@ -23,7 +23,7 @@ describe('entity: event-feed-check-item', () => {
 
   describe('validate', () => {
     it('passes for valid record', () => {
-      const r = create({ feedCheckId: CHECK_ID, batchId: BATCH_ID, locationId: LOC_ID, remainingQuantity: 3.5 });
+      const r = create({ operationId: '550e8400-e29b-41d4-a716-446655440000', feedCheckId: CHECK_ID, batchId: BATCH_ID, locationId: LOC_ID, remainingQuantity: 3.5 });
       expect(validate(r)).toEqual({ valid: true, errors: [] });
     });
     it('fails when required fields missing', () => {
@@ -33,7 +33,7 @@ describe('entity: event-feed-check-item', () => {
 
   describe('shape round-trip', () => {
     it('round-trips correctly', () => {
-      const r = create({ feedCheckId: CHECK_ID, batchId: BATCH_ID, locationId: LOC_ID, remainingQuantity: 3.5 });
+      const r = create({ operationId: '550e8400-e29b-41d4-a716-446655440000', feedCheckId: CHECK_ID, batchId: BATCH_ID, locationId: LOC_ID, remainingQuantity: 3.5 });
       expect(fromSupabaseShape(toSupabaseShape(r))).toEqual(r);
     });
   });

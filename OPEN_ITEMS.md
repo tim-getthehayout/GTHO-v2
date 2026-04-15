@@ -7,7 +7,7 @@
 ### OI-0055 — Four Tables Missing operation_id Column — Breaks Import, RLS, and Scoped Queries
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P1
 **Checkpoint:** CP-56 / CP-57
-**Status:** open — schema fix required (migration 019)
+**Status:** closed — fixed 2026-04-14
 
 **Problem:** Four child/junction tables were designed without a direct `operation_id` column, relying on transitive scoping through a parent FK:
 

@@ -130,6 +130,7 @@ export function openFeedCheckSheet(evt, operationId) {
             const remaining = parseFloat(item.input.value);
             if (isNaN(remaining)) continue;
             const checkItem = FeedCheckItemEntity.create({
+              operationId,
               feedCheckId: check.id,
               batchId: item.batchId,
               locationId: item.locationId,

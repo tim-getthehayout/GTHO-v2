@@ -162,7 +162,7 @@ function renderSurveyList(rootContainer, operationId) {
 
 let createSurveySheet = null;
 
-function openCreateSurveySheet(operationId) {
+export function openCreateSurveySheet(operationId) {
   if (!createSurveySheet) {
     createSurveySheet = new Sheet('create-survey-sheet-wrap');
   }

@@ -10,6 +10,9 @@ import { navigate } from '../../ui/router.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { renderTodoCard } from '../todos/todo-card.js';
 import { openTodoSheet } from '../todos/todo-sheet.js';
+import { openMoveWizard } from '../events/move-wizard.js';
+import { openCloseEventSheet } from '../events/close.js';
+import { openCreateSurveySheet } from '../surveys/index.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -537,14 +540,17 @@ function renderGroupsView(gridEl) {
     return;
   }
 
+  const operationId = getAll('operations')[0]?.id;
+  const farmId = getActiveFarmId() || getAll('farms')[0]?.id;
+
   const grid = el('div', { className: 'dash-grid' });
   for (const group of groups) {
-    grid.appendChild(renderGroupCard(group, unitSys));
+    grid.appendChild(renderGroupCard(group, unitSys, operationId, farmId));
   }
   gridEl.appendChild(grid);
 }
 
-function renderGroupCard(group, unitSys) {
+function renderGroupCard(group, unitSys, operationId, farmId) {
   // Find active event for this group
   const groupWindows = getAll('eventGroupWindows');
   const activeGW = groupWindows.find(gw => gw.groupId === group.id && !gw.dateLeft);
@@ -736,7 +742,7 @@ function renderGroupCard(group, unitSys) {
           ? el('button', {
               className: 'btn btn-teal btn-sm',
               'data-testid': `dashboard-move-btn-${group.id}`,
-              onClick: (e) => { e.stopPropagation(); navigate('#/events'); },
+              onClick: (e) => { e.stopPropagation(); openMoveWizard(activeEvent, operationId, farmId); },
             }, [t('dashboard.move')])
           : el('button', {
               className: 'btn btn-teal btn-sm',
@@ -747,10 +753,15 @@ function renderGroupCard(group, unitSys) {
           className: 'btn btn-outline btn-sm',
           onClick: (e) => { e.stopPropagation(); navigate('#/animals'); },
         }, [t('dashboard.weights')]),
-        el('button', {
-          className: 'btn btn-outline btn-sm',
-          onClick: (e) => { e.stopPropagation(); navigate('#/animals'); },
-        }, [t('action.edit')]),
+        isOnPasture
+          ? el('button', {
+              className: 'btn btn-outline btn-sm',
+              onClick: (e) => { e.stopPropagation(); openCloseEventSheet(activeEvent, operationId); },
+            }, [t('action.edit')])
+          : el('button', {
+              className: 'btn btn-outline btn-sm',
+              onClick: (e) => { e.stopPropagation(); navigate('#/animals'); },
+            }, [t('action.edit')]),
       ]),
     ].filter(Boolean)),
   ]);
@@ -766,6 +777,8 @@ function renderLocationsView(gridEl) {
   const activeEvents = getVisibleEvents().filter(e => !e.dateOut);
   const groups = getVisibleGroups().filter(g => !g.archived);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
+  const operationId = getAll('operations')[0]?.id;
+  const farmId = getActiveFarmId() || getAll('farms')[0]?.id;
 
   if (!activeEvents.length && !groups.length) {
     gridEl.appendChild(el('p', { className: 'form-hint', 'data-testid': 'dashboard-empty' }, [
@@ -850,9 +863,9 @@ function renderLocationsView(gridEl) {
       ]),
       stripEl,
       el('div', { className: 'dash-actions' }, [
-        el('button', { className: 'btn btn-teal btn-sm', onClick: () => navigate('#/events') }, [t('dashboard.move')]),
-        el('button', { className: 'btn btn-outline btn-sm', onClick: () => navigate('#/surveys') }, [t('dashboard.survey')]),
-        el('button', { className: 'btn btn-outline btn-sm', onClick: () => navigate('#/events') }, [t('action.edit')]),
+        el('button', { className: 'btn btn-teal btn-sm', onClick: () => openMoveWizard(event, operationId, farmId) }, [t('dashboard.move')]),
+        el('button', { className: 'btn btn-outline btn-sm', onClick: () => openCreateSurveySheet(operationId) }, [t('dashboard.survey')]),
+        el('button', { className: 'btn btn-outline btn-sm', onClick: () => openCloseEventSheet(event, operationId) }, [t('action.edit')]),
       ]),
     ].filter(Boolean)));
   }

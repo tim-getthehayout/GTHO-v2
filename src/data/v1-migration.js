@@ -664,14 +664,20 @@ export function transformV1ToV2(v1, opts) {
         }
       }
 
+      const batchId = fe.batchId ? ids.batches.remap(fe.batchId)
+        : fe.batch_id ? ids.batches.remap(fe.batch_id) : null;
+      if (!batchId) {
+        audit.warnings.push(`Feed entry ${fe.id} on event ${ev.id}: no batch_id, skipped.`);
+        continue;
+      }
+
       v2FeedEntries.push({
         id: crypto.randomUUID(),
         operation_id: opId,
         event_id: eventId,
-        batch_id: fe.batchId ? ids.batches.remap(fe.batchId)
-          : fe.batch_id ? ids.batches.remap(fe.batch_id) : null,
+        batch_id: batchId,
         location_id: locationId,
-        date: fe.date || eventDateIn || null,
+        date: fe.date || eventDateIn,
         time: fe.time || null,
         quantity: Math.abs(qty),
         source_event_id: sourceEventId,
@@ -688,7 +694,7 @@ export function transformV1ToV2(v1, opts) {
         id: checkId,
         operation_id: opId,
         event_id: eventId,
-        date: fc.date || eventDateIn || null,
+        date: fc.date || eventDateIn,
         time: fc.time || null,
         is_close_reading: fc.isCloseReading || fc.is_close_reading || false,
         notes: fc.notes || null,

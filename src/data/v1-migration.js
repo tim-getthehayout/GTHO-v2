@@ -997,10 +997,16 @@ export function transformV1ToV2(v1, opts) {
       }
     }
 
+    const obsLocationId = ids.locations.remap(obs.pastureId || obs.pasture_id);
+    if (!obsLocationId) {
+      audit.warnings.push(`Observation ${obs.id}: no resolvable location_id, skipped.`);
+      continue;
+    }
+
     v2Observations.push({
       id: ids.observations.remap(obs.id),
       operation_id: opId,
-      location_id: ids.locations.remap(obs.pastureId || obs.pasture_id),
+      location_id: obsLocationId,
       observed_at: obs.observedAt || obs.observed_at || now,
       type: obsType,
       source,

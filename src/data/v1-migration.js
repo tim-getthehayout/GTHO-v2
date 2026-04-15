@@ -706,12 +706,16 @@ export function transformV1ToV2(v1, opts) {
       const typeChecks = fc.typeChecks || fc.type_checks || [];
       for (const tc of typeChecks) {
         const batchId = tc.batchId || tc.batch_id;
+        if (!batchId) {
+          audit.warnings.push(`Feed check item on event ${ev.id}: no batch_id, skipped.`);
+          continue;
+        }
         const locId = tc.pastureId || tc.pasture_id || tc.locationId || tc.location_id;
         v2FeedCheckItems.push({
           id: crypto.randomUUID(),
           operation_id: opId,
           feed_check_id: checkId,
-          batch_id: batchId ? ids.batches.remap(batchId) : null,
+          batch_id: ids.batches.remap(batchId),
           location_id: locId ? ids.locations.remap(locId) : (anchorPastureId ? ids.locations.remap(anchorPastureId) : null),
           remaining_quantity: tc.remainingQuantity ?? tc.remaining_quantity ?? tc.remaining ?? 0,
           created_at: now,

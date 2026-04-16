@@ -22,6 +22,11 @@ export default [
         Node: 'readonly',
         HTMLElement: 'readonly',
         Text: 'readonly',
+        Blob: 'readonly',
+        URLSearchParams: 'readonly',
+        history: 'readonly',
+        confirm: 'readonly',
+        requestAnimationFrame: 'readonly',
       },
     },
     rules: {

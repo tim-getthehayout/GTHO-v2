@@ -3,8 +3,6 @@
  * Implements V2_MIGRATION_PLAN.md §1.7.
  * File upload, transform preview, progress, audit report, unparseable dose CSV.
  */
-/* global Blob */
-
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { canExport } from '../../data/backup-export.js';

@@ -1,4 +1,3 @@
-/* global history */
 /**
  * @file Invite claim logic — CP-66.
  * Handles both token-based (shareable link) and email-based (v1 parity) claim paths.

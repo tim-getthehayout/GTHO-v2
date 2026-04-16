@@ -370,59 +370,148 @@ function renderPreGraze(ctx) {
   if (!event) return;
 
   const isActive = !event.dateOut;
+  const disabled = !isActive;
   const unitSys = getUnitSystem();
+  const heightUnit = unitSys === 'imperial' ? 'in.' : 'cm';
 
   // Find latest pre-graze observation (phase = 'pre_graze' or null for backward compat)
   const obs = getAll('eventObservations')
     .filter(o => o.eventId === ctx.eventId && (o.observationPhase === 'pre_graze' || !o.observationPhase))
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
 
-  const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
-    el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.preGraze')]),
-  ]);
+  const heightVal = obs?.forageHeightCm != null
+    ? (unitSys === 'imperial' ? convert(obs.forageHeightCm, 'length', 'toImperial') : obs.forageHeightCm)
+    : '';
+  const coverVal = obs?.forageCoverPct ?? '';
+  const qualityVal = obs?.forageQuality ?? '';
+  const conditionVal = obs?.forageCondition || '';
+  const conditions = ['Poor', 'Fair', 'Good', 'Excellent'];
+  const conditionMap = { 'Poor': 'dry', 'Fair': 'fair', 'Good': 'good', 'Excellent': 'lush' };
+  const conditionReverse = { 'dry': 'Poor', 'fair': 'Fair', 'good': 'Good', 'lush': 'Excellent' };
 
-  if (!obs) {
-    if (isActive) {
-      card.appendChild(el('button', {
-        className: 'btn btn-teal btn-sm',
-        'data-testid': 'detail-add-pre-graze',
-        onClick: () => openPreGrazeModal(ctx, null),
-      }, [t('event.addPreGraze')]));
-    } else {
-      card.appendChild(el('div', { className: 'form-hint' }, [t('event.noObservations')]));
-    }
-  } else {
-    const heightStr = obs.forageHeightCm != null ? display(obs.forageHeightCm, 'length', unitSys, 1) : '\u2014';
-    const coverStr = obs.forageCoverPct != null ? `${obs.forageCoverPct}%` : '\u2014';
-    const qualityStr = obs.forageQuality != null ? `${obs.forageQuality}` : '\u2014';
-    const conditionStr = obs.forageCondition || '\u2014';
-    const storedStr = obs.storedFeedOnly ? t('event.yes') : t('event.no');
+  let savedTimer = null;
+  const savedIndicator = el('span', {
+    style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' },
+  }, ['Saved']);
 
-    const rows = [
-      [`${t('event.forageHeight')}:`, heightStr],
-      [`${t('event.forageCover')}:`, coverStr],
-      [`${t('event.forageQuality')}:`, qualityStr],
-      [`${t('event.forageCondition')}:`, conditionStr],
-      [`${t('event.storedFeedOnly')}:`, storedStr],
-    ];
-    if (obs.notes) rows.push([`${t('event.notes')}:`, obs.notes]);
-
-    for (const [label, val] of rows) {
-      card.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '4px 0' } }, [
-        el('span', { style: { color: 'var(--text2)' } }, [label]),
-        el('span', {}, [val]),
-      ]));
-    }
-
-    if (isActive) {
-      card.appendChild(el('button', {
-        className: 'btn btn-outline btn-xs',
-        style: { marginTop: 'var(--space-2)' },
-        'data-testid': 'detail-edit-pre-graze',
-        onClick: () => openPreGrazeModal(ctx, obs),
-      }, [t('action.edit')]));
-    }
+  function showSaved() {
+    if (savedTimer) clearTimeout(savedTimer);
+    savedIndicator.style.opacity = '1';
+    savedTimer = setTimeout(() => { savedIndicator.style.opacity = '0'; }, 2000);
   }
+
+  function saveField(changes) {
+    const obsData = {
+      operationId: ctx.operationId,
+      eventId: ctx.eventId,
+      observationPhase: 'pre_graze',
+      ...changes,
+    };
+    if (obs) {
+      update('eventObservations', obs.id, obsData, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
+    } else {
+      const rec = EventObsEntity.create(obsData);
+      add('eventObservations', rec, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
+    }
+    showSaved();
+  }
+
+  // Inputs
+  const heightInput = el('input', {
+    type: 'number', style: { width: '52px' }, step: '0.5', max: '999',
+    className: 'obs-input', value: heightVal, disabled,
+    'data-testid': 'detail-pregraze-height',
+    onBlur: () => {
+      const raw = parseFloat(heightInput.value);
+      const cm = !isNaN(raw) ? (unitSys === 'imperial' ? convert(raw, 'length', 'toMetric') : raw) : null;
+      saveField({ forageHeightCm: cm });
+    },
+  });
+
+  const coverInput = el('input', {
+    type: 'number', style: { width: '60px' }, min: '0', max: '100', step: '1',
+    className: 'obs-input', value: coverVal, disabled,
+    'data-testid': 'detail-pregraze-cover',
+  });
+  const coverSlider = el('input', {
+    type: 'range', style: { width: '140px' }, min: '0', max: '100',
+    className: 'cover-slider', value: coverVal || 50, disabled,
+  });
+  // Sync slider ↔ input
+  coverSlider.addEventListener('input', () => { coverInput.value = coverSlider.value; });
+  coverInput.addEventListener('input', () => { coverSlider.value = coverInput.value; });
+  const coverBlur = () => {
+    const v = parseInt(coverInput.value, 10);
+    saveField({ forageCoverPct: !isNaN(v) ? v : null });
+  };
+  coverInput.addEventListener('blur', coverBlur);
+  coverSlider.addEventListener('change', coverBlur);
+
+  const qualityInput = el('input', {
+    type: 'number', style: { width: '60px' }, min: '1', max: '100', step: '1',
+    className: 'obs-input', value: qualityVal, disabled,
+    'data-testid': 'detail-pregraze-quality',
+    onBlur: () => {
+      const v = parseInt(qualityInput.value, 10);
+      saveField({ forageQuality: !isNaN(v) ? v : null });
+    },
+  });
+
+  // Condition chip picker
+  let activeCondition = conditionVal;
+  const chipContainer = el('div', { className: 'qual-picker', style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } });
+  for (const label of conditions) {
+    const dbVal = conditionMap[label];
+    const isActive = activeCondition === dbVal;
+    const chip = el('button', {
+      type: 'button',
+      className: `qual-chip${isActive ? ' active' : ''}`,
+      disabled,
+      style: {
+        padding: '4px 10px', fontSize: '12px', borderRadius: '12px', border: '1px solid var(--border)',
+        background: isActive ? 'var(--color-green-base)' : 'transparent',
+        color: isActive ? '#fff' : 'var(--text1)',
+        cursor: disabled ? 'default' : 'pointer',
+      },
+      onClick: () => {
+        if (disabled) return;
+        activeCondition = dbVal;
+        saveField({ forageCondition: dbVal });
+        // Re-render to update chip states (subscription will trigger)
+      },
+    }, [label]);
+    chipContainer.appendChild(chip);
+  }
+
+  const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
+    el('div', { style: { display: 'flex', alignItems: 'center', marginBottom: 'var(--space-3)' } }, [
+      el('span', { className: 'sec' }, [t('event.preGraze')]),
+      savedIndicator,
+    ]),
+    // Row 1: Height + Cover
+    el('div', { className: 'obs-field-row', style: { display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: 'var(--space-3)', alignItems: 'flex-start' } }, [
+      el('div', { className: 'obs-field' }, [
+        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' } }, [`Avg. Forage Height (${heightUnit})`]),
+        heightInput,
+      ]),
+      el('div', { className: 'obs-field' }, [
+        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' } }, ['Forage Cover (%)']),
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [coverInput]),
+        el('div', { style: { marginTop: '4px' } }, [coverSlider]),
+      ]),
+    ]),
+    // Row 2: Quality + Condition
+    el('div', { className: 'obs-field-row', style: { display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-start' } }, [
+      el('div', { className: 'obs-field' }, [
+        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' } }, ['Forage Quality (1\u2013100)']),
+        qualityInput,
+      ]),
+      el('div', { className: 'obs-field' }, [
+        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' } }, ['Condition']),
+        chipContainer,
+      ]),
+    ]),
+  ]);
 
   el2.appendChild(card);
 }
@@ -957,102 +1046,6 @@ function openDeleteConfirm(ctx) {
       ]),
     ]),
   ]);
-
-  document.body.appendChild(overlay);
-}
-
-/** Pre-graze observation modal */
-function openPreGrazeModal(ctx, existingObs) {
-  const event = getById('events', ctx.eventId);
-  if (!event) return;
-  const unitSys = getUnitSystem();
-
-  const state = {
-    forageHeightCm: existingObs?.forageHeightCm ?? null,
-    forageCoverPct: existingObs?.forageCoverPct ?? null,
-    forageQuality: existingObs?.forageQuality ?? null,
-    forageCondition: existingObs?.forageCondition || null,
-    storedFeedOnly: existingObs?.storedFeedOnly ?? false,
-    notes: existingObs?.notes || '',
-  };
-
-  const heightVal = state.forageHeightCm != null ? (unitSys === 'imperial' ? convert(state.forageHeightCm, 'length', 'toImperial') : state.forageHeightCm) : '';
-  const conditions = ['dry', 'fair', 'good', 'lush'];
-
-  const inputs = {};
-
-  const overlay = el('div', {
-    className: 'modal-overlay',
-    style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: '300', display: 'flex', alignItems: 'center', justifyContent: 'center', overflowY: 'auto' },
-    onClick: (e) => { if (e.target === overlay) overlay.remove(); },
-  }, [
-    el('div', {
-      className: 'card',
-      style: { padding: 'var(--space-5)', maxWidth: '420px', width: '90%', maxHeight: '90vh', overflowY: 'auto' },
-    }, [
-      el('h3', { style: { marginBottom: 'var(--space-4)' } }, [t('event.preGraze')]),
-
-      el('label', { className: 'form-label' }, [t('event.forageHeight')]),
-      inputs.height = el('input', { type: 'number', className: 'auth-input', value: heightVal, step: '0.1', max: '999' }),
-
-      el('label', { className: 'form-label' }, [t('event.forageCover')]),
-      inputs.cover = el('input', { type: 'range', style: { maxWidth: '240px' }, min: '0', max: '100', value: state.forageCoverPct ?? 50 }),
-      inputs.coverReadout = el('span', { style: { fontSize: '12px', marginLeft: '8px' } }, [`${state.forageCoverPct ?? 50}%`]),
-
-      el('label', { className: 'form-label' }, [t('event.forageQuality')]),
-      inputs.quality = el('input', { type: 'number', className: 'auth-input', value: state.forageQuality ?? '', min: '1', max: '100' }),
-
-      el('label', { className: 'form-label' }, [t('event.forageCondition')]),
-      inputs.condition = el('select', { className: 'auth-input' }, [
-        el('option', { value: '' }, ['\u2014']),
-        ...conditions.map(c => el('option', { value: c, selected: state.forageCondition === c }, [c])),
-      ]),
-
-      el('label', { className: 'form-label' }, [t('event.storedFeedOnly')]),
-      inputs.stored = el('input', { type: 'checkbox', checked: state.storedFeedOnly }),
-
-      el('label', { className: 'form-label' }, [t('event.notes')]),
-      inputs.notes = el('input', { type: 'text', className: 'auth-input', value: state.notes }),
-
-      el('div', { style: { display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-4)' } }, [
-        el('button', {
-          className: 'btn btn-teal',
-          onClick: () => {
-            const heightRaw = parseFloat(inputs.height.value);
-            const heightCm = !isNaN(heightRaw) ? (unitSys === 'imperial' ? convert(heightRaw, 'length', 'toMetric') : heightRaw) : null;
-            const coverPct = parseFloat(inputs.cover.value);
-            const quality = parseInt(inputs.quality.value, 10);
-
-            const obsData = {
-              operationId: ctx.operationId,
-              eventId: ctx.eventId,
-              observationPhase: 'pre_graze',
-              forageHeightCm: heightCm,
-              forageCoverPct: !isNaN(coverPct) ? coverPct : null,
-              forageQuality: !isNaN(quality) ? quality : null,
-              forageCondition: inputs.condition.value || null,
-              storedFeedOnly: inputs.stored.checked,
-              notes: inputs.notes.value || null,
-            };
-
-            if (existingObs) {
-              update('eventObservations', existingObs.id, obsData, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
-            } else {
-              const rec = EventObsEntity.create(obsData);
-              add('eventObservations', rec, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
-            }
-            overlay.remove();
-          },
-        }, [t('action.save')]),
-        el('button', { className: 'btn btn-outline', onClick: () => overlay.remove() }, [t('action.cancel')]),
-      ]),
-    ]),
-  ]);
-
-  // Wire cover slider readout
-  inputs.cover.addEventListener('input', () => {
-    inputs.coverReadout.textContent = `${inputs.cover.value}%`;
-  });
 
   document.body.appendChild(overlay);
 }

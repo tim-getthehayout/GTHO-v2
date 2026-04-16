@@ -2937,3 +2937,40 @@ body.field-mode .sheet-panel {
 .import-preview-value {
   font-weight: 500;
 }
+
+/* SP-2: Observation inline fields */
+.obs-input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  background: var(--bg1, #fff);
+  color: var(--text1);
+}
+.obs-input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.cover-slider {
+  accent-color: var(--color-green-base);
+}
+.qual-chip {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text1);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.qual-chip.active,
+.qual-chip:active {
+  background: var(--color-green-base);
+  color: #fff;
+  border-color: var(--color-green-base);
+}
+.qual-chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

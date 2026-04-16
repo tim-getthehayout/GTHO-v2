@@ -26,11 +26,13 @@ Accessed via `#/events?detail={eventId}`. The events screen checks for the `deta
 
 ## Navigation and Layout
 
-- Route: `#/events?detail={eventId}`
-- Container: single column, `max-width: 720px`, centered on ≥720px viewports, full-width on mobile
+- **Sheet overlay** (not a routed view). Opened via `openEventDetailSheet(event, operationId, farmId)`. No route — the sheet opens on top of the current screen (typically the dashboard). Closed via back arrow or backdrop click.
+- Uses the `ensureSheetDOM()` pattern since it's called cross-route from the dashboard.
+- Container: single column, `max-width: 720px`, centered on ≥720px viewports, full-width on mobile. Sheet body scrolls independently (`overflow-y: auto`); page behind gets `overflow: hidden` while sheet is open.
 - Padding: `--space-4` (top/side), section spacing `--space-5` between cards
 - Responsive rule: **one component per pattern** — pre-graze / post-graze / notes / sub-moves reopen via a single responsive modal/sheet implementation (not parallel desktop/mobile builds). See `IMPROVEMENTS.md` item #12.
 - Header row: back arrow (`←`) + event status badge (`Active` teal / `Closed` grey). No title — the Event Summary card immediately below carries the identity.
+- **No `#/events?detail=` route.** The events screen always renders calendar/list. The detail sheet is a separate overlay.
 - Reader order (top to bottom):
   1. Header (back + status)
   2. **Event Summary** (hero card — above the fold)
@@ -50,7 +52,7 @@ Accessed via `#/events?detail={eventId}`. The events screen checks for the `deta
 
 ### 1. Header
 
-- Left: `←` back button, `aria-label="Back"`, navigates to previous hash via `history.back()`; if no history, navigates to `#/dashboard`.
+- Left: `←` back button, `aria-label="Back"`, calls `closeEventDetailSheet()`.
 - Right: status badge. `Active` uses `--teal` background; `Closed` uses `--text2` on `--bg3`. No other chrome.
 
 ### 2. Event Summary (hero)
@@ -84,28 +86,30 @@ One card per currently open paddock window on this event.
 
 ### 5. Pre-graze Observations
 
-Card with edit-on-tap rows. All fields editable for active events; read-only for closed events.
+Card with **inline editable fields** (not a modal). All fields editable for active events; disabled for closed events. Changes auto-save on blur with a `Saved` flash (same pattern as Notes).
 
-| Field | Control | Units |
-|---|---|---|
-| Avg forage height | numeric input, max 3 digits | `in` or `cm` per op unit system |
-| Forage cover | slider (narrow, ~240px max width) + % readout | % |
-| Forage quality | numeric input 1–100 | score |
-| Forage condition | picker (dry / fair / good / lush — match v1 enum) | enum |
-| Notes | single-line text | free text |
-| 100% stored feed | toggle | bool |
+**Row 1 (flex, wrap on narrow):**
+- Avg. Forage Height: `<input type="number">` (narrow, ~52px), step 0.5, max 999, unit label `(in.)` or `(cm)` per operation unit system
+- Forage Cover: `<input type="number">` (60px), 0–100, step 1, unit `(%)` + narrow slider (`<input type="range">`, ~140px max width) directly below the input. Slider and input stay in sync.
+
+**Row 2 (flex, wrap on narrow):**
+- Forage Quality: `<input type="number">` (60px), 1–100, step 1, unit `(1–100)`
+- Condition: chip picker with 4 options — `Poor` / `Fair` / `Good` / `Excellent`. Active chip gets green background (`var(--green)`, white text). Match the `.qual-chip` style from the v4 mockup.
+
+**Note:** The `100% stored feed` toggle is per-paddock (shown on each paddock card in § Paddocks), NOT in this pre-graze card.
 
 - Read from the most recent observation row for this event with `observation_phase = 'pre_graze'` (or no phase value — see schema impacts for backward compat).
-- Edit opens the pre-graze observation modal (one responsive component, not mobile/desktop variants).
-- If there is no pre-graze observation yet, show an empty state with an `Add pre-graze observation` button that opens the same modal in create mode.
+- **No modal, no "Add" button.** Fields are always visible. If no pre-graze observation exists yet, show the same fields but empty/placeholder. First blur on any field creates the observation record.
+- Use `.obs-line`, `.obs-field`, `.obs-field-row`, `.cover-slider`, `.qual-picker`, `.qual-chip` CSS from the v4 mockup — they're production-ready.
 
 ### 6. Post-graze Observations
 
-Card, same pattern as pre-graze but limited fields. Only rendered when event is closed or when any sub-paddock has been closed.
+Card with limited fields. **Always rendered** (even when no observations exist yet).
 
 - **Row 1 (single row to save space):** `Avg height {cm→in}` · `Recovery window: Min {N} days · Max {N} days`
-- Min/Max are integers in days (not heights). Min ≤ Max enforced by the modal.
+- Min/Max are integers in days (not heights). Min ≤ Max enforced on save.
 - Read from observation rows with `observation_phase = 'post_graze'` for this event, joined to the paddock window the observation applies to. If multiple open-close cycles exist on the event (sub-moves), show one row per closed paddock window, labeled with the paddock name.
+- **Empty state:** When no post-graze observations exist, show hint text: "Captured when a paddock is closed. No post-graze observations yet." No add button — observations are created during the close flow.
 
 ### 7. Groups
 
@@ -166,11 +170,13 @@ Sticky or inline at bottom of the view, in this order left → right:
 
 For closed events, show only `Delete`.
 
-## Router Integration
+## Sheet Integration
 
-- In the events screen render function, parse the hash query string. If `detail=<uuid>` present, render this detail view for that event and skip the calendar/list.
-- If the event ID doesn't resolve (e.g., stale URL), show an empty state with a `Back to events` button and a `logger.warn('events.detail.not_found', { id })` entry.
-- `history.back()` on the back arrow returns to the previous hash naturally.
+- **No route.** The detail view is a sheet overlay, not a routed page. The events screen always renders calendar/list.
+- Open: `openEventDetailSheet(event, operationId, farmId)` — called from the dashboard Edit button (and anywhere else that needs to show event details).
+- Close: `closeEventDetailSheet()` — called from back arrow and backdrop click.
+- Uses `ensureSheetDOM()` pattern (same as move wizard, close event, create survey — see OI-0062).
+- If the event ID doesn't resolve, log `logger.warn('events.detail.not_found', { id })` and close the sheet.
 
 ## Data Dependencies
 

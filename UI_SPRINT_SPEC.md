@@ -19,6 +19,8 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-15 | SP-3 | Dashboard location card enrichment |
 | 2026-04-15 | SP-2 | Design review round 1 — observation layout, post-graze recovery window, per-paddock DM stats, Remove-group picker, anchor-no-close rule, Manage button removed. Schema impacts added. Status → Ready for Claude Code. |
 | 2026-04-15 | SP-3 | Scope correction — card targets v1 parity, not slimmer summary. Only two deltas from v1: drop small bottom Feed check / Feed buttons; add large green Feed button under large amber Feed check. Per-group reweigh removed from card, deferred to Animals area. Spec rewritten, mockup v3 approved. Status → Ready for Claude Code. |
+| 2026-04-16 | SP-2 | Design review round 2 — event detail changed from full-screen route to **sheet overlay** (OI-0067). Pre-graze observations changed from modal to **inline editable fields** per v4 mockup (OI-0068). Post-graze card always renders with empty-state hint. |
+| 2026-04-16 | SP-3 | Bug report — i18n keys render as raw text on buttons; click handlers not firing. Session brief written. |
 
 ---
 
@@ -64,19 +66,20 @@ All three action buttons on dashboard location cards (`Move`, `Survey`, `Edit`) 
 
 ## SP-2: Event Detail View
 
-**Status:** Spec complete · Ready for Claude Code
-**Spec file:** `github/issues/event-detail-view.md` (full, authoritative)
+**Status:** Refinement in progress · Session brief written 2026-04-16
+**Spec file:** `github/issues/GH-10_event-detail-view.md` (full, authoritative — updated 2026-04-16)
 **Mockup:** `App Migration Project/SP-2_event-detail_mockup.html` (v4, approved 2026-04-15)
 **Base doc:** V2_UX_FLOWS.md §17.15 (interim placeholder — reconciliation will replace with the spec file content)
 **Schema:** Impacts `event_observations` — see "Schema Impacts" below. CP-55/CP-56 spec update required.
+**Session brief:** `github/issues/SESSION_BRIEF_2026-04-16_sp2-sp3-refinement.md`
 
 ### Summary
 
-Full-screen single-column view (max-width 720px) for a specific event. The v2 equivalent of v1's "Edit event" sheet. Shows all event data and provides action buttons that launch existing sheets.
+**Sheet overlay** (max-width 720px) for a specific event. The v2 equivalent of v1's "Edit event" sheet. Shows all event data and provides action buttons that launch existing sheets. Opens on top of the current screen (typically the dashboard).
 
 ### Navigation
 
-Query param: `#/events?detail={eventId}`. Events screen renders detail view when present, calendar/list otherwise. Back arrow uses `history.back()` (falls back to `#/dashboard`).
+Sheet, not a route. `openEventDetailSheet(event, operationId, farmId)` from the dashboard Edit button. `closeEventDetailSheet()` from back arrow or backdrop click. No `#/events?detail=` route.
 
 ### Page order (finalized in design review 2026-04-15)
 

@@ -40,4 +40,6 @@ export const BACKUP_MIGRATIONS = {
   },
   // 019 → 020: Fix operation_members RLS recursion (OI-0058). No backup shape change.
   19: (b) => { b.schema_version = 20; return b; },
+  // 020 → 021: Create event_observations table (OI-0063, SP-2). New table — old backups won't have it.
+  20: (b) => { b.schema_version = 21; return b; },
 };

@@ -20,6 +20,8 @@ export const ENTITY_TYPES = [
   // D5: Events
   'events', 'eventPaddockWindows', 'eventGroupWindows', 'eventFeedEntries',
   'eventFeedChecks', 'eventFeedCheckItems',
+  // D5b: Event Observations
+  'eventObservations',
   // D6: Surveys
   'surveys', 'surveyDraftEntries', 'paddockObservations',
   // D7: Harvest

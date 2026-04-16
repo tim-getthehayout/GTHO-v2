@@ -764,24 +764,25 @@ Supabase enforces foreign-key integrity at write time. A wholesale replace that 
 29. `manure_batch_transactions`
 30. `npk_price_history`
 31. `event_paddock_windows`
-32. `event_group_windows`
-33. `event_feed_entries`
-34. `event_feed_checks`
-35. `event_feed_check_items`
-36. `paddock_observations`
-37. `survey_draft_entries`
-38. `harvest_events`
-39. `harvest_event_fields`
-40. `animal_weight_records`
-41. `animal_treatments`
-42. `animal_bcs_scores`
-43. `animal_breeding_records`
-44. `animal_heat_records`
-45. `animal_calving_records`
-46. `animal_notes`
-47. `todos`
-48. `todo_assignments`
-49. `submissions`
+32. `event_observations` — depends on `events` and `event_paddock_windows` (paddock_window_id FK)
+33. `event_group_windows`
+34. `event_feed_entries`
+35. `event_feed_checks`
+36. `event_feed_check_items`
+37. `paddock_observations`
+38. `survey_draft_entries`
+39. `harvest_events`
+40. `harvest_event_fields`
+41. `animal_weight_records`
+42. `animal_treatments`
+43. `animal_bcs_scores`
+44. `animal_breeding_records`
+45. `animal_heat_records`
+46. `animal_calving_records`
+47. `animal_notes`
+48. `todos`
+49. `todo_assignments`
+50. `submissions`
 
 **Verification rule.** During CP-56 implementation, Claude Code must cross-check this list against every `FOREIGN KEY` / `REFERENCES` clause in `supabase/migrations/*.sql`. If any FK points from a table to one that appears later in this list (an "upward" reference), the list is wrong and must be corrected in the same commit.
 

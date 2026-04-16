@@ -22,6 +22,7 @@ import { fromSupabaseShape as fromEventGroupWindow } from '../entities/event-gro
 import { fromSupabaseShape as fromEventFeedEntry } from '../entities/event-feed-entry.js';
 import { fromSupabaseShape as fromEventFeedCheck } from '../entities/event-feed-check.js';
 import { fromSupabaseShape as fromEventFeedCheckItem } from '../entities/event-feed-check-item.js';
+import { fromSupabaseShape as fromEventObservation } from '../entities/event-observation.js';
 import { fromSupabaseShape as fromSurvey } from '../entities/survey.js';
 import { fromSupabaseShape as fromSurveyDraftEntry } from '../entities/survey-draft-entry.js';
 import { fromSupabaseShape as fromPaddockObservation } from '../entities/paddock-observation.js';
@@ -79,6 +80,7 @@ export const SYNC_REGISTRY = {
   eventFeedEntries:         { table: 'event_feed_entries',        from: fromEventFeedEntry },
   eventFeedChecks:          { table: 'event_feed_checks',         from: fromEventFeedCheck },
   eventFeedCheckItems:      { table: 'event_feed_check_items',    from: fromEventFeedCheckItem },
+  eventObservations:        { table: 'event_observations',        from: fromEventObservation },
   surveys:                  { table: 'surveys',                   from: fromSurvey },
   surveyDraftEntries:       { table: 'survey_draft_entries',      from: fromSurveyDraftEntry },
   paddockObservations:      { table: 'paddock_observations',      from: fromPaddockObservation },

@@ -18,6 +18,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-15 | SP-2 | Event detail view |
 | 2026-04-15 | SP-3 | Dashboard location card enrichment |
 | 2026-04-15 | SP-2 | Design review round 1 — observation layout, post-graze recovery window, per-paddock DM stats, Remove-group picker, anchor-no-close rule, Manage button removed. Schema impacts added. Status → Ready for Claude Code. |
+| 2026-04-15 | SP-3 | Scope correction — card targets v1 parity, not slimmer summary. Only two deltas from v1: drop small bottom Feed check / Feed buttons; add large green Feed button under large amber Feed check. Per-group reweigh removed from card, deferred to Animals area. Spec rewritten, mockup v3 approved. Status → Ready for Claude Code. |
 
 ---
 
@@ -140,117 +141,55 @@ Backward compat for reads: `pre_graze` filter includes `observation_phase IS NUL
 
 ---
 
-## SP-3: Dashboard Location Card Enrichment
+## SP-3: Dashboard Location Card — V1 Parity
 
-**Status:** Spec in progress
-**Spec file:** TBD
-**Base doc impact:** V2_UX_FLOWS.md §17.7 (card body spec needs expansion)
+**Status:** Spec complete · Ready for Claude Code
+**Spec file:** `github/issues/dashboard-card-enrichment.md` (full, authoritative)
+**Mockup:** `App Migration Project/SP-3_location-card_mockup.html` (v3, approved 2026-04-15)
+**Base doc impact:** V2_UX_FLOWS.md §17.7 (will be replaced during end-of-sprint reconciliation)
+**Schema:** None. Visual/rendering only. No CP-55/CP-56 impact.
 
-### Problem
+### Goal
 
-V2 dashboard location cards show minimal info: location name, groups (as flat text), day count, feed count/cost. V1 cards show much more: acreage, event type badge, move-in date, total cost, weight/AU, capacity estimates, days remaining, ADA, pasture/stored/DMI breakdown, per-group rows with individual Move buttons, 3-day DMI chart, feed check button.
+Rebuild the v2 dashboard location card to match the v1 card **exactly**, with only two deliberate changes. V1 users (every user during migration) must not experience the v2 dashboard as a regression.
 
-### Target: Match v1 card richness
+### The two changes from v1
 
-**V1 card anatomy (reference — from live v1 site, observed 2026-04-15):**
+1. **Remove** the two small "Feed check" and "Feed" buttons that sit at the very bottom of the v1 card (below the NPK line).
+2. **Add** a second large "Feed" button (green, full-width, matching the Feed-check button's size and style) directly below the existing large amber "Feed check" button.
 
-```
-┌────────────────────────────────────────────────┐
-│ 🌿 D  7.42 ac                                 │
-│ [stored feed & grazing]  Day 23 · In Mar 24 · │
-│                                       $45.00   │
-│ Weight: 4,350 lbs · 4.3 AU                    │
-│ Est. capacity: 80 AUDs · ~6 days remaining    │
-│   (incl. stored feed) · 4" · ADA est: 10.8/ac │
-│ Pasture: 2,078 lbs DM · Stored feed: 638 lbs  │
-│   DM · DMI demand: 109 lbs/day                │
-│                                                │
-│ + Add sub-move                                 │
-│ ─────────────────────────────────────────────  │
-│ GROUPS                                         │
-│ ● Bull Group              [Move] [🔄]         │
-│   3 head · avg 1450 lbs                       │
-│ + Add group                                    │
-│ ─────────────────────────────────────────────  │
-│ DMI — LAST 3 DAYS                              │
-│ ▓▓▓  ▓▓▓  ▓▓▓   109 lbs DMI today             │
-│ Mon✓  Tue  Wed   ■ grazing  ■ stored           │
-│ ─────────────────────────────────────────────  │
-│ [        Feed check        ]                   │
-│ ─────────────────────────────────────────────  │
-│ DMI 109 lbs/day · 0% stored · 100% pasture    │
-│ NPK: N32.0 / P9.0 / K30.0 lbs · $36.07 value │
-│ [Feed check]  [Feed]                           │
-└────────────────────────────────────────────────┘
-```
+That is the entire delta. Every other element renders exactly as v1 does.
 
-### V2 enriched card spec
+### Additional decision (2026-04-15)
 
-The v2 card keeps the card-based layout but adds v1's data density. Since v2 also has the event detail view (SP-2), the card is a **summary** — users tap Edit (or the card itself) to see the full detail.
+- **Per-group reweigh icon removed from the card.** V1 shows a reweigh/scale icon next to the per-group Move button. V2 removes this from the dashboard card and reserves reweigh for the Animals area of the app. Tracked as an open follow-up — does not block SP-3.
 
-**Card structure (enriched):**
+### What the card includes (v1 parity)
 
-```
-┌────────────────────────────────────────────────┐
-│ D  7.42 ac                        [pasture]    │
-│ Day 23 · In Mar 24, 26 · $45.00               │
-│ 3 head · 4,350 lbs · 4.3 AU                   │
-│ Est. ~6 days remaining · ADA 10.8/ac           │
-│ DMI: 109 lbs/day (100% pasture)                │
-│ ─────────────────────────────────────────────  │
-│ GROUPS                                         │
-│ ● Bull Group                         [Move]    │
-│   3 head · avg 1450 lbs · 4.3 AU              │
-│ ─────────────────────────────────────────────  │
-│ [  Move  ] [ Survey ] [  Edit  ]               │
-└────────────────────────────────────────────────┘
-```
+Top to bottom:
 
-**Line-by-line spec:**
+1. Left green accent bar
+2. Header: leaf icon · name · acreage · floating Edit + Move-all buttons top-right
+3. Event type badge (e.g., `stored feed & grazing`, `grazing`) inline with summary line
+4. Summary: `Day N · In {date} · ${cost}`
+5. Weight: `{W} lbs · {AU} AU`
+6. Green capacity line: `Est. capacity: {N} AUDs · ~{M} days remaining (incl. stored feed) · {H}" · ADA est: {X}/ac`
+7. Gray breakdown: `Pasture: {X} lbs DM · Stored feed: {Y} lbs DM · DMI demand: {Z} lbs/day`
+8. `+ Add sub-move` teal link
+9. `SUB-PADDOCKS` section (when sub-moves exist): per-paddock row with dot, name, acreage, since-date, active/closed label, Close button on active rows
+10. `GROUPS` section: per-group row with dot, name, head + avg-weight sub-line, Move button (no reweigh icon)
+11. `DMI — LAST 3 DAYS` chart: 3 bars (today solid, future striped + labeled `(est.)`), stored-feed segment at base when present, today's number large on the right, grazing/stored legend
+12. Large amber **Feed check** button (full-width)
+13. Large green **Feed** button (full-width) — **NEW** — directly below Feed check
+14. DMI/NPK summary: `DMI {N} lbs/day · X% stored · Y% est. pasture` and `NPK: N.. / P.. / K.. lbs · $value value`
+15. No small bottom buttons (the two small `Feed check` / `Feed` buttons from v1 are gone)
 
-1. **Header row:** Location name (14px, 700) + acreage (14px, 400, `--text2`) + land use badge (right)
-   - Acreage from `locations.areaHa`, converted via `units.js`
+See `github/issues/dashboard-card-enrichment.md` for the full line-by-line spec, calc references, tests, and acceptance criteria.
 
-2. **Stats row 1:** "Day {N} · In {dateIn formatted} · ${totalCost}"
-   - Day count from `daysBetweenInclusive(event.dateIn, today)`
-   - Date in formatted as "Mar 24, 26" (short month + day + 2-digit year)
-   - Total cost = sum of `eventFeedEntries` costs (use calc CST-1 if available)
+### Linked OPEN_ITEMS
 
-3. **Stats row 2:** "{headCount} head · {totalWeight} lbs · {AU} AU"
-   - Head count = sum of active group windows' `headCount`
-   - Total weight = sum of `headCount × avgWeightKg`, converted to display units
-   - AU = total weight in lbs ÷ 1000
-
-4. **Stats row 3:** "Est. ~{N} days remaining · ADA {X}/ac"
-   - Days remaining from capacity calc (if available, otherwise omit line)
-   - ADA = AU ÷ location area in display units
-
-5. **Stats row 4:** "DMI: {N} lbs/day ({X}% pasture)"
-   - From calc engine DMI-1 if registered
-   - Shows pasture vs stored percentage
-
-6. **Groups section:**
-   - Section label "GROUPS" (`.sec` style)
-   - One row per active group window
-   - Each row: status dot + group name (left) + **Move** button (right, `btn btn-teal btn-xs`)
-   - Sub-line: head count · avg weight (display units) · AU
-   - Move button calls `openMoveWizard` scoped to that group's event
-
-7. **Action buttons:** Same as current but wired correctly per SP-1
-
-**Calc-dependent fields:** Any field that depends on an unregistered calc shows "—" rather than erroring. The card degrades gracefully — if no calcs are available, it still shows head count, weight, day count, and dates (all computable from raw store data).
-
-**Performance note:** Cards re-render when store changes. Keep card rendering cheap — pre-compute values in the rendering loop, don't call calcs inside DOM builders.
-
-### Acceptance Criteria
-
-- [ ] Location card header shows location name + acreage + land use badge
-- [ ] Stats rows show: day count + date in + cost, head/weight/AU, days remaining + ADA, DMI summary
-- [ ] Groups section shows per-group rows with individual Move buttons
-- [ ] Move button on group row opens move wizard for that event
-- [ ] All calc-dependent fields show "—" gracefully when calcs aren't registered
-- [ ] Card renders correctly on mobile (single column) and desktop (2-column grid)
-- [ ] Existing location card tests still pass (update assertions for new content)
+- **OI-0065** — Per-group reweigh moves from dashboard card to Animals area (P3, DESIGN REQUIRED, not blocking)
+- **OI-0066** — Per-group Move on dashboard card is event-scoped, not group-scoped (P3, follow-up)
 
 ---
 

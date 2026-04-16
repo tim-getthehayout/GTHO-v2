@@ -194,7 +194,10 @@
     "moveAll": "Move all",
     "closeAndMove": "Close & move",
     "confirmDelete": "Delete Event",
-    "confirmDeleteDesc": "This will permanently delete this event and all associated data. This cannot be undone."
+    "confirmDeleteDesc": "This will permanently delete this event and all associated data. This cannot be undone.",
+    "detailSummary": "Day {days} · {feedings} feedings · {groups} group(s)",
+    "parityExpected": "expected {expected}, got {actual}",
+    "costDisplay": "${value}"
   },
   "location": {
     "title": "Locations",
@@ -896,11 +899,6 @@
   },
   "calendar": {
     "addGroup": "＋ Add"
-  },
-  "event": {
-    "detailSummary": "Day {days} · {feedings} feedings · {groups} group(s)",
-    "parityExpected": "expected {expected}, got {actual}",
-    "costDisplay": "${value}"
   },
   "validation": {
     "weightRequired": "Weight is required",

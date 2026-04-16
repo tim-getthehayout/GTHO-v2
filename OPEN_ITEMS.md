@@ -7,7 +7,7 @@
 ### OI-0068 — SP-2 Pre-graze Observations: Inline Fields, Not Modal
 **Added:** 2026-04-16 | **Area:** v2-build / UI sprint | **Priority:** P1
 **Checkpoint:** SP-2 refinement
-**Status:** open — spec'd, handed off to Claude Code
+**Status:** closed — 2026-04-16
 
 **Problem:** Pre-graze observations were implemented as read-only labels with an "Edit" button that opens a modal (`openPreGrazeModal`). The approved mockup (v4) shows inline editable fields: forage height input, forage cover input + slider, quality input, condition chip picker. Tim confirmed (2026-04-16) that inline is correct — fields should be embedded directly in the detail sheet, not behind a modal.
 
@@ -20,7 +20,7 @@
 ### OI-0067 — SP-2 Event Detail: Convert from Full-Screen Route to Sheet Overlay
 **Added:** 2026-04-16 | **Area:** v2-build / UI sprint | **Priority:** P1
 **Checkpoint:** SP-2 refinement
-**Status:** open — spec'd, handed off to Claude Code
+**Status:** closed — 2026-04-16
 
 **Problem:** SP-2 event detail was implemented as a full-screen routed view (`#/events?detail={eventId}`). Tim's review (2026-04-16) determined it should be a sheet overlay matching the move wizard pattern. The route-based approach forces a full page navigation away from the dashboard, losing context.
 

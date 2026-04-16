@@ -14,7 +14,16 @@ import * as GroupWindowEntity from '../../entities/event-group-window.js';
 
 let groupAddSheet = null;
 
+function ensureGroupAddDOM() {
+  if (document.getElementById('group-add-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'group-add-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => groupAddSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'group-add-sheet-panel' }),
+  ]));
+}
+
 export function openGroupAddSheet(evt, operationId) {
+  ensureGroupAddDOM();
   if (!groupAddSheet) {
     groupAddSheet = new Sheet('group-add-sheet-wrap');
   }

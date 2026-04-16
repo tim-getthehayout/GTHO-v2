@@ -13,7 +13,16 @@ import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 
 let feedCheckSheet = null;
 
+function ensureSheetDOM() {
+  if (document.getElementById('feed-check-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'feed-check-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => feedCheckSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'feed-check-sheet-panel' }),
+  ]));
+}
+
 export function openFeedCheckSheet(evt, operationId) {
+  ensureSheetDOM();
   if (!feedCheckSheet) {
     feedCheckSheet = new Sheet('feed-check-sheet-wrap');
   }

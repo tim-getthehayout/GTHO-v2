@@ -13,7 +13,16 @@ import * as BatchEntity from '../../entities/batch.js';
 
 let deliverFeedSheet = null;
 
+function ensureSheetDOM() {
+  if (document.getElementById('deliver-feed-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'deliver-feed-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => deliverFeedSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'deliver-feed-sheet-panel' }),
+  ]));
+}
+
 export function openDeliverFeedSheet(evt, operationId) {
+  ensureSheetDOM();
   if (!deliverFeedSheet) {
     deliverFeedSheet = new Sheet('deliver-feed-sheet-wrap');
   }

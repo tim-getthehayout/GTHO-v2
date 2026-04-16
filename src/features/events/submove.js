@@ -14,7 +14,16 @@ import { getFarmSettings, renderPreGrazeFields, renderPostGrazeFields } from './
 
 let submoveOpenSheet = null;
 
+function ensureSubmoveOpenDOM() {
+  if (document.getElementById('submove-open-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'submove-open-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => submoveOpenSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'submove-open-sheet-panel' }),
+  ]));
+}
+
 export function openSubmoveOpenSheet(evt, operationId) {
+  ensureSubmoveOpenDOM();
   if (!submoveOpenSheet) {
     submoveOpenSheet = new Sheet('submove-open-sheet-wrap');
   }
@@ -104,7 +113,16 @@ export function openSubmoveOpenSheet(evt, operationId) {
 
 let submoveCloseSheet = null;
 
+function ensureSubmoveCloseDOM() {
+  if (document.getElementById('submove-close-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'submove-close-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => submoveCloseSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'submove-close-sheet-panel' }),
+  ]));
+}
+
 export function openSubmoveCloseSheet(paddockWindow, _operationId) {
+  ensureSubmoveCloseDOM();
   if (!submoveCloseSheet) {
     submoveCloseSheet = new Sheet('submove-close-sheet-wrap');
   }

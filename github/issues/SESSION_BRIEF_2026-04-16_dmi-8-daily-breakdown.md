@@ -111,6 +111,8 @@ If any paddock window's location has no forage type set:
 - [ ] Chart renders on both dashboard card and event detail sheet
 - [ ] Shared chart component (not duplicated rendering code)
 - [ ] Chart re-renders on feed check or feed entry changes
+- [ ] Estimated day values display with 2 decimal places (e.g., `1.25`, not `1`)
+- [ ] FOR-3 and FOR-4 updated: replace `Math.floor()` with `Math.round(x * 100) / 100`
 - [ ] `npx vitest run` clean
 - [ ] No `console.error` in feature code (use logger)
 

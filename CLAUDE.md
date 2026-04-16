@@ -9,10 +9,21 @@
 - **Application code:** `src/` directory — implemented from the design docs
 - **Live v1 site:** getthehayout.com (separate repo: `get-the-hay-out`)
 
+## Active Sprint: UI Improvements (2026-04-15)
+
+**TEMPORARY — remove after reconciliation session.**
+
+A UI sprint is in progress. All new UI design decisions are in `UI_SPRINT_SPEC.md` (repo root). **Read this file before implementing any dashboard, event detail, or location card work.** It contains specs SP-1 through SP-3 that supersede the base docs where they conflict.
+
+The base docs (V2_UX_FLOWS.md §17.7 and §17.15) have already been partially updated, but SP-3 (card enrichment) lives only in the sprint spec for now.
+
+`github/issues/` files for this sprint are full specs (not thin pointers) during the sprint. They will be converted to thin pointers during the reconciliation session.
+
 ## Start Here
 
 1. Read `V2_BUILD_INDEX.md` — master tracker, current phase, what's done and what's next
-2. Check `OPEN_ITEMS.md` — unresolved design/build questions
+2. **Read `UI_SPRINT_SPEC.md`** — active UI sprint specs (SP-1 through SP-3)
+3. Check `OPEN_ITEMS.md` — unresolved design/build questions
 3. Check `github/issues/` — spec files ready for implementation
 
 ## Git Workflow

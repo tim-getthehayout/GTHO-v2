@@ -1020,7 +1020,10 @@ Alternate card grid when `home_view_mode = 'locations'`. Shows active events gro
   - Days in: "Day {N}" since event opened
   - Feed status: "{N} feedings · ${XX.XX} cost"
   - Sub-paddock status (if strip graze): "Strip {N} of {M}"
-  - Action buttons: Move (opens event edit), Survey (opens paddock survey §7), Edit (opens event edit)
+  - Action buttons (all receive the active event object + operationId + farmId from the rendering context):
+    - **Move** — calls `openMoveWizard(event, operationId, farmId)` directly (import from `events/move-wizard.js`). Does NOT navigate to the Events screen.
+    - **Survey** — calls `openCreateSurveySheet(operationId)` (must be exported from `surveys/index.js`; currently not exported — export it). Pre-selects the event's primary location if the survey create sheet supports location context.
+    - **Edit** — navigates to event detail view `#/events/{eventId}` (see §17.12 Event Detail View). Interim behavior until §17.12 is built: calls `openCloseEventSheet(event, operationId)` (import from `events/close.js`).
 
 **Unplaced groups section** — below active event cards:
 - Section header: "Unplaced groups" (`.sec` label)
@@ -1166,6 +1169,173 @@ If no groups qualify, this section is not rendered.
 - **Calculation cross-references.** Stats row metrics connect to registered calculations in V2_CALCULATION_SPEC.md: Pasture DMI → DMI-1, Feed Cost → COST-1, Pasture % → DMI-3, NPK/Acre → NPK-1, NPK Value → NPK-2. The stat functions pass the selected period to filter event data.
 - **Todo screen is a route.** `#/todos` is a first-class route in the router, with a nav entry (including badge) on both mobile bottom nav and desktop sidebar.
 - **Todos entity already exists.** `src/entities/todo.js` and `src/entities/todo-assignment.js` are built. The feature UI (`src/features/todos/`) is what needs to be created.
+
+### 17.15 Event Detail View
+
+Full-screen view for a single active or closed event. Opens when the user taps **Edit** on a dashboard location card (§17.7) or taps an event row in the events log. This is the v2 equivalent of v1's "Edit event" sheet — the central place to see everything about a grazing event and take action on it.
+
+**Navigation:** Uses query parameter on the events route: `#/events?detail={eventId}`. The router already ignores query params for route matching, so this works within the existing `#/events` route. When the detail param is present, the events screen renders the detail view instead of the calendar/list. A **← Back** button navigates to the previous hash (or `#/` if no history).
+
+**Layout — single scrollable column:**
+
+```
+┌───────────────────────────────────────────────┐
+│ ← Back                            ● Active    │
+│                                               │
+│ ┌─ LOCATION ─────────────────────────────────┐│
+│ │ 🌿 D  anchor            7.42 ac            ││
+│ │ pasture · grazing                          ││
+│ │ Forage: 4 in  · Cover: 85%                ││
+│ │ [Close paddock]                            ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ ┌─ EVENT SUMMARY ────────────────────────────┐│
+│ │ Date in: Mar 24, 2026    Date out: —       ││
+│ │ Day 23 · 3 head · 4,350 lbs · 4.3 AU      ││
+│ │ Est. capacity: 80 AUDs · ~6 days remaining ││
+│ │ ADA est: 10.8/ac                           ││
+│ │ Pasture: 2,078 lbs DM · Stored: 638 lbs   ││
+│ │ DMI demand: 109 lbs/day                    ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ ┌─ PRE-GRAZE OBSERVATIONS ──────────────────┐│
+│ │ Forage height: 4 in                        ││
+│ │ Forage cover: 85%                          ││
+│ │ 100% stored feed: ☐                        ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ ┌─ GROUPS ───────────────────────────────────┐│
+│ │ ● Bull Group  primary       [Move] [✕]     ││
+│ │   Joined Mar 24 · 3 head · avg 1450 lbs   ││
+│ │   4.3 AU                                   ││
+│ │ [+ Add group]                              ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ ┌─ FEED ENTRIES ─────────────────────────────┐│
+│ │ Apr 1 · 1 bale Oak Field Barn              ││
+│ │          638 lbs DM · $45.00    [Edit] [✕] ││
+│ │ [+ Deliver feed]                           ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ ┌─ FEED CHECKS ─────────────────────────────┐│
+│ │ Apr 13 · 90% remaining                     ││
+│ │ [+ Feed check]                             ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ ┌─ DMI — LAST 3 DAYS ───────────────────────┐│
+│ │ ▓▓▓▓▓  ▓▓▓▓▓  ▓▓▓▓▓  109 lbs DMI today   ││
+│ │ Mon✓   Tue    Wed     ■ grazing ■ stored   ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ ┌─ DMI BREAKDOWN ────────────────────────────┐│
+│ │ DMI 109 lbs/day · 0% stored · 100% pasture││
+│ │ NPK: N32.0 / P9.0 / K30.0 lbs · $36.07   ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ Notes: [editable text area]                   │
+│                                               │
+│ ┌─ SUB-MOVE HISTORY ────────────────────────┐│
+│ │ (collapsible, shows sub-move paddock       ││
+│ │  windows with dates and observations)      ││
+│ │ [+ Add sub-move]      [Manage]             ││
+│ └────────────────────────────────────────────┘│
+│                                               │
+│ ┌─ ACTIONS ──────────────────────────────────┐│
+│ │ [====== Move all groups ======]  (teal)    ││
+│ │ [== Close event & move groups ==] (olive)  ││
+│ │ [Delete event]                   (red)     ││
+│ └────────────────────────────────────────────┘│
+└───────────────────────────────────────────────┘
+```
+
+**Section details:**
+
+**Header:** Back arrow (left) + status badge (right): "Active" (green dot + green badge) or "Closed" (grey badge with dateOut).
+
+**Location section:**
+- Location name (16px, 700 weight) + land use type + "anchor"/"secondary" label
+- Acreage from `locations.areaHa` (converted to display units via `units.js`)
+- Most recent observation: forage height and cover % (from `event_observations` where `eventId` matches, most recent by `observedAt`)
+- "Close paddock" button → calls `openCloseEventSheet(event, operationId)` (only shown for active events)
+
+**Event summary section:**
+- Date in / date out (formatted, date out shows "—" if active)
+- Day count (from `daysBetweenInclusive(event.dateIn, today)`)
+- Total head count (sum of all active group windows' `headCount`)
+- Total weight (sum of `headCount × avgWeightKg` across group windows, converted to display units)
+- Total AU (weight in lbs ÷ 1000, or use registered calc if available)
+- Estimated capacity in AUDs (from calc engine CAP-1 if registered, otherwise omit)
+- Days remaining estimate (capacity AUDs ÷ current AU, minus days elapsed)
+- ADA estimate (AU ÷ location area in display units)
+- Pasture DM / Stored feed DM / DMI demand (from calc engine DMI-1, DMI-2)
+
+**Pre-graze observations section:**
+- Displays values captured at event open: `forageHeightCm`, `forageCoverPct` (from `event_observations` with type 'open')
+- "100% stored feed" checkbox state
+- Read-only display for closed events; editable for active (inline save via store update)
+
+**Groups section:**
+- One row per active group window (sorted by `dateJoined`)
+- Each row: group name + status dot (color from group entity) + "primary" badge (if first group) + **Move** button (calls `openMoveWizard` for just that group) + **✕** remove button (calls `openGroupRemoveSheet`)
+- Sub-line: date joined, head count, avg weight (display units), AU
+- **+ Add group** button → calls `openGroupAddSheet(event, operationId)`
+
+**Feed entries section:**
+- One row per `eventFeedEntries` record (sorted by date desc)
+- Each row: date, description (batch name + location), DMI amount (lbs DM), cost, Edit button, delete ✕
+- **+ Deliver feed** button → calls `openDeliverFeedSheet(event, operationId)`
+
+**Feed checks section:**
+- One row per feed check (sorted by date desc)
+- Each row: date, remaining % by batch
+- **+ Feed check** button → calls `openFeedCheckSheet(event, operationId)`
+
+**DMI chart:**
+- 3-day stacked bar chart (grazing = green, stored feed = amber)
+- Each bar: day label + "✓" if actual observation exists vs "(est.)" if estimated
+- Right side: total DMI today in lbs
+- Uses same rendering pattern as v1's inline DMI chart
+- Data source: daily DMI calculations from calc engine
+
+**DMI breakdown section:**
+- Total DMI per day, % stored vs % pasture
+- NPK values (N/P/K in lbs) and total NPK dollar value
+- Data from calc engine NPK-1, NPK-2
+
+**Notes section:**
+- Editable textarea bound to `events.notes`
+- Auto-saves on blur via `store.update()`
+
+**Sub-move history section:**
+- Collapsible (default collapsed)
+- Lists all paddock windows for this event (both open and closed)
+- Each entry: location name, dates, observations
+- **+ Add sub-move** → calls `openSubmoveOpenSheet(event, operationId)`
+- **Manage** button → toggles expanded view with close/reopen actions
+
+**Actions section:**
+- **Move all groups** (teal, full width) → calls `openMoveWizard(event, operationId, farmId)`
+- **Close event & move groups** (olive/dark green, full width) → calls `openCloseEventSheet(event, operationId)` with move-after-close flow
+- **Delete event** (red text, no fill, left-aligned) → confirmation dialog, then `store.remove('events', event.id, 'events')`
+
+**Responsive behavior:**
+- Same single-column layout on mobile and desktop
+- On desktop (≥900px), max-width 720px, centered
+- All sections use card styling (`.card` class with padding and border-radius)
+
+**Data dependencies:**
+- `getById('events', eventId)` — core event
+- `getAll('eventPaddockWindows').filter(w => w.eventId === eventId)` — paddock windows
+- `getAll('eventGroupWindows').filter(gw => gw.eventId === eventId)` — group windows
+- `getAll('eventFeedEntries').filter(fe => fe.eventId === eventId)` — feed entries
+- `getAll('eventFeedChecks').filter(fc => fc.eventId === eventId)` — feed checks
+- `getAll('eventObservations').filter(o => o.eventId === eventId)` — observations
+- `getById('locations', paddockWindow.locationId)` — location details
+- `getById('groups', groupWindow.groupId)` — group details
+- `getById('batches', feedEntry.batchId)` — batch details for feed
+- Calc engine: DMI-1, DMI-2, DMI-3, CAP-1, NPK-1, NPK-2, CST-1
+
+**Subscription:** Subscribe to store changes for the event's entity types. Re-render affected sections on change (not full page — surgical updates to keep scroll position).
 
 ---
 

@@ -238,6 +238,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
   - Right column: today's total DMI number (large) + "lbs DMI today"
   - Legend: ■ grazing (green) · ■ stored (amber)
 
+- **Display precision:** All kg values display as whole numbers. When the chart tooltip or label shows estimated days (e.g., "~1.25 days pasture remaining"), use 2 decimal places per FOR-3 display rule.
 - **Composites:** DMI-2 (per-group demand), DMI-3 (event demand), DMI-5 (stored feed interpolation), FOR-1 (standing forage DM)
 - **v2-only:** No v1 equivalent. V1's chart was purely visual with no source split.
 
@@ -258,12 +259,14 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 **FOR-3: Estimated Graze Days**
 - Computes: How many days a group can graze a location
 - Inputs: available_dm_kg, group_dmi_kg_per_day (DMI-2)
-- Output: days = floor(available_dm / group_dmi)
+- Output: days (number, 2 decimal places) = `Math.round((available_dm / group_dmi) * 100) / 100`
+- **Display rule:** Always show 2 decimal places (e.g., `1.25`, `3.00`). Applies everywhere this value is rendered — dashboard card, event detail, move wizard capacity line.
+- v1 bug: Used `Math.floor()` returning integers — lost precision on fractional days. **v2 fix:** 2 decimal places.
 
 **FOR-4: Days Remaining (Active Event)**
 - Computes: How many more days animals can stay on current location
 - Inputs: Consumed to date, remaining stored DM, current forage estimate
-- Output: days_remaining
+- Output: days_remaining (number, 2 decimal places) — same precision rule as FOR-3
 
 **FOR-5: Stocking Efficiency**
 - Computes: Actual AUDs used vs estimated AUDs available
@@ -408,6 +411,76 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - **Strip grazing:** `dm_available_kg` sums across strips via the FOR-6 strip-grazing rule.
 - **v2-only:** No v1 equivalent. New for CP-54.
 
+### 4.12 Accuracy Domain (1 formula)
+
+**EST-1: Event Pasture Accuracy**
+- Computes: Estimated vs actual pasture performance for a closed event. Surfaces as a summary card at event close and as data points in an accuracy trend report. Orchestrates existing calcs — no new formulas, just comparison logic.
+- **Requires:** Event must be closed (`dateOut` exists). Pre-graze AND post-graze observations must exist (forage height at minimum). Paddock must have a forage type set (for `dmPerUnit`, `residual`, `utilization`).
+- **Inputs:**
+  - `event` — closed event with `dateIn`, `dateOut`
+  - `preGrazeObs` — event_observation with `observation_phase = 'pre_graze'` (forage_height_cm, forage_cover_pct)
+  - `postGrazeObs` — event_observation with `observation_phase = 'post_graze'` (post_graze_height_cm)
+  - `forageType` — from paddock location (dm_kg_per_cm_per_ha, utilization_pct, residual_height_cm)
+  - `paddockArea` — hectares (from location)
+  - `groupWindows[]` — for DMI-3 demand
+  - `feedEntries[]` + `feedChecks[]` — for DMI-1 stored feed consumed
+- **Output:**
+  ```
+  {
+    // Estimated (from pre-graze observation + FOR calcs)
+    estimatedStandingDmKg,        // FOR-1(pre-graze height, cover, area, forage type)
+    estimatedUsableDmKg,          // standing × utilization%
+    estimatedDaysGrazing,         // FOR-3(usable DM, daily demand)
+    configuredUtilizationPct,     // from forage type
+
+    // Actual (from event outcome + post-graze observation)
+    actualDaysGrazed,             // dateOut - dateIn
+    actualRemainingDmKg,          // FOR-1(post-graze height, cover, area, forage type)
+    actualPastureDmConsumedKg,    // standing - remaining (forage measurement method)
+    actualStoredFeedConsumedKg,   // DMI-1(entries, checks)
+    actualTotalDmiKg,             // DMI-3 × actual days
+    actualPastureDmiKg,           // total - stored (mass balance method)
+    actualUtilizationPct,         // pasture consumed ÷ standing × 100
+
+    // Variance
+    daysVariance,                 // estimated - actual (positive = overestimated)
+    daysVariancePct,              // variance ÷ estimated × 100
+    utilizationVariance,          // actual - configured (positive = grazed harder than expected)
+
+    // Sanity check: two methods of computing pasture consumed
+    forageMeasurementDmKg,        // standing - remaining (from height observations)
+    massBalanceDmKg,              // total DMI - stored feed (from demand - feed records)
+    methodDivergenceKg,           // forageMeasurement - massBalance
+    methodDivergencePct,          // divergence ÷ forageMeasurement × 100
+  }
+  ```
+- **Interpretation guide (for UX):**
+  - `daysVariance > 0` → overestimated ("thought it would last longer than it did"). Forage type params may need downward adjustment.
+  - `daysVariance < 0` → underestimated ("pasture lasted longer than expected"). Params are conservative.
+  - `daysVariance ≈ 0` → estimate was accurate.
+  - `methodDivergencePct > 15%` → the two methods disagree significantly. Possible causes: forage observation inaccuracy, unrecorded feed, or forage type `dmPerUnit` calibration is off. Worth flagging to the user.
+  - `utilizationVariance > 10%` → animals grazed harder (or lighter) than the configured utilization %. Over time, this variance tells the user whether to tune their forage type utilization setting.
+
+- **Composites:** FOR-1 (×2: pre-graze + post-graze), FOR-3 (estimated days), DMI-1 (stored feed consumed), DMI-3 (daily demand)
+- **v2-only:** No v1 equivalent. V1 had no estimated vs actual comparison.
+
+- **Surface 1 — Event Close Summary Card:**
+  - Appears on the event detail sheet after an event is closed and both pre-graze + post-graze observations exist.
+  - Headline: `Estimated {N} days → Actual {M} days ({±X%})` — estimated days display with 2 decimal places (e.g., `1.25`); actual days are always integers.
+  - Sub-metrics (2×2 grid):
+    - Est. pasture DM: `{lbs}` | Actual consumed: `{lbs}`
+    - Utilization: `{config}% → {actual}%` | Stored feed: `{lbs}`
+  - If method divergence > 15%, show a muted hint: "Forage measurement and mass balance differ by {N}% — observations or feed records may need review."
+  - If no post-graze observation, show: "Add post-graze observation to see accuracy comparison."
+  - Card is read-only. No actions.
+
+- **Surface 2 — Accuracy Trend Report:**
+  - Lives in Reports as a tab or section (exact placement TBD when Reports are built).
+  - Each closed event with EST-1 data is a row/point.
+  - Columns: location, event dates, estimated days, actual days, days variance %, utilization est/actual, method divergence %.
+  - Over time, the user can see if their estimates are consistently high or low, and which forage types or locations are most inaccurate.
+  - Optional chart: scatter plot of estimated vs actual days (ideal = 45° line).
+
 ---
 
 ## 5. Critical v1 Bugs — Must Fix in v2
@@ -431,6 +504,8 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-16 | UI sprint — decimal precision | FOR-3 and FOR-4 output changed from integer (`Math.floor`) to 2 decimal places (`Math.round(x * 100) / 100`). Display rule: all estimated/forecasted day values render with 2 decimal places (e.g., `1.25`). Precision notes added to DMI-8 and EST-1 specs. |
+| 2026-04-16 | UI sprint — EST-1 accuracy comparison | Added §4.12 Accuracy Domain with EST-1 (Event Pasture Accuracy). Compares estimated (pre-graze FOR-1 + FOR-3) vs actual (post-graze FOR-1 + mass balance) for closed events. Two surfaces: event close summary card (days accuracy headline) and accuracy trend report. Two-method sanity check (forage measurement vs mass balance). No new data stored — all compute-on-read from existing observations and feed records. Total formulas: 38 → 39. Domains: 11 → 12. |
 | 2026-04-16 | UI sprint — DMI-8 daily breakdown | Added DMI-8 (Daily DMI Breakdown by Date) to the DMI domain. Three-state output (actual/estimated/needs_check) powers the 3-day chart on dashboard card and event detail sheet. Composes DMI-2/DMI-3 (demand), DMI-5 (stored feed interpolation), FOR-1 (standing DM). Declining pasture mass balance for estimates. Source event bridge for continuity across moves. Forage type required with inline prompt fallback. Total formulas: 37 → 38. |
 | 2026-04-13 | Rotation calendar design (CP-54) | Added FOR-6 (Forecast Standing DM at Date) to the Forage domain and new §4.11 Capacity Forecast domain with CAP-1 (Period Capacity Coverage). Both formulas are required by CP-54 — FOR-6 drives the Estimated Status View DM gradient, and CAP-1 drives the DM Forecast View capacity split and surplus chip. Total formulas: 35 → 37. Domains: 10 → 11. |
 

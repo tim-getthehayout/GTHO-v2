@@ -140,7 +140,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Output: { n_kg, p_kg, k_kg }
 - v1 bugs: Bag weight hardcoded (make configurable per product); manure density hardcoded as water 8.34 lbs/gal (should be ~8.7 for slurry, make configurable).
 
-### 4.2 DMI Domain (8 formulas)
+### 4.2 DMI Domain (9 formulas)
 
 **DMI-1: Consumed DM from Feed**
 - Computes: Total DM consumed from stored feed, adjusted for residual
@@ -192,6 +192,54 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Computes: Per-paddock grass consumption using mass balance per paddock window
 - Inputs: event_paddock_windows (dates + location), daily DMI (DMI-3), event_feed_entries + event_feed_check_items (stored feed delivered and consumed per paddock, time-filtered)
 - Output: grass_dmi_kg per paddock (total DMI for window minus stored feed consumed in that window)
+
+**DMI-8: Daily DMI Breakdown by Date (3-Day Chart)**
+- Computes: For a given event and date, the daily DMI split between pasture and stored feed, or a state indicating the data isn't available yet. Powers the 3-day DMI chart on both the dashboard card (SP-3) and event detail sheet (SP-2).
+- **Inputs:**
+  - `event` — the target event
+  - `date` — the date to compute for
+  - `groupWindows[]` — active group windows on this event (from store)
+  - `feedEntries[]` — event_feed_entries for this event
+  - `feedChecks[]` — event_feed_checks + event_feed_check_items for this event
+  - `paddockWindows[]` — event_paddock_windows (for area, forage type)
+  - `observations[]` — event_observations with `observation_phase = 'pre_graze'` (for height, cover)
+  - `forageTypes[]` — forage_types (for `dm_kg_per_cm_per_ha`, `utilization_pct`, `residual_height_cm`)
+- **Output:** One of three states per date:
+  - `{ status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg }` — feed check covers this date
+  - `{ status: 'estimated', totalDmiKg, storedDmiKg, pastureDmiKg }` — no check, forecasted from declining pasture mass balance
+  - `{ status: 'needs_check' }` — no check, no basis for estimate (grey bar)
+
+- **State determination logic:**
+
+  1. **Compute daily demand:** `totalDmiKg` = DMI-3(event, date) — sum of DMI-2 for each group window active on this date. If groups changed during the 3-day window, demand adjusts per-day.
+
+  2. **Check for feed check data on this date:** If a feed check exists that brackets this date (check before + check after, or check on this date), use DMI-5 interpolation to get `storedDmiKg`. Then `pastureDmiKg = totalDmiKg - storedDmiKg`. Status = `actual`.
+
+  3. **No feed check — try estimate:** If the event has at least one prior day with an actual split AND a pre-graze observation exists with forage height + cover, AND the paddock has a forage type set:
+     - Compute initial pasture DM via FOR-1: `(height - residual) × dmPerUnit × area × (cover / 100) × (utilization / 100)`
+     - Walk forward from event start, subtracting each day's pasture consumption (actual where known, estimated where not)
+     - `remainingPastureDm` = initial - cumulative pasture consumed through yesterday
+     - If `remainingPastureDm >= totalDmiKg` → `pastureDmiKg = totalDmiKg`, `storedDmiKg = 0`
+     - If `0 < remainingPastureDm < totalDmiKg` → `pastureDmiKg = remainingPastureDm`, `storedDmiKg = totalDmiKg - remainingPastureDm`
+     - If `remainingPastureDm <= 0` → `pastureDmiKg = 0`, `storedDmiKg = totalDmiKg`
+     - Status = `estimated`
+
+  4. **No feed check, can't estimate:** First day of event with no check and no prior actual → status = `needs_check`.
+
+- **Source event bridge:** When the event has `source_event_id`, the chart's 3-day window can extend into the source event. For dates before the current event's `dateIn`, query the source event's feed check data and render those bars as `actual`. This gives continuity — the chart isn't empty on day 1 of a move.
+
+- **Forage type missing guard:** If the paddock's location has no forage type set, the estimate path (step 3) cannot run — `dmPerUnit` is undefined. In this case, treat as `needs_check` and render an inline prompt: "Set forage type to enable pasture estimate" with a link to the location edit sheet. On save, the chart re-renders. Matches v1's pattern for the same situation.
+
+- **Chart rendering spec (presentation layer, not calc):**
+  - 3 bars: today, yesterday, day before (or today + 2 future days — depends on context)
+  - `actual` → solid bar, two-color stack (green = pasture, amber = stored)
+  - `estimated` → striped/hatched bar, same two-color stack, label = "(est.)"
+  - `needs_check` → grey bar, label = "Feed check needed"
+  - Right column: today's total DMI number (large) + "lbs DMI today"
+  - Legend: ■ grazing (green) · ■ stored (amber)
+
+- **Composites:** DMI-2 (per-group demand), DMI-3 (event demand), DMI-5 (stored feed interpolation), FOR-1 (standing forage DM)
+- **v2-only:** No v1 equivalent. V1's chart was purely visual with no source split.
 
 ### 4.3 Forage Domain (6 formulas)
 
@@ -383,6 +431,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-16 | UI sprint — DMI-8 daily breakdown | Added DMI-8 (Daily DMI Breakdown by Date) to the DMI domain. Three-state output (actual/estimated/needs_check) powers the 3-day chart on dashboard card and event detail sheet. Composes DMI-2/DMI-3 (demand), DMI-5 (stored feed interpolation), FOR-1 (standing DM). Declining pasture mass balance for estimates. Source event bridge for continuity across moves. Forage type required with inline prompt fallback. Total formulas: 37 → 38. |
 | 2026-04-13 | Rotation calendar design (CP-54) | Added FOR-6 (Forecast Standing DM at Date) to the Forage domain and new §4.11 Capacity Forecast domain with CAP-1 (Period Capacity Coverage). Both formulas are required by CP-54 — FOR-6 drives the Estimated Status View DM gradient, and CAP-1 drives the DM Forecast View capacity split and surplus chip. Total formulas: 35 → 37. Domains: 10 → 11. |
 
 ---

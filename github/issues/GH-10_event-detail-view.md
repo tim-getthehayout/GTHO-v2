@@ -37,13 +37,13 @@ Accessed via `#/events?detail={eventId}`. The events screen checks for the `deta
   1. Header (back + status)
   2. **Event Summary** (hero card — above the fold)
   3. **DMI — Last 3 Days** chart
-  4. **Paddocks** (anchor + open sub-paddocks)
-  5. **Pre-graze Observations**
-  6. **Post-graze Observations**
-  7. **Groups**
-  8. **Feed Entries**
-  9. **Feed Checks**
-  10. **DMI / NPK Breakdown**
+  4. **DMI / NPK Breakdown** (groups nutrition data with chart above)
+  5. **Paddocks** (anchor + open sub-paddocks)
+  6. **Pre-graze Observations**
+  7. **Post-graze Observations**
+  8. **Groups**
+  9. **Feed Entries**
+  10. **Feed Checks**
   11. **Notes**
   12. **Sub-move History**
   13. **Actions** (Move all / Close & move / Delete)

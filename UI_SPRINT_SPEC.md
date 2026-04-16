@@ -21,6 +21,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-15 | SP-3 | Scope correction — card targets v1 parity, not slimmer summary. Only two deltas from v1: drop small bottom Feed check / Feed buttons; add large green Feed button under large amber Feed check. Per-group reweigh removed from card, deferred to Animals area. Spec rewritten, mockup v3 approved. Status → Ready for Claude Code. |
 | 2026-04-16 | SP-2 | Design review round 2 — event detail changed from full-screen route to **sheet overlay** (OI-0067). Pre-graze observations changed from modal to **inline editable fields** per v4 mockup (OI-0068). Post-graze card always renders with empty-state hint. |
 | 2026-04-16 | SP-3 | Bug report — i18n keys render as raw text on buttons; click handlers not firing. Session brief written. |
+| 2026-04-16 | Feed dialogs | **OI-0072** — Feed check + deliver feed v1 parity rebuild. Both dialogs get full v1 UI treatment: feed check gets triple-sync controls (stepper/slider/pct) + consumed banner; deliver feed gets tap-to-select batch cards with inline steppers, multi-batch, feed-type grouping, live DMI/cost summary. Spec includes extracted v1 HTML templates. OI-0071 closed (7 UI fixes implemented). |
 
 ---
 

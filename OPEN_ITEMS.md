@@ -4,14 +4,29 @@
 
 ---
 
+### OI-0072 — Feed Dialogs (Check + Deliver): V1 Parity UI Rebuild
+**Added:** 2026-04-16 | **Area:** v2-build / UI sprint | **Priority:** P1
+**Checkpoint:** UI sprint
+**Status:** open — spec written, ready for Claude Code
+
+**Problem:** Both feed dialogs (feed check and deliver feed) are bare-bones v2 implementations that don't match v1's UI patterns. Feed check is missing the stepper/slider/percentage triple-sync control and consumed-since-last-check banner. Deliver feed is missing the tap-to-select batch cards with inline quantity steppers, multi-batch support, feed-type grouping, and live DMI/cost summary.
+
+**Fix:** Spec file `github/issues/feed-check-ui-v1-parity.md` covers both dialogs with full v1 layout descriptions, interaction patterns, and CSS classes. Includes extracted v1 HTML templates for Claude Code reference.
+
+**No schema impact.** Visual/interaction only. No CP-55/CP-56 impact.
+
+---
+
 ### OI-0071 — Event Detail Sheet: 7 UI Fixes (Post-Implementation Review)
 **Added:** 2026-04-16 | **Area:** v2-build / UI | **Priority:** P1
 **Checkpoint:** UI sprint (SP-2)
-**Status:** open — session brief written, ready for Claude Code
+**Status:** closed — 2026-04-16
 
 **Problem:** Tim reviewed the implemented SP-2 event detail sheet and found 7 issues: (1) edit event dialog missing save/cancel buttons, (2) pre-graze and post-graze fields not editable, (3) feed checks/entries/sub-moves missing inline edit buttons, (4) DMI/NPK breakdown card positioned too low — should be right under DMI chart, (5) deliver feed dialog missing required date/time, (6) deliver feed quantity stepper should use whole steps not 0.5, (7) move wizard buttons don't navigate.
 
 **Fix:** Session brief `SESSION_BRIEF_2026-04-16_event-detail-ui-fixes.md` with all 7 fixes detailed. Fix 4 also requires updating the reader order in GH-10 spec.
+
+**Resolution:** All 7 fixes implemented by Claude Code (2026-04-16).
 
 ---
 

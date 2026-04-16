@@ -20,6 +20,7 @@ import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { openGroupAddSheet } from '../events/group-windows.js';
 import { openEventDetailSheet } from '../events/detail.js';
+import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -1113,9 +1114,61 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
     ]));
   }
 
-  // §12: DMI chart placeholder (3-day stacked bar)
-  // Deferred — DMI-1 doesn't produce a per-day breakdown yet
-  // TODO: implement when daily DMI by date is available
+  // §12: DMI 3-day chart
+  const dmi8 = getCalcByName('DMI-8');
+  if (dmi8) {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const todayStr2 = new Date().toISOString().slice(0, 10);
+    const chartDays = [];
+
+    // Build context for DMI-8
+    const chartGws = gws;
+    const chartFeedChecks = getAll('eventFeedChecks').filter(fc => fc.eventId === event.id);
+    const chartFeedCheckItems = getAll('eventFeedCheckItems').filter(fci => chartFeedChecks.some(fc => fc.id === fci.feedCheckId));
+    const chartPws = allPws;
+    const chartObs = getAll('eventObservations').filter(o => o.eventId === event.id);
+    const chartForageTypes = {};
+    const chartLocations = {};
+    for (const pw of allPws) {
+      const pwLoc = getById('locations', pw.locationId);
+      if (pwLoc) {
+        chartLocations[pw.locationId] = { areaHa: pwLoc.areaHa };
+        if (pwLoc.forageTypeId) {
+          const ft = getById('forageTypes', pwLoc.forageTypeId);
+          if (ft) chartForageTypes[pw.locationId] = { dmKgPerCmPerHa: ft.dmKgPerCmPerHa, minResidualHeightCm: ft.minResidualHeightCm, utilizationPct: ft.utilizationPct };
+        }
+      }
+    }
+    const chartAnimalClasses = {};
+    for (const gw of gws) {
+      if (gw.animalClassId) {
+        const cls = getById('animalClasses', gw.animalClassId);
+        if (cls) chartAnimalClasses[gw.animalClassId] = { dmiPct: cls.dmiPct, dmiPctLactating: cls.dmiPctLactating };
+      }
+    }
+
+    for (let i = 2; i >= 0; i--) {
+      const d = new Date(todayStr2 + 'T00:00:00');
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      if (dateStr < event.dateIn) continue;
+      const dayName = dayNames[d.getDay()];
+      const label = i === 0 ? `${dayName} \u2713` : dayName;
+      const result = dmi8.fn({
+        event, date: dateStr, groupWindows: chartGws, feedEntries, feedChecks: chartFeedChecks,
+        feedCheckItems: chartFeedCheckItems, paddockWindows: chartPws, observations: chartObs,
+        forageTypes: chartForageTypes, locations: chartLocations, animalClasses: chartAnimalClasses,
+      });
+      chartDays.push({ date: dateStr, label, result });
+    }
+
+    if (chartDays.length) {
+      children.push(el('div', { style: { marginBottom: 'var(--space-3)' } }, [
+        el('div', { className: 'sec', style: { marginBottom: 'var(--space-2)' } }, ['DMI \u2014 LAST 3 DAYS']),
+        renderDmiChartComponent(chartDays, unitSys, { compact: true }),
+      ]));
+    }
+  }
 
   // §13: Large Feed check button (amber)
   children.push(el('button', {

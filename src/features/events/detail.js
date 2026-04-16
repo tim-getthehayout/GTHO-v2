@@ -19,6 +19,7 @@ import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { openSubmoveOpenSheet, openSubmoveCloseSheet } from './submove.js';
+import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
 
 /** Active subscriptions for this view */
 let unsubs = [];
@@ -283,16 +284,95 @@ function renderDmiChart(ctx) {
   const el2 = ctx.sections.dmiChart;
   clear(el2);
 
-  // DMI chart requires DMI-1 with daily breakdown — currently not available with source split
-  // Hide entire card when calc missing per spec
-  const dmi1 = getCalcByName('DMI-1');
-  if (!dmi1) {
-    logger.info('dmi.chart.skipped', 'DMI-1 not registered');
+  const dmi8 = getCalcByName('DMI-8');
+  if (!dmi8) {
+    logger.info('dmi.chart.skipped', 'DMI-8 not registered');
     return;
   }
 
-  // Placeholder — chart implementation deferred until DMI-1 produces daily split with source
-  logger.info('dmi.chart.skipped', 'DMI-1 does not produce daily source split');
+  const event = getById('events', ctx.eventId);
+  if (!event) return;
+
+  const unitSys = getUnitSystem();
+  const chartData = buildDmi8ChartData(ctx, dmi8, event);
+
+  if (!chartData.length) return;
+
+  const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
+    el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, ['DMI \u2014 LAST 3 DAYS']),
+    renderDmiChartComponent(chartData, unitSys),
+  ]);
+
+  el2.appendChild(card);
+}
+
+/** Build the 3-day DMI-8 input array for the chart. */
+function buildDmi8ChartData(ctx, dmi8, event) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // Gather event data for DMI-8
+  const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId);
+  const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === ctx.eventId);
+  const feedChecks = getAll('eventFeedChecks').filter(fc => fc.eventId === ctx.eventId);
+  const feedCheckItems = getAll('eventFeedCheckItems').filter(fci => {
+    return feedChecks.some(fc => fc.id === fci.feedCheckId);
+  });
+  const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === ctx.eventId);
+  const observations = getAll('eventObservations').filter(o => o.eventId === ctx.eventId);
+
+  // Build forage type and location maps
+  const forageTypes = {};
+  const locations = {};
+  for (const pw of pws) {
+    const loc = getById('locations', pw.locationId);
+    if (loc) {
+      locations[pw.locationId] = { areaHa: loc.areaHa };
+      if (loc.forageTypeId) {
+        const ft = getById('forageTypes', loc.forageTypeId);
+        if (ft) {
+          forageTypes[pw.locationId] = {
+            dmKgPerCmPerHa: ft.dmKgPerCmPerHa,
+            minResidualHeightCm: ft.minResidualHeightCm,
+            utilizationPct: ft.utilizationPct,
+          };
+        }
+      }
+    }
+  }
+
+  // Build animal class map
+  const animalClasses = {};
+  for (const gw of gws) {
+    if (gw.animalClassId) {
+      const cls = getById('animalClasses', gw.animalClassId);
+      if (cls) animalClasses[gw.animalClassId] = { dmiPct: cls.dmiPct, dmiPctLactating: cls.dmiPctLactating };
+    }
+  }
+
+  // 3 dates: day before yesterday, yesterday, today
+  const days = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(todayStr + 'T00:00:00');
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+
+    // Skip dates before event start
+    if (dateStr < event.dateIn) continue;
+
+    const dayName = dayNames[d.getDay()];
+    const label = i === 0 ? `${dayName} \u2713` : dayName;
+
+    const result = dmi8.fn({
+      event, date: dateStr, groupWindows: gws, feedEntries, feedChecks,
+      feedCheckItems, paddockWindows: pws, observations, forageTypes,
+      locations, animalClasses,
+    });
+
+    days.push({ date: dateStr, label, result });
+  }
+
+  return days;
 }
 
 // ---------------------------------------------------------------------------

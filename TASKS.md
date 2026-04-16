@@ -91,6 +91,12 @@
 - [x] **CP-57** — v1 → v2 migration tool (25 transforms, dose parsing, NPK parity data, CP-56 pipeline reuse, 67 unit tests, 747 total). Audited against reconciled spec — fixed OI-0037 (schema_version import) and OI-0038 (skipAutoBackup for empty operations).
 - [x] **CP-58** — Integration test — migration (17 unit integration tests using v1 fixture, 7 Playwright e2e tests for UI flow, 747 total)
 
+### UI Sprint (2026-04-15 — active)
+- [x] **SP-1** — Fix dashboard action buttons (Move/Survey/Edit wired to correct targets per specific event)
+- [ ] **SP-2** — Event Detail View — spec locked after design review round 1, handed off to Claude Code. Schema impact: `event_observations` alignment (OI-0063). Spec file: `github/issues/event-detail-view.md`.
+- [ ] **SP-3** — Dashboard location card enrichment — design in progress; spec file exists at `github/issues/dashboard-card-enrichment.md`, still iterating on layout
+- [ ] **SP-reconciliation** — End-of-sprint: merge finalized decisions into base docs (V2_UX_FLOWS.md, V2_SCHEMA_DESIGN.md, V2_DESIGN_SYSTEM.md), convert `github/issues/` sprint files to thin pointers
+
 ### 3.5 Polish
 - [ ] **CP-59** — PWA / service worker
 - [ ] **CP-60** — Sync hardening

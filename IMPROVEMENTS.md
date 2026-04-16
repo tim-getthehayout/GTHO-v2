@@ -124,6 +124,61 @@ expect(data).toHaveLength(1);
 3. Sheets that are only ever opened from their own route can keep the current route-level wrapper pattern.
 **Where:** V2_APP_ARCHITECTURE.md §6.2, CLAUDE.md (optional — add to Implementation Rules if the pattern should be enforced).
 
+### 11. Session handoff notes — write state + next-step file at end of each long session
+**Plugin:** project-infrastructure
+**Skill:** doc-workflow, deploy-gate
+**What:** Long multi-session design sprints (like the UI sprint in GTHO-v2) should end each session by writing a short `SESSION_HANDOFF.md` file (or overwriting a single rolling one) that captures: (a) where we are in the sprint, (b) what was just completed, (c) the exact next step for the next session, (d) any in-flight decisions that aren't yet documented elsewhere. The next session reads this file first and can pick up without reconstructing context from memory files + chat history.
+**Why:** In the 2026-04-15 UI sprint, context compaction happened multiple times. Each new session had to reconstruct state by re-reading UI_SPRINT_SPEC.md, CLAUDE.md, memory files, and the last ~50 chat turns. This burned significant context on orientation before the first useful work happened. A dedicated handoff note is ~20 lines and captures the irreducible state (sprint phase, last completion, immediate next action) that memory files can't — memory files capture rules and facts; handoff notes capture "what were we just about to do." This is the same pattern as `SESSION_BRIEF_*.md` but directed at the NEXT Cowork session rather than Claude Code.
+**How to apply:**
+1. Add a "Session Handoff" step to the Cowork Delivery Gate checklist: "If this session is part of a multi-session sprint, write/update `SESSION_HANDOFF.md` at the repo root with: sprint name, current phase, last completed item, immediate next step, in-flight decisions."
+2. The file is overwritten each session, not appended — it's always the current handoff, not a log.
+3. Start-of-session protocol gains a step: "If `SESSION_HANDOFF.md` exists, read it first before OPEN_ITEMS.md."
+4. The file can be deleted when the sprint ends (or archived to `session_briefs/`).
+
+**Template:**
+```markdown
+# Session Handoff — {Sprint Name}
+
+**Last session:** {date}
+**Current phase:** {phase name / e.g., "SP-2 spec'd, SP-3 spec'd, neither implemented"}
+
+## Just completed
+- {bullet}
+- {bullet}
+
+## Next step (exact, actionable)
+{one sentence — what to do first in the next session}
+
+## In-flight decisions
+- {decision not yet in base docs or OPEN_ITEMS.md}
+
+## Don't re-decide
+- {things already settled this sprint — pointer to where they're documented}
+```
+
+**Where:** deploy-gate SKILL.md (Cowork Delivery Gate — add handoff note step for multi-session work), doc-workflow SKILL.md (document the start-of-session read order with SESSION_HANDOFF.md first).
+
+### 12. One component per user-facing pattern — responsive CSS, not parallel implementations
+**Plugin:** project-infrastructure (or design plugin, if one exists)
+**Skill:** design-system, design-handoff
+**What:** Add a rule to the design-system skill: every user-facing pattern (modal, confirm dialog, edit sheet, form picker, etc.) is implemented as a **single component** that adapts to viewport via responsive CSS. Forbid parallel "desktop modal" + "mobile sheet" implementations of the same action. Same markup, same state, same event handlers — the container just shifts (centered card on desktop ≥600px, bottom sheet on mobile <600px).
+**Why:** V1 of GTHY grew parallel modal/sheet components for the same actions. Over time they drifted — one got a new field, the other didn't; one got a bug fix, the other didn't. Every time a user-facing pattern needs to change, engineering has to remember to update N places. The v2 spec caught this during SP-2 mockup review (delete confirm, sub-move edit, feed entry edit). Enforcing one-component-per-pattern prevents the drift class of bug entirely.
+**How to apply:** In the design-system skill: when documenting a component, require a "Responsive behavior" section that names the breakpoint switch and the single set of CSS selectors that drive it. In the design-handoff skill: when generating specs, include a line `Implementation: one component, responsive via @media (max-width: 600px) — not a separate sheet variant.` Design critiques should flag any spec that implies two implementations for one action.
+**Where:** design-system SKILL.md (add "One Component Per Pattern" principle section), design-handoff SKILL.md (add responsive-implementation line to every component spec template).
+
+### 13. UI sprint specs must capture schema/infra impacts alongside UI decisions
+**Plugin:** project-infrastructure
+**Skill:** doc-workflow, deploy-gate
+**What:** When a UI sprint doc (e.g., `UI_SPRINT_SPEC.md`) accumulates design decisions across multiple sessions, every sprint item must have a "Schema Impacts" subsection next to the "Decisions" subsection — even if the answer is "none." The sprint doc is the single place where UI + data model changes for a given chunk of work are reviewed together before handoff, and the end-of-sprint reconciliation pass uses both subsections to fold changes into the correct base docs (UI decisions → V2_UX_FLOWS.md / V2_DESIGN_SYSTEM.md; schema changes → V2_SCHEMA_DESIGN.md + CP-55/CP-56 spec).
+**Why:** In the 2026-04-15 SP-2 design review, the schema gap (`event_observations` vs `paddock_observations` alignment) almost got missed because the sprint doc framing treated "UI decisions" and "schema changes" as separate workstreams. Tim caught it and flagged it as "a big miss." Folding schema into the same sprint entry means every spec handoff to Claude Code carries the full picture — no chasing a second doc to find the FK the view depends on. It also keeps the CP-55/CP-56 sync rule (Export/Import Spec Sync Rule in CLAUDE.md) front of mind: every schema change flagged in a sprint spec naturally prompts the CP-55/CP-56 impact callout.
+**How to apply:**
+1. `doc-workflow` SKILL.md — when documenting the UI sprint workflow (spec accumulation → reconciliation), require two subsections per sprint item: "Decisions" (UI) and "Schema Impacts" (data). If schema impacts = none, write "None" explicitly so future-you knows it was considered, not forgotten.
+2. `deploy-gate` SKILL.md — Cowork Delivery Gate adds a check: "For each sprint item handed off to Claude Code, verify both Decisions and Schema Impacts subsections are present in the sprint doc. Schema changes must also be reflected in OPEN_ITEMS.md and (if applicable) call out CP-55/CP-56 impact."
+3. Sprint spec template (add to project-scaffold if a template exists): each `## SP-N` section includes required subsections `### Decisions`, `### Schema Impacts`, `### Linked OPEN_ITEMS`.
+**Where:** doc-workflow SKILL.md (UI sprint section), deploy-gate SKILL.md (Cowork Delivery Gate item for sprint handoffs), project-scaffold SKILL.md (sprint-spec template).
+
+**Related memory:** `project_ui_sprint_workflow.md` in user auto-memory mentions the reconciliation pattern; this entry adds the schema-alongside-UI requirement.
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

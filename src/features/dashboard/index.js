@@ -1147,11 +1147,41 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
       }
     }
 
+    // Source event bridge (lazy)
+    let srcCtx = null;
+    function getSrcCtx() {
+      if (srcCtx !== null) return srcCtx;
+      if (!event.sourceEventId) { srcCtx = false; return false; }
+      const srcEvt = getById('events', event.sourceEventId);
+      if (!srcEvt) { srcCtx = false; return false; }
+      const sGws = getAll('eventGroupWindows').filter(gw => gw.eventId === srcEvt.id);
+      const sFe = getAll('eventFeedEntries').filter(fe => fe.eventId === srcEvt.id);
+      const sFc = getAll('eventFeedChecks').filter(fc => fc.eventId === srcEvt.id);
+      const sFci = getAll('eventFeedCheckItems').filter(fci => sFc.some(fc => fc.id === fci.feedCheckId));
+      const sPws = getAll('eventPaddockWindows').filter(pw => pw.eventId === srcEvt.id);
+      const sObs = getAll('eventObservations').filter(o => o.eventId === srcEvt.id);
+      const sFt = {}, sLoc = {}, sAc = {};
+      for (const pw of sPws) {
+        const l = getById('locations', pw.locationId);
+        if (l) { sLoc[pw.locationId] = { areaHa: l.areaHa }; if (l.forageTypeId) { const f = getById('forageTypes', l.forageTypeId); if (f) sFt[pw.locationId] = { dmKgPerCmPerHa: f.dmKgPerCmPerHa, minResidualHeightCm: f.minResidualHeightCm, utilizationPct: f.utilizationPct }; } }
+      }
+      for (const gw of sGws) { if (gw.animalClassId) { const c = getById('animalClasses', gw.animalClassId); if (c) sAc[gw.animalClassId] = { dmiPct: c.dmiPct, dmiPctLactating: c.dmiPctLactating }; } }
+      srcCtx = { event: srcEvt, gws: sGws, fe: sFe, fc: sFc, fci: sFci, pws: sPws, obs: sObs, ft: sFt, loc: sLoc, ac: sAc };
+      return srcCtx;
+    }
+
     for (let i = 2; i >= 0; i--) {
       const d = new Date(todayStr2 + 'T00:00:00');
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().slice(0, 10);
-      if (dateStr < event.dateIn) continue;
+      if (dateStr < event.dateIn) {
+        const src = getSrcCtx();
+        if (!src) continue;
+        const dayName = dayNames[d.getDay()];
+        const result = dmi8.fn({ event: src.event, date: dateStr, groupWindows: src.gws, feedEntries: src.fe, feedChecks: src.fc, feedCheckItems: src.fci, paddockWindows: src.pws, observations: src.obs, forageTypes: src.ft, locations: src.loc, animalClasses: src.ac });
+        chartDays.push({ date: dateStr, label: dayName, result });
+        continue;
+      }
       const dayName = dayNames[d.getDay()];
       const label = i === 0 ? `${dayName} \u2713` : dayName;
       const result = dmi8.fn({

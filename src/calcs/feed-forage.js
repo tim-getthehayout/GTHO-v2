@@ -254,11 +254,11 @@ registerCalc({
   output: { type: 'integer', unit: 'days' },
   example: {
     inputs: { availableDmKg: 3520, groupDmiKgPerDay: 400 },
-    output: 8,
+    output: 8.8,
   },
   fn({ availableDmKg, groupDmiKgPerDay }) {
     if (groupDmiKgPerDay <= 0) return 0;
-    return Math.floor(availableDmKg / groupDmiKgPerDay);
+    return Math.round((availableDmKg / groupDmiKgPerDay) * 100) / 100;
   },
 });
 
@@ -267,21 +267,21 @@ registerCalc({
   name: 'FOR-4',
   category: 'forage',
   description: 'How many more days animals can stay on current location',
-  formula: 'days_remaining = floor((remaining_stored_dm + forage_estimate_kg) / group_dmi_kg_per_day)',
+  formula: 'days_remaining = round2((remaining_stored_dm + forage_estimate_kg) / group_dmi_kg_per_day)',
   source: 'V2_CALCULATION_SPEC.md §4.3',
   inputs: [
     { name: 'remainingStoredDmKg', type: 'number', unit: 'kg' },
     { name: 'forageEstimateKg', type: 'number', unit: 'kg' },
     { name: 'groupDmiKgPerDay', type: 'number', unit: 'kg/day' },
   ],
-  output: { type: 'integer', unit: 'days' },
+  output: { type: 'number', unit: 'days' },
   example: {
     inputs: { remainingStoredDmKg: 200, forageEstimateKg: 1800, groupDmiKgPerDay: 400 },
     output: 5,
   },
   fn({ remainingStoredDmKg, forageEstimateKg, groupDmiKgPerDay }) {
     if (groupDmiKgPerDay <= 0) return 0;
-    return Math.floor((remainingStoredDmKg + forageEstimateKg) / groupDmiKgPerDay);
+    return Math.round(((remainingStoredDmKg + forageEstimateKg) / groupDmiKgPerDay) * 100) / 100;
   },
 });
 

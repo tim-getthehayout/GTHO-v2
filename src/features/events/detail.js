@@ -350,6 +350,41 @@ function buildDmi8ChartData(ctx, dmi8, event) {
     }
   }
 
+  // Source event bridge data (lazy-loaded if needed)
+  let sourceCtx = null;
+  function getSourceCtx() {
+    if (sourceCtx !== null) return sourceCtx;
+    if (!event.sourceEventId) { sourceCtx = false; return false; }
+    const srcEvt = getById('events', event.sourceEventId);
+    if (!srcEvt) { sourceCtx = false; return false; }
+    const srcGws = getAll('eventGroupWindows').filter(gw => gw.eventId === srcEvt.id);
+    const srcFe = getAll('eventFeedEntries').filter(fe => fe.eventId === srcEvt.id);
+    const srcFc = getAll('eventFeedChecks').filter(fc => fc.eventId === srcEvt.id);
+    const srcFci = getAll('eventFeedCheckItems').filter(fci => srcFc.some(fc => fc.id === fci.feedCheckId));
+    const srcPws = getAll('eventPaddockWindows').filter(pw => pw.eventId === srcEvt.id);
+    const srcObs = getAll('eventObservations').filter(o => o.eventId === srcEvt.id);
+    const srcFt = {}, srcLoc = {};
+    for (const pw of srcPws) {
+      const loc2 = getById('locations', pw.locationId);
+      if (loc2) {
+        srcLoc[pw.locationId] = { areaHa: loc2.areaHa };
+        if (loc2.forageTypeId) {
+          const ft2 = getById('forageTypes', loc2.forageTypeId);
+          if (ft2) srcFt[pw.locationId] = { dmKgPerCmPerHa: ft2.dmKgPerCmPerHa, minResidualHeightCm: ft2.minResidualHeightCm, utilizationPct: ft2.utilizationPct };
+        }
+      }
+    }
+    const srcAc = {};
+    for (const gw of srcGws) {
+      if (gw.animalClassId) {
+        const cls2 = getById('animalClasses', gw.animalClassId);
+        if (cls2) srcAc[gw.animalClassId] = { dmiPct: cls2.dmiPct, dmiPctLactating: cls2.dmiPctLactating };
+      }
+    }
+    sourceCtx = { event: srcEvt, gws: srcGws, fe: srcFe, fc: srcFc, fci: srcFci, pws: srcPws, obs: srcObs, ft: srcFt, loc: srcLoc, ac: srcAc };
+    return sourceCtx;
+  }
+
   // 3 dates: day before yesterday, yesterday, today
   const days = [];
   for (let i = 2; i >= 0; i--) {
@@ -357,8 +392,19 @@ function buildDmi8ChartData(ctx, dmi8, event) {
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().slice(0, 10);
 
-    // Skip dates before event start
-    if (dateStr < event.dateIn) continue;
+    if (dateStr < event.dateIn) {
+      // Source event bridge: use source event data for dates before this event
+      const src = getSourceCtx();
+      if (!src) continue;
+      const dayName = dayNames[d.getDay()];
+      const result = dmi8.fn({
+        event: src.event, date: dateStr, groupWindows: src.gws, feedEntries: src.fe,
+        feedChecks: src.fc, feedCheckItems: src.fci, paddockWindows: src.pws,
+        observations: src.obs, forageTypes: src.ft, locations: src.loc, animalClasses: src.ac,
+      });
+      days.push({ date: dateStr, label: dayName, result });
+      continue;
+    }
 
     const dayName = dayNames[d.getDay()];
     const label = i === 0 ? `${dayName} \u2713` : dayName;

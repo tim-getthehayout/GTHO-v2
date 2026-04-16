@@ -8,7 +8,7 @@ import { t } from '../i18n/i18n.js';
  * Render a 3-day DMI stacked bar chart.
  * @param {Array<{ date: string, label: string, result: { status: string, totalDmiKg?: number, storedDmiKg?: number, pastureDmiKg?: number } }>} days - 3 entries, oldest first
  * @param {string} unitSys - 'imperial' or 'metric'
- * @param {object} [opts] - { compact: boolean } for dashboard card sizing
+ * @param {object} [opts] - { compact: boolean, onForageTypeMissing: Function } for dashboard card sizing
  * @returns {HTMLElement}
  */
 export function renderDmiChart(days, unitSys, opts = {}) {
@@ -35,14 +35,21 @@ export function renderDmiChart(days, unitSys, opts = {}) {
     const r = d.result;
 
     if (r.status === 'needs_check') {
-      // Grey bar
-      barsEl.appendChild(el('div', { style: { flex: '1', textAlign: 'center' } }, [
+      // Grey bar with optional forage type prompt
+      const barChildren = [
         el('div', { style: { fontSize: '10px', color: 'var(--text3, #999)', marginBottom: '4px' } }, ['—']),
         el('div', {
           style: { height: `${barHeight * 0.3}px`, background: 'var(--bg3, #eee)', borderRadius: '4px 4px 0 0' },
         }),
         el('div', { style: { fontSize: '10px', color: 'var(--text2)', marginTop: '4px' } }, [d.label]),
-      ]));
+      ];
+      if (opts.onForageTypeMissing) {
+        barChildren.push(el('div', {
+          style: { fontSize: '9px', color: 'var(--color-teal-base)', cursor: 'pointer', marginTop: '2px' },
+          onClick: opts.onForageTypeMissing,
+        }, ['Set forage type']));
+      }
+      barsEl.appendChild(el('div', { style: { flex: '1', textAlign: 'center' } }, barChildren));
       continue;
     }
 

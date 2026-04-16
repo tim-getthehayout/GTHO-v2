@@ -10,9 +10,15 @@ import { navigate } from '../../ui/router.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { renderTodoCard } from '../todos/todo-card.js';
 import { openTodoSheet } from '../todos/todo-sheet.js';
+import { formatShortDate } from '../../utils/date-format.js';
+import { unitLabel } from '../../utils/units.js';
 import { openMoveWizard } from '../events/move-wizard.js';
 import { openCloseEventSheet } from '../events/close.js';
 import { openCreateSurveySheet } from '../surveys/index.js';
+import { openSubmoveOpenSheet, openSubmoveCloseSheet } from '../events/submove.js';
+import { openDeliverFeedSheet } from '../feed/delivery.js';
+import { openFeedCheckSheet } from '../feed/check.js';
+import { openGroupAddSheet } from '../events/group-windows.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -779,6 +785,7 @@ function renderLocationsView(gridEl) {
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
   const operationId = getAll('operations')[0]?.id;
   const farmId = getActiveFarmId() || getAll('farms')[0]?.id;
+  const unitSys = getUnitSystem();
 
   if (!activeEvents.length && !groups.length) {
     gridEl.appendChild(el('p', { className: 'form-hint', 'data-testid': 'dashboard-empty' }, [
@@ -789,85 +796,9 @@ function renderLocationsView(gridEl) {
 
   const grid = el('div', { className: 'dash-grid' });
 
-  // Active event cards — one per event
+  // Active event cards — one per event (SP-3: v1 parity)
   for (const event of activeEvents) {
-    const pws = getAll('eventPaddockWindows').filter(w => w.eventId === event.id && !w.dateClosed);
-    const primaryPw = pws[0];
-    const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
-    const locName = loc ? loc.name : '?';
-    const landUse = loc?.landUse || 'pasture';
-
-    // Groups in this event
-    const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id && !gw.dateLeft);
-    const groupLines = gws.map(gw => {
-      const grp = getById('groups', gw.groupId);
-      return grp ? `${grp.name} (${gw.headCount ?? '?'} head)` : '';
-    }).filter(Boolean);
-
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const dayCount = daysBetweenInclusive(event.dateIn, todayStr);
-
-    // Feed status
-    const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === event.id);
-    const feedCount = feedEntries.length;
-    let feedCost = 0;
-    const cst1 = getCalcByName('CST-1');
-    if (cst1 && feedCount) {
-      const batches = getAll('batches');
-      const batchMap = new Map(batches.map(b => [b.id, b]));
-      feedCost = cst1.fn({ entries: feedEntries.map(fe => ({ qtyUnits: fe.quantity, costPerUnit: batchMap.get(fe.batchId)?.costPerUnit ?? 0 })) });
-    }
-
-    // Strip graze status — progress bar per §3.15
-    const stripPws = getAll('eventPaddockWindows').filter(w => w.eventId === event.id && w.isStripGraze);
-    let stripEl = null;
-    if (stripPws.length > 0) {
-      const sorted = [...stripPws].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || ''));
-      const totalStrips = sorted[0].areaPct > 0 ? Math.round(100 / sorted[0].areaPct) : sorted.length;
-      const completedCount = sorted.filter(s => s.dateClosed).length;
-      const currentIdx = sorted.findIndex(s => !s.dateClosed);
-      stripEl = el('div', { className: 'strip-progress' }, [
-        el('div', { className: 'strip-progress-label' }, [
-          `Strip ${currentIdx >= 0 ? currentIdx + 1 : completedCount} of ${totalStrips}`,
-        ]),
-        el('div', { className: 'strip-progress-bars' },
-          Array.from({ length: totalStrips }, (_, i) => {
-            let barState;
-            if (i < completedCount) barState = 'completed';
-            else if (i === currentIdx) barState = 'active';
-            else barState = 'upcoming';
-            const pct = sorted[i]?.areaPct ?? sorted[0]?.areaPct ?? (100 / totalStrips);
-            return el('div', {
-              className: `strip-bar strip-${barState}`,
-              style: { width: `${pct}%` },
-            });
-          })
-        ),
-      ]);
-    }
-
-    // Type badge
-    const badgeClass = { pasture: 'badge-green', 'mixed-use': 'badge-teal', confinement: 'badge-amber', crop: 'badge-purple' }[landUse] || 'badge-green';
-
-    grid.appendChild(el('div', { className: 'card', 'data-testid': `dashboard-loc-card-${event.id}` }, [
-      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' } }, [
-        el('span', { style: { fontSize: '14px', fontWeight: '600' } }, [locName]),
-        el('span', { className: `badge ${badgeClass}` }, [landUse]),
-      ]),
-      el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-2)' } }, [
-        groupLines.join(' \u00B7 '),
-      ]),
-      el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-2)' } }, [
-        t('dashboard.dayLabel', { count: dayCount }),
-        feedCount > 0 ? ` \u00B7 ${t('dashboard.feedingsLabel', { count: feedCount })} \u00B7 $${feedCost.toFixed(2)}` : '',
-      ]),
-      stripEl,
-      el('div', { className: 'dash-actions' }, [
-        el('button', { className: 'btn btn-teal btn-sm', onClick: () => openMoveWizard(event, operationId, farmId) }, [t('dashboard.move')]),
-        el('button', { className: 'btn btn-outline btn-sm', onClick: () => openCreateSurveySheet(operationId) }, [t('dashboard.survey')]),
-        el('button', { className: 'btn btn-outline btn-sm', onClick: () => openCloseEventSheet(event, operationId) }, [t('action.edit')]),
-      ]),
-    ].filter(Boolean)));
+    grid.appendChild(buildLocationCard(event, operationId, farmId, unitSys));
   }
 
   gridEl.appendChild(grid);
@@ -893,6 +824,333 @@ function renderLocationsView(gridEl) {
     }
     gridEl.appendChild(section);
   }
+}
+
+// ---------------------------------------------------------------------------
+// §17.7a: Location card builder (SP-3 — v1 parity)
+// ---------------------------------------------------------------------------
+
+function buildLocationCard(event, operationId, farmId, unitSys) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const allPws = getAll('eventPaddockWindows').filter(w => w.eventId === event.id);
+  const openPws = allPws.filter(w => !w.dateClosed);
+  const primaryPw = openPws[0];
+
+  // Location name + acreage (multi-paddock: comma-join names, sum area)
+  let locName, totalAreaHa = 0;
+  if (openPws.length > 1) {
+    const names = openPws.map(pw => {
+      const loc = getById('locations', pw.locationId);
+      if (loc?.areaHa) totalAreaHa += loc.areaHa;
+      return loc?.name || '?';
+    });
+    locName = names.join(', ');
+  } else {
+    const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
+    locName = loc?.name || '?';
+    totalAreaHa = loc?.areaHa || 0;
+  }
+  const areaDisplay = totalAreaHa > 0 ? display(totalAreaHa, 'area', unitSys, 2) : '';
+  const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
+
+  // Groups
+  const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id && !gw.dateLeft);
+  let totalHead = 0, totalWeightKg = 0;
+  for (const gw of gws) {
+    totalHead += gw.headCount || 0;
+    totalWeightKg += (gw.headCount || 0) * (gw.avgWeightKg || 0);
+  }
+
+  // Calcs
+  const cst1 = getCalcByName('CST-1');
+  const dmi2 = getCalcByName('DMI-2');
+  const dmi4 = getCalcByName('DMI-4');
+  const dmi1 = getCalcByName('DMI-1');
+  const npk1 = getCalcByName('NPK-1');
+  const npk2 = getCalcByName('NPK-2');
+  const for1 = getCalcByName('FOR-1');
+  const for2 = getCalcByName('FOR-2');
+  const for3 = getCalcByName('FOR-3');
+
+  const dayCount = daysBetweenInclusive(event.dateIn, todayStr);
+
+  // Feed cost
+  const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === event.id);
+  const batches = getAll('batches');
+  const batchMap = new Map(batches.map(b => [b.id, b]));
+  let feedCost = 0;
+  if (cst1 && feedEntries.length) {
+    feedCost = cst1.fn({ entries: feedEntries.map(fe => ({ qtyUnits: fe.quantity, costPerUnit: batchMap.get(fe.batchId)?.costPerUnit ?? 0 })) });
+  }
+  const hasStoredFeed = feedEntries.length > 0;
+
+  // Event type badge
+  let eventType = 'grazing';
+  if (hasStoredFeed && totalAreaHa > 0) eventType = 'stored feed & grazing';
+  else if (hasStoredFeed) eventType = 'stored feed';
+
+  // DMI
+  let dailyDmiKg = 0;
+  if (dmi2) {
+    for (const gw of gws) {
+      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
+      dailyDmiKg += dmi2.fn({
+        headCount: gw.headCount ?? 0, avgWeightKg: gw.avgWeightKg ?? 0,
+        dmiPct: cls?.dmiPct ?? 2.5, dmiPctLactating: cls?.dmiPctLactating ?? 2.5, isLactating: false,
+      });
+    }
+  }
+
+  // Stored feed consumed (from DMI-1)
+  let storedConsumedKg = 0;
+  if (dmi1 && feedEntries.length) {
+    storedConsumedKg = dmi1.fn({ entries: feedEntries.map(fe => ({ qtyKg: fe.quantity ?? 0, dmPct: 100 })), remainingDmKg: 0 });
+  }
+
+  // Pasture/stored split
+  let pasturePct = 100, storedPct = 0, pastureDmKg = 0, storedDmKg = 0;
+  const totalDmiKgPeriod = dailyDmiKg * dayCount;
+  if (dmi4 && totalDmiKgPeriod > 0) {
+    const split = dmi4.fn({ totalDmiKg: totalDmiKgPeriod, storedConsumedKg });
+    pasturePct = Math.round(split.pasturePct);
+    storedPct = 100 - pasturePct;
+    pastureDmKg = split.pastureDmiKg;
+    storedDmKg = split.storedDmiKg;
+  }
+
+  // Forage / capacity
+  const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
+  const forageType = loc?.forageTypeId ? getById('forageTypes', loc.forageTypeId) : null;
+  const obs = getAll('eventObservations')
+    .filter(o => o.eventId === event.id && (o.observationPhase === 'pre_graze' || !o.observationPhase))
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+
+  let availableDmKg = 0, estAuds = 0, daysRemaining = 0, forageHeightDisplay = '';
+  if (for1 && obs?.forageHeightCm && totalAreaHa > 0) {
+    const residualCm = forageType?.minResidualHeightCm ?? 5;
+    const dmPerCmPerHa = forageType?.dmKgPerCmPerHa ?? 110;
+    const coverPct = obs.forageCoverPct ?? 80;
+    availableDmKg = for1.fn({
+      forageHeightCm: obs.forageHeightCm, residualHeightCm: residualCm,
+      areaHectares: totalAreaHa, areaPct: 100, coverPct, dmKgPerCmPerHa: dmPerCmPerHa,
+    });
+    if (for2) estAuds = for2.fn({ availableDmKg, dmPerAudKg: 11 });
+    if (for3 && dailyDmiKg > 0) daysRemaining = for3.fn({ availableDmKg, groupDmiKgPerDay: dailyDmiKg });
+    forageHeightDisplay = display(obs.forageHeightCm, 'length', unitSys, 1);
+  }
+
+  // Weight + AU
+  const totalWeightDisplay = display(totalWeightKg, 'weight', unitSys, 0);
+  const wUnit = unitLabel('weight', unitSys);
+  const auValue = totalWeightKg / 453.6;
+
+  // ADA (animal days per acre)
+  const totalAcres = totalAreaHa > 0 ? convert(totalAreaHa, 'area', 'toImperial') : 0;
+  const adaPerAc = totalAcres > 0 ? (auValue * dayCount / totalAcres) : 0;
+
+  // NPK
+  let npkLine = null;
+  if (npk1 && gws.length) {
+    let totalN = 0, totalP = 0, totalK = 0;
+    for (const gw of gws) {
+      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
+      const days = daysBetweenInclusive(gw.dateJoined || event.dateIn, todayStr);
+      const r = npk1.fn({
+        headCount: gw.headCount ?? 0, avgWeightKg: gw.avgWeightKg ?? 0, days,
+        excretionNRate: cls?.excretionNRate ?? 0.34, excretionPRate: cls?.excretionPRate ?? 0.092, excretionKRate: cls?.excretionKRate ?? 0.24,
+      });
+      totalN += r.nKg ?? r.n ?? 0;
+      totalP += r.pKg ?? r.p ?? 0;
+      totalK += r.kKg ?? r.k ?? 0;
+    }
+    const nDisp = convert(totalN, 'weight', 'toImperial').toFixed(1);
+    const pDisp = convert(totalP, 'weight', 'toImperial').toFixed(1);
+    const kDisp = convert(totalK, 'weight', 'toImperial').toFixed(1);
+    let npkText = `NPK: N${nDisp} / P${pDisp} / K${kDisp} lbs`;
+    if (npk2) {
+      const prices = getAll('npkPriceHistory').sort((a, b) => (b.effectiveDate || '').localeCompare(a.effectiveDate || ''))[0];
+      if (prices) {
+        const val = npk2.fn({ nKg: totalN, pKg: totalP, kKg: totalK, nPricePerKg: prices.nPricePerKg ?? 0, pPricePerKg: prices.pPricePerKg ?? 0, kPricePerKg: prices.kPricePerKg ?? 0 });
+        npkText += ` \u00B7 $${val.toFixed(2)} value`;
+      }
+    }
+    npkLine = npkText;
+  }
+
+  // Daily DMI display
+  const dailyDmiDisplay = dailyDmiKg > 0 ? convert(dailyDmiKg, 'weight', 'toImperial').toFixed(0) : null;
+
+  // --- Sub-paddocks (non-anchor windows) ---
+  const sortedPws = [...allPws].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || ''));
+  const subPaddocks = sortedPws.slice(1);
+  const hasSubMoves = subPaddocks.length > 0;
+
+  // --- Build card ---
+  const children = [];
+
+  // §1: Left accent bar via border-left
+  // §2: Header row
+  children.push(el('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--space-2)' } }, [
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+      el('span', { style: { fontSize: '22px', color: 'var(--color-green-base)' } }, ['\uD83C\uDF3F']),
+      el('span', { style: { fontSize: '18px', fontWeight: '700' } }, [locName]),
+      areaDisplay ? el('span', { style: { fontSize: '14px', fontWeight: '400', color: 'var(--text2)' } }, [`${areaDisplay} ${areaUnit}`]) : null,
+    ].filter(Boolean)),
+    // §3: Top-right action buttons
+    el('div', { style: { display: 'flex', gap: '6px' } }, [
+      el('button', {
+        className: 'btn btn-outline btn-xs',
+        'data-testid': `dashboard-edit-btn-${event.id}`,
+        onClick: () => navigate(`#/events?detail=${event.id}`),
+      }, [t('action.edit')]),
+      el('button', {
+        className: 'btn btn-teal btn-xs',
+        'data-testid': `dashboard-move-btn-${event.id}`,
+        onClick: () => openMoveWizard(event, operationId, farmId),
+      }, [t('dashboard.move')]),
+    ]),
+  ]));
+
+  // §4 + §5: Event type badge + summary line
+  children.push(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: 'var(--space-2)' } }, [
+    el('span', { style: { background: '#F4F8EC', color: '#3B6D11', fontSize: '12px', borderRadius: '4px', padding: '2px 6px', marginRight: '6px' } }, [eventType]),
+    `Day ${dayCount} \u00B7 In ${formatShortDate(event.dateIn)} \u00B7 $${feedCost.toFixed(2)}`,
+  ]));
+
+  // §6: Weight line
+  if (totalHead > 0) {
+    children.push(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: 'var(--space-1)' } }, [
+      `Weight: ${totalWeightDisplay} ${wUnit} \u00B7 ${auValue.toFixed(1)} AU`,
+    ]));
+  }
+
+  // §7: Capacity line (green)
+  if (availableDmKg > 0 && dailyDmiKg > 0) {
+    let capText = `Est. capacity: ${Math.round(estAuds)} AUDs \u00B7 ~${daysRemaining} days remaining`;
+    if (hasStoredFeed) capText += ' (incl. stored feed)';
+    if (forageHeightDisplay) capText += ` \u00B7 ${forageHeightDisplay}"`;
+    if (totalAcres > 0) capText += ` \u00B7 ADA est: ${adaPerAc.toFixed(1)}/ac`;
+    children.push(el('div', { style: { fontSize: '12px', color: 'var(--color-green-dark, #3B6D11)', fontWeight: '500', marginBottom: 'var(--space-1)' } }, [capText]));
+  }
+
+  // §8: Breakdown line (gray)
+  if (dailyDmiDisplay) {
+    let breakdownParts = [`Pasture: ${convert(pastureDmKg, 'weight', 'toImperial').toFixed(0)} lbs DM`];
+    if (hasStoredFeed) breakdownParts.push(`Stored feed: ${convert(storedDmKg, 'weight', 'toImperial').toFixed(0)} lbs DM`);
+    breakdownParts.push(`DMI demand: ${dailyDmiDisplay} lbs/day`);
+    children.push(el('div', { style: { fontSize: '12px', color: 'var(--text3, var(--text2))', marginBottom: 'var(--space-2)' } }, [breakdownParts.join(' \u00B7 ')]));
+  }
+
+  // §9: + Add sub-move (if no sub-moves, appears here above sub-paddocks section)
+  if (!hasSubMoves) {
+    children.push(el('div', { style: { marginBottom: 'var(--space-3)' } }, [
+      el('a', {
+        style: { fontSize: '13px', color: 'var(--color-teal-base)', cursor: 'pointer', textDecoration: 'none' },
+        onClick: () => openSubmoveOpenSheet(event, operationId),
+      }, ['+ Add sub-move']),
+    ]));
+  }
+
+  // §10: Sub-paddocks section
+  if (hasSubMoves) {
+    children.push(el('div', { className: 'sec', style: { marginTop: 'var(--space-3)', marginBottom: 'var(--space-2)' } }, ['SUB-PADDOCKS']));
+    for (const pw of subPaddocks) {
+      const subLoc = getById('locations', pw.locationId);
+      const subName = subLoc?.name || '?';
+      const subArea = subLoc?.areaHa ? `${display(subLoc.areaHa, 'area', unitSys, 2)} ${areaUnit}` : '';
+      const isActive = !pw.dateClosed;
+      children.push(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' } }, [
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } }, [
+          el('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: isActive ? 'var(--color-green-base)' : 'var(--text3, #999)', display: 'inline-block' } }),
+          el('span', { style: { fontWeight: '600' } }, [subName]),
+          subArea ? el('span', { style: { color: 'var(--text2)' } }, [` \u00B7 ${subArea}`]) : null,
+          el('span', { style: { color: 'var(--text2)' } }, [` \u00B7 since ${formatShortDate(pw.dateOpened)}`]),
+          el('span', { style: { color: isActive ? 'var(--color-green-base)' : 'var(--text3, #999)', fontWeight: '500' } }, [isActive ? ' active' : ' closed']),
+        ].filter(Boolean)),
+        isActive ? el('button', {
+          className: 'btn btn-outline btn-xs',
+          onClick: () => openSubmoveCloseSheet(pw, operationId),
+        }, [t('event.closeWindow')]) : null,
+      ].filter(Boolean)));
+    }
+    children.push(el('div', { style: { marginTop: 'var(--space-2)', marginBottom: 'var(--space-3)' } }, [
+      el('a', {
+        style: { fontSize: '13px', color: 'var(--color-teal-base)', cursor: 'pointer', textDecoration: 'none' },
+        onClick: () => openSubmoveOpenSheet(event, operationId),
+      }, ['+ Add sub-move']),
+    ]));
+  }
+
+  // §11: Groups section
+  if (gws.length) {
+    children.push(el('div', { className: 'sec', style: { marginTop: 'var(--space-3)', marginBottom: 'var(--space-2)' } }, ['GROUPS']));
+    for (const gw of gws) {
+      const grp = getById('groups', gw.groupId);
+      const grpName = grp?.name || '?';
+      const gwWeight = gw.avgWeightKg ? display(gw.avgWeightKg, 'weight', unitSys, 0) : '\u2014';
+      children.push(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--border)' } }, [
+        el('div', {}, [
+          el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: '600' } }, [
+            el('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-green-base)', display: 'inline-block' } }),
+            grpName,
+          ]),
+          el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
+            `${gw.headCount} head \u00B7 avg ${gwWeight} ${unitLabel('weight', unitSys)}`,
+          ]),
+        ]),
+        el('button', {
+          className: 'btn btn-teal btn-xs',
+          onClick: () => openMoveWizard(event, operationId, farmId),
+        }, [t('dashboard.move')]),
+      ]));
+    }
+    children.push(el('div', { style: { marginTop: 'var(--space-2)', marginBottom: 'var(--space-3)' } }, [
+      el('a', {
+        style: { fontSize: '13px', color: 'var(--color-teal-base)', cursor: 'pointer', textDecoration: 'none' },
+        onClick: () => openGroupAddSheet(event, operationId),
+      }, ['+ Add group']),
+    ]));
+  }
+
+  // §12: DMI chart placeholder (3-day stacked bar)
+  // Deferred — DMI-1 doesn't produce a per-day breakdown yet
+  // TODO: implement when daily DMI by date is available
+
+  // §13: Large Feed check button (amber)
+  children.push(el('button', {
+    style: { width: '100%', padding: '12px', fontSize: '14px', fontWeight: '600', borderRadius: '8px', background: '#FDF6EA', border: '1px solid #E5C76B', color: '#8B6914', cursor: 'pointer', marginBottom: '8px' },
+    'data-testid': `dashboard-feed-check-btn-${event.id}`,
+    onClick: () => openFeedCheckSheet(event, operationId),
+  }, [t('event.feedCheck')]));
+
+  // §14: Large Feed button (green) — NEW
+  children.push(el('button', {
+    style: { width: '100%', padding: '12px', fontSize: '14px', fontWeight: '600', borderRadius: '8px', background: 'var(--color-green-base)', border: '1px solid var(--color-green-base)', color: '#fff', cursor: 'pointer' },
+    'data-testid': `dashboard-feed-btn-${event.id}`,
+    onClick: () => openDeliverFeedSheet(event, operationId),
+  }, [t('event.deliverFeed')]));
+
+  // §15: DMI/NPK summary
+  const summaryParts = [];
+  if (dailyDmiDisplay) {
+    let dmiLine = `DMI ${dailyDmiDisplay} lbs/day`;
+    if (storedPct > 0) dmiLine += ` \u00B7 ${storedPct}% stored \u00B7 ${pasturePct}% est. pasture`;
+    summaryParts.push(el('div', { style: { fontSize: '12px', marginBottom: '2px' } }, [dmiLine]));
+  }
+  if (npkLine) {
+    summaryParts.push(el('div', { style: { fontSize: '12px', color: 'var(--color-purple-dark, #5B21B6)' } }, [npkLine]));
+  }
+  if (summaryParts.length) {
+    children.push(el('div', { style: { borderTop: '1px solid var(--border)', paddingTop: 'var(--space-2)', marginTop: 'var(--space-3)' } }, summaryParts));
+  }
+
+  // §16: Bottom small buttons — REMOVED (no-op)
+
+  return el('div', {
+    className: 'card',
+    'data-testid': `dashboard-loc-card-${event.id}`,
+    style: { borderLeft: '4px solid var(--color-green-base)', position: 'relative' },
+  }, children);
 }
 
 // ---------------------------------------------------------------------------

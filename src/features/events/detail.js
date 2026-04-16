@@ -663,7 +663,6 @@ function renderPostGraze(ctx) {
 
   if (!postObs.length) {
     card.appendChild(el('div', { className: 'form-hint' }, [t('event.postGrazeEmpty')]));
-  }
   } else {
     for (const obs of postObs) {
       const pw = obs.paddockWindowId ? getById('eventPaddockWindows', obs.paddockWindowId) : null;

@@ -1,7 +1,8 @@
-/** @file Event Detail View — SP-2. Full-screen single-column view for one event. */
+/** @file Event Detail Sheet — SP-2. Sheet overlay for one event's full data + actions. */
 
 import { el, clear, text } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
+import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, subscribe, add, update, remove } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
@@ -21,38 +22,66 @@ import { openSubmoveOpenSheet, openSubmoveCloseSheet } from './submove.js';
 
 /** Active subscriptions for this view */
 let unsubs = [];
+let detailSheet = null;
 
 // ---------------------------------------------------------------------------
-// Main entry point
+// Sheet DOM + lifecycle
 // ---------------------------------------------------------------------------
+
+function ensureSheetDOM() {
+  if (document.getElementById('event-detail-sheet-wrap')) return;
+  document.body.appendChild(el('div', {
+    className: 'sheet-wrap',
+    id: 'event-detail-sheet-wrap',
+    style: { zIndex: '200' },
+  }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => closeEventDetailSheet() }),
+    el('div', {
+      className: 'sheet-panel',
+      id: 'event-detail-sheet-panel',
+      style: { maxWidth: '720px', margin: '0 auto', overflowY: 'auto', maxHeight: '100vh' },
+    }),
+  ]));
+}
 
 /**
- * Render the Event Detail View.
- * @param {HTMLElement} container
- * @param {string} eventId
+ * Open the event detail sheet.
+ * @param {object} event - The event record
  * @param {string} operationId
  * @param {string} farmId
  */
-export function renderEventDetail(container, eventId, operationId, farmId) {
+export function openEventDetailSheet(event, operationId, farmId) {
+  ensureSheetDOM();
+  if (!detailSheet) {
+    detailSheet = new Sheet('event-detail-sheet-wrap');
+  }
+
+  const panel = document.getElementById('event-detail-sheet-panel');
+  if (!panel) return;
+
+  // Clean up previous subscriptions
   unsubs.forEach(fn => fn());
   unsubs = [];
+  clear(panel);
 
-  const event = getById('events', eventId);
-  if (!event) {
+  const eventId = event.id;
+
+  if (!getById('events', eventId)) {
     logger.warn('events.detail.not_found', { id: eventId });
-    container.appendChild(el('div', { className: 'detail-empty', style: { padding: 'var(--space-6)', textAlign: 'center' } }, [
+    panel.appendChild(el('div', { style: { padding: 'var(--space-6)', textAlign: 'center' } }, [
       el('h2', {}, [t('event.notFound')]),
-      el('button', { className: 'btn btn-teal', onClick: () => navigate('#/events') }, [t('event.backToEvents')]),
+      el('button', { className: 'btn btn-teal', onClick: () => closeEventDetailSheet() }, [t('event.backToEvents')]),
     ]));
+    detailSheet.open();
     return;
   }
 
   const wrapper = el('div', {
     className: 'event-detail',
     'data-testid': 'event-detail-view',
-    style: { maxWidth: '720px', margin: '0 auto', padding: 'var(--space-4)' },
+    style: { padding: 'var(--space-4)' },
   });
-  container.appendChild(wrapper);
+  panel.appendChild(wrapper);
 
   const sections = {
     header: el('div', { 'data-testid': 'detail-header' }),
@@ -82,7 +111,7 @@ export function renderEventDetail(container, eventId, operationId, farmId) {
   // Subscriptions — surgical re-render per section
   unsubs.push(subscribe('events', () => {
     const evt = getById('events', eventId);
-    if (!evt) { clear(container); renderEventDetail(container, eventId, operationId, farmId); return; }
+    if (!evt) { closeEventDetailSheet(); return; }
     renderHeader(ctx);
     renderSummary(ctx);
     renderNotes(ctx);
@@ -112,6 +141,17 @@ export function renderEventDetail(container, eventId, operationId, farmId) {
     renderSummary(ctx);
     renderDmiNpk(ctx);
   }));
+
+  detailSheet.open();
+}
+
+/**
+ * Close the event detail sheet.
+ */
+export function closeEventDetailSheet() {
+  unsubs.forEach(fn => fn());
+  unsubs = [];
+  if (detailSheet) detailSheet.close();
 }
 
 function renderAll(ctx) {
@@ -148,7 +188,7 @@ function renderHeader(ctx) {
       className: 'btn btn-ghost',
       'aria-label': 'Back',
       'data-testid': 'detail-back-btn',
-      onClick: () => { window.history.length > 1 ? window.history.back() : navigate('#/dashboard'); },
+      onClick: () => closeEventDetailSheet(),
     }, ['\u2190']),
     el('span', {
       className: `badge ${isActive ? 'badge-teal' : 'badge-grey'}`,
@@ -907,7 +947,7 @@ function openDeleteConfirm(ctx) {
           onClick: () => {
             remove('events', ctx.eventId, 'events');
             overlay.remove();
-            navigate('#/events');
+            closeEventDetailSheet();
           },
         }, [t('action.delete')]),
         el('button', {

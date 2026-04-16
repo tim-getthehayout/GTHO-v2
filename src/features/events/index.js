@@ -18,7 +18,6 @@ import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
 import { openCloseEventSheet } from './close.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
-import { renderEventDetail } from './detail.js';
 import { readStateFromUrl, getCalendarState } from './calendar-state.js';
 import { renderCalendarGrid } from './rotation-calendar/calendar-grid.js';
 import { renderEventsLog } from './list-view/events-log.js';
@@ -73,18 +72,6 @@ export function renderEventsScreen(container) {
 
   const operationId = operations[0].id;
   const farmId = farms[0].id;
-
-  // Check for detail view query param: #/events?detail={eventId}
-  const hash = window.location.hash || '';
-  const qIdx = hash.indexOf('?');
-  if (qIdx !== -1) {
-    const params = new URLSearchParams(hash.slice(qIdx + 1));
-    const detailId = params.get('detail');
-    if (detailId) {
-      renderEventDetail(container, detailId, operationId, farmId);
-      return;
-    }
-  }
 
   // Read calendar state from URL (deep-link support)
   readStateFromUrl();

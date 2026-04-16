@@ -19,6 +19,7 @@ import { openSubmoveOpenSheet, openSubmoveCloseSheet } from '../events/submove.j
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { openGroupAddSheet } from '../events/group-windows.js';
+import { openEventDetailSheet } from '../events/detail.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -1001,7 +1002,7 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
       el('button', {
         className: 'btn btn-outline btn-xs',
         'data-testid': `dashboard-edit-btn-${event.id}`,
-        onClick: () => navigate(`#/events?detail=${event.id}`),
+        onClick: () => openEventDetailSheet(event, operationId, farmId),
       }, [t('action.edit')]),
       el('button', {
         className: 'btn btn-teal btn-xs',

@@ -526,11 +526,6 @@ function renderPostGraze(ctx) {
   const event = getById('events', ctx.eventId);
   if (!event) return;
 
-  // Only show when event is closed or any sub-paddock closed
-  const closedPws = getAll('eventPaddockWindows').filter(w => w.eventId === ctx.eventId && w.dateClosed);
-  const isClosed = !!event.dateOut;
-  if (!isClosed && !closedPws.length) return;
-
   const unitSys = getUnitSystem();
   const postObs = getAll('eventObservations')
     .filter(o => o.eventId === ctx.eventId && o.observationPhase === 'post_graze')
@@ -541,15 +536,8 @@ function renderPostGraze(ctx) {
   ]);
 
   if (!postObs.length) {
-    card.appendChild(el('div', { className: 'form-hint' }, [t('event.noObservations')]));
-    if (!isClosed) {
-      card.appendChild(el('button', {
-        className: 'btn btn-teal btn-sm',
-        style: { marginTop: 'var(--space-2)' },
-        'data-testid': 'detail-add-post-graze',
-        onClick: () => openPostGrazeModal(ctx, null),
-      }, [t('event.addPostGraze')]));
-    }
+    card.appendChild(el('div', { className: 'form-hint' }, [t('event.postGrazeEmpty')]));
+  }
   } else {
     for (const obs of postObs) {
       const pw = obs.paddockWindowId ? getById('eventPaddockWindows', obs.paddockWindowId) : null;

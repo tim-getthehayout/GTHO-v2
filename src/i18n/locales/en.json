@@ -173,6 +173,7 @@
     "no": "No",
     "postGraze": "Post-Graze Observations",
     "addPostGraze": "Add post-graze observation",
+    "postGrazeEmpty": "Captured when a paddock is closed. No post-graze observations yet.",
     "avgHeight": "Avg Height",
     "groups": "Groups",
     "addGroup": "Add group",

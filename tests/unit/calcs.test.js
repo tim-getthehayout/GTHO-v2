@@ -9,9 +9,9 @@ import '../../src/calcs/advanced.js';
 import '../../src/calcs/capacity.js';
 
 describe('calculation engine', () => {
-  it('registers 37 formulas', () => {
+  it('registers 38 formulas', () => {
     const calcs = getAllCalcs();
-    expect(calcs.length).toBe(37);
+    expect(calcs.length).toBe(38);
   });
 
   it('has formulas in all expected categories', () => {

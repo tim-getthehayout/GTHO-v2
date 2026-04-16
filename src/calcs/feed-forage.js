@@ -529,3 +529,103 @@ registerCalc({
     };
   },
 });
+
+// DMI-8: Daily DMI Breakdown (per-day pasture vs stored)
+registerCalc({
+  name: 'DMI-8',
+  category: 'dmi',
+  description: 'Per-day DMI breakdown with pasture vs stored split. Three states: actual (from feed checks), estimated (declining pasture mass balance from FOR-1), needs_check.',
+  formula: 'See V2_CALCULATION_SPEC.md § DMI-8',
+  source: 'V2_CALCULATION_SPEC.md §4.2',
+  inputs: [
+    { name: 'event', type: 'object', unit: '{ id, dateIn, dateOut, sourceEventId }' },
+    { name: 'date', type: 'string', unit: 'YYYY-MM-DD' },
+    { name: 'groupWindows', type: 'array', unit: '{ headCount, avgWeightKg, animalClassId, dateJoined, dateLeft }' },
+    { name: 'feedEntries', type: 'array', unit: '{ quantity, batchId, deliveryDate }' },
+    { name: 'feedChecks', type: 'array', unit: '{ checkDate, id }' },
+    { name: 'feedCheckItems', type: 'array', unit: '{ feedCheckId, remainingQty }' },
+    { name: 'paddockWindows', type: 'array', unit: '{ locationId, dateOpened, dateClosed, areaPct }' },
+    { name: 'observations', type: 'array', unit: '{ observationPhase, forageHeightCm, forageCoverPct }' },
+    { name: 'forageTypes', type: 'object', unit: '{ [locationId]: { dmKgPerCmPerHa, minResidualHeightCm, utilizationPct } }' },
+    { name: 'locations', type: 'object', unit: '{ [locationId]: { areaHa } }' },
+    { name: 'animalClasses', type: 'object', unit: '{ [classId]: { dmiPct, dmiPctLactating } }' },
+  ],
+  output: { type: 'object', shape: '{ status, totalDmiKg?, storedDmiKg?, pastureDmiKg? }', unit: 'kg' },
+  fn({ event, date, groupWindows, feedEntries, feedChecks, feedCheckItems, paddockWindows, observations, forageTypes, locations, animalClasses }) {
+    // Helper: compute daily DMI demand for a given date
+    function dailyDemand(dt) {
+      let total = 0;
+      for (const gw of groupWindows) {
+        if (gw.dateJoined > dt) continue;
+        if (gw.dateLeft && gw.dateLeft <= dt) continue;
+        const cls = gw.animalClassId && animalClasses ? animalClasses[gw.animalClassId] : null;
+        const pct = cls?.dmiPct ?? 2.5;
+        total += (gw.headCount ?? 0) * (gw.avgWeightKg ?? 0) * (pct / 100);
+      }
+      return total;
+    }
+
+    const totalDmiKg = dailyDemand(date);
+    if (totalDmiKg <= 0) return { status: 'needs_check' };
+
+    // Check if feed checks bracket this date (actual path)
+    const sortedChecks = [...feedChecks].sort((a, b) => (a.checkDate || '').localeCompare(b.checkDate || ''));
+    const prevCheck = sortedChecks.filter(c => c.checkDate <= date).pop();
+    const nextCheck = sortedChecks.find(c => c.checkDate > date);
+
+    if (prevCheck && nextCheck) {
+      // DMI-5 interpolation: stored consumed per day between checks
+      const prevItems = feedCheckItems.filter(i => i.feedCheckId === prevCheck.id);
+      const nextItems = feedCheckItems.filter(i => i.feedCheckId === nextCheck.id);
+      const prevRemaining = prevItems.reduce((s, i) => s + (i.remainingQty ?? 0), 0);
+      const nextRemaining = nextItems.reduce((s, i) => s + (i.remainingQty ?? 0), 0);
+      const daysBetween = Math.max(1, Math.round((new Date(nextCheck.checkDate) - new Date(prevCheck.checkDate)) / 86400000));
+      const storedDmiKg = Math.max(0, (prevRemaining - nextRemaining) / daysBetween);
+      const pastureDmiKg = Math.max(0, totalDmiKg - storedDmiKg);
+      return { status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg };
+    }
+
+    // Estimated path: need pre-graze observation + forage type + location
+    const preGrazeObs = observations
+      .filter(o => o.observationPhase === 'pre_graze' || !o.observationPhase)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+
+    const activePw = paddockWindows.find(pw => !pw.dateClosed) || paddockWindows[0];
+    if (!activePw) return { status: 'needs_check' };
+
+    const locId = activePw.locationId;
+    const ft = forageTypes?.[locId];
+    const loc = locations?.[locId];
+
+    if (!preGrazeObs?.forageHeightCm || !ft?.dmKgPerCmPerHa || !loc?.areaHa) {
+      return { status: 'needs_check' };
+    }
+
+    // FOR-1: initial standing DM
+    const residualCm = ft.minResidualHeightCm ?? 5;
+    const grazableHeight = preGrazeObs.forageHeightCm - residualCm;
+    if (grazableHeight <= 0) return { status: 'needs_check' };
+
+    const coverPct = preGrazeObs.forageCoverPct ?? 80;
+    const effectiveArea = (loc.areaHa) * ((activePw.areaPct ?? 100) / 100);
+    let remainingPastureDm = grazableHeight * effectiveArea * (coverPct / 100) * ft.dmKgPerCmPerHa;
+
+    // Walk forward from dateIn to target date, subtracting daily consumption
+    const startDate = event.dateIn;
+    const d = new Date(startDate + 'T00:00:00');
+    const targetD = new Date(date + 'T00:00:00');
+
+    while (d < targetD) {
+      const dayStr = d.toISOString().slice(0, 10);
+      const dayDemand = dailyDemand(dayStr);
+      const pastureUsed = Math.min(dayDemand, Math.max(0, remainingPastureDm));
+      remainingPastureDm -= pastureUsed;
+      d.setDate(d.getDate() + 1);
+    }
+
+    // Target date
+    const pastureDmiKg = Math.min(totalDmiKg, Math.max(0, remainingPastureDm));
+    const storedDmiKg = totalDmiKg - pastureDmiKg;
+    return { status: 'estimated', totalDmiKg, storedDmiKg, pastureDmiKg };
+  },
+});

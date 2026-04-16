@@ -457,7 +457,20 @@
     "unitBale": "Bale",
     "unitTon": "Ton",
     "unitKg": "kg",
-    "unitLb": "lb"
+    "unitLb": "lb",
+    "logFeeding": "Log feeding",
+    "selectFeedHeading": "Select feed",
+    "selectFeedHint": "Tap a batch to add it, then set the quantity.",
+    "feedDMI": "Feed DMI",
+    "feedCost": "Feed cost",
+    "saveFeeding": "Save feeding",
+    "changeEvent": "Change",
+    "quantity": "Quantity",
+    "noBatchesOnHand": "No feed batches on hand — add inventory first.",
+    "feedCheckRemainingPct": "Remaining %",
+    "feedCheckConsumed": "Consumed since last check",
+    "feedCheckNoPrior": "No prior check",
+    "feedCheckSaveBtn": "Save feed check"
   },
   "survey": {
     "title": "Surveys",

@@ -88,13 +88,13 @@ export function openEventDetailSheet(event, operationId, farmId) {
     header: el('div', { 'data-testid': 'detail-header' }),
     summary: el('div', { 'data-testid': 'detail-summary' }),
     dmiChart: el('div', { 'data-testid': 'detail-dmi-chart' }),
+    dmiNpk: el('div', { 'data-testid': 'detail-dmi-npk' }),
     paddocks: el('div', { 'data-testid': 'detail-paddocks' }),
     preGraze: el('div', { 'data-testid': 'detail-pre-graze' }),
     postGraze: el('div', { 'data-testid': 'detail-post-graze' }),
     groups: el('div', { 'data-testid': 'detail-groups' }),
     feedEntries: el('div', { 'data-testid': 'detail-feed-entries' }),
     feedChecks: el('div', { 'data-testid': 'detail-feed-checks' }),
-    dmiNpk: el('div', { 'data-testid': 'detail-dmi-npk' }),
     notes: el('div', { 'data-testid': 'detail-notes' }),
     submoves: el('div', { 'data-testid': 'detail-submoves' }),
     actions: el('div', { 'data-testid': 'detail-actions' }),
@@ -159,13 +159,13 @@ function renderAll(ctx) {
   renderHeader(ctx);
   renderSummary(ctx);
   renderDmiChart(ctx);
+  renderDmiNpk(ctx);
   renderPaddocks(ctx);
   renderPreGraze(ctx);
   renderPostGraze(ctx);
   renderGroups(ctx);
   renderFeedEntries(ctx);
   renderFeedChecks(ctx);
-  renderDmiNpk(ctx);
   renderNotes(ctx);
   renderSubmoves(ctx);
   renderActions(ctx);
@@ -191,10 +191,17 @@ function renderHeader(ctx) {
       'data-testid': 'detail-back-btn',
       onClick: () => closeEventDetailSheet(),
     }, ['\u2190']),
-    el('span', {
-      className: `badge ${isActive ? 'badge-teal' : 'badge-grey'}`,
-      'data-testid': 'detail-status-badge',
-    }, [isActive ? t('event.active') : t('event.closed')]),
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+      el('span', {
+        className: `badge ${isActive ? 'badge-teal' : 'badge-grey'}`,
+        'data-testid': 'detail-status-badge',
+      }, [isActive ? t('event.active') : t('event.closed')]),
+      el('button', {
+        className: 'btn btn-ghost btn-xs',
+        'data-testid': 'detail-cancel-btn',
+        onClick: () => closeEventDetailSheet(),
+      }, ['\u2715']),
+    ]),
   ]));
 }
 
@@ -664,17 +671,63 @@ function renderPostGraze(ctx) {
   if (!postObs.length) {
     card.appendChild(el('div', { className: 'form-hint' }, [t('event.postGrazeEmpty')]));
   } else {
+    const isClosed = !!event.dateOut;
+    const heightUnit = unitSys === 'imperial' ? 'in.' : 'cm';
+
     for (const obs of postObs) {
       const pw = obs.paddockWindowId ? getById('eventPaddockWindows', obs.paddockWindowId) : null;
       const loc = pw ? getById('locations', pw.locationId) : null;
       const label = loc ? loc.name : '';
-      const heightStr = obs.postGrazeHeightCm != null ? display(obs.postGrazeHeightCm, 'length', unitSys, 1) : '\u2014';
-      const minDays = obs.recoveryMinDays ?? '\u2014';
-      const maxDays = obs.recoveryMaxDays ?? '\u2014';
+      const canEdit = !isClosed;
 
-      card.appendChild(el('div', { style: { fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' } }, [
-        label ? el('span', { style: { fontWeight: '500' } }, [`${label}: `]) : null,
-        text(`Avg height ${heightStr} \u00B7 Recovery window: Min ${minDays} days \u00B7 Max ${maxDays} days`),
+      const heightVal = obs.postGrazeHeightCm != null
+        ? (unitSys === 'imperial' ? convert(obs.postGrazeHeightCm, 'length', 'toImperial') : obs.postGrazeHeightCm)
+        : '';
+
+      let postSavedTimer = null;
+      const postSaved = el('span', { style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' } }, ['Saved']);
+      function showPostSaved() {
+        if (postSavedTimer) clearTimeout(postSavedTimer);
+        postSaved.style.opacity = '1';
+        postSavedTimer = setTimeout(() => { postSaved.style.opacity = '0'; }, 2000);
+      }
+      function savePostField(changes) {
+        update('eventObservations', obs.id, changes, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
+        showPostSaved();
+      }
+
+      const hInput = el('input', {
+        type: 'number', className: 'obs-input', style: { width: '52px' }, step: '0.5',
+        value: heightVal, disabled: !canEdit,
+        onBlur: () => {
+          const raw = parseFloat(hInput.value);
+          const cm = !isNaN(raw) ? (unitSys === 'imperial' ? convert(raw, 'length', 'toMetric') : raw) : null;
+          savePostField({ postGrazeHeightCm: cm });
+        },
+      });
+      const minInput = el('input', {
+        type: 'number', className: 'obs-input', style: { width: '52px' }, step: '1',
+        value: obs.recoveryMinDays ?? '', disabled: !canEdit,
+        onBlur: () => { const v = parseInt(minInput.value, 10); savePostField({ recoveryMinDays: !isNaN(v) ? v : null }); },
+      });
+      const maxInput = el('input', {
+        type: 'number', className: 'obs-input', style: { width: '52px' }, step: '1',
+        value: obs.recoveryMaxDays ?? '', disabled: !canEdit,
+        onBlur: () => { const v = parseInt(maxInput.value, 10); savePostField({ recoveryMaxDays: !isNaN(v) ? v : null }); },
+      });
+
+      card.appendChild(el('div', { style: { padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' } }, [
+        label ? el('div', { style: { fontWeight: '500', fontSize: '13px', marginBottom: '4px' } }, [label]) : null,
+        el('div', { className: 'obs-field-row', style: { display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } }, [
+          el('span', { style: { color: 'var(--text2)' } }, [`Avg height (${heightUnit}):`]),
+          hInput,
+          el('span', { style: { color: 'var(--text2)' } }, ['Recovery min:']),
+          minInput,
+          el('span', { style: { color: 'var(--text2)' } }, ['max:']),
+          maxInput,
+          el('span', { style: { color: 'var(--text2)' } }, ['days']),
+          postSaved,
+        ]),
       ].filter(Boolean)));
     }
   }
@@ -788,6 +841,10 @@ function renderFeedEntries(ctx) {
       isActive ? el('div', { style: { display: 'flex', gap: '4px' } }, [
         el('button', {
           className: 'btn btn-ghost btn-xs',
+          onClick: () => openDeliverFeedSheet(event, ctx.operationId),
+        }, ['\u270E']),
+        el('button', {
+          className: 'btn btn-ghost btn-xs',
           onClick: () => {
             if (confirm(t('event.confirmDeleteFeed'))) {
               remove('eventFeedEntries', fe.id, 'event_feed_entries');
@@ -835,10 +892,14 @@ function renderFeedChecks(ctx) {
 
   for (const fc of checks) {
     card.appendChild(el('div', {
-      style: { fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' },
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' },
     }, [
-      `${formatShortDate(fc.checkDate || fc.createdAt)} \u00B7 ${fc.notes || ''}`,
-    ]));
+      el('span', {}, [`${formatShortDate(fc.checkDate || fc.createdAt)} \u00B7 ${fc.notes || ''}`]),
+      isActive ? el('button', {
+        className: 'btn btn-ghost btn-xs',
+        onClick: () => openFeedCheckSheet(event, ctx.operationId),
+      }, ['\u270E']) : null,
+    ].filter(Boolean)));
   }
 
   if (isActive) {
@@ -1025,10 +1086,14 @@ function renderSubmoves(ctx) {
     const closeDate = pw.dateClosed ? formatShortDate(pw.dateClosed) : '\u2014';
 
     card.appendChild(el('div', {
-      style: { fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' },
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' },
     }, [
-      `${locName} \u00B7 ${openDate} \u2013 ${closeDate}`,
-    ]));
+      el('span', {}, [`${locName} \u00B7 ${openDate} \u2013 ${closeDate}`]),
+      isActive ? el('button', {
+        className: 'btn btn-ghost btn-xs',
+        onClick: () => pw.dateClosed ? null : openSubmoveCloseSheet(pw, ctx.operationId),
+      }, ['\u270E']) : null,
+    ].filter(Boolean)));
   }
 
   if (isActive) {
@@ -1075,6 +1140,11 @@ function renderActions(ctx) {
     'data-testid': 'detail-delete',
     onClick: () => openDeleteConfirm(ctx),
   }, [t('action.delete')]));
+
+  buttons.push(el('button', {
+    className: 'btn btn-ghost',
+    onClick: () => closeEventDetailSheet(),
+  }, [t('action.cancel')]));
 
   el2.appendChild(el('div', {
     style: { display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', padding: 'var(--space-4) 0' },

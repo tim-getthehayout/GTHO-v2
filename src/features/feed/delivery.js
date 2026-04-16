@@ -58,8 +58,9 @@ export function openDeliverFeedSheet(evt, operationId) {
 
   // Time
   panel.appendChild(el('label', { className: 'form-label' }, [t('feed.deliveryTime')]));
+  const nowTime = new Date().toTimeString().slice(0, 5);
   inputs.time = el('input', {
-    type: 'time', className: 'auth-input', value: '',
+    type: 'time', className: 'auth-input', value: nowTime,
     'data-testid': 'deliver-feed-time',
   });
   panel.appendChild(inputs.time);
@@ -121,7 +122,7 @@ export function openDeliverFeedSheet(evt, operationId) {
   panel.appendChild(el('label', { className: 'form-label' }, [t('feed.deliveryQty')]));
   inputs.quantity = el('input', {
     type: 'number', className: 'auth-input settings-input', value: '1',
-    step: '0.5', min: '0.5',
+    step: '1', min: '0.5',
     'data-testid': 'deliver-feed-quantity',
   });
   const qtyRow = el('div', { style: { display: 'flex', gap: 'var(--space-2)', alignItems: 'center' } }, [
@@ -130,18 +131,18 @@ export function openDeliverFeedSheet(evt, operationId) {
       'data-testid': 'deliver-feed-qty-minus',
       onClick: () => {
         const val = parseFloat(inputs.quantity.value) || 0;
-        if (val > 0.5) inputs.quantity.value = (val - 0.5).toString();
+        if (val > 1) inputs.quantity.value = (val - 1).toString();
       },
-    }, ['-0.5']),
+    }, ['-1']),
     inputs.quantity,
     el('button', {
       className: 'btn btn-outline btn-xs',
       'data-testid': 'deliver-feed-qty-plus',
       onClick: () => {
         const val = parseFloat(inputs.quantity.value) || 0;
-        inputs.quantity.value = (val + 0.5).toString();
+        inputs.quantity.value = (val + 1).toString();
       },
-    }, ['+0.5']),
+    }, ['+1']),
   ]);
   panel.appendChild(qtyRow);
 
@@ -154,6 +155,10 @@ export function openDeliverFeedSheet(evt, operationId) {
       'data-testid': 'deliver-feed-save',
       onClick: () => {
         clear(statusEl);
+        if (!inputs.date.value || !inputs.time.value) {
+          statusEl.appendChild(el('span', {}, [t('feed.dateTimeRequired')]));
+          return;
+        }
         if (!selection.batchId) {
           statusEl.appendChild(el('span', {}, [t('feed.selectBatch')]));
           return;

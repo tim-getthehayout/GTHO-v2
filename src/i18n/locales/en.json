@@ -435,6 +435,7 @@
     "deliveryDate": "Date",
     "deliveryTime": "Time",
     "deliverySaved": "Feed delivered",
+    "dateTimeRequired": "Date and time are required",
     "noBatches": "No batches available. Add batches first.",
     "qtyAdjust": "±0.5",
     "feedCheck": "Feed Check",

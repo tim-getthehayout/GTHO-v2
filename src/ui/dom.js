@@ -11,6 +11,7 @@ export function el(tag, attrs = {}, children = []) {
   const element = document.createElement(tag);
 
   for (const [key, value] of Object.entries(attrs)) {
+    if (value === undefined || value === null) continue;
     if (key.startsWith('on') && typeof value === 'function') {
       element.addEventListener(key.slice(2).toLowerCase(), value);
     } else if (key === 'className') {
@@ -21,6 +22,9 @@ export function el(tag, attrs = {}, children = []) {
       }
     } else if (key === 'style' && typeof value === 'object') {
       Object.assign(element.style, value);
+    } else if (key === 'disabled' || key === 'checked' || key === 'selected') {
+      if (value) element.setAttribute(key, '');
+      // false/falsy: don't set the attribute
     } else {
       element.setAttribute(key, value);
     }

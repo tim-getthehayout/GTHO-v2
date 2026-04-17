@@ -195,9 +195,10 @@ export function renderAnimalsScreen(container) {
           ].filter(Boolean)),
           el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' }, onClick: (e) => e.stopPropagation() }, [
             el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupSheet(g, operationId, farmId) }, ['Edit']),
+            isPlaced ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSplitGroupSheet(g, operationId, farmId) }, ['Split']) : null,
             el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupWeightsSheet(g, operationId) }, ['Weights']),
             el('button', { style: { border: 'none', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontSize: '18px', padding: '2px 4px' }, onClick: () => { if (confirm(`Delete group "${g.name}"?`)) remove('groups', g.id, 'groups'); } }, ['\u00D7']),
-          ]),
+          ].filter(Boolean)),
         ]),
       ]);
       groupsCard.appendChild(row);
@@ -406,15 +407,20 @@ function openGroupSheet(existingGroup, operationId, farmId) {
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
   const isEdit = !!existingGroup;
+  const unitSys = getUnitSystem();
   const colors = ['#639922', '#1D9E75', '#185FA5', '#BA7517', '#E24B4A', '#534AB7'];
   let selectedColor = existingGroup?.color || colors[0];
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Track selected animal IDs for the picker
+  const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
+  const currentGroupMembers = isEdit ? new Set(memberships.filter(m => m.groupId === existingGroup.id).map(m => m.animalId)) : new Set();
+  const pickedAnimals = new Set(currentGroupMembers);
 
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '12px' } }, [isEdit ? 'Edit group' : 'Add group']));
 
-  const nameInput = el('input', { type: 'text', placeholder: 'Cow herd, Yearlings…', value: existingGroup?.name || '', style: { width: '100%', padding: '9px 10px', border: '0.5px solid var(--border2)', borderRadius: '8px', fontSize: '13px', background: 'var(--bg)', boxSizing: 'border-box', fontFamily: 'inherit' } });
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Group name']), nameInput]));
-
-  // Color picker
+  // Two-column: name + color (v1 layout)
+  const nameInput = el('input', { type: 'text', placeholder: 'Cow herd, Yearlings…', value: existingGroup?.name || '' });
   const colorPicker = el('div', { style: { display: 'flex', gap: '8px', marginTop: '4px' } });
   function renderColorPicker() {
     clear(colorPicker);
@@ -426,7 +432,57 @@ function openGroupSheet(existingGroup, operationId, farmId) {
     }
   }
   renderColorPicker();
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Color']), colorPicker]));
+
+  panel.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Group name']), nameInput]),
+    el('div', { className: 'field' }, [el('label', {}, ['Color']), colorPicker]),
+  ]));
+
+  panel.appendChild(el('div', { className: 'div' }));
+
+  // Animal picker section
+  panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '6px' } }, ['Animals in group']));
+  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '8px' } }, ['Tap to add/remove animals. Unassigned animals shown.']));
+
+  const pickerEl = el('div', { style: { maxHeight: '220px', overflowY: 'auto', marginBottom: '10px' } });
+  function renderAnimalPicker() {
+    clear(pickerEl);
+    const allAnimals = getAll('animals').filter(a => !a.culled);
+    const classes = getAll('animalClasses');
+    const weightRecords = getAll('animalWeightRecords');
+
+    for (const a of allAnimals) {
+      const isPicked = pickedAnimals.has(a.id);
+      const otherGroupMem = memberships.find(m => m.animalId === a.id && (!isEdit || m.groupId !== existingGroup?.id));
+      const inOtherGroup = !!otherGroupMem && !isPicked;
+      const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
+      const latestW = weightRecords.filter(w => w.animalId === a.id).sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
+      const weightStr = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) + ' ' + unitLabel('weight', unitSys) : '';
+      const otherGrp = otherGroupMem ? getAll('groups').find(g => g.id === otherGroupMem.groupId) : null;
+
+      pickerEl.appendChild(el('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: isPicked ? 'var(--green-l)' : 'var(--bg2)', borderRadius: 'var(--radius)', marginBottom: '4px', cursor: 'pointer', border: `0.5px solid ${isPicked ? 'var(--green-l2)' : 'var(--border)'}`, opacity: inOtherGroup ? '0.45' : '1' },
+        onClick: () => {
+          if (isPicked) pickedAnimals.delete(a.id);
+          else pickedAnimals.add(a.id);
+          renderAnimalPicker();
+        },
+      }, [
+        el('div', {
+          style: { width: '16px', height: '16px', borderRadius: '50%', border: `1.5px solid ${isPicked ? 'var(--green)' : 'var(--border2)'}`, background: isPicked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' },
+        }, isPicked ? [el('svg', { width: '10', height: '10', viewBox: '0 0 12 12', fill: 'none' }, [el('polyline', { points: '2,6 5,9 10,3', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })])] : []),
+        el('div', { style: { flex: '1', fontSize: '13px' } }, [
+          el('strong', {}, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`]),
+          ' ',
+          el('span', { style: { color: 'var(--text2)', fontSize: '11px' } }, [
+            [a.sex, cls?.name, weightStr, otherGrp?.name].filter(Boolean).join(' \u00B7 '),
+          ]),
+        ]),
+      ]));
+    }
+  }
+  renderAnimalPicker();
+  panel.appendChild(pickerEl);
 
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
@@ -437,11 +493,30 @@ function openGroupSheet(existingGroup, operationId, farmId) {
       const name = nameInput.value.trim();
       if (!name) { statusEl.appendChild(el('span', {}, ['Name is required'])); return; }
       try {
+        let groupId;
         if (isEdit) {
           update('groups', existingGroup.id, { name, color: selectedColor }, GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
+          groupId = existingGroup.id;
         } else {
           const record = GroupEntity.create({ operationId, name, color: selectedColor });
           add('groups', record, GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
+          groupId = record.id;
+        }
+        // Sync memberships: add new, remove deselected
+        const currentMems = memberships.filter(m => m.groupId === groupId);
+        for (const m of currentMems) {
+          if (!pickedAnimals.has(m.animalId)) {
+            update('animalGroupMemberships', m.id, { dateLeft: todayStr, reason: 'removed' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+          }
+        }
+        for (const animalId of pickedAnimals) {
+          if (!currentMems.some(m => m.animalId === animalId)) {
+            // Close any existing membership in another group
+            const existingMem = memberships.find(m => m.animalId === animalId && m.groupId !== groupId);
+            if (existingMem) update('animalGroupMemberships', existingMem.id, { dateLeft: todayStr, reason: 'move' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+            const newMem = MembershipEntity.create({ operationId, animalId, groupId, dateJoined: todayStr, reason: isEdit ? 'move' : 'initial' });
+            add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+          }
         }
         groupSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
@@ -456,6 +531,206 @@ function openGroupSheet(existingGroup, operationId, farmId) {
   }
 
   groupSheet.open();
+}
+
+// ─── Split Group Sheet (6B) ─────────────────────────────────────────────
+
+function openSplitGroupSheet(group, operationId, farmId) {
+  const wrapId = 'split-sheet-wrap';
+  if (!document.getElementById(wrapId)) {
+    document.body.appendChild(el('div', { className: 'sheet-wrap', id: wrapId, style: { zIndex: '210' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => splitSheet?.close() }),
+      el('div', { className: 'sheet-panel', id: 'split-sheet-panel', style: { maxHeight: '92vh', overflowY: 'auto' } }),
+    ]));
+  }
+  let splitSheet = new Sheet(wrapId);
+  const panel = document.getElementById('split-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+  panel.appendChild(el('div', { className: 'sheet-handle' }));
+
+  const unitSys = getUnitSystem();
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const memberships = getAll('animalGroupMemberships').filter(m => m.groupId === group.id && !m.dateLeft);
+  const allAnimals = getAll('animals');
+  const classes = getAll('animalClasses');
+  const weightRecords = getAll('animalWeightRecords');
+  const groups = getAll('groups').filter(g => !g.archived && g.id !== group.id);
+  const colors = ['#639922', '#1D9E75', '#185FA5', '#BA7517', '#E24B4A', '#534AB7'];
+
+  // Find location
+  const gws = getAll('eventGroupWindows').filter(gw => gw.groupId === group.id && !gw.dateLeft);
+  const activeEvent = gws[0] ? getById('events', gws[0].eventId) : null;
+  const pws = activeEvent ? getAll('eventPaddockWindows').filter(pw => pw.eventId === activeEvent.id && !pw.dateClosed) : [];
+  const loc = pws[0] ? getById('locations', pws[0].locationId) : null;
+  const locName = loc?.name || '';
+
+  const splitAnimals = new Set();
+  let destType = 'new';
+  let newGroupColor = colors[1];
+  let newGroupName = '';
+  let existingGroupId = '';
+  let placement = 'same';
+
+  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '2px' } }, ['Split group']));
+  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '14px' } }, [`${group.name} \u00B7 ${memberships.length} head${locName ? ` \u00B7 at ${locName}` : ''}`]));
+
+  // Date/time
+  const dateInput = el('input', { type: 'date', value: todayStr });
+  const timeInput = el('input', { type: 'time' });
+  panel.appendChild(el('div', { className: 'two', style: { marginBottom: '12px' } }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Split date']), dateInput]),
+    el('div', { className: 'field' }, [el('label', {}, ['Time ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), timeInput]),
+  ]));
+
+  // Animal picker
+  panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '6px' } }, ['Animals to split off']));
+  panel.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginBottom: '8px' } }, ['Tap to select individual animals.']));
+
+  const pickerEl = el('div', { style: { maxHeight: '200px', overflowY: 'auto', marginBottom: '12px' } });
+  const previewEl = el('div');
+
+  function renderSplitPicker() {
+    clear(pickerEl);
+    for (const m of memberships) {
+      const a = allAnimals.find(x => x.id === m.animalId);
+      if (!a) continue;
+      const isPicked = splitAnimals.has(a.id);
+      const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
+      const latestW = weightRecords.filter(w => w.animalId === a.id).sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
+      const wStr = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) + ' ' + unitLabel('weight', unitSys) : '';
+
+      pickerEl.appendChild(el('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: isPicked ? 'var(--green-l)' : 'var(--bg2)', borderRadius: 'var(--radius)', marginBottom: '4px', cursor: 'pointer', border: `0.5px solid ${isPicked ? 'var(--green-l2)' : 'var(--border)'}` },
+        onClick: () => { if (isPicked) splitAnimals.delete(a.id); else splitAnimals.add(a.id); renderSplitPicker(); renderPreview(); },
+      }, [
+        el('div', { style: { width: '16px', height: '16px', borderRadius: '50%', border: `1.5px solid ${isPicked ? 'var(--green)' : 'var(--border2)'}`, background: isPicked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' } },
+          isPicked ? [el('svg', { width: '10', height: '10', viewBox: '0 0 12 12', fill: 'none' }, [el('polyline', { points: '2,6 5,9 10,3', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })])] : []),
+        el('div', { style: { flex: '1', fontSize: '13px' } }, [
+          el('strong', {}, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`]),
+          ' ',
+          el('span', { style: { color: 'var(--text2)', fontSize: '11px' } }, [[a.sex, cls?.name, wStr].filter(Boolean).join(' \u00B7 ')]),
+        ]),
+      ]));
+    }
+  }
+
+  function renderPreview() {
+    clear(previewEl);
+    if (!splitAnimals.size) return;
+    const remaining = memberships.length - splitAnimals.size;
+    previewEl.appendChild(el('div', { className: 'card-inset', style: { marginTop: '12px' } }, [
+      el('div', { style: { fontSize: '12px', fontWeight: '600', marginBottom: '6px', color: 'var(--text2)' } }, ['After split']),
+      el('div', { style: { padding: '8px 10px', background: 'var(--bg2)', borderRadius: 'var(--radius)', borderLeft: `3px solid ${group.color || '#639922'}` } }, [
+        el('div', { style: { fontSize: '12px', fontWeight: '600' } }, [`${group.name} (remaining)`]),
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${remaining} head`]),
+      ]),
+      el('div', { style: { textAlign: 'center', fontSize: '18px', padding: '4px 0', color: 'var(--text2)' } }, ['\u2193']),
+      el('div', { style: { padding: '8px 10px', background: 'var(--bg2)', borderRadius: 'var(--radius)', borderLeft: `3px solid ${newGroupColor}` } }, [
+        el('div', { style: { fontSize: '12px', fontWeight: '600' } }, [destType === 'new' ? (newGroupName || 'New group') : 'Existing group']),
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${splitAnimals.size} head`]),
+      ]),
+    ]));
+  }
+
+  renderSplitPicker();
+  panel.appendChild(pickerEl);
+
+  // Destination radio
+  panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Where are these animals going?']));
+  const destRadios = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' } });
+  const newFields = el('div');
+  const existingFields = el('div', { style: { display: 'none' } });
+
+  function renderDestRadios() {
+    clear(destRadios);
+    for (const [val, label] of [['new', 'New group'], ['existing', 'Existing group']]) {
+      const radio = el('input', { type: 'radio', name: 'split-dest', value: val, style: { accentColor: 'var(--green)' } });
+      if (val === destType) radio.checked = true;
+      radio.addEventListener('change', () => {
+        destType = val;
+        newFields.style.display = val === 'new' ? 'block' : 'none';
+        existingFields.style.display = val === 'existing' ? 'block' : 'none';
+        renderPreview();
+      });
+      destRadios.appendChild(el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer' } }, [radio, el('span', { style: { fontSize: '13px' } }, [label])]));
+    }
+  }
+  renderDestRadios();
+  panel.appendChild(destRadios);
+
+  // New group fields
+  const newNameInput = el('input', { type: 'text', placeholder: 'e.g. Dry cows, Yearlings…' });
+  newNameInput.addEventListener('input', () => { newGroupName = newNameInput.value; renderPreview(); });
+  const newColorPicker = el('div', { style: { display: 'flex', gap: '8px', marginTop: '4px' } });
+  function renderNewColorPicker() {
+    clear(newColorPicker);
+    for (const c of colors) {
+      newColorPicker.appendChild(el('div', {
+        style: { width: '28px', height: '28px', borderRadius: '50%', background: c, cursor: 'pointer', border: `2px solid ${c === newGroupColor ? 'var(--text)' : 'transparent'}` },
+        onClick: () => { newGroupColor = c; renderNewColorPicker(); renderPreview(); },
+      }));
+    }
+  }
+  renderNewColorPicker();
+
+  const placementSelect = el('select', {}, [
+    el('option', { value: 'same' }, ['Same location as source group']),
+    el('option', { value: 'unplaced' }, ['Unplaced \u2014 place later via Move']),
+  ]);
+
+  newFields.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, ['New group name']), newNameInput]),
+    el('div', { className: 'field' }, [el('label', {}, ['Color']), newColorPicker]),
+  ]));
+  newFields.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Placement after split']), placementSelect]));
+  panel.appendChild(newFields);
+
+  // Existing group fields
+  const existGroupSelect = el('select', {}, [
+    el('option', { value: '' }, ['\u2014 select group \u2014']),
+    ...groups.map(g => el('option', { value: g.id }, [g.name])),
+  ]);
+  existingFields.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Move into group']), existGroupSelect]));
+  panel.appendChild(existingFields);
+
+  panel.appendChild(previewEl);
+
+  const statusEl = el('div', { className: 'auth-error' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
+    el('button', { className: 'btn btn-green', onClick: () => {
+      clear(statusEl);
+      if (!splitAnimals.size) { statusEl.appendChild(el('span', {}, ['Select at least one animal'])); return; }
+      const date = dateInput.value || todayStr;
+      try {
+        let targetGroupId;
+        if (destType === 'new') {
+          const name = newNameInput.value.trim();
+          if (!name) { statusEl.appendChild(el('span', {}, ['Enter a group name'])); return; }
+          const newGroup = GroupEntity.create({ operationId, name, color: newGroupColor });
+          add('groups', newGroup, GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
+          targetGroupId = newGroup.id;
+        } else {
+          targetGroupId = existGroupSelect.value;
+          if (!targetGroupId) { statusEl.appendChild(el('span', {}, ['Select a group'])); return; }
+        }
+        // Move selected animals
+        const allMems = getAll('animalGroupMemberships');
+        for (const animalId of splitAnimals) {
+          const oldMem = allMems.find(m => m.animalId === animalId && m.groupId === group.id && !m.dateLeft);
+          if (oldMem) update('animalGroupMemberships', oldMem.id, { dateLeft: date, reason: 'split' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+          const newMem = MembershipEntity.create({ operationId, animalId, groupId: targetGroupId, dateJoined: date, reason: 'split' });
+          add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+        }
+        splitSheet.close();
+      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+    } }, ['Confirm split']),
+    el('button', { className: 'btn btn-outline', onClick: () => splitSheet.close() }, ['Cancel']),
+  ]));
+
+  splitSheet.open();
 }
 
 // ─── Classes Manager Sheet ──────────────────────────────────────────────
@@ -832,14 +1107,162 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
     el('option', { value: '' }, ['— none —']),
     ...groups.map(g => el('option', { value: g.id, selected: previousGroupId === g.id }, [g.name])),
   ]);
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Group']), inputs.groupId]));
+  // Weight + Group (two-column per v1)
+  const weightRecords = getAll('animalWeightRecords');
+  const latestW = isEdit ? weightRecords.filter(w => w.animalId === existingAnimal.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0] : null;
+  const currentWeightDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '';
+  inputs.currentWeight = el('input', { type: 'number', step: '1', value: currentWeightDisplay, placeholder: '0' });
+  panel.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, [`Current weight (${unitLabel('weight', unitSys)})`]), inputs.currentWeight]),
+    el('div', { className: 'field' }, [el('label', {}, ['Group']), inputs.groupId]),
+  ]));
 
-  // Birth date + Notes
-  inputs.birthDate = el('input', { type: 'date', value: existingAnimal?.birthDate || '' });
+  // Dam + Sire (v1 gap fix)
+  const allAnimals = getAll('animals');
+  const females = allAnimals.filter(a => a.sex === 'female');
+  inputs.damId = el('select', {}, [
+    el('option', { value: '' }, ['\u2014 unknown \u2014']),
+    ...females.map(a => el('option', { value: a.id, selected: existingAnimal?.damId === a.id }, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`])),
+  ]);
+  inputs.sireTag = el('input', { type: 'text', placeholder: 'Bull tag or name', value: existingAnimal?.sireTag || '' });
+  panel.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Dam ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['mother'])]), inputs.damId]),
+    el('div', { className: 'field' }, [el('label', {}, ['Sire tag/name ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), inputs.sireTag]),
+  ]));
+
+  // Notes
   inputs.notes = el('input', { type: 'text', value: existingAnimal?.notes || '' });
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Birth date']), inputs.birthDate]));
   panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Notes']), inputs.notes]));
-  inputs.name = { value: existingAnimal?.name || '' }; // hidden, use tagNum as primary
+
+  // Birth date
+  inputs.birthDate = el('input', { type: 'date', value: existingAnimal?.birthDate || '' });
+  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Birth date ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), inputs.birthDate]));
+  inputs.name = { value: existingAnimal?.name || '' };
+
+  // ── Weaning toggle (v1 gap fix) ──
+  if (isEdit) {
+    panel.appendChild(el('div', { className: 'div' }));
+    const weanedCheck = el('input', { type: 'checkbox', style: { width: '18px', height: '18px', accentColor: 'var(--teal)', flexShrink: '0' } });
+    if (existingAnimal.weaned) weanedCheck.checked = true;
+    panel.appendChild(el('label', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer' } }, [
+      weanedCheck,
+      el('div', {}, [
+        el('div', { style: { fontSize: '14px', fontWeight: '500' } }, ['Weaned']),
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, ['Uncheck to mark as unweaned and track in the Weaning report']),
+      ]),
+    ]));
+    inputs.weaned = weanedCheck;
+
+    // ── Calving history (females only, v1 gap fix) ──
+    if (existingAnimal.sex === 'female') {
+      panel.appendChild(el('div', { className: 'div' }));
+      const calvingRecords = getAll('animalCalvingRecords').filter(r => r.damId === existingAnimal.id);
+      panel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } }, [
+        el('div', { className: 'sec', style: { margin: '0' } }, ['Calving history']),
+        el('button', { className: 'btn btn-teal btn-xs', onClick: () => { animalSheet.close(); openCalvingSheet(existingAnimal, operationId); } }, ['+ Record calving']),
+      ]));
+      if (calvingRecords.length) {
+        for (const cr of calvingRecords.sort((a, b) => (b.calvedAt || '').localeCompare(a.calvedAt || ''))) {
+          const calf = cr.calfId ? allAnimals.find(a => a.id === cr.calfId) : null;
+          panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', padding: '4px 0', borderBottom: '0.5px solid var(--border)' } }, [
+            `${cr.calvedAt?.slice(0, 10) || '?'} \u00B7 ${cr.stillbirth ? 'Stillbirth' : (calf?.tagNum || calf?.name || 'Calf')} ${calf?.sex || ''}`,
+          ]));
+        }
+      } else {
+        panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, ['No calving records']));
+      }
+
+      // Confirmed bred toggle
+      panel.appendChild(el('div', { className: 'div' }));
+      const bredCheck = el('input', { type: 'checkbox', style: { width: '18px', height: '18px', accentColor: 'var(--teal)', flexShrink: '0' } });
+      if (existingAnimal.confirmedBred) bredCheck.checked = true;
+      panel.appendChild(el('label', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer' } }, [
+        bredCheck,
+        el('div', {}, [
+          el('div', { style: { fontSize: '14px', fontWeight: '500' } }, ['Confirmed bred']),
+          el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, ['Pregnancy check / palpation confirmed']),
+        ]),
+      ]));
+      inputs.confirmedBred = bredCheck;
+
+      // Heat history
+      panel.appendChild(el('div', { className: 'div' }));
+      const heatRecords = getAll('animalHeatRecords').filter(r => r.animalId === existingAnimal.id);
+      panel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } }, [
+        el('div', { className: 'sec', style: { margin: '0' } }, ['Heat history']),
+        el('button', { className: 'btn btn-teal btn-xs', onClick: () => { animalSheet.close(); openHeatSheet(existingAnimal, operationId); } }, ['+ Record heat']),
+      ]));
+      if (heatRecords.length) {
+        for (const hr of heatRecords.sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5)) {
+          panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', padding: '4px 0', borderBottom: '0.5px solid var(--border)' } }, [
+            `${hr.date || '?'}${hr.notes ? ' \u00B7 ' + hr.notes : ''}`,
+          ]));
+        }
+      } else {
+        panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, ['No heat records']));
+      }
+    }
+
+    // ── Weight history ──
+    panel.appendChild(el('div', { className: 'div' }));
+    panel.appendChild(el('div', { className: 'sec', style: { marginBottom: '6px' } }, ['Weight history']));
+    const animalWeights = weightRecords.filter(w => w.animalId === existingAnimal.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    if (animalWeights.length) {
+      const wHistEl = el('div', { style: { fontSize: '12px', color: 'var(--text2)', maxHeight: '120px', overflowY: 'auto' } });
+      for (const w of animalWeights) {
+        wHistEl.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '0.5px solid var(--border)' } }, [
+          el('span', {}, [w.date || '?']),
+          el('span', { style: { fontWeight: '500' } }, [`${display(w.weightKg, 'weight', unitSys, 0)} ${unitLabel('weight', unitSys)}${w.notes ? ' \u00B7 ' + w.notes : ''}`]),
+        ]));
+      }
+      panel.appendChild(wHistEl);
+    } else {
+      panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, ['No weight records']));
+    }
+
+    // ── Treatment history ──
+    panel.appendChild(el('div', { className: 'div' }));
+    panel.appendChild(el('div', { className: 'sec', style: { marginBottom: '6px' } }, ['Treatment history']));
+    const treatments = getAll('animalTreatments').filter(t2 => t2.animalId === existingAnimal.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    if (treatments.length) {
+      for (const tr of treatments.slice(0, 10)) {
+        const tt = tr.treatmentTypeId ? getAll('treatmentTypes').find(t2 => t2.id === tr.treatmentTypeId) : null;
+        panel.appendChild(el('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
+          el('span', { style: { fontSize: '16px', flexShrink: '0' } }, ['\uD83D\uDC89']),
+          el('div', { style: { flex: '1', minWidth: '0' } }, [
+            el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [tt?.name || 'Treatment']),
+            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [
+              [tr.date, tr.product ? tr.product + (tr.dose ? ' @ ' + tr.dose : '') : null].filter(Boolean).join(' \u00B7 '),
+            ]),
+          ]),
+        ]));
+      }
+    } else {
+      panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)' } }, ['No treatments recorded']));
+    }
+
+    // ── Cull section ──
+    panel.appendChild(el('div', { style: { marginTop: '10px' } }));
+    if (existingAnimal.culled) {
+      panel.appendChild(el('div', { style: { background: 'var(--red-l)', borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: '8px' } }, [
+        el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--red-d)' } }, ['Culled']),
+        el('div', { style: { fontSize: '12px', color: 'var(--red-d)' } }, [existingAnimal.cullReason || '']),
+        el('button', { className: 'btn btn-outline btn-xs', style: { marginTop: '6px' }, onClick: () => {
+          update('animals', existingAnimal.id, { culled: false, cullReason: null }, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
+          animalSheet.close();
+        } }, ['Reactivate']),
+      ]));
+    } else {
+      panel.appendChild(el('button', {
+        className: 'btn btn-sm', style: { width: 'auto', background: 'var(--amber)', color: 'white' },
+        onClick: () => {
+          const reason = prompt('Cull reason (optional):');
+          update('animals', existingAnimal.id, { culled: true, cullReason: reason || null }, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
+          animalSheet.close();
+        },
+      }, ['Cull animal\u2026']));
+    }
+  }
 
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);

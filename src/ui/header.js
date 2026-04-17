@@ -139,6 +139,18 @@ export function renderHeader(container) {
 
   // Update badge on todo changes
   unsubs.push(subscribe('todos', () => updateBadges()));
+
+  // Update field mode pill on route changes
+  const pillContainer = header.querySelector('[data-testid="header-field-mode-toggle"]')?.parentElement;
+  const updatePill = () => {
+    const oldPill = header.querySelector('[data-testid="header-field-mode-toggle"]');
+    if (oldPill && pillContainer) {
+      const newPill = renderFieldModePill();
+      oldPill.replaceWith(newPill);
+    }
+  };
+  window.addEventListener('hashchange', updatePill);
+  unsubs.push(() => window.removeEventListener('hashchange', updatePill));
 }
 
 // ---------------------------------------------------------------------------

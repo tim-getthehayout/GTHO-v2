@@ -209,11 +209,12 @@ function renderFeedTypeList(rootContainer) {
 
   const list = el('div', { className: 'ft-list' });
   for (const ft of feedTypes) {
-    const detailParts = [ft.category, ft.unit];
-    if (ft.dmPct != null) detailParts.push(`${ft.dmPct}% DM`);
-    if (ft.defaultWeightKg != null) {
+    const detailParts = [ft.category, ft.unit].filter(Boolean);
+    if (ft.dmPct != null && !isNaN(ft.dmPct)) detailParts.push(`${ft.dmPct}% DM`);
+    if (ft.defaultWeightKg != null && !isNaN(ft.defaultWeightKg)) {
       detailParts.push(display(ft.defaultWeightKg, 'weight', unitSys, 0) + '/unit');
     }
+    if (ft.cuttingNumber != null && !isNaN(ft.cuttingNumber)) detailParts.push(`${ft.cuttingNumber} cut`);
     if (ft.harvestActive) detailParts.push('harvest');
 
     list.appendChild(el('div', {

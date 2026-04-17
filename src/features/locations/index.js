@@ -701,7 +701,7 @@ function openFeedTypesSheet(operationId) {
     clear(listEl);
     const feedTypes = getAll('feedTypes');
     for (const ft of feedTypes) {
-      const detailParts = [ft.unit, ft.dmPct ? `${ft.dmPct}% DM` : null, ft.category].filter(Boolean);
+      const detailParts = [ft.unit, (ft.dmPct != null && !isNaN(ft.dmPct)) ? `${ft.dmPct}% DM` : null, ft.category].filter(Boolean);
       if (ft.cuttingNumber) detailParts.push(`${ft.cuttingNumber} cut`);
       if (ft.defaultWeightKg) detailParts.push(`${Math.round(convert(ft.defaultWeightKg, 'weight', 'toImperial'))} lbs/unit`);
       listEl.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [

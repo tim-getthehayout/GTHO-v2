@@ -3068,6 +3068,8 @@ body.field-mode .sheet-panel {
 .three > * { flex:1; }
 .field label { font-size:11px; color:var(--text2); display:block; margin-bottom:4px; }
 .field input { width:100%; padding:9px 10px; border:0.5px solid var(--border2); border-radius:8px; font-size:13px; background:var(--bg); box-sizing:border-box; font-family:inherit; }
+.field select { width:100%; padding:9px 10px; border:0.5px solid var(--border2); border-radius:8px; font-size:13px; background:var(--bg); box-sizing:border-box; font-family:inherit; color:var(--text); }
+.field select:focus { outline:none; border-color:var(--color-green-base); }
 
 /* SP-2: Observation inline fields */
 .obs-input {

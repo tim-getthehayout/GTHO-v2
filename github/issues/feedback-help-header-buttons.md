@@ -11,8 +11,8 @@ Add a compact sub-row below the existing header row with two right-aligned butto
 ## What to Build
 
 1. **Header sub-row** — 28px height, right-aligned, two `btn btn-outline btn-xs` buttons with emoji prefixes. Hidden in Field Mode.
-2. **Feedback sheet** — `type='feedback'` pre-set. Fields: context tag (auto), category pills, area dropdown (v2 screen names), note textarea. No priority field.
-3. **Get Help sheet** — `type='support'` pre-set. Same fields as feedback sheet plus priority dropdown (always visible).
+2. **Feedback sheet** — `type='feedback'` pre-set. Fields: context tag (auto), category pills (all 7), area dropdown (v2 screen names), note textarea. No priority field.
+3. **Get Help sheet** — `type='support'` pre-set. Fields: context tag (auto), category pills (**4 only: Roadblock, Bug, Calculation, Question** — drop UX friction, Missing feature, Idea), area dropdown, priority dropdown (always visible), note textarea.
 4. Both sheets write to the `submissions` entity/table with the correct `type` value.
 
 ## Key References

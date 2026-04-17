@@ -25,7 +25,8 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-17 | SP-4 | **Dashboard Group tab v1 parity.** Groups view cards rebuilt to match v1: location status bar with full event timeline, DMI target + feed % bar, NPK deposited with fert value, Move/Split/Weights/Edit buttons. Includes extracted v1 HTML/CSS. |
 | 2026-04-17 | SP-5 | **Sidebar, header, and layout v1 parity.** Sidebar gets logo block, nav icons, active state, sync status strip. Header simplified (remove redundant app name/op name). CSS layout bug fixed (nav overlapping header due to hardcoded `top: 60px`). |
 | 2026-04-17 | Bugs | **OI-0073** — Group placement detection picks wrong eventGroupWindow (`.find()` returns first match, not open-event match). **OI-0074** — Event detail action buttons wrong layout/missing CSS classes. **OI-0075** — Locations tab display bugs (double "lbs lbs", missing acreage, missing capacity line, number formatting). |
-| 2026-04-17 | SP-6 | **Feedback & Help buttons in header.** Two-row header: existing row unchanged, new compact sub-row with Feedback + Get Help buttons. Replaces v1 FAB + type toggle. Separate sheets for each. v1 dialog HTML extracted. |
+| 2026-04-17 | SP-6 | **Feedback & Help buttons in header.** Two-row header: existing row unchanged, new compact sub-row with Feedback + Get Help buttons. Replaces v1 FAB + type toggle. Separate sheets for each. v1 dialog HTML extracted. Get Help sheet trimmed to 4 categories (Roadblock, Bug, Calculation, Question) — suggestion categories (Missing feature, Idea, UX friction) are Feedback-only. |
+| 2026-04-17 | SP-7 | **Feedback screen (desktop-only).** Full v1 parity: confirmation section, stats strip, dev brief export, filtered submission list, resolve sheet, edit sheet. Desktop sidebar nav item only — not in mobile bottom nav. v1 HTML/CSS/JS extracted. |
 
 ---
 
@@ -322,7 +323,7 @@ Pre-configured with `type = 'feedback'`. No type toggle. Sheet title: "Leave fee
 **Fields (match v1 exactly, minus type toggle):**
 
 1. **Context tag** (auto-filled, read-only) — current screen + active event info
-2. **Category pills** (required) — 🚧 Roadblock, Bug, UX friction, Missing feature, Calculation, Idea, Question
+2. **Category pills** (required) — all 7: 🚧 Roadblock, Bug, UX friction, Missing feature, Calculation, Idea, Question
 3. **Area dropdown** (auto-filled, editable) — mapped from current screen
 4. **Note textarea** (required) — placeholder: "What did you notice? What did you expect?"
 5. **Save / Cancel buttons**
@@ -331,10 +332,12 @@ Pre-configured with `type = 'feedback'`. No type toggle. Sheet title: "Leave fee
 
 Pre-configured with `type = 'support'`. No type toggle. Sheet title: "Get help".
 
-**Fields (match v1 support mode):**
+**Category split from Feedback:** The Get Help sheet shows only "I have a problem" categories. "I have a suggestion" categories (Missing feature, Idea, UX friction) are Feedback-only — they don't belong in a help request.
+
+**Fields:**
 
 1. **Context tag** (auto-filled, read-only)
-2. **Category pills** (required) — same 7 categories
+2. **Category pills** (required) — 4 only: 🚧 Roadblock, Bug, Calculation, Question
 3. **Area dropdown** (auto-filled, editable)
 4. **Priority dropdown** (always visible, not conditionally shown) — Normal, High (blocking my work), Urgent (data at risk), Low (when you get a chance)
 5. **Note textarea** (required) — placeholder: "Describe what you need help with…"
@@ -380,15 +383,17 @@ Extracted from v1 `index.html` for parity. Claude Code should use the v2 DOM bui
     <!-- CONTEXT TAG — keep in v2 -->
     <div class="ctx-tag"><span id="fb-ctx-text">—</span></div>
 
-    <!-- CATEGORY PILLS — keep in v2, same 7 categories -->
+    <!-- CATEGORY PILLS — v2 CHANGE: Feedback sheet shows all 7; Get Help sheet shows only 4 -->
+    <!-- Feedback sheet: all 7 pills below -->
+    <!-- Get Help sheet: only Roadblock, Bug, Calculation, Question (drop UX friction, Missing feature, Idea) -->
     <div style="font-size:13px;color:var(--text2);margin-bottom:8px;">Category</div>
     <div class="cat-pills">
       <button class="cat-pill cp-roadblock" onclick="selCat('roadblock',this)">🚧 Roadblock</button>
       <button class="cat-pill cp-bug" onclick="selCat('bug',this)">Bug</button>
-      <button class="cat-pill cp-ux" onclick="selCat('ux',this)">UX friction</button>
-      <button class="cat-pill cp-feature" onclick="selCat('feature',this)">Missing feature</button>
+      <button class="cat-pill cp-ux" onclick="selCat('ux',this)">UX friction</button>           <!-- FEEDBACK ONLY -->
+      <button class="cat-pill cp-feature" onclick="selCat('feature',this)">Missing feature</button> <!-- FEEDBACK ONLY -->
       <button class="cat-pill cp-calc" onclick="selCat('calc',this)">Calculation</button>
-      <button class="cat-pill cp-idea" onclick="selCat('idea',this)">Idea</button>
+      <button class="cat-pill cp-idea" onclick="selCat('idea',this)">Idea</button>               <!-- FEEDBACK ONLY -->
       <button class="cat-pill cp-question" onclick="selCat('question',this)">Question</button>
     </div>
 
@@ -474,6 +479,8 @@ V2 screen names differ from v1. Update the area options:
 - [ ] Both sheets write to `submissions` entity with correct `type` field
 - [ ] Context tag auto-fills with current screen + active event
 - [ ] Area dropdown auto-fills from screen mapping (using v2 screen names)
+- [ ] Feedback sheet shows all 7 category pills
+- [ ] Get Help sheet shows only 4 category pills (Roadblock, Bug, Calculation, Question)
 - [ ] Category pills match v1 styling (color-coded `.sel` states)
 - [ ] Sub-row hidden in Field Mode
 - [ ] Build stamp still hidden below 360px (no regression)
@@ -491,6 +498,54 @@ None required — fully spec'd.
 
 ---
 
+## SP-7: Feedback Screen (Desktop-Only)
+
+**Status:** Spec complete · Ready for implementation
+**Spec file:** `github/issues/feedback-screen-desktop.md` (full spec — not a thin pointer during sprint)
+**Base doc:** V2_UX_FLOWS.md §17.2 (nav items list needs Feedback added)
+**Depends on:** SP-6 (feedback/help sheets must exist first — SP-7 reuses their submission logic)
+
+### Problem
+
+V1 has a full Feedback screen that shows all submitted feedback with filters, stats, confirmation flow, dev brief export, resolve/edit/delete capabilities, and threaded dev responses. V2 has no equivalent — users can submit feedback (SP-6) but can't review, filter, confirm fixes, or export. This screen is a dev/admin tool for managing the feedback loop.
+
+### Design Decision
+
+**Desktop-only screen.** Feedback management is a desktop task — not needed in the field. Add a "Feedback" nav item to the desktop sidebar (between Settings and the sync strip) that is NOT in the mobile bottom nav. Route: `#/feedback`.
+
+### Screen Sections (top to bottom, matching v1 order)
+
+1. **Confirmation section** — banner + cards for items with `status === 'resolved'` awaiting user confirmation
+2. **Stats strip** — badge row showing open / planned / awaiting / closed / support counts
+3. **Dev session brief card** — Generate + Copy buttons, monospace output block
+4. **All submissions card** — 3 filter dropdowns (type, area, status/category) + scrollable list of submission rows
+
+### Nav Item Placement
+
+Add to desktop sidebar only. Position: after Settings, before the sync strip at bottom.
+
+| Property | Value |
+|----------|-------|
+| Label | `Feedback` |
+| Icon | 💬 (emoji, matching SP-6 feedback button) |
+| Route | `#/feedback` |
+| Badge | Red badge with count of `status === 'open' OR status === 'resolved'` items |
+| Desktop sidebar | Visible |
+| Mobile bottom nav | **Not shown** |
+| testid | `nav-feedback` |
+
+### Data Dependencies
+
+- Reads from the `submissions` entity (same data as SP-6 writes to)
+- No new entities or schema changes
+- All mutations go through the store: `store.update('submissions', ...)` or `store.remove('submissions', ...)`
+
+### Full Implementation Spec
+
+See `github/issues/feedback-screen-desktop.md` for the complete implementation spec including all v1 HTML/CSS/JS reference code, function signatures, data structures, and acceptance criteria.
+
+---
+
 ## Reconciliation Checklist (end of sprint)
 
 When this sprint is complete, do a dedicated session to:
@@ -501,4 +556,5 @@ When this sprint is complete, do a dedicated session to:
 - [ ] Convert `github/issues/` files to thin pointers referencing base doc sections
 - [ ] Update V2_BUILD_INDEX.md with completed work
 - [ ] Merge SP-6 feedback/help buttons into V2_UX_FLOWS.md §17.2 (add sub-row to header spec)
+- [ ] Merge SP-7 feedback screen into V2_UX_FLOWS.md as new §21 (or append to §20)
 - [ ] Archive this file or mark it as reconciled

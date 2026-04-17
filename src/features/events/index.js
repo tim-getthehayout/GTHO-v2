@@ -70,9 +70,6 @@ export function renderEventsScreen(container) {
     return;
   }
 
-  const operationId = operations[0].id;
-  const farmId = farms[0].id;
-
   // Read calendar state from URL (deep-link support)
   readStateFromUrl();
 
@@ -190,7 +187,7 @@ const feedCheckSheetRef     = { close: () => document.getElementById('feed-check
 // Event list
 // ---------------------------------------------------------------------------
 
-function renderEventList(rootContainer) {
+function renderEventList(rootContainer) { // eslint-disable-line no-unused-vars
   const listEl = rootContainer.querySelector('[data-testid="events-list"]');
   if (!listEl) return;
   clear(listEl);
@@ -524,7 +521,7 @@ function renderCreateEventSheetMarkup() {
   ]);
 }
 
-function openCreateEventSheet(operationId, farmId) {
+function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-unused-vars
   if (!createEventSheet) {
     createEventSheet = new Sheet('create-event-sheet-wrap');
   }

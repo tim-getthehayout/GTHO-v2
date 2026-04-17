@@ -1,6 +1,6 @@
 /** @file Event Detail Sheet — SP-2. Sheet overlay for one event's full data + actions. */
 
-import { el, clear, text } from '../../ui/dom.js';
+import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, subscribe, add, update, remove } from '../../data/store.js';
@@ -9,7 +9,6 @@ import { convert, display, unitLabel } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
-import { navigate } from '../../ui/router.js';
 import { logger } from '../../utils/logger.js';
 import * as EventEntity from '../../entities/event.js';
 import * as EventObsEntity from '../../entities/event-observation.js';
@@ -520,7 +519,7 @@ function renderPreGraze(ctx) {
   const conditionVal = obs?.forageCondition || '';
   const conditions = ['Poor', 'Fair', 'Good', 'Excellent'];
   const conditionMap = { 'Poor': 'dry', 'Fair': 'fair', 'Good': 'good', 'Excellent': 'lush' };
-  const conditionReverse = { 'dry': 'Poor', 'fair': 'Fair', 'good': 'Good', 'lush': 'Excellent' };
+
 
   let savedTimer = null;
   const savedIndicator = el('span', {
@@ -1070,7 +1069,6 @@ function renderSubmoves(ctx) {
 
   if (!submoves.length && !isActive) return;
 
-  const isExpanded = submoves.length > 0;
   const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
     el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.submoveHistory')]),
   ]);
@@ -1226,72 +1224,6 @@ function openDeleteConfirm(ctx) {
           className: 'btn btn-outline',
           onClick: () => overlay.remove(),
         }, [t('action.cancel')]),
-      ]),
-    ]),
-  ]);
-
-  document.body.appendChild(overlay);
-}
-
-/** Post-graze observation modal */
-function openPostGrazeModal(ctx, existingObs) {
-  const unitSys = getUnitSystem();
-
-  const state = {
-    postGrazeHeightCm: existingObs?.postGrazeHeightCm ?? null,
-    recoveryMinDays: existingObs?.recoveryMinDays ?? null,
-    recoveryMaxDays: existingObs?.recoveryMaxDays ?? null,
-  };
-
-  const heightVal = state.postGrazeHeightCm != null ? (unitSys === 'imperial' ? convert(state.postGrazeHeightCm, 'length', 'toImperial') : state.postGrazeHeightCm) : '';
-
-  const inputs = {};
-
-  const overlay = el('div', {
-    className: 'modal-overlay',
-    style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: '300', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-    onClick: (e) => { if (e.target === overlay) overlay.remove(); },
-  }, [
-    el('div', { className: 'card', style: { padding: 'var(--space-5)', maxWidth: '420px', width: '90%' } }, [
-      el('h3', { style: { marginBottom: 'var(--space-4)' } }, [t('event.postGraze')]),
-
-      el('label', { className: 'form-label' }, [t('event.avgHeight')]),
-      inputs.height = el('input', { type: 'number', className: 'auth-input', value: heightVal, step: '0.1' }),
-
-      el('label', { className: 'form-label' }, [t('event.recoveryMinDays')]),
-      inputs.minDays = el('input', { type: 'number', className: 'auth-input', value: state.recoveryMinDays ?? '' }),
-
-      el('label', { className: 'form-label' }, [t('event.recoveryMaxDays')]),
-      inputs.maxDays = el('input', { type: 'number', className: 'auth-input', value: state.recoveryMaxDays ?? '' }),
-
-      el('div', { style: { display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-4)' } }, [
-        el('button', {
-          className: 'btn btn-teal',
-          onClick: () => {
-            const heightRaw = parseFloat(inputs.height.value);
-            const heightCm = !isNaN(heightRaw) ? (unitSys === 'imperial' ? convert(heightRaw, 'length', 'toMetric') : heightRaw) : null;
-            const minDays = parseInt(inputs.minDays.value, 10);
-            const maxDays = parseInt(inputs.maxDays.value, 10);
-
-            const obsData = {
-              operationId: ctx.operationId,
-              eventId: ctx.eventId,
-              observationPhase: 'post_graze',
-              postGrazeHeightCm: heightCm,
-              recoveryMinDays: !isNaN(minDays) ? minDays : null,
-              recoveryMaxDays: !isNaN(maxDays) ? maxDays : null,
-            };
-
-            if (existingObs) {
-              update('eventObservations', existingObs.id, obsData, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
-            } else {
-              const rec = EventObsEntity.create(obsData);
-              add('eventObservations', rec, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
-            }
-            overlay.remove();
-          },
-        }, [t('action.save')]),
-        el('button', { className: 'btn btn-outline', onClick: () => overlay.remove() }, [t('action.cancel')]),
       ]),
     ]),
   ]);

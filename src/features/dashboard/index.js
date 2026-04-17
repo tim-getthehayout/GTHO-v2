@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getVisibleLocations, getActiveFarmId } from '../../data/store.js';
+import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
@@ -14,7 +14,6 @@ import { formatShortDate } from '../../utils/date-format.js';
 import { unitLabel } from '../../utils/units.js';
 import { openMoveWizard } from '../events/move-wizard.js';
 import { openCloseEventSheet } from '../events/close.js';
-import { openCreateSurveySheet } from '../surveys/index.js';
 import { openSubmoveOpenSheet, openSubmoveCloseSheet } from '../events/submove.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';

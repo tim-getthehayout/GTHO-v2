@@ -1118,35 +1118,47 @@ function renderActions(ctx) {
 
   const isActive = !event.dateOut;
 
-  const buttons = [];
-
-  if (isActive) {
-    buttons.push(el('button', {
-      className: 'btn btn-teal',
+  // Row 1: Primary action + Cancel
+  el2.appendChild(el('div', { className: 'btn-row', style: { flexWrap: 'wrap', gap: '8px' } }, isActive ? [
+    el('button', {
+      className: 'btn btn-green',
+      style: { flex: '2', minWidth: '160px' },
       'data-testid': 'detail-move-all',
       onClick: () => openMoveWizard(event, ctx.operationId, ctx.farmId),
-    }, [t('event.moveAll')]));
-    buttons.push(el('button', {
-      className: 'btn btn-olive',
-      'data-testid': 'detail-close-move',
-      onClick: () => openCloseEventSheet(event, ctx.operationId),
-    }, [t('event.closeAndMove')]));
+    }, [t('event.moveAll')]),
+    el('button', {
+      className: 'btn btn-outline',
+      style: { flex: '1', minWidth: '80px' },
+      onClick: () => closeEventDetailSheet(),
+    }, [t('action.cancel')]),
+  ] : [
+    el('button', {
+      className: 'btn btn-outline',
+      onClick: () => closeEventDetailSheet(),
+    }, [t('action.cancel')]),
+  ]));
+
+  // Row 2: Close & Move (active only, amber full-width)
+  if (isActive) {
+    el2.appendChild(el('div', { style: { marginTop: '10px' } }, [
+      el('button', {
+        className: 'btn',
+        style: { width: '100%', background: 'var(--amber)', color: '#fff', border: 'none', fontSize: '14px', fontWeight: '600', padding: '13px', borderRadius: 'var(--radius)', cursor: 'pointer' },
+        'data-testid': 'detail-close-move',
+        onClick: () => openCloseEventSheet(event, ctx.operationId),
+      }, ['\u2B07 ' + t('event.closeAndMove')]),
+    ]));
   }
 
-  buttons.push(el('button', {
-    className: 'btn btn-danger',
-    'data-testid': 'detail-delete',
-    onClick: () => openDeleteConfirm(ctx),
-  }, [t('action.delete')]));
-
-  buttons.push(el('button', {
-    className: 'btn btn-ghost',
-    onClick: () => closeEventDetailSheet(),
-  }, [t('action.cancel')]));
-
-  el2.appendChild(el('div', {
-    style: { display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', padding: 'var(--space-4) 0' },
-  }, buttons));
+  // Row 3: Delete (red, small, left-aligned)
+  el2.appendChild(el('div', { style: { marginTop: '8px' } }, [
+    el('button', {
+      className: 'btn btn-red btn-sm',
+      style: { width: 'auto', padding: '10px 16px', fontSize: '12px' },
+      'data-testid': 'detail-delete',
+      onClick: () => openDeleteConfirm(ctx),
+    }, [t('action.delete') + ' event']),
+  ]));
 }
 
 // ---------------------------------------------------------------------------

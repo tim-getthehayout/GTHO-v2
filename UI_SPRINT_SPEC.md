@@ -30,6 +30,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-17 | SP-8 | **Field mode v1 parity.** Full rebuild: 8 configurable modules (was 4 hardcoded), module settings in Settings screen, header pill replaces green field-mode-header bar, event picker sheets for Move/Feed Check/Heat/Single Survey, expandable event cards, interactive tasks with checkboxes + due dates, feed delivery loop, field-mode sheet behavior (no backdrop close, hidden handle, "⌂ Done", full-screen mobile). Uses existing `field_mode_quick_actions` column on `user_preferences`. v1 HTML/CSS/JS extracted. |
 | 2026-04-17 | SP-8 fix | **Field mode exit navigation.** Exiting field mode now returns to the screen the user was on before entering, instead of always going to dashboard. Header saves `window.location.hash` to sessionStorage on entry; exit reads it back. Files: `header.js`, `field-mode/index.js`. Base doc impact: V2_UX_FLOWS.md §16. |
 | 2026-04-17 | SP-8 fixes | **3 field mode fixes.** (1) Feed check save returns to `#/field` instead of just closing. (2) Record Heat gets proper 2-step animal picker (event/group filter pills, search, multi-record) replacing auto-select-first-female. (3) Event cards: expand actually shows detail content; "Move all" button moved inside expanded section to prevent accidental taps. Session brief written. |
+| 2026-04-17 | SP-10 retro-place simplified | **OI-0083 resolved — retro-place flow rewritten.** Design questions resolved with Tim: destination picker = sheet with event cards; filter = full containment only (partial-overlap events excluded); flow simplified to **atomic two-write transaction** (commit source edit + insert new historical group window together) instead of the original reopen + close + snapshot-rollback ceremony. The ceremony was cost without benefit once full containment became the filter — with `date_joined`/`date_left` fully derived from the gap bounds, there's nothing for the user to decide after picking the destination. Conflict check blocks with error if group already has an overlapping window on dest. No undo toast — user deletes via dest's §7 if reversing. Safer than the prior flow: dest event is never in a half-open on-disk state. |
 | 2026-04-17 | SP-10 | **Event Data Edit Consistency Suite — walkthrough started.** New section for data-behavior (not visual UI) that gates field testing. Established core principle: derived values auto-cascade via compute-on-read; structural state requires explicit reconciliation via dialogs. Shared gap/overlap resolution routine ratified — three options each for gap (leave unplaced / extend prior / retro-place) and overlap (trim / merge / reject). Retro-place flow uses reopen + close hard gate with snapshot-based rollback on Cancel. §7 Groups (group window edit dialog) fully spec'd: new Edit button between Move and Remove; dialog covers date_joined, time_joined, date_left, time_left, head_count, avg_weight_kg; auto-save on blur; Delete window action with safety guards; edge cases enumerated. §12 Sub-moves, event-level dates, §8 Feed Entries, §9 Feed Checks, §3/§6 Observations stubbed pending walkthrough. |
 | 2026-04-17 | SP-10 event-level dates | **Event-level date editing ratified.** `date_in` directly editable with reject-on-narrow / confirm-on-widen behavior. `date_out` NOT directly editable — routes through new **Event Reopen** action (Edit Event dialog footer, closed events only). Reopen clears `date_out` + re-opens matching child windows (paddock and group records that closed with the event). Invariant check catches group conflicts with subsequent events: three-option picker (leave on subsequent / pull back to this event / cancel). Re-close overlap with subsequent event = warning at confirm time, no block. Empty event-row-level overlaps and empty stretches inside events accepted as "find in testing." |
 | 2026-04-17 | SP-10 §12 | **Sub-move History / paddock window edit dialog ratified.** Entry from both §4 Paddocks cards (add Edit button) and §12 Sub-move History rows (existing Edit button). Same dialog. Fields: date_joined/time, date_left/time, area_pct, is_strip_graze, strip_group_id. **No gap detection** — gaps between paddock windows are legal (animals were on another open paddock). Range guards reject date_joined < event.date_in, date_left > event.date_out, date_left < date_joined, and same-paddock overlaps on same event. Delete window action with guards (can't delete last open window, can't delete anchor-only). Strip-graze flip confirms. **Resolves OI-0064** — closed-window Reopen action lives inside Edit dialog (clears date_left/time_left). |
@@ -684,29 +685,43 @@ The dialog detects which case applies (or both) and offers resolution options.
 2. **Merge the windows** — if same group + same destination event, collapse into one continuous window.
 3. **Reject the edit** — return to the edit dialog with an inline error. User picks new dates that don't overlap.
 
-#### Retro-Place Flow (Gap option 3) — reopen + close hard gate
+#### Retro-Place Flow (Gap option 3) — atomic two-write, no reopen ceremony
 
-Used when the gap is actually "they were on some other event that was open at the time." Composes three existing primitives.
+**Design simplified 2026-04-17** (see change log entry for this date). The earlier version of this section specified a reopen-then-close ceremony with snapshot rollback; after the walk-through with Claude Code flagged it as design-required (OI-0083), we switched to the simpler atomic-transaction flow documented below. Reason: once we locked **full containment** as the picker filter (Option 1 in the OI-0083 walk-through), the new group window's date range is fully derived (`date_joined = gap_start`, `date_left = gap_end`), leaving the user with no date input to confirm — which is what the original reopen-close ceremony existed to force. Without that decision, the ceremony is cost without benefit.
 
-1. **Event picker** — filtered to events open during `[gap_start, gap_end]` (one-line swap of `!e.dateOut` for overlap check). Not the standard move wizard — a dedicated picker because retro-place is backward-motion in time.
-2. **Paddock picker** — scope to paddocks that were open on the destination event **during** the gap (their `event_paddock_window.date_joined`/`date_left` overlaps the gap). Prevents assigning a group to a paddock window that didn't exist at the time.
-3. **Confirm preview** — show: "Will reopen Event #N for April 1–5 and place Group X there." [Cancel] [Confirm]. At this stage nothing is committed.
-4. On Confirm, execute in order:
-   a. Snapshot pre-change values: `{priorDateOut: evt.dateOut, priorDateJoined: editWindow.dateJoined, newWindowId: null}`
-   b. Commit the user's original edit (push group window's `date_joined` forward)
-   c. Reopen destination event (set `date_out = null`)
-   d. Create new open `event_group_window` on destination (date_joined = gap_start, date_left = null)
-   e. Route user into the close flow for the destination event, pre-filled with `date_out = gap_end` (hard gate — no back/backdrop dismiss)
-5. Close flow's **Confirm** → normal close (sets `date_left` on all open windows including the new one). Done, no orphans.
-6. Close flow's **Cancel** → calls `rollbackGapResolution(snapshot)`:
-   a. Delete the new event_group_window
-   b. Restore Event #N's `date_out` to snapshot value
-   c. Restore edited window's `date_joined` to snapshot value
-   d. Inverse ops in child-before-parent order; each is a normal `store` call with `queueWrite` → Supabase.
-7. Rollback safety: before step 6, set `rollback_in_progress` flag in localStorage; clear on success. On app boot, if flag is set, complete the rollback before showing the dashboard (protects against offline mid-rollback + app close).
+Used when the gap is actually "they were on some other event that was open at the time."
 
-**Tier 1 cancel** (pre-Confirm, step 3) is free — nothing committed, dialog closes.
-**Tier 2 cancel** (inside close flow, step 6) runs rollback.
+**Flow:**
+
+1. **Destination event picker — sheet picker with event cards.** Full-screen sheet, one card per candidate event. Each card shows event dates, location(s), groups currently on the event, and head count. Filter: events that **fully contain** the gap — `event.date_in ≤ gap_start` AND `event.date_out ≥ gap_end`. Events that only partially overlap the gap are excluded from the picker. Rationale: retro-place is a rare, backward-in-time action; farmers making it should pick a destination whose historical span covers the whole gap. Partial fits would require a recursive multi-step decision tree (place on A for days 1–2, then decide what to do with days 3–5) that isn't worth the complexity until field testing shows farmers need it.
+
+2. **Paddock picker (within the picked event)** — if the destination has more than one paddock window that overlaps the gap, pick which one the group was on. Scope to paddocks whose `event_paddock_window.date_joined`/`date_left` covers `[gap_start, gap_end]` (same full-containment check at the paddock level). If exactly one paddock on the destination covers the gap, skip this step and use that paddock.
+
+3. **Conflict check (runs automatically after picker).** If the group being retro-placed already has any `event_group_window` on the destination event whose date range overlaps `[gap_start, gap_end]`, block with an error: *"Group X already has a window on Event #N from `{dateA}` to `{dateB}`. This contradicts the gap you're trying to fill. Cancel this retro-place and review the existing window."* This is not a three-option resolver — the premise of retro-place is that the group was unplaced during the gap, and a pre-existing overlap violates that premise outright. Better to stop and let the farmer investigate than to attempt reconciliation.
+
+4. **Confirm dialog.** Preview:
+
+    > *"Place Group X on Event #N, Paddock P, from `{gap_start}` to `{gap_end}`.*
+    >
+    > *Event #N stays closed with its original end date (`{event.date_out}`).*
+    >
+    > *Group X's join date on the current event changes from `{prior}` to `{new}`.*
+    >
+    > *[Cancel] [Confirm]"*
+
+5. **On Confirm — atomic two-write transaction:**
+   a. Commit the source event's edited `date_joined` (the change that triggered the gap).
+   b. Insert a new historical `event_group_window` on the destination with `date_joined = gap_start`, `date_left = gap_end`, `head_count` and `avg_weight_kg` copied from the source's edited window (the same values the farmer is carrying forward through the gap).
+
+   Both writes happen in a single store transaction. If either fails, neither commits — the source event stays as it was. Sync queues both writes together.
+
+6. **On Cancel (at any step before Confirm):** nothing has been written. The source event's edited `date_joined` is still pending in the edit dialog's staged state — user is returned there and can either revert the edit or pick a different gap resolution.
+
+**Why this is safer than the prior reopen-close flow:** the destination event is never in a half-state on disk. The prior flow had a window (between "reopen" and "close") where the dest event had `date_out = null` but child windows still closed — if the app crashed mid-flow, rollback had to recover. The atomic two-write flow never enters that inconsistent state: either nothing is written, or both writes land together.
+
+**"Undo" after completion:** no toast. The retro-place is intentional and visible — the destination event's §7 group list now shows the new historical window. To reverse, the farmer opens the destination event's Edit dialog, finds the retro-placed window in §7, and hits Delete (with confirmation). This uses the existing `Delete window` action in the Group Window Edit dialog (§7) — no new UI.
+
+**Conflict with Event Reopen:** none. Event Reopen (separate action on the Edit Event footer for closed events) clears `date_out` and re-opens matching child windows — used when the farmer decides the event wasn't really closed. Retro-place leaves `date_out` untouched and inserts a closed historical window — used when the farmer decides a group was on the event during a time we didn't know about. The two actions have distinct intents and don't share code.
 
 ### §7 Groups — Group Window Edit Dialog (ratified 2026-04-17)
 

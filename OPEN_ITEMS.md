@@ -4,32 +4,68 @@
 
 ---
 
-### OI-0083 — SP-10: Retro-place flow (design required)
-**Added:** 2026-04-17 | **Area:** v2-build / events / groups | **Priority:** P2
-**Checkpoint:** SP-10 Phase 3
-**Status:** open — DESIGN REQUIRED, do not build
+### OI-0083 — SP-10: Retro-place flow
+**Added:** 2026-04-17 | **Area:** v2-build / events / groups | **Priority:** P1
+**Checkpoint:** SP-10 Phase 3 — completes SP-10 build
+**Status:** open — **DESIGN COMPLETE, ready for Claude Code** (design questions resolved 2026-04-17 — see UI_SPRINT_SPEC.md § SP-10 "Retro-Place Flow" for the updated spec)
 
-**What:** Multi-step "retro-place" action that retroactively places a group on another event. Flow: reopen destination event → create group window on dest → close dest event → rollback everything if user cancels. Uses snapshot/rollback infrastructure from store.js.
+**What:** Gap Option 3 of the gap/overlap resolver — retroactively place a group on another (closed) event that was open during the gap period. The spec has been simplified to an atomic two-write transaction — no reopen/re-close ceremony, no snapshot rollback infrastructure needed for this flow.
 
-**Questions before implementation:**
-1. How does user pick the destination event? (Sheet picker? Dropdown of recent events?)
-2. What date range is used for the group window on the destination event?
-3. What happens if the destination event has active group conflicts?
-4. How is the "undo" surfaced after completion?
+**Design decisions locked 2026-04-17 (with Tim):**
+
+1. **Destination event picker:** sheet picker with event cards (full-screen sheet, one card per candidate event with dates, location(s), current groups, head count). **Not** a dropdown — retro-place is a consequential decision that warrants rich preview.
+2. **Picker filter — full containment only.** Destination event must have `event.date_in ≤ gap_start` AND `event.date_out ≥ gap_end`. Partial-overlap events are excluded. Rationale: keeps the flow simple for a rare action; farmers facing a partial-fit scenario can cancel and handle the gap in pieces. Revisit if field testing shows farmers need partial fills.
+3. **Flow simplification — atomic two-write, no reopen ceremony.** Once full-containment is the filter, the new group window's date range is fully derived (`date_joined = gap_start`, `date_left = gap_end`), leaving nothing for the user to decide beyond picking the destination. The prior spec's reopen-close-rollback ceremony was cost without benefit. Simpler flow: (a) snapshot, (b) user picks destination from sheet, (c) conflict check, (d) confirm dialog, (e) on Confirm — commit source edit + insert new historical group window atomically; on Cancel — nothing written.
+4. **Conflict check:** if the group being placed already has an `event_group_window` on the destination whose range overlaps `[gap_start, gap_end]`, block with an error (not a three-option resolver). The premise of retro-place is that the group was unplaced during the gap; a pre-existing overlap violates that outright.
+5. **No "undo" toast.** Retro-place is intentional and visible — the destination event's §7 group list now shows the new window. To reverse, the farmer opens the destination event's Edit dialog and deletes the window via the existing Delete-window action.
+
+**What Claude Code builds:**
+- `src/features/events/retro-place.js` — the sheet picker + confirm dialog + two-write transaction.
+- Conflict-check helper (can live inline).
+- Wire into the gap resolver at `resolve-window-change.js` as the handler for Option 3.
+
+**Spec:** `UI_SPRINT_SPEC.md` § SP-10 "Retro-Place Flow" (fully rewritten 2026-04-17).
 
 ---
 
-### OI-0084 — SP-10: §9 Feed check edit + re-snap invariant dialog (design required)
-**Added:** 2026-04-17 | **Area:** v2-build / events / feed | **Priority:** P2
-**Checkpoint:** SP-10 Phase 6
-**Status:** open — DESIGN REQUIRED, do not build
+---
 
-**What:** Feed checks are currently add-only (check.js). Editing an existing check's remaining quantity can break the consumed(Ti→Ti+1) ≥ 0 invariant between check intervals. The re-snap dialog (Cases B/C/D) guards against this:
-- Case B (later-interval break): consumed goes negative between this check and the next → re-snap dialog
-- Case C (earlier-interval break): consumed goes negative between previous check and this → cancel only
-- Case D (back-fill): both neighbors need checking
+### OI-0084 — SP-10: §9 Feed check edit + re-snap invariant dialog
+**Added:** 2026-04-17 | **Area:** v2-build / events / feed | **Priority:** P1
+**Checkpoint:** SP-10 Phase 6 — completes SP-10 build
+**Status:** open — **DESIGN COMPLETE, ready for Claude Code** (re-confirmed 2026-04-17 — not actually design-required)
 
-**Blocked by:** Feed check edit capability does not exist yet. This item covers both the edit UI and the invariant guards.
+**Clarification (2026-04-17):** The full design for this item already lives in `UI_SPRINT_SPEC.md` § SP-10 §9 (ratified 2026-04-17). What Claude Code flagged as "design-required" was really a scope surprise: the feed check edit UI doesn't exist in the current code (checks are add-only in `src/features/events/check.js`), so this item covers building the edit dialog from scratch rather than extending an existing one. That's a scope note, not a design gap. No new design decisions needed from Tim.
+
+**What Claude Code builds:**
+
+1. **Feed check edit dialog** (`src/features/events/edit-feed-check.js` — new file). Opens from the per-row inline Edit button in the §9 card (the button already exists per the OI-0071 fix; it currently has no target). Fields: `date`, `time` (optional), `remaining_amount`, optional `notes`. Batch and location read-only. Auto-save on commit (button), not on blur — this is a single submit because the invariant check needs all fields together.
+
+2. **Range guards** (reject-on-save, inline error) per SP-10 §9:
+   - `check.date` < `event.date_in` → reject.
+   - `check.date` > `event.date_out` on closed events → reject.
+   - `check.date` in the future → reject.
+   - `remaining_amount` < 0 → reject.
+
+3. **Invariant check on save** per SP-10 §9: run `consumed(Ti → Ti+1) ≥ 0` across all adjacent intervals on the feed line (same batch × location on the same event). Four cases:
+   - **Case A — benign:** save silently, compute-on-read cascades.
+   - **Case B — later-interval break:** surface **Re-snap dialog** listing the impossible later check(s). Options: `[Cancel edit]` or `[Delete later checks and save]`. After save, non-modal toast: *"Enter a new feed check to re-snap the line →"* with shortcut button.
+   - **Case C — earlier-interval break:** surface conflict with `[Cancel edit]` only. No auto-delete of earlier checks.
+   - **Case D — back-fill past-dated check:** same invariant check against both neighbors, resolves via B or C.
+
+4. **Re-snap dialog** (`src/features/events/feed-check-resnap-dialog.js` or inline inside `edit-feed-check.js` — builder's choice). Simple modal with the warning copy + two buttons. Atomic on Confirm: delete impossible later check(s) + save the edit in a single transaction.
+
+5. **Delete feed check** (existing) — keep as-is. No invariant check needed; deleting only widens an interval.
+
+**Files:**
+- New: `src/features/events/edit-feed-check.js`, optional `feed-check-resnap-dialog.js`.
+- Modified: `src/features/events/event-detail.js` (wire per-row Edit button from §9 to the new dialog), `src/data/store.js` (transaction helper if not already generic enough for the re-snap atomic delete+save).
+
+**No schema impact.** All fields already exist on `event_feed_checks`.
+
+**Unit tests:** cover the four cases (A/B/C/D) with example check sequences and verify the dialog behavior + atomic delete+save transaction.
+
+---
 
 ---
 
@@ -972,6 +1008,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-17 | UI sprint — SP-10 OI-0083 + OI-0084 resolved | **OI-0083 unblocked** — retro-place design questions resolved with Tim: (1) destination picker = sheet picker with event cards; (2) filter = full containment only; (3) flow simplified to atomic two-write transaction (no reopen/re-close ceremony — the reopen was unnecessary once full containment was locked); (4) conflict check blocks with error (not three-option resolver); (5) no undo toast — user deletes via dest's §7 if reversing. UI_SPRINT_SPEC.md § SP-10 "Retro-Place Flow" rewritten. Status → DESIGN COMPLETE, ready for Claude Code. **OI-0084 reclassified** — not actually design-required. SP-10 §9 already has the full spec; Claude Code's "design-required" flag was really a scope surprise (feed check edit UI doesn't exist in current code, needs to be built from scratch). Clarification added; status → DESIGN COMPLETE, ready for Claude Code. Both items rolled into a second handoff brief. |
 | 2026-04-17 | UI sprint — SP-10 walkthrough + §8a Move Feed Out design | **OI-0081 added** (SP-10 umbrella, P0 blocks field testing) — all seven event-data edit sections ratified in UI_SPRINT_SPEC.md: §7 Groups, §12 Sub-moves, event-level dates (+ Event Reopen), §8 Feed Entries, §9 Feed Checks, §3/§6 Observations. Core principle: derived values cascade on read; structural state requires explicit reconciliation. **OI-0082 added** (§8a Move Feed Out, P1) — new farmer capability to pull feed back out of an active event (to batch inventory or another open event). Four-step sheet, forced feed-check Step 2 staged-until-Confirm, schema adds 3 columns (`entry_type`, `destination_type`, `destination_event_id`) + check constraints, CP-55/CP-56 impact noted. Calcs update: sum deliveries minus removals (one-line per calc). Session brief + Claude Code handoff prompt authored in `github/issues/SESSION_BRIEF_2026-04-17_sp10-event-edit-consistency.md`. |
 | 2026-04-16 | UI sprint — event detail post-implementation review | **OI-0071 added** — 7 UI fixes from Tim's review of implemented SP-2: (1) edit event dialog missing save/cancel buttons, (2) pre/post-graze fields not editable, (3) feed checks/entries/sub-moves missing inline edit buttons, (4) DMI/NPK card moves up to below DMI chart, (5) deliver feed dialog date/time required, (6) quantity stepper whole steps not 0.5, (7) move wizard buttons don't navigate. GH-10 reader order updated (DMI/NPK → position 4). Session brief: `SESSION_BRIEF_2026-04-16_event-detail-ui-fixes.md`. |
 | 2026-04-16 | UI sprint — DMI-8 daily breakdown calc | **OI-0069 added** — DMI-8 (Daily DMI Breakdown by Date) spec'd in V2_CALCULATION_SPEC.md. Three-state output (actual/estimated/needs_check) for the 3-day chart. Composes DMI-2/DMI-3/DMI-5/FOR-1. Declining pasture mass balance for estimates. Source event bridge via source_event_id. Forage type missing guard with inline prompt. Session brief written. No schema impact. |

@@ -1,12 +1,11 @@
 /** @file Animals screen — V1 parity rebuild. Single-page layout: filter chips, groups, animal list, sheets. */
 
-import { el, clear, text } from '../../ui/dom.js';
+import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe, getVisibleGroups, getActiveFarmId } from '../../data/store.js';
+import { getAll, getById, add, update, remove, subscribe, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import * as GroupEntity from '../../entities/group.js';
 import * as AnimalClassEntity from '../../entities/animal-class.js';
 import * as AnimalEntity from '../../entities/animal.js';
@@ -401,7 +400,7 @@ function ensureGroupSheetDOM() {
   ]));
 }
 
-function openGroupSheet(existingGroup, operationId, farmId) {
+function openGroupSheet(existingGroup, operationId, _farmId) {
   ensureGroupSheetDOM();
   if (!groupSheet) groupSheet = new Sheet('group-sheet-wrap');
   const panel = document.getElementById('group-sheet-panel');
@@ -538,7 +537,7 @@ function openGroupSheet(existingGroup, operationId, farmId) {
 
 // ─── Split Group Sheet (6B) ─────────────────────────────────────────────
 
-function openSplitGroupSheet(group, operationId, farmId) {
+function openSplitGroupSheet(group, operationId, _farmId) {
   const wrapId = 'split-sheet-wrap';
   if (!document.getElementById(wrapId)) {
     document.body.appendChild(el('div', { className: 'sheet-wrap', id: wrapId, style: { zIndex: '210' } }, [
@@ -572,8 +571,6 @@ function openSplitGroupSheet(group, operationId, farmId) {
   let destType = 'new';
   let newGroupColor = colors[1];
   let newGroupName = '';
-  let existingGroupId = '';
-  let placement = 'same';
 
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '2px' } }, ['Split group']));
   panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '14px' } }, [`${group.name} \u00B7 ${memberships.length} head${locName ? ` \u00B7 at ${locName}` : ''}`]));
@@ -830,10 +827,10 @@ function openClassesManager(operationId) {
   classSheet.open();
 }
 
-function openClassEditForm(cls, operationId, unitSys) {
+function openClassEditForm(cls, _operationId, _unitSys) {
   // Inline edit — reopen the manager with the class pre-filled
   // For simplicity, use a prompt-based edit (the full inline edit is complex)
-  const newName = prompt('Class name:', cls.name);
+  const newName = window.prompt('Class name:', cls.name);
   if (newName !== null && newName.trim()) {
     update('animalClasses', cls.id, { name: newName.trim() }, AnimalClassEntity.validate, AnimalClassEntity.toSupabaseShape, 'animal_classes');
   }
@@ -1256,7 +1253,7 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
       panel.appendChild(el('button', {
         className: 'btn btn-sm', style: { width: 'auto', background: 'var(--amber)', color: 'white' },
         onClick: () => {
-          const reason = prompt('Cull reason (optional):');
+          const reason = window.prompt('Cull reason (optional):');
           update('animals', existingAnimal.id, { culled: true, cullReason: reason || null }, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
           animalSheet.close();
         },

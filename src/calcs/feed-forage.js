@@ -551,7 +551,7 @@ registerCalc({
     { name: 'animalClasses', type: 'object', unit: '{ [classId]: { dmiPct, dmiPctLactating } }' },
   ],
   output: { type: 'object', shape: '{ status, totalDmiKg?, storedDmiKg?, pastureDmiKg? }', unit: 'kg' },
-  fn({ event, date, groupWindows, feedEntries, feedChecks, feedCheckItems, paddockWindows, observations, forageTypes, locations, animalClasses }) {
+  fn({ event, date, groupWindows, feedEntries: _feedEntries, feedChecks, feedCheckItems, paddockWindows, observations, forageTypes, locations, animalClasses }) {
     // Helper: compute daily DMI demand for a given date
     function dailyDemand(dt) {
       let total = 0;

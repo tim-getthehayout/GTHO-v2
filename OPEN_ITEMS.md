@@ -4,6 +4,60 @@
 
 ---
 
+### OI-0076 — DMI Chart Empty Bars — Deferred Until Fresh V2 Test Data
+**Added:** 2026-04-17 | **Area:** v2-build / UI | **Priority:** P3
+**Checkpoint:** post-UI-sprint
+**Status:** open — deferred, needs fresh data
+
+**Problem:** The 3-day DMI chart on location cards shows empty bars with "—" values. Likely caused by v1 migrated data not having the per-day breakdown that DMI-8 needs. Cannot verify or fix without fresh v2 test data generated through normal app usage.
+
+**Fix:** Revisit after Tim has generated some new events and feed data in v2. May also depend on DMI-8 landing (OI-0069).
+
+**No schema impact.**
+
+---
+
+### OI-0075 — Dashboard Locations Tab: 7 Display Bugs
+**Added:** 2026-04-17 | **Area:** v2-build / UI sprint | **Priority:** P2
+**Checkpoint:** UI sprint
+**Status:** open — spec written, ready for Claude Code
+
+**Problem:** Seven display issues on the Locations tab compared to v1: (1) "lbs lbs" double unit suffix on weight lines, (2) missing acreage next to location name, (3) missing green capacity line (Est. capacity / days remaining / ADA), (4) badge shows "stored feed" instead of "stored feed & grazing", (5) stored feed DMI value mismatch with v1, (6) missing number formatting with commas, (7) empty top stat cards (Pasture %, NPK/Acre, NPK Value). DMI chart bars deferred to OI-0076.
+
+**Fix:** Spec file `github/issues/BUG_locations-tab-display-fixes.md`.
+
+**No schema impact.** Visual/display only. No CP-55/CP-56 impact.
+
+---
+
+### OI-0074 — Event Detail Action Buttons: Wrong Layout and Missing CSS
+**Added:** 2026-04-17 | **Area:** v2-build / UI sprint | **Priority:** P2
+**Checkpoint:** UI sprint
+**Status:** open — spec written, ready for Claude Code
+
+**Problem:** Event detail sheet bottom buttons render as a flat flex row (Move All / Close and Move / Delete / Cancel) instead of v1's hierarchical layout (primary row, warning action, destructive action). Uses undefined CSS classes (`btn-olive`, `btn-danger`, `btn-ghost`) so buttons have no visible background color.
+
+**Fix:** Spec file `github/issues/BUG_event-detail-action-buttons.md`. Restructure to: Save/Move All (green, flex:2) + Cancel (outline, flex:1) row, then Close & Move (amber, full-width), then Delete (red, small).
+
+**No schema impact.** Visual only. No CP-55/CP-56 impact.
+
+---
+
+### OI-0073 — Group Placement Detection Picks Wrong eventGroupWindow
+**Added:** 2026-04-17 | **Area:** v2-build / dashboard | **Priority:** P1
+**Checkpoint:** UI sprint
+**Status:** open — spec written, ready for Claude Code
+
+**Problem:** Dashboard Groups view shows most groups as "Not placed" despite having active events. Root cause: each group has multiple `eventGroupWindows` with `dateLeft = null` (orphaned from v1 migration — close/move flows don't retroactively fix migrated records). The `.find()` query returns the first match in array order, which for most groups points to a closed event rather than the current open one. Bull Group works by accident (its first match happens to be the open one).
+
+**Evidence:** Cow-Calf Herd has 10 active GWs (1 open, 9 closed). Culls has 7 (1 open, 6 closed). All groups follow the same pattern.
+
+**Fix:** Spec file `github/issues/BUG_group-placement-detection.md`. Two parts: (A) code fix — prefer GWs linked to open events, (B) data cleanup — set `dateLeft` on orphaned GWs. Also fixes secondary NaN bug in NPK display (missing `animalClassId`).
+
+**No schema impact.** Code + data fix only. No CP-55/CP-56 impact.
+
+---
+
 ### OI-0072 — Feed Dialogs (Check + Deliver): V1 Parity UI Rebuild
 **Added:** 2026-04-16 | **Area:** v2-build / UI sprint | **Priority:** P1
 **Checkpoint:** UI sprint

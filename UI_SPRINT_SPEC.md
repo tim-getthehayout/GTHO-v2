@@ -22,6 +22,9 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-16 | SP-2 | Design review round 2 — event detail changed from full-screen route to **sheet overlay** (OI-0067). Pre-graze observations changed from modal to **inline editable fields** per v4 mockup (OI-0068). Post-graze card always renders with empty-state hint. |
 | 2026-04-16 | SP-3 | Bug report — i18n keys render as raw text on buttons; click handlers not firing. Session brief written. |
 | 2026-04-16 | Feed dialogs | **OI-0072** — Feed check + deliver feed v1 parity rebuild. Both dialogs get full v1 UI treatment: feed check gets triple-sync controls (stepper/slider/pct) + consumed banner; deliver feed gets tap-to-select batch cards with inline steppers, multi-batch, feed-type grouping, live DMI/cost summary. Spec includes extracted v1 HTML templates. OI-0071 closed (7 UI fixes implemented). |
+| 2026-04-17 | SP-4 | **Dashboard Group tab v1 parity.** Groups view cards rebuilt to match v1: location status bar with full event timeline, DMI target + feed % bar, NPK deposited with fert value, Move/Split/Weights/Edit buttons. Includes extracted v1 HTML/CSS. |
+| 2026-04-17 | SP-5 | **Sidebar, header, and layout v1 parity.** Sidebar gets logo block, nav icons, active state, sync status strip. Header simplified (remove redundant app name/op name). CSS layout bug fixed (nav overlapping header due to hardcoded `top: 60px`). |
+| 2026-04-17 | Bugs | **OI-0073** — Group placement detection picks wrong eventGroupWindow (`.find()` returns first match, not open-event match). **OI-0074** — Event detail action buttons wrong layout/missing CSS classes. **OI-0075** — Locations tab display bugs (double "lbs lbs", missing acreage, missing capacity line, number formatting). |
 
 ---
 
@@ -194,6 +197,66 @@ See `github/issues/dashboard-card-enrichment.md` for the full line-by-line spec,
 
 - **OI-0065** — Per-group reweigh moves from dashboard card to Animals area (P3, DESIGN REQUIRED, not blocking)
 - **OI-0066** — Per-group Move on dashboard card is event-scoped, not group-scoped (P3, follow-up)
+
+---
+
+## SP-4: Dashboard Group Card — V1 Parity
+
+**Status:** Spec complete · Ready for Claude Code
+**Spec file:** `github/issues/dashboard-group-card-v1-parity.md` (full, authoritative)
+**Depends on:** `BUG_group-placement-detection.md` (must land first or same session)
+**Schema:** None. Visual/rendering only. No CP-55/CP-56 impact.
+
+### Goal
+
+Rebuild the v2 dashboard group card to match v1: location status bar with full event timeline (day count, date, feedings, cost, AU, AUDs, ADA, pasture DM, stored feed DM), DMI target with amber progress bar, NPK deposited in purple with fertilizer dollar value, Move/Split/Weights/Edit buttons.
+
+### Key fixes included
+
+- Group placement bug (BUG_group-placement-detection.md): `.find()` picks wrong GW → orphaned data
+- NPK NaN display bug: missing `animalClassId` on group windows
+- Missing v1 data lines: composition, location bar, sub-move summary, DMI target, feed % bar
+
+See spec file for full v1 HTML/CSS extraction and calc reference mapping.
+
+### Linked OPEN_ITEMS
+
+- **OI-0073** — Group placement detection bug
+- **OI-0074** — Event detail action buttons
+
+---
+
+## SP-5: Sidebar, Header, and Layout — V1 Parity
+
+**Status:** Spec complete · Ready for Claude Code
+**Spec file:** `github/issues/sidebar-header-layout-v1-parity.md` (full, authoritative)
+**Schema:** None. Visual/layout only. No CP-55/CP-56 impact.
+
+### Goal
+
+Rebuild sidebar with v1 structure: logo block at top (green icon + app name + farm name), nav items with SVG icons and active-state highlighting, sync status strip at bottom. Simplify header (remove redundant app name/op name). Fix CSS layout bug where nav overlaps header.
+
+### Key fixes included
+
+- CSS bug: `position: fixed; top: 60px` hardcoded → nav overlaps header when header height exceeds 60px
+- Missing: logo block, nav icons, active state, sync timestamp
+- Redundant: app name + operation name in header (sidebar has them)
+
+---
+
+## Locations Tab Display Fixes
+
+**Status:** Spec complete · Ready for Claude Code
+**Spec file:** `github/issues/BUG_locations-tab-display-fixes.md`
+**Schema:** None. Visual/display only. No CP-55/CP-56 impact.
+
+### Issues
+
+8 display bugs: double "lbs lbs" suffix, missing acreage in header, missing green capacity line, badge text inconsistency, stored feed calc mismatch, missing number formatting (commas), empty DMI chart bars (deferred — OI-0076, needs fresh data), empty top stat cards.
+
+### Linked OPEN_ITEMS
+
+- **OI-0076** — DMI chart empty bars deferred until fresh v2 test data available
 
 ---
 

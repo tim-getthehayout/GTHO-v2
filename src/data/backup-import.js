@@ -6,7 +6,8 @@
  */
 
 import { supabase } from './supabase-client.js';
-import { getSyncAdapter } from './store.js';
+// getSyncAdapter reserved for future use (CP-56 wholesale replace)
+// import { getSyncAdapter } from './store.js';
 import { canExport, exportOperationBackup, downloadBackup } from './backup-export.js';
 import { BACKUP_MIGRATIONS } from './backup-migrations.js';
 import { pullAllRemote } from './pull-remote.js';

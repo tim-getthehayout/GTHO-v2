@@ -19,6 +19,7 @@ import { openTreatmentSheet, renderTreatmentSheetMarkup } from '../health/treatm
 import { openBreedingSheet, renderBreedingSheetMarkup } from '../health/breeding.js';
 import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
+import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -237,7 +238,7 @@ export function renderAnimalsScreen(container) {
 
     // Filter
     let filtered = allAnimals;
-    if (!showCulled) filtered = filtered.filter(a => !a.culled);
+    if (!showCulled) filtered = filtered.filter(a => a.active !== false);
     if (selectedFilter) {
       const groupAnimalIds = new Set(memberships.filter(m => m.groupId === selectedFilter).map(m => m.animalId));
       filtered = filtered.filter(a => groupAnimalIds.has(a.id));
@@ -307,7 +308,7 @@ export function renderAnimalsScreen(container) {
       const latestW = latestWeightMap.get(animal.id);
       const weightDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '—';
       const isSelected = selectedAnimals.has(animal.id);
-      const isCulled = animal.culled;
+      const isCulled = animal.active === false;
 
       // Location badge
       let locBadge = null;
@@ -449,7 +450,7 @@ function openGroupSheet(existingGroup, operationId, _farmId) {
   const pickerEl = el('div', { style: { maxHeight: '220px', overflowY: 'auto', marginBottom: '10px' } });
   function renderAnimalPicker() {
     clear(pickerEl);
-    const allAnimals = getAll('animals').filter(a => !a.culled);
+    const allAnimals = getAll('animals').filter(a => a.active !== false);
     const classes = getAll('animalClasses');
     const weightRecords = getAll('animalWeightRecords');
 
@@ -1240,24 +1241,15 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
 
     // ── Cull section ──
     panel.appendChild(el('div', { style: { marginTop: '10px' } }));
-    if (existingAnimal.culled) {
-      panel.appendChild(el('div', { style: { background: 'var(--red-l)', borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: '8px' } }, [
-        el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--red-d)' } }, ['Culled']),
-        el('div', { style: { fontSize: '12px', color: 'var(--red-d)' } }, [existingAnimal.cullReason || '']),
-        el('button', { className: 'btn btn-outline btn-xs', style: { marginTop: '6px' }, onClick: () => {
-          update('animals', existingAnimal.id, { culled: false, cullReason: null }, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
-          animalSheet.close();
-        } }, ['Reactivate']),
-      ]));
+    if (existingAnimal.active === false) {
+      panel.appendChild(buildCulledBanner(existingAnimal, () => animalSheet.close()));
     } else {
       panel.appendChild(el('button', {
-        className: 'btn btn-sm', style: { width: 'auto', background: 'var(--amber)', color: 'white' },
-        onClick: () => {
-          const reason = window.prompt('Cull reason (optional):');
-          update('animals', existingAnimal.id, { culled: true, cullReason: reason || null }, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
-          animalSheet.close();
-        },
-      }, ['Cull animal\u2026']));
+        className: 'btn btn-sm',
+        style: { width: 'auto', background: 'var(--amber)', color: 'white' },
+        'data-testid': 'open-cull-sheet',
+        onClick: () => openCullSheet(existingAnimal, operationId, () => animalSheet.close()),
+      }, [t('animal.cullAnimal')]));
     }
   }
 

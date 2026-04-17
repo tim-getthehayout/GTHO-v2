@@ -384,6 +384,7 @@
     "noGroup": "Unassigned",
     "active": "Active",
     "culled": "Culled",
+    "culledLabel": "Culled",
     "notes": "Notes",
     "empty": "No animals yet. Add your first animal to get started.",
     "emptyFiltered": "No animals match this search.",
@@ -394,7 +395,19 @@
     "sortBy": "Sort by",
     "sortTag": "Tag",
     "sortClass": "Class",
-    "sortGroup": "Group"
+    "sortGroup": "Group",
+    "cullAnimal": "Cull animal…",
+    "cullTitle": "Cull animal",
+    "cullDate": "Date",
+    "cullReason": "Reason",
+    "cullNotes": "Notes",
+    "cullNotesPlaceholder": "Buyer name, cause of death, price received…",
+    "cullInfoBanner": "Animal will be removed from its group and marked inactive. All history (weight, calving, lineage) is preserved. You can reactivate from the animal record if needed.",
+    "cullConfirm": "Confirm cull",
+    "cullDateRequired": "Date is required.",
+    "reactivate": "Reactivate",
+    "reactivateConfirm": "Reactivate {label}? You can reassign them to a group after reactivation.",
+    "optional": "optional"
   },
   "feed": {
     "title": "Feed",

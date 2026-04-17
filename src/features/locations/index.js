@@ -17,6 +17,8 @@ import * as FeedTypeEntity from '../../entities/feed-type.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import * as AmendmentEntity from '../../entities/amendment.js';
 import * as AmendmentLocationEntity from '../../entities/amendment-location.js';
+import * as SurveyEntity from '../../entities/survey.js';
+import * as SurveyDraftEntryEntity from '../../entities/survey-draft-entry.js';
 import { openHarvestSheet } from '../harvest/index.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
@@ -558,7 +560,13 @@ function ensureSurveySheetDOM() {
   ]));
 }
 
-export function openSurveySheet(locationId, operationId) {
+/**
+ * Open the survey sheet.
+ * @param {string|null} locationId — single mode if set, bulk mode if null
+ * @param {string} operationId
+ * @param {object} [opts] — { editSurveyId: string } for bulk-edit mode
+ */
+export function openSurveySheet(locationId, operationId, opts = {}) {
   ensureSurveySheetDOM();
   if (!surveySheet) surveySheet = new Sheet('survey-sheet-wrap');
   const panel = document.getElementById('survey-sheet-panel');
@@ -569,6 +577,7 @@ export function openSurveySheet(locationId, operationId) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const unitSys = getUnitSystem();
   const isSingle = !!locationId;
+  const isBulkEdit = !!opts.editSurveyId;
   const farms = getAll('farms');
   const isMultiFarm = farms.length > 1;
   const allLocs = getAll('locations').filter(l => !l.archived && l.type === 'land' && l.landUse !== 'crop');
@@ -578,9 +587,93 @@ export function openSurveySheet(locationId, operationId) {
   const farmSettings = getAll('farmSettings')[0];
   const baleRingDiameterFt = farmSettings?.baleRingResidueDiameterFt ?? 12;
 
+  // Draft management (bulk mode only)
+  let surveyId = null;
+  let draftTimer = null;
+  if (!isSingle) {
+    if (isBulkEdit) {
+      surveyId = opts.editSurveyId;
+    } else {
+      // Find existing draft or create new one
+      const existingDraft = getAll('surveys').find(s => s.operationId === operationId && s.status === 'draft');
+      if (existingDraft) {
+        surveyId = existingDraft.id;
+      } else {
+        const newSurvey = SurveyEntity.create({ operationId, surveyDate: todayStr, type: 'bulk', status: 'draft' });
+        add('surveys', newSurvey, SurveyEntity.validate, SurveyEntity.toSupabaseShape, 'surveys');
+        surveyId = newSurvey.id;
+      }
+    }
+  }
+
   // State
   const readings = {};
   for (const l of locs) readings[l.id] = { rating: null, heightCm: null, coverPct: null, condition: null, baleRingCount: null, recoveryMin: null, recoveryMax: null, notes: null };
+
+  // Hydrate from draft entries or committed observations
+  if (surveyId) {
+    if (isBulkEdit) {
+      // Load from paddockObservations linked to this survey
+      const obs = getAll('paddockObservations').filter(o => o.sourceId === surveyId);
+      for (const o of obs) {
+        if (readings[o.locationId]) {
+          const r = readings[o.locationId];
+          r.rating = o.forageQuality;
+          r.heightCm = o.forageHeightCm;
+          r.coverPct = o.forageCoverPct;
+          r.condition = o.forageCondition;
+          r.baleRingCount = o.baleRingResidueCount;
+          r.recoveryMin = o.recoveryMinDays;
+          r.recoveryMax = o.recoveryMaxDays;
+          r.notes = o.notes;
+        }
+      }
+    } else {
+      // Load from draft entries
+      const draftEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === surveyId);
+      for (const d of draftEntries) {
+        if (readings[d.locationId]) {
+          const r = readings[d.locationId];
+          r.rating = d.forageQuality;
+          r.heightCm = d.forageHeightCm;
+          r.coverPct = d.forageCoverPct;
+          r.condition = d.forageCondition;
+          r.baleRingCount = d.baleRingResidueCount;
+          r.recoveryMin = d.recoveryMinDays;
+          r.recoveryMax = d.recoveryMaxDays;
+          r.notes = d.notes;
+        }
+      }
+    }
+  }
+
+  // Draft auto-save (debounced)
+  function triggerDraftSave() {
+    if (!surveyId || isSingle || isBulkEdit) return;
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => saveDraft(), 1000);
+  }
+
+  function saveDraft() {
+    if (!surveyId) return;
+    // Remove old draft entries for this survey
+    const oldEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === surveyId);
+    for (const d of oldEntries) remove('surveyDraftEntries', d.id, 'survey_draft_entries');
+    // Write new entries
+    for (const [locId, r] of Object.entries(readings)) {
+      if (r.rating == null && r.heightCm == null && r.coverPct == null && !r.condition) continue;
+      const entry = SurveyDraftEntryEntity.create({
+        operationId, surveyId, locationId: locId,
+        forageQuality: r.rating, forageHeightCm: r.heightCm, forageCoverPct: r.coverPct,
+        forageCondition: r.condition, baleRingResidueCount: r.baleRingCount,
+        recoveryMinDays: r.recoveryMin, recoveryMaxDays: r.recoveryMax, notes: r.notes,
+      });
+      add('surveyDraftEntries', entry, SurveyDraftEntryEntity.validate, SurveyDraftEntryEntity.toSupabaseShape, 'survey_draft_entries');
+    }
+    // Update survey date
+    const dateVal = panel.querySelector('input[type="date"]')?.value || todayStr;
+    update('surveys', surveyId, { surveyDate: dateVal }, SurveyEntity.validate, SurveyEntity.toSupabaseShape, 'surveys');
+  }
   let farmFilter = 'all';
   let typeFilter = 'all';
   let searchQuery2 = '';
@@ -692,17 +785,17 @@ export function openSurveySheet(locationId, operationId) {
           const fill = ratingBar.firstChild;
           if (fill) { fill.style.width = `${r.rating ?? 0}%`; fill.style.background = ratingColor(r.rating); }
         }
-        ratingSlider.addEventListener('input', () => syncRating(ratingSlider.value));
-        ratingInput.addEventListener('input', () => syncRating(ratingInput.value));
+        ratingSlider.addEventListener('input', () => { syncRating(ratingSlider.value); triggerDraftSave(); });
+        ratingInput.addEventListener('input', () => { syncRating(ratingInput.value); triggerDraftSave(); });
 
         body.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [ratingSlider, ratingInput]));
         body.appendChild(ratingBar);
 
         // Height + Cover
         const heightInput = el('input', { type: 'number', min: '0', max: '72', step: '0.5', placeholder: unitSys === 'imperial' ? 'inches' : 'cm', value: r.heightCm != null ? (unitSys === 'imperial' ? convert(r.heightCm, 'length', 'toImperial').toFixed(1) : r.heightCm) : '', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-        heightInput.addEventListener('change', () => { const val = parseFloat(heightInput.value); r.heightCm = !isNaN(val) ? (unitSys === 'imperial' ? convert(val, 'length', 'toMetric') : val) : null; });
+        heightInput.addEventListener('change', () => { const val = parseFloat(heightInput.value); r.heightCm = !isNaN(val) ? (unitSys === 'imperial' ? convert(val, 'length', 'toMetric') : val) : null; triggerDraftSave(); });
         const coverInput = el('input', { type: 'number', min: '0', max: '100', step: '1', placeholder: '%', value: r.coverPct ?? '', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-        coverInput.addEventListener('change', () => { r.coverPct = parseInt(coverInput.value, 10) || null; });
+        coverInput.addEventListener('change', () => { r.coverPct = parseInt(coverInput.value, 10) || null; triggerDraftSave(); });
 
         body.appendChild(el('div', { style: { display: 'flex', gap: '12px', marginTop: '14px', flexWrap: 'wrap' } }, [
           el('div', { style: { flex: '1', minWidth: '120px' } }, [
@@ -735,6 +828,7 @@ export function openSurveySheet(locationId, operationId) {
                 baleCaption.appendChild(el('div', {}, ['\u21B3 Set paddock acreage to estimate cover.']));
               }
             }
+            triggerDraftSave();
           });
           body.appendChild(el('div', { style: { marginTop: '12px' } }, [
             el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['BALE-RING RESIDUES (optional)']),
@@ -751,7 +845,7 @@ export function openSurveySheet(locationId, operationId) {
           clear(condRow);
           for (const c of conditions) {
             const isActive = r.condition === condMap[c];
-            condRow.appendChild(el('button', { type: 'button', style: { flex: '1', padding: '6px 0', fontSize: '12px', borderRadius: '6px', cursor: 'pointer', border: `0.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green-l)' : 'transparent', color: isActive ? 'var(--green-d)' : 'var(--text2)', fontWeight: isActive ? '500' : '400' }, onClick: () => { r.condition = condMap[c]; renderCondBtns(); } }, [c]));
+            condRow.appendChild(el('button', { type: 'button', style: { flex: '1', padding: '6px 0', fontSize: '12px', borderRadius: '6px', cursor: 'pointer', border: `0.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green-l)' : 'transparent', color: isActive ? 'var(--green-d)' : 'var(--text2)', fontWeight: isActive ? '500' : '400' }, onClick: () => { r.condition = condMap[c]; renderCondBtns(); triggerDraftSave(); } }, [c]));
           }
         }
         renderCondBtns();
@@ -762,9 +856,9 @@ export function openSurveySheet(locationId, operationId) {
 
         // Recovery window (single mode + bulk expanded)
         const recMinInput = el('input', { type: 'number', placeholder: '30', min: '1', max: '365', value: r.recoveryMin ?? '', style: { width: '72px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-        recMinInput.addEventListener('change', () => { r.recoveryMin = parseInt(recMinInput.value, 10) || null; });
+        recMinInput.addEventListener('change', () => { r.recoveryMin = parseInt(recMinInput.value, 10) || null; triggerDraftSave(); });
         const recMaxInput = el('input', { type: 'number', placeholder: '60', min: '1', max: '365', value: r.recoveryMax ?? '', style: { width: '72px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-        recMaxInput.addEventListener('change', () => { r.recoveryMax = parseInt(recMaxInput.value, 10) || null; });
+        recMaxInput.addEventListener('change', () => { r.recoveryMax = parseInt(recMaxInput.value, 10) || null; triggerDraftSave(); });
 
         body.appendChild(el('div', { style: { marginTop: '14px' } }, [
           el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Recovery window']),
@@ -786,29 +880,66 @@ export function openSurveySheet(locationId, operationId) {
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
 
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
-      clear(statusEl);
-      const surveyDate = dateInput.value || todayStr;
-      const rated = Object.entries(readings).filter(([_, r2]) => r2.rating != null || r2.heightCm != null || r2.coverPct != null || r2.condition != null);
-      if (!rated.length) { statusEl.appendChild(el('span', {}, ['Rate at least one paddock'])); return; }
-      try {
-        for (const [locId, r2] of rated) {
-          const rec = PaddockObsEntity.create({
-            operationId, locationId: locId, observedAt: surveyDate + 'T12:00:00Z',
-            type: 'open', source: 'survey',
-            forageQuality: r2.rating, forageHeightCm: r2.heightCm, forageCoverPct: r2.coverPct,
-            forageCondition: r2.condition, baleRingResidueCount: r2.baleRingCount,
-            recoveryMinDays: r2.recoveryMin, recoveryMaxDays: r2.recoveryMax,
-            notes: r2.notes,
-          });
-          add('paddockObservations', rec, PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+  // Commit function (creates paddockObservations, marks survey committed)
+  function commitSurvey() {
+    clear(statusEl);
+    const surveyDate = dateInput.value || todayStr;
+    const rated = Object.entries(readings).filter(([_k, r2]) => r2.rating != null || r2.heightCm != null || r2.coverPct != null || r2.condition != null);
+    if (!rated.length) { statusEl.appendChild(el('span', {}, ['Rate at least one paddock'])); return; }
+    try {
+      for (const [locId, r2] of rated) {
+        const rec = PaddockObsEntity.create({
+          operationId, locationId: locId, observedAt: surveyDate + 'T12:00:00Z',
+          type: 'open', source: 'survey', sourceId: surveyId || null,
+          forageQuality: r2.rating, forageHeightCm: r2.heightCm, forageCoverPct: r2.coverPct,
+          forageCondition: r2.condition, baleRingResidueCount: r2.baleRingCount,
+          recoveryMinDays: r2.recoveryMin, recoveryMaxDays: r2.recoveryMax,
+          notes: r2.notes,
+        });
+        add('paddockObservations', rec, PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+      }
+      // Mark survey committed + clean up draft entries
+      if (surveyId) {
+        update('surveys', surveyId, { status: 'committed', surveyDate }, SurveyEntity.validate, SurveyEntity.toSupabaseShape, 'surveys');
+        const draftEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === surveyId);
+        for (const d of draftEntries) remove('surveyDraftEntries', d.id, 'survey_draft_entries');
+      }
+      surveySheet.close();
+    } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+  }
+
+  // Buttons — differ by mode
+  if (!isSingle && !isBulkEdit) {
+    // Bulk mode: Save Draft + Finish & Save
+    panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
+      el('button', { className: 'btn btn-outline', onClick: () => { saveDraft(); surveySheet.close(); } }, ['Save Draft']),
+      el('button', { className: 'btn btn-green', onClick: commitSurvey }, ['Finish & Save']),
+    ]));
+    // Discard link
+    panel.appendChild(el('div', { style: { marginTop: '10px', textAlign: 'center' } }, [
+      el('button', { style: { background: 'none', border: 'none', color: 'var(--red)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }, onClick: () => {
+        if (!window.confirm('Discard this survey draft?')) return;
+        if (surveyId) {
+          const draftEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === surveyId);
+          for (const d of draftEntries) remove('surveyDraftEntries', d.id, 'survey_draft_entries');
+          remove('surveys', surveyId, 'surveys');
         }
         surveySheet.close();
-      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
-    } }, ['Save survey']),
-    el('button', { className: 'btn btn-outline', onClick: () => surveySheet.close() }, ['Close']),
-  ]));
+      } }, ['Discard survey']),
+    ]));
+  } else {
+    // Single mode or bulk-edit: simple Save
+    panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
+      el('button', { className: 'btn btn-green', onClick: commitSurvey }, [isBulkEdit ? 'Save survey' : 'Save survey']),
+      el('button', { className: 'btn btn-outline', onClick: () => surveySheet.close() }, ['Close']),
+    ]));
+  }
+
+  // Auto-save draft on close (bulk mode)
+  if (!isSingle && !isBulkEdit) {
+    const origClose = surveySheet.close.bind(surveySheet);
+    surveySheet.close = () => { saveDraft(); origClose(); };
+  }
 
   surveySheet.open();
 }

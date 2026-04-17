@@ -69,22 +69,22 @@ The v2 version also uses CSS classes (`btn-olive`, `btn-danger`, `btn-ghost`) th
 
 | V1 button | V2 equivalent | Handler |
 |---|---|---|
-| Save & recalculate | **Not needed** — v2 event detail auto-saves inline fields on blur | Remove |
-| Cancel | **Close sheet** | `closeEventDetailSheet()` |
-| Close this event & move groups | **Close and Move** | `openCloseEventSheet(event, operationId)` |
-| Delete event | **Delete** | `openDeleteConfirm(ctx)` |
+| Save & recalculate | **Save & recalculate** — persists any pending inline edits and recalculates derived values | Same concept as v1 |
+| Cancel | **Cancel** — close sheet without saving pending changes | `closeEventDetailSheet()` |
+| Close this event & move groups | **Close this event & move groups** | `openCloseEventSheet(event, operationId)` |
+| Delete event | **Delete event** | `openDeleteConfirm(ctx)` |
 
-Note: V1 has an explicit Save button because the edit event sheet is a form. V2's event detail sheet uses inline editing (auto-save on blur), so there's no Save button — but the visual hierarchy should still match: primary action prominently at top, destructive action small at bottom.
+**Key fix:** The current v2 "Move all" button is redundant with "Close & move" (both ultimately move groups). Replace "Move all" with **"Save & recalculate"** — the v1 primary action. Even though v2 uses inline auto-save, an explicit save button gives users confidence their changes are persisted and triggers a recalc of derived values (DMI, NPK, capacity estimates).
 
 ### Revised button layout
 
-Replace the current flat flex row with this hierarchy:
+The hierarchy is already correct (green primary + cancel row, amber close, red delete). The fix is button labels and handlers:
 
 **For active events:**
 ```
-[Move All (green, flex:2)]  [Cancel (outline, flex:1)]      ← btn-row
-[↓ Close this event & move groups (amber, full-width)]      ← separate div, margin-top:10px
-[Delete event (red, small, left-aligned)]                    ← separate div, margin-top:8px
+[Save & recalculate (green, flex:2)]  [Cancel (outline, flex:1)]      ← btn-row
+[↓ Close this event & move groups (amber, full-width)]                ← separate div, margin-top:10px
+[Delete event (red, small, left-aligned)]                             ← separate div, margin-top:8px
 ```
 
 **For closed events:**
@@ -112,9 +112,9 @@ function renderActions(ctx) {
     el('button', {
       className: 'btn btn-green',
       style: { flex: '2', minWidth: '160px' },
-      'data-testid': 'detail-move-all',
-      onClick: () => openMoveWizard(event, ctx.operationId, ctx.farmId),
-    }, [t('event.moveAll')]),
+      'data-testid': 'detail-save-recalc',
+      onClick: () => saveAndRecalculate(ctx),
+    }, ['Save & recalculate']),
     el('button', {
       className: 'btn btn-outline',
       style: { flex: '1', minWidth: '80px' },
@@ -142,7 +142,7 @@ function renderActions(ctx) {
         },
         'data-testid': 'detail-close-move',
         onClick: () => openCloseEventSheet(event, ctx.operationId),
-      }, ['\u2B07 ' + t('event.closeAndMove')]),
+      }, ['\u2B07 Close this event & move groups']),
     ]);
     el2.appendChild(closeWrap);
   }
@@ -179,11 +179,11 @@ Remove any references to undefined classes: `btn-olive`, `btn-danger`, `btn-ghos
 
 ## Acceptance Criteria
 
-- [ ] Active event: Move All (green) + Cancel in a row, Close & Move (amber, full-width) below, Delete (red, small) at bottom
-- [ ] Closed event: Cancel (full-width) + Delete (red, small) at bottom
+- [ ] Active event: Save & recalculate (green) + Cancel in a row, Close this event & move groups (amber, full-width) below, Delete event (red, small) at bottom
+- [ ] Closed event: Cancel (full-width) + Delete event (red, small) at bottom
 - [ ] All buttons have visible, correct background colors (no unstyled/undefined CSS classes)
-- [ ] Move All opens move wizard for this event
-- [ ] Close & Move opens close event sheet
+- [ ] Save & recalculate persists pending inline edits and recalculates derived values
+- [ ] Close this event & move groups opens close event sheet
 - [ ] Delete opens confirmation dialog
 - [ ] Cancel closes the detail sheet
 - [ ] Button hierarchy matches v1 screenshot (primary action large, destructive action small and separated)

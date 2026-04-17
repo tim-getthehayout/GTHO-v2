@@ -31,7 +31,37 @@ export function renderHeader(container) {
 
   const todoCount = getOpenTodoCount();
 
-  // --- Sidebar nav ---
+  // --- Desktop sidebar (v1 parity — SP-5) ---
+  const currentHash = window.location.hash || '#/';
+  const sidebar = el('aside', { className: 'dsk-sidebar', 'data-testid': 'dsk-sidebar' }, [
+    // Logo block
+    el('div', { className: 'dsk-logo' }, [
+      el('div', { className: 'dsk-logo-icon' }, [
+        el('svg', { width: '18', height: '18', viewBox: '0 0 24 24', fill: 'none', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
+          el('path', { d: 'M12 2C8 2 4 6 4 12c0 4 2 7 4 9l4-4 4 4c2-2 4-5 4-9 0-6-4-10-8-10z' }),
+        ]),
+      ]),
+      el('div', {}, [
+        el('div', { className: 'dsk-logo-text' }, ['Get The Hay Out']),
+        el('div', { className: 'dsk-logo-sub' }, [opName]),
+      ]),
+    ]),
+    // Nav items
+    el('nav', { className: 'dsk-nav', 'data-testid': 'dsk-nav' }, [
+      sidebarNavItem('#/', 'Dashboard', currentHash, 'nav-dashboard'),
+      sidebarNavItem('#/animals', 'Animals', currentHash, 'nav-animals'),
+      sidebarNavItem('#/events', 'Rotation Calendar', currentHash, 'nav-events'),
+      sidebarNavItem('#/locations', 'Locations', currentHash, 'nav-locations'),
+      sidebarNavItem('#/feed', 'Feed', currentHash, 'nav-feed'),
+      sidebarNavItemBadge('#/todos', 'Tasks', todoCount, currentHash, 'nav-todos'),
+      sidebarNavItem('#/reports', 'Reports', currentHash, 'nav-reports'),
+      sidebarNavItem('#/settings', 'Settings', currentHash, 'nav-settings'),
+    ]),
+    // Sync status strip
+    renderSyncStrip(),
+  ]);
+
+  // Old nav (still used for mobile via CSS)
   const nav = el('nav', { className: 'header-nav', 'data-testid': 'header-nav' }, [
     navLink('#/', t('nav.dashboard'), 'nav-dashboard'),
     navLink('#/events', t('nav.events'), 'nav-events'),
@@ -55,10 +85,8 @@ export function renderHeader(container) {
 
   const header = el('header', { className: 'app-header', 'data-testid': 'app-header' }, [
     el('div', { className: 'header-bar' }, [
-      // Left cluster: app name + operation name + farm picker
+      // Left cluster: farm picker only (SP-5 — app name moved to sidebar)
       el('div', { className: 'header-left' }, [
-        el('div', { className: 'header-app-name', 'data-testid': 'header-app-name' }, [t('app.name')]),
-        el('div', { className: 'header-op-name', 'data-testid': 'header-op-name' }, [opName]),
         isMultiFarm
           ? el('button', {
               className: `header-farm-picker ${!activeFarm ? 'header-farm-all' : ''}`,
@@ -89,6 +117,7 @@ export function renderHeader(container) {
     nav,
   ]);
 
+  container.appendChild(sidebar);
   container.appendChild(header);
 
   // --- Mobile bottom nav ---
@@ -256,6 +285,45 @@ function renderBottomNav(todoCount) {
     nav.appendChild(btn);
   }
   return nav;
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar nav helpers (SP-5)
+// ---------------------------------------------------------------------------
+
+function sidebarNavItem(href, label, currentHash, testId) {
+  const isActive = currentHash === href || (href !== '#/' && currentHash.startsWith(href));
+  return el('button', {
+    className: `dsk-nav-item${isActive ? ' active' : ''}`,
+    'data-testid': testId,
+    onClick: () => navigate(href),
+  }, [label]);
+}
+
+function sidebarNavItemBadge(href, label, count, currentHash, testId) {
+  const isActive = currentHash === href || currentHash.startsWith(href);
+  const children = [label];
+  if (count > 0) children.push(el('span', { className: 'dsk-nav-badge' }, [String(count)]));
+  return el('button', {
+    className: `dsk-nav-item${isActive ? ' active' : ''}`,
+    'data-testid': testId,
+    onClick: () => navigate(href),
+  }, children);
+}
+
+function renderSyncStrip() {
+  const adapter = getSyncAdapter();
+  let status;
+  try { status = adapter ? adapter.getStatus() : 'offline'; } catch { status = 'offline'; }
+  const dotClass = { idle: 'sync-ok', syncing: 'sync-pending', error: 'sync-err', offline: 'sync-off' }[status] || 'sync-off';
+  const label = { idle: 'Synced', syncing: 'Syncing...', error: 'Sync error', offline: 'Offline' }[status] || 'Offline';
+  const now = new Date();
+  const timeStr = status === 'idle' ? ` ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '';
+
+  return el('div', { className: 'dsk-sync-strip', onClick: () => navigate('#/settings') }, [
+    el('span', { className: `sync-dot ${dotClass}` }),
+    el('span', {}, [`${label}${timeStr}`]),
+  ]);
 }
 
 function updateBadges() {

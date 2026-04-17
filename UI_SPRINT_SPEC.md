@@ -39,6 +39,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-17 | SP-10 §3 + §6 + wrap | **Observations ratified + SP-10 walkthrough complete.** §3 Pre-graze and §6 Post-graze inline edit behavior spec'd: auto-save on blur, field-level validation (non-negative, % ≤ 100, recovery window 0-365), silent cascade through compute-on-read per Tim's directive ("changes to those values should affect inferred DMI etc by design so expected"). No gap/overlap concept (observations are per-paddock snapshots, not lifecycle windows). Recovery-window-in-planning conflicts surface at the **future event's planning step**, not on the §6 edit. All SP-10 sections (§7 groups, §12 sub-moves, event-level dates, §8/§8a feed entries + move-out, §9 feed checks, §3/§6 observations) now ratified. Ready for Claude Code. |
 | 2026-04-17 | SP-10 §9 | **Feed Checks edit behavior ratified.** Range guard on date (same as §8). Invariant check on save: `consumed(Ti → Ti+1) ≥ 0` across all adjacent intervals on a feed line. Four cases documented: (A) benign edit cascades silently via compute-on-read; (B) edit breaks a later interval → **Re-snap dialog** offers to delete later invalid check(s) and save, farmer re-measures; (C) edit breaks an earlier interval → surface conflict, Cancel only (no auto-delete of earlier checks — too destructive); (D) back-fill past-dated check runs same invariant check, uses B or C resolution by direction. Delete always safe (only widens intervals). Step 2 Move-Feed-Out checks are ordinary checks — editable and deletable on the same terms. No schema changes. |
 | 2026-04-17 | SP-10 §8a revision | **Four refinements.** (1) Second entry point added — per-entry `Move out` action on each feed row in the §8 list, opens the same sheet pre-selected to that row's batch × location. Math still operates on aggregate remaining (feed doesn't carry per-delivery provenance in the pasture). (2) Step 2 feed check is now **staged, not written** — only commits atomically in Step 4 Confirm. Cancel at any point leaves the source event pristine. (3) Terminology — "group" replaced with "feed line" (one batch × location aggregation row) to avoid collision with "animal group." (4) DMI / NPK / cost logic block added with explicit formulas: `available(T) = Σ deliveries − Σ removals`; `consumed(T1→T2) = (remaining(T1) + deliveries − removals) − remaining(T2)`. Same-day ordering edge case (move-out check vs farmer-entered check) documented as "latest wins, flag for field testing." |
+| 2026-04-17 | SP-11 | **Empty group archive flow.** New capability triggered when the last animal leaves a group (cull / move / manual remove). Automatic cascade closes the group's open `event_group_window` on the change date (toast fires: *"[Group] ended on [Event] as of [date]"*). Empty-group prompt offers Archive / Keep active / Delete — Delete disabled when group has event history (tooltip explains). Archive is first-class state: schema migration 024 replaces `groups.archived boolean` with `groups.archived_at timestamptz` for audit (NULL = active, timestamp = archived on that date). Group management UI gets "Show archived" toggle + Reactivate action for seasonal cohort reuse (Weaners 2025 → reactivate for 2026). CP-55/CP-56 impact: `archived_at` serialized; v23 → v24 backup migration chain maps old `archived: true` → synthesized timestamp. OI-0090 added. |
 | 2026-04-17 | SP-9 | **Survey sheet v1 parity.** Single sheet with three modes (bulk / single / bulk-edit). Bulk chrome with DRAFT tag, Save Draft + Finish & Save, farm/type/search filters, collapsed cards with ✓ Complete badge. Per-paddock rating slider + veg height + forage cover + forage condition + recovery window with live date preview. **New bale-ring residue helper** auto-computes forage cover % from a ring count × farm-configured ring diameter (default 12 ft). Draft lifecycle: immediate localStorage + 1s-debounced Supabase sync. Field-mode picker sheet for single surveys. Schema: adds `farm_settings.bale_ring_residue_diameter_ft` (migration 022). CP-55/CP-56 impact noted. v1 HTML/CSS/JS extracted in full spec. |
 
 ---
@@ -1171,6 +1172,250 @@ No warning on large deltas. No confirmation on edits that move DMI significantly
 
 ---
 
+## SP-11: Empty Group Archive Flow
+
+**Status:** Design complete · Ready for Claude Code
+**Spec file:** `github/issues/empty-group-archive-flow.md` (thin pointer — full spec here)
+**Open item:** OI-0090
+**Related:** OI-0086 (cull dialog — closed), OI-0073 (group placement detection), §3 Group Window Management, §15.2 Group CRUD Sheet
+
+### Problem
+
+When the last animal leaves a group — whether by cull, move, or manual removal — three things go wrong today:
+
+1. The group's open `event_group_window` stays open (no `date_left`) because the cascade only fires at the animal-membership level. Event detail shows a "ghost" group with zero head count.
+2. The group record itself stays active and empty. Nothing surfaces the emptiness to the farmer.
+3. If the farmer manually deletes the empty group from the management UI, historical events display "?" where the group name used to render. This is what Tim hit today with the Culls group.
+
+OI-0086 fixed the animal-level cull (membership closes correctly on cull date). This spec handles the group-level and event-window-level consequences of that close.
+
+### Scope
+
+Four capabilities:
+
+1. **Automatic event_group_window cleanup** — when the last active membership on a group closes, the group's open event window closes on the same date.
+2. **Archive as first-class group state** — upgrade the existing `groups.archived boolean` to `groups.archived_at timestamptz` for richer audit. `NULL` = active, timestamp = archived on that date.
+3. **Empty-group prompt** — after the cascade, the farmer is offered Archive / Keep active / Delete. Delete is only available when the group has never been on an event.
+4. **Reactivation flow** — archived groups can be surfaced in management UI and reactivated for seasonal reuse (Weaners 2025 → Weaners 2026 on the same group record, preserving history).
+
+### Schema
+
+**Migration: `024_groups_archived_at.sql`**
+
+```sql
+-- Add new timestamp column
+ALTER TABLE groups ADD COLUMN archived_at TIMESTAMPTZ;
+
+-- Backfill from existing boolean: archived=true → archived_at = updated_at
+UPDATE groups SET archived_at = updated_at WHERE archived = true;
+
+-- Drop old boolean column
+ALTER TABLE groups DROP COLUMN archived;
+
+-- Optional partial index for fast active-group lookups
+CREATE INDEX idx_groups_active ON groups(farm_id) WHERE archived_at IS NULL;
+
+-- Schema version bump
+UPDATE operations SET schema_version = 24;
+```
+
+**Verification SQL (per CLAUDE.md Migration Execution Rule):**
+
+```sql
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'groups' AND column_name IN ('archived', 'archived_at');
+-- Expect: one row, 'archived_at', 'timestamp with time zone'
+```
+
+### Entity Changes
+
+**`src/entities/group.js`:**
+
+- Replace `archived: { type: 'boolean' }` with `archivedAt: { type: 'timestamptz', required: false, sbColumn: 'archived_at' }`
+- `create()`: default `archivedAt: null` (was `archived: false`)
+- `toSupabaseShape()`: map `archivedAt` → `archived_at` (ISO string or null)
+- `fromSupabaseShape()`: map `archived_at` → `archivedAt` (ISO string or null)
+- `validate()`: allow null or valid ISO timestamp
+
+**`src/data/backup-migrations.js`:**
+
+Add chain entry for v23 → v24:
+
+```js
+23: (b) => {
+  // groups.archived boolean → groups.archived_at timestamp
+  (b.groups || []).forEach(g => {
+    if (g.archived === true) {
+      g.archivedAt = g.updatedAt || b.exported_at || new Date().toISOString();
+    } else {
+      g.archivedAt = null;
+    }
+    delete g.archived;
+  });
+  b.schema_version = 24;
+  return b;
+},
+```
+
+### Cascade Logic (Automatic)
+
+**Trigger:** whenever `animal_group_memberships.date_left` is set (via cull, move wizard, manual remove).
+
+**Check:** count memberships where `group_id = X AND date_left IS NULL`.
+
+**If count === 0 (last animal just left):**
+
+1. Find the group's open `event_group_window` — at most one (where `group_id = X AND date_left IS NULL`).
+2. Set `event_group_window.date_left = [membership close date]`, `time_left = null` (unless a time was captured).
+3. Call `queueWrite('event_group_windows', ...)` to sync.
+4. Show toast: *"[Group name] ended on [Event name] as of [YYYY-MM-DD]"*
+5. Open the empty-group prompt (next section).
+
+**Centralize as store helper:**
+
+```js
+// src/data/store.js
+async function onLastMembershipClosed(groupId, closeDate) {
+  // Query memberships, find open event_group_window, close it,
+  // queueWrite, show toast, open prompt
+}
+```
+
+Callers:
+- `src/features/animals/cull-sheet.js` — after the membership close hook from OI-0086.
+- `src/features/events/move-wizard.js` — after the move commits.
+- `src/features/events/group-windows.js` — any manual remove-animal flow.
+- Any future path that closes memberships must also call this helper.
+
+### Empty-Group Prompt
+
+Opens automatically after the cascade toast.
+
+**Sheet title:** *"[Group name] is empty"*
+
+**Body:**
+
+> [Group name] has no animals left. What would you like to do?
+>
+> - **Archive** — Keep the group in your history. Archived groups stay on past events so records stay intact. You can reactivate this group anytime — useful for seasonal cohorts like yearlings or weaners.
+> - **Keep active** — Leave the group as-is. You can add animals later.
+> - **Delete** — Permanently remove this group. *(Only available if the group was never on an event.)*
+
+**Buttons:**
+
+- `Archive` (primary, green)
+- `Keep active` (secondary)
+- `Delete` (danger) — **disabled** with tooltip *"This group is on N event(s). Archive instead to preserve history."* when `event_group_window` count > 0
+
+**Dismiss:** Tap outside or X → treated as "Keep active" (no-op on the group).
+
+**Archive action:**
+1. Set `group.archivedAt = now()`
+2. `queueWrite('groups', toSupabaseShape(group))`
+3. Toast: *"[Group name] archived"*
+4. Refresh any visible group pickers so it disappears from active lists.
+
+**Delete action (when enabled):**
+1. Confirm dialog: *"Delete [Group name]? This cannot be undone."*
+2. On confirm: delete group row + any orphan `animal_group_memberships` (there should be none since we gated on event history; memberships are animal-event, not dependent on group existence in the same way).
+3. `queueWrite('_delete:groups', {id, operation_id})`
+
+### Group Management UI
+
+**Location:** existing Group CRUD list (§15.2) gets extended.
+
+**Changes:**
+
+- **"Show archived" toggle** at the top of the group list.
+- Active groups render as today (`archivedAt IS NULL`).
+- When toggle is on, a second section renders below: *"Archived groups"* with `archivedAt IS NOT NULL` rows.
+- Each archived row shows: name · color dot · archive date · last head count (if available from last closed event window) · **Reactivate** button · **Delete** button (same gating as empty-group prompt).
+
+**Reactivate action:**
+1. Set `group.archivedAt = null`
+2. `queueWrite('groups', toSupabaseShape(group))`
+3. Toast: *"[Group name] reactivated"*
+4. Group reappears in active pickers (move wizard, event creation, etc.).
+
+**Pickers that must filter `archivedAt IS NULL`:**
+
+- Move wizard group picker
+- Event creation group picker
+- Group CRUD list (default view)
+- Field mode group pills
+- Reports that default to "active groups only"
+- Dashboard groups view (already documented in §17.6 as "non-archived" — wording stays accurate)
+
+### CP-55 / CP-56 Impact
+
+Per the export/import sync rule:
+
+- **CP-55 export:** `groups.archived_at` serialized as ISO string or null. `groups.archived` (old boolean) is no longer in the export payload after schema_version 24.
+- **CP-56 import:** reads `archived_at`. For old backups (schema_version ≤ 23), the backup-migrations chain entry (v23 → v24) maps `archived: true` → `archivedAt: [timestamp]`, `archived: false` → `archivedAt: null`, and deletes the old `archived` field.
+- **Schema version bump:** 23 → 24.
+
+### Tests
+
+**Unit (`tests/unit/`):**
+
+- `group.js` round-trip: `fromSupabaseShape(toSupabaseShape(record))` preserves `archivedAt` (Date ↔ ISO string, null stays null).
+- `store.archiveGroup(id)` sets `archivedAt`, queues sync, notifies subscribers.
+- `store.reactivateGroup(id)` clears `archivedAt`, queues sync, notifies subscribers.
+- `store.onLastMembershipClosed(groupId, date)`:
+  - Closes the open `event_group_window` at the given date.
+  - Does NOT close the window if other memberships remain.
+  - Handles "no open window" case gracefully (multi-event scenarios where the group was already removed manually).
+- `backup-migrations.js` v23 → v24 chain:
+  - `{archived: true}` → `{archivedAt: [timestamp]}`, `archived` key removed.
+  - `{archived: false}` → `{archivedAt: null}`, `archived` key removed.
+  - Runs cleanly when `groups` array is missing or empty.
+
+**E2E (`tests/e2e/`):**
+
+- Cull last animal in a group:
+  - Toast appears with event name and date.
+  - Query Supabase: `event_group_windows.date_left` is set to cull date.
+  - Empty-group prompt appears.
+- Tap Archive: Query Supabase — `groups.archived_at` is set (non-null timestamp). Group disappears from move wizard picker.
+- Navigate to group management, toggle Show archived. Archived group appears. Tap Reactivate.
+- Query Supabase — `groups.archived_at` is NULL. Group reappears in move wizard picker.
+
+### Migration Execution
+
+Per CLAUDE.md §"Migration Execution Rule — Write + Run + Verify":
+
+1. Write `supabase/migrations/024_groups_archived_at.sql`
+2. Execute against Supabase via MCP
+3. Run the verification SQL above — expect exactly one row (`archived_at`, `timestamp with time zone`)
+4. Report verification in commit message: *"Migration 024 applied and verified"*
+
+### Open Questions / Non-Goals
+
+- **Bulk archive of multiple empty groups:** out of scope. Each cascade triggers its own prompt.
+- **Scheduled auto-archive** (e.g., "archive after 30 days empty"): out of scope.
+- **Renaming an archived group:** allowed. Useful for renaming year-tagged groups during reactivation.
+- **Archive a non-empty group:** not allowed from the prompt (no path surfaces it). Management UI could add a "force archive" button in the future; for now, archive requires emptiness.
+
+### Acceptance Criteria
+
+- [ ] Migration 024 applied and verified (old `archived` dropped, `archived_at` present)
+- [ ] Existing `archived = true` rows carry forward to `archived_at = updated_at`
+- [ ] `src/entities/group.js` updated — `archivedAt` field, round-trip tests pass
+- [ ] `src/data/backup-migrations.js` has v23 → v24 chain entry
+- [ ] `store.onLastMembershipClosed()` exists and is called from cull, move, and manual-remove paths
+- [ ] Toast fires with event name + date when last membership closes
+- [ ] Empty-group prompt opens after the cascade
+- [ ] Archive button sets `archivedAt`, group disappears from active pickers
+- [ ] Delete button disabled (with tooltip) when group has event history
+- [ ] Group management UI has "Show archived" toggle and Reactivate action
+- [ ] Reactivate clears `archivedAt`, group returns to active pickers
+- [ ] All relevant pickers filter by `archivedAt IS NULL`
+- [ ] CP-55 export includes `archived_at`; CP-56 import handles old boolean backups via migration chain
+- [ ] Unit tests pass; e2e test verifies full round-trip through Supabase
+
+---
+
 ## Reconciliation Checklist (end of sprint)
 
 When this sprint is complete, do a dedicated session to:
@@ -1189,4 +1434,5 @@ When this sprint is complete, do a dedicated session to:
 - [ ] Update CP-55 / CP-56 spec(s) with new farm_settings column handling and schema_version bump to 22.
 - [ ] **SP-10 reconciliation** — merge into V2_UX_FLOWS.md as new §17.15.1 "Event Data Editing" (gap/overlap resolver, retro-place flow, per-section edit behavior) and into V2_APP_ARCHITECTURE.md as new "Consistency & Rollback" subsection (core principle, snapshot/rollback pattern). Convert SP-10 spec file in `github/issues/` to a thin pointer once integrated.
 - [ ] **SP-10 §8a schema reconciliation** — update V2_SCHEMA_DESIGN.md `event_feed_entries` table to include `entry_type`, `destination_type`, `destination_event_id` columns + check constraints. Update V2_CALCULATION_SPEC.md for DMI-1, DMI-5, NPK-1, NPK-2, cost-per-day to reflect "sum deliveries minus removals." Update CP-55 / CP-56 specs with new columns + schema_version bump. Update V2_MIGRATION_PLAN.md §5.3a ordering note (no change to ordering, just confirm `event_feed_entries` stays in position since the new FK points at the same `events` table it already references).
+- [ ] **SP-11 reconciliation** — merge empty-group archive flow into V2_UX_FLOWS.md (new §3.4 "Empty Group Handling" covering cascade + prompt, extend §15.2 Group CRUD Sheet with Show archived / Reactivate). Update V2_SCHEMA_DESIGN.md §3.3 — replace `archived boolean` row with `archived_at timestamptz`. Update V2_MIGRATION_PLAN.md §5.3a if FK ordering needs a note (no new tables/FKs expected). Update CP-55 / CP-56 specs with `archived_at` column handling and v23 → v24 migration chain. Convert `github/issues/empty-group-archive-flow.md` to a thin pointer.
 - [ ] Archive this file or mark it as reconciled

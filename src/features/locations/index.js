@@ -10,10 +10,13 @@ import { getCalcByName } from '../../utils/calc-registry.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import * as LocationEntity from '../../entities/location.js';
-import * as ForageTypeEntity from '../../entities/forage-type.js';
+import * as ForageTypeEntity from '../../entities/forage-type.js'; // eslint-disable-line no-unused-vars
 import * as PaddockObsEntity from '../../entities/paddock-observation.js';
 import * as SoilTestEntity from '../../entities/soil-test.js';
 import * as FeedTypeEntity from '../../entities/feed-type.js';
+import * as HarvestEventEntity from '../../entities/harvest-event.js';
+import * as AmendmentEntity from '../../entities/amendment.js';
+import * as AmendmentLocationEntity from '../../entities/amendment-location.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -28,6 +31,8 @@ let locationSheet = null;
 let soilTestSheet = null;
 let surveySheet = null;
 let feedTypesSheet = null;
+let harvestSheet = null;
+let applyInputSheet = null;
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -117,6 +122,7 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
     el('div', { style: { fontSize: '17px', fontWeight: '600' } }, ['Locations']),
     el('button', { className: 'btn btn-green btn-sm', onClick: () => openLocationSheet(null, operationId, farmId) }, ['+ Add']),
     el('button', { className: 'btn btn-outline btn-sm', onClick: () => openSurveySheet(null, operationId) }, ['\uD83D\uDCCB Survey']),
+    el('button', { className: 'btn btn-outline btn-sm', onClick: () => openHarvestSheet(operationId) }, ['\uD83C\uDF3E Harvest']),
     el('button', { className: 'btn btn-outline btn-sm', onClick: () => openFeedTypesSheet(operationId) }, ['\u2699 Feed types']),
     searchInput,
   ]));
@@ -684,29 +690,386 @@ function openFeedTypesSheet(operationId) {
   panel.appendChild(el('div', { className: 'sheet-handle' }));
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Feed types']));
 
-  const feedTypes = getAll('feedTypes');
-  const listEl = el('div', { style: { marginBottom: '12px' } });
-  for (const ft of feedTypes) {
-    listEl.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
-      el('div', { style: { flex: '1' } }, [
-        el('div', { style: { fontSize: '13px', fontWeight: '500' } }, [ft.name]),
-        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [[ft.unit, ft.dmPct ? `${ft.dmPct}% DM` : null, ft.category].filter(Boolean).join(' \u00B7 ')]),
-      ]),
-    ]));
-  }
-  if (!feedTypes.length) listEl.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text3)' } }, ['No feed types defined yet']));
-  panel.appendChild(listEl);
+  const unitSys = getUnitSystem();
+  const forageTypes = getAll('forageTypes');
+  let editingFt = null;
 
-  panel.appendChild(el('div', { className: 'btn-row' }, [
+  const listEl = el('div', { style: { marginBottom: '12px' } });
+  const formEl = el('div');
+
+  function renderFtList() {
+    clear(listEl);
+    const feedTypes = getAll('feedTypes');
+    for (const ft of feedTypes) {
+      const detailParts = [ft.unit, ft.dmPct ? `${ft.dmPct}% DM` : null, ft.category].filter(Boolean);
+      if (ft.cuttingNumber) detailParts.push(`${ft.cuttingNumber} cut`);
+      if (ft.defaultWeightKg) detailParts.push(`${Math.round(convert(ft.defaultWeightKg, 'weight', 'toImperial'))} lbs/unit`);
+      listEl.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
+        el('div', { style: { flex: '1' } }, [
+          el('div', { style: { fontSize: '13px', fontWeight: '500' } }, [ft.name]),
+          el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [detailParts.join(' \u00B7 ')]),
+        ]),
+        el('button', { className: 'btn btn-outline btn-xs', onClick: () => { editingFt = ft; renderFtForm(); } }, ['Edit']),
+      ]));
+    }
+    if (!feedTypes.length) listEl.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text3)' } }, ['No feed types defined yet']));
+  }
+
+  function renderFtForm() {
+    clear(formEl);
+    const isEdit = !!editingFt;
+    formEl.appendChild(el('div', { className: 'div' }));
+    formEl.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', margin: '14px 0 8px' } }, [isEdit ? 'Edit feed type' : 'Add feed type']));
+
+    const inputs = {};
+    inputs.name = el('input', { type: 'text', placeholder: 'Round bale', value: editingFt?.name || '' });
+    inputs.unit = el('select', {}, ['bale', 'sq bale', 'round-bale', 'ton', 'lb', 'bag'].map(u => el('option', { value: u, selected: editingFt?.unit === u }, [u])));
+    formEl.appendChild(el('div', { className: 'two' }, [
+      el('div', { className: 'field' }, [el('label', {}, ['Name']), inputs.name]),
+      el('div', { className: 'field' }, [el('label', {}, ['Unit']), inputs.unit]),
+    ]));
+
+    inputs.forageTypeId = el('select', {}, [
+      el('option', { value: '' }, ['\u2014 Custom / none \u2014']),
+      ...forageTypes.map(fgt => el('option', { value: fgt.id, selected: editingFt?.forageTypeId === fgt.id }, [fgt.name])),
+    ]);
+    inputs.forageTypeId.addEventListener('change', () => {
+      const fgt = forageTypes.find(f => f.id === inputs.forageTypeId.value);
+      if (fgt) { if (fgt.dmPct) inputs.dm.value = fgt.dmPct; }
+    });
+    formEl.appendChild(el('div', { className: 'field' }, [
+      el('label', {}, ['Forage type ', el('span', { style: { fontWeight: '400', color: 'var(--text2)', fontSize: '11px' } }, ['(auto-fills DM%)'])]),
+      inputs.forageTypeId,
+    ]));
+
+    inputs.dm = el('input', { type: 'number', placeholder: '85', value: editingFt?.dmPct ?? '' });
+    inputs.cat = el('select', {}, [
+      el('option', { value: 'hay', selected: (editingFt?.category || 'hay') === 'hay' }, ['Hay/forage']),
+      el('option', { value: 'silage', selected: editingFt?.category === 'silage' }, ['Silage']),
+      el('option', { value: 'grain', selected: editingFt?.category === 'grain' }, ['Grain/supp']),
+    ]);
+    formEl.appendChild(el('div', { className: 'two' }, [
+      el('div', { className: 'field' }, [el('label', {}, ['DM %']), inputs.dm]),
+      el('div', { className: 'field' }, [el('label', {}, ['Category']), inputs.cat]),
+    ]));
+
+    inputs.cutting = el('select', {}, [el('option', { value: '' }, ['None']), ...[1, 2, 3, 4].map(n => el('option', { value: String(n), selected: editingFt?.cuttingNumber === n }, [`${n} cut`]))]);
+    inputs.defaultWeight = el('input', { type: 'number', placeholder: '850', min: '0', step: '1', value: editingFt?.defaultWeightKg ? Math.round(convert(editingFt.defaultWeightKg, 'weight', 'toImperial')) : '' });
+    formEl.appendChild(el('div', { className: 'two' }, [
+      el('div', { className: 'field' }, [el('label', {}, ['Cutting #']), inputs.cutting]),
+      el('div', { className: 'field' }, [el('label', {}, ['Default weight (lbs)']), inputs.defaultWeight]),
+    ]));
+
+    const statusEl = el('div', { className: 'auth-error' });
+    formEl.appendChild(statusEl);
+
+    formEl.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
+      el('button', { className: 'btn btn-green', onClick: () => {
+        clear(statusEl);
+        const name = inputs.name.value.trim();
+        if (!name) { statusEl.appendChild(el('span', {}, ['Name is required'])); return; }
+        let defaultWeightKg = parseFloat(inputs.defaultWeight.value) || null;
+        if (defaultWeightKg && unitSys === 'imperial') defaultWeightKg = convert(defaultWeightKg, 'weight', 'toMetric');
+        const data = {
+          operationId, name, unit: inputs.unit.value, category: inputs.cat.value,
+          dmPct: parseFloat(inputs.dm.value) || null, cuttingNumber: parseInt(inputs.cutting.value, 10) || null,
+          defaultWeightKg, forageTypeId: inputs.forageTypeId.value || null,
+          harvestActive: true,
+        };
+        try {
+          if (isEdit) update('feedTypes', editingFt.id, data, FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
+          else { const rec = FeedTypeEntity.create(data); add('feedTypes', rec, FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types'); }
+          editingFt = null; renderFtList(); renderFtForm();
+        } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+      } }, [isEdit ? 'Save changes' : 'Add type']),
+      el('button', { className: 'btn btn-outline', onClick: () => { editingFt = null; renderFtForm(); } }, ['Cancel']),
+      isEdit ? el('button', { className: 'btn btn-outline', style: { color: 'var(--red)', borderColor: 'var(--red)', marginLeft: 'auto' }, onClick: () => {
+        if (window.confirm(`Delete feed type "${editingFt.name}"?`)) { remove('feedTypes', editingFt.id, 'feed_types'); editingFt = null; renderFtList(); renderFtForm(); }
+      } }, ['Delete']) : null,
+    ].filter(Boolean)));
+  }
+
+  renderFtList();
+  renderFtForm();
+  panel.appendChild(listEl);
+  panel.appendChild(formEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
     el('button', { className: 'btn btn-outline', onClick: () => feedTypesSheet.close() }, ['Done']),
   ]));
 
   feedTypesSheet.open();
 }
 
-// ─── Apply Input / Amendment Sheet (placeholder) ────────────────────────
+// ─── Harvest Sheet ──────────────────────────────────────────────────────
 
-function openApplyInputSheet(_operationId) {
-  // Placeholder — full implementation in a future commit
-  window.alert('Apply Input sheet — coming soon');
+function ensureHarvestSheetDOM() {
+  if (document.getElementById('harvest-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'harvest-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => harvestSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'harvest-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+  ]));
+}
+
+function openHarvestSheet(operationId) {
+  ensureHarvestSheetDOM();
+  if (!harvestSheet) harvestSheet = new Sheet('harvest-sheet-wrap');
+  const panel = document.getElementById('harvest-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+  panel.appendChild(el('div', { className: 'sheet-handle' }));
+  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Record harvest']));
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const unitSys = getUnitSystem();
+  const dateInput = el('input', { type: 'date', value: todayStr });
+  panel.appendChild(el('div', { className: 'field', style: { marginBottom: '12px' } }, [el('label', {}, ['Harvest date']), dateInput]));
+
+  const contentEl = el('div');
+  panel.appendChild(contentEl);
+
+  let selectedLocationId = null;
+  const selectedFeedTypes = []; // { feedTypeId, baleCount, weightPerBale, notes }
+
+  function renderStep1() {
+    clear(contentEl);
+    // Field picker — show crop + mixed-use locations
+    const locs = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed-use'));
+
+    const searchInput = el('input', { type: 'search', placeholder: 'Search fields\u2026', style: { width: '100%', padding: '8px 12px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '13px', marginBottom: '8px' } });
+
+    const listEl = el('div');
+    function renderFieldList() {
+      clear(listEl);
+      const q = searchInput.value.toLowerCase();
+      const filtered = q ? locs.filter(l => (l.name || '').toLowerCase().includes(q)) : locs;
+      for (const loc of filtered) {
+        const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(2) : '';
+        listEl.appendChild(el('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 0', borderBottom: '0.5px solid var(--border)', cursor: 'pointer' },
+          onClick: () => { selectedLocationId = loc.id; renderStep2(); },
+        }, [
+          el('div', { style: { flex: '1' } }, [
+            el('div', { style: { fontSize: '13px', fontWeight: '500' } }, [loc.name]),
+            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ac ${loc.fieldCode || ''}`]),
+          ]),
+          el('div', { style: { fontSize: '14px', color: 'var(--text3)' } }, ['\u203A']),
+        ]));
+      }
+      if (!filtered.length) listEl.appendChild(el('div', { className: 'empty' }, ['No crop or mixed-use locations']));
+    }
+    searchInput.addEventListener('input', renderFieldList);
+    contentEl.appendChild(searchInput);
+    contentEl.appendChild(listEl);
+    renderFieldList();
+  }
+
+  function renderStep2() {
+    clear(contentEl);
+    const loc = getById('locations', selectedLocationId);
+    contentEl.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '500', marginBottom: '8px' } }, [`Field: ${loc?.name || '?'}`]));
+
+    // Feed type tiles
+    const feedTypes = getAll('feedTypes').filter(ft => ft.harvestActive !== false && !ft.archived);
+    const tilesEl = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' } });
+    const detailsEl = el('div');
+
+    function renderTiles() {
+      clear(tilesEl);
+      for (const ft of feedTypes) {
+        const isSelected = selectedFeedTypes.some(s => s.feedTypeId === ft.id);
+        tilesEl.appendChild(el('button', {
+          type: 'button',
+          style: { padding: '10px 14px', borderRadius: 'var(--radius)', fontSize: '13px', fontWeight: '500', cursor: 'pointer', border: `1.5px solid ${isSelected ? 'var(--green)' : 'var(--border2)'}`, background: isSelected ? 'var(--green-l)' : 'transparent', color: isSelected ? 'var(--green-d)' : 'var(--text2)' },
+          onClick: () => {
+            const idx = selectedFeedTypes.findIndex(s => s.feedTypeId === ft.id);
+            if (idx >= 0) selectedFeedTypes.splice(idx, 1);
+            else selectedFeedTypes.push({ feedTypeId: ft.id, baleCount: 0, weightPerBale: ft.defaultWeightKg ? Math.round(convert(ft.defaultWeightKg, 'weight', 'toImperial')) : 0, notes: '' });
+            renderTiles(); renderDetails();
+          },
+        }, [`\uD83C\uDF3E ${ft.name}`]));
+      }
+    }
+
+    function renderDetails() {
+      clear(detailsEl);
+      for (const sel of selectedFeedTypes) {
+        const ft = feedTypes.find(f => f.id === sel.feedTypeId);
+        if (!ft) continue;
+        const baleInput = el('input', { type: 'number', min: '0', step: '1', placeholder: '0', value: sel.baleCount || '' });
+        baleInput.addEventListener('input', () => { sel.baleCount = parseInt(baleInput.value, 10) || 0; });
+        const weightInput = el('input', { type: 'number', min: '0', step: '1', placeholder: ft.defaultWeightKg ? Math.round(convert(ft.defaultWeightKg, 'weight', 'toImperial')) : '0', value: sel.weightPerBale || '' });
+        weightInput.addEventListener('input', () => { sel.weightPerBale = parseInt(weightInput.value, 10) || 0; });
+        const notesInput = el('input', { type: 'text', placeholder: 'Optional', value: sel.notes });
+        notesInput.addEventListener('input', () => { sel.notes = notesInput.value; });
+
+        detailsEl.appendChild(el('div', { style: { marginBottom: '14px', padding: '12px', background: 'var(--bg2)', borderRadius: 'var(--radius)' } }, [
+          el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, [ft.name]),
+          el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-end', marginBottom: '8px' } }, [
+            el('div', { className: 'field', style: { flex: '1' } }, [el('label', {}, ['Bale count']), baleInput]),
+            el('div', { className: 'field', style: { flex: '1' } }, [el('label', {}, ['Weight per bale (lbs)']), weightInput]),
+          ]),
+          el('div', { className: 'two' }, [
+            el('div', { className: 'field' }, [el('label', {}, ['Notes']), notesInput]),
+            el('div'),
+          ]),
+        ]));
+      }
+    }
+
+    renderTiles();
+    renderDetails();
+    contentEl.appendChild(tilesEl);
+    contentEl.appendChild(detailsEl);
+
+    const statusEl = el('div', { className: 'auth-error' });
+    contentEl.appendChild(statusEl);
+
+    contentEl.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [
+      el('button', { className: 'btn btn-green', onClick: () => {
+        clear(statusEl);
+        const lines = selectedFeedTypes.filter(s => s.baleCount > 0);
+        if (!lines.length) { statusEl.appendChild(el('span', {}, ['Add at least one feed type with bale count'])); return; }
+        try {
+          const harvestEvt = HarvestEventEntity.create({ operationId, locationId: selectedLocationId, harvestDate: dateInput.value || todayStr });
+          add('harvestEvents', harvestEvt, HarvestEventEntity.validate, HarvestEventEntity.toSupabaseShape, 'harvest_events');
+          // TODO: create harvest_event_fields per line when entity supports it
+          harvestSheet.close();
+        } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+      } }, ['Save harvest']),
+      el('button', { className: 'btn btn-outline', onClick: () => { selectedLocationId = null; selectedFeedTypes.length = 0; renderStep1(); } }, ['Back']),
+      el('button', { className: 'btn btn-outline', onClick: () => harvestSheet.close() }, ['Cancel']),
+    ]));
+  }
+
+  renderStep1();
+  harvestSheet.open();
+}
+
+// ─── Apply Input / Amendment Sheet ──────────────────────────────────────
+
+function ensureApplyInputSheetDOM() {
+  if (document.getElementById('apply-input-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'apply-input-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => applyInputSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'apply-input-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+  ]));
+}
+
+function openApplyInputSheet(operationId) {
+  ensureApplyInputSheetDOM();
+  if (!applyInputSheet) applyInputSheet = new Sheet('apply-input-wrap');
+  const panel = document.getElementById('apply-input-panel');
+  if (!panel) return;
+  clear(panel);
+  panel.appendChild(el('div', { className: 'sheet-handle' }));
+  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '14px' } }, ['Apply input / amendment']));
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let sourceType = 'product';
+  const selectedLocations = new Set();
+
+  // Date
+  const dateInput = el('input', { type: 'date', value: todayStr });
+  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Date applied']), dateInput]));
+
+  // Source toggle
+  const sourceSelect = el('select', {}, [
+    el('option', { value: 'product' }, ['Purchased product / input']),
+    el('option', { value: 'manure' }, ['Stored manure from inventory']),
+  ]);
+  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Source']), sourceSelect]));
+
+  // Product fields
+  const productFields = el('div');
+  const products = getAll('inputProducts');
+  const productSelect = el('select', {}, [
+    el('option', { value: '' }, ['\u2014 select product \u2014']),
+    ...products.map(p => el('option', { value: p.id }, [p.name])),
+  ]);
+  const qtyInput = el('input', { type: 'number', step: '0.01', placeholder: '0' });
+  productFields.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Product']), productSelect]));
+  productFields.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Quantity']), qtyInput]),
+    el('div'),
+  ]));
+  panel.appendChild(productFields);
+
+  // Manure fields (hidden by default)
+  const manureFields = el('div', { style: { display: 'none' } });
+  const manureBatches = getAll('manureBatches');
+  const manureSelect = el('select', {}, [
+    el('option', { value: '' }, ['\u2014 select batch \u2014']),
+    ...manureBatches.map(mb => el('option', { value: mb.id }, [mb.sourceName || `Batch ${mb.id.slice(0, 6)}`])),
+  ]);
+  const manurePctInput = el('input', { type: 'range', min: '1', max: '100', step: '1', value: '25', style: { flex: '1', accentColor: 'var(--green)' } });
+  const manurePctLabel = el('span', { style: { fontSize: '14px', fontWeight: '600', minWidth: '40px', textAlign: 'right' } }, ['25%']);
+  manurePctInput.addEventListener('input', () => { manurePctLabel.textContent = `${manurePctInput.value}%`; });
+  manureFields.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Manure batch']), manureSelect]));
+  manureFields.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' } }, [manurePctInput, manurePctLabel]));
+  panel.appendChild(manureFields);
+
+  // Source toggle handler
+  sourceSelect.addEventListener('change', () => {
+    sourceType = sourceSelect.value;
+    productFields.style.display = sourceType === 'product' ? 'block' : 'none';
+    manureFields.style.display = sourceType === 'manure' ? 'block' : 'none';
+  });
+
+  // Location multi-select
+  panel.appendChild(el('div', { className: 'field' }, [
+    el('label', {}, ['Apply to locations ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['select one or more'])]),
+  ]));
+  const locListEl = el('div', { style: { maxHeight: '200px', overflowY: 'auto', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', padding: '4px 0', marginBottom: '10px' } });
+  const allLocs = getAll('locations').filter(l => !l.archived);
+
+  function renderLocCheckboxes() {
+    clear(locListEl);
+    for (const loc of allLocs) {
+      const isChecked = selectedLocations.has(loc.id);
+      const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(2) : '';
+      locListEl.appendChild(el('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', cursor: 'pointer', background: isChecked ? 'var(--green-l)' : 'transparent' },
+        onClick: () => { if (isChecked) selectedLocations.delete(loc.id); else selectedLocations.add(loc.id); renderLocCheckboxes(); },
+      }, [
+        el('div', { style: { width: '16px', height: '16px', borderRadius: '4px', border: `1.5px solid ${isChecked ? 'var(--green)' : 'var(--border2)'}`, background: isChecked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' } },
+          isChecked ? [el('svg', { width: '10', height: '10', viewBox: '0 0 12 12', fill: 'none' }, [el('polyline', { points: '2,6 5,9 10,3', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })])] : []),
+        el('div', { style: { flex: '1', fontSize: '13px', fontWeight: '500' } }, [loc.name]),
+        areaVal ? el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ac`]) : null,
+      ].filter(Boolean)));
+    }
+  }
+  renderLocCheckboxes();
+  panel.appendChild(locListEl);
+
+  // Notes
+  const notesInput = el('input', { type: 'text', placeholder: 'Application method, conditions, applicator\u2026' });
+  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Notes ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), notesInput]));
+
+  const statusEl = el('div', { className: 'auth-error' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row' }, [
+    el('button', { className: 'btn btn-green', onClick: () => {
+      clear(statusEl);
+      if (!selectedLocations.size) { statusEl.appendChild(el('span', {}, ['Select at least one location'])); return; }
+      try {
+        const productName = sourceType === 'product' ? (products.find(p => p.id === productSelect.value)?.name || 'Unknown') : 'Manure application';
+        const amendment = AmendmentEntity.create({
+          operationId, date: dateInput.value || todayStr, productName,
+          sourceType, notes: notesInput.value.trim() || null,
+        });
+        add('amendments', amendment, AmendmentEntity.validate, AmendmentEntity.toSupabaseShape, 'amendments');
+
+        for (const locId of selectedLocations) {
+          const al = AmendmentLocationEntity.create({ operationId, amendmentId: amendment.id, locationId: locId });
+          add('amendmentLocations', al, AmendmentLocationEntity.validate, AmendmentLocationEntity.toSupabaseShape, 'amendment_locations');
+        }
+        applyInputSheet.close();
+      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+    } }, ['Record application']),
+    el('button', { className: 'btn btn-outline', onClick: () => applyInputSheet.close() }, ['Cancel']),
+  ]));
+
+  applyInputSheet.open();
 }

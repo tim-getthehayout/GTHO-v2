@@ -177,6 +177,8 @@ body {
   white-space: nowrap;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
 }
 
 .nav-link:hover {
@@ -1781,6 +1783,8 @@ body.field-mode .sheet-panel {
   gap: 2px;
   position: relative;
   padding: var(--space-1) 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
 }
 
 .bnav-item .nav-badge {
@@ -3060,6 +3064,8 @@ body.field-mode .sheet-panel {
 .qty-val { min-width:40px; text-align:center; font-size:15px; font-weight:600; }
 .two { display:flex; gap:10px; }
 .two > * { flex:1; }
+.three { display:flex; gap:10px; }
+.three > * { flex:1; }
 .field label { font-size:11px; color:var(--text2); display:block; margin-bottom:4px; }
 .field input { width:100%; padding:9px 10px; border:0.5px solid var(--border2); border-radius:8px; font-size:13px; background:var(--bg); box-sizing:border-box; font-family:inherit; }
 

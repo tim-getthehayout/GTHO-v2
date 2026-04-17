@@ -88,7 +88,9 @@ export function renderFieldModeHeader(isHome) {
       onClick: () => {
         if (isHome) {
           setFieldMode(false);
-          navigate('#/');
+          const returnTo = sessionStorage.getItem('gtho_field_mode_return') || '#/';
+          sessionStorage.removeItem('gtho_field_mode_return');
+          navigate(returnTo);
         } else {
           navigate('#/field');
         }

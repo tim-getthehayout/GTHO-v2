@@ -105,6 +105,7 @@ export function renderHeader(container) {
           className: 'btn btn-green btn-xs',
           'data-testid': 'header-field-mode-toggle',
           onClick: () => {
+            sessionStorage.setItem('gtho_field_mode_return', window.location.hash || '#/');
             setFieldMode(true);
             navigate('#/field');
           },

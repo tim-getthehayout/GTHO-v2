@@ -21,6 +21,7 @@ import { openSubmoveOpenSheet, openSubmoveCloseSheet } from './submove.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
 import { openEditGroupWindowDialog } from './edit-group-window.js';
 import { openMoveFeedOutSheet } from './move-feed-out.js';
+import { openEditPaddockWindowDialog } from './edit-paddock-window.js';
 
 /** Active subscriptions for this view */
 let unsubs = [];
@@ -477,15 +478,20 @@ function renderPaddocks(ctx) {
       ]),
     ]);
 
-    // Close button only for sub-paddocks (anchor-no-close rule)
+    // Action buttons
+    const pwBtns = el('div', { style: { display: 'flex', gap: '6px', marginTop: 'var(--space-2)' } });
+    pwBtns.appendChild(el('button', {
+      className: 'btn btn-outline btn-xs',
+      onClick: () => { const evt = getById('events', ctx.eventId); openEditPaddockWindowDialog(pw, evt, ctx.operationId); },
+    }, ['Edit']));
     if (!isAnchorOnly) {
-      pwCard.appendChild(el('button', {
+      pwBtns.appendChild(el('button', {
         className: 'btn btn-teal btn-xs',
-        style: { marginTop: 'var(--space-2)' },
         'data-testid': `detail-close-paddock-${pw.id}`,
         onClick: () => openSubmoveCloseSheet(pw, ctx.operationId),
       }, [t('event.closePaddock')]));
     }
+    pwCard.appendChild(pwBtns);
 
     card.appendChild(pwCard);
   }
@@ -1100,7 +1106,7 @@ function renderSubmoves(ctx) {
       el('span', {}, [`${locName} \u00B7 ${openDate} \u2013 ${closeDate}`]),
       isActive ? el('button', {
         className: 'btn btn-ghost btn-xs',
-        onClick: () => pw.dateClosed ? null : openSubmoveCloseSheet(pw, ctx.operationId),
+        onClick: () => { const evt = getById('events', ctx.eventId); openEditPaddockWindowDialog(pw, evt, ctx.operationId); },
       }, ['\u270E']) : null,
     ].filter(Boolean)));
   }

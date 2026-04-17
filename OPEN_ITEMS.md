@@ -4,6 +4,23 @@
 
 ---
 
+### OI-0080 — SP-9 Bulk Survey Header Missing + Implementation Audit
+**Added:** 2026-04-17 | **Area:** v2-build / surveys | **Priority:** P1
+**Checkpoint:** SP-9 correction
+**Status:** open — CORRECTION IN PROGRESS
+
+**What is wrong:** After SP-9 landed, the bulk survey sheet is missing its entire top action row. Six controls are absent: Cancel, DRAFT pill, Expand/Collapse all, Save Draft, Finish & Save, ✕ close. Only the date + filter rows render.
+
+**Why it is wrong:** Violates SP-9 acceptance criterion: "Bulk header matches v1 exactly: Cancel (red text) · DRAFT tag · Expand/Collapse all · Save Draft · Finish & Save · ✕ · date · farm pills (>1 farm) · type pills · search." Users cannot finish/save or explicitly cancel a bulk survey — only the auto-save-on-close fallback works.
+
+**Correct behavior:** Bulk header must render Row 1 (action buttons) per the `_renderBulkSurveyHeader()` extraction in spec §6.1. Mode switcher must make bulk header visible when mode is 'bulk'.
+
+**Files affected:** `src/features/locations/index.js` (openSurveySheet)
+
+**Scope expansion:** Full audit of SP-9 implementation — see SESSION_BRIEF_2026-04-17_sp9-bulk-header-audit.md for the 8-part checklist.
+
+---
+
 ### OI-0079 — Field Mode: Single Pasture Survey Picker Sheet
 **Added:** 2026-04-17 | **Area:** v2-build / field-mode | **Priority:** P3
 **Status:** open — interim fallback in place (navigates to #/locations)

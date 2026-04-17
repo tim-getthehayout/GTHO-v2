@@ -4,6 +4,35 @@
 
 ---
 
+### OI-0083 — SP-10: Retro-place flow (design required)
+**Added:** 2026-04-17 | **Area:** v2-build / events / groups | **Priority:** P2
+**Checkpoint:** SP-10 Phase 3
+**Status:** open — DESIGN REQUIRED, do not build
+
+**What:** Multi-step "retro-place" action that retroactively places a group on another event. Flow: reopen destination event → create group window on dest → close dest event → rollback everything if user cancels. Uses snapshot/rollback infrastructure from store.js.
+
+**Questions before implementation:**
+1. How does user pick the destination event? (Sheet picker? Dropdown of recent events?)
+2. What date range is used for the group window on the destination event?
+3. What happens if the destination event has active group conflicts?
+4. How is the "undo" surfaced after completion?
+
+---
+
+### OI-0084 — SP-10: §9 Feed check edit + re-snap invariant dialog (design required)
+**Added:** 2026-04-17 | **Area:** v2-build / events / feed | **Priority:** P2
+**Checkpoint:** SP-10 Phase 6
+**Status:** open — DESIGN REQUIRED, do not build
+
+**What:** Feed checks are currently add-only (check.js). Editing an existing check's remaining quantity can break the consumed(Ti→Ti+1) ≥ 0 invariant between check intervals. The re-snap dialog (Cases B/C/D) guards against this:
+- Case B (later-interval break): consumed goes negative between this check and the next → re-snap dialog
+- Case C (earlier-interval break): consumed goes negative between previous check and this → cancel only
+- Case D (back-fill): both neighbors need checking
+
+**Blocked by:** Feed check edit capability does not exist yet. This item covers both the edit UI and the invariant guards.
+
+---
+
 ### OI-0082 — SP-10 §8a: Move Feed Out (new capability)
 **Added:** 2026-04-17 | **Area:** v2-build / events / feed | **Priority:** P1
 **Checkpoint:** SP-10 §8a

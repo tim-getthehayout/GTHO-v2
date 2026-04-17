@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-17 | fix: SP-10 deferred — entry_type filtering in DMI-1/CST-1 + inline date_in edit + re-close overlap warning + recovery date preview. Dashboard negates removal quantities. Event summary date_in is editable with reject-on-narrow. Close flow warns on group overlap with other open events. §6 post-graze shows live recovery dates. OI-0083/OI-0084 added for retro-place and feed check edit (design required). | src/features/dashboard/index.js, src/features/events/detail.js, src/features/events/close.js, OPEN_ITEMS.md |
 | 2026-04-17 | feat: SP-10 Phase 5 — Event Reopen. Clears date_out + re-opens child windows + group conflict dialog. Reopen button on closed event detail sheet. | src/features/events/reopen-event.js, src/features/events/detail.js |
 | 2026-04-17 | feat: SP-10 Phase 4 — §12 paddock window edit + OI-0064 reopen. Date/area/strip edit, range guards, same-paddock overlap reject, delete guards, reopen closed windows. | src/features/events/edit-paddock-window.js, src/features/events/detail.js |
 | 2026-04-17 | feat: SP-10 Phase 3 — §7 group window edit. Date/headcount/weight edit, auto-save on blur, delete window, Edit button per group row. Move Feed Out button on §8. | src/features/events/edit-group-window.js, src/features/events/detail.js |

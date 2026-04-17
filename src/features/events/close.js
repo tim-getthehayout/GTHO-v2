@@ -156,6 +156,26 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
     }
   }
 
+  // Re-close overlap warning: check if any group on this event is also on another open event
+  const openGwsHere = getAll('eventGroupWindows').filter(gw => gw.eventId === evt.id && !gw.dateLeft);
+  const conflicts = [];
+  for (const gw of openGwsHere) {
+    const otherOpenGws = getAll('eventGroupWindows').filter(
+      g => g.groupId === gw.groupId && g.id !== gw.id && !g.dateLeft
+    );
+    for (const other of otherOpenGws) {
+      const otherEvt = getById('events', other.eventId);
+      if (otherEvt && !otherEvt.dateOut) {
+        const group = getById('groups', gw.groupId);
+        conflicts.push(`${group?.name || 'A group'} is also on "${otherEvt.name || 'another event'}" (still open)`);
+      }
+    }
+  }
+  if (conflicts.length) {
+    const msg = conflicts.join('\n') + '\n\nClosing this event will close these groups here but leave them on the other event(s). Proceed?';
+    if (!window.confirm(msg)) return;
+  }
+
   try {
     // 1. Create feed check if feed was delivered
     if (feedCheckInputs.length) {

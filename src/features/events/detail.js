@@ -735,16 +735,35 @@ function renderPostGraze(ctx) {
           savePostField({ postGrazeHeightCm: cm });
         },
       });
+      // Recovery date preview helper
+      const closedDate = pw?.dateClosed || null;
+      const recoveryPreview = el('div', { style: { fontSize: '11px', color: 'var(--text3)', marginTop: '2px' } });
+      function updateRecoveryPreview() {
+        clear(recoveryPreview);
+        if (!closedDate) { recoveryPreview.textContent = 'Recovery dates available after paddock closes'; return; }
+        const minD = parseInt(minInput.value, 10);
+        const maxD = parseInt(maxInput.value, 10);
+        if (isNaN(minD) && isNaN(maxD)) return;
+        const base = new Date(closedDate + 'T00:00:00');
+        const parts = [];
+        if (!isNaN(minD)) { const d = new Date(base.getTime() + minD * 86400000); parts.push(`earliest ${formatShortDate(d.toISOString().slice(0, 10))}`); }
+        if (!isNaN(maxD)) { const d = new Date(base.getTime() + maxD * 86400000); parts.push(`latest ${formatShortDate(d.toISOString().slice(0, 10))}`); }
+        if (parts.length) recoveryPreview.textContent = `Ready: ${parts.join(' \u2013 ')}`;
+      }
+
       const minInput = el('input', {
         type: 'number', className: 'obs-input', style: { width: '52px' }, step: '1',
         value: obs.recoveryMinDays ?? '', disabled: !canEdit,
         onBlur: () => { const v = parseInt(minInput.value, 10); savePostField({ recoveryMinDays: !isNaN(v) ? v : null }); },
+        onInput: () => updateRecoveryPreview(),
       });
       const maxInput = el('input', {
         type: 'number', className: 'obs-input', style: { width: '52px' }, step: '1',
         value: obs.recoveryMaxDays ?? '', disabled: !canEdit,
         onBlur: () => { const v = parseInt(maxInput.value, 10); savePostField({ recoveryMaxDays: !isNaN(v) ? v : null }); },
+        onInput: () => updateRecoveryPreview(),
       });
+      updateRecoveryPreview();
 
       card.appendChild(el('div', { style: { padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' } }, [
         label ? el('div', { style: { fontWeight: '500', fontSize: '13px', marginBottom: '4px' } }, [label]) : null,
@@ -758,6 +777,7 @@ function renderPostGraze(ctx) {
           el('span', { style: { color: 'var(--text2)' } }, ['days']),
           postSaved,
         ]),
+        recoveryPreview,
       ].filter(Boolean)));
     }
   }

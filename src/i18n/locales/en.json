@@ -872,7 +872,18 @@
     "noTasks": "No tasks.",
     "fedToday": "Fed",
     "notFed": "Not fed",
-    "done": "Done"
+    "done": "Done",
+    "moveAnimals": "Move Animals",
+    "feedCheck": "Feed Check",
+    "surveySingle": "Pasture Survey",
+    "recordHeat": "Record Heat",
+    "noModules": "No modules active — go to Settings to add tiles.",
+    "modulesTitle": "Field Mode Modules",
+    "modulesHint": "Choose which tiles appear on your field mode home screen.",
+    "homeTitle": "Field mode",
+    "homeHint": "Tap to log. Use ← Detail in the header to return to the full app.",
+    "noOpenEvents": "No open events.",
+    "noStoredFeed": "No events with stored feed."
   },
   "reports": {
     "tabFeed": "Feed & DMI",

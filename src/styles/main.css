@@ -1441,32 +1441,6 @@ body {
 }
 
 /* Field mode */
-.field-mode-header {
-  background: var(--color-green-dark);
-  padding: var(--space-3) var(--space-5);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: #fff;
-}
-
-.field-mode-header-btn {
-  background: none;
-  border: none;
-  color: #fff;
-  font-family: var(--font-family);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  padding: var(--space-2) var(--space-3);
-}
-
-.field-mode-header-title {
-  font-size: 12px;
-  color: var(--color-green-light);
-  font-weight: 500;
-}
-
 .field-mode-tiles {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1507,6 +1481,14 @@ body.field-mode .sheet-panel {
   border-radius: 0;
   max-height: 100vh;
   max-width: 100%;
+}
+body.field-mode .dsk-sidebar { display: none !important; }
+body.field-mode .bottom-nav { display: none !important; }
+body.field-mode .header-sub-row { display: none !important; }
+body.field-mode .header-build-stamp { display: none !important; }
+body.field-mode .sheet-handle { display: none; }
+@media (min-width: 900px) {
+  body.field-mode #app { grid-template-columns: 1fr; grid-template-areas: "header" "content"; }
 }
 
 /* Feed status dot */

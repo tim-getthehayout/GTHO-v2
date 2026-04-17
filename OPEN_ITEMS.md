@@ -4,6 +4,41 @@
 
 ---
 
+### OI-0079 — Field Mode: Single Pasture Survey Picker Sheet
+**Added:** 2026-04-17 | **Area:** v2-build / field-mode | **Priority:** P3
+**Status:** open — interim fallback in place (navigates to #/locations)
+
+**Problem:** V1 has a dedicated pasture survey picker sheet for field mode single survey — user selects a location, then the survey form opens for that location. V2 field mode survey-single tile currently navigates to the locations screen as an interim.
+
+**Fix:** Build `openPastureSurveyPickerSheet()` with farm/type filter pills and location cards, similar to the harvest field picker. On selection, open `openSurveySheet(locationId, operationId)`.
+
+---
+
+### OI-0078 — Field Mode: Heat Picker Sheet
+**Added:** 2026-04-17 | **Area:** v2-build / field-mode | **Priority:** P3
+**Status:** open — interim fallback in place (opens heat sheet for first eligible female)
+
+**Problem:** V1 has a dedicated heat picker sheet — 2-step flow: animal picker (female-filtered, group-filtered to active events), then heat recording form. V2 field mode heat tile currently opens `openHeatSheet` for the first female animal in active event groups.
+
+**Fix:** Build `openHeatPickerSheet()` with group filter and animal list filtered to females in active events. On selection, open `openHeatSheet(animal, operationId)`.
+
+---
+
+### OI-0077 — i18n Pass: Hardcoded English Strings Across UI Sprint Screens
+**Added:** 2026-04-17 | **Area:** v2-build / i18n | **Priority:** P3
+**Checkpoint:** post-UI-sprint
+**Status:** open — deferred, batch fix
+
+**Problem:** All UI sprint screens (animals, feed check, feed deliver, dashboard cards, sidebar/header, locations + all 7 connected dialogs) use hardcoded English strings for labels, placeholders, buttons, and messages instead of routing through `t()` from `src/i18n/`. The app is English-only today so this has zero user impact, but it means the i18n infrastructure isn't wired for these screens.
+
+**Scope:** Mechanical fix — no logic or layout changes. For each screen: (1) identify every hardcoded user-facing string, (2) add a key to the locale file, (3) wrap with `t()`. Estimate ~200–300 strings across all sprint screens.
+
+**Fix:** Single dedicated session after the UI sprint is complete. Do all screens in one pass to avoid per-screen overhead.
+
+**No schema impact. No CP-55/CP-56 impact.**
+
+---
+
 ### OI-0076 — DMI Chart Empty Bars — Deferred Until Fresh V2 Test Data
 **Added:** 2026-04-17 | **Area:** v2-build / UI | **Priority:** P3
 **Checkpoint:** post-UI-sprint

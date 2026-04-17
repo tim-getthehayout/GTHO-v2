@@ -8,6 +8,8 @@ import { validateBackup, getBackupPreview, importOperationBackup } from '../../d
 import { pushAllToSupabase } from '../../data/push-all.js';
 import { validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
 import { validate as validateUserPref, toSupabaseShape as prefToSb } from '../../entities/user-preference.js';
+import { FIELD_MODULES, FIELD_MODULES_DEFAULT } from '../field-mode/index.js';
+import { getUser } from '../auth/session.js';
 import { logout } from '../auth/session.js';
 import {
   renderAiBullsSection, renderTreatmentCategoriesSection,
@@ -43,6 +45,7 @@ export function renderSettingsScreen(container) {
     renderUnitSection(container),
     renderFarmSection(farmSettings, container),
     renderPrefSection(userPrefs, container),
+    renderFieldModulesCard(container),
     renderMembersSection(operationId),
     // Health reference tables (CP-32)
     renderAiBullsSection(operationId),
@@ -214,6 +217,39 @@ function renderPrefSection(prefs, rootContainer) {
       ]),
     ]),
   ]);
+}
+
+function renderFieldModulesCard(rootContainer) {
+  const user = getUser();
+  const prefs = getAll('userPreferences').find(p => p.userId === user?.id);
+  if (!prefs) return el('div');
+
+  const activeKeys = prefs.fieldModeQuickActions || [...FIELD_MODULES_DEFAULT];
+
+  const card = el('div', { className: 'card settings-card', style: { marginBottom: '10px' } });
+  card.appendChild(el('h3', { className: 'settings-section-title' }, [t('fieldMode.modulesTitle')]));
+  card.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '10px' } }, [t('fieldMode.modulesHint')]));
+
+  for (const mod of FIELD_MODULES) {
+    const isOn = activeKeys.includes(mod.key);
+    const row = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
+      el('div', { style: { fontSize: '13px' } }, [`${mod.icon} ${t(mod.labelKey)}`]),
+      el('button', {
+        type: 'button',
+        style: { padding: '4px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isOn ? 'var(--green)' : 'var(--border)'}`, background: isOn ? 'var(--green)' : 'transparent', color: isOn ? 'white' : 'var(--text2)' },
+        onClick: () => {
+          const newKeys = isOn ? activeKeys.filter(k => k !== mod.key) : [...activeKeys, mod.key];
+          update('userPreferences', prefs.id, { fieldModeQuickActions: newKeys }, validateUserPref, prefToSb, 'user_preferences');
+          // Re-render the card
+          const parent = card.parentElement;
+          if (parent) { const newCard = renderFieldModulesCard(rootContainer); card.replaceWith(newCard); }
+        },
+      }, [isOn ? '\u2713 On' : 'Off']),
+    ]);
+    card.appendChild(row);
+  }
+
+  return card;
 }
 
 function renderMembersSection(operationId) {

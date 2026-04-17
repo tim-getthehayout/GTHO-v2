@@ -4,7 +4,7 @@
 import { el, clear } from './dom.js';
 import { t } from '../i18n/i18n.js';
 import { navigate } from './router.js';
-import { setFieldMode } from '../utils/preferences.js';
+import { setFieldMode, getFieldMode } from '../utils/preferences.js';
 import { getAll, add, subscribe, getSyncAdapter, getActiveFarmId, setActiveFarm } from '../data/store.js';
 import { getOpenTodoCount } from '../features/todos/index.js';
 import { getUser, logout } from '../features/auth/session.js';
@@ -101,15 +101,7 @@ export function renderHeader(container) {
       el('div', { className: 'header-right' }, [
         renderSyncIndicator(),
         el('span', { className: 'header-build-stamp', 'data-testid': 'header-build-stamp' }, [buildVersion]),
-        el('button', {
-          className: 'btn btn-green btn-xs',
-          'data-testid': 'header-field-mode-toggle',
-          onClick: () => {
-            sessionStorage.setItem('gtho_field_mode_return', window.location.hash || '#/');
-            setFieldMode(true);
-            navigate('#/field');
-          },
-        }, [t('fieldMode.enter')]),
+        renderFieldModePill(),
         el('button', {
           className: 'header-user-btn',
           'data-testid': 'header-user-menu',
@@ -321,6 +313,46 @@ function renderBottomNav(todoCount) {
     nav.appendChild(btn);
   }
   return nav;
+}
+
+// ---------------------------------------------------------------------------
+// Field mode pill (SP-8)
+// ---------------------------------------------------------------------------
+
+function renderFieldModePill() {
+  const isFieldMode = getFieldMode();
+  const isFieldHome = (window.location.hash || '#/') === '#/field';
+
+  let pillText, pillClass, pillHandler;
+
+  if (!isFieldMode) {
+    pillText = '\u229E Field';
+    pillClass = 'btn btn-outline btn-xs';
+    pillHandler = () => {
+      window.sessionStorage.setItem('gtho_field_mode_return', window.location.hash || '#/');
+      setFieldMode(true);
+      navigate('#/field');
+    };
+  } else if (isFieldHome) {
+    pillText = '\u2190 Detail';
+    pillClass = 'btn btn-green btn-xs';
+    pillHandler = () => {
+      setFieldMode(false);
+      const returnTo = window.sessionStorage.getItem('gtho_field_mode_return') || '#/';
+      window.sessionStorage.removeItem('gtho_field_mode_return');
+      navigate(returnTo);
+    };
+  } else {
+    pillText = '\u2302 Home';
+    pillClass = 'btn btn-green btn-xs';
+    pillHandler = () => navigate('#/field');
+  }
+
+  return el('button', {
+    className: pillClass,
+    'data-testid': 'header-field-mode-toggle',
+    onClick: pillHandler,
+  }, [pillText]);
 }
 
 // ---------------------------------------------------------------------------

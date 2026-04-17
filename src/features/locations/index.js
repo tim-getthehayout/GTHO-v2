@@ -558,7 +558,7 @@ function ensureSurveySheetDOM() {
   ]));
 }
 
-function openSurveySheet(locationId, operationId) {
+export function openSurveySheet(locationId, operationId) {
   ensureSurveySheetDOM();
   if (!surveySheet) surveySheet = new Sheet('survey-sheet-wrap');
   const panel = document.getElementById('survey-sheet-panel');
@@ -681,7 +681,7 @@ function ensureFeedTypesSheetDOM() {
   ]));
 }
 
-function openFeedTypesSheet(operationId) {
+export function openFeedTypesSheet(operationId) {
   ensureFeedTypesSheetDOM();
   if (!feedTypesSheet) feedTypesSheet = new Sheet('feed-types-wrap');
   const panel = document.getElementById('feed-types-panel');

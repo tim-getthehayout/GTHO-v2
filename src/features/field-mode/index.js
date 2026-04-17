@@ -17,6 +17,7 @@ import { openFeedCheckSheet } from '../feed/check.js';
 import { openMoveWizard } from '../events/move-wizard.js';
 import { openSurveySheet } from '../locations/index.js';
 import { openTodoSheet } from '../todos/todo-sheet.js';
+import { buildLocationCard } from '../dashboard/index.js';
 import * as TodoEntity from '../../entities/todo.js';
 import * as HeatRecordEntity from '../../entities/animal-heat-record.js';
 
@@ -514,52 +515,18 @@ function renderActiveEvents(container) {
       el('div', { style: { fontSize: '14px', color: 'var(--text3)' } }, [isExpanded ? '\u25BE' : '\u203A']),
     ]));
 
-    // Expanded detail section
+    // Expanded: full location card from dashboard
     if (isExpanded) {
-      const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === evt.id);
-      const feedChecks = getAll('eventFeedChecks').filter(fc => fc.eventId === evt.id);
-      const feedCount = feedEntries.length;
-      const checkCount = feedChecks.length;
+      const locationCard = buildLocationCard(evt, opId, farmId, unitSys);
+      // Strip the card's own border so the teal wrapper provides the visual frame
+      locationCard.style.borderLeft = 'none';
+      locationCard.style.border = 'none';
+      locationCard.style.borderRadius = '0';
+      locationCard.style.boxShadow = 'none';
 
-      // Feed cost estimate
-      const batches = getAll('batches');
-      const batchMap = new Map(batches.map(b => [b.id, b]));
-      let totalCost = 0;
-      for (const fe of feedEntries) {
-        const batch = batchMap.get(fe.batchId);
-        const qty = fe.entryType === 'removal' ? -(fe.quantity ?? 0) : (fe.quantity ?? 0);
-        totalCost += qty * (batch?.costPerUnit ?? 0);
-      }
-
-      // Feed status line
-      const fedToday = feedEntries.some(fe => fe.date === todayStr && fe.entryType !== 'removal');
-      const feedParts = [];
-      if (fedToday) feedParts.push('Fed today \u2713');
-      if (feedCount > 0) feedParts.push(`${feedCount} feed entr${feedCount === 1 ? 'y' : 'ies'}`);
-      if (checkCount > 0) feedParts.push(`${checkCount} feed check${checkCount === 1 ? '' : 's'}`);
-      const feedStatusLine = feedParts.length ? feedParts.join(' \u00B7 ') : 'No feed entries';
-
-      const detail = el('div', { style: { padding: '8px 12px 10px', borderTop: '0.5px solid var(--border)' } }, [
-        // Date in + cost
-        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '6px' } }, [
-          `In: ${evt.dateIn ? formatShortDate(evt.dateIn) : '\u2014'} \u00B7 Est. cost: $${totalCost.toFixed(0)}`,
-        ]),
-        // Per-group details
-        ...gws.map(gw => {
-          const g = getById('groups', gw.groupId);
-          const wt = gw.avgWeightKg ? (unitSys === 'imperial' ? convert(gw.avgWeightKg, 'weight', 'toImperial') : gw.avgWeightKg) : 0;
-          const wtLabel = unitSys === 'imperial' ? 'lbs' : 'kg';
-          return el('div', { style: { fontSize: '12px', marginBottom: '2px' } }, [
-            `${g?.name || '?'}: ${gw.headCount ?? 0} hd \u00B7 ${Math.round(wt).toLocaleString()} ${wtLabel} avg`,
-          ]);
-        }),
-        // Feed status
-        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '4px' } }, [feedStatusLine]),
-        // Move all button — inside expanded section
-        el('div', { style: { marginTop: '8px', textAlign: 'right' } }, [
-          el('button', { className: 'btn btn-teal btn-sm', style: { padding: '4px 12px' }, onClick: () => openMoveWizard(evt, opId, farmId) }, ['Move all']),
-        ]),
-      ]);
+      const detail = el('div', {
+        style: { borderTop: '0.5px solid var(--border)' },
+      }, [locationCard]);
       card.appendChild(detail);
     }
 

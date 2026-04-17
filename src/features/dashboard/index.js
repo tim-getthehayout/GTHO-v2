@@ -873,7 +873,7 @@ function renderLocationsView(gridEl) {
 // §17.7a: Location card builder (SP-3 — v1 parity)
 // ---------------------------------------------------------------------------
 
-function buildLocationCard(event, operationId, farmId, unitSys) {
+export function buildLocationCard(event, operationId, farmId, unitSys) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const allPws = getAll('eventPaddockWindows').filter(w => w.eventId === event.id);
   const openPws = allPws.filter(w => !w.dateClosed);

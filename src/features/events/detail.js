@@ -12,10 +12,10 @@ import { getCalcByName } from '../../utils/calc-registry.js';
 import { logger } from '../../utils/logger.js';
 import * as EventEntity from '../../entities/event.js';
 import * as EventObsEntity from '../../entities/event-observation.js';
+import * as BatchEntity from '../../entities/batch.js';
 import { openMoveWizard } from './move-wizard.js';
 import { openCloseEventSheet } from './close.js';
 import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
-import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { openSubmoveOpenSheet, openSubmoveCloseSheet } from './submove.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
@@ -24,6 +24,13 @@ import { openMoveFeedOutSheet } from './move-feed-out.js';
 import { openEditPaddockWindowDialog } from './edit-paddock-window.js';
 import { reopenEvent } from './reopen-event.js';
 import { openEditFeedCheckDialog } from './edit-feed-check.js';
+import {
+  renderInlineFeedForm,
+  openAddMode as openFeedFormAdd,
+  openEditMode as openFeedFormEdit,
+  isFormOpen as isFeedFormOpen,
+  closeForm as closeFeedForm,
+} from './feed-entry-inline-form.js';
 
 /** Active subscriptions for this view */
 let unsubs = [];
@@ -863,6 +870,8 @@ function renderGroups(ctx) {
 // §8: Feed Entries
 // ---------------------------------------------------------------------------
 
+const KG_TO_LBS = 2.20462;
+
 function renderFeedEntries(ctx) {
   const el2 = ctx.sections.feedEntries;
   clear(el2);
@@ -870,53 +879,104 @@ function renderFeedEntries(ctx) {
   if (!event) return;
 
   const isActive = !event.dateOut;
-  const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === ctx.eventId);
+  const feedEntries = getAll('eventFeedEntries')
+    .filter(fe => fe.eventId === ctx.eventId && fe.entryType !== 'removal');
   const batches = getAll('batches');
   const batchMap = new Map(batches.map(b => [b.id, b]));
 
-  const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
-    el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.feedEntries')]),
-  ]);
+  const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } });
 
+  // Section header — title + "+ Add feed" button (v1 pattern)
+  const headerChildren = [
+    el('div', { className: 'sec', style: { margin: '0' } }, [t('event.feedEntries')]),
+  ];
+  if (isActive) {
+    headerChildren.push(el('button', {
+      className: 'btn btn-green btn-xs',
+      'data-testid': 'detail-add-feed',
+      onClick: () => {
+        openFeedFormAdd(event);
+        renderFeedEntries(ctx);
+      },
+    }, ['+ Add feed']));
+  }
+  card.appendChild(el('div', {
+    style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' },
+  }, headerChildren));
+
+  // List of existing entries
+  const list = el('div', { style: { marginBottom: '10px' } });
   if (!feedEntries.length) {
-    card.appendChild(el('div', { className: 'form-hint' }, [t('event.noFeedEntries')]));
-  }
+    list.appendChild(el('div', { className: 'form-hint' }, [t('event.noFeedEntries')]));
+  } else {
+    for (const fe of feedEntries) {
+      const batch = batchMap.get(fe.batchId);
+      const feedName = batch?.name || '?';
+      const unit = batch?.unit || '';
+      const desc = `${fe.quantity ?? 0} ${unit} ${feedName}`.trim();
+      const cost = (fe.quantity || 0) * (batch?.costPerUnit ?? 0);
+      const dmiKg = (fe.quantity || 0) * (batch?.weightPerUnitKg ?? 0) * ((batch?.dmPct ?? 0) / 100);
+      const dmiLbs = dmiKg * KG_TO_LBS;
 
-  for (const fe of feedEntries) {
-    const batch = batchMap.get(fe.batchId);
-    const feedName = batch?.feedName || '?';
-    const cost = (fe.quantity || 0) * (batch?.costPerUnit ?? 0);
-
-    card.appendChild(el('div', {
-      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--border)', fontSize: '13px' },
-    }, [
-      el('div', {}, [
-        `${feedName} \u00B7 ${fe.quantity ?? 0} \u00B7 ${fe.deliveryDate || ''} \u00B7 $${cost.toFixed(2)}`,
-      ]),
-      isActive ? el('div', { style: { display: 'flex', gap: '4px' } }, [
-        el('button', {
-          className: 'btn btn-ghost btn-xs',
-          onClick: () => openDeliverFeedSheet(event, ctx.operationId),
-        }, ['\u270E']),
-        el('button', {
-          className: 'btn btn-ghost btn-xs',
+      const rightChildren = [
+        el('div', {
+          style: { textAlign: 'right', fontSize: '12px', color: 'var(--text2)', lineHeight: '1.4' },
+        }, [
+          el('div', {}, [`${Math.round(dmiLbs)} lbs DMI`]),
+          el('div', {}, [`$${cost.toFixed(2)}`]),
+        ]),
+      ];
+      if (isActive) {
+        rightChildren.push(el('button', {
+          className: 'btn btn-outline btn-xs',
           onClick: () => {
-            if (confirm(t('event.confirmDeleteFeed'))) {
-              remove('eventFeedEntries', fe.id, 'event_feed_entries');
-            }
+            openFeedFormEdit(fe);
+            renderFeedEntries(ctx);
           },
-        }, ['\u2715']),
-      ]) : null,
-    ].filter(Boolean)));
+        }, ['Edit']));
+        rightChildren.push(el('button', {
+          className: 'btn btn-outline btn-xs',
+          style: { color: 'var(--red-d)', borderColor: 'var(--red-d)' },
+          onClick: () => {
+            if (!confirm(t('event.confirmDeleteFeed'))) return;
+            // Restore inventory before removing the entry
+            if (batch) {
+              const newRemaining = (batch.remaining ?? 0) + (fe.quantity ?? 0);
+              update('batches', batch.id, { remaining: newRemaining }, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+            }
+            remove('eventFeedEntries', fe.id, 'event_feed_entries');
+          },
+        }, ['\u00D7']));
+      }
+
+      list.appendChild(el('div', {
+        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '7px 0', borderBottom: '0.5px solid var(--border)' },
+      }, [
+        el('div', { style: { flex: '1', minWidth: '0' } }, [
+          el('div', { style: { fontSize: '13px', fontWeight: '500' } }, [formatShortDate(fe.date) || '\u2014']),
+          el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [desc || '\u2014']),
+        ]),
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: '0' } }, rightChildren),
+      ]));
+    }
+  }
+  card.appendChild(list);
+
+  // Inline add/edit form mount — survives subscriber-triggered re-renders via module state
+  const formContainer = el('div', { 'data-testid': 'feed-entry-inline-form' });
+  card.appendChild(formContainer);
+  if (isActive && isFeedFormOpen()) {
+    renderInlineFeedForm(formContainer, {
+      event,
+      operationId: ctx.operationId,
+      onAfterSave: () => renderFeedEntries(ctx),
+      onAfterCancel: () => renderFeedEntries(ctx),
+    });
   }
 
+  // Footer: Move feed out only (Deliver feed big button removed — replaced by + Add feed in header)
   if (isActive) {
     card.appendChild(el('div', { style: { display: 'flex', gap: '6px', marginTop: 'var(--space-3)' } }, [
-      el('button', {
-        className: 'btn btn-outline btn-sm',
-        'data-testid': 'detail-deliver-feed',
-        onClick: () => openDeliverFeedSheet(event, ctx.operationId),
-      }, [t('event.deliverFeed')]),
       el('button', {
         className: 'btn btn-outline btn-sm',
         onClick: () => openMoveFeedOutSheet(event, ctx.operationId, ctx.farmId),

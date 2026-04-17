@@ -7,11 +7,12 @@ import '../../src/calcs/core.js';
 import '../../src/calcs/feed-forage.js';
 import '../../src/calcs/advanced.js';
 import '../../src/calcs/capacity.js';
+import '../../src/calcs/survey-bale-ring.js';
 
 describe('calculation engine', () => {
-  it('registers 38 formulas', () => {
+  it('registers 39 formulas', () => {
     const calcs = getAllCalcs();
-    expect(calcs.length).toBe(38);
+    expect(calcs.length).toBe(39);
   });
 
   it('has formulas in all expected categories', () => {

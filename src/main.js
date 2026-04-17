@@ -40,6 +40,7 @@ import './calcs/core.js';
 import './calcs/feed-forage.js';
 import './calcs/advanced.js';
 import './calcs/capacity.js';
+import './calcs/survey-bale-ring.js';
 
 /**
  * Boot the application.

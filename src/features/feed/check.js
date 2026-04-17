@@ -4,6 +4,8 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add } from '../../data/store.js';
+import { getFieldMode } from '../../utils/preferences.js';
+import { navigate } from '../../ui/router.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 
@@ -271,6 +273,7 @@ export function openFeedCheckSheet(evt, operationId) {
       }
 
       feedCheckSheet.close();
+      if (getFieldMode()) navigate('#/field');
     },
   }, [t('feed.feedCheckSaveBtn')]));
 

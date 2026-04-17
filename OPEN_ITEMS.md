@@ -119,11 +119,7 @@ Check constraints: `entry_type = 'removal'` → `destination_type IS NOT NULL`; 
 
 ### OI-0078 — Field Mode: Heat Picker Sheet
 **Added:** 2026-04-17 | **Area:** v2-build / field-mode | **Priority:** P3
-**Status:** open — interim fallback in place (opens heat sheet for first eligible female)
-
-**Problem:** V1 has a dedicated heat picker sheet — 2-step flow: animal picker (female-filtered, group-filtered to active events), then heat recording form. V2 field mode heat tile currently opens `openHeatSheet` for the first female animal in active event groups.
-
-**Fix:** Build `openHeatPickerSheet()` with group filter and animal list filtered to females in active events. On selection, open `openHeatSheet(animal, operationId)`.
+**Status:** closed — 2026-04-17. 2-step heat picker built: animal selection with event/group filter pills + search, then recording form. Stays open for multi-record. Toast on save.
 
 ---
 

@@ -3071,6 +3071,15 @@ body.field-mode .sheet-panel {
 .field select { width:100%; padding:9px 10px; border:0.5px solid var(--border2); border-radius:8px; font-size:13px; background:var(--bg); box-sizing:border-box; font-family:inherit; color:var(--text); }
 .field select:focus { outline:none; border-color:var(--color-green-base); }
 
+/* SP-6: Feedback category pills */
+.cat-pill.cp-bug.sel { background:var(--red-l); color:var(--red-d); border-color:var(--red); }
+.cat-pill.cp-ux.sel { background:var(--amber-l); color:var(--amber-d); border-color:var(--amber); }
+.cat-pill.cp-feature.sel { background:var(--purple-l); color:var(--purple-d); border-color:var(--purple); }
+.cat-pill.cp-calc.sel { background:var(--teal-l); color:var(--teal-d); border-color:var(--teal); }
+.cat-pill.cp-idea.sel { background:var(--green-l); color:var(--green-d); border-color:var(--green); }
+.cat-pill.cp-roadblock.sel { background:var(--red-l); color:var(--red-d); border-color:var(--red); }
+.cat-pill.cp-question.sel { background:var(--teal-l); color:var(--teal-d); border-color:var(--teal); }
+
 /* SP-2: Observation inline fields */
 .obs-input {
   border: 1px solid var(--border);

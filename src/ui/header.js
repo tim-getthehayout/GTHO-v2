@@ -5,9 +5,11 @@ import { el, clear } from './dom.js';
 import { t } from '../i18n/i18n.js';
 import { navigate } from './router.js';
 import { setFieldMode } from '../utils/preferences.js';
-import { getAll, subscribe, getSyncAdapter, getActiveFarmId, setActiveFarm } from '../data/store.js';
+import { getAll, add, subscribe, getSyncAdapter, getActiveFarmId, setActiveFarm } from '../data/store.js';
 import { getOpenTodoCount } from '../features/todos/index.js';
 import { getUser, logout } from '../features/auth/session.js';
+import { Sheet } from './sheet.js';
+import * as SubmissionEntity from '../entities/submission.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -111,6 +113,24 @@ export function renderHeader(container) {
           onClick: (e) => toggleUserMenu(e, email),
         }, [initials]),
       ].filter(Boolean)),
+    ]),
+    // SP-6: Feedback & Help sub-row
+    el('div', {
+      className: 'header-sub-row',
+      style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '0 12px 4px', borderBottom: '1px solid var(--border)', background: 'var(--bg)' },
+    }, [
+      el('button', {
+        className: 'btn btn-outline btn-xs',
+        style: { fontSize: '11px', fontWeight: '500', padding: '3px 10px' },
+        'data-testid': 'header-feedback-btn',
+        onClick: () => openFeedbackSheet('feedback', operationId),
+      }, ['\uD83D\uDCAC Feedback']),
+      el('button', {
+        className: 'btn btn-outline btn-xs',
+        style: { fontSize: '11px', fontWeight: '500', padding: '3px 10px' },
+        'data-testid': 'header-help-btn',
+        onClick: () => openFeedbackSheet('support', operationId),
+      }, ['\uD83C\uDD98 Get Help']),
     ]),
     nav,
   ]);
@@ -356,4 +376,125 @@ function updateBadges() {
     mobileBadge.textContent = count > 0 ? String(count) : '';
     mobileBadge.style.display = count > 0 ? '' : 'none';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Feedback & Help sheet (SP-6)
+// ---------------------------------------------------------------------------
+
+let feedbackSheet = null;
+
+function ensureFeedbackSheetDOM() {
+  if (document.getElementById('fb-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'fb-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => feedbackSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'fb-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+  ]));
+}
+
+function getScreenFromHash() {
+  const hash = window.location.hash || '#/';
+  const map = { '#/': 'dashboard', '#/animals': 'animals', '#/events': 'rotation-calendar', '#/locations': 'locations', '#/feed': 'feed', '#/todos': 'todos', '#/reports': 'reports', '#/settings': 'settings', '#/field': 'field-mode' };
+  return map[hash.split('?')[0]] || 'other';
+}
+
+function openFeedbackSheet(type, operationId) {
+  ensureFeedbackSheetDOM();
+  if (!feedbackSheet) feedbackSheet = new Sheet('fb-sheet-wrap');
+  const panel = document.getElementById('fb-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+  panel.appendChild(el('div', { className: 'sheet-handle' }));
+
+  const isFeedback = type === 'feedback';
+  const title = isFeedback ? 'Leave feedback' : 'Get help';
+  const placeholder = isFeedback ? 'What did you notice? What did you expect?' : 'Describe what you need help with\u2026';
+
+  const screen = getScreenFromHash();
+  let selectedCategory = null;
+
+  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '10px' } }, [title]));
+
+  // Context tag
+  panel.appendChild(el('div', { className: 'ctx-tag', style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 10px', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', fontSize: '12px', color: 'var(--text2)', marginBottom: '14px' } }, [screen]));
+
+  // Category pills
+  panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '8px' } }, ['Category']));
+  const categories = [
+    { key: 'roadblock', label: '\uD83D\uDEA7 Roadblock', cls: 'cp-roadblock' },
+    { key: 'bug', label: 'Bug', cls: 'cp-bug' },
+    { key: 'ux', label: 'UX friction', cls: 'cp-ux' },
+    { key: 'feature', label: 'Missing feature', cls: 'cp-feature' },
+    { key: 'calc', label: 'Calculation', cls: 'cp-calc' },
+    { key: 'idea', label: 'Idea', cls: 'cp-idea' },
+    { key: 'question', label: 'Question', cls: 'cp-question' },
+  ];
+  const pillsEl = el('div', { className: 'cat-pills', style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px' } });
+
+  function renderPills() {
+    clear(pillsEl);
+    for (const cat of categories) {
+      const isActive = selectedCategory === cat.key;
+      pillsEl.appendChild(el('button', {
+        type: 'button',
+        className: `cat-pill ${cat.cls}${isActive ? ' sel' : ''}`,
+        style: { padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: cat.key === 'roadblock' ? '700' : '500', cursor: 'pointer', border: '0.5px solid var(--border2)', background: 'transparent', color: 'var(--text2)' },
+        onClick: () => { selectedCategory = cat.key; renderPills(); },
+      }, [cat.label]));
+    }
+  }
+  renderPills();
+  panel.appendChild(pillsEl);
+
+  // Area dropdown
+  const areaSelect = el('select', {}, [
+    el('option', { value: '' }, ['\u2014 pick area \u2014']),
+    ...['dashboard', 'animals', 'rotation-calendar', 'locations', 'feed', 'harvest', 'field-mode', 'reports', 'todos', 'settings', 'sync', 'other'].map(a =>
+      el('option', { value: a, selected: a === screen }, [a.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())])),
+  ]);
+  panel.appendChild(el('div', { className: 'field', style: { marginTop: '10px' } }, [el('label', {}, ['Area']), areaSelect]));
+
+  // Priority (Get Help only)
+  let prioritySelect = null;
+  if (!isFeedback) {
+    prioritySelect = el('select', {}, [
+      el('option', { value: 'normal' }, ['Normal']),
+      el('option', { value: 'high' }, ['High \u2014 blocking my work']),
+      el('option', { value: 'urgent' }, ['Urgent \u2014 data at risk']),
+      el('option', { value: 'low' }, ['Low \u2014 when you get a chance']),
+    ]);
+    panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Priority']), prioritySelect]));
+  }
+
+  // Note
+  const noteTextarea = el('textarea', { placeholder, style: { width: '100%', minHeight: '80px', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' } });
+  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Note']), noteTextarea]));
+
+  const statusEl = el('div', { className: 'auth-error' });
+  panel.appendChild(statusEl);
+
+  // Buttons
+  panel.appendChild(el('div', { className: 'btn-row' }, [
+    el('button', { className: 'btn btn-green', onClick: () => {
+      clear(statusEl);
+      if (!selectedCategory) { statusEl.appendChild(el('span', {}, ['Select a category'])); return; }
+      if (!noteTextarea.value.trim()) { statusEl.appendChild(el('span', {}, ['Note is required'])); return; }
+      try {
+        const user = getUser();
+        const rec = SubmissionEntity.create({
+          operationId, submitterId: user?.id || null,
+          type, category: selectedCategory,
+          area: areaSelect.value || null, screen,
+          priority: prioritySelect?.value || 'normal',
+          note: noteTextarea.value.trim(),
+          version: typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'dev',
+        });
+        add('submissions', rec, SubmissionEntity.validate, SubmissionEntity.toSupabaseShape, 'submissions');
+        feedbackSheet.close();
+      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+    } }, ['Save note']),
+    el('button', { className: 'btn btn-outline', onClick: () => feedbackSheet.close() }, ['Cancel']),
+  ]));
+
+  feedbackSheet.open();
 }

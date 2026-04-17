@@ -42,4 +42,6 @@ export const BACKUP_MIGRATIONS = {
   19: (b) => { b.schema_version = 20; return b; },
   // 020 → 021: Create event_observations table (OI-0063, SP-2). New table — old backups won't have it.
   20: (b) => { b.schema_version = 21; return b; },
+  // 021 → 022: Add bale_ring_residue_count to event_observations + bale_ring_residue_diameter_ft to farm_settings (SP-9).
+  21: (b) => { b.schema_version = 22; return b; },
 };

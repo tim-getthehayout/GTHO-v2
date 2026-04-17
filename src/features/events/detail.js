@@ -1123,9 +1123,9 @@ function renderActions(ctx) {
     el('button', {
       className: 'btn btn-green',
       style: { flex: '2', minWidth: '160px' },
-      'data-testid': 'detail-move-all',
-      onClick: () => openMoveWizard(event, ctx.operationId, ctx.farmId),
-    }, [t('event.moveAll')]),
+      'data-testid': 'detail-save-close',
+      onClick: () => closeEventDetailSheet(),
+    }, ['Save & close']),
     el('button', {
       className: 'btn btn-outline',
       style: { flex: '1', minWidth: '80px' },

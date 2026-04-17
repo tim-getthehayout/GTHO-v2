@@ -19,6 +19,8 @@ import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { openSubmoveOpenSheet, openSubmoveCloseSheet } from './submove.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
+import { openEditGroupWindowDialog } from './edit-group-window.js';
+import { openMoveFeedOutSheet } from './move-feed-out.js';
 
 /** Active subscriptions for this view */
 let unsubs = [];
@@ -775,17 +777,21 @@ function renderGroups(ctx) {
           `${gw.headCount} head \u00B7 avg ${weightDisplay} \u00B7 ${au.toFixed(1)} AU`,
         ]),
       ]),
-      isActive ? el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
-        el('button', {
+      el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
+        isActive ? el('button', {
           className: 'btn btn-teal btn-xs',
           onClick: () => openMoveWizard(event, ctx.operationId, ctx.farmId),
-        }, [t('dashboard.move')]),
+        }, [t('dashboard.move')]) : null,
         el('button', {
+          className: 'btn btn-outline btn-xs',
+          onClick: () => openEditGroupWindowDialog(gw, event, ctx.operationId),
+        }, ['Edit']),
+        isActive ? el('button', {
           className: 'btn btn-ghost btn-xs',
           'data-testid': `detail-remove-group-${gw.id}`,
           onClick: () => openRemoveGroupPicker(ctx, gw),
-        }, ['\u2715']),
-      ]) : null,
+        }, ['\u2715']) : null,
+      ].filter(Boolean)),
     ].filter(Boolean));
 
     card.appendChild(row);
@@ -855,12 +861,17 @@ function renderFeedEntries(ctx) {
   }
 
   if (isActive) {
-    card.appendChild(el('button', {
-      className: 'btn btn-outline btn-sm',
-      style: { marginTop: 'var(--space-3)' },
-      'data-testid': 'detail-deliver-feed',
-      onClick: () => openDeliverFeedSheet(event, ctx.operationId),
-    }, [t('event.deliverFeed')]));
+    card.appendChild(el('div', { style: { display: 'flex', gap: '6px', marginTop: 'var(--space-3)' } }, [
+      el('button', {
+        className: 'btn btn-outline btn-sm',
+        'data-testid': 'detail-deliver-feed',
+        onClick: () => openDeliverFeedSheet(event, ctx.operationId),
+      }, [t('event.deliverFeed')]),
+      el('button', {
+        className: 'btn btn-outline btn-sm',
+        onClick: () => openMoveFeedOutSheet(event, ctx.operationId, ctx.farmId),
+      }, ['Move feed out']),
+    ]));
   }
 
   el2.appendChild(card);

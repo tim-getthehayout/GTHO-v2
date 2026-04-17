@@ -22,6 +22,7 @@ import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js
 import { openEditGroupWindowDialog } from './edit-group-window.js';
 import { openMoveFeedOutSheet } from './move-feed-out.js';
 import { openEditPaddockWindowDialog } from './edit-paddock-window.js';
+import { reopenEvent } from './reopen-event.js';
 
 /** Active subscriptions for this view */
 let unsubs = [];
@@ -1164,6 +1165,23 @@ function renderActions(ctx) {
         'data-testid': 'detail-close-move',
         onClick: () => openCloseEventSheet(event, ctx.operationId),
       }, ['\u2B07 ' + t('event.closeAndMove')]),
+    ]));
+  }
+
+  // Reopen button (closed events only)
+  if (!isActive) {
+    el2.appendChild(el('div', { style: { marginTop: '10px' } }, [
+      el('button', {
+        className: 'btn btn-outline',
+        style: { width: '100%' },
+        onClick: () => {
+          const evt = getById('events', ctx.eventId);
+          reopenEvent(evt, ctx.operationId, () => {
+            // Re-render the detail sheet to reflect reopened state
+            renderAll(ctx);
+          });
+        },
+      }, ['Reopen event']),
     ]));
   }
 

@@ -25,6 +25,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-17 | SP-4 | **Dashboard Group tab v1 parity.** Groups view cards rebuilt to match v1: location status bar with full event timeline, DMI target + feed % bar, NPK deposited with fert value, Move/Split/Weights/Edit buttons. Includes extracted v1 HTML/CSS. |
 | 2026-04-17 | SP-5 | **Sidebar, header, and layout v1 parity.** Sidebar gets logo block, nav icons, active state, sync status strip. Header simplified (remove redundant app name/op name). CSS layout bug fixed (nav overlapping header due to hardcoded `top: 60px`). |
 | 2026-04-17 | Bugs | **OI-0073** — Group placement detection picks wrong eventGroupWindow (`.find()` returns first match, not open-event match). **OI-0074** — Event detail action buttons wrong layout/missing CSS classes. **OI-0075** — Locations tab display bugs (double "lbs lbs", missing acreage, missing capacity line, number formatting). |
+| 2026-04-17 | SP-6 | **Feedback & Help buttons in header.** Two-row header: existing row unchanged, new compact sub-row with Feedback + Get Help buttons. Replaces v1 FAB + type toggle. Separate sheets for each. v1 dialog HTML extracted. |
 
 ---
 
@@ -260,6 +261,236 @@ Rebuild sidebar with v1 structure: logo block at top (green icon + app name + fa
 
 ---
 
+## SP-6: Feedback & Help Buttons in Header
+
+**Status:** Spec complete · Ready for implementation
+**Spec file:** `github/issues/feedback-help-header-buttons.md`
+**Base doc:** V2_UX_FLOWS.md §17.2 (needs update), V2_SCHEMA_DESIGN.md §11.2 (submissions table — no change)
+
+### Problem
+
+V1 had a floating action button (FAB) at bottom-right that opened a single feedback sheet with a type toggle (Feedback vs Get Help). V2 spec says "move feedback to the header" (§17.2, §20.6) but the header right-cluster table never listed the button, and no implementation exists. The v1 type toggle adds a decision step before the user can start writing.
+
+### Design Decision
+
+**Two-row header.** The existing header row is unchanged. A new compact sub-row sits directly below, containing two small buttons: **Feedback** and **Get Help**. This eliminates the v1 type toggle — each button opens its own pre-configured sheet.
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  [Logo] Farm Name ▾        [sync] [b2026…] [FM] [TJ]   │  ← existing row (unchanged)
+│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
+│                              [💬 Feedback] [🆘 Get Help] │  ← new sub-row, right-aligned
+└─────────────────────────────────────────────────────────┘
+│  [Dashboard] [Rotation Calendar] [Animals] ...          │  ← nav (unchanged)
+```
+
+**Sub-row specs:**
+
+| Property | Value | Notes |
+|----------|-------|-------|
+| Height | 28px | Compact — `btn-xs` sizing |
+| Alignment | Right-aligned, matching right-cluster | Buttons flush with user menu above |
+| Gap | 8px between buttons | Same as header-right gap |
+| Padding | 0 12px | Left auto-margin pushes right |
+| Border | 1px `--border` bottom | Subtle separator same as header bottom border |
+| Background | `--bg` | Same as header |
+
+**Button specs (both buttons):**
+
+| Property | Value |
+|----------|-------|
+| Class | `btn btn-outline btn-xs` |
+| Font | 11px, weight 500 |
+| Padding | 3px 10px |
+| Border radius | `--radius` (6px) |
+| Icons | 💬 / 🆘 emoji prefix |
+
+**Responsive behavior:**
+
+| Viewport | Behavior |
+|----------|----------|
+| ≥ 900px (desktop) | Sub-row visible in header area (sidebar layout, buttons in main content header) |
+| < 900px (mobile) | Sub-row visible, same position. Buttons small enough to fit any width ≥ 280px |
+| Field Mode | Sub-row **hidden** (same as v1 FAB hidden in field mode) |
+
+### Feedback Sheet (opened by Feedback button)
+
+Pre-configured with `type = 'feedback'`. No type toggle. Sheet title: "Leave feedback".
+
+**Fields (match v1 exactly, minus type toggle):**
+
+1. **Context tag** (auto-filled, read-only) — current screen + active event info
+2. **Category pills** (required) — 🚧 Roadblock, Bug, UX friction, Missing feature, Calculation, Idea, Question
+3. **Area dropdown** (auto-filled, editable) — mapped from current screen
+4. **Note textarea** (required) — placeholder: "What did you notice? What did you expect?"
+5. **Save / Cancel buttons**
+
+### Get Help Sheet (opened by Get Help button)
+
+Pre-configured with `type = 'support'`. No type toggle. Sheet title: "Get help".
+
+**Fields (match v1 support mode):**
+
+1. **Context tag** (auto-filled, read-only)
+2. **Category pills** (required) — same 7 categories
+3. **Area dropdown** (auto-filled, editable)
+4. **Priority dropdown** (always visible, not conditionally shown) — Normal, High (blocking my work), Urgent (data at risk), Low (when you get a chance)
+5. **Note textarea** (required) — placeholder: "Describe what you need help with…"
+6. **Save / Cancel buttons**
+
+### Data Model
+
+No schema changes. Both sheets write to the existing `submissions` table (V2_SCHEMA_DESIGN.md §11.2). The `type` field is set automatically ('feedback' or 'support') based on which button opened the sheet.
+
+### v1 Dialog HTML Reference
+
+Extracted from v1 `index.html` for parity. Claude Code should use the v2 DOM builder (`el()`) to replicate this structure, NOT copy the HTML directly.
+
+**v1 FAB (replaced by header sub-row buttons):**
+```html
+<!-- v1 FAB — REMOVED in v2, replaced by header sub-row -->
+<button class="fab" onclick="openFeedbackSheet()" id="fab-feedback" style="position:relative;">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+  <span id="fb-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--red);color:white;border-radius:10px;font-size:9px;font-weight:700;padding:1px 5px;min-width:16px;text-align:center;line-height:14px;"></span>
+</button>
+```
+
+**v1 Feedback Sheet (reference for both v2 sheets):**
+```html
+<div class="sheet-wrap" id="fb-sheet-wrap">
+  <div class="sheet-backdrop" onclick="closeFeedbackSheet()"></div>
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:10px;" id="fb-sheet-title">Leave feedback</div>
+
+    <!-- v1 TYPE TOGGLE — REMOVED in v2 (separate buttons replace this) -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="fb-type-pill sel" id="fb-type-feedback" onclick="selFbType('feedback',this)"
+        style="flex:1;padding:8px;border:1.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;">
+        💬 Feedback</button>
+      <button class="fb-type-pill" id="fb-type-support" onclick="selFbType('support',this)"
+        style="flex:1;padding:8px;border:1.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;">
+        🆘 Get Help</button>
+    </div>
+
+    <!-- CONTEXT TAG — keep in v2 -->
+    <div class="ctx-tag"><span id="fb-ctx-text">—</span></div>
+
+    <!-- CATEGORY PILLS — keep in v2, same 7 categories -->
+    <div style="font-size:13px;color:var(--text2);margin-bottom:8px;">Category</div>
+    <div class="cat-pills">
+      <button class="cat-pill cp-roadblock" onclick="selCat('roadblock',this)">🚧 Roadblock</button>
+      <button class="cat-pill cp-bug" onclick="selCat('bug',this)">Bug</button>
+      <button class="cat-pill cp-ux" onclick="selCat('ux',this)">UX friction</button>
+      <button class="cat-pill cp-feature" onclick="selCat('feature',this)">Missing feature</button>
+      <button class="cat-pill cp-calc" onclick="selCat('calc',this)">Calculation</button>
+      <button class="cat-pill cp-idea" onclick="selCat('idea',this)">Idea</button>
+      <button class="cat-pill cp-question" onclick="selCat('question',this)">Question</button>
+    </div>
+
+    <!-- AREA DROPDOWN — keep in v2, update options to match v2 screen names -->
+    <div class="field" style="margin-top:10px;">
+      <label>Area</label>
+      <select id="fb-area" style="width:100%;padding:8px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-family:inherit;font-size:14px;">
+        <option value="">— pick area —</option>
+        <option value="home">Home</option>
+        <option value="animals">Animals</option>
+        <option value="events">Events</option>
+        <option value="feed">Feed</option>
+        <option value="pastures">Fields</option>
+        <option value="harvest">Harvest</option>
+        <option value="field-mode">Field Mode</option>
+        <option value="reports">Reports</option>
+        <option value="todos">To-Dos</option>
+        <option value="settings">Settings</option>
+        <option value="sync">Sync / Data</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+
+    <!-- PRIORITY — v2: always visible in Get Help sheet, hidden in Feedback sheet -->
+    <div class="field" id="fb-priority-row" style="display:none;">
+      <label>Priority</label>
+      <select id="fb-priority" style="width:100%;padding:8px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--text);font-family:inherit;font-size:14px;">
+        <option value="normal">Normal</option>
+        <option value="high">High — blocking my work</option>
+        <option value="urgent">Urgent — data at risk</option>
+        <option value="low">Low — when you get a chance</option>
+      </select>
+    </div>
+
+    <!-- NOTE + BUTTONS — keep in v2 -->
+    <div class="field"><label>Note</label><textarea id="fb-note" placeholder="What did you notice? What did you expect?"></textarea></div>
+    <div class="btn-row">
+      <button class="btn btn-green" onclick="saveFeedbackItem()">Save note</button>
+      <button class="btn btn-outline" onclick="closeFeedbackSheet()">Cancel</button>
+    </div>
+  </div>
+</div>
+```
+
+**v1 CSS (reference for v2 styling):**
+```css
+/* Category pills */
+.cat-pills { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+.cat-pill { padding:6px 14px; border-radius:20px; font-size:13px; font-weight:500; cursor:pointer;
+            border:0.5px solid var(--border2); background:transparent; color:var(--text2); }
+.cp-bug.sel { background:var(--red-l); color:var(--red-d); border-color:var(--red); }
+.cp-ux.sel { background:var(--amber-l); color:var(--amber-d); border-color:var(--amber); }
+.cp-feature.sel { background:var(--purple-l); color:var(--purple-d); border-color:var(--purple); }
+.cp-calc.sel { background:var(--teal-l); color:var(--teal-d); border-color:var(--teal); }
+.cp-idea.sel { background:var(--green-l); color:var(--green-d); border-color:var(--green); }
+.cp-roadblock.sel { background:var(--red-l); color:var(--red-d); border-color:var(--red); }
+.cp-roadblock { font-weight:700; }
+.cp-question.sel { background:var(--teal-l); color:var(--teal-d); border-color:var(--teal); }
+
+/* Context tag */
+.ctx-tag { display:inline-flex; align-items:center; gap:5px; padding:4px 10px;
+           background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius);
+           font-size:12px; color:var(--text2); margin-bottom:14px; }
+```
+
+### v2 Area Dropdown Update
+
+V2 screen names differ from v1. Update the area options:
+
+| v1 value | v2 value | Notes |
+|----------|----------|-------|
+| `home` | `dashboard` | Screen renamed |
+| `events` | `rotation-calendar` | Nav label changed |
+| `pastures` | `locations` | Entity renamed |
+| `todos` | — | Removed from v2 launch (future) |
+| All others | Same | animals, feed, harvest, field-mode, reports, settings, sync, other |
+
+### Acceptance Criteria
+
+- [ ] Header renders a sub-row below the existing header row with two right-aligned buttons
+- [ ] "Feedback" button opens feedback sheet (type pre-set to 'feedback', no type toggle)
+- [ ] "Get Help" button opens help sheet (type pre-set to 'support', priority always visible)
+- [ ] Both sheets write to `submissions` entity with correct `type` field
+- [ ] Context tag auto-fills with current screen + active event
+- [ ] Area dropdown auto-fills from screen mapping (using v2 screen names)
+- [ ] Category pills match v1 styling (color-coded `.sel` states)
+- [ ] Sub-row hidden in Field Mode
+- [ ] Build stamp still hidden below 360px (no regression)
+- [ ] Sub-row does not break mobile layout at 280px minimum width
+- [ ] Badge (unread count) — deferred to Feedback screen (CP-TBD), not on header buttons
+- [ ] i18n: all user-facing strings use `t()`
+
+### CP-55/CP-56 Spec Impact
+
+None. No schema changes. The `submissions` table already exists in V2_SCHEMA_DESIGN.md §11.2. Both sheets write the same record shape as v1 would have. No export/import spec update needed.
+
+### Linked OPEN_ITEMS
+
+None required — fully spec'd.
+
+---
+
 ## Reconciliation Checklist (end of sprint)
 
 When this sprint is complete, do a dedicated session to:
@@ -269,4 +500,5 @@ When this sprint is complete, do a dedicated session to:
 - [ ] Verify §17.7 action buttons (already in base doc) match final implementation
 - [ ] Convert `github/issues/` files to thin pointers referencing base doc sections
 - [ ] Update V2_BUILD_INDEX.md with completed work
+- [ ] Merge SP-6 feedback/help buttons into V2_UX_FLOWS.md §17.2 (add sub-row to header spec)
 - [ ] Archive this file or mark it as reconciled

@@ -838,9 +838,17 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
     panel.appendChild(filterArea);
   }
 
-  // Paddock list
+  // Scrollable body (paddock list + buttons scroll, header stays anchored)
+  const scrollBody = el('div', { style: !isSingle ? { flex: '1', overflowY: 'auto', WebkitOverflowScrolling: 'touch' } : {} });
+  if (!isSingle) {
+    // Make panel a flex column so header stays fixed and body scrolls
+    panel.style.display = 'flex';
+    panel.style.flexDirection = 'column';
+    panel.style.overflow = 'hidden';
+  }
+
   const paddockList = el('div');
-  panel.appendChild(paddockList);
+  scrollBody.appendChild(paddockList);
 
   function ratingColor(val) {
     if (val == null) return 'var(--text3)';
@@ -995,7 +1003,10 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   renderPaddockList();
 
   const statusEl = el('div', { className: 'auth-error' });
-  panel.appendChild(statusEl);
+  scrollBody.appendChild(statusEl);
+
+  // Append scrollable body to panel
+  panel.appendChild(scrollBody);
 
   // Commit function (creates paddockObservations, marks survey committed)
   function commitSurvey() {
@@ -1033,7 +1044,7 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   // Buttons — differ by mode
   if (!isSingle && !isBulkEdit) {
     // Bulk mode: Row 1 has Save Draft + Finish & Save + ✕ — only Discard link at bottom
-    panel.appendChild(el('div', { style: { marginTop: '16px', textAlign: 'center' } }, [
+    scrollBody.appendChild(el('div', { style: { marginTop: '16px', textAlign: 'center' } }, [
       el('button', { style: { background: 'none', border: 'none', color: 'var(--red)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }, onClick: () => {
         if (!window.confirm('Discard this survey draft?')) return;
         if (surveyId) {
@@ -1046,7 +1057,7 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
     ]));
   } else {
     // Single mode or bulk-edit: simple Save
-    panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
+    scrollBody.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
       el('button', { className: 'btn btn-green', onClick: commitSurvey }, [isBulkEdit ? 'Save survey' : 'Save survey']),
       el('button', { className: 'btn btn-outline', onClick: () => surveySheet.close() }, ['Close']),
     ]));

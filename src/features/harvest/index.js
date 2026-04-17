@@ -226,7 +226,7 @@ function renderTileGrid(panel, operationId, preSelectedLocationId) {
   const wUnit = unitSys === 'imperial' ? 'lbs' : 'kg';
   const todayStr = new Date().toISOString().slice(0, 10);
   const feedTypes = getAll('feedTypes').filter(ft => ft.harvestActive !== false && !ft.archived);
-  const allLocations = getAll('locations').filter(l => !l.archived && l.type === 'land');
+  const allLocations = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed-use'));
 
   // State
   const tiles = []; // { feedTypeId, fieldRows: [{ landId, quantity, weightPerUnitKg, batchId, batchIdDirty, notes }] }
@@ -332,7 +332,7 @@ function renderTileGrid(panel, operationId, preSelectedLocationId) {
         rowEl.appendChild(el('div', { className: 'field', style: { marginBottom: '8px' } }, [el('label', { style: { fontSize: '12px', fontWeight: '600' } }, [`Weight / bale (${wUnit})`]), weightInput]));
 
         // Field + bale count
-        const fieldSelect = el('select', {}, [
+        const fieldSelect = el('select', { className: 'auth-select' }, [
           el('option', { value: '' }, ['\u2014 pick field \u2014']),
           ...allLocations.map(l => el('option', { value: l.id, selected: row.landId === l.id }, [`${l.name}${l.fieldCode ? ` [${l.fieldCode}]` : ''}`])),
         ]);

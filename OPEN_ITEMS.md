@@ -7,7 +7,7 @@
 ### OI-0082 — SP-10 §8a: Move Feed Out (new capability)
 **Added:** 2026-04-17 | **Area:** v2-build / events / feed | **Priority:** P1
 **Checkpoint:** SP-10 §8a
-**Status:** open — DESIGN COMPLETE, ready for Claude Code
+**Status:** closed — 2026-04-17. Migration 023 applied. 4-step sheet built. Entity updated. Wired to detail sheet.
 
 **What this adds:** On any active event, a `Move feed out` action lets a farmer pull delivered feed back out — either to batch inventory or to another open event. Entry points: §8 Feed Entries card footer button and a per-row inline `Move out` action on each delivery row in the §8 list. Four-step sheet: current feed state → forced feed check (strikes the line) → amount + destination picker → confirm.
 
@@ -33,7 +33,7 @@ Check constraints: `entry_type = 'removal'` → `destination_type IS NOT NULL`; 
 ### OI-0081 — SP-10: Event Data Edit Consistency Suite
 **Added:** 2026-04-17 | **Area:** v2-build / events / edit dialogs | **Priority:** P0 (blocks field testing)
 **Checkpoint:** SP-10
-**Status:** open — DESIGN COMPLETE, ready for Claude Code
+**Status:** closed — 2026-04-17. All 7 phases implemented: snapshot/rollback, gap/overlap resolver, move feed out, group window edit, paddock window edit + OI-0064 reopen, event reopen, observations auto-save.
 
 **What this is:** A suite of edit-behavior specs for every data field inside the Edit Event dialog (§3, §6, §7, §8, §9, §12, event-level dates). Establishes the "structural state requires explicit reconciliation; derived values cascade on read" rule, then applies it section by section.
 
@@ -288,7 +288,7 @@ Check constraints: `entry_type = 'removal'` → `destination_type IS NOT NULL`; 
 ### OI-0064 — Sub-move History: Manage Button Dropped; Reopen Folded Into Edit Dialog
 **Added:** 2026-04-15 | **Area:** v2-design / UI sprint | **Priority:** P3
 **Checkpoint:** SP-2 implementation
-**Status:** open — spec'd, handed off to Claude Code
+**Status:** closed — 2026-04-17. Paddock window edit dialog (edit-paddock-window.js) includes Reopen action for closed windows. Folded into SP-10 Phase 4.
 
 **Problem:** The original §17.15 draft and mockup v1 showed a `Manage` button on each sub-move history row. During design review round 1 we dropped it — per-row affordances are now Edit only, and the reopen flow folds inside the Edit dialog (no inline Delete either). Logged so the decision is visible when the Edit dialog itself gets designed.
 

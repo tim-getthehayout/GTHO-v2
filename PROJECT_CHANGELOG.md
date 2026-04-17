@@ -2,6 +2,9 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-04-17 | feat: SP-10 Phase 5 — Event Reopen. Clears date_out + re-opens child windows + group conflict dialog. Reopen button on closed event detail sheet. | src/features/events/reopen-event.js, src/features/events/detail.js |
+| 2026-04-17 | feat: SP-10 Phase 4 — §12 paddock window edit + OI-0064 reopen. Date/area/strip edit, range guards, same-paddock overlap reject, delete guards, reopen closed windows. | src/features/events/edit-paddock-window.js, src/features/events/detail.js |
+| 2026-04-17 | feat: SP-10 Phase 3 — §7 group window edit. Date/headcount/weight edit, auto-save on blur, delete window, Edit button per group row. Move Feed Out button on §8. | src/features/events/edit-group-window.js, src/features/events/detail.js |
 | 2026-04-17 | feat: SP-10 Phase 2 — §8a Move Feed Out. Migration 023 (entry_type, destination_type, destination_event_id on event_feed_entries + check constraints). Entity updated. Move Feed Out 4-step sheet (state → check → amount+dest → confirm). BACKUP_MIGRATIONS[22] entry. | supabase/migrations/023_feed_removal_columns.sql, src/entities/event-feed-entry.js, src/features/events/move-feed-out.js, src/data/backup-migrations.js |
 | 2026-04-17 | feat: SP-10 Phase 1 — snapshot/rollback helper + gap/overlap resolver. | src/data/store.js, src/features/events/resolve-window-change.js |
 | 2026-04-17 | fix: OI-0080 SP-9 bulk header + surveys tab + bulk-edit replace. Added missing Row 1 action buttons (Cancel, DRAFT pill, Expand/Collapse all, Save Draft, Finish & Save, ✕). Surveys sub-tab: draft resume banner + committed survey list with Edit. Bulk-edit now replaces prior observations. | src/features/locations/index.js, OPEN_ITEMS.md |

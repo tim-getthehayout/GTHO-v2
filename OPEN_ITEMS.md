@@ -7,7 +7,7 @@
 ### OI-0083 — SP-10: Retro-place flow
 **Added:** 2026-04-17 | **Area:** v2-build / events / groups | **Priority:** P1
 **Checkpoint:** SP-10 Phase 3 — completes SP-10 build
-**Status:** open — **DESIGN COMPLETE, ready for Claude Code** (design questions resolved 2026-04-17 — see UI_SPRINT_SPEC.md § SP-10 "Retro-Place Flow" for the updated spec)
+**Status:** closed — 2026-04-17. `src/features/events/retro-place.js` built with sheet picker (full containment), optional paddock sub-picker, conflict-check abort, confirm dialog, atomic two-write commit (pre-validate + sequential update/add + manual revert on add failure). 14 unit tests pass. Reachable via direct invocation/tests until gap detection is wired in `edit-group-window.js` (separate follow-up).
 
 **What:** Gap Option 3 of the gap/overlap resolver — retroactively place a group on another (closed) event that was open during the gap period. The spec has been simplified to an atomic two-write transaction — no reopen/re-close ceremony, no snapshot rollback infrastructure needed for this flow.
 

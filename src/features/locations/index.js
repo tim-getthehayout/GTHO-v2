@@ -77,7 +77,7 @@ export function renderLocationsScreen(container) {
     renderTabs();
     clear(contentEl);
     if (activeTab === 'surveys') {
-      contentEl.appendChild(el('div', { className: 'empty' }, ['Surveys list \u2014 coming soon']));
+      renderSurveysTab(contentEl, operationId);
       return;
     }
     renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMultiFarm);
@@ -91,6 +91,58 @@ export function renderLocationsScreen(container) {
   unsubs.push(subscribe('soilTests', reRender));
   unsubs.push(subscribe('forageTypes', reRender));
   unsubs.push(subscribe('feedTypes', reRender));
+}
+
+function renderSurveysTab(contentEl, operationId) {
+  // Draft resume banner
+  const draft = getAll('surveys').find(s => s.operationId === operationId && s.status === 'draft');
+  if (draft) {
+    const draftEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === draft.id);
+    const ratedCount = draftEntries.filter(d => d.forageQuality != null).length;
+    contentEl.appendChild(el('div', { style: { background: 'var(--amber-l)', border: '1px solid var(--amber)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+      el('div', {}, [
+        el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--amber-d)' } }, [`\uD83D\uDCCB Survey in progress \u00B7 ${ratedCount} paddocks rated`]),
+        el('div', { style: { fontSize: '11px', color: 'var(--amber-d)' } }, [`Started ${formatShortDate(draft.createdAt)}`]),
+      ]),
+      el('div', { style: { display: 'flex', gap: '6px' } }, [
+        el('button', { className: 'btn btn-green btn-sm', onClick: () => openSurveySheet(null, operationId) }, ['Resume']),
+        el('button', { className: 'btn btn-outline btn-sm', style: { color: 'var(--red)', borderColor: 'var(--red)' }, onClick: () => {
+          if (!window.confirm('Discard this survey draft?')) return;
+          const entries = getAll('surveyDraftEntries').filter(d => d.surveyId === draft.id);
+          for (const d of entries) remove('surveyDraftEntries', d.id, 'survey_draft_entries');
+          remove('surveys', draft.id, 'surveys');
+        } }, ['Discard']),
+      ]),
+    ]));
+  }
+
+  // + New Survey button
+  contentEl.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } }, [
+    el('div', { className: 'sec', style: { margin: '0' } }, ['Surveys']),
+    el('button', { className: 'btn btn-green btn-sm', onClick: () => openSurveySheet(null, operationId) }, ['+ New Survey']),
+  ]));
+
+  // Committed surveys list
+  const committed = getAll('surveys').filter(s => s.operationId === operationId && s.status === 'committed').sort((a, b) => (b.surveyDate || '').localeCompare(a.surveyDate || ''));
+  if (!committed.length) {
+    contentEl.appendChild(el('div', { className: 'empty' }, ['No committed surveys yet']));
+    return;
+  }
+
+  for (const sv of committed) {
+    const obs = getAll('paddockObservations').filter(o => o.sourceId === sv.id);
+    const locNames = obs.map(o => { const l = getById('locations', o.locationId); return l?.name || '?'; });
+    const uniqueLocs = [...new Set(locNames)];
+    contentEl.appendChild(el('div', { className: 'card', style: { padding: '10px 14px', marginBottom: '6px' } }, [
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+        el('div', {}, [
+          el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [formatShortDate(sv.surveyDate)]),
+          el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [`${obs.length} paddocks \u00B7 ${uniqueLocs.slice(0, 3).join(', ')}${uniqueLocs.length > 3 ? '...' : ''}`]),
+        ]),
+        el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSurveySheet(null, operationId, { editSurveyId: sv.id }) }, ['Edit']),
+      ]),
+    ]));
+  }
 }
 
 function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMultiFarm) {
@@ -952,6 +1004,11 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
     const rated = Object.entries(readings).filter(([_k, r2]) => r2.rating != null || r2.heightCm != null || r2.coverPct != null || r2.condition != null);
     if (!rated.length) { statusEl.appendChild(el('span', {}, ['Rate at least one paddock'])); return; }
     try {
+      // Bulk-edit: remove prior observations for this survey before re-creating
+      if (isBulkEdit && surveyId) {
+        const priorObs = getAll('paddockObservations').filter(o => o.sourceId === surveyId);
+        for (const o of priorObs) remove('paddockObservations', o.id, 'paddock_observations');
+      }
       for (const [locId, r2] of rated) {
         const rec = PaddockObsEntity.create({
           operationId, locationId: locId, observedAt: surveyDate + 'T12:00:00Z',

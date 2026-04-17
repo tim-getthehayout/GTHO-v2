@@ -7,7 +7,9 @@
 ### OI-0080 — SP-9 Bulk Survey Header Missing + Implementation Audit
 **Added:** 2026-04-17 | **Area:** v2-build / surveys | **Priority:** P1
 **Checkpoint:** SP-9 correction
-**Status:** open — CORRECTION IN PROGRESS
+**Status:** closed — 2026-04-17
+
+**Resolution:** Bulk header Row 1 added (Cancel, DRAFT, Expand/Collapse, Save Draft, Finish & Save, ✕). Surveys sub-tab implemented (draft resume banner, committed list with Edit). Bulk-edit now replaces prior observations instead of appending.
 
 **What is wrong:** After SP-9 landed, the bulk survey sheet is missing its entire top action row. Six controls are absent: Cancel, DRAFT pill, Expand/Collapse all, Save Draft, Finish & Save, ✕ close. Only the date + filter rows render.
 

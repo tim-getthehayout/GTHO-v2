@@ -216,6 +216,8 @@ The groups list sits inside a `.card` with a "GROUPS" header and "+ Add group" b
 
 ## Part 3: Groups List (inside card)
 
+**⚠️ V2 GROUP ROWS ARE INCOMPLETE.** The v2 group card only has Edit and Delete buttons. V1 has Edit, Split, Weights, and × (archive/delete). The Split button is conditionally shown (only when the group has an active event). The Weights button opens a group weigh sheet. Both are **missing entirely** from v2.
+
 Each group row is a `.chip`-style div with a 3px left color bar. Clicking the row filters the animal list by that group.
 
 **V1 HTML per group row:**
@@ -547,6 +549,18 @@ Opens from the 🐄 Classes config button. Lists all classes with inline edit/de
 
 ### 6A: Add / Edit Group Sheet (shared container)
 
+**⚠️ V2 IS INCOMPLETE.** Compare v1 vs v2:
+
+| Section | V1 | V2 (current) |
+|---|---|---|
+| Layout | ✅ Two-column: name field + color swatches side by side (`.two`) | ❌ Single-column: name full-width, color below |
+| Color picker | ✅ Inline with name field in same row | ❌ Below name in separate row |
+| Animals in group section | ✅ "Animals in group" header + helper text + scrollable picker with toggle rows | ❌ **Missing entirely** |
+| Animal picker rows | ✅ Green highlight + check circle when selected, dimmed (opacity:0.45) for animals in other groups, shows tag/sex/class/weight/group | ❌ **Missing entirely** |
+| Delete button | ✅ Red "Delete group" button, visible only when editing | ✅ Present |
+
+**The animal picker is critical** — without it, users can't assign animals to groups from the group sheet. The v1 picker shows all active animals, highlights selected ones in green, and dims animals already assigned to other groups.
+
 ```html
 <div class="sheet-wrap" id="add-group-wrap">
   <div class="sheet-backdrop"></div>
@@ -620,6 +634,8 @@ Opens from the 🐄 Classes config button. Lists all classes with inline edit/de
 ```
 
 ### 6B: Split Group Sheet
+
+**⚠️ ENTIRELY MISSING FROM V2.** There is no split functionality anywhere in `src/features/animals/`. The entire sheet — animal picker, destination choice (new group vs existing), color picker, placement option, preview card — must be built from scratch. This is a new sheet, not a restyle.
 
 ```html
 <div class="sheet-wrap" id="split-sheet-wrap">
@@ -765,6 +781,29 @@ Opens from the 🐄 Classes config button. Lists all classes with inline edit/de
 ---
 
 ## Part 7: Animal Edit Sheet (Add + Edit share one container)
+
+**⚠️ V2 IS SEVERELY INCOMPLETE — this is the biggest gap.** Compare v1 vs v2:
+
+| Section | V1 | V2 (current) |
+|---|---|---|
+| Ear tag + EID | ✅ Two-column, full-width bordered inputs | ✅ Present but styling differs |
+| Sex + Class | ✅ Two-column, full-width styled selects | ❌ Raw unstyled browser selects, not full-width |
+| Current weight + Group | ✅ Two-column | ❌ Group is there, weight is there, but layout is wrong |
+| Dam + Sire | ✅ Two-column (dam select + sire text input) | ❌ **Missing entirely** |
+| Notes | ✅ Full-width text input | ✅ Present |
+| Birth date | ✅ Full-width date input | ✅ Present but in wrong position (before notes in v2, after notes in v1) |
+| Weaning toggle | ✅ Checkbox with description + conditional wean date | ❌ **Missing entirely** |
+| Calving history | ✅ Section header + record list + "Record calving" button | ❌ **Missing entirely** |
+| Confirmed bred toggle | ✅ Checkbox with description + conditional date | ❌ **Missing entirely** |
+| Heat history | ✅ Section header + record list + "Record heat" button | ❌ **Missing entirely** |
+| Weight history | ✅ Scrollable history list | ❌ **Missing entirely** |
+| Treatment history | ✅ Event list with icons + Edit buttons | ❌ **Missing entirely** |
+| Cull section | ✅ "Cull animal…" button or red culled banner with reactivate | ❌ **Missing entirely** |
+| Button row | ✅ Save (green) + Delete (red) + Cancel (outline) | ✅ Present |
+
+**Field order must match v1:** Ear tag/EID → Sex/Class → Weight/Group → Dam/Sire → Notes → Birth date → Weaning → Calving history → Confirmed bred → Heat history → Weight history → Treatment history → Cull → Buttons.
+
+**All selects must be full-width styled** — not raw browser `<select>` elements. Use the same `.field > select` styling as other sheets.
 
 ```html
 <div class="sheet-wrap" id="ae-sheet-wrap">

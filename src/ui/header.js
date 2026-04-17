@@ -37,9 +37,7 @@ export function renderHeader(container) {
     // Logo block
     el('div', { className: 'dsk-logo' }, [
       el('div', { className: 'dsk-logo-icon' }, [
-        el('svg', { width: '18', height: '18', viewBox: '0 0 24 24', fill: 'none', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, [
-          el('path', { d: 'M12 2C8 2 4 6 4 12c0 4 2 7 4 9l4-4 4 4c2-2 4-5 4-9 0-6-4-10-8-10z' }),
-        ]),
+        el('span', { style: { fontSize: '16px', lineHeight: '1' } }, ['\uD83C\uDF3F']),
       ]),
       el('div', {}, [
         el('div', { className: 'dsk-logo-text' }, ['Get The Hay Out']),

@@ -37,7 +37,20 @@
   --amber: var(--color-amber-base);
   --amber-l: var(--color-amber-light);
   --amber-d: var(--color-amber-dark);
+  --teal: var(--color-teal-base);
+  --teal-l: var(--color-teal-light);
+  --teal-d: var(--color-teal-dark);
+  --purple: var(--color-purple-base);
+  --purple-l: var(--color-purple-light);
+  --purple-d: var(--color-purple-dark);
+  --red: var(--color-red-base);
+  --red-l: var(--color-red-light);
+  --red-d: var(--color-red-dark);
+  --blue: var(--color-blue-base);
+  --blue-l: var(--color-blue-light);
+  --blue-d: var(--color-blue-dark);
   --radius: var(--radius-md);
+  --radius-l: var(--radius-lg);
 
   /* Neutral palette (light mode) */
   --bg: #ffffff;
@@ -2954,6 +2967,34 @@ body.field-mode .sheet-panel {
 .import-preview-value {
   font-weight: 500;
 }
+
+/* V1 badge color shortcuts */
+.bg { background: var(--green-l); color: var(--green-d); }
+.ba { background: var(--amber-l); color: var(--amber-d); }
+.bt { background: var(--teal-l); color: var(--teal-d); }
+.bp { background: var(--purple-l); color: var(--purple-d); }
+.br { background: var(--red-l); color: var(--red-d); }
+.bb { background: var(--bg2); color: var(--text2); border: 0.5px solid var(--border); }
+
+/* V1 button color variants */
+.btn-blue { background: var(--blue); color: white; }
+
+/* V1 layout utilities */
+.div { border-top: 0.5px solid var(--border); margin: 12px 0; }
+.empty { text-align: center; padding: 20px 16px; color: var(--text2); font-size: 13px; line-height: 1.6; }
+.prog { height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.prog-fill { height: 100%; border-radius: 3px; }
+
+/* Animals screen — group filter chips */
+.agc-wrap { position: sticky; top: 0; z-index: 20; background: var(--bg); padding-bottom: 8px; margin-bottom: 4px; }
+.agc-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
+.agc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border2); background: var(--bg2); color: var(--text2); white-space: nowrap; transition: background 0.15s; }
+.agc-chip.active { background: var(--green); border-color: var(--green); color: white; }
+.agc-chip .agc-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* BCS chip */
+.bcs-chip { display: inline-block; width: auto; padding: 8px 14px; font-size: 14px; border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text); border-radius: var(--radius); cursor: pointer; }
+.bcs-chip.on { background: var(--green); border-color: var(--green); color: white; }
 
 /* V1 feed dialog styles */
 .batch-sel { display:flex; justify-content:space-between; align-items:center; padding:9px 12px; background:var(--bg2); border-radius:var(--radius); cursor:pointer; border:0.5px solid var(--border); }

@@ -1,113 +1,76 @@
-/** @file Weight recording sheet — CP-33. Reusable per V2_UX_FLOWS.md §14.2. */
+/** @file Quick weight sheet — v1 parity. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { add } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert, unitLabel } from '../../utils/units.js';
+import { convert, unitLabel, display } from '../../utils/units.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
 
 let weightSheet = null;
 
-/**
- * Open the weight recording sheet for a specific animal.
- * @param {object} animal — The animal record
- * @param {string} operationId
- */
+function ensureSheetDOM() {
+  if (document.getElementById('weight-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'weight-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => weightSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'weight-sheet-panel' }),
+  ]));
+}
+
 export function openWeightSheet(animal, operationId) {
+  ensureSheetDOM();
   if (!weightSheet) weightSheet = new Sheet('weight-sheet-wrap');
   const panel = document.getElementById('weight-sheet-panel');
   if (!panel) return;
   clear(panel);
 
+  panel.appendChild(el('div', { className: 'sheet-handle' }));
+
   const unitSys = getUnitSystem();
   const todayStr = new Date().toISOString().slice(0, 10);
-  const displayName = animal.tagNum || animal.name || animal.eid || animal.id.slice(0, 8);
+  const displayName = animal.tagNum || animal.name || animal.eid || `A-${animal.id.slice(0, 5)}`;
+  const wUnit = unitLabel('weight', unitSys);
 
-  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('health.weightTitle')]));
-  panel.appendChild(el('p', { className: 'form-hint', style: { marginBottom: 'var(--space-3)' } }, [displayName]));
+  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Update weight']));
+  panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '14px' } }, [
+    `${displayName} \u00B7 current: ${animal.currentWeightKg ? display(animal.currentWeightKg, 'weight', unitSys, 0) : '\u2014'} ${wUnit}`,
+  ]));
 
-  // Weight
-  const wLabel = `${t('health.weightValue')} (${unitLabel('weight', unitSys)})`;
-  panel.appendChild(el('label', { className: 'form-label' }, [wLabel]));
-  const weightInput = el('input', {
-    type: 'number', className: 'auth-input settings-input', value: '',
-    'data-testid': 'weight-sheet-value',
-  });
-  panel.appendChild(weightInput);
+  const weightInput = el('input', { type: 'number', placeholder: '0', step: '1', style: { width: '100%', padding: '9px 10px', border: '0.5px solid var(--border2)', borderRadius: '8px', fontSize: '14px', background: 'var(--bg)', boxSizing: 'border-box', fontFamily: 'inherit' } });
+  const dateInput = el('input', { type: 'date', value: todayStr, style: { width: '100%', padding: '9px 10px', border: '0.5px solid var(--border2)', borderRadius: '8px', fontSize: '13px', background: 'var(--bg)', boxSizing: 'border-box', fontFamily: 'inherit' } });
+  const noteInput = el('input', { type: 'text', placeholder: 'e.g. Pre-shipping weight', style: { width: '100%', padding: '9px 10px', border: '0.5px solid var(--border2)', borderRadius: '8px', fontSize: '13px', background: 'var(--bg)', boxSizing: 'border-box', fontFamily: 'inherit' } });
 
-  // Date
-  panel.appendChild(el('label', { className: 'form-label' }, [t('health.weightDate')]));
-  const dateInput = el('input', {
-    type: 'date', className: 'auth-input', value: todayStr,
-    'data-testid': 'weight-sheet-date',
-  });
-  panel.appendChild(dateInput);
+  panel.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, [`New weight (${wUnit})`]), weightInput]),
+    el('div', { className: 'field' }, [el('label', {}, ['Date']), dateInput]),
+  ]));
+  panel.appendChild(el('div', { className: 'field' }, [
+    el('label', {}, ['Note ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]),
+    noteInput,
+  ]));
 
-  // Source
-  panel.appendChild(el('label', { className: 'form-label' }, [t('health.weightSource')]));
-  const sourceInput = el('select', {
-    className: 'auth-select', 'data-testid': 'weight-sheet-source',
-  }, [
-    el('option', { value: 'manual' }, [t('health.weightSourceManual')]),
-    el('option', { value: 'group_update' }, [t('health.weightSourceGroup')]),
-  ]);
-  panel.appendChild(sourceInput);
-
-  // Notes
-  panel.appendChild(el('label', { className: 'form-label' }, [t('health.weightNotes')]));
-  const notesInput = el('textarea', {
-    className: 'auth-input', value: '',
-    'data-testid': 'weight-sheet-notes',
-    style: { minHeight: '40px', resize: 'vertical' },
-  });
-  panel.appendChild(notesInput);
-
-  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'weight-sheet-status' });
+  const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
 
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
-    el('button', {
-      className: 'btn btn-green', 'data-testid': 'weight-sheet-save',
-      onClick: () => {
-        clear(statusEl);
-        let weightKg = parseFloat(weightInput.value);
-        if (!weightKg || weightKg <= 0) {
-          statusEl.appendChild(el('span', {}, [t('validation.weightRequired')]));
-          return;
-        }
-        if (unitSys === 'imperial') weightKg = convert(weightKg, 'weight', 'toMetric');
-
-        try {
-          const record = WeightRecordEntity.create({
-            operationId,
-            animalId: animal.id,
-            recordedAt: new Date(dateInput.value + 'T12:00:00Z').toISOString(),
-            weightKg,
-            source: sourceInput.value,
-            notes: notesInput.value.trim() || null,
-          });
-          add('animalWeightRecords', record, WeightRecordEntity.validate,
-            WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
-          weightSheet.close();
-        } catch (err) {
-          statusEl.appendChild(el('span', {}, [err.message]));
-        }
-      },
-    }, [t('action.save')]),
-    el('button', {
-      className: 'btn btn-outline', onClick: () => weightSheet.close(),
-    }, [t('action.cancel')]),
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '12px' } }, [
+    el('button', { className: 'btn btn-green', onClick: () => {
+      clear(statusEl);
+      let weightKg = parseFloat(weightInput.value);
+      if (!weightKg || weightKg <= 0) { statusEl.appendChild(el('span', {}, [t('validation.weightRequired')])); return; }
+      if (unitSys === 'imperial') weightKg = convert(weightKg, 'weight', 'toMetric');
+      try {
+        const record = WeightRecordEntity.create({ operationId, animalId: animal.id, recordedAt: new Date(dateInput.value + 'T12:00:00Z').toISOString(), weightKg, source: 'manual', notes: noteInput.value.trim() || null });
+        add('animalWeightRecords', record, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
+        weightSheet.close();
+      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+    } }, ['Save weight']),
+    el('button', { className: 'btn btn-outline', onClick: () => weightSheet.close() }, ['Cancel']),
   ]));
 
   weightSheet.open();
 }
 
-/** Sheet markup — call from parent screen to ensure DOM element exists. */
 export function renderWeightSheetMarkup() {
-  return el('div', { className: 'sheet-wrap', id: 'weight-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => weightSheet && weightSheet.close() }),
-    el('div', { className: 'sheet-panel', id: 'weight-sheet-panel' }),
-  ]);
+  return el('div');
 }

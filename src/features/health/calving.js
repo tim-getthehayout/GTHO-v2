@@ -13,11 +13,21 @@ import * as MembershipEntity from '../../entities/animal-group-membership.js';
 
 let calvingSheet = null;
 
+function ensureSheetDOM() {
+  if (document.getElementById('calving-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'calving-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => calvingSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'calving-sheet-panel', style: { maxHeight: '92vh', overflowY: 'auto' } }),
+  ]));
+}
+
 export function openCalvingSheet(dam, operationId) {
+  ensureSheetDOM();
   if (!calvingSheet) calvingSheet = new Sheet('calving-sheet-wrap');
   const panel = document.getElementById('calving-sheet-panel');
   if (!panel) return;
   clear(panel);
+  panel.appendChild(el('div', { className: 'sheet-handle' }));
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const unitSys = getUnitSystem();
@@ -189,8 +199,5 @@ export function openCalvingSheet(dam, operationId) {
 }
 
 export function renderCalvingSheetMarkup() {
-  return el('div', { className: 'sheet-wrap', id: 'calving-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => calvingSheet && calvingSheet.close() }),
-    el('div', { className: 'sheet-panel', id: 'calving-sheet-panel' }),
-  ]);
+  return el('div');
 }

@@ -1,4 +1,4 @@
-/** @file BCS recording sheet — CP-33. Reusable per V2_UX_FLOWS.md §14.3. */
+/** @file BCS (Body Condition Score) sheet — v1 parity with chip selector. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
@@ -8,106 +8,78 @@ import * as BcsScoreEntity from '../../entities/animal-bcs-score.js';
 
 let bcsSheet = null;
 
-/**
- * Open the BCS scoring sheet for a specific animal.
- * @param {object} animal — The animal record
- * @param {string} operationId
- */
+function ensureSheetDOM() {
+  if (document.getElementById('bcs-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'bcs-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => bcsSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'bcs-sheet-panel', style: { maxHeight: '92vh', overflowY: 'auto' } }),
+  ]));
+}
+
 export function openBcsSheet(animal, operationId) {
+  ensureSheetDOM();
   if (!bcsSheet) bcsSheet = new Sheet('bcs-sheet-wrap');
   const panel = document.getElementById('bcs-sheet-panel');
   if (!panel) return;
   clear(panel);
+  panel.appendChild(el('div', { className: 'sheet-handle' }));
 
   const todayStr = new Date().toISOString().slice(0, 10);
-  const displayName = animal.tagNum || animal.name || animal.eid || animal.id.slice(0, 8);
-
-  // Determine scale from species (A32: cattle 1–9, sheep/goat 1–5)
+  const nowTime = new Date().toTimeString().slice(0, 5);
+  const displayName = animal.tagNum || animal.name || `A-${animal.id.slice(0, 5)}`;
   const cls = animal.classId ? getById('animalClasses', animal.classId) : null;
-  const species = cls?.species || 'beef_cattle';
-  const maxScore = (species === 'sheep' || species === 'goat') ? 5 : 9;
+  const maxScore = (cls?.species === 'sheep' || cls?.species === 'goat') ? 5 : 9;
+  let selectedScore = null;
 
-  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('health.bcsTitle')]));
-  panel.appendChild(el('p', { className: 'form-hint', style: { marginBottom: 'var(--space-3)' } }, [
-    `${displayName} (1–${maxScore})`,
+  panel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, [
+    el('div', { style: { fontSize: '16px', fontWeight: '600' } }, ['Body condition score']),
+    el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [displayName]),
   ]));
 
-  // Score
-  panel.appendChild(el('label', { className: 'form-label' }, [t('health.bcsScore')]));
-  const scoreInput = el('input', {
-    type: 'number', className: 'auth-input settings-input',
-    min: '1', max: String(maxScore), step: '0.5', value: '',
-    'data-testid': 'bcs-sheet-score',
-  });
-  panel.appendChild(scoreInput);
-  panel.appendChild(el('div', { className: 'form-hint' }, [t('health.bcsScaleHint')]));
+  const dateInput = el('input', { type: 'date', value: todayStr });
+  const timeInput = el('input', { type: 'time', value: nowTime });
+  panel.appendChild(el('div', { className: 'two', style: { marginBottom: '10px' } }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Date']), dateInput]),
+    el('div', { className: 'field' }, [el('label', {}, ['Time ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), timeInput]),
+  ]));
 
-  // Date
-  panel.appendChild(el('label', { className: 'form-label' }, [t('health.bcsDate')]));
-  const dateInput = el('input', {
-    type: 'date', className: 'auth-input', value: todayStr,
-    'data-testid': 'bcs-sheet-date',
-  });
-  panel.appendChild(dateInput);
+  panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '500', marginBottom: '6px' } }, [
+    'Body condition score ',
+    el('span', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`1 = emaciated \u00B7 ${Math.ceil(maxScore / 2)} = ideal \u00B7 ${maxScore} = obese`]),
+  ]));
 
-  // Likely cull
-  const cullCheckbox = el('input', { type: 'checkbox', 'data-testid': 'bcs-sheet-cull' });
-  panel.appendChild(el('label', {
-    className: 'form-label',
-    style: { display: 'flex', alignItems: 'center', gap: 'var(--space-3)', cursor: 'pointer', marginTop: 'var(--space-4)' },
-  }, [cullCheckbox, t('health.bcsLikelyCull')]));
+  const chipsEl = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' } });
+  function renderChips() {
+    clear(chipsEl);
+    for (let i = 1; i <= maxScore; i++) {
+      chipsEl.appendChild(el('button', { className: `bcs-chip${selectedScore === i ? ' on' : ''}`, type: 'button', onClick: () => { selectedScore = i; renderChips(); } }, [String(i)]));
+    }
+  }
+  renderChips();
+  panel.appendChild(chipsEl);
 
-  // Notes
-  panel.appendChild(el('label', { className: 'form-label' }, [t('health.bcsNotes')]));
-  const notesInput = el('textarea', {
-    className: 'auth-input', value: '',
-    'data-testid': 'bcs-sheet-notes',
-    style: { minHeight: '40px', resize: 'vertical' },
-  });
-  panel.appendChild(notesInput);
+  const notesInput = el('textarea', { rows: '2', placeholder: 'e.g. Thin over ribs, gaining condition', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', resize: 'vertical' } });
+  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Notes ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), notesInput]));
 
-  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'bcs-sheet-status' });
+  const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
 
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
-    el('button', {
-      className: 'btn btn-green', 'data-testid': 'bcs-sheet-save',
-      onClick: () => {
-        clear(statusEl);
-        const score = parseFloat(scoreInput.value);
-        if (!score || score < 1 || score > maxScore) {
-          statusEl.appendChild(el('span', {}, [t('validation.bcsScoreRange', { max: maxScore })]));
-          return;
-        }
-        try {
-          const record = BcsScoreEntity.create({
-            operationId,
-            animalId: animal.id,
-            scoredAt: new Date(dateInput.value + 'T12:00:00Z').toISOString(),
-            score,
-            likelyCull: cullCheckbox.checked,
-            notes: notesInput.value.trim() || null,
-          });
-          add('animalBcsScores', record, BcsScoreEntity.validate,
-            BcsScoreEntity.toSupabaseShape, 'animal_bcs_scores');
-          bcsSheet.close();
-        } catch (err) {
-          statusEl.appendChild(el('span', {}, [err.message]));
-        }
-      },
-    }, [t('action.save')]),
-    el('button', {
-      className: 'btn btn-outline', onClick: () => bcsSheet.close(),
-    }, [t('action.cancel')]),
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
+    el('button', { className: 'btn btn-green', onClick: () => {
+      clear(statusEl);
+      if (!selectedScore) { statusEl.appendChild(el('span', {}, ['Select a score'])); return; }
+      try {
+        const record = BcsScoreEntity.create({ operationId, animalId: animal.id, score: selectedScore, date: dateInput.value, time: timeInput.value || null, notes: notesInput.value.trim() || null });
+        add('animalBcsScores', record, BcsScoreEntity.validate, BcsScoreEntity.toSupabaseShape, 'animal_bcs_scores');
+        bcsSheet.close();
+      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+    } }, ['Save']),
+    el('button', { className: 'btn btn-outline', onClick: () => bcsSheet.close() }, ['Cancel']),
   ]));
 
   bcsSheet.open();
 }
 
-/** Sheet markup — call from parent screen to ensure DOM element exists. */
 export function renderBcsSheetMarkup() {
-  return el('div', { className: 'sheet-wrap', id: 'bcs-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => bcsSheet && bcsSheet.close() }),
-    el('div', { className: 'sheet-panel', id: 'bcs-sheet-panel' }),
-  ]);
+  return el('div');
 }

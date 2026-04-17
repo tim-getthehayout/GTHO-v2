@@ -11,6 +11,9 @@ import * as GroupEntity from '../../entities/group.js';
 import * as AnimalClassEntity from '../../entities/animal-class.js';
 import * as AnimalEntity from '../../entities/animal.js';
 import * as MembershipEntity from '../../entities/animal-group-membership.js';
+import * as TreatmentTypeEntity from '../../entities/treatment-type.js';
+import * as AiBullEntity from '../../entities/ai-bull.js';
+import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
 import { openWeightSheet, renderWeightSheetMarkup } from '../health/weight.js';
 import { openBcsSheet, renderBcsSheetMarkup } from '../health/bcs.js';
 import { openTreatmentSheet, renderTreatmentSheetMarkup } from '../health/treatment.js';
@@ -893,9 +896,8 @@ function openTreatmentsManager(operationId) {
   panel.appendChild(el('button', { className: 'btn btn-green btn-sm', style: { padding: '10px 16px' }, onClick: () => {
     const name = ttNameInput.value.trim();
     if (!name) return;
-    const { create, validate, toSupabaseShape } = require('../../entities/treatment-type.js');
-    const rec = create({ operationId, name, category: ttCatSelect.value || null });
-    add('treatmentTypes', rec, validate, toSupabaseShape, 'treatment_types');
+    const rec = TreatmentTypeEntity.create({ operationId, name, category: ttCatSelect.value || null });
+    add('treatmentTypes', rec, TreatmentTypeEntity.validate, TreatmentTypeEntity.toSupabaseShape, 'treatment_types');
     ttNameInput.value = '';
     renderTypesList();
   } }, ['Add']));
@@ -964,9 +966,8 @@ function openAISiresManager(operationId) {
   panel.appendChild(el('button', { className: 'btn btn-green btn-sm', style: { width: 'auto', padding: '10px 20px' }, onClick: () => {
     const name = sInputs.name.value.trim();
     if (!name) return;
-    const { create, validate, toSupabaseShape } = require('../../entities/ai-bull.js');
-    const rec = create({ operationId, name, regNumber: sInputs.reg.value.trim() || null, breed: sInputs.breed.value.trim() || null, epds: sInputs.epds.value.trim() || null });
-    add('aiBulls', rec, validate, toSupabaseShape, 'ai_bulls');
+    const rec = AiBullEntity.create({ operationId, name, regNumber: sInputs.reg.value.trim() || null, breed: sInputs.breed.value.trim() || null, epds: sInputs.epds.value.trim() || null });
+    add('aiBulls', rec, AiBullEntity.validate, AiBullEntity.toSupabaseShape, 'ai_bulls');
     sInputs.name.value = ''; sInputs.reg.value = ''; sInputs.breed.value = ''; sInputs.epds.value = '';
     renderBullsList();
   } }, ['Add sire']));
@@ -1026,14 +1027,13 @@ function openGroupWeightsSheet(group, operationId) {
 
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
     el('button', { className: 'btn btn-green', onClick: () => {
-      const { create, validate, toSupabaseShape } = require('../../entities/animal-weight-record.js');
       for (const wi of weightInputs) {
         const val = parseFloat(wi.input.value);
         if (isNaN(val) || val <= 0) continue;
         let weightKg = val;
         if (unitSys === 'imperial') weightKg = convert(val, 'weight', 'toMetric');
-        const rec = create({ operationId, animalId: wi.animalId, weightKg, date: dateInput.value });
-        add('animalWeightRecords', rec, validate, toSupabaseShape, 'animal_weight_records');
+        const rec = WeightRecordEntity.create({ operationId, animalId: wi.animalId, weightKg, date: dateInput.value });
+        add('animalWeightRecords', rec, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
       }
       wtSheet.close();
     } }, ['Commit all changes']),

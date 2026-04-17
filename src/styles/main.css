@@ -2968,6 +2968,20 @@ body.field-mode .sheet-panel {
   font-weight: 500;
 }
 
+/* V1 group card styles */
+.grp-card { background: var(--bg); border: 0.5px solid var(--border); border-radius: var(--radius-l); margin-bottom: 10px; overflow: hidden; }
+.grp-card-hdr { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; }
+.grp-card-hdr:active { background: var(--bg2); }
+.grp-color-bar { width: 4px; border-radius: 2px; flex-shrink: 0; align-self: stretch; min-height: 36px; }
+.grp-card-body { display: none; border-top: 0.5px solid var(--border); padding: 12px 14px; }
+.grp-card.expanded .grp-card-body { display: block; }
+.grp-card.expanded .grp-chevron { transform: rotate(180deg); }
+.grp-chevron { transition: transform 0.2s; flex-shrink: 0; color: var(--text3); }
+.grp-loc-bar { background: var(--bg2); border-radius: var(--radius); padding: 9px 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.grp-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.grp-actions .btn { flex: 1; min-width: 80px; padding: 10px 8px; font-size: 13px; }
+@media (min-width: 900px) { .grp-card .grp-card-body { display: block !important; } .grp-card .grp-chevron { display: none; } }
+
 /* V1 badge color shortcuts */
 .bg { background: var(--green-l); color: var(--green-d); }
 .ba { background: var(--amber-l); color: var(--amber-d); }

@@ -592,8 +592,6 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     dayCount = daysBetweenInclusive(activeEvent.dateIn, todayStr);
   }
 
-  const isExpanded = expandedGroups.has(group.id) || isOnPasture;
-
   // Composition line
   const animals = getAll('animals');
   const groupAnimalIds = new Set(
@@ -687,98 +685,136 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     }
   }
 
-  // Build card
+  // Gender breakdown
+  const females = groupAnimals.filter(a => a.sex === 'female').length;
+  const males = groupAnimals.filter(a => a.sex === 'male').length;
+  const genderLine = [females > 0 ? `${females} female` : null, males > 0 ? `${males} male` : null].filter(Boolean).join(', ') || compositionLine;
+
+  // NPK fert value
+  let npkValueStr = '';
+  if (npkEl) {
+    const npk2 = getCalcByName('NPK-2');
+    if (npk2) {
+      const prices = getAll('npkPriceHistory').sort((a, b) => (b.effectiveDate || '').localeCompare(a.effectiveDate || ''))[0];
+      if (prices) {
+        const npk1 = getCalcByName('NPK-1');
+        const cls2 = activeGW?.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
+        const todayStr2 = new Date().toISOString().slice(0, 10);
+        const days2 = daysBetweenInclusive(activeGW?.dateJoined || activeEvent?.dateIn || todayStr2, todayStr2);
+        const r = npk1.fn({ headCount: activeGW?.headCount ?? 0, avgWeightKg: activeGW?.avgWeightKg ?? 0, days: days2, excretionNRate: cls2?.excretionNRate ?? 0.34, excretionPRate: cls2?.excretionPRate ?? 0.092, excretionKRate: cls2?.excretionKRate ?? 0.24 });
+        const val = npk2.fn({ nKg: r.nKg ?? r.n ?? 0, pKg: r.pKg ?? r.p ?? 0, kKg: r.kKg ?? r.k ?? 0, nPricePerKg: prices.nPricePerKg ?? 0, pPricePerKg: prices.pPricePerKg ?? 0, kPricePerKg: prices.kPricePerKg ?? 0 });
+        npkValueStr = ` \u00B7 $${val.toFixed(2)} fert value`;
+      }
+    }
+  }
+
+  // DMI target display
+  let dmiTargetDisplay = '';
+  if (isOnPasture && activeGW) {
+    const dmi2 = getCalcByName('DMI-2');
+    if (dmi2) {
+      const cls3 = activeGW.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
+      const dmiKg = dmi2.fn({ headCount: activeGW.headCount ?? 0, avgWeightKg: activeGW.avgWeightKg ?? 0, dmiPct: cls3?.dmiPct ?? 2.5, dmiPctLactating: cls3?.dmiPctLactating ?? 2.5, isLactating: false });
+      dmiTargetDisplay = convert(dmiKg, 'weight', 'toImperial').toFixed(0);
+    }
+  }
+
+  // AU
+  const auValue = activeGW ? ((activeGW.headCount ?? 0) * (activeGW.avgWeightKg ?? 0)) / 453.6 : 0;
+
+  // Build v1-parity card
+  const isExpanded = expandedGroups.has(group.id) || isOnPasture;
+  const wUnit = unitLabel('weight', unitSys);
+
   const card = el('div', {
-    className: 'card dash-grp-card',
+    className: `grp-card${isExpanded ? ' expanded' : ''}`,
     'data-testid': `dashboard-group-card-${group.id}`,
-  }, [
-    // Header
-    el('div', {
-      className: 'dash-grp-header',
-      onClick: () => {
-        if (expandedGroups.has(group.id)) expandedGroups.delete(group.id);
-        else expandedGroups.add(group.id);
-        const body = card.querySelector('.dash-grp-body');
-        const chev = card.querySelector('.dash-grp-chevron');
-        if (body) body.classList.toggle('expanded');
-        if (chev) chev.classList.toggle('expanded');
-      },
-    }, [
-      el('div', { className: 'dash-grp-header-left' }, [
-        group.color
-          ? el('div', { className: 'dash-grp-color', style: { background: group.color } })
-          : null,
-        el('div', {}, [
-          el('div', { className: 'dash-grp-name' }, [group.name]),
-          el('div', { className: 'dash-grp-meta' }, [
-            `${headCount} head`,
-            avgWeightDisplay ? ` \u00B7 avg ${avgWeightDisplay}` : '',
-            locationName ? ` \u00B7 ${locationName}` : isOnPasture ? '' : ' \u00B7 Not placed',
-          ]),
-        ]),
-      ].filter(Boolean)),
-      el('span', { className: `dash-grp-chevron${isExpanded ? ' expanded' : ''}` }, ['\u25BC']),
-    ]),
+  });
 
-    // Body
-    el('div', { className: `dash-grp-body${isExpanded ? ' expanded' : ''}` }, [
-      // Composition
-      compositionLine ? el('div', { className: 'dash-grp-composition' }, [compositionLine]) : null,
-
-      // Location bar
-      isOnPasture ? el('div', { className: 'grp-loc-bar' }, [
-        el('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' } }, [
-          el('span', { style: { fontWeight: '500' } }, [locationName]),
-          el('span', { className: 'badge badge-green' }, [t('dashboard.grazing')]),
-          el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('dashboard.dayLabel', { count: dayCount })]),
-          subMoveCount > 0
-            ? el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('dashboard.subMovesLabel', { count: subMoveCount })])
-            : null,
-          feedCount > 0
-            ? el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('dashboard.feedingsLabel', { count: feedCount })])
-            : null,
-          feedCost > 0
-            ? el('span', { style: { fontSize: '12px', color: 'var(--text2)' } }, [`$${feedCost.toFixed(2)}`])
-            : null,
-        ].filter(Boolean)),
-      ]) : null,
-
-      // DMI
-      dmiEl,
-
-      // NPK
-      npkEl,
-
-      // Action buttons
-      el('div', { className: 'dash-actions' }, [
-        isOnPasture
-          ? el('button', {
-              className: 'btn btn-teal btn-sm',
-              'data-testid': `dashboard-move-btn-${group.id}`,
-              onClick: (e) => { e.stopPropagation(); openMoveWizard(activeEvent, operationId, farmId); },
-            }, [t('dashboard.move')])
-          : el('button', {
-              className: 'btn btn-teal btn-sm',
-              'data-testid': `dashboard-place-btn-${group.id}`,
-              onClick: (e) => { e.stopPropagation(); navigate('#/events'); },
-            }, [t('dashboard.place')]),
-        el('button', {
-          className: 'btn btn-outline btn-sm',
-          onClick: (e) => { e.stopPropagation(); navigate('#/animals'); },
-        }, [t('dashboard.weights')]),
-        isOnPasture
-          ? el('button', {
-              className: 'btn btn-outline btn-sm',
-              onClick: (e) => { e.stopPropagation(); openCloseEventSheet(activeEvent, operationId); },
-            }, [t('action.edit')])
-          : el('button', {
-              className: 'btn btn-outline btn-sm',
-              onClick: (e) => { e.stopPropagation(); navigate('#/animals'); },
-            }, [t('action.edit')]),
+  // Header
+  const header = el('div', { className: 'grp-card-hdr', onClick: () => {
+    if (expandedGroups.has(group.id)) expandedGroups.delete(group.id);
+    else expandedGroups.add(group.id);
+    card.classList.toggle('expanded');
+  } }, [
+    el('div', { className: 'grp-color-bar', style: { background: group.color || 'var(--green)' } }),
+    el('div', { style: { flex: '1', minWidth: '0' } }, [
+      el('div', { style: { fontSize: '15px', fontWeight: '600', lineHeight: '1.3' } }, [group.name]),
+      el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [
+        `${headCount} head \u00B7 avg ${avgWeightDisplay} ${wUnit} \u00B7 ${locationName || 'not placed'}`,
       ]),
-    ].filter(Boolean)),
+    ]),
+    el('svg', { className: 'grp-chevron', width: '18', height: '18', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }, [
+      el('polyline', { points: '6 9 12 15 18 9' }),
+    ]),
   ]);
+  card.appendChild(header);
 
+  // Body
+  const body = el('div', { className: 'grp-card-body' });
+
+  // Composition
+  if (genderLine) body.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '8px' } }, [genderLine]));
+
+  // Location bar
+  if (isOnPasture) {
+    const todayStr3 = new Date().toISOString().slice(0, 10);
+    const locBarParts = [`Day ${dayCount}`];
+    if (feedCount > 0) locBarParts.push(`${feedCount} feedings`);
+    if (feedCost > 0) locBarParts.push(`$${feedCost.toFixed(2)}`);
+    if (auValue > 0) locBarParts.push(`${auValue.toFixed(1)} AU`);
+
+    body.appendChild(el('div', { className: 'grp-loc-bar' }, [
+      el('div', { style: { flex: '1' } }, [
+        el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [
+          `\uD83C\uDF3F ${locationName} `,
+          el('span', { className: 'badge bg', style: { fontSize: '10px' } }, ['grazing']),
+        ]),
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginTop: '2px' } }, [locBarParts.join(' \u00B7 ')]),
+        subMoveCount > 0 ? el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginTop: '2px' } }, [`${subMoveCount} sub-moves`]) : null,
+      ].filter(Boolean)),
+    ]));
+  } else {
+    body.appendChild(el('div', { className: 'grp-loc-bar', style: { opacity: '0.6' } }, [
+      el('div', { style: { fontSize: '13px', color: 'var(--text2)' } }, ['Not currently placed']),
+    ]));
+  }
+
+  // DMI + NPK block
+  if (isOnPasture && dmiTargetDisplay) {
+    const dmiBlock = el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '10px' } }, [
+      `DMI target ${dmiTargetDisplay} lbs/day`,
+    ]);
+    dmiBlock.appendChild(el('div', { className: 'prog', style: { marginTop: '4px' } }, [
+      el('div', { className: 'prog-fill', style: { width: '0%', background: 'var(--amber)' } }),
+    ]));
+    // NPK line (purple)
+    if (npkEl) {
+      const cls4 = activeGW?.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
+      const npk1b = getCalcByName('NPK-1');
+      const todayStr4 = new Date().toISOString().slice(0, 10);
+      const days4 = daysBetweenInclusive(activeGW?.dateJoined || activeEvent?.dateIn || todayStr4, todayStr4);
+      const r2 = npk1b.fn({ headCount: activeGW?.headCount ?? 0, avgWeightKg: activeGW?.avgWeightKg ?? 0, days: days4, excretionNRate: cls4?.excretionNRate ?? 0.34, excretionPRate: cls4?.excretionPRate ?? 0.092, excretionKRate: cls4?.excretionKRate ?? 0.24 });
+      const nL = convert(r2.nKg ?? r2.n ?? 0, 'weight', 'toImperial').toFixed(1);
+      const pL = convert(r2.pKg ?? r2.p ?? 0, 'weight', 'toImperial').toFixed(1);
+      const kL = convert(r2.kKg ?? r2.k ?? 0, 'weight', 'toImperial').toFixed(1);
+      dmiBlock.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--purple-d)', marginTop: '3px' } }, [
+        `NPK deposited: N${nL} / P${pL} / K${kL} lbs${npkValueStr}`,
+      ]));
+    }
+    body.appendChild(dmiBlock);
+  }
+
+  // Action buttons
+  body.appendChild(el('div', { className: 'grp-actions' }, [
+    isOnPasture
+      ? el('button', { className: 'btn btn-teal', 'data-testid': `dashboard-move-btn-${group.id}`, onClick: (e) => { e.stopPropagation(); openMoveWizard(activeEvent, operationId, farmId); } }, ['Move'])
+      : el('button', { className: 'btn btn-teal', 'data-testid': `dashboard-place-btn-${group.id}`, onClick: (e) => { e.stopPropagation(); navigate('#/events'); } }, ['Place']),
+    el('button', { className: 'btn btn-outline', onClick: (e) => { e.stopPropagation(); navigate('#/animals'); } }, ['Weights']),
+    el('button', { className: 'btn btn-outline', onClick: (e) => { e.stopPropagation(); navigate('#/animals'); } }, ['Edit']),
+  ]));
+
+  card.appendChild(body);
   return card;
 }
 

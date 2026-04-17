@@ -416,3 +416,91 @@ export function _reset() {
   initState();
   syncAdapter = null;
 }
+
+// ---------------------------------------------------------------------------
+// Snapshot / Rollback (SP-10)
+// ---------------------------------------------------------------------------
+
+const ROLLBACK_FLAG = 'gtho_rollback_in_progress';
+
+/**
+ * Capture a snapshot of an event and all its child records.
+ * Used for retro-place rollback and any future cancel-with-rollback flows.
+ * @param {string} eventId
+ * @returns {object} snapshot — pass to restoreSnapshot to undo
+ */
+export function captureEventSnapshot(eventId) {
+  const event = getById('events', eventId);
+  if (!event) return null;
+  return {
+    eventId,
+    event: { ...event },
+    paddockWindows: getAll('eventPaddockWindows').filter(pw => pw.eventId === eventId).map(r => ({ ...r })),
+    groupWindows: getAll('eventGroupWindows').filter(gw => gw.eventId === eventId).map(r => ({ ...r })),
+    feedEntries: getAll('eventFeedEntries').filter(fe => fe.eventId === eventId).map(r => ({ ...r })),
+    feedChecks: getAll('eventFeedChecks').filter(fc => fc.eventId === eventId).map(r => ({ ...r })),
+    observations: getAll('eventObservations').filter(o => o.eventId === eventId).map(r => ({ ...r })),
+  };
+}
+
+/**
+ * Restore a snapshot — replaces the event and its child records atomically.
+ * @param {object} snapshot — from captureEventSnapshot
+ */
+export function restoreEventSnapshot(snapshot) {
+  if (!snapshot) return;
+  try {
+    localStorage.setItem(ROLLBACK_FLAG, 'true');
+
+    // Restore event row
+    const current = getById('events', snapshot.eventId);
+    if (current) {
+      const changes = {};
+      for (const [k, v] of Object.entries(snapshot.event)) {
+        if (k !== 'id' && k !== 'createdAt') changes[k] = v;
+      }
+      // Direct state mutation for rollback (skip validation — restoring known-good state)
+      const idx = state.events.findIndex(e => e.id === snapshot.eventId);
+      if (idx >= 0) state.events[idx] = { ...snapshot.event };
+      saveToStorage('events', state.events);
+    }
+
+    // Restore child collections — replace all records matching eventId
+    const childTypes = [
+      { key: 'eventPaddockWindows', data: snapshot.paddockWindows },
+      { key: 'eventGroupWindows', data: snapshot.groupWindows },
+      { key: 'eventFeedEntries', data: snapshot.feedEntries },
+      { key: 'eventFeedChecks', data: snapshot.feedChecks },
+      { key: 'eventObservations', data: snapshot.observations },
+    ];
+
+    for (const { key, data } of childTypes) {
+      // Remove current records for this event
+      state[key] = state[key].filter(r => r.eventId !== snapshot.eventId);
+      // Add snapshot records back
+      state[key].push(...data);
+      saveToStorage(key, state[key]);
+      notify(key);
+    }
+
+    notify('events');
+  } finally {
+    localStorage.removeItem(ROLLBACK_FLAG);
+  }
+}
+
+/**
+ * Check if a rollback was interrupted (app closed mid-rollback).
+ * Call on app boot to complete the rollback.
+ * @returns {boolean}
+ */
+export function isRollbackInProgress() {
+  return localStorage.getItem(ROLLBACK_FLAG) === 'true';
+}
+
+/**
+ * Clear the rollback flag (called after completing interrupted rollback).
+ */
+export function clearRollbackFlag() {
+  localStorage.removeItem(ROLLBACK_FLAG);
+}

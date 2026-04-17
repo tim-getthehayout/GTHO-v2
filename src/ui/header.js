@@ -352,7 +352,10 @@ function renderFieldModePill() {
       setFieldMode(false);
       const returnTo = window.sessionStorage.getItem('gtho_field_mode_return') || '#/';
       window.sessionStorage.removeItem('gtho_field_mode_return');
-      navigate(returnTo);
+      // Navigate to a blank hash first to force the router to re-render
+      // even if returnTo matches current hash (e.g., both #/)
+      navigate('');
+      setTimeout(() => navigate(returnTo), 10);
     };
   } else {
     pillText = '\u2302 Home';

@@ -10,6 +10,7 @@ import { getOpenTodoCount } from '../features/todos/index.js';
 import { getUser, logout } from '../features/auth/session.js';
 import { Sheet } from './sheet.js';
 import * as SubmissionEntity from '../entities/submission.js';
+import { getFeedbackBadgeCount } from '../features/feedback/index.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -56,6 +57,7 @@ export function renderHeader(container) {
       sidebarNavItemBadge('#/todos', 'Tasks', todoCount, currentHash, 'nav-todos'),
       sidebarNavItem('#/reports', 'Reports', currentHash, 'nav-reports'),
       sidebarNavItem('#/settings', 'Settings', currentHash, 'nav-settings'),
+      sidebarNavItemBadge('#/feedback', '\uD83D\uDCAC Feedback', getFeedbackBadgeCount(), currentHash, 'nav-feedback'),
     ]),
     // Sync status strip
     renderSyncStrip(),

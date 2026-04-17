@@ -31,6 +31,7 @@ import { renderAmendmentsScreen } from './features/amendments/entry.js';
 import { renderManureScreen } from './features/amendments/manure.js';
 import { renderNpkPricesScreen } from './features/amendments/npk-prices.js';
 import { renderHarvestScreen } from './features/harvest/index.js';
+import { renderFeedbackScreen } from './features/feedback/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { getFieldMode, setFieldMode, migrateUnitSystemFromLocalStorage } from './utils/preferences.js';
 
@@ -255,6 +256,7 @@ async function showApp(app) {
   route('#/manure', renderManureScreen);
   route('#/npk-prices', renderNpkPricesScreen);
   route('#/harvest', renderHarvestScreen);
+  route('#/feedback', renderFeedbackScreen);
   route('#/feed-quality', renderFeedQualityScreen);
 
   // Init router — renders the current hash route

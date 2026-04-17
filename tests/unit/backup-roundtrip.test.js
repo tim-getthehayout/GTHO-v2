@@ -8,7 +8,7 @@ import { getBackupTableNames } from '../../src/data/backup-export.js';
 import { BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';
 import fixture from '../fixtures/backup-v14.json';
 
-const EXPECTED_TABLE_COUNT = 49; // 52 total tables minus 3 excluded (operation_members, app_logs, release_notes)
+const EXPECTED_TABLE_COUNT = 50; // 53 total tables minus 3 excluded (operation_members, app_logs, release_notes)
 
 describe('backup round-trip (CP-55)', () => {
   describe('fixture structure', () => {

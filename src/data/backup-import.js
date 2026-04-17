@@ -17,7 +17,7 @@ import { logger } from '../utils/logger.js';
 const SUPPORTED_FORMAT_VERSION = 1;
 
 /** Current build's schema_version (must match latest migration). */
-const CURRENT_SCHEMA_VERSION = 20;
+const CURRENT_SCHEMA_VERSION = 23;
 
 /**
  * FK-dependency insert order per V2_MIGRATION_PLAN.md §5.3a — authoritative.
@@ -56,6 +56,7 @@ const FK_ORDER = [
   'manure_batch_transactions',
   'npk_price_history',
   'event_paddock_windows',
+  'event_observations',
   'event_group_windows',
   'event_feed_entries',
   'event_feed_checks',

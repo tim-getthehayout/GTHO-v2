@@ -14,7 +14,7 @@ import { logger } from '../utils/logger.js';
  * Key = Supabase table name. Value = { paginate: boolean } for large tables.
  * Excludes: operation_members, app_logs, release_notes (§5.4).
  */
-const BACKUP_TABLES = {
+export const BACKUP_TABLES = {
   // D1
   operations:                { paginate: false },
   farms:                     { paginate: false },
@@ -35,6 +35,7 @@ const BACKUP_TABLES = {
   // D5
   events:                    { paginate: true },
   event_paddock_windows:     { paginate: true },
+  event_observations:        { paginate: true },
   event_group_windows:       { paginate: true },
   event_feed_entries:        { paginate: true },
   event_feed_checks:         { paginate: true },

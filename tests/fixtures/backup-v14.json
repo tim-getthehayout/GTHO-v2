@@ -108,6 +108,7 @@
       }
     ],
     "event_paddock_windows": [],
+    "event_observations": [],
     "event_group_windows": [],
     "event_feed_entries": [],
     "event_feed_checks": [],

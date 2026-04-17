@@ -324,9 +324,9 @@ function computeDesktopMetrics(events, _unitSys) {
           headCount: gw.headCount ?? 0,
           avgWeightKg: gw.avgWeightKg ?? 0,
           days,
-          excretionNRate: cls?.excretionN ?? 0.34,
-          excretionPRate: cls?.excretionP ?? 0.092,
-          excretionKRate: cls?.excretionK ?? 0.24,
+          excretionNRate: cls?.excretionNRate ?? 0.34,
+          excretionPRate: cls?.excretionPRate ?? 0.092,
+          excretionKRate: cls?.excretionKRate ?? 0.24,
         });
         totalNPK.n += result.n;
         totalNPK.p += result.p;
@@ -415,9 +415,9 @@ function computeMobileMetrics(events, _unitSys) {
           headCount: gw.headCount ?? 0,
           avgWeightKg: gw.avgWeightKg ?? 0,
           days,
-          excretionNRate: cls?.excretionN ?? 0.34,
-          excretionPRate: cls?.excretionP ?? 0.092,
-          excretionKRate: cls?.excretionK ?? 0.24,
+          excretionNRate: cls?.excretionNRate ?? 0.34,
+          excretionPRate: cls?.excretionPRate ?? 0.092,
+          excretionKRate: cls?.excretionKRate ?? 0.24,
         });
         totalNPK += (result.n + result.p + result.k) * 2.20462;
       }
@@ -558,10 +558,16 @@ function renderGroupsView(gridEl) {
 }
 
 function renderGroupCard(group, unitSys, operationId, farmId) {
-  // Find active event for this group
+  // Find active event for this group — prefer GW linked to an open event (OI-0073)
   const groupWindows = getAll('eventGroupWindows');
-  const activeGW = groupWindows.find(gw => gw.groupId === group.id && !gw.dateLeft);
-  const activeEvent = activeGW ? getById('events', activeGW.eventId) : null;
+  const events = getAll('events');
+  const eventMap = new Map(events.map(e => [e.id, e]));
+  const candidateGWs = groupWindows.filter(gw => gw.groupId === group.id && !gw.dateLeft);
+  const activeGW = candidateGWs.find(gw => {
+    const evt = eventMap.get(gw.eventId);
+    return evt && !evt.dateOut;
+  }) || candidateGWs[0] || null;
+  const activeEvent = activeGW ? eventMap.get(activeGW.eventId) : null;
   const isOnPasture = !!(activeEvent && !activeEvent.dateOut);
 
   // Head count
@@ -668,9 +674,9 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
         headCount: activeGW.headCount ?? 0,
         avgWeightKg: activeGW.avgWeightKg ?? 0,
         days,
-        excretionNRate: cls?.excretionN ?? 0.34,
-        excretionPRate: cls?.excretionP ?? 0.092,
-        excretionKRate: cls?.excretionK ?? 0.24,
+        excretionNRate: cls?.excretionNRate ?? 0.34,
+        excretionPRate: cls?.excretionPRate ?? 0.092,
+        excretionKRate: cls?.excretionKRate ?? 0.24,
       });
       const nLbs = (result.n * 2.20462).toFixed(1);
       const pLbs = (result.p * 2.20462).toFixed(1);

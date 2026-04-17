@@ -27,6 +27,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-17 | Bugs | **OI-0073** — Group placement detection picks wrong eventGroupWindow (`.find()` returns first match, not open-event match). **OI-0074** — Event detail action buttons wrong layout/missing CSS classes. **OI-0075** — Locations tab display bugs (double "lbs lbs", missing acreage, missing capacity line, number formatting). |
 | 2026-04-17 | SP-6 | **Feedback & Help buttons in header.** Two-row header: existing row unchanged, new compact sub-row with Feedback + Get Help buttons. Replaces v1 FAB + type toggle. Separate sheets for each. v1 dialog HTML extracted. Get Help sheet trimmed to 4 categories (Roadblock, Bug, Calculation, Question) — suggestion categories (Missing feature, Idea, UX friction) are Feedback-only. |
 | 2026-04-17 | SP-7 | **Feedback screen (desktop-only).** Full v1 parity: confirmation section, stats strip, dev brief export, filtered submission list, resolve sheet, edit sheet. Desktop sidebar nav item only — not in mobile bottom nav. v1 HTML/CSS/JS extracted. |
+| 2026-04-17 | SP-8 | **Field mode v1 parity.** Full rebuild: 8 configurable modules (was 4 hardcoded), module settings in Settings screen, header pill replaces green field-mode-header bar, event picker sheets for Move/Feed Check/Heat/Single Survey, expandable event cards, interactive tasks with checkboxes + due dates, feed delivery loop, field-mode sheet behavior (no backdrop close, hidden handle, "⌂ Done", full-screen mobile). Uses existing `field_mode_quick_actions` column on `user_preferences`. v1 HTML/CSS/JS extracted. |
 
 ---
 
@@ -546,6 +547,41 @@ See `github/issues/feedback-screen-desktop.md` for the complete implementation s
 
 ---
 
+## SP-8: Field Mode — V1 Parity
+
+**Status:** Spec complete · Ready for Claude Code
+**Spec file:** `github/issues/field-mode-v1-parity.md` (full, authoritative)
+**Schema:** None new — `field_mode_quick_actions` already exists on `user_preferences`. No CP-55/CP-56 impact.
+
+### Goal
+
+Full v1 parity for field mode: 8 configurable modules (v2 currently has 4 hardcoded), user-selectable tile grid, module settings in Settings screen, event picker sheets for Move/Feed Check/Heat/Single Survey, expandable event cards, interactive tasks, feed delivery loop, and field-mode-aware sheet behavior.
+
+### Two structural changes from current v2
+
+1. **Remove the green field-mode-header bar.** V2 renders a dark-green header bar inside the field mode screen. V1 doesn't have this — navigation in/out of field mode uses the **header pill button** (already in the app header), which changes text: "⊞ Field" → "← Detail" (on home) → "⌂ Home" (on sub-screens).
+2. **Add module settings to Settings screen.** V1 has a Settings section where users toggle which of the 8 modules appear. V2 has the `fieldModeQuickActions` column in the schema but no UI to configure it.
+
+### 9-part spec
+
+| Part | What | Key files |
+|------|------|-----------|
+| 1 | Header pill replaces green bar | `header.js`, `field-mode/index.js`, `main.css` |
+| 2 | Module settings card in Settings | `settings/index.js` |
+| 3 | Full 8-module tile grid from FIELD_MODULES constant | `field-mode/index.js` |
+| 4 | 8 module handlers (feed, move, harvest, feedcheck, surveybulk, surveysingle, animals, heat) | `field-mode/index.js` |
+| 5 | Shared event picker sheet | `field-mode/index.js` (new) |
+| 6 | Field-mode sheet behavior (no backdrop, hidden handle, "⌂ Done") | Cross-cutting CSS + sheet openers |
+| 7 | Expandable event cards | `field-mode/index.js` |
+| 8 | Interactive tasks with checkboxes + due dates + "+ Add" | `field-mode/index.js` |
+| 9 | Home sub-heading | `field-mode/index.js`, i18n |
+
+### Linked OPEN_ITEMS
+
+None required — fully spec'd from v1 extraction. Open questions flagged in spec file for discovery during implementation (heat picker sheet existence, single survey picker existence, feed loop wiring).
+
+---
+
 ## Reconciliation Checklist (end of sprint)
 
 When this sprint is complete, do a dedicated session to:
@@ -557,4 +593,5 @@ When this sprint is complete, do a dedicated session to:
 - [ ] Update V2_BUILD_INDEX.md with completed work
 - [ ] Merge SP-6 feedback/help buttons into V2_UX_FLOWS.md §17.2 (add sub-row to header spec)
 - [ ] Merge SP-7 feedback screen into V2_UX_FLOWS.md as new §21 (or append to §20)
+- [ ] Merge SP-8 field mode into V2_UX_FLOWS.md §16 (replace current field mode spec with v1 parity version)
 - [ ] Archive this file or mark it as reconciled

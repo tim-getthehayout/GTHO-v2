@@ -13,7 +13,7 @@
 
 The v2 Animals screen was built from prose specs and has very little visual resemblance to v1. This spec provides the exact v1 HTML patterns and CSS for each component. The v2 implementation should match v1's layout, spacing, and interaction patterns while using v2's DOM builder (`el()`, `text()`, `clear()`).
 
-**Consolidation note:** v1 shares containers where it makes sense — Add/Edit animal use the same sheet, and Note/Treatment/Breeding/BCS use one unified event sheet. Preserve this pattern in v2.
+**Consolidation note:** Add/Edit animal share one sheet container — preserve this. V1 also unified Note/Treatment/Breeding/BCS into one event sheet, but v2 keeps these as separate sheets in `src/features/health/`. That's fine — don't consolidate them. Just ensure each individual health sheet matches v1's field layout and styling. Part 9 below documents the v1 unified pattern as a visual reference for field layout, not as a requirement to merge the sheets.
 
 **Rule:** Do NOT use innerHTML. Translate all HTML patterns below into `el()` / `text()` DOM builder calls. The HTML is provided as a visual spec, not as code to paste.
 
@@ -1242,5 +1242,5 @@ Opened from the green selection action bar when checkboxes are ticked. Two modes
 6. Group rows filter the animal list on click (toggle behavior)
 7. Multi-select action bar appears/disappears based on checkbox state
 8. Quick-action buttons on animal rows open the correct sheet type
-9. Consolidated containers: Add/Edit animal = one sheet, Note/Treatment/Breeding/BCS = one sheet
+9. Add/Edit animal = one shared sheet. Note/Treatment/Breeding/BCS may remain as separate sheets (v2's existing `src/features/health/` modules) — consolidation into one container is not required as long as each sheet matches v1's field layout and styling
 10. Scroll position preserved when toggling animal selection checkboxes

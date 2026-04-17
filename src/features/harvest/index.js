@@ -1,14 +1,20 @@
-/** @file Harvest flow — CP-43. Select location, feed type, quantity/weight/DM%/cutting number per field. Creates harvest_event + harvest_event_fields + batches. */
+/** @file Harvest flow — v1 parity tile-based UI. Single openHarvestSheet used from all entry points. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, add, subscribe } from '../../data/store.js';
+import { getAll, getById, add, subscribe } from '../../data/store.js';
+import { getUnitSystem } from '../../utils/preferences.js';
+import { convert, display, unitLabel } from '../../utils/units.js';
+import { navigate } from '../../ui/router.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import * as HarvestEventFieldEntity from '../../entities/harvest-event-field.js';
 import * as BatchEntity from '../../entities/batch.js';
 
 let unsubs = [];
+let harvestSheet = null;
+
+// ─── Harvest event list screen (#/harvest route) ────────────────────────
 
 export function renderHarvestScreen(container) {
   unsubs.forEach(fn => fn());
@@ -31,10 +37,6 @@ export function renderHarvestScreen(container) {
       }, [t('harvest.recordHarvest')]),
     ]),
     el('div', { 'data-testid': 'harvest-list' }),
-    el('div', { className: 'sheet-wrap', id: 'harvest-sheet-wrap' }, [
-      el('div', { className: 'sheet-backdrop', onClick: () => harvestSheet && harvestSheet.close() }),
-      el('div', { className: 'sheet-panel', id: 'harvest-sheet-panel' }),
-    ]),
   ]);
 
   container.appendChild(screenEl);
@@ -43,17 +45,14 @@ export function renderHarvestScreen(container) {
   unsubs.push(subscribe('harvestEventFields', () => renderHarvestList(container, operationId)));
 }
 
-function renderHarvestList(rootContainer, operationId) {
+function renderHarvestList(rootContainer, _operationId) {
   const listEl = rootContainer.querySelector('[data-testid="harvest-list"]');
   if (!listEl) return;
   clear(listEl);
 
-  const events = getAll('harvestEvents').filter(e => e.operationId === operationId);
+  const events = getAll('harvestEvents');
   if (!events.length) {
-    listEl.appendChild(el('p', {
-      className: 'form-hint',
-      'data-testid': 'harvest-empty',
-    }, [t('harvest.empty')]));
+    listEl.appendChild(el('p', { className: 'form-hint', 'data-testid': 'harvest-empty' }, [t('harvest.empty')]));
     return;
   }
 
@@ -70,232 +69,360 @@ function renderHarvestList(rootContainer, operationId) {
     }).join(', ');
 
     listEl.appendChild(el('div', {
-      className: 'card',
-      style: { padding: '12px 14px', marginBottom: 'var(--space-3)' },
+      className: 'card', style: { padding: '12px 14px', marginBottom: 'var(--space-3)' },
       'data-testid': `harvest-event-${evt.id}`,
     }, [
       el('div', { style: { fontWeight: '600', fontSize: '14px' } }, [evt.date || '?']),
       el('div', { className: 'ft-row-detail' }, [fieldSummary || t('harvest.noFields')]),
-      evt.notes ? el('div', { className: 'form-hint' }, [evt.notes]) : el('span', {}),
-    ]));
+      evt.notes ? el('div', { className: 'form-hint' }, [evt.notes]) : null,
+    ].filter(Boolean)));
   }
 }
 
-let harvestSheet = null;
+// ─── Batch ID generation ────────────────────────────────────────────────
 
-// Each row entry represents one field: { locationId, feedTypeId, quantity, weightPerUnitKg, dmPct, cuttingNumber }
-function openHarvestSheet(operationId) {
+function generateBatchId(locationId, feedTypeId, date) {
+  const loc = locationId ? getById('locations', locationId) : null;
+  const ft = feedTypeId ? getById('feedTypes', feedTypeId) : null;
+  const farm = loc?.farmId ? getById('farms', loc.farmId) : null;
+  const farmPart = farm ? farm.name.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() : 'UNK';
+  const fieldPart = loc?.fieldCode
+    ? loc.fieldCode.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+    : (loc ? loc.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase() : 'FLD');
+  const cutPart = ft?.cuttingNumber != null ? String(ft.cuttingNumber) : '?';
+  const datePart = date ? date.replace(/-/g, '') : '';
+  return [farmPart, fieldPart, cutPart, datePart].join('-');
+}
+
+// ─── Tile-based harvest sheet (v1 parity) ───────────────────────────────
+
+function ensureHarvestSheetDOM() {
+  if (document.getElementById('harvest-sheet-wrap')) return;
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'harvest-sheet-wrap', style: { zIndex: '210' } }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => harvestSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'harvest-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+  ]));
+}
+
+/**
+ * Open the tile-based harvest sheet.
+ * @param {string} operationId
+ * @param {object} [options]
+ * @param {boolean} [options.fieldMode] — show field picker step first
+ * @param {string|null} [options.preSelectedLocationId] — pre-fill first field row
+ */
+export function openHarvestSheet(operationId, options = {}) {
+  ensureHarvestSheetDOM();
   if (!harvestSheet) harvestSheet = new Sheet('harvest-sheet-wrap');
   const panel = document.getElementById('harvest-sheet-panel');
   if (!panel) return;
   clear(panel);
+  panel.appendChild(el('div', { className: 'sheet-handle' }));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const locations = getAll('locations').filter(l => !l.archived && l.type === 'land');
-  const feedTypes = getAll('feedTypes').filter(ft => !ft.archived && ft.harvestActive);
+  const { fieldMode = false, preSelectedLocationId = null } = options;
 
-  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('harvest.recordHarvest')]));
-
-  // Header date
-  panel.appendChild(el('label', { className: 'form-label' }, [t('harvest.date')]));
-  const dateInput = el('input', {
-    type: 'date', className: 'auth-input',
-    value: todayStr,
-    'data-testid': 'harvest-date',
-  });
-  panel.appendChild(dateInput);
-
-  // Notes
-  panel.appendChild(el('label', { className: 'form-label' }, [t('harvest.notes')]));
-  const notesInput = el('textarea', {
-    className: 'auth-input',
-    value: '',
-    'data-testid': 'harvest-notes',
-    style: { minHeight: '40px', resize: 'vertical' },
-  });
-  panel.appendChild(notesInput);
-
-  // Field rows
-  panel.appendChild(el('label', { className: 'form-label', style: { marginTop: 'var(--space-4)' } }, [t('harvest.fields')]));
-
-  if (!feedTypes.length) {
-    panel.appendChild(el('p', { className: 'form-hint' }, [t('harvest.noHarvestFeedTypes')]));
+  if (fieldMode) {
+    renderFieldPicker(panel, operationId, (selectedLocId) => {
+      clear(panel);
+      panel.appendChild(el('div', { className: 'sheet-handle' }));
+      renderTileGrid(panel, operationId, selectedLocId);
+    });
+  } else {
+    renderTileGrid(panel, operationId, preSelectedLocationId);
   }
 
-  const fieldRowsEl = el('div', { 'data-testid': 'harvest-field-rows' });
-  panel.appendChild(fieldRowsEl);
+  harvestSheet.open();
+}
 
-  const fieldRows = [];
+// ─── Step 1: Field Picker (field mode only) ─────────────────────────────
 
-  const addFieldRow = () => {
-    const rowData = { locationId: '', feedTypeId: '', quantity: '', weightPerUnitKg: '', dmPct: '', cuttingNumber: '' };
-    fieldRows.push(rowData);
+function renderFieldPicker(panel, operationId, onSelect) {
+  const unitSys = getUnitSystem();
+  const farms = getAll('farms');
+  const isMultiFarm = farms.length > 1;
+  let farmFilter = 'all';
+  let typeFilter = 'all';
+  let search = '';
 
-    const rowEl = el('div', {
-      className: 'card',
-      style: { padding: '8px', marginBottom: 'var(--space-3)' },
-      'data-testid': `harvest-field-row-${fieldRows.length - 1}`,
-    });
+  panel.appendChild(el('div', { style: { fontSize: '17px', fontWeight: '600', marginBottom: '4px' } }, [t('harvest.pickField')]));
+  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '12px' } }, [t('harvest.pickFieldHint')]));
 
-    // Location
-    rowEl.appendChild(el('label', { className: 'form-label' }, [t('harvest.fieldLocation')]));
-    const locSelect = el('select', {
-      className: 'auth-select', 'data-testid': `harvest-field-loc-${fieldRows.length - 1}`,
-    }, [
-      el('option', { value: '' }, ['—']),
-      ...locations.map(l => el('option', { value: l.id }, [l.name])),
-    ]);
-    locSelect.addEventListener('change', () => { rowData.locationId = locSelect.value; });
-    rowEl.appendChild(locSelect);
+  const contentEl = el('div');
+  panel.appendChild(contentEl);
 
-    // Feed type
-    rowEl.appendChild(el('label', { className: 'form-label' }, [t('harvest.feedType')]));
-    const ftSelect = el('select', {
-      className: 'auth-select', 'data-testid': `harvest-field-ft-${fieldRows.length - 1}`,
-    }, [
-      el('option', { value: '' }, ['—']),
-      ...feedTypes.map(ft => el('option', { value: ft.id }, [ft.name])),
-    ]);
-    ftSelect.addEventListener('change', () => { rowData.feedTypeId = ftSelect.value; });
-    rowEl.appendChild(ftSelect);
+  function render() {
+    clear(contentEl);
 
-    // Inline numeric fields
-    const numGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-2)', marginTop: 'var(--space-2)' } });
+    // Farm filter pills
+    if (isMultiFarm) {
+      const farmRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' } });
+      for (const [val, label] of [['all', 'All farms'], ...farms.map(f => [f.id, f.name])]) {
+        const isActive = farmFilter === val;
+        farmRow.appendChild(el('button', {
+          type: 'button',
+          style: { padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isActive ? 'var(--teal)' : 'var(--border2)'}`, background: isActive ? 'var(--teal)' : 'transparent', color: isActive ? 'white' : 'var(--text2)' },
+          onClick: () => { farmFilter = val; render(); },
+        }, [label]));
+      }
+      contentEl.appendChild(farmRow);
+    }
 
-    const qtyInput = el('input', {
-      type: 'number', className: 'auth-input settings-input', placeholder: t('harvest.quantity'),
-      'data-testid': `harvest-field-qty-${fieldRows.length - 1}`,
-    });
-    qtyInput.addEventListener('input', () => { rowData.quantity = qtyInput.value; });
+    // Type filter pills
+    const typeRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' } });
+    for (const [val, label] of [['all', 'All crop & mixed-use'], ['crop', 'Crop'], ['mixed-use', 'Mixed-Use']]) {
+      const isActive = typeFilter === val;
+      typeRow.appendChild(el('button', {
+        type: 'button',
+        style: { padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green)' : 'transparent', color: isActive ? 'white' : 'var(--text2)' },
+        onClick: () => { typeFilter = val; render(); },
+      }, [label]));
+    }
+    contentEl.appendChild(typeRow);
 
-    const weightInput = el('input', {
-      type: 'number', className: 'auth-input settings-input', placeholder: t('harvest.weightPerUnit'),
-      'data-testid': `harvest-field-weight-${fieldRows.length - 1}`,
-    });
-    weightInput.addEventListener('input', () => { rowData.weightPerUnitKg = weightInput.value; });
+    // Search
+    const searchInput = el('input', { type: 'text', placeholder: 'Search fields...', value: search, style: { width: '100%', padding: '10px 12px', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', marginBottom: '10px', background: 'var(--bg2)', color: 'var(--text)' } });
+    searchInput.addEventListener('input', () => { search = searchInput.value; render(); });
+    contentEl.appendChild(searchInput);
 
-    const dmInput = el('input', {
-      type: 'number', className: 'auth-input settings-input', placeholder: t('harvest.dmPct'),
-      'data-testid': `harvest-field-dm-${fieldRows.length - 1}`,
-    });
-    dmInput.addEventListener('input', () => { rowData.dmPct = dmInput.value; });
+    // Field cards
+    let locs = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed-use'));
+    if (farmFilter !== 'all') locs = locs.filter(l => l.farmId === farmFilter);
+    if (typeFilter !== 'all') locs = locs.filter(l => l.landUse === typeFilter);
+    if (search) { const q = search.toLowerCase(); locs = locs.filter(l => (l.name || '').toLowerCase().includes(q) || (l.fieldCode || '').toLowerCase().includes(q)); }
 
-    const cuttingInput = el('input', {
-      type: 'number', className: 'auth-input settings-input', placeholder: t('harvest.cuttingNumber'),
-      'data-testid': `harvest-field-cutting-${fieldRows.length - 1}`,
-    });
-    cuttingInput.addEventListener('input', () => { rowData.cuttingNumber = cuttingInput.value; });
+    if (!locs.length) {
+      contentEl.appendChild(el('div', { style: { padding: '16px', textAlign: 'center', background: 'var(--bg2)', borderRadius: 'var(--radius)' } }, [
+        el('div', { style: { fontSize: '13px', color: 'var(--text2)' } }, ['No crop or mixed-use fields set up. Edit a pasture and set its land use to Crop or Mixed-Use.']),
+      ]));
+      return;
+    }
 
-    numGrid.appendChild(qtyInput);
-    numGrid.appendChild(weightInput);
-    numGrid.appendChild(dmInput);
-    numGrid.appendChild(cuttingInput);
-    rowEl.appendChild(numGrid);
+    for (const loc of locs) {
+      const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(1) : '';
+      const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
+      const farm = loc.farmId ? getById('farms', loc.farmId) : null;
+      contentEl.appendChild(el('div', {
+        style: { padding: '12px', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', marginBottom: '6px' },
+        onClick: () => onSelect(loc.id),
+      }, [
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+          el('div', { style: { fontSize: '20px' } }, ['\uD83D\uDE9C']),
+          el('div', { style: { flex: '1', minWidth: '0' } }, [
+            el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [`${loc.name} \u00B7 ${areaVal} ${areaUnit}`]),
+            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${loc.landUse}${farm ? ` \u00B7 ${farm.name}` : ''}${loc.fieldCode ? ` \u00B7 ${loc.fieldCode}` : ''}`]),
+          ]),
+        ]),
+      ]));
+    }
+  }
 
-    // Remove row button
-    rowEl.appendChild(el('button', {
-      className: 'btn btn-outline btn-xs',
-      style: { marginTop: 'var(--space-2)' },
-      'data-testid': `harvest-field-remove-${fieldRows.length - 1}`,
-      onClick: () => {
-        const idx = fieldRows.indexOf(rowData);
-        if (idx !== -1) fieldRows.splice(idx, 1);
-        rowEl.remove();
-      },
-    }, [t('harvest.removeField')]));
+  render();
+}
 
-    fieldRowsEl.appendChild(rowEl);
-  };
+// ─── Step 2: Tile Grid ──────────────────────────────────────────────────
 
-  // Start with one row
-  addFieldRow();
+function renderTileGrid(panel, operationId, preSelectedLocationId) {
+  const unitSys = getUnitSystem();
+  const wUnit = unitSys === 'imperial' ? 'lbs' : 'kg';
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const feedTypes = getAll('feedTypes').filter(ft => ft.harvestActive !== false && !ft.archived);
+  const allLocations = getAll('locations').filter(l => !l.archived && l.type === 'land');
 
-  panel.appendChild(el('button', {
-    className: 'btn btn-outline btn-sm',
-    style: { marginBottom: 'var(--space-4)' },
-    'data-testid': 'harvest-add-field-btn',
-    onClick: () => addFieldRow(),
-  }, [t('harvest.addField')]));
+  // State
+  const tiles = []; // { feedTypeId, fieldRows: [{ landId, quantity, weightPerUnitKg, batchId, batchIdDirty, notes }] }
 
-  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'harvest-status' });
-  panel.appendChild(statusEl);
-
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
-    el('button', {
-      className: 'btn btn-green',
-      'data-testid': 'harvest-save',
-      onClick: () => {
-        clear(statusEl);
-        const validRows = fieldRows.filter(r => r.locationId && r.feedTypeId && r.quantity !== '');
-        if (!validRows.length) {
-          statusEl.appendChild(el('span', {}, [t('harvest.noFieldsError')]));
-          return;
-        }
-        try {
-          const parseNum = v => (v === '' || v == null) ? null : parseFloat(v);
-
-          // Create harvest event
-          const harvestEvent = HarvestEventEntity.create({
-            operationId,
-            date: dateInput.value,
-            notes: notesInput.value.trim() || null,
-          });
-          add('harvestEvents', harvestEvent, HarvestEventEntity.validate,
-            HarvestEventEntity.toSupabaseShape, 'harvest_events');
-
-          for (const row of validRows) {
-            const ft = feedTypes.find(x => x.id === row.feedTypeId);
-            const qty = parseNum(row.quantity) ?? 0;
-            const weightKg = parseNum(row.weightPerUnitKg);
-            const dmPct = parseNum(row.dmPct);
-            const cuttingNum = parseNum(row.cuttingNumber);
-
-            // Create a batch for this field (source='harvest')
-            const batchName = [
-              ft ? ft.name : 'Harvest',
-              dateInput.value,
-            ].join(' ');
-            const batch = BatchEntity.create({
-              operationId,
-              feedTypeId: row.feedTypeId,
-              name: batchName,
-              source: 'harvest',
-              quantity: qty,
-              remaining: qty,
-              unit: ft ? ft.unit : 'unit',
-              weightPerUnitKg: weightKg,
-              dmPct,
-              purchaseDate: dateInput.value,
-            });
-            add('batches', batch, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
-
-            // Create harvest event field record
-            const hef = HarvestEventFieldEntity.create({
-              operationId,
-              harvestEventId: harvestEvent.id,
-              locationId: row.locationId,
-              feedTypeId: row.feedTypeId,
-              quantity: qty,
-              weightPerUnitKg: weightKg,
-              dmPct,
-              cuttingNumber: cuttingNum != null ? Math.round(cuttingNum) : null,
-              batchId: batch.id,
-            });
-            add('harvestEventFields', hef, HarvestEventFieldEntity.validate,
-              HarvestEventFieldEntity.toSupabaseShape, 'harvest_event_fields');
-          }
-
-          harvestSheet.close();
-        } catch (err) {
-          statusEl.appendChild(el('span', {}, [err.message]));
-        }
-      },
-    }, [t('action.save')]),
-    el('button', {
-      className: 'btn btn-outline',
-      onClick: () => harvestSheet.close(),
-    }, [t('action.cancel')]),
+  // Header fields
+  const dateInput = el('input', { type: 'date', value: todayStr });
+  const notesInput = el('input', { type: 'text', placeholder: 'e.g. Good yield' });
+  panel.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Harvest date *']), dateInput]),
+    el('div', { className: 'field' }, [el('label', {}, ['Event notes (optional)']), notesInput]),
   ]));
 
-  harvestSheet.open();
+  // Feed types link
+  panel.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', marginTop: '10px' } }, [
+    el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('harvest.feedTypesLink')]),
+    el('button', { className: 'btn btn-outline btn-xs', style: { flexShrink: '0', whiteSpace: 'nowrap' }, onClick: () => {
+      // Try to open feed types sheet from locations module
+      navigate('#/locations'); harvestSheet.close();
+    } }, ['\u2699\uFE0F Feed types']),
+  ]));
+
+  // Tile section label
+  panel.appendChild(el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' } }, [t('harvest.selectType')]));
+
+  const tileGridEl = el('div');
+  const tileDetailsEl = el('div');
+  const statusEl = el('div', { className: 'auth-error' });
+
+  panel.appendChild(tileGridEl);
+  panel.appendChild(tileDetailsEl);
+  panel.appendChild(statusEl);
+
+  function renderTiles() {
+    clear(tileGridEl);
+
+    if (!feedTypes.length) {
+      tileGridEl.appendChild(el('div', { style: { padding: '16px', textAlign: 'center', background: 'var(--bg2)', borderRadius: 'var(--radius)', marginBottom: '12px' } }, [
+        el('div', { style: { fontSize: '22px', marginBottom: '6px' } }, ['\uD83C\uDF3E']),
+        el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--text2)', marginBottom: '4px' } }, [t('harvest.noTypesActive')]),
+        el('div', { style: { fontSize: '12px', color: 'var(--text3)' } }, [t('harvest.noTypesHint')]),
+      ]));
+      return;
+    }
+
+    const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: '8px', marginBottom: '14px' } });
+    for (const ft of feedTypes) {
+      const isSelected = tiles.some(t2 => t2.feedTypeId === ft.id);
+      const subLabel = (ft.cuttingNumber != null ? `C${ft.cuttingNumber} \u00B7 ` : '') + (ft.unit || '');
+      grid.appendChild(el('button', {
+        type: 'button',
+        style: { padding: '10px 8px', borderRadius: 'var(--radius)', border: `2px solid ${isSelected ? 'var(--green)' : 'var(--border2)'}`, background: isSelected ? 'var(--green)' : 'var(--bg2)', color: isSelected ? 'white' : 'var(--text)', cursor: 'pointer', textAlign: 'left', lineHeight: '1.3' },
+        onClick: () => {
+          const idx = tiles.findIndex(t2 => t2.feedTypeId === ft.id);
+          if (idx >= 0) tiles.splice(idx, 1);
+          else {
+            const row = makeFieldRow(ft.id, preSelectedLocationId, dateInput.value);
+            tiles.push({ feedTypeId: ft.id, fieldRows: [row] });
+          }
+          renderTiles();
+          renderDetails();
+        },
+      }, [
+        el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [ft.name]),
+        subLabel ? el('div', { style: { fontSize: '11px', opacity: '0.8', marginTop: '2px' } }, [subLabel]) : null,
+      ].filter(Boolean)));
+    }
+    tileGridEl.appendChild(grid);
+  }
+
+  function makeFieldRow(feedTypeId, locId, date) {
+    const row = { landId: locId || null, quantity: null, weightPerUnitKg: null, batchId: null, batchIdDirty: false, notes: null };
+    if (locId && date) row.batchId = generateBatchId(locId, feedTypeId, date);
+    return row;
+  }
+
+  function renderDetails() {
+    clear(tileDetailsEl);
+    for (const tile of tiles) {
+      const ft = getById('feedTypes', tile.feedTypeId);
+      if (!ft) continue;
+      const tileLabel = `\u25BC ${ft.name}${ft.cuttingNumber != null ? ` \u2014 C${ft.cuttingNumber}` : ''}`;
+      const defaultWeightDisplay = ft.defaultWeightKg ? Math.round(convert(ft.defaultWeightKg, 'weight', 'toImperial')) : '';
+
+      const tileContainer = el('div', { style: { border: '1.5px solid var(--green)', borderRadius: 'var(--radius)', padding: '12px', marginBottom: '12px', background: 'var(--bg)' } });
+      tileContainer.appendChild(el('div', { style: { fontSize: '12px', fontWeight: '700', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' } }, [tileLabel]));
+
+      for (let i = 0; i < tile.fieldRows.length; i++) {
+        const row = tile.fieldRows[i];
+        const rowEl = el('div', { style: { background: 'var(--bg2)', borderRadius: 'var(--radius)', padding: '10px', marginBottom: '8px', position: 'relative' } });
+
+        // Header: Field N + remove button
+        rowEl.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' } }, [
+          el('div', { style: { fontSize: '12px', fontWeight: '600', color: 'var(--text2)' } }, [`Field ${i + 1}`]),
+          el('button', { type: 'button', style: { border: 'none', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontSize: '18px', padding: '0' }, onClick: () => { tile.fieldRows.splice(i, 1); if (!tile.fieldRows.length) tiles.splice(tiles.indexOf(tile), 1); renderTiles(); renderDetails(); } }, ['\u00D7']),
+        ]));
+
+        // Weight per bale (prominent)
+        const weightInput = el('input', { type: 'number', min: '0', step: '1', placeholder: String(defaultWeightDisplay), value: row.weightPerUnitKg ? Math.round(convert(row.weightPerUnitKg, 'weight', 'toImperial')) : '', style: { fontSize: '18px', fontWeight: '600', height: '44px' } });
+        weightInput.addEventListener('change', () => {
+          const val = parseFloat(weightInput.value);
+          row.weightPerUnitKg = !isNaN(val) ? (unitSys === 'imperial' ? convert(val, 'weight', 'toMetric') : val) : null;
+        });
+        rowEl.appendChild(el('div', { className: 'field', style: { marginBottom: '8px' } }, [el('label', { style: { fontSize: '12px', fontWeight: '600' } }, [`Weight / bale (${wUnit})`]), weightInput]));
+
+        // Field + bale count
+        const fieldSelect = el('select', {}, [
+          el('option', { value: '' }, ['\u2014 pick field \u2014']),
+          ...allLocations.map(l => el('option', { value: l.id, selected: row.landId === l.id }, [`${l.name}${l.fieldCode ? ` [${l.fieldCode}]` : ''}`])),
+        ]);
+        fieldSelect.addEventListener('change', () => {
+          row.landId = fieldSelect.value || null;
+          if (!row.batchIdDirty) { row.batchId = generateBatchId(row.landId, tile.feedTypeId, dateInput.value); batchInput.value = row.batchId || ''; }
+        });
+        const qtyInput = el('input', { type: 'number', min: '0', step: '1', placeholder: '0', value: row.quantity ?? '' });
+        qtyInput.addEventListener('change', () => { row.quantity = parseInt(qtyInput.value, 10) || null; });
+        rowEl.appendChild(el('div', { className: 'two' }, [
+          el('div', { className: 'field' }, [el('label', {}, ['Field']), fieldSelect]),
+          el('div', { className: 'field' }, [el('label', {}, [t('harvest.baleCount')]), qtyInput]),
+        ]));
+
+        // Batch ID
+        const batchInput = el('input', { type: 'text', value: row.batchId || '', placeholder: 'Set field + date first' });
+        batchInput.addEventListener('input', () => { row.batchId = batchInput.value; row.batchIdDirty = true; });
+        rowEl.appendChild(el('div', { className: 'field' }, [
+          el('label', {}, [t('harvest.batchId'), ' ', el('span', { style: { fontWeight: '400', fontSize: '10px', color: 'var(--text3)' } }, [t('harvest.batchIdHint')])]),
+          batchInput,
+        ]));
+
+        // Notes
+        const notesRowInput = el('input', { type: 'text', placeholder: '', value: row.notes || '' });
+        notesRowInput.addEventListener('change', () => { row.notes = notesRowInput.value.trim() || null; });
+        rowEl.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Notes (optional)']), notesRowInput]));
+
+        tileContainer.appendChild(rowEl);
+      }
+
+      // Add field button
+      tileContainer.appendChild(el('button', { className: 'btn btn-outline btn-sm', style: { width: '100%', marginTop: '2px' }, onClick: () => { tile.fieldRows.push(makeFieldRow(tile.feedTypeId, null, dateInput.value)); renderDetails(); } }, [t('harvest.addFieldRow')]));
+
+      tileDetailsEl.appendChild(tileContainer);
+    }
+  }
+
+  // Date change → update batch IDs
+  dateInput.addEventListener('change', () => {
+    for (const tile of tiles) {
+      for (const row of tile.fieldRows) {
+        if (!row.batchIdDirty && row.landId) row.batchId = generateBatchId(row.landId, tile.feedTypeId, dateInput.value);
+      }
+    }
+    renderDetails();
+  });
+
+  renderTiles();
+  renderDetails();
+
+  // Save button
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [
+    el('button', { className: 'btn btn-green', onClick: () => {
+      clear(statusEl);
+      if (!dateInput.value) { statusEl.appendChild(el('span', {}, ['Date is required'])); return; }
+      if (!tiles.length) { statusEl.appendChild(el('span', {}, ['Select at least one harvest type'])); return; }
+      const validRows = [];
+      for (const tile of tiles) {
+        for (const row of tile.fieldRows) {
+          if (!row.landId || !row.quantity || row.quantity <= 0) continue;
+          validRows.push({ ...row, feedTypeId: tile.feedTypeId });
+        }
+      }
+      if (!validRows.length) { statusEl.appendChild(el('span', {}, ['Each tile needs at least one field row with field + bale count'])); return; }
+
+      try {
+        const harvestEvent = HarvestEventEntity.create({ operationId, date: dateInput.value, notes: notesInput.value.trim() || null });
+        add('harvestEvents', harvestEvent, HarvestEventEntity.validate, HarvestEventEntity.toSupabaseShape, 'harvest_events');
+
+        for (const row of validRows) {
+          const ft = getById('feedTypes', row.feedTypeId);
+          const batchName = [ft ? ft.name : 'Harvest', dateInput.value].join(' ');
+          const batch = BatchEntity.create({
+            operationId, feedTypeId: row.feedTypeId, name: batchName, source: 'harvest',
+            quantity: row.quantity, remaining: row.quantity, unit: ft ? ft.unit : 'unit',
+            weightPerUnitKg: row.weightPerUnitKg, dmPct: null, purchaseDate: dateInput.value,
+          });
+          add('batches', batch, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+
+          const hef = HarvestEventFieldEntity.create({
+            operationId, harvestEventId: harvestEvent.id, locationId: row.landId,
+            feedTypeId: row.feedTypeId, quantity: row.quantity, weightPerUnitKg: row.weightPerUnitKg,
+            dmPct: null, cuttingNumber: ft?.cuttingNumber ?? null, batchId: batch.id,
+          });
+          add('harvestEventFields', hef, HarvestEventFieldEntity.validate, HarvestEventFieldEntity.toSupabaseShape, 'harvest_event_fields');
+        }
+
+        harvestSheet.close();
+      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
+    } }, [t('action.save')]),
+    el('button', { className: 'btn btn-outline', onClick: () => harvestSheet.close() }, [t('action.cancel')]),
+  ]));
 }

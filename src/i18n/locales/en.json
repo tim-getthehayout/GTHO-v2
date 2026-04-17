@@ -522,7 +522,20 @@
     "noHarvestFeedTypes": "No harvest-active feed types. Enable harvest on a feed type first.",
     "noFields": "No field records",
     "noFieldsError": "Add at least one field row to save.",
-    "empty": "No harvests recorded yet."
+    "empty": "No harvests recorded yet.",
+    "pickField": "Pick a field",
+    "pickFieldHint": "Select the field this harvest came from",
+    "selectType": "Select harvest type",
+    "noTypesActive": "No harvest types active",
+    "noTypesHint": "Go to Settings → Feed Types and enable Harvest active on the types you're cutting.",
+    "weightPerBale": "Weight / bale",
+    "baleCount": "Bale count",
+    "batchId": "Batch ID",
+    "batchIdHint": "(auto-generated · editable)",
+    "addFieldRow": "+ Add field",
+    "feedTypesLink": "Each field record creates a feed batch automatically.",
+    "batchesCreated": "Harvest saved",
+    "fieldN": "Field"
   },
   "amendment": {
     "productCategories": "Product Categories",

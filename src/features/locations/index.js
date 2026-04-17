@@ -17,6 +17,7 @@ import * as FeedTypeEntity from '../../entities/feed-type.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import * as AmendmentEntity from '../../entities/amendment.js';
 import * as AmendmentLocationEntity from '../../entities/amendment-location.js';
+import { openHarvestSheet } from '../harvest/index.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -31,7 +32,6 @@ let locationSheet = null;
 let soilTestSheet = null;
 let surveySheet = null;
 let feedTypesSheet = null;
-let harvestSheet = null;
 let applyInputSheet = null;
 
 // ─── Helpers ────────────────────────────────────────────────────────────
@@ -799,151 +799,6 @@ function openFeedTypesSheet(operationId) {
   ]));
 
   feedTypesSheet.open();
-}
-
-// ─── Harvest Sheet ──────────────────────────────────────────────────────
-
-function ensureHarvestSheetDOM() {
-  if (document.getElementById('harvest-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'harvest-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => harvestSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'harvest-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
-  ]));
-}
-
-function openHarvestSheet(operationId) {
-  ensureHarvestSheetDOM();
-  if (!harvestSheet) harvestSheet = new Sheet('harvest-sheet-wrap');
-  const panel = document.getElementById('harvest-sheet-panel');
-  if (!panel) return;
-  clear(panel);
-  panel.appendChild(el('div', { className: 'sheet-handle' }));
-  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Record harvest']));
-
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const unitSys = getUnitSystem();
-  const dateInput = el('input', { type: 'date', value: todayStr });
-  panel.appendChild(el('div', { className: 'field', style: { marginBottom: '12px' } }, [el('label', {}, ['Harvest date']), dateInput]));
-
-  const contentEl = el('div');
-  panel.appendChild(contentEl);
-
-  let selectedLocationId = null;
-  const selectedFeedTypes = []; // { feedTypeId, baleCount, weightPerBale, notes }
-
-  function renderStep1() {
-    clear(contentEl);
-    // Field picker — show crop + mixed-use locations
-    const locs = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed-use'));
-
-    const searchInput = el('input', { type: 'search', placeholder: 'Search fields\u2026', style: { width: '100%', padding: '8px 12px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '13px', marginBottom: '8px' } });
-
-    const listEl = el('div');
-    function renderFieldList() {
-      clear(listEl);
-      const q = searchInput.value.toLowerCase();
-      const filtered = q ? locs.filter(l => (l.name || '').toLowerCase().includes(q)) : locs;
-      for (const loc of filtered) {
-        const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(2) : '';
-        listEl.appendChild(el('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 0', borderBottom: '0.5px solid var(--border)', cursor: 'pointer' },
-          onClick: () => { selectedLocationId = loc.id; renderStep2(); },
-        }, [
-          el('div', { style: { flex: '1' } }, [
-            el('div', { style: { fontSize: '13px', fontWeight: '500' } }, [loc.name]),
-            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ac ${loc.fieldCode || ''}`]),
-          ]),
-          el('div', { style: { fontSize: '14px', color: 'var(--text3)' } }, ['\u203A']),
-        ]));
-      }
-      if (!filtered.length) listEl.appendChild(el('div', { className: 'empty' }, ['No crop or mixed-use locations']));
-    }
-    searchInput.addEventListener('input', renderFieldList);
-    contentEl.appendChild(searchInput);
-    contentEl.appendChild(listEl);
-    renderFieldList();
-  }
-
-  function renderStep2() {
-    clear(contentEl);
-    const loc = getById('locations', selectedLocationId);
-    contentEl.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '500', marginBottom: '8px' } }, [`Field: ${loc?.name || '?'}`]));
-
-    // Feed type tiles
-    const feedTypes = getAll('feedTypes').filter(ft => ft.harvestActive !== false && !ft.archived);
-    const tilesEl = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' } });
-    const detailsEl = el('div');
-
-    function renderTiles() {
-      clear(tilesEl);
-      for (const ft of feedTypes) {
-        const isSelected = selectedFeedTypes.some(s => s.feedTypeId === ft.id);
-        tilesEl.appendChild(el('button', {
-          type: 'button',
-          style: { padding: '10px 14px', borderRadius: 'var(--radius)', fontSize: '13px', fontWeight: '500', cursor: 'pointer', border: `1.5px solid ${isSelected ? 'var(--green)' : 'var(--border2)'}`, background: isSelected ? 'var(--green-l)' : 'transparent', color: isSelected ? 'var(--green-d)' : 'var(--text2)' },
-          onClick: () => {
-            const idx = selectedFeedTypes.findIndex(s => s.feedTypeId === ft.id);
-            if (idx >= 0) selectedFeedTypes.splice(idx, 1);
-            else selectedFeedTypes.push({ feedTypeId: ft.id, baleCount: 0, weightPerBale: ft.defaultWeightKg ? Math.round(convert(ft.defaultWeightKg, 'weight', 'toImperial')) : 0, notes: '' });
-            renderTiles(); renderDetails();
-          },
-        }, [`\uD83C\uDF3E ${ft.name}`]));
-      }
-    }
-
-    function renderDetails() {
-      clear(detailsEl);
-      for (const sel of selectedFeedTypes) {
-        const ft = feedTypes.find(f => f.id === sel.feedTypeId);
-        if (!ft) continue;
-        const baleInput = el('input', { type: 'number', min: '0', step: '1', placeholder: '0', value: sel.baleCount || '' });
-        baleInput.addEventListener('input', () => { sel.baleCount = parseInt(baleInput.value, 10) || 0; });
-        const weightInput = el('input', { type: 'number', min: '0', step: '1', placeholder: ft.defaultWeightKg ? Math.round(convert(ft.defaultWeightKg, 'weight', 'toImperial')) : '0', value: sel.weightPerBale || '' });
-        weightInput.addEventListener('input', () => { sel.weightPerBale = parseInt(weightInput.value, 10) || 0; });
-        const notesInput = el('input', { type: 'text', placeholder: 'Optional', value: sel.notes });
-        notesInput.addEventListener('input', () => { sel.notes = notesInput.value; });
-
-        detailsEl.appendChild(el('div', { style: { marginBottom: '14px', padding: '12px', background: 'var(--bg2)', borderRadius: 'var(--radius)' } }, [
-          el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, [ft.name]),
-          el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-end', marginBottom: '8px' } }, [
-            el('div', { className: 'field', style: { flex: '1' } }, [el('label', {}, ['Bale count']), baleInput]),
-            el('div', { className: 'field', style: { flex: '1' } }, [el('label', {}, ['Weight per bale (lbs)']), weightInput]),
-          ]),
-          el('div', { className: 'two' }, [
-            el('div', { className: 'field' }, [el('label', {}, ['Notes']), notesInput]),
-            el('div'),
-          ]),
-        ]));
-      }
-    }
-
-    renderTiles();
-    renderDetails();
-    contentEl.appendChild(tilesEl);
-    contentEl.appendChild(detailsEl);
-
-    const statusEl = el('div', { className: 'auth-error' });
-    contentEl.appendChild(statusEl);
-
-    contentEl.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [
-      el('button', { className: 'btn btn-green', onClick: () => {
-        clear(statusEl);
-        const lines = selectedFeedTypes.filter(s => s.baleCount > 0);
-        if (!lines.length) { statusEl.appendChild(el('span', {}, ['Add at least one feed type with bale count'])); return; }
-        try {
-          const harvestEvt = HarvestEventEntity.create({ operationId, locationId: selectedLocationId, harvestDate: dateInput.value || todayStr });
-          add('harvestEvents', harvestEvt, HarvestEventEntity.validate, HarvestEventEntity.toSupabaseShape, 'harvest_events');
-          // TODO: create harvest_event_fields per line when entity supports it
-          harvestSheet.close();
-        } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
-      } }, ['Save harvest']),
-      el('button', { className: 'btn btn-outline', onClick: () => { selectedLocationId = null; selectedFeedTypes.length = 0; renderStep1(); } }, ['Back']),
-      el('button', { className: 'btn btn-outline', onClick: () => harvestSheet.close() }, ['Cancel']),
-    ]));
-  }
-
-  renderStep1();
-  harvestSheet.open();
 }
 
 // ─── Apply Input / Amendment Sheet ──────────────────────────────────────

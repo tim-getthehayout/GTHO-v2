@@ -6,6 +6,7 @@ import { getAll, getById, subscribe } from '../../data/store.js';
 import { setFieldMode } from '../../utils/preferences.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import { navigate } from '../../ui/router.js';
+import { openHarvestSheet } from '../harvest/index.js';
 
 let unsubs = [];
 
@@ -34,7 +35,7 @@ export function renderFieldModeHome(container) {
       el('button', {
         className: 'field-mode-tile',
         'data-testid': 'field-mode-tile-harvest',
-        onClick: () => navigate('#/harvest'),
+        onClick: () => openHarvestSheet(getAll('operations')[0]?.id, { fieldMode: true }),
       }, [
         el('div', { className: 'field-mode-tile-icon' }, ['\uD83D\uDE9C']),
         t('fieldMode.harvest'),

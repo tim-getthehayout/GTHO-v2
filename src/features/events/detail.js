@@ -23,6 +23,7 @@ import { openEditGroupWindowDialog } from './edit-group-window.js';
 import { openMoveFeedOutSheet } from './move-feed-out.js';
 import { openEditPaddockWindowDialog } from './edit-paddock-window.js';
 import { reopenEvent } from './reopen-event.js';
+import { openEditFeedCheckDialog } from './edit-feed-check.js';
 
 /** Active subscriptions for this view */
 let unsubs = [];
@@ -938,6 +939,8 @@ function renderFeedChecks(ctx) {
 
   const isActive = !event.dateOut;
   const checks = getAll('eventFeedChecks').filter(fc => fc.eventId === ctx.eventId);
+  const checkIds = new Set(checks.map(c => c.id));
+  const items = getAll('eventFeedCheckItems').filter(i => checkIds.has(i.feedCheckId));
 
   if (!checks.length && !isActive) return;
 
@@ -949,16 +952,36 @@ function renderFeedChecks(ctx) {
     card.appendChild(el('div', { className: 'form-hint' }, [t('event.noFeedChecks')]));
   }
 
-  for (const fc of checks) {
+  // Render one row per (check × item). A check can have N items (one per
+  // batch × location feed line). SP-10 §9 Edit dialog is per-item.
+  const checkById = new Map(checks.map(c => [c.id, c]));
+  const pairs = items.map(item => ({ check: checkById.get(item.feedCheckId), item }));
+  pairs.sort((a, b) => {
+    const da = a.check.date || a.check.checkDate || a.check.createdAt || '';
+    const db = b.check.date || b.check.checkDate || b.check.createdAt || '';
+    const cmp = db.localeCompare(da);
+    if (cmp !== 0) return cmp;
+    return (b.check.time || '').localeCompare(a.check.time || '');
+  });
+
+  for (const { check, item } of pairs) {
+    const batch = getById('batches', item.batchId);
+    const loc = getById('locations', item.locationId);
+    const dateStr = formatShortDate(check.date || check.checkDate || check.createdAt);
+    const remStr = `${item.remainingQuantity} ${batch?.unit || ''}`.trim();
+    const batchName = batch?.name || '?';
+    const locName = loc?.name || '?';
+    const noteStr = check.notes ? ` \u00B7 ${check.notes}` : '';
+
     card.appendChild(el('div', {
       style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' },
     }, [
-      el('span', {}, [`${formatShortDate(fc.checkDate || fc.createdAt)} \u00B7 ${fc.notes || ''}`]),
-      isActive ? el('button', {
+      el('span', { style: { flex: '1', minWidth: '0' } }, [`${dateStr} \u00B7 ${batchName} \u2192 ${locName} \u00B7 ${remStr}${noteStr}`]),
+      el('button', {
         className: 'btn btn-ghost btn-xs',
-        onClick: () => openFeedCheckSheet(event, ctx.operationId),
-      }, ['\u270E']) : null,
-    ].filter(Boolean)));
+        onClick: () => openEditFeedCheckDialog(check, item, event, ctx.operationId),
+      }, ['\u270E']),
+    ]));
   }
 
   if (isActive) {

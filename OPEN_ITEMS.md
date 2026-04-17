@@ -33,7 +33,7 @@
 ### OI-0084 — SP-10: §9 Feed check edit + re-snap invariant dialog
 **Added:** 2026-04-17 | **Area:** v2-build / events / feed | **Priority:** P1
 **Checkpoint:** SP-10 Phase 6 — completes SP-10 build
-**Status:** open — **DESIGN COMPLETE, ready for Claude Code** (re-confirmed 2026-04-17 — not actually design-required)
+**Status:** closed — 2026-04-17. `src/features/events/edit-feed-check.js` built. Per-item edit dialog with range guards + invariant check covering Cases A/B/C/D. Re-snap dialog atomically deletes impossible later check items + saves edit, then a non-modal toast offers a "Feed check" shortcut to re-measure. `renderFeedChecks` in `detail.js` now renders one row per (check × item) feed line and wires the per-row Edit button to the new dialog. 20 unit tests pass.
 
 **Clarification (2026-04-17):** The full design for this item already lives in `UI_SPRINT_SPEC.md` § SP-10 §9 (ratified 2026-04-17). What Claude Code flagged as "design-required" was really a scope surprise: the feed check edit UI doesn't exist in the current code (checks are add-only in `src/features/events/check.js`), so this item covers building the edit dialog from scratch rather than extending an existing one. That's a scope note, not a design gap. No new design decisions needed from Tim.
 

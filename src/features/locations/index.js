@@ -680,16 +680,81 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   const expandedCards = new Set(isSingle ? locs.map(l => l.id) : []);
 
   // Header
+  // Expand-all state
+  let expandAll = false;
+
+  // Confirm bar element (for "Finish anyway?" flow)
+  const confirmBar = el('div', { style: { display: 'none', padding: '8px 0 6px', borderTop: '0.5px solid var(--border2)' } });
+
   if (isSingle) {
+    // Single mode: classic header
     panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, [`Survey \u2014 ${locs[0]?.name || ''}`]));
     panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '10px' } }, ['Rate forage availability and set recovery window.']));
   } else {
-    panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Pasture survey']));
-    panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '10px' } }, ['Rate each paddock 0\u2013100 for forage availability.']));
+    // Bulk mode: Row 1 action buttons (v1 §6.1)
+    const bulkRow1 = el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0 6px' } });
+
+    // Left: Cancel (red text)
+    bulkRow1.appendChild(el('button', {
+      type: 'button',
+      style: { background: 'none', border: 'none', color: 'var(--red)', fontSize: '13px', fontWeight: '500', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 0' },
+      onClick: () => { if (window.confirm('Discard changes from this session?')) surveySheet.close(); },
+    }, ['Cancel']));
+
+    // Center: DRAFT pill + Expand/Collapse all
+    const expandLabel = el('span');
+    function updateExpandLabel() { expandLabel.textContent = expandAll ? 'Collapse all' : 'Expand all'; }
+    updateExpandLabel();
+
+    bulkRow1.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+      el('span', { style: { fontSize: '10px', fontWeight: '600', color: 'var(--amber-d)', background: 'var(--amber-l)', border: '1px solid var(--amber)', padding: '2px 8px', borderRadius: '10px' } }, ['DRAFT']),
+      el('button', {
+        type: 'button',
+        style: { background: 'none', border: '0.5px solid var(--border2)', color: 'var(--text2)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 10px', borderRadius: '6px' },
+        onClick: () => {
+          expandAll = !expandAll;
+          updateExpandLabel();
+          if (expandAll) { for (const l of locs) expandedCards.add(l.id); }
+          else { expandedCards.clear(); }
+          renderPaddockList();
+        },
+      }, [expandLabel]),
+    ]));
+
+    // Right: Save Draft + Finish & Save + ✕
+    bulkRow1.appendChild(el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
+      el('button', { type: 'button', className: 'btn btn-outline btn-sm', onClick: () => { saveDraft(); } }, ['Save Draft']),
+      el('button', { type: 'button', className: 'btn btn-green btn-sm', onClick: () => {
+        // Check for unrated paddocks
+        const rated = Object.entries(readings).filter(([_k, r2]) => r2.rating != null);
+        const total = locs.length;
+        if (rated.length < total) {
+          // Show confirm bar
+          clear(confirmBar);
+          confirmBar.style.display = 'block';
+          confirmBar.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '8px', textAlign: 'center' } }, [`${total - rated.length} of ${total} paddocks have no data \u2014 finish anyway?`]));
+          confirmBar.appendChild(el('div', { style: { display: 'flex', gap: '10px' } }, [
+            el('button', { type: 'button', style: { flex: '1', padding: '10px', fontSize: '13px', fontWeight: '600', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: 'white', cursor: 'pointer', fontFamily: 'inherit' }, onClick: () => { confirmBar.style.display = 'none'; commitSurvey(); } }, ['Finish Anyway']),
+            el('button', { type: 'button', style: { flex: '1', padding: '10px', fontSize: '13px', fontWeight: '600', borderRadius: '8px', border: '0.5px solid var(--border2)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontFamily: 'inherit' }, onClick: () => { confirmBar.style.display = 'none'; } }, ['Go Back']),
+          ]));
+        } else {
+          commitSurvey();
+        }
+      } }, ['Finish & Save']),
+      el('button', { type: 'button', style: { background: 'none', border: 'none', color: 'var(--text2)', fontSize: '18px', lineHeight: '1', cursor: 'pointer', padding: '2px 4px', marginLeft: '2px' }, title: 'Close (saves draft)', onClick: () => surveySheet.close() }, ['\u2715']),
+    ]));
+
+    panel.appendChild(bulkRow1);
+    panel.appendChild(confirmBar);
   }
 
-  const dateInput = el('input', { type: 'date', value: todayStr, style: { maxWidth: '180px' } });
-  panel.appendChild(el('div', { className: 'field', style: { marginBottom: '14px' } }, [el('label', {}, ['Survey date']), dateInput]));
+  // Date row
+  const existingSurvey = surveyId ? getAll('surveys').find(s => s.id === surveyId) : null;
+  const dateInput = el('input', { type: 'date', value: existingSurvey?.surveyDate || todayStr, style: { maxWidth: '180px' } });
+  panel.appendChild(el('div', { className: 'field', style: { marginBottom: '14px' } }, [
+    isSingle ? el('label', {}, ['Survey date']) : el('span', { style: { fontSize: '13px', fontWeight: '600' } }, ['Survey date:']),
+    dateInput,
+  ]));
 
   // Bulk chrome: filter pills (only in bulk mode)
   const filterArea = el('div');
@@ -910,13 +975,8 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
 
   // Buttons — differ by mode
   if (!isSingle && !isBulkEdit) {
-    // Bulk mode: Save Draft + Finish & Save
-    panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
-      el('button', { className: 'btn btn-outline', onClick: () => { saveDraft(); surveySheet.close(); } }, ['Save Draft']),
-      el('button', { className: 'btn btn-green', onClick: commitSurvey }, ['Finish & Save']),
-    ]));
-    // Discard link
-    panel.appendChild(el('div', { style: { marginTop: '10px', textAlign: 'center' } }, [
+    // Bulk mode: Row 1 has Save Draft + Finish & Save + ✕ — only Discard link at bottom
+    panel.appendChild(el('div', { style: { marginTop: '16px', textAlign: 'center' } }, [
       el('button', { style: { background: 'none', border: 'none', color: 'var(--red)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }, onClick: () => {
         if (!window.confirm('Discard this survey draft?')) return;
         if (surveyId) {

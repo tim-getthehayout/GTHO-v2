@@ -28,6 +28,8 @@ Working design doc for the current round of UI improvements. Accumulates all des
 | 2026-04-17 | SP-6 | **Feedback & Help buttons in header.** Two-row header: existing row unchanged, new compact sub-row with Feedback + Get Help buttons. Replaces v1 FAB + type toggle. Separate sheets for each. v1 dialog HTML extracted. Get Help sheet trimmed to 4 categories (Roadblock, Bug, Calculation, Question) — suggestion categories (Missing feature, Idea, UX friction) are Feedback-only. |
 | 2026-04-17 | SP-7 | **Feedback screen (desktop-only).** Full v1 parity: confirmation section, stats strip, dev brief export, filtered submission list, resolve sheet, edit sheet. Desktop sidebar nav item only — not in mobile bottom nav. v1 HTML/CSS/JS extracted. |
 | 2026-04-17 | SP-8 | **Field mode v1 parity.** Full rebuild: 8 configurable modules (was 4 hardcoded), module settings in Settings screen, header pill replaces green field-mode-header bar, event picker sheets for Move/Feed Check/Heat/Single Survey, expandable event cards, interactive tasks with checkboxes + due dates, feed delivery loop, field-mode sheet behavior (no backdrop close, hidden handle, "⌂ Done", full-screen mobile). Uses existing `field_mode_quick_actions` column on `user_preferences`. v1 HTML/CSS/JS extracted. |
+| 2026-04-17 | SP-8 fix | **Field mode exit navigation.** Exiting field mode now returns to the screen the user was on before entering, instead of always going to dashboard. Header saves `window.location.hash` to sessionStorage on entry; exit reads it back. Files: `header.js`, `field-mode/index.js`. Base doc impact: V2_UX_FLOWS.md §16. |
+| 2026-04-17 | SP-9 | **Survey sheet v1 parity.** Single sheet with three modes (bulk / single / bulk-edit). Bulk chrome with DRAFT tag, Save Draft + Finish & Save, farm/type/search filters, collapsed cards with ✓ Complete badge. Per-paddock rating slider + veg height + forage cover + forage condition + recovery window with live date preview. **New bale-ring residue helper** auto-computes forage cover % from a ring count × farm-configured ring diameter (default 12 ft). Draft lifecycle: immediate localStorage + 1s-debounced Supabase sync. Field-mode picker sheet for single surveys. Schema: adds `farm_settings.bale_ring_residue_diameter_ft` (migration 022). CP-55/CP-56 impact noted. v1 HTML/CSS/JS extracted in full spec. |
 
 ---
 
@@ -582,6 +584,43 @@ None required — fully spec'd from v1 extraction. Open questions flagged in spe
 
 ---
 
+## SP-9: Survey Sheet — V1 Parity
+
+**Status:** Spec complete · Ready for Claude Code
+**Spec file:** `github/issues/survey-sheet-v1-parity.md` (full, authoritative)
+**Base doc impact:** V2_UX_FLOWS.md §7 (short paragraph) — will be expanded during end-of-sprint reconciliation.
+**Schema:** Adds `farm_settings.bale_ring_residue_diameter_ft` (migration 022). Verifies `event_observations.bale_ring_residue_count` exists. **CP-55/CP-56 impact flagged** in spec file §10.
+**Depends on:** OI-0063 (event_observations alignment — closed 2026-04-15); SP-8 (field-mode tile wiring — ready).
+
+### Goal
+
+Full v1 parity for the survey experience. V2's generic list/create flow is replaced by v1's single sheet with three modes (bulk / single / bulk-edit) plus a field-mode pasture picker. Two deliberate deltas: home "Pasture readiness" card entry point is dropped (not in v2), and a new bale-ring residue helper auto-computes forage cover %.
+
+### 8 parts
+
+| Part | What | Key files |
+|------|------|-----------|
+| 1 | Entry-point matrix — 8 paths consolidated into `openBulkSurveySheet` / `openSurveySheet` / `openPastureSurveyPickerSheet` | `surveys/index.js`, `locations/surveys-tab.js`, `locations/edit-sheet.js`, `field-mode/index.js` |
+| 2 | Sheet shell with mode switcher (`_setSurveySheetMode`: bulk / single / bulk-edit) | `surveys/survey-sheet.js` |
+| 3 | Paddock card (collapsed header + expanded body) — rating slider, veg height, forage cover, bale-ring helper, forage condition, recovery window | `surveys/paddock-card.js` |
+| 4 | Bulk chrome — Cancel · DRAFT pill · Expand/Collapse · Save Draft · Finish & Save · ✕ · date · farm/type/search pills | `surveys/bulk-header.js` |
+| 5 | Bale-ring residue helper — farm setting (diameter default 12 ft) + registered calc `survey.baleRingCover` + auto-fill forage cover | `calc/survey-bale-ring.js`, `entities/farm-settings.js`, `features/settings/index.js` |
+| 6 | Draft lifecycle — immediate localStorage + 1s debounced Supabase sync | `surveys/draft.js`, `data/store.js` |
+| 7 | Commit rules — one obs per rated paddock, recovery-window inversion, bulk-edit replaces-not-appends | `data/store.js` (`commitSurvey`) |
+| 8 | Field-mode adaptations — picker sheet, backdrop disabled, `⌂ Done`, `_fieldModeGoHome()` on close | `surveys/picker-sheet.js` |
+
+### Key decisions (from walkthrough 2026-04-17)
+
+- **Home readiness card dropped** — v2 has no equivalent surface; entry point omitted.
+- **Bale-ring diameter = 12 ft default**, per-farm editable. Ring count stored on observations so recovery over time is visible. Calculation treats rings as bare ground (cover % = 100 − rings_area / paddock_area × 100).
+- **Complete badge = strict v1 parity** — rating + vegHeight + forageCover + forageCondition + recoveryMin + recoveryMax. Bale-ring count not required.
+
+### Linked OPEN_ITEMS
+
+None required — fully spec'd. Open questions resolved in walkthrough, captured in spec §13.
+
+---
+
 ## Reconciliation Checklist (end of sprint)
 
 When this sprint is complete, do a dedicated session to:
@@ -593,5 +632,9 @@ When this sprint is complete, do a dedicated session to:
 - [ ] Update V2_BUILD_INDEX.md with completed work
 - [ ] Merge SP-6 feedback/help buttons into V2_UX_FLOWS.md §17.2 (add sub-row to header spec)
 - [ ] Merge SP-7 feedback screen into V2_UX_FLOWS.md as new §21 (or append to §20)
-- [ ] Merge SP-8 field mode into V2_UX_FLOWS.md §16 (replace current field mode spec with v1 parity version)
+- [ ] Merge SP-8 field mode into V2_UX_FLOWS.md §16 (replace current field mode spec with v1 parity version; include "exit returns to previous screen" behavior)
+- [ ] Merge SP-9 survey sheet v1 parity into V2_UX_FLOWS.md §7 (expand the current short paragraph into the full spec: three modes, paddock card, bulk chrome, bale-ring helper, draft lifecycle, commit rules, field-mode adaptations). Also: §17 may need a new sub-section documenting the Surveys sub-tab on the Locations screen (draft banner + committed list).
+- [ ] Document the `survey.baleRingCover` calc in V2_CALCULATION_SPEC.md (inputs, output, formula).
+- [ ] Update V2_SCHEMA_DESIGN.md §4 (farm_settings) to include `bale_ring_residue_diameter_ft`; confirm `event_observations.bale_ring_residue_count` is documented.
+- [ ] Update CP-55 / CP-56 spec(s) with new farm_settings column handling and schema_version bump to 22.
 - [ ] Archive this file or mark it as reconciled

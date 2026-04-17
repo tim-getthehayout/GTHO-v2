@@ -250,11 +250,21 @@ function renderSyncIndicator() {
 // ---------------------------------------------------------------------------
 
 function navLink(href, label, testId) {
-  return el('a', { href, className: 'nav-link', 'data-testid': testId }, [label]);
+  return el('a', {
+    href,
+    className: 'nav-link',
+    'data-testid': testId,
+    onClick: (e) => { e.preventDefault(); navigate(href); },
+  }, [label]);
 }
 
 function navLinkWithBadge(href, label, count, testId) {
-  const link = el('a', { href, className: 'nav-link nav-link-badge', 'data-testid': testId }, [label]);
+  const link = el('a', {
+    href,
+    className: 'nav-link nav-link-badge',
+    'data-testid': testId,
+    onClick: (e) => { e.preventDefault(); navigate(href); },
+  }, [label]);
   if (count > 0) {
     link.appendChild(el('span', { className: 'nav-badge', 'data-testid': 'todo-badge' }, [String(count)]));
   }
@@ -274,7 +284,12 @@ function renderBottomNav(todoCount) {
 
   const nav = el('nav', { className: 'bottom-nav', 'data-testid': 'bottom-nav' });
   for (const item of items) {
-    const btn = el('a', { href: item.hash, className: 'bnav-item', 'data-testid': item.testId }, [
+    const btn = el('a', {
+      href: item.hash,
+      className: 'bnav-item',
+      'data-testid': item.testId,
+      onClick: (e) => { e.preventDefault(); navigate(item.hash); },
+    }, [
       el('span', { className: 'bnav-label' }, [item.label]),
     ]);
     if (item.badge && item.badge > 0) {

@@ -741,7 +741,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     el('div', { style: { flex: '1', minWidth: '0' } }, [
       el('div', { style: { fontSize: '15px', fontWeight: '600', lineHeight: '1.3' } }, [group.name]),
       el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [
-        `${headCount} head \u00B7 avg ${avgWeightDisplay} ${wUnit} \u00B7 ${locationName || 'not placed'}`,
+        `${headCount} head \u00B7 avg ${avgWeightDisplay} \u00B7 ${locationName || 'not placed'}`,
       ]),
     ]),
     el('svg', { className: 'grp-chevron', width: '18', height: '18', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }, [
@@ -1037,7 +1037,7 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
     el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
       el('span', { style: { fontSize: '22px', color: 'var(--color-green-base)' } }, ['\uD83C\uDF3F']),
       el('span', { style: { fontSize: '18px', fontWeight: '700' } }, [locName]),
-      areaDisplay ? el('span', { style: { fontSize: '14px', fontWeight: '400', color: 'var(--text2)' } }, [`${areaDisplay} ${areaUnit}`]) : null,
+      totalAreaHa > 0 ? el('span', { style: { fontSize: '14px', fontWeight: '400', color: 'var(--text2)' } }, [`${convert(totalAreaHa, 'area', 'toImperial').toFixed(2)} ${areaUnit}`]) : null,
     ].filter(Boolean)),
     // §3: Top-right action buttons
     el('div', { style: { display: 'flex', gap: '6px' } }, [
@@ -1063,7 +1063,7 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
   // §6: Weight line
   if (totalHead > 0) {
     children.push(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: 'var(--space-1)' } }, [
-      `Weight: ${totalWeightDisplay} ${wUnit} \u00B7 ${auValue.toFixed(1)} AU`,
+      `Weight: ${totalWeightKg > 0 ? convert(totalWeightKg, 'weight', 'toImperial').toLocaleString('en-US', { maximumFractionDigits: 0 }) : '0'} ${wUnit} \u00B7 ${auValue.toFixed(1)} AU`,
     ]));
   }
 
@@ -1078,9 +1078,10 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
 
   // §8: Breakdown line (gray)
   if (dailyDmiDisplay) {
-    let breakdownParts = [`Pasture: ${convert(pastureDmKg, 'weight', 'toImperial').toFixed(0)} lbs DM`];
-    if (hasStoredFeed) breakdownParts.push(`Stored feed: ${convert(storedDmKg, 'weight', 'toImperial').toFixed(0)} lbs DM`);
-    breakdownParts.push(`DMI demand: ${dailyDmiDisplay} lbs/day`);
+    const fmtNum = (n) => Math.round(n).toLocaleString('en-US');
+    let breakdownParts = [`Pasture: ${fmtNum(convert(pastureDmKg, 'weight', 'toImperial'))} lbs DM`];
+    if (hasStoredFeed) breakdownParts.push(`Stored feed: ${fmtNum(convert(storedDmKg, 'weight', 'toImperial'))} lbs DM`);
+    breakdownParts.push(`DMI demand: ${fmtNum(convert(dailyDmiKg, 'weight', 'toImperial'))} lbs/day`);
     children.push(el('div', { style: { fontSize: '12px', color: 'var(--text3, var(--text2))', marginBottom: 'var(--space-2)' } }, [breakdownParts.join(' \u00B7 ')]));
   }
 
@@ -1138,7 +1139,7 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
             grpName,
           ]),
           el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
-            `${gw.headCount} head \u00B7 avg ${gwWeight} ${unitLabel('weight', unitSys)}`,
+            `${gw.headCount} head \u00B7 avg ${gwWeight}`,
           ]),
         ]),
         el('button', {

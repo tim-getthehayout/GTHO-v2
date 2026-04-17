@@ -923,7 +923,7 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
   const batchMap = new Map(batches.map(b => [b.id, b]));
   let feedCost = 0;
   if (cst1 && feedEntries.length) {
-    feedCost = cst1.fn({ entries: feedEntries.map(fe => ({ qtyUnits: fe.quantity, costPerUnit: batchMap.get(fe.batchId)?.costPerUnit ?? 0 })) });
+    feedCost = cst1.fn({ entries: feedEntries.map(fe => ({ qtyUnits: fe.entryType === 'removal' ? -(fe.quantity) : fe.quantity, costPerUnit: batchMap.get(fe.batchId)?.costPerUnit ?? 0 })) });
   }
   const hasStoredFeed = feedEntries.length > 0;
 
@@ -947,7 +947,7 @@ function buildLocationCard(event, operationId, farmId, unitSys) {
   // Stored feed consumed (from DMI-1)
   let storedConsumedKg = 0;
   if (dmi1 && feedEntries.length) {
-    storedConsumedKg = dmi1.fn({ entries: feedEntries.map(fe => ({ qtyKg: fe.quantity ?? 0, dmPct: 100 })), remainingDmKg: 0 });
+    storedConsumedKg = dmi1.fn({ entries: feedEntries.map(fe => ({ qtyKg: (fe.entryType === 'removal' ? -(fe.quantity ?? 0) : (fe.quantity ?? 0)), dmPct: 100 })), remainingDmKg: 0 });
   }
 
   // Pasture/stored split

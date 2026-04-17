@@ -280,8 +280,30 @@ function renderSummary(ctx) {
     el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: 'var(--space-2)' }, 'data-testid': 'detail-hero-line' }, [
       heroTokens.join(' \u00B7 '),
     ]),
-    el('div', { style: { fontSize: '13px', color: 'var(--text2)' } }, [
-      `In ${dateInStr} \u00B7 Out ${dateOutStr} \u00B7 $${totalCost.toFixed(2)}`,
+    el('div', { style: { fontSize: '13px', color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } }, [
+      'In ',
+      (() => {
+        const dateInInput = el('input', { type: 'date', value: event.dateIn || '', style: { fontSize: '13px', padding: '2px 4px', border: '0.5px solid var(--border2)', borderRadius: '4px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', width: '130px' } });
+        dateInInput.addEventListener('change', () => {
+          const newDate = dateInInput.value;
+          if (!newDate) return;
+          const evt = getById('events', ctx.eventId);
+          // Reject-on-narrow: check if any child record has date_joined < new date_in
+          const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === ctx.eventId);
+          const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId);
+          const earlyPw = pws.find(pw => pw.dateOpened < newDate);
+          const earlyGw = gws.find(gw => gw.dateJoined < newDate);
+          if (earlyPw || earlyGw) {
+            const name = earlyPw ? (getById('locations', earlyPw.locationId)?.name || 'a paddock') : (getById('groups', earlyGw.groupId)?.name || 'a group');
+            window.alert(`Cannot move event start to ${newDate}. ${name} joined on ${earlyPw?.dateOpened || earlyGw?.dateJoined}, which is before the new start date. Edit that record first.`);
+            dateInInput.value = evt.dateIn;
+            return;
+          }
+          update('events', ctx.eventId, { dateIn: newDate }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+        });
+        return dateInInput;
+      })(),
+      ` \u00B7 Out ${dateOutStr} \u00B7 $${totalCost.toFixed(2)}`,
     ]),
   ]));
 }

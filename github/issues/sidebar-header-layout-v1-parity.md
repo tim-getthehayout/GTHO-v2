@@ -38,7 +38,13 @@ V1 highlights the active nav item with `background: var(--green-l); color: var(-
 
 V1 shows sync status at the bottom of the sidebar: green/amber/red dot + "Synced HH:MM AM" timestamp. V2 has a tiny sync dot in the header right cluster but no timestamp text and it's hard to notice.
 
-### 6. Redundant header content
+### 6. Header scrolls off-screen
+
+V2's `.app-header` has no `position: sticky` or `position: fixed` — it sits in normal document flow and scrolls away with page content. On every screen (dashboard, locations, animals, etc.) the header disappears as soon as the user scrolls down. V1's header stays pinned at the top at all times.
+
+**Root cause:** `.app-header` in `main.css` (line 136) is just `padding` + `border-bottom` + `background` with no sticky/fixed positioning. The desktop grid (`grid-template-rows: auto 1fr`) puts the header in the first row but doesn't pin it.
+
+### 7. Redundant header content
 
 V2 header shows "GET THE HAY OUT" (small caps) + "Down East Beef and Lamb" (large bold) + build stamp + Field button + avatar. Since the sidebar will now have the logo block, the app name and operation name in the header become redundant.
 
@@ -264,6 +270,21 @@ body.desktop #app {
 }
 ```
 
+### Header must be sticky (not scrollable)
+
+Add `position: sticky; top: 0; z-index: 50;` to `.app-header` so it pins to the top of the viewport on scroll. This applies to both mobile and desktop. On desktop, the header spans the full width above the sidebar + content grid; the content area scrolls independently beneath it. On mobile, the header sticks to the top and the content scrolls below it.
+
+```css
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg); /* must have background so content doesn't show through */
+}
+```
+
+The sidebar (on desktop) should also be pinned — either via `position: sticky; top: {header-height}; height: calc(100vh - {header-height})` or by being a grid area with `overflow-y: auto` while the content area handles its own scroll.
+
 ### Sync status implementation
 
 V2 already has `renderSyncIndicator()` in header.js that reads `getSyncAdapter().getStatus()`. Extend this to:
@@ -289,6 +310,7 @@ Use the same SVG stroke icon style as v1. Each icon is 20x20, stroke-width 2, st
 - [ ] Sync status at sidebar bottom: dot + "Synced HH:MM AM" timestamp
 - [ ] Header no longer shows app name or operation name (removed — sidebar has them)
 - [ ] Header shows: farm picker (if multi-farm), build stamp, Field button, user avatar
+- [ ] Header is sticky — stays pinned at top on all screens when scrolling
 - [ ] Nav does not overlap into the header on desktop (CSS layout bug fixed)
 - [ ] Sidebar is a proper grid area, not position: fixed with hardcoded top
 - [ ] Mobile bottom nav unaffected

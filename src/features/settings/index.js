@@ -108,6 +108,7 @@ function renderFarmSection(fs, _rootContainer) {
     { key: 'feedDayGoal', label: t('settings.feedDayGoal') },
     { key: 'forageQualityScaleMin', label: t('settings.forageQualityMin') },
     { key: 'forageQualityScaleMax', label: t('settings.forageQualityMax') },
+    { key: 'baleRingResidueDiameterFt', label: 'Bale-ring residue diameter (ft)' },
   ];
 
   const inputs = {};

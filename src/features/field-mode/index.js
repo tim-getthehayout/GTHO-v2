@@ -133,7 +133,7 @@ function handleModuleTap(key) {
     case 'harvest': return openHarvestSheet(opId, { fieldMode: true });
     case 'feedcheck': return handleFeedCheck(opId);
     case 'surveybulk': return openSurveySheet(null, opId);
-    case 'surveysingle': return navigate('#/locations'); // interim — OI-0077
+    case 'surveysingle': return handleSurveySingle(opId);
     case 'animals': return navigate('#/animals');
     case 'heat': return handleHeat(opId);
   }
@@ -161,6 +161,34 @@ function handleFeedCheck(opId) {
   if (!eventsWithFeed.length) { window.alert(t('fieldMode.noStoredFeed')); return; }
   if (eventsWithFeed.length === 1) { openFeedCheckSheet(eventsWithFeed[0], opId); return; }
   openFieldModePickerSheet('feedcheck', eventsWithFeed, (evt) => openFeedCheckSheet(evt, opId));
+}
+
+function handleSurveySingle(opId) {
+  // Pasture picker → single survey
+  const locs = getAll('locations').filter(l => !l.archived && l.type === 'land' && l.landUse !== 'crop');
+  if (!locs.length) { window.alert('No pasture locations'); return; }
+  if (locs.length === 1) { openSurveySheet(locs[0].id, opId); return; }
+  // Show picker
+  ensurePickerSheetDOM();
+  if (!pickerSheet) pickerSheet = new Sheet('fm-picker-wrap');
+  const panel = document.getElementById('fm-picker-panel');
+  if (!panel) return;
+  clear(panel);
+  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '10px' } }, ['Select paddock']));
+  for (const loc of locs) {
+    const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(1) : '';
+    panel.appendChild(el('div', {
+      style: { padding: '12px', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', marginBottom: '6px' },
+      onClick: () => { pickerSheet.close(); openSurveySheet(loc.id, opId); },
+    }, [
+      el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [loc.name]),
+      el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ac \u00B7 ${loc.landUse}`]),
+    ]));
+  }
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '10px' } }, [
+    el('button', { className: 'btn btn-outline', onClick: () => { pickerSheet.close(); navigate('#/field'); } }, ['\u2302 Done']),
+  ]));
+  pickerSheet.open();
 }
 
 function handleHeat(opId) {

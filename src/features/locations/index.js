@@ -569,79 +569,219 @@ export function openSurveySheet(locationId, operationId) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const unitSys = getUnitSystem();
   const isSingle = !!locationId;
-  const allLocs = getAll('locations').filter(l => !l.archived && l.type === 'land');
+  const farms = getAll('farms');
+  const isMultiFarm = farms.length > 1;
+  const allLocs = getAll('locations').filter(l => !l.archived && l.type === 'land' && l.landUse !== 'crop');
   const locs = isSingle ? allLocs.filter(l => l.id === locationId) : allLocs;
-  const readings = {};
-  for (const l of locs) readings[l.id] = { rating: null, heightCm: null, coverPct: null, condition: null };
 
-  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, [isSingle ? `Survey \u2014 ${locs[0]?.name || ''}` : 'Pasture survey']));
-  panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '10px' } }, ['Rate each paddock 0\u2013100 for forage availability.']));
+  // Farm settings for bale ring
+  const farmSettings = getAll('farmSettings')[0];
+  const baleRingDiameterFt = farmSettings?.baleRingResidueDiameterFt ?? 12;
+
+  // State
+  const readings = {};
+  for (const l of locs) readings[l.id] = { rating: null, heightCm: null, coverPct: null, condition: null, baleRingCount: null, recoveryMin: null, recoveryMax: null, notes: null };
+  let farmFilter = 'all';
+  let typeFilter = 'all';
+  let searchQuery2 = '';
+  const expandedCards = new Set(isSingle ? locs.map(l => l.id) : []);
+
+  // Header
+  if (isSingle) {
+    panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, [`Survey \u2014 ${locs[0]?.name || ''}`]));
+    panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '10px' } }, ['Rate forage availability and set recovery window.']));
+  } else {
+    panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Pasture survey']));
+    panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '10px' } }, ['Rate each paddock 0\u2013100 for forage availability.']));
+  }
 
   const dateInput = el('input', { type: 'date', value: todayStr, style: { maxWidth: '180px' } });
   panel.appendChild(el('div', { className: 'field', style: { marginBottom: '14px' } }, [el('label', {}, ['Survey date']), dateInput]));
 
-  // Paddock cards
-  const paddockList = el('div');
-  for (const loc2 of locs) {
-    const r = readings[loc2.id];
-    const areaVal = loc2.areaHa ? convert(loc2.areaHa, 'area', 'toImperial').toFixed(2) : '';
-    const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
-
-    // Rating slider + input
-    const ratingInput = el('input', { type: 'number', min: '0', max: '100', step: '1', placeholder: '0\u2013100', style: { width: '68px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', textAlign: 'center' } });
-    const ratingSlider = el('input', { type: 'range', min: '0', max: '100', step: '1', value: '0', style: { flex: '1', accentColor: 'var(--green)' } });
-    ratingSlider.addEventListener('input', () => { ratingInput.value = ratingSlider.value; r.rating = parseInt(ratingSlider.value, 10); });
-    ratingInput.addEventListener('input', () => { ratingSlider.value = ratingInput.value; r.rating = parseInt(ratingInput.value, 10); });
-
-    // Height + cover
-    const heightInput = el('input', { type: 'number', min: '0', max: '72', step: '0.5', placeholder: unitSys === 'imperial' ? 'inches' : 'cm', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-    heightInput.addEventListener('change', () => {
-      const val = parseFloat(heightInput.value);
-      r.heightCm = !isNaN(val) ? (unitSys === 'imperial' ? convert(val, 'length', 'toMetric') : val) : null;
-    });
-    const coverInput = el('input', { type: 'number', min: '0', max: '100', step: '1', placeholder: '%', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-    coverInput.addEventListener('change', () => { r.coverPct = parseInt(coverInput.value, 10) || null; });
-
-    // Condition
-    const conditions = ['Poor', 'Fair', 'Good', 'Exc.'];
-    const condMap = { 'Poor': 'poor', 'Fair': 'fair', 'Good': 'good', 'Exc.': 'excellent' };
-    const condRow = el('div', { style: { display: 'flex', gap: '4px' } });
-    function renderCondButtons() {
-      clear(condRow);
-      for (const c of conditions) {
-        const isActive = r.condition === condMap[c];
-        condRow.appendChild(el('button', {
-          type: 'button',
-          style: { flex: '1', padding: '6px 0', fontSize: '12px', borderRadius: '6px', cursor: 'pointer', border: `0.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green-l)' : 'transparent', color: isActive ? 'var(--green-d)' : 'var(--text2)', fontWeight: isActive ? '500' : '400' },
-          onClick: () => { r.condition = condMap[c]; renderCondButtons(); },
-        }, [c]));
+  // Bulk chrome: filter pills (only in bulk mode)
+  const filterArea = el('div');
+  if (!isSingle) {
+    function renderFilters() {
+      clear(filterArea);
+      // Farm pills
+      if (isMultiFarm) {
+        const farmRow = el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', padding: '4px 0' } });
+        for (const [val, label] of [['all', 'All farms'], ...farms.map(f => [f.id, f.name])]) {
+          const isActive = farmFilter === val;
+          farmRow.appendChild(el('button', { type: 'button', style: { padding: '4px 10px', fontSize: '11px', borderRadius: '12px', cursor: 'pointer', fontFamily: 'inherit', border: `0.5px solid ${isActive ? 'var(--amber)' : 'var(--border2)'}`, background: isActive ? 'var(--amber-l)' : 'transparent', color: isActive ? 'var(--amber-d)' : 'var(--text2)', fontWeight: isActive ? '600' : '400' }, onClick: () => { farmFilter = val; renderFilters(); renderPaddockList(); } }, [label]));
+        }
+        filterArea.appendChild(farmRow);
       }
+      // Type pills
+      const typeRow = el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', padding: '4px 0' } });
+      for (const [val, label] of [['all', 'All'], ['pasture', 'Pasture'], ['mixed-use', 'Mixed-Use']]) {
+        const isActive = typeFilter === val;
+        typeRow.appendChild(el('button', { type: 'button', style: { padding: '4px 10px', fontSize: '11px', borderRadius: '12px', cursor: 'pointer', fontFamily: 'inherit', border: `0.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green-l)' : 'transparent', color: isActive ? 'var(--green-d)' : 'var(--text2)', fontWeight: isActive ? '600' : '400' }, onClick: () => { typeFilter = val; renderFilters(); renderPaddockList(); } }, [label]));
+      }
+      filterArea.appendChild(typeRow);
+      // Search
+      const searchInput2 = el('input', { type: 'text', placeholder: 'Search by name or field code...', value: searchQuery2, style: { width: '100%', padding: '6px 10px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '13px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', boxSizing: 'border-box' } });
+      searchInput2.addEventListener('input', () => { searchQuery2 = searchInput2.value.trim().toLowerCase(); renderPaddockList(); });
+      filterArea.appendChild(el('div', { style: { padding: '4px 0' } }, [searchInput2]));
     }
-    renderCondButtons();
-
-    const cardEl = el('div', { style: { marginBottom: '14px', padding: '12px', background: 'var(--bg2)', borderRadius: 'var(--radius)' } }, [
-      el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, [`${loc2.name} ${areaVal ? `\u00B7 ${areaVal} ${areaUnit}` : ''}`]),
-      el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Forage rating']),
-      el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [ratingSlider, ratingInput]),
-      el('div', { style: { display: 'flex', gap: '12px', marginTop: '14px', flexWrap: 'wrap' } }, [
-        el('div', { style: { flex: '1', minWidth: '120px' } }, [
-          el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, [`AVG VEG HEIGHT (${unitSys === 'imperial' ? 'in' : 'cm'})`]),
-          heightInput,
-        ]),
-        el('div', { style: { flex: '1', minWidth: '120px' } }, [
-          el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['AVG FORAGE COVER (%)']),
-          coverInput,
-        ]),
-      ]),
-      el('div', { style: { marginTop: '12px' } }, [
-        el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['FORAGE CONDITION']),
-        condRow,
-      ]),
-    ]);
-
-    paddockList.appendChild(cardEl);
+    renderFilters();
+    panel.appendChild(filterArea);
   }
+
+  // Paddock list
+  const paddockList = el('div');
   panel.appendChild(paddockList);
+
+  function ratingColor(val) {
+    if (val == null) return 'var(--text3)';
+    if (val <= 30) return 'var(--red)';
+    if (val <= 60) return 'var(--amber)';
+    return 'var(--green)';
+  }
+
+  function renderPaddockList() {
+    clear(paddockList);
+    let filtered = [...locs];
+    if (!isSingle) {
+      if (farmFilter !== 'all') filtered = filtered.filter(l => l.farmId === farmFilter);
+      if (typeFilter !== 'all') filtered = filtered.filter(l => l.landUse === typeFilter);
+      if (searchQuery2) filtered = filtered.filter(l => (l.name || '').toLowerCase().includes(searchQuery2) || (l.fieldCode || '').toLowerCase().includes(searchQuery2));
+    }
+
+    for (const loc2 of filtered) {
+      const r = readings[loc2.id];
+      const areaVal = loc2.areaHa ? convert(loc2.areaHa, 'area', 'toImperial').toFixed(2) : '';
+      const areaAcres = loc2.areaHa ? convert(loc2.areaHa, 'area', 'toImperial') : 0;
+      const areaUnit2 = unitSys === 'imperial' ? 'ac' : 'ha';
+      const isExpanded = expandedCards.has(loc2.id);
+      const isComplete = r.rating != null && r.heightCm != null && r.coverPct != null && r.condition != null;
+
+      // Card header (clickable in bulk mode)
+      const headerChildren = [
+        el('span', { style: { fontSize: '14px', fontWeight: '600' } }, [loc2.name]),
+        areaVal ? el('span', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ${areaUnit2}`]) : null,
+        isComplete ? el('span', { style: { fontSize: '10px', color: 'var(--green)', fontWeight: '600' } }, ['\u2713']) : null,
+      ].filter(Boolean);
+
+      const cardEl = el('div', { style: { marginBottom: '6px', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' } });
+
+      if (!isSingle) {
+        // Collapsible header
+        const header = el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', cursor: 'pointer' }, onClick: () => { if (expandedCards.has(loc2.id)) expandedCards.delete(loc2.id); else expandedCards.add(loc2.id); renderPaddockList(); } }, [
+          el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: '0' } }, headerChildren),
+          el('div', { style: { fontSize: '16px', color: 'var(--text2)', transform: `rotate(${isExpanded ? '180' : '0'}deg)`, transition: 'transform 0.2s', flexShrink: '0', marginLeft: '8px' } }, ['\u2303']),
+        ]);
+        cardEl.appendChild(header);
+      }
+
+      if (isExpanded || isSingle) {
+        const body = el('div', { style: { padding: '12px', background: 'var(--bg2)' } });
+
+        // Rating slider + input
+        const ratingSlider = el('input', { type: 'range', min: '0', max: '100', step: '1', value: r.rating ?? 50, style: { flex: '1', accentColor: ratingColor(r.rating ?? 50), cursor: 'pointer' } });
+        const ratingInput = el('input', { type: 'number', min: '0', max: '100', step: '1', value: r.rating ?? '', placeholder: '0\u2013100', style: { width: '60px', padding: '5px 6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', fontWeight: '600', textAlign: 'center', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' } });
+        const ratingBar = el('div', { style: { height: '6px', borderRadius: '3px', background: 'var(--bg2)', marginTop: '4px', overflow: 'hidden' } }, [
+          el('div', { style: { height: '100%', width: `${r.rating ?? 0}%`, background: ratingColor(r.rating ?? 0), borderRadius: '3px', transition: 'width 0.15s, background 0.15s' } }),
+        ]);
+        function syncRating(val) {
+          const v = parseInt(val, 10);
+          r.rating = isNaN(v) ? null : Math.max(0, Math.min(100, v));
+          ratingSlider.value = r.rating ?? 50;
+          ratingInput.value = r.rating ?? '';
+          ratingSlider.style.accentColor = ratingColor(r.rating);
+          const fill = ratingBar.firstChild;
+          if (fill) { fill.style.width = `${r.rating ?? 0}%`; fill.style.background = ratingColor(r.rating); }
+        }
+        ratingSlider.addEventListener('input', () => syncRating(ratingSlider.value));
+        ratingInput.addEventListener('input', () => syncRating(ratingInput.value));
+
+        body.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [ratingSlider, ratingInput]));
+        body.appendChild(ratingBar);
+
+        // Height + Cover
+        const heightInput = el('input', { type: 'number', min: '0', max: '72', step: '0.5', placeholder: unitSys === 'imperial' ? 'inches' : 'cm', value: r.heightCm != null ? (unitSys === 'imperial' ? convert(r.heightCm, 'length', 'toImperial').toFixed(1) : r.heightCm) : '', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
+        heightInput.addEventListener('change', () => { const val = parseFloat(heightInput.value); r.heightCm = !isNaN(val) ? (unitSys === 'imperial' ? convert(val, 'length', 'toMetric') : val) : null; });
+        const coverInput = el('input', { type: 'number', min: '0', max: '100', step: '1', placeholder: '%', value: r.coverPct ?? '', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
+        coverInput.addEventListener('change', () => { r.coverPct = parseInt(coverInput.value, 10) || null; });
+
+        body.appendChild(el('div', { style: { display: 'flex', gap: '12px', marginTop: '14px', flexWrap: 'wrap' } }, [
+          el('div', { style: { flex: '1', minWidth: '120px' } }, [
+            el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, [`AVG VEG HEIGHT (${unitSys === 'imperial' ? 'in' : 'cm'})`]),
+            heightInput,
+          ]),
+          el('div', { style: { flex: '1', minWidth: '120px' } }, [
+            el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['AVG FORAGE COVER (%)']),
+            coverInput,
+          ]),
+        ]));
+
+        // Bale-ring residue helper (SP-9)
+        const brc1 = getCalcByName('BRC-1');
+        if (brc1) {
+          const baleCaption = el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginTop: '4px' } });
+          const baleInput = el('input', { type: 'number', min: '0', max: '999', placeholder: '0', value: r.baleRingCount ?? '', style: { width: '80px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', textAlign: 'center' } });
+          baleInput.addEventListener('input', () => {
+            const count = parseInt(baleInput.value, 10) || 0;
+            r.baleRingCount = count || null;
+            clear(baleCaption);
+            if (count > 0) {
+              const result = brc1.fn({ ringCount: count, ringDiameterFt: baleRingDiameterFt, paddockAcres: areaAcres });
+              baleCaption.appendChild(el('div', {}, [`${count} rings \u00D7 ${Math.round(result.ringAreaSqFt)} sq ft = ${Math.round(result.totalAreaSqFt).toLocaleString()} sq ft`]));
+              if (result.computedForageCoverPct != null) {
+                baleCaption.appendChild(el('div', {}, [`\u21B3 Sets forage cover to ${result.computedForageCoverPct}% (of ${Math.round(areaAcres * 43560).toLocaleString()} sq ft)`]));
+                r.coverPct = result.computedForageCoverPct;
+                coverInput.value = result.computedForageCoverPct;
+              } else {
+                baleCaption.appendChild(el('div', {}, ['\u21B3 Set paddock acreage to estimate cover.']));
+              }
+            }
+          });
+          body.appendChild(el('div', { style: { marginTop: '12px' } }, [
+            el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['BALE-RING RESIDUES (optional)']),
+            baleInput,
+            baleCaption,
+          ]));
+        }
+
+        // Condition
+        const conditions = ['Poor', 'Fair', 'Good', 'Exc.'];
+        const condMap = { 'Poor': 'poor', 'Fair': 'fair', 'Good': 'good', 'Exc.': 'excellent' };
+        const condRow = el('div', { style: { display: 'flex', gap: '4px' } });
+        function renderCondBtns() {
+          clear(condRow);
+          for (const c of conditions) {
+            const isActive = r.condition === condMap[c];
+            condRow.appendChild(el('button', { type: 'button', style: { flex: '1', padding: '6px 0', fontSize: '12px', borderRadius: '6px', cursor: 'pointer', border: `0.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green-l)' : 'transparent', color: isActive ? 'var(--green-d)' : 'var(--text2)', fontWeight: isActive ? '500' : '400' }, onClick: () => { r.condition = condMap[c]; renderCondBtns(); } }, [c]));
+          }
+        }
+        renderCondBtns();
+        body.appendChild(el('div', { style: { marginTop: '12px' } }, [
+          el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['FORAGE CONDITION']),
+          condRow,
+        ]));
+
+        // Recovery window (single mode + bulk expanded)
+        const recMinInput = el('input', { type: 'number', placeholder: '30', min: '1', max: '365', value: r.recoveryMin ?? '', style: { width: '72px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
+        recMinInput.addEventListener('change', () => { r.recoveryMin = parseInt(recMinInput.value, 10) || null; });
+        const recMaxInput = el('input', { type: 'number', placeholder: '60', min: '1', max: '365', value: r.recoveryMax ?? '', style: { width: '72px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
+        recMaxInput.addEventListener('change', () => { r.recoveryMax = parseInt(recMaxInput.value, 10) || null; });
+
+        body.appendChild(el('div', { style: { marginTop: '14px' } }, [
+          el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Recovery window']),
+          el('div', { style: { display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' } }, [
+            el('div', {}, [el('div', { style: { fontSize: '10px', color: 'var(--text2)', marginBottom: '3px' } }, ['MIN days']), recMinInput]),
+            el('span', { style: { fontSize: '16px', color: 'var(--text2)', paddingBottom: '6px' } }, ['\u2013']),
+            el('div', {}, [el('div', { style: { fontSize: '10px', color: 'var(--text2)', marginBottom: '3px' } }, ['MAX days']), recMaxInput]),
+          ]),
+        ]));
+
+        cardEl.appendChild(body);
+      }
+
+      paddockList.appendChild(cardEl);
+    }
+  }
+  renderPaddockList();
 
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
@@ -650,15 +790,17 @@ export function openSurveySheet(locationId, operationId) {
     el('button', { className: 'btn btn-green', onClick: () => {
       clear(statusEl);
       const surveyDate = dateInput.value || todayStr;
+      const rated = Object.entries(readings).filter(([_, r2]) => r2.rating != null || r2.heightCm != null || r2.coverPct != null || r2.condition != null);
+      if (!rated.length) { statusEl.appendChild(el('span', {}, ['Rate at least one paddock'])); return; }
       try {
-        for (const loc2 of locs) {
-          const r = readings[loc2.id];
-          if (r.rating == null && r.heightCm == null && r.coverPct == null && !r.condition) continue;
+        for (const [locId, r2] of rated) {
           const rec = PaddockObsEntity.create({
-            operationId, locationId: loc2.id, observedAt: surveyDate + 'T12:00:00Z',
+            operationId, locationId: locId, observedAt: surveyDate + 'T12:00:00Z',
             type: 'open', source: 'survey',
-            forageQuality: r.rating, forageHeightCm: r.heightCm, forageCoverPct: r.coverPct,
-            forageCondition: r.condition,
+            forageQuality: r2.rating, forageHeightCm: r2.heightCm, forageCoverPct: r2.coverPct,
+            forageCondition: r2.condition, baleRingResidueCount: r2.baleRingCount,
+            recoveryMinDays: r2.recoveryMin, recoveryMaxDays: r2.recoveryMax,
+            notes: r2.notes,
           });
           add('paddockObservations', rec, PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
         }

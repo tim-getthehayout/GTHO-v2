@@ -36,6 +36,8 @@ export function renderPreGrazeCard({ farmSettings = null, paddockAcres = null, i
 
   return {
     container,
+    // OI-0114 NC-1: late-bind paddockAcres after a location is picked.
+    setPaddockAcres: state.setPaddockAcres,
     getValues() {
       const coverPct = parseFloat(state.coverInput.value);
       return {

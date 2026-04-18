@@ -6,6 +6,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, closePaddockWindow } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import { createObservation, renderLocationPicker } from './index.js';
+import { convert } from '../../utils/units.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 
@@ -56,17 +57,26 @@ export function openSubmoveOpenSheet(evt, operationId) {
   });
   panel.appendChild(inputs.timeOpened);
 
+  // Pre-graze observation card (OI-0112 surface #4). Rendered BEFORE the
+  // location picker wiring so the picker's onSelect callback can late-bind
+  // paddockAcres into the existing card via setPaddockAcres — OI-0114 NC-1.
+  const farmSettings = getAll('farmSettings')[0] || null;
+  const preGraze = renderPreGrazeCard({ farmSettings, paddockAcres: null, initialValues: {} });
+
   // Location picker
   panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectLocation')]));
   const locPickerEl = el('div', { 'data-testid': 'submove-open-location-picker' });
-  renderLocationPicker(locPickerEl, locations, selection);
+  renderLocationPicker(locPickerEl, locations, selection, {
+    onSelect: (loc) => {
+      // location.areaHectares → acres for the imperial-native BRC-1 calc.
+      const acres = loc?.areaHectares != null
+        ? convert(loc.areaHectares, 'area', 'toImperial')
+        : null;
+      preGraze.setPaddockAcres(acres);
+    },
+  });
   panel.appendChild(locPickerEl);
 
-  // Pre-graze observation card (OI-0112 surface #4 — fixes OI-0110 missing fields).
-  // paddockAcres is unknown at render time (location picked in the same sheet);
-  // BRC auto-fill stays inactive here. Farmer can still enter cover% manually.
-  const farmSettings = getAll('farmSettings')[0] || null;
-  const preGraze = renderPreGrazeCard({ farmSettings, paddockAcres: null, initialValues: {} });
   panel.appendChild(preGraze.container);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-open-status' });

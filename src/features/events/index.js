@@ -638,7 +638,7 @@ function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-u
 // Location picker with sections
 // ---------------------------------------------------------------------------
 
-export function renderLocationPicker(container, locations, selection) {
+export function renderLocationPicker(container, locations, selection, opts = {}) {
   clear(container);
 
   // OI-0105: persist the search query across re-renders (re-render fires on
@@ -667,7 +667,7 @@ export function renderLocationPicker(container, locations, selection) {
     },
     onClick: () => {
       container.dataset.locationSearchQuery = '';
-      renderLocationPicker(container, locations, selection);
+      renderLocationPicker(container, locations, selection, opts);
     },
   }, ['\u00D7']);
   const searchWrap = el('div', {
@@ -681,7 +681,7 @@ export function renderLocationPicker(container, locations, selection) {
   ]);
   searchInput.addEventListener('input', () => {
     container.dataset.locationSearchQuery = searchInput.value;
-    renderLocationPicker(container, locations, selection);
+    renderLocationPicker(container, locations, selection, opts);
     // Preserve focus + caret after re-render.
     const next = container.querySelector('[data-testid="location-picker-search"]');
     if (next) {
@@ -742,7 +742,10 @@ export function renderLocationPicker(container, locations, selection) {
           'data-testid': `location-picker-item-${loc.id}`,
           onClick: () => {
             selection.locationId = loc.id;
-            renderLocationPicker(container, locations, selection);
+            // OI-0114 NC-1: fire optional onSelect so callers can react to
+            // the location choice (e.g. late-bind paddockAcres into a card).
+            if (typeof opts.onSelect === 'function') opts.onSelect(loc);
+            renderLocationPicker(container, locations, selection, opts);
           },
         }, [
           el('span', {}, [loc.name]),

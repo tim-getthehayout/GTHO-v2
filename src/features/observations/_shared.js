@@ -63,9 +63,11 @@ export function cmToDisplay(cm, unitSys) {
  * Compact top row for pre-graze / survey:
  *   Forage Height (unit) · Forage Cover (%) · Residual Bale Rings
  *
- * `baleRingCount` input auto-computes `coverInput.value` via BRC-1 when the
- * bale-ring helper is active. Caller can observe via the returned
- * `onRingCountInput` subscription hook (null when helper inactive).
+ * The bale-ring input auto-computes `coverInput.value` via BRC-1 when
+ * the helper is active. `setPaddockAcres(newAcres)` on the returned
+ * object lets callers late-bind acres after construction (e.g. the
+ * sub-move Open sheet doesn't know which paddock is picked yet at
+ * render time — OI-0114 NC-1).
  *
  * @param {object} opts
  * @param {object|null} opts.farmSettings
@@ -78,6 +80,7 @@ export function cmToDisplay(cm, unitSys) {
  *   coverInput: HTMLInputElement,
  *   baleRingInput: HTMLInputElement,
  *   brcAvailable: boolean,
+ *   setPaddockAcres: (newAcres: number|null) => void,
  * }}
  */
 export function renderForageStateRow({ farmSettings, paddockAcres, initialValues, unitSys }) {
@@ -105,43 +108,58 @@ export function renderForageStateRow({ farmSettings, paddockAcres, initialValues
   });
 
   // OI-0111: farm_settings stores diameter in cm; BRC-1 is imperial-native.
-  // Convert cm → ft inline at the call site.
   const ringDiameterCm = farmSettings?.baleRingResidueDiameterCm ?? null;
   const ringDiameterFt = ringDiameterCm != null
     ? convert(ringDiameterCm, 'length', 'toImperial') / 12
     : null;
-  const brcAvailable = !!(ringDiameterFt && paddockAcres && paddockAcres > 0);
+
+  // OI-0114 NC-1: mutable state so late-bound paddockAcres can flip the
+  // helper active without re-rendering the whole card.
+  const state = {
+    paddockAcres: paddockAcres && paddockAcres > 0 ? paddockAcres : null,
+  };
+  const isBrcAvailable = () => !!(ringDiameterFt && state.paddockAcres && state.paddockAcres > 0);
 
   const previewChip = el('span', {
     className: 'obs-brc-preview',
     'data-testid': 'obs-card-brc-preview',
     style: {
       fontSize: '11px', marginLeft: '6px', padding: '2px 6px',
-      borderRadius: '10px', background: brcAvailable ? 'var(--color-green-pale, #E8F5E9)' : 'var(--color-surface, #eee)',
-      color: brcAvailable ? 'var(--color-green-dark)' : 'var(--text3)',
+      borderRadius: '10px',
     },
   }, ['']);
 
   const helperNote = el('div', {
     'data-testid': 'obs-card-bale-ring-helper',
     style: { fontSize: '11px', color: 'var(--text2)', marginTop: '2px', gridColumn: '1 / -1' },
-  }, [brcAvailable
-    ? t('event.baleRingHelperDetail', { d: ringDiameterFt.toFixed(1), a: Number(paddockAcres).toFixed(2) })
-    : t('event.baleRingHelperInactive')]);
+  }, ['']);
 
-  if (brcAvailable) {
-    baleRingInput.addEventListener('input', () => {
-      const count = parseInt(baleRingInput.value, 10);
-      if (isNaN(count) || count < 0) { previewChip.textContent = ''; return; }
-      const brc = getCalcByName('BRC-1');
-      if (!brc) return;
-      const out = brc.fn({ ringCount: count, ringDiameterFt, paddockAcres });
-      if (out.computedForageCoverPct != null) {
-        coverInput.value = String(out.computedForageCoverPct);
-        previewChip.textContent = t('event.baleRingCoverPreview', { pct: out.computedForageCoverPct });
-      }
-    });
+  function refreshHelperAppearance() {
+    const active = isBrcAvailable();
+    previewChip.style.background = active ? 'var(--color-green-pale, #E8F5E9)' : 'var(--color-surface, #eee)';
+    previewChip.style.color = active ? 'var(--color-green-dark)' : 'var(--text3)';
+    helperNote.textContent = active
+      ? t('event.baleRingHelperDetail', { d: ringDiameterFt.toFixed(1), a: Number(state.paddockAcres).toFixed(2) })
+      : t('event.baleRingHelperInactive');
   }
+  refreshHelperAppearance();
+
+  function runBrcFromCurrentInput() {
+    if (!isBrcAvailable()) return;
+    const count = parseInt(baleRingInput.value, 10);
+    if (isNaN(count) || count < 0) { previewChip.textContent = ''; return; }
+    const brc = getCalcByName('BRC-1');
+    if (!brc) return;
+    const out = brc.fn({ ringCount: count, ringDiameterFt, paddockAcres: state.paddockAcres });
+    if (out.computedForageCoverPct != null) {
+      coverInput.value = String(out.computedForageCoverPct);
+      previewChip.textContent = t('event.baleRingCoverPreview', { pct: out.computedForageCoverPct });
+    }
+  }
+
+  // OI-0114 NC-1: listener is now always attached. No-op when BRC isn't
+  // available; active as soon as `setPaddockAcres` brings it online.
+  baleRingInput.addEventListener('input', runBrcFromCurrentInput);
 
   const topRow = el('div', {
     className: 'obs-top-row',
@@ -165,7 +183,20 @@ export function renderForageStateRow({ farmSettings, paddockAcres, initialValues
     helperNote,
   ]);
 
-  return { container: topRow, heightInput, coverInput, baleRingInput, brcAvailable };
+  return {
+    container: topRow,
+    heightInput,
+    coverInput,
+    baleRingInput,
+    get brcAvailable() { return isBrcAvailable(); },
+    setPaddockAcres(newAcres) {
+      state.paddockAcres = newAcres && newAcres > 0 ? newAcres : null;
+      refreshHelperAppearance();
+      // If a ring count is already populated, running the calc now makes
+      // the cover field update in place without another keystroke.
+      runBrcFromCurrentInput();
+    },
+  };
 }
 
 /**

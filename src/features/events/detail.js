@@ -1260,22 +1260,27 @@ function renderActions(ctx) {
 
   const isActive = !event.dateOut;
 
-  // Row 1: Primary action + Cancel
+  // Row 1: Primary action + Cancel (OI-0074 — v1 parity).
+  // V2 auto-saves inline edits, so "Save & recalculate" re-runs every derived
+  // view (DMI, NPK, capacity, chart) via renderAll(ctx) and then closes the
+  // sheet. Gives the farmer explicit confidence pending values are fresh.
   el2.appendChild(el('div', { className: 'btn-row', style: { flexWrap: 'wrap', gap: '8px' } }, isActive ? [
     el('button', {
       className: 'btn btn-green',
       style: { flex: '2', minWidth: '160px' },
-      'data-testid': 'detail-save-close',
-      onClick: () => closeEventDetailSheet(),
-    }, ['Save & close']),
+      'data-testid': 'detail-save-recalc',
+      onClick: () => { renderAll(ctx); closeEventDetailSheet(); },
+    }, [t('action.saveAndRecalculate')]),
     el('button', {
       className: 'btn btn-outline',
       style: { flex: '1', minWidth: '80px' },
+      'data-testid': 'detail-cancel',
       onClick: () => closeEventDetailSheet(),
     }, [t('action.cancel')]),
   ] : [
     el('button', {
       className: 'btn btn-outline',
+      'data-testid': 'detail-cancel',
       onClick: () => closeEventDetailSheet(),
     }, [t('action.cancel')]),
   ]));

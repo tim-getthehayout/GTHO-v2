@@ -73,6 +73,7 @@
   },
   "action": {
     "save": "Save",
+    "saveAndRecalculate": "Save & recalculate",
     "cancel": "Cancel",
     "delete": "Delete",
     "edit": "Edit",

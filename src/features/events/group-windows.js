@@ -8,6 +8,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { display } from '../../utils/units.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { maybeShowEmptyGroupPrompt } from '../animals/empty-group-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Group add sheet (CP-18)
@@ -33,7 +34,7 @@ export function openGroupAddSheet(evt, operationId) {
   if (!panel) return;
   clear(panel);
 
-  const groups = getAll('groups').filter(g => !g.archived);
+  const groups = getAll('groups').filter(g => !g.archivedAt);
   const unitSys = getUnitSystem();
   const todayStr = new Date().toISOString().slice(0, 10);
   const selection = { groupId: null };
@@ -222,6 +223,9 @@ export function openGroupRemoveSheet(groupWindow) {
             inputs.dateLeft.value,
             inputs.timeLeft.value || null,
           );
+          // OI-0090: if removing the group from this event leaves it with no live
+          // memberships anywhere, surface the archive prompt.
+          maybeShowEmptyGroupPrompt(groupWindow.groupId);
           groupRemoveSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

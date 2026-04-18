@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, splitGroupWindow } from '../../data/store.js';
+import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, splitGroupWindow, reactivateGroup } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
@@ -21,6 +21,7 @@ import { openBreedingSheet, renderBreedingSheetMarkup } from '../health/breeding
 import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
 import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
+import { maybeShowEmptyGroupPrompt } from './empty-group-prompt.js';
 
 /**
  * OI-0094 helper: if the group is on an open event, split its window so the
@@ -47,6 +48,7 @@ let unsubs = [];
 let selectedFilter = null;  // group ID or null (All)
 let searchQuery = '';
 let showCulled = false;
+let showArchivedGroups = false;  // OI-0090 / SP-11 Part 4
 let sortColumn = 'tag';
 let sortAsc = true;
 
@@ -93,7 +95,7 @@ export function renderAnimalsScreen(container) {
   // ── Render functions ──
   function renderFilterHeader() {
     clear(filterWrap);
-    const groups = getAll('groups').filter(g => !g.archived);
+    const groups = getAll('groups').filter(g => !g.archivedAt);
     const chipsEl = el('div', { className: 'agc-chips' });
 
     // "All" chip
@@ -149,14 +151,30 @@ export function renderAnimalsScreen(container) {
 
   function renderGroupsList() {
     clear(groupsCard);
-    const groups = getAll('groups').filter(g => !g.archived);
+    const allGroups = getAll('groups');
+    const groups = allGroups.filter(g => !g.archivedAt);
+    const archived = allGroups.filter(g => g.archivedAt);
     const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
 
-    // Header
-    groupsCard.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' } }, [
+    // Header — Groups title, Show archived toggle, + Add group
+    const header = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px', flexWrap: 'wrap' } }, [
       el('div', { className: 'sec', style: { margin: '0' } }, ['Groups']),
-      el('button', { className: 'btn btn-green btn-xs', onClick: (e) => { e.stopPropagation(); openGroupSheet(null, operationId, farmId); } }, ['+ Add group']),
-    ]));
+      el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
+        archived.length ? el('label', {
+          'data-testid': 'groups-show-archived-toggle',
+          style: { fontSize: '11px', color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' },
+        }, [
+          el('input', {
+            type: 'checkbox',
+            checked: showArchivedGroups,
+            onChange: (e) => { showArchivedGroups = e.target.checked; renderGroupsList(); },
+          }),
+          `Show archived (${archived.length})`,
+        ]) : null,
+        el('button', { className: 'btn btn-green btn-xs', onClick: (e) => { e.stopPropagation(); openGroupSheet(null, operationId, farmId); } }, ['+ Add group']),
+      ].filter(Boolean)),
+    ]);
+    groupsCard.appendChild(header);
 
     for (const g of groups) {
       const headCount = memberships.filter(m => m.groupId === g.id).length;
@@ -226,6 +244,60 @@ export function renderAnimalsScreen(container) {
 
     if (!groups.length) {
       groupsCard.appendChild(el('div', { className: 'empty' }, ['No groups yet. Add one to organize your herd.']));
+    }
+
+    // OI-0090 / SP-11 Part 4: archived groups section — shown when Show archived toggle is on.
+    if (showArchivedGroups && archived.length) {
+      groupsCard.appendChild(el('div', { className: 'sec', style: { marginTop: '14px', marginBottom: '6px', color: 'var(--text2)' } }, ['Archived groups']));
+      const eventGws = getAll('eventGroupWindows');
+      for (const g of archived) {
+        const gwsForGroup = eventGws.filter(w => w.groupId === g.id);
+        const eventCount = gwsForGroup.length;
+        const lastGw = gwsForGroup.slice().sort((a, b) => (b.dateLeft || b.dateJoined || '').localeCompare(a.dateLeft || a.dateJoined || ''))[0];
+        const lastHead = lastGw ? lastGw.headCount : 0;
+        const archivedOn = g.archivedAt ? g.archivedAt.slice(0, 10) : '—';
+        const deleteDisabled = eventCount > 0;
+
+        groupsCard.appendChild(el('div', {
+          'data-testid': `archived-group-row-${g.id}`,
+          style: { borderLeft: `3px solid ${g.color || 'var(--text2)'}`, marginBottom: '6px', padding: '10px 12px', opacity: '0.85' },
+        }, [
+          el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' } }, [
+            el('div', {}, [
+              el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [
+                g.name, ' ',
+                el('span', { className: 'badge bb', style: { fontSize: '10px' } }, ['archived']),
+              ]),
+              el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [
+                `Archived ${archivedOn}${lastHead ? ` \u00B7 last headcount ${lastHead}` : ''}${eventCount ? ` \u00B7 ${eventCount} event${eventCount === 1 ? '' : 's'}` : ''}`,
+              ]),
+            ]),
+            el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
+              el('button', {
+                className: 'btn btn-green btn-xs',
+                'data-testid': `archived-group-reactivate-${g.id}`,
+                onClick: () => { reactivateGroup(g.id); },
+              }, ['Reactivate']),
+              el('button', {
+                className: 'btn btn-outline btn-xs',
+                'data-testid': `archived-group-delete-${g.id}`,
+                style: {
+                  color: deleteDisabled ? 'var(--text2)' : 'var(--red)',
+                  borderColor: deleteDisabled ? 'var(--border)' : 'var(--red)',
+                  opacity: deleteDisabled ? '0.5' : '1',
+                  cursor: deleteDisabled ? 'not-allowed' : 'pointer',
+                },
+                title: deleteDisabled ? `This group is on ${eventCount} event(s). Archive instead to preserve history.` : '',
+                onClick: () => {
+                  if (deleteDisabled) return;
+                  if (!confirm(`Delete ${g.name}? This cannot be undone.`)) return;
+                  remove('groups', g.id, 'groups');
+                },
+              }, ['Delete']),
+            ]),
+          ]),
+        ]));
+      }
     }
   }
 
@@ -518,6 +590,8 @@ function openGroupSheet(existingGroup, operationId, _farmId) {
           }
         }
         for (const gid of affectedGroupIds) maybeSplitForGroup(gid, todayStr);
+        // OI-0090: surface archive prompt for any group that just emptied out.
+        for (const gid of affectedGroupIds) maybeShowEmptyGroupPrompt(gid);
         groupSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
     } }, ['Save group']),
@@ -555,7 +629,7 @@ function openSplitGroupSheet(group, operationId, _farmId) {
   const allAnimals = getAll('animals');
   const classes = getAll('animalClasses');
   const weightRecords = getAll('animalWeightRecords');
-  const groups = getAll('groups').filter(g => !g.archived && g.id !== group.id);
+  const groups = getAll('groups').filter(g => !g.archivedAt && g.id !== group.id);
   const colors = ['#639922', '#1D9E75', '#185FA5', '#BA7517', '#E24B4A', '#534AB7'];
 
   // Find location
@@ -726,6 +800,8 @@ function openSplitGroupSheet(group, operationId, _farmId) {
         // maybeSplitForGroup is a safe guard when target is an existing placed group.
         maybeSplitForGroup(group.id, date);
         maybeSplitForGroup(targetGroupId, date);
+        // OI-0090: source may be empty after split; prompt archive flow.
+        maybeShowEmptyGroupPrompt(group.id);
         splitSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
     } }, ['Confirm split']),
@@ -1067,7 +1143,7 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
   const isEdit = !!existingAnimal;
   const unitSys = getUnitSystem();
   const classes = getAll('animalClasses');
-  const groups = getAll('groups').filter(g => !g.archived);
+  const groups = getAll('groups').filter(g => !g.archivedAt);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
   const currentMembership = isEdit ? memberships.find(m => m.animalId === existingAnimal.id) : null;
   const previousGroupId = currentMembership?.groupId || null;
@@ -1335,6 +1411,8 @@ function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previ
       // OI-0094 entry #3: split both source (if any) and target (if any) groups' open windows.
       if (previousGroupId) maybeSplitForGroup(previousGroupId, todayStr);
       if (newGroupId) maybeSplitForGroup(newGroupId, todayStr);
+      // OI-0090: moving an animal may empty the source group.
+      if (previousGroupId) maybeShowEmptyGroupPrompt(previousGroupId);
     }
     animalSheet.close();
   } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }

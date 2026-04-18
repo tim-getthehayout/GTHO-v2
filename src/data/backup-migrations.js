@@ -46,8 +46,20 @@ export const BACKUP_MIGRATIONS = {
   21: (b) => { b.schema_version = 22; return b; },
   // 022 → 023: Add entry_type, destination_type, destination_event_id to event_feed_entries (SP-10 §8a).
   22: (b) => { b.schema_version = 23; return b; },
-  // 023 → 024: Reserved slot (OI-0090 migration 024 not yet shipped). No backup shape change.
-  23: (b) => { b.schema_version = 24; return b; },
+  // 023 → 024: OI-0090 / SP-11 Part 3 — groups.archived boolean → groups.archived_at timestamptz.
+  23: (b) => {
+    const rows = (b.tables && b.tables.groups) || b.groups || [];
+    for (const g of rows) {
+      if (g.archived === true) {
+        g.archived_at = g.updated_at || b.exported_at || new Date().toISOString();
+      } else {
+        g.archived_at = null;
+      }
+      delete g.archived;
+    }
+    b.schema_version = 24;
+    return b;
+  },
   // 024 → 025: OI-0073 Part B — one-shot data cleanup (close orphan open event_group_windows).
   //            No backup shape change — data migration only.
   24: (b) => { b.schema_version = 25; return b; },

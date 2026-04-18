@@ -6,7 +6,9 @@ export const FIELDS = {
   farmId:       { type: 'uuid',        required: true,  sbColumn: 'farm_id' },
   name:         { type: 'text',        required: true,  sbColumn: 'name' },
   color:        { type: 'text',        required: false, sbColumn: 'color' },
-  archived:     { type: 'boolean',     required: false, sbColumn: 'archived' },
+  // OI-0090 / SP-11: `archived boolean` upgraded to `archived_at timestamptz`
+  // (NULL = active, timestamp = archived on that date).
+  archivedAt:   { type: 'timestamptz', required: false, sbColumn: 'archived_at' },
   createdAt:    { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:    { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -18,7 +20,7 @@ export function create(data = {}) {
     farmId: data.farmId ?? null,
     name: data.name ?? '',
     color: data.color ?? null,
-    archived: data.archived ?? false,
+    archivedAt: data.archivedAt ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
   };
@@ -31,6 +33,11 @@ export function validate(record) {
   if (!record.name || typeof record.name !== 'string' || record.name.trim() === '') {
     errors.push('name is required');
   }
+  if (record.archivedAt !== null && record.archivedAt !== undefined) {
+    if (typeof record.archivedAt !== 'string' || isNaN(Date.parse(record.archivedAt))) {
+      errors.push('archivedAt must be a valid ISO timestamp or null');
+    }
+  }
   return { valid: errors.length === 0, errors };
 }
 
@@ -41,7 +48,7 @@ export function toSupabaseShape(record) {
     farm_id: record.farmId,
     name: record.name,
     color: record.color,
-    archived: record.archived,
+    archived_at: record.archivedAt ?? null,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -54,7 +61,7 @@ export function fromSupabaseShape(row) {
     farmId: row.farm_id,
     name: row.name,
     color: row.color,
-    archived: row.archived,
+    archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -310,7 +310,8 @@ export function transformV1ToV2(v1, opts) {
     farm_id: farmId,
     name: g.name || 'Unnamed Group',
     color: g.color || null,
-    archived: g.archived ?? false,
+    // OI-0090: schema_version 24 upgraded `archived boolean` → `archived_at timestamptz`.
+    archived_at: g.archived ? now : null,
     created_at: now,
     updated_at: now,
   }));

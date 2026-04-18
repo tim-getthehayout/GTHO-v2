@@ -53,7 +53,7 @@ export function openCalvingSheet(dam, operationId) {
   const unitSys = getUnitSystem();
   const displayName = dam.tagNum || dam.name || dam.eid || dam.id.slice(0, 8);
   const classes = getAll('animalClasses').filter(c => !c.archived);
-  const groups = getAll('groups').filter(g => !g.archived);
+  const groups = getAll('groups').filter(g => !g.archivedAt);
   const cls = dam.classId ? getById('animalClasses', dam.classId) : null;
   const isDairy = cls?.species === 'dairy_cattle';
 

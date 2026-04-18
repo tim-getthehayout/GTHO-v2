@@ -4,6 +4,7 @@ import { saveToStorage, loadFromStorage } from './local-storage.js';
 import { validate as validateOperation, toSupabaseShape as operationToSb } from '../entities/operation.js';
 import { validate as validateUserPref, toSupabaseShape as userPrefToSb } from '../entities/user-preference.js';
 import * as GroupWindowEntity from '../entities/event-group-window.js';
+import * as GroupEntity from '../entities/group.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../calcs/window-helpers.js';
 import { logger } from '../utils/logger.js';
 
@@ -633,4 +634,46 @@ export function splitGroupWindow(groupId, eventId, changeDate, changeTime, newSt
   );
 
   return { closedId: openGW.id, newId: newGW.id };
+}
+
+// --- OI-0090 / SP-11: Group archive / reactivate ---
+
+/**
+ * Archive a group — stamp `archivedAt` with the current ISO timestamp.
+ * Group disappears from all `archivedAt IS NULL` pickers.
+ *
+ * @param {string} groupId
+ * @returns {object|null} updated group record, or null if not found
+ */
+export function archiveGroup(groupId) {
+  const existing = state.groups.find(g => g.id === groupId);
+  if (!existing) {
+    logger.warn('store', 'archiveGroup: group not found', { groupId });
+    return null;
+  }
+  return update(
+    'groups', groupId,
+    { archivedAt: new Date().toISOString() },
+    GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups'
+  );
+}
+
+/**
+ * Reactivate an archived group — clear `archivedAt`. Group returns to active
+ * pickers; historical `event_group_windows` remain untouched.
+ *
+ * @param {string} groupId
+ * @returns {object|null} updated group record, or null if not found
+ */
+export function reactivateGroup(groupId) {
+  const existing = state.groups.find(g => g.id === groupId);
+  if (!existing) {
+    logger.warn('store', 'reactivateGroup: group not found', { groupId });
+    return null;
+  }
+  return update(
+    'groups', groupId,
+    { archivedAt: null },
+    GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups'
+  );
 }

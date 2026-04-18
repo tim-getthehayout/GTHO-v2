@@ -12,6 +12,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, getById, update, splitGroupWindow } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { maybeShowEmptyGroupPrompt } from './empty-group-prompt.js';
 import { today } from '../../utils/date-utils.js';
 import { display } from '../../utils/units.js';
 import { getUnitSystem } from '../../utils/preferences.js';
@@ -127,6 +128,13 @@ export function confirmCull({ animal, cullDate, cullReason, cullNotes }) {
     closedMemberships: closedMembershipIds.length,
     splitWindows: splitResults.length,
   });
+
+  // OI-0090 / SP-11: after the window commits, surface the empty-group prompt
+  // for any group that just lost its last live member. Helper is a no-op if
+  // the group still has open memberships.
+  for (const groupId of affectedGroupIds) {
+    maybeShowEmptyGroupPrompt(groupId);
+  }
 
   return { closedMembershipIds, splitResults };
 }

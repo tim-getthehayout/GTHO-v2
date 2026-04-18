@@ -531,7 +531,7 @@ function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-u
   clear(panel);
 
   const locations = getAll('locations').filter(l => !l.archived);
-  const groups = getAll('groups').filter(g => !g.archived);
+  const groups = getAll('groups').filter(g => !g.archivedAt);
   const unitSys = getUnitSystem();
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.createEvent')]));

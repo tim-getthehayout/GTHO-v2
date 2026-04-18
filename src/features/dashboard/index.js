@@ -146,7 +146,7 @@ function renderDesktopStats(period, rootContainer) {
   const unitSys = getUnitSystem();
 
   // Header line
-  const groups = getVisibleGroups().filter(g => !g.archived);
+  const groups = getVisibleGroups().filter(g => !g.archivedAt);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
   const totalHead = memberships.length;
   const groupCount = groups.length;
@@ -551,7 +551,7 @@ function renderCardGrid(rootContainer) {
 // ---------------------------------------------------------------------------
 
 function renderGroupsView(gridEl) {
-  const groups = getAll('groups').filter(g => !g.archived);
+  const groups = getAll('groups').filter(g => !g.archivedAt);
   const unitSys = getUnitSystem();
 
   if (!groups.length) {
@@ -855,7 +855,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
 
 function renderLocationsView(gridEl) {
   const activeEvents = getVisibleEvents().filter(e => !e.dateOut);
-  const groups = getVisibleGroups().filter(g => !g.archived);
+  const groups = getVisibleGroups().filter(g => !g.archivedAt);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
   const operationId = getAll('operations')[0]?.id;
   const farmId = getActiveFarmId() || getAll('farms')[0]?.id;
@@ -1406,7 +1406,7 @@ function renderWeaningNudge(rootContainer) {
   if (!nudgeEl) return;
   clear(nudgeEl);
 
-  const groups = getAll('groups').filter(g => !g.archived);
+  const groups = getAll('groups').filter(g => !g.archivedAt);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');

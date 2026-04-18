@@ -6,6 +6,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, closeGroupWindow } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { logger } from '../../utils/logger.js';
+import { maybeShowEmptyGroupPrompt } from '../animals/empty-group-prompt.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel } from '../../utils/units.js';
 import * as EventEntity from '../../entities/event.js';
@@ -518,6 +519,11 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     for (const gw of sourceGWs) {
       closeGroupWindow(gw.groupId, sourceEvent.id, dateOut, timeOut);
     }
+    // OI-0090: if a source group is now empty (e.g., all animals were culled
+    // mid-event), surface the archive prompt. Normally a move leaves memberships
+    // intact so the helper is a no-op.
+    const emptiedSourceGroups = sourceGroupState.filter(s => s.headCount < 1).map(s => s.groupId);
+    for (const gid of emptiedSourceGroups) maybeShowEmptyGroupPrompt(gid);
 
     // Step 4: Set source event date_out
     update('events', sourceEvent.id, {

@@ -56,14 +56,16 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: lat/lng and farm area all numeric.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id: row.id,
     operationId: row.operation_id,
     name: row.name,
     address: row.address,
-    latitude: row.latitude,
-    longitude: row.longitude,
-    areaHectares: row.area_hectares,
+    latitude: n(row.latitude),
+    longitude: n(row.longitude),
+    areaHectares: n(row.area_hectares),
     notes: row.notes,
     archived: row.archived,
     createdAt: row.created_at,

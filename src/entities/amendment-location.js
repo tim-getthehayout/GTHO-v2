@@ -85,26 +85,28 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: qty + 12 nutrient kg cols + area_ha all numeric.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id:          row.id,
     operationId: row.operation_id,
     amendmentId: row.amendment_id,
     locationId:  row.location_id,
-    qty:         row.qty,
-    nKg:         row.n_kg,
-    pKg:         row.p_kg,
-    kKg:         row.k_kg,
-    sKg:         row.s_kg,
-    caKg:        row.ca_kg,
-    mgKg:        row.mg_kg,
-    cuKg:        row.cu_kg,
-    feKg:        row.fe_kg,
-    mnKg:        row.mn_kg,
-    moKg:        row.mo_kg,
-    znKg:        row.zn_kg,
-    bKg:         row.b_kg,
-    clKg:        row.cl_kg,
-    areaHa:      row.area_ha,
+    qty:         n(row.qty),
+    nKg:         n(row.n_kg),
+    pKg:         n(row.p_kg),
+    kKg:         n(row.k_kg),
+    sKg:         n(row.s_kg),
+    caKg:        n(row.ca_kg),
+    mgKg:        n(row.mg_kg),
+    cuKg:        n(row.cu_kg),
+    feKg:        n(row.fe_kg),
+    mnKg:        n(row.mn_kg),
+    moKg:        n(row.mo_kg),
+    znKg:        n(row.zn_kg),
+    bKg:         n(row.b_kg),
+    clKg:        n(row.cl_kg),
+    areaHa:      n(row.area_ha),
     createdAt:   row.created_at,
     updatedAt:   row.updated_at,
   };

@@ -67,7 +67,7 @@ export function fromSupabaseShape(row) {
     batchId:         row.batch_id,
     type:            row.type,
     transactionDate: row.transaction_date,
-    volumeKg:        row.volume_kg,
+    volumeKg:        row.volume_kg != null ? Number(row.volume_kg) : null,  // OI-0106
     sourceEventId:   row.source_event_id,
     amendmentId:     row.amendment_id,
     notes:           row.notes,

@@ -61,14 +61,16 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: all three price cols are numeric.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id:            row.id,
     farmId:        row.farm_id,
     operationId:   row.operation_id,
     effectiveDate: row.effective_date,
-    nPricePerKg:   row.n_price_per_kg,
-    pPricePerKg:   row.p_price_per_kg,
-    kPricePerKg:   row.k_price_per_kg,
+    nPricePerKg:   n(row.n_price_per_kg),
+    pPricePerKg:   n(row.p_price_per_kg),
+    kPricePerKg:   n(row.k_price_per_kg),
     notes:         row.notes,
     createdAt:     row.created_at,
     updatedAt:     row.updated_at,

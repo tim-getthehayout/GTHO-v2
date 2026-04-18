@@ -71,9 +71,9 @@ export function fromSupabaseShape(row) {
     inputProductId: row.input_product_id,
     manureBatchId:  row.manure_batch_id,
     spreaderId:     row.spreader_id,
-    totalQty:       row.total_qty,
+    totalQty:       row.total_qty != null ? Number(row.total_qty) : null,        // OI-0106
     qtyUnitId:      row.qty_unit_id,
-    costOverride:   row.cost_override,
+    costOverride:   row.cost_override != null ? Number(row.cost_override) : null, // OI-0106
     notes:          row.notes,
     createdAt:      row.created_at,
     updatedAt:      row.updated_at,

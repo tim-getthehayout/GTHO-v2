@@ -6,6 +6,9 @@
 import { describe, it, expect } from 'vitest';
 import { getBackupTableNames } from '../../src/data/backup-export.js';
 import { BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';
+import { fromSupabaseShape as batchFromSb } from '../../src/entities/batch.js';
+import { fromSupabaseShape as locationFromSb } from '../../src/entities/location.js';
+import { fromSupabaseShape as farmSettingFromSb } from '../../src/entities/farm-setting.js';
 import fixture from '../fixtures/backup-v14.json';
 
 const EXPECTED_TABLE_COUNT = 50; // 53 total tables minus 3 excluded (operation_members, app_logs, release_notes)
@@ -149,6 +152,60 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS[23]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[24]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[25]).toBe('function');
+    });
+  });
+
+  describe('pre-OI-0106-era backup round-trip (numeric coercion)', () => {
+    // CP-55 writes raw PostgREST rows to backup JSON. PostgREST returns
+    // `numeric` as strings, so pre-hotfix backups contain stringified numerics.
+    // CP-56 reinserts them into Supabase (which silently casts string→number)
+    // and then pullAllRemote routes every row through fromSupabaseShape,
+    // which (as of OI-0106) coerces via `Number(...)`. Proves the round-trip
+    // lands as numbers in memory regardless of what the backup JSON contained.
+    it('stringified-numeric batch row → fromSupabaseShape → numbers in memory', () => {
+      const legacyRow = {
+        id: '00000000-0000-0000-0000-000000000b01',
+        operation_id: '00000000-0000-0000-0000-0000000000aa',
+        feed_type_id: '00000000-0000-0000-0000-0000000000bb',
+        name: 'Hay (pre-hotfix backup)',
+        source: 'purchase',
+        quantity: '42.5',
+        remaining: '30',
+        unit: 'bale',
+        weight_per_unit_kg: '20',
+        dm_pct: '85',
+        cost_per_unit: '12',
+        archived: false,
+      };
+      const r = batchFromSb(legacyRow);
+      expect(typeof r.quantity).toBe('number');
+      expect(typeof r.remaining).toBe('number');
+      expect(typeof r.weightPerUnitKg).toBe('number');
+    });
+
+    it('stringified-numeric location row → fromSupabaseShape → numbers in memory', () => {
+      const r = locationFromSb({
+        id: '00000000-0000-0000-0000-000000000c01',
+        operation_id: '00000000-0000-0000-0000-0000000000aa',
+        farm_id: '00000000-0000-0000-0000-0000000000bb',
+        name: 'South 40', type: 'land', land_use: 'pasture',
+        area_hectares: '16.2',
+        capture_percent: '80',
+      });
+      expect(typeof r.areaHectares).toBe('number');
+      expect(typeof r.capturePercent).toBe('number');
+    });
+
+    it('stringified-numeric farm-setting row → fromSupabaseShape → threshold comparison is numeric not lex', () => {
+      const r = farmSettingFromSb({
+        id: '00000000-0000-0000-0000-000000000d01',
+        farm_id: '00000000-0000-0000-0000-0000000000bb',
+        operation_id: '00000000-0000-0000-0000-0000000000aa',
+        threshold_aud_warn_pct: '60',
+        threshold_aud_target_pct: '100',
+      });
+      // Pre-coercion: "100" > "60" is false (lex). Post-coercion: 100 > 60 is true.
+      expect(r.thresholdAudTargetPct > r.thresholdAudWarnPct).toBe(true);
     });
   });
 

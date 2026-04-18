@@ -65,7 +65,7 @@ export function fromSupabaseShape(row) {
     treatmentTypeId: row.treatment_type_id,
     treatedAt:       row.treated_at,
     product:         row.product,
-    doseAmount:      row.dose_amount,
+    doseAmount:      row.dose_amount != null ? Number(row.dose_amount) : null,  // OI-0106
     doseUnitId:      row.dose_unit_id,
     withdrawalDate:  row.withdrawal_date,
     notes:           row.notes,

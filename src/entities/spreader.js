@@ -51,7 +51,7 @@ export function fromSupabaseShape(row) {
     id:          row.id,
     operationId: row.operation_id,
     name:        row.name,
-    capacityKg:  row.capacity_kg,
+    capacityKg:  row.capacity_kg != null ? Number(row.capacity_kg) : null,  // OI-0106
     archived:    row.archived,
     createdAt:   row.created_at,
     updatedAt:   row.updated_at,

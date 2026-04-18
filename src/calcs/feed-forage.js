@@ -1,6 +1,7 @@
 /** @file Feed/forage calculation registrations — CP-46/CP-54. 21 formulas (DMI, FOR, CST, FED domains). */
 
 import { registerCalc } from '../utils/calc-registry.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from './window-helpers.js';
 
 // DMI-1: Consumed DM from Feed
 registerCalc({
@@ -541,6 +542,9 @@ registerCalc({
     { name: 'event', type: 'object', unit: '{ id, dateIn, dateOut, sourceEventId }' },
     { name: 'date', type: 'string', unit: 'YYYY-MM-DD' },
     { name: 'groupWindows', type: 'array', unit: '{ headCount, avgWeightKg, animalClassId, dateJoined, dateLeft }' },
+    { name: 'memberships', type: 'array', unit: '{ groupId, animalId, dateJoined, dateLeft }' },
+    { name: 'animals', type: 'array', unit: '{ id, animalClassId }' },
+    { name: 'animalWeightRecords', type: 'array', unit: '{ animalId, weightKg, date }' },
     { name: 'feedEntries', type: 'array', unit: '{ quantity, batchId, deliveryDate }' },
     { name: 'feedChecks', type: 'array', unit: '{ checkDate, id }' },
     { name: 'feedCheckItems', type: 'array', unit: '{ feedCheckId, remainingQty }' },
@@ -551,8 +555,8 @@ registerCalc({
     { name: 'animalClasses', type: 'object', unit: '{ [classId]: { dmiPct, dmiPctLactating } }' },
   ],
   output: { type: 'object', shape: '{ status, totalDmiKg?, storedDmiKg?, pastureDmiKg? }', unit: 'kg' },
-  fn({ event, date, groupWindows, feedEntries: _feedEntries, feedChecks, feedCheckItems, paddockWindows, observations, forageTypes, locations, animalClasses }) {
-    // Helper: compute daily DMI demand for a given date
+  fn({ event, date, groupWindows, memberships, animals, animalWeightRecords, feedEntries: _feedEntries, feedChecks, feedCheckItems, paddockWindows, observations, forageTypes, locations, animalClasses }) {
+    // Helper: compute daily DMI demand for a given date (OI-0091: live recompute for open windows)
     function dailyDemand(dt) {
       let total = 0;
       for (const gw of groupWindows) {
@@ -560,7 +564,13 @@ registerCalc({
         if (gw.dateLeft && gw.dateLeft <= dt) continue;
         const cls = gw.animalClassId && animalClasses ? animalClasses[gw.animalClassId] : null;
         const pct = cls?.dmiPct ?? 2.5;
-        total += (gw.headCount ?? 0) * (gw.avgWeightKg ?? 0) * (pct / 100);
+        const head = memberships
+          ? getLiveWindowHeadCount(gw, { memberships, now: dt })
+          : (gw.headCount ?? 0);
+        const avg = memberships
+          ? getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now: dt })
+          : (gw.avgWeightKg ?? 0);
+        total += head * avg * (pct / 100);
       }
       return total;
     }

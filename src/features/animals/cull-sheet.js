@@ -10,7 +10,8 @@
 import { el, clear } from '../../ui/dom.js';
 import { Sheet } from '../../ui/sheet.js';
 import { t } from '../../i18n/i18n.js';
-import { getAll, getById, update } from '../../data/store.js';
+import { getAll, getById, update, splitGroupWindow } from '../../data/store.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { today } from '../../utils/date-utils.js';
 import { display } from '../../utils/units.js';
 import { getUnitSystem } from '../../utils/preferences.js';
@@ -91,6 +92,7 @@ export function confirmCull({ animal, cullDate, cullReason, cullNotes }) {
   );
 
   const closedMembershipIds = [];
+  const affectedGroupIds = new Set();
   const openMems = getAll('animalGroupMemberships').filter(m => m.animalId === animal.id && !m.dateLeft);
   for (const m of openMems) {
     update(
@@ -99,13 +101,34 @@ export function confirmCull({ animal, cullDate, cullReason, cullNotes }) {
       MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships'
     );
     closedMembershipIds.push(m.id);
+    if (m.groupId) affectedGroupIds.add(m.groupId);
+  }
+
+  // OI-0091: split the group's open event_group_window on cull. Memberships are
+  // already closed above, so helpers compute the post-cull live values at cullDate.
+  const splitResults = [];
+  for (const groupId of affectedGroupIds) {
+    const openGWs = getAll('eventGroupWindows').filter(w => w.groupId === groupId && !w.dateLeft);
+    const memberships = getAll('animalGroupMemberships');
+    const animals = getAll('animals');
+    const animalWeightRecords = getAll('animalWeightRecords');
+    for (const gw of openGWs) {
+      const liveHead = getLiveWindowHeadCount({ ...gw, dateLeft: null }, { memberships, now: cullDate });
+      const liveAvg = getLiveWindowAvgWeight({ ...gw, dateLeft: null }, { memberships, animals, animalWeightRecords, now: cullDate });
+      splitResults.push(splitGroupWindow(groupId, gw.eventId, cullDate, null, {
+        headCount: liveHead,
+        avgWeightKg: liveAvg,
+      }));
+    }
   }
 
   logger.info('cull', 'Animal culled', {
-    animalId: animal.id, cullDate, cullReason, closedMemberships: closedMembershipIds.length,
+    animalId: animal.id, cullDate, cullReason,
+    closedMemberships: closedMembershipIds.length,
+    splitWindows: splitResults.length,
   });
 
-  return { closedMembershipIds };
+  return { closedMembershipIds, splitResults };
 }
 
 /**

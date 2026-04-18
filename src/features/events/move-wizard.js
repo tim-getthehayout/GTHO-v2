@@ -3,7 +3,9 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update } from '../../data/store.js';
+import { getAll, getById, add, update, closeGroupWindow } from '../../data/store.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { logger } from '../../utils/logger.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel } from '../../utils/units.js';
 import * as EventEntity from '../../entities/event.js';
@@ -474,6 +476,8 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId };
       }
       for (const group of Object.values(feedGroups)) {
+        // OI-0092: residual feed NPK deposit is a v1-parity gap tracked separately.
+        // remainingQuantity:0 is a deliberate placeholder here; do not change.
         const checkItem = FeedCheckItemEntity.create({
           operationId,
           feedCheckId: check.id,
@@ -497,13 +501,22 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         postGraze ? postGraze.getValues() : {});
     }
 
-    // Step 3: Close all open group windows
+    // Step 3: Close all open group windows with live values stamped (OI-0091).
+    // Snapshot sourceGWs before closing so we can recreate on the destination with live values.
     const sourceGWs = getAll('eventGroupWindows').filter(w => w.eventId === sourceEvent.id && !w.dateLeft);
+    const sourceGroupState = [];
+    {
+      const memberships = getAll('animalGroupMemberships');
+      const animals = getAll('animals');
+      const animalWeightRecords = getAll('animalWeightRecords');
+      for (const gw of sourceGWs) {
+        const liveHead = getLiveWindowHeadCount(gw, { memberships, now: dateOut });
+        const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now: dateOut });
+        sourceGroupState.push({ groupId: gw.groupId, operationId: gw.operationId, headCount: liveHead, avgWeightKg: liveAvg });
+      }
+    }
     for (const gw of sourceGWs) {
-      update('eventGroupWindows', gw.id, {
-        dateLeft: dateOut,
-        timeLeft: timeOut,
-      }, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+      closeGroupWindow(gw.groupId, sourceEvent.id, dateOut, timeOut);
     }
 
     // Step 4: Set source event date_out
@@ -551,16 +564,18 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       const newPW = PaddockWindowEntity.create(pwData);
       add('eventPaddockWindows', newPW, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
 
-      // Create group windows for all groups that were on the source event
-      for (const gw of sourceGWs) {
+      // Create group windows for all groups that were on the source event.
+      // OI-0091: stamp live values as of dateIn (sourceGroupState captured before close).
+      for (const gs of sourceGroupState) {
+        if (gs.headCount < 1) continue;
         const newGW = GroupWindowEntity.create({
           operationId,
           eventId: newEvent.id,
-          groupId: gw.groupId,
+          groupId: gs.groupId,
           dateJoined: dateIn,
           timeJoined: timeIn,
-          headCount: gw.headCount,
-          avgWeightKg: gw.avgWeightKg,
+          headCount: gs.headCount,
+          avgWeightKg: gs.avgWeightKg,
         });
         add('eventGroupWindows', newGW, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
       }
@@ -589,19 +604,28 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       }
 
     } else {
-      // Join existing event — add group windows
+      // Join existing event — add group windows (OI-0091: live values, duplicate-open guard)
       const dateIn = dateOut;
       const timeIn = timeOut;
 
-      for (const gw of sourceGWs) {
+      for (const gs of sourceGroupState) {
+        if (gs.headCount < 1) continue;
+        const existingOpen = getAll('eventGroupWindows')
+          .find(w => w.groupId === gs.groupId && w.eventId === state.existingEventId && !w.dateLeft);
+        if (existingOpen) {
+          logger.warn('move-wizard', 'duplicate-open-window guard: skipping', {
+            groupId: gs.groupId, eventId: state.existingEventId, existingWindowId: existingOpen.id,
+          });
+          continue;
+        }
         const newGW = GroupWindowEntity.create({
           operationId,
           eventId: state.existingEventId,
-          groupId: gw.groupId,
+          groupId: gs.groupId,
           dateJoined: dateIn,
           timeJoined: timeIn,
-          headCount: gw.headCount,
-          avgWeightKg: gw.avgWeightKg,
+          headCount: gs.headCount,
+          avgWeightKg: gs.avgWeightKg,
         });
         add('eventGroupWindows', newGW, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
       }

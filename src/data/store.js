@@ -3,6 +3,9 @@
 import { saveToStorage, loadFromStorage } from './local-storage.js';
 import { validate as validateOperation, toSupabaseShape as operationToSb } from '../entities/operation.js';
 import { validate as validateUserPref, toSupabaseShape as userPrefToSb } from '../entities/user-preference.js';
+import * as GroupWindowEntity from '../entities/event-group-window.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../calcs/window-helpers.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * All entity type keys used in the store.
@@ -503,4 +506,131 @@ export function isRollbackInProgress() {
  */
 export function clearRollbackFlag() {
   localStorage.removeItem(ROLLBACK_FLAG);
+}
+
+// --- OI-0091: Event Window Split on State Change ---
+
+function findOpenGroupWindow(groupId, eventId) {
+  return state.eventGroupWindows.find(w => w.groupId === groupId && w.eventId === eventId && !w.dateLeft);
+}
+
+function showWindowClosedToast(message) {
+  if (typeof document === 'undefined') return;
+  const existing = document.querySelector('[data-testid="window-closed-toast"]');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.setAttribute('data-testid', 'window-closed-toast');
+  toast.textContent = message;
+  toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;z-index:400;max-width:90%;';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+/**
+ * Close the current open event_group_window for (groupId, eventId) by
+ * stamping live head_count + avg_weight_kg at closeDate and setting
+ * dateLeft/timeLeft. No new window opens. Use on terminal state changes
+ * (event close, last-membership-gone).
+ *
+ * @param {string} groupId
+ * @param {string} eventId
+ * @param {string} closeDate  ISO date (YYYY-MM-DD)
+ * @param {string|null} closeTime  HH:mm:ss or null
+ * @returns {{ closedId: string|null }}
+ */
+export function closeGroupWindow(groupId, eventId, closeDate, closeTime) {
+  const openGW = findOpenGroupWindow(groupId, eventId);
+  if (!openGW) {
+    logger.warn('store', 'closeGroupWindow: no open window found', { groupId, eventId });
+    return { closedId: null };
+  }
+
+  const ctx = {
+    memberships: state.animalGroupMemberships,
+    animals: state.animals,
+    animalWeightRecords: state.animalWeightRecords,
+    now: closeDate,
+  };
+  const liveHead = getLiveWindowHeadCount({ ...openGW, dateLeft: null }, ctx);
+  const liveAvg = getLiveWindowAvgWeight({ ...openGW, dateLeft: null }, ctx);
+
+  update(
+    'eventGroupWindows', openGW.id,
+    {
+      dateLeft: closeDate,
+      timeLeft: closeTime,
+      headCount: Math.max(0, liveHead),
+      avgWeightKg: liveAvg > 0 ? liveAvg : openGW.avgWeightKg,
+    },
+    GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows'
+  );
+
+  const group = state.groups.find(g => g.id === groupId);
+  const event = state.events.find(e => e.id === eventId);
+  const groupName = group?.name || 'Group';
+  const eventLabel = event ? (event.dateIn || event.id.slice(0, 8)) : 'event';
+  showWindowClosedToast(`${groupName} ended on ${eventLabel} as of ${closeDate}`);
+
+  return { closedId: openGW.id };
+}
+
+/**
+ * Split the current open event_group_window on a state change: close it with
+ * live values stamped at changeDate, then open a new window carrying newState.
+ * If newState.headCount < 1, delegates to closeGroupWindow (no new window).
+ *
+ * @param {string} groupId
+ * @param {string} eventId
+ * @param {string} changeDate  ISO date
+ * @param {string|null} changeTime  HH:mm:ss or null
+ * @param {{ headCount: number, avgWeightKg: number }} newState
+ * @returns {{ closedId: string|null, newId: string|null }}
+ */
+export function splitGroupWindow(groupId, eventId, changeDate, changeTime, newState) {
+  if (!newState || newState.headCount < 1) {
+    const { closedId } = closeGroupWindow(groupId, eventId, changeDate, changeTime);
+    return { closedId, newId: null };
+  }
+
+  const openGW = findOpenGroupWindow(groupId, eventId);
+  if (!openGW) {
+    logger.warn('store', 'splitGroupWindow: no open window found', { groupId, eventId });
+    return { closedId: null, newId: null };
+  }
+
+  const ctx = {
+    memberships: state.animalGroupMemberships,
+    animals: state.animals,
+    animalWeightRecords: state.animalWeightRecords,
+    now: changeDate,
+  };
+  const liveHeadAtClose = getLiveWindowHeadCount({ ...openGW, dateLeft: null }, ctx);
+  const liveAvgAtClose = getLiveWindowAvgWeight({ ...openGW, dateLeft: null }, ctx);
+
+  update(
+    'eventGroupWindows', openGW.id,
+    {
+      dateLeft: changeDate,
+      timeLeft: changeTime,
+      headCount: Math.max(0, liveHeadAtClose),
+      avgWeightKg: liveAvgAtClose > 0 ? liveAvgAtClose : openGW.avgWeightKg,
+    },
+    GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows'
+  );
+
+  const newGW = GroupWindowEntity.create({
+    operationId: openGW.operationId,
+    eventId,
+    groupId,
+    dateJoined: changeDate,
+    timeJoined: changeTime,
+    headCount: newState.headCount,
+    avgWeightKg: newState.avgWeightKg,
+  });
+  add(
+    'eventGroupWindows', newGW,
+    GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows'
+  );
+
+  return { closedId: openGW.id, newId: newGW.id };
 }

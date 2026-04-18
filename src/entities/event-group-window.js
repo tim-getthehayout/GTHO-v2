@@ -38,7 +38,14 @@ export function validate(record) {
   if (!record.eventId) errors.push('eventId is required');
   if (!record.groupId) errors.push('groupId is required');
   if (!record.dateJoined) errors.push('dateJoined is required');
-  if (typeof record.headCount !== 'number' || record.headCount < 1) errors.push('headCount must be a positive integer');
+  // OI-0091: closed windows may legitimately stamp headCount = 0 at close date
+  // when the group emptied out. Open windows should still be >= 1.
+  const hcMin = record.dateLeft ? 0 : 1;
+  if (typeof record.headCount !== 'number' || record.headCount < hcMin) {
+    errors.push(record.dateLeft
+      ? 'headCount must be a non-negative integer'
+      : 'headCount must be a positive integer');
+  }
   if (typeof record.avgWeightKg !== 'number' || record.avgWeightKg <= 0) errors.push('avgWeightKg must be a positive number');
   return { valid: errors.length === 0, errors };
 }

@@ -252,6 +252,25 @@ Every mutation follows this exact order:
 - Subscribers return an unsubscribe function for cleanup
 - No async in getters — data is always local-first
 
+### 4.4 Window-Split on State Change (OI-0091)
+
+An `event_group_window` is a **period of stable group state** on an event. During that period `headCount`, `avgWeightKg`, and composition are constant by definition. Whenever the group state actually changes mid-event — cull, reweigh, wean, split, move, composition change — the current open window must **close with live values stamped at the change date** and a **new window must open the same date** carrying the new state.
+
+**Closed windows are historical truth.** Their stored `headCount` / `avgWeightKg` snapshot is authoritative forever and must not be recomputed. **Open windows (`dateLeft === null`) are synthetic.** The stored `headCount` / `avgWeightKg` on an open row are seed values at window creation; every render and calc path must recompute live from `animal_group_memberships` at read time.
+
+**Rule of thumb:** *stored snapshot for closed windows, live recompute for open windows, split on every state change.*
+
+Entry points (never bypass — flows must call one of these at the mutation site):
+
+- `splitGroupWindow(groupId, eventId, changeDate, changeTime, newState)` — `src/data/store.js`. Closes current open window (live values stamped at `changeDate`), opens a new open window carrying `newState.headCount` / `newState.avgWeightKg`. If `newState.headCount < 1`, delegates to `closeGroupWindow` (no new window opens).
+- `closeGroupWindow(groupId, eventId, closeDate, closeTime)` — `src/data/store.js`. Terminal close — stamps live values, no new window. Used by event-close and last-membership-gone cascades.
+- `getLiveWindowHeadCount(gw, { memberships, now })` — `src/calcs/window-helpers.js`. Every render and calc path reads head count via this helper. Open windows recompute from memberships; closed windows return the stored snapshot. Inclusive lower bound on `dateJoined`, exclusive upper on `dateLeft`.
+- `getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now })` — same gating, averages live animal weights; falls back to stored `avgWeightKg` when no weight records are available.
+
+Callers (authoritative list as of OI-0091): `cull-sheet.confirmCull`, `move-wizard` (close + destination creation both paths), `events/close`. Future triggers (wean, split, reweigh OI-0065, per-group move OI-0066) plug into the same entry points.
+
+**Grep contract:** no direct `gw.headCount` / `gw.avgWeightKg` reads in `src/features/**` or `src/calcs/**` outside the helpers module and the entity shape layer. Violations are a pre-commit failure.
+
 ---
 
 ## 5. Sync Layer — Pluggable SyncAdapter
@@ -484,6 +503,7 @@ One canonical name per concept. Grep must work. No aliases.
 |------|---------|---------|
 | 2026-04-14 | Tier 3 migration testing — OI-0054 | §5.2: Added write-method-by-operation-type table (insert/update/upsert distinction). Documented OI-0054 origin (upsert bootstrap failure during onboarding). |
 | 2026-04-14 | Tier 3 migration testing — OI-0055 | New §5.5: Backup/Import/Export architecture covering CP-55/CP-56/CP-57. Documents FK_ORDER, TWO_PASS_TABLES, REFERENCE_TABLES, uniform operation_id delete/parity pattern, and the 10-step import flow. |
+| 2026-04-18 | OI-0091 event window split | New §4.4: Window-Split on State Change pattern. `event_group_window` is a period of stable state; state changes (cull/move/wean/event-close) close the current window with live values stamped and open a new window. Render and calc paths read through `getLiveWindowHeadCount` / `getLiveWindowAvgWeight` helpers — open windows recompute live, closed windows use stored snapshots. Ships with OI-0073 orphan cleanup (migration 025) as a coordinated P0 package. |
 
 ---
 

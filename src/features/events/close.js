@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update } from '../../data/store.js';
+import { getAll, getById, add, update, closeGroupWindow } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
@@ -214,13 +214,10 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
         postGraze ? postGraze.getValues() : {});
     }
 
-    // 3. Close all open group windows
+    // 3. Close all open group windows (OI-0091: stamp live head/avg values)
     const openGWs = getAll('eventGroupWindows').filter(w => w.eventId === evt.id && !w.dateLeft);
     for (const gw of openGWs) {
-      update('eventGroupWindows', gw.id, {
-        dateLeft: dateOut,
-        timeLeft: timeOut,
-      }, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+      closeGroupWindow(gw.groupId, evt.id, dateOut, timeOut);
     }
 
     // 4. Set event date_out

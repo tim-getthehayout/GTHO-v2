@@ -46,4 +46,9 @@ export const BACKUP_MIGRATIONS = {
   21: (b) => { b.schema_version = 22; return b; },
   // 022 → 023: Add entry_type, destination_type, destination_event_id to event_feed_entries (SP-10 §8a).
   22: (b) => { b.schema_version = 23; return b; },
+  // 023 → 024: Reserved slot (OI-0090 migration 024 not yet shipped). No backup shape change.
+  23: (b) => { b.schema_version = 24; return b; },
+  // 024 → 025: OI-0073 Part B — one-shot data cleanup (close orphan open event_group_windows).
+  //            No backup shape change — data migration only.
+  24: (b) => { b.schema_version = 25; return b; },
 };

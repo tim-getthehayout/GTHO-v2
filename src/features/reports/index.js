@@ -7,6 +7,7 @@ import { display } from '../../utils/units.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import { renderReferenceConsole } from './reference-console.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 
 /** Active tab state */
 let activeTab = 'feed';
@@ -123,6 +124,10 @@ function renderFeedDmiTab() {
   const events = getAll('events');
   const groupWindows = getAll('eventGroupWindows');
   const animalClasses = getAll('animalClasses');
+  const memberships = getAll('animalGroupMemberships');
+  const animals = getAll('animals');
+  const animalWeightRecords = getAll('animalWeightRecords');
+  const todayStr = new Date().toISOString().slice(0, 10);
   const unitSys = getUnitSystem();
 
   const dmi2 = getCalcByName('DMI-2');
@@ -181,12 +186,15 @@ function renderFeedDmiTab() {
       const cls = animalClasses.find(ac => ac.id === gw.animalClassId) ?? null;
       const dmiPct = cls?.dmiPct ?? 2.5;
       const dmiPctLactating = cls?.dmiPctLactating ?? dmiPct;
+      const now = gw.dateLeft || event.dateOut || todayStr;
+      const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+      const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
 
       let groupDmi = 0;
       if (dmi2) {
         groupDmi = dmi2.fn({
-          headCount: gw.headCount ?? 0,
-          avgWeightKg: gw.avgWeightKg ?? 0,
+          headCount: liveHead,
+          avgWeightKg: liveAvg,
           dmiPct,
           dmiPctLactating,
           isLactating: false,
@@ -229,6 +237,10 @@ function renderNpkTab() {
   const events = getAll('events');
   const groupWindows = getAll('eventGroupWindows');
   const animalClasses = getAll('animalClasses');
+  const memberships = getAll('animalGroupMemberships');
+  const animals = getAll('animals');
+  const animalWeightRecords = getAll('animalWeightRecords');
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   const npk1 = getCalcByName('NPK-1');
   const npk2 = getCalcByName('NPK-2');
@@ -254,9 +266,12 @@ function renderNpkTab() {
 
       if (!npk1) continue;
 
+      const now = gw.dateLeft || event.dateOut || todayStr;
+      const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+      const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
       const npkResult = npk1.fn({
-        headCount: gw.headCount ?? 0,
-        avgWeightKg: gw.avgWeightKg ?? 0,
+        headCount: liveHead,
+        avgWeightKg: liveAvg,
         days,
         excretionNRate: cls?.excretionN ?? 0.145,
         excretionPRate: cls?.excretionP ?? 0.041,
@@ -494,6 +509,7 @@ function renderSeasonTab() {
   const feedEntries = getAll('eventFeedEntries');
   const observations = getAll('paddockObservations');
   const batches = getAll('batches');
+  const memberships = getAll('animalGroupMemberships');
 
   const cst1 = getCalcByName('CST-1');
 
@@ -509,10 +525,12 @@ function renderSeasonTab() {
     const dateOut = event.dateOut ?? new Date().toISOString().slice(0, 10);
     const totalDays = dateIn ? daysBetweenInclusive(dateIn, dateOut) : 1;
 
-    // Total head-days for this event
+    // Total head-days for this event (OI-0091: live recompute for open windows)
     let totalHeadDays = 0;
     for (const gw of gws) {
-      totalHeadDays += (gw.headCount ?? 0) * totalDays;
+      const now = gw.dateLeft || event.dateOut || dateOut;
+      const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+      totalHeadDays += liveHead * totalDays;
     }
 
     // Attribute AUDs proportionally across paddock windows

@@ -12,6 +12,7 @@ import { el, clear } from '../../ui/dom.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update } from '../../data/store.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 
 let pickerSheet = null;
 
@@ -234,7 +235,14 @@ export function openRetroPlaceFlow(ctx) {
     const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === evt.id);
     const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === evt.id);
     const paddockNames = pws.map(pw => { const l = getById('locations', pw.locationId); return l?.name || '?'; }).join(', ');
-    const groupChips = gws.map(gw => { const g = getById('groups', gw.groupId); return `${g?.name || '?'} (${gw.headCount})`; }).join(', ');
+    const memberships = getAll('animalGroupMemberships');
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const groupChips = gws.map(gw => {
+      const g = getById('groups', gw.groupId);
+      const now = gw.dateLeft || evt.dateOut || todayStr;
+      const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+      return `${g?.name || '?'} (${liveHead})`;
+    }).join(', ');
 
     panel.appendChild(el('div', {
       style: { padding: '12px', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', marginBottom: '8px' },
@@ -291,14 +299,23 @@ function handleEventPicked(destEvent, panel, ctx, groupName) {
       priorJoin: sourceWindow.dateJoined,
       newJoin: newDateJoined,
       onConfirm: () => {
+        // Retro-placed historical window: use sourceWindow's state at gapStart via helpers
+        // (for open sourceWindow this computes live; for closed it returns the stored snapshot).
+        const memberships = getAll('animalGroupMemberships');
+        const animals = getAll('animals');
+        const animalWeightRecords = getAll('animalWeightRecords');
+        const live = {
+          head: getLiveWindowHeadCount(sourceWindow, { memberships, now: gapStart }),
+          avg: getLiveWindowAvgWeight(sourceWindow, { memberships, animals, animalWeightRecords, now: gapStart }),
+        };
         const newDestWindow = GroupWindowEntity.create({
           operationId,
           eventId: destEvent.id,
           groupId: sourceWindow.groupId,
           dateJoined: gapStart,
           dateLeft: gapEnd,
-          headCount: sourceWindow.headCount,
-          avgWeightKg: sourceWindow.avgWeightKg,
+          headCount: live.head,
+          avgWeightKg: live.avg,
         });
 
         try {

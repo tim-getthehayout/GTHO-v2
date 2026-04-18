@@ -20,6 +20,7 @@ import { renderHeaderStrip } from './header-strip.js';
 import { renderToolbar } from './toolbar.js';
 import { renderLegend } from './legend.js';
 import { navigate } from '../../../ui/router.js';
+import { getLiveWindowHeadCount } from '../../../calcs/window-helpers.js';
 
 const ROW_HEIGHT = 72;
 
@@ -40,6 +41,7 @@ export function renderCalendarGrid(container) {
   const allPaddockWindows = getAll('eventPaddockWindows');
   const allGroupWindows = getAll('eventGroupWindows');
   const allGroups = getAll('groups');
+  const allMemberships = getAll('animalGroupMemberships');
 
   // Filter locations: exclude confinement unless toggled on
   const locations = allLocations.filter(loc => {
@@ -193,7 +195,10 @@ export function renderCalendarGrid(container) {
           pasturePct: 0,
           feedPct: 0,
           dmi: 0,
-          headCount: eventGroups.length > 0 ? eventGroupWindows.reduce((s, gw) => s + (gw.headCount || 0), 0) : 0,
+          headCount: eventGroups.length > 0 ? eventGroupWindows.reduce((s, gw) => {
+            const nowStr = gw.dateLeft || event.dateOut || new Date().toISOString().slice(0, 10);
+            return s + getLiveWindowHeadCount(gw, { memberships: allMemberships, now: nowStr });
+          }, 0) : 0,
           isActive,
           isStripGraze: pw.isStripGraze || false,
           strips,

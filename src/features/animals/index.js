@@ -3,7 +3,8 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe, getActiveFarmId } from '../../data/store.js';
+import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, splitGroupWindow } from '../../data/store.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import * as GroupEntity from '../../entities/group.js';
@@ -21,12 +22,31 @@ import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
 import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
 
+/**
+ * OI-0094 helper: if the group is on an open event, split its window so the
+ * event_group_window carries live head/weight for downstream calcs. No-op if
+ * the group is not currently placed on any open event.
+ */
+function maybeSplitForGroup(groupId, changeDate) {
+  if (!groupId || !changeDate) return;
+  const openGW = getAll('eventGroupWindows').find(w => w.groupId === groupId && !w.dateLeft);
+  if (!openGW) return;
+  const memberships = getAll('animalGroupMemberships');
+  const animals = getAll('animals');
+  const animalWeightRecords = getAll('animalWeightRecords');
+  const ctx = { memberships, animals, animalWeightRecords, now: changeDate };
+  const liveHead = getLiveWindowHeadCount({ ...openGW, dateLeft: null }, ctx);
+  const liveAvg = getLiveWindowAvgWeight({ ...openGW, dateLeft: null }, ctx);
+  splitGroupWindow(groupId, openGW.eventId, changeDate, null, {
+    headCount: liveHead, avgWeightKg: liveAvg,
+  });
+}
+
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
 let selectedFilter = null;  // group ID or null (All)
 let searchQuery = '';
 let showCulled = false;
-let selectedAnimals = new Set();
 let sortColumn = 'tag';
 let sortAsc = true;
 
@@ -40,7 +60,6 @@ let animalSheet = null;
 export function renderAnimalsScreen(container) {
   unsubs.forEach(fn => fn());
   unsubs = [];
-  selectedAnimals = new Set();
 
   const operations = getAll('operations');
   const farms = getAll('farms');
@@ -56,13 +75,11 @@ export function renderAnimalsScreen(container) {
   const filterWrap = el('div', { className: 'agc-wrap' });
   const configRow = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' } });
   const groupsCard = el('div', { className: 'card', style: { marginBottom: '8px' } });
-  const actionBar = el('div', { id: 'animals-action-bar', style: { display: 'none', position: 'sticky', top: '0', zIndex: '30', background: 'var(--green)', color: 'white', padding: '10px 14px', borderRadius: 'var(--radius)', marginBottom: '10px' } });
   const animalListWrap = el('div', { 'data-testid': 'animals-list' });
 
   container.appendChild(filterWrap);
   container.appendChild(configRow);
   container.appendChild(groupsCard);
-  container.appendChild(actionBar);
   container.appendChild(animalListWrap);
 
   // Health sheet wrappers
@@ -212,20 +229,6 @@ export function renderAnimalsScreen(container) {
     }
   }
 
-  function renderActionBar() {
-    clear(actionBar);
-    if (selectedAnimals.size === 0) { actionBar.style.display = 'none'; return; }
-    actionBar.style.display = 'block';
-    actionBar.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } }, [
-      el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [`${selectedAnimals.size} selected`]),
-      el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
-        el('button', { className: 'btn btn-sm', style: { background: 'white', color: 'var(--green-d)', padding: '6px 12px' }, onClick: () => openAnimalMoveSheet(operationId) }, ['Move to group']),
-        el('button', { className: 'btn btn-sm', style: { background: 'white', color: 'var(--green-d)', padding: '6px 12px' } }, ['New group']),
-        el('button', { className: 'btn btn-sm', style: { background: 'transparent', border: '1px solid rgba(255,255,255,0.5)', color: 'white', padding: '6px 12px' }, onClick: () => { selectedAnimals.clear(); renderAnimalList(); renderActionBar(); } }, ['Cancel']),
-      ]),
-    ]));
-  }
-
   function renderAnimalList() {
     const scrollTop = animalListWrap.scrollTop;
     clear(animalListWrap);
@@ -307,7 +310,6 @@ export function renderAnimalsScreen(container) {
       const cls = animal.classId ? classes.find(c => c.id === animal.classId) : null;
       const latestW = latestWeightMap.get(animal.id);
       const weightDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '—';
-      const isSelected = selectedAnimals.has(animal.id);
       const isCulled = animal.active === false;
 
       // Location badge
@@ -322,25 +324,12 @@ export function renderAnimalsScreen(container) {
         }
       }
 
-      // Checkbox
-      const checkbox = el('div', {
-        style: { width: '22px', height: '22px', borderRadius: '6px', border: `1.5px solid ${isSelected ? 'var(--green)' : 'var(--border2)'}`, background: isSelected ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0', cursor: 'pointer' },
-        onClick: (e) => {
-          e.stopPropagation();
-          if (selectedAnimals.has(animal.id)) selectedAnimals.delete(animal.id);
-          else selectedAnimals.add(animal.id);
-          renderAnimalList();
-          renderActionBar();
-        },
-      }, isSelected ? [
-        el('svg', { width: '12', height: '12', viewBox: '0 0 12 12', fill: 'none' }, [
-          el('polyline', { points: '2,6 5,9 10,3', stroke: 'white', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
-        ]),
-      ] : []);
-
-      const row = el('div', { style: { padding: '8px 0', borderBottom: '0.5px solid var(--border)', opacity: isCulled ? '0.5' : '1' } }, [
+      // OI-0093: no checkbox column; row's Edit button is the primary per-animal action.
+      const row = el('div', {
+        'data-testid': `animal-row-${animal.id}`,
+        style: { padding: '8px 0', borderBottom: '0.5px solid var(--border)', opacity: isCulled ? '0.5' : '1' },
+      }, [
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
-          checkbox,
           el('div', { style: { flex: '1', minWidth: '0', cursor: 'pointer' }, onClick: () => openAnimalSheet(animal, operationId, farmId) }, [
             el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [
               animal.tagNum || animal.name || `A-${animal.id.slice(0, 5)}`, ' ',
@@ -356,7 +345,7 @@ export function renderAnimalsScreen(container) {
           ]),
         ]),
         // Quick-action buttons
-        el('div', { style: { display: 'flex', gap: '5px', marginTop: '5px', marginLeft: '30px', flexWrap: 'wrap' } }, [
+        el('div', { style: { display: 'flex', gap: '5px', marginTop: '5px', flexWrap: 'wrap' } }, [
           el('button', { className: 'btn btn-outline btn-xs', onClick: () => openAnimalSheet(animal, operationId, farmId) }, ['Edit']),
           el('button', { className: 'btn btn-outline btn-xs', onClick: () => openWeightSheet(animal, operationId) }, ['\u2696 Weight']),
           el('button', { className: 'btn btn-outline btn-xs', onClick: () => openTreatmentSheet(animal, operationId) }, ['\uD83D\uDC89 Treatment']),
@@ -375,7 +364,6 @@ export function renderAnimalsScreen(container) {
     renderFilterHeader();
     renderConfigRow();
     renderGroupsList();
-    renderActionBar();
     renderAnimalList();
   }
 
@@ -505,22 +493,31 @@ function openGroupSheet(existingGroup, operationId, _farmId) {
           add('groups', record, GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
           groupId = record.id;
         }
-        // Sync memberships: add new, remove deselected
+        // Sync memberships: add new, remove deselected. OI-0094 entry #1: collect
+        // affected groupIds so we can split their open windows after all membership
+        // mutations land.
+        const affectedGroupIds = new Set();
         const currentMems = memberships.filter(m => m.groupId === groupId);
         for (const m of currentMems) {
           if (!pickedAnimals.has(m.animalId)) {
             update('animalGroupMemberships', m.id, { dateLeft: todayStr, reason: 'removed' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+            affectedGroupIds.add(groupId);
           }
         }
         for (const animalId of pickedAnimals) {
           if (!currentMems.some(m => m.animalId === animalId)) {
             // Close any existing membership in another group
             const existingMem = memberships.find(m => m.animalId === animalId && m.groupId !== groupId);
-            if (existingMem) update('animalGroupMemberships', existingMem.id, { dateLeft: todayStr, reason: 'move' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+            if (existingMem) {
+              update('animalGroupMemberships', existingMem.id, { dateLeft: todayStr, reason: 'move' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+              affectedGroupIds.add(existingMem.groupId);
+            }
             const newMem = MembershipEntity.create({ operationId, animalId, groupId, dateJoined: todayStr, reason: isEdit ? 'move' : 'initial' });
             add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+            affectedGroupIds.add(groupId);
           }
         }
+        for (const gid of affectedGroupIds) maybeSplitForGroup(gid, todayStr);
         groupSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
     } }, ['Save group']),
@@ -725,6 +722,10 @@ function openSplitGroupSheet(group, operationId, _farmId) {
           const newMem = MembershipEntity.create({ operationId, animalId, groupId: targetGroupId, dateJoined: date, reason: 'split' });
           add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
         }
+        // OI-0094 entry #2: split source group's open window. Target usually new so no-op;
+        // maybeSplitForGroup is a safe guard when target is an existing placed group.
+        maybeSplitForGroup(group.id, date);
+        maybeSplitForGroup(targetGroupId, date);
         splitSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
     } }, ['Confirm split']),
@@ -1025,6 +1026,7 @@ function openGroupWeightsSheet(group, operationId) {
 
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
     el('button', { className: 'btn btn-green', onClick: () => {
+      let anyChange = false;
       for (const wi of weightInputs) {
         const val = parseFloat(wi.input.value);
         if (isNaN(val) || val <= 0) continue;
@@ -1032,7 +1034,10 @@ function openGroupWeightsSheet(group, operationId) {
         if (unitSys === 'imperial') weightKg = convert(val, 'weight', 'toMetric');
         const rec = WeightRecordEntity.create({ operationId, animalId: wi.animalId, weightKg, date: dateInput.value });
         add('animalWeightRecords', rec, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
+        anyChange = true;
       }
+      // OI-0094 entry #4: head count unchanged but avg weight shifts → split the group's open window.
+      if (anyChange) maybeSplitForGroup(group.id, dateInput.value);
       wtSheet.close();
     } }, ['Commit all changes']),
     el('button', { className: 'btn btn-outline', onClick: () => wtSheet.close() }, ['Cancel']),
@@ -1100,19 +1105,47 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
     el('div', { className: 'field' }, [el('label', {}, ['Class']), inputs.classId]),
   ]));
 
-  // Group
-  inputs.groupId = el('select', {}, [
-    el('option', { value: '' }, ['— none —']),
-    ...groups.map(g => el('option', { value: g.id, selected: previousGroupId === g.id }, [g.name])),
-  ]);
-  // Weight + Group (two-column per v1)
+  // OI-0093: Group picker — v2 pattern (tap-to-select rows, matches Move wizard + group-add).
+  // `inputs.groupId.value` is read at save time; mirror the <select> interface so saveAnimal
+  // keeps working unchanged.
+  const groupSelection = { groupId: previousGroupId || null };
+  const groupPicker = el('div', {
+    className: 'loc-picker',
+    'data-testid': 'animal-group-picker',
+    style: { maxHeight: '160px', overflowY: 'auto', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px' },
+  });
+  function renderAnimalGroupPicker() {
+    clear(groupPicker);
+    const noneRow = el('div', {
+      className: `loc-picker-item${groupSelection.groupId === null ? ' selected' : ''}`,
+      'data-testid': 'animal-group-picker-none',
+      onClick: () => { groupSelection.groupId = null; renderAnimalGroupPicker(); },
+    }, [el('span', { style: { color: 'var(--text2)', fontStyle: 'italic' } }, ['— none —'])]);
+    groupPicker.appendChild(noneRow);
+    for (const g of groups) {
+      const isSelected = groupSelection.groupId === g.id;
+      groupPicker.appendChild(el('div', {
+        className: `loc-picker-item${isSelected ? ' selected' : ''}`,
+        'data-testid': `animal-group-picker-${g.id}`,
+        onClick: () => { groupSelection.groupId = g.id; renderAnimalGroupPicker(); },
+      }, [el('span', {}, [g.name])]));
+    }
+  }
+  renderAnimalGroupPicker();
+  inputs.groupId = { get value() { return groupSelection.groupId || ''; } };
+
+  // Weight
   const weightRecords = getAll('animalWeightRecords');
   const latestW = isEdit ? weightRecords.filter(w => w.animalId === existingAnimal.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0] : null;
   const currentWeightDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '';
   inputs.currentWeight = el('input', { type: 'number', step: '1', value: currentWeightDisplay, placeholder: '0' });
-  panel.appendChild(el('div', { className: 'two' }, [
-    el('div', { className: 'field' }, [el('label', {}, [`Current weight (${unitLabel('weight', unitSys)})`]), inputs.currentWeight]),
-    el('div', { className: 'field' }, [el('label', {}, ['Group']), inputs.groupId]),
+  panel.appendChild(el('div', { className: 'field' }, [
+    el('label', {}, [`Current weight (${unitLabel('weight', unitSys)})`]),
+    inputs.currentWeight,
+  ]));
+  panel.appendChild(el('div', { className: 'field' }, [
+    el('label', {}, ['Group']),
+    groupPicker,
   ]));
 
   // Dam + Sire (v1 gap fix)
@@ -1299,67 +1332,14 @@ function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previ
         const newMem = MembershipEntity.create({ operationId, animalId, groupId: newGroupId, dateJoined: todayStr, reason: previousGroupId ? 'move' : 'initial' });
         add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
       }
+      // OI-0094 entry #3: split both source (if any) and target (if any) groups' open windows.
+      if (previousGroupId) maybeSplitForGroup(previousGroupId, todayStr);
+      if (newGroupId) maybeSplitForGroup(newGroupId, todayStr);
     }
     animalSheet.close();
   } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
 }
 
-// ─── Animal Move Sheet (multi-select action) ──────────────────────────
-
-function openAnimalMoveSheet(operationId) {
-  const wrapId = 'animal-move-wrap';
-  if (!document.getElementById(wrapId)) {
-    document.body.appendChild(el('div', { className: 'sheet-wrap', id: wrapId, style: { zIndex: '210' } }, [
-      el('div', { className: 'sheet-backdrop', onClick: () => moveSheet?.close() }),
-      el('div', { className: 'sheet-panel', id: 'animal-move-panel' }),
-    ]));
-  }
-  let moveSheet = new Sheet(wrapId);
-  const panel = document.getElementById('animal-move-panel');
-  if (!panel) return;
-  clear(panel);
-  panel.appendChild(el('div', { className: 'sheet-handle' }));
-
-  const selected = [...selectedAnimals];
-  const animals = getAll('animals');
-  const groups = getAll('groups').filter(g => !g.archived);
-  const names = selected.map(id => { const a = animals.find(x => x.id === id); return a?.tagNum || a?.name || '?'; });
-
-  const todayStr = new Date().toISOString().slice(0, 10);
-
-  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Move animals']));
-  panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '2px' } }, [`${selected.length} animals selected`]));
-  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '14px' } }, [names.join(', ')]));
-
-  const dateInput = el('input', { type: 'date', value: todayStr });
-  panel.appendChild(el('div', { className: 'two', style: { marginBottom: '12px' } }, [
-    el('div', { className: 'field' }, [el('label', {}, ['Date']), dateInput]),
-    el('div', { className: 'field' }, [el('label', {}, ['Time']), el('input', { type: 'time' })]),
-  ]));
-
-  const groupSelect = el('select', {}, [
-    el('option', { value: '' }, ['\u2014 select group \u2014']),
-    ...groups.map(g => el('option', { value: g.id }, [g.name])),
-  ]);
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Move to group']), groupSelect]));
-
-  panel.appendChild(el('div', { className: 'btn-row' }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
-      const targetGroupId = groupSelect.value;
-      if (!targetGroupId) return;
-      const date = dateInput.value || todayStr;
-      const memberships = getAll('animalGroupMemberships');
-      for (const animalId of selected) {
-        const oldMem = memberships.find(m => m.animalId === animalId && !m.dateLeft);
-        if (oldMem) update('animalGroupMemberships', oldMem.id, { dateLeft: date, reason: 'move' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
-        const newMem = MembershipEntity.create({ operationId, animalId, groupId: targetGroupId, dateJoined: date, reason: 'move' });
-        add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
-      }
-      selectedAnimals.clear();
-      moveSheet.close();
-    } }, ['Confirm']),
-    el('button', { className: 'btn btn-outline', onClick: () => moveSheet.close() }, ['Cancel']),
-  ]));
-
-  moveSheet.open();
-}
+// OI-0093: openAnimalMoveSheet removed along with the bulk action bar. Per-animal
+// group changes now flow through Edit Animal → group picker. Group-level moves
+// use the Move wizard (Events screen).

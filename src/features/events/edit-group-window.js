@@ -8,6 +8,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { openResolveDialog } from './resolve-window-change.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 
 let editGwSheet = null;
 
@@ -62,13 +63,41 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
   }
 
   // Head count + avg weight
-  const headCountInput = el('input', { type: 'number', min: '1', step: '1', value: gw.headCount ?? '' });
-  const weightVal = gw.avgWeightKg ? (unitSys === 'imperial' ? convert(gw.avgWeightKg, 'weight', 'toImperial').toFixed(0) : gw.avgWeightKg.toFixed(0)) : '';
-  const avgWeightInput = el('input', { type: 'number', min: '0', step: '1', value: weightVal });
-  panel.appendChild(el('div', { className: 'two' }, [
-    el('div', { className: 'field' }, [el('label', {}, ['Head count']), headCountInput]),
-    el('div', { className: 'field' }, [el('label', {}, [`Avg weight (${wUnit})`]), avgWeightInput]),
-  ]));
+  //   OI-0094 entry #8: on OPEN windows these are system-generated view-only labels
+  //   reading live values via the OI-0091 helpers. Closed windows keep the editable
+  //   inputs as the historical-correction escape hatch.
+  let headCountInput = null;
+  let avgWeightInput = null;
+  if (isClosed) {
+    headCountInput = el('input', { type: 'number', min: '0', step: '1', value: gw.headCount ?? '' });
+    const weightVal = gw.avgWeightKg ? (unitSys === 'imperial' ? convert(gw.avgWeightKg, 'weight', 'toImperial').toFixed(0) : gw.avgWeightKg.toFixed(0)) : '';
+    avgWeightInput = el('input', { type: 'number', min: '0', step: '1', value: weightVal });
+    panel.appendChild(el('div', { className: 'two' }, [
+      el('div', { className: 'field' }, [el('label', {}, ['Head count']), headCountInput]),
+      el('div', { className: 'field' }, [el('label', {}, [`Avg weight (${wUnit})`]), avgWeightInput]),
+    ]));
+  } else {
+    const memberships = getAll('animalGroupMemberships');
+    const animals = getAll('animals');
+    const animalWeightRecords = getAll('animalWeightRecords');
+    const nowStr = new Date().toISOString().slice(0, 10);
+    const headCountDisplay = getLiveWindowHeadCount(gw, { memberships, now: nowStr });
+    const avgWeightKgDisplay = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now: nowStr });
+    const weightText = avgWeightKgDisplay > 0 ? display(avgWeightKgDisplay, 'weight', unitSys, 0) : '—';
+    panel.appendChild(el('div', { className: 'two' }, [
+      el('div', { className: 'field' }, [
+        el('label', {}, ['Head count']),
+        el('div', { className: 'form-static-value', 'data-testid': 'edit-gw-head-count-live' }, [String(headCountDisplay)]),
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', {}, [`Avg weight (${wUnit})`]),
+        el('div', { className: 'form-static-value', 'data-testid': 'edit-gw-avg-weight-live' }, [weightText]),
+      ]),
+    ]));
+    panel.appendChild(el('div', { className: 'form-hint', style: { fontSize: '11px', color: 'var(--text2)', marginBottom: 'var(--space-3)' } }, [
+      t('event.systemGeneratedCaption'),
+    ]));
+  }
 
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
@@ -78,9 +107,6 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
     clear(statusEl);
     const newDateJoined = dateJoinedInput.value;
     const newDateLeft = dateLeftInput?.value || null;
-    const newHeadCount = parseInt(headCountInput.value, 10);
-    let newWeightKg = parseFloat(avgWeightInput.value);
-    if (unitSys === 'imperial' && !isNaN(newWeightKg)) newWeightKg = convert(newWeightKg, 'weight', 'toMetric');
 
     // Validation
     if (!newDateJoined) { statusEl.appendChild(el('span', {}, ['Date joined is required'])); return; }
@@ -88,22 +114,24 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
     if (event.dateOut && newDateJoined > event.dateOut) { statusEl.appendChild(el('span', {}, ['Group can\'t join after the event closed'])); return; }
     if (newDateLeft && newDateLeft < newDateJoined) { statusEl.appendChild(el('span', {}, ['Leave date must be after join date'])); return; }
     if (event.dateOut && newDateLeft && newDateLeft > event.dateOut) { statusEl.appendChild(el('span', {}, ['Group can\'t stay after the event closed'])); return; }
-    if (isNaN(newHeadCount) || newHeadCount < 1) { statusEl.appendChild(el('span', {}, ['Head count must be at least 1'])); return; }
 
-    // Check for gap/overlap with other windows for this group
-    const allGws = getAll('eventGroupWindows').filter(g => g.groupId === gw.groupId && g.id !== gw.id && !g.dateLeft);
-    // Simple check: if this window's dateJoined changed and creates a gap with prior window
-    // For now, save directly — gap/overlap detection is a follow-up refinement
     const changes = {
       dateJoined: newDateJoined,
       timeJoined: timeJoinedInput.value || null,
-      headCount: newHeadCount,
-      avgWeightKg: isNaN(newWeightKg) ? gw.avgWeightKg : newWeightKg,
     };
+
     if (isClosed) {
+      // Closed window — historical correction permitted on headCount/avgWeightKg.
+      const newHeadCount = parseInt(headCountInput.value, 10);
+      let newWeightKg = parseFloat(avgWeightInput.value);
+      if (unitSys === 'imperial' && !isNaN(newWeightKg)) newWeightKg = convert(newWeightKg, 'weight', 'toMetric');
+      if (isNaN(newHeadCount) || newHeadCount < 0) { statusEl.appendChild(el('span', {}, ['Head count must be at least 0'])); return; }
+      changes.headCount = newHeadCount;
+      changes.avgWeightKg = isNaN(newWeightKg) ? gw.avgWeightKg : newWeightKg;
       changes.dateLeft = newDateLeft;
       changes.timeLeft = timeLeftInput?.value || null;
     }
+    // OI-0094 entry #8: open windows render system-generated head/weight — do not write those fields.
 
     update('eventGroupWindows', gw.id, changes, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
     editGwSheet.close();
@@ -112,8 +140,8 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
   // Auto-save on blur for each field
   dateJoinedInput.addEventListener('blur', saveChanges);
   if (dateLeftInput) dateLeftInput.addEventListener('blur', saveChanges);
-  headCountInput.addEventListener('blur', saveChanges);
-  avgWeightInput.addEventListener('blur', saveChanges);
+  if (headCountInput) headCountInput.addEventListener('blur', saveChanges);
+  if (avgWeightInput) avgWeightInput.addEventListener('blur', saveChanges);
 
   // Buttons
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [
@@ -121,10 +149,10 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
     el('button', { className: 'btn btn-outline', onClick: () => editGwSheet.close() }, ['Cancel']),
   ]));
 
-  // Delete window
+  // Delete window — OI-0094 entry #9: confirm dialog warns this is for cleanup of mistakes only.
   panel.appendChild(el('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '0.5px solid var(--border)' } }, [
     el('button', { className: 'btn btn-outline btn-sm', style: { color: 'var(--red)', borderColor: 'var(--red)', width: '100%' }, onClick: () => {
-      if (!window.confirm(`Delete this window? ${groupName} will no longer appear as having been on this event from ${gw.dateJoined} to ${gw.dateLeft || 'now'}.`)) return;
+      if (!window.confirm(t('event.deleteWindowConfirm'))) return;
       remove('eventGroupWindows', gw.id, 'event_group_windows');
       editGwSheet.close();
     } }, ['Delete window']),

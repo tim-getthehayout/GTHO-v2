@@ -115,6 +115,8 @@
     "selectGroup": "Select Group",
     "headCount": "Head Count",
     "avgWeight": "Avg Weight",
+    "systemGeneratedCaption": "System generated from live memberships. Use Cull, Move, or Reweigh to change.",
+    "deleteWindowConfirm": "Delete this window? This removes the group's historical presence on this event. Use only to clean up mistakes.",
     "locationPicker": {
       "ready": "Ready",
       "recovering": "Recovering",

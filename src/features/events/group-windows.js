@@ -3,10 +3,11 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update } from '../../data/store.js';
+import { getAll, getById, add, closeGroupWindow } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert } from '../../utils/units.js';
+import { display } from '../../utils/units.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 
 // ---------------------------------------------------------------------------
 // Group add sheet (CP-18)
@@ -45,6 +46,7 @@ export function openGroupAddSheet(evt, operationId) {
   inputs.dateJoined = el('input', {
     type: 'date', className: 'auth-input', value: todayStr,
     'data-testid': 'group-add-date',
+    onChange: () => updateLivePreview(),
   });
   panel.appendChild(inputs.dateJoined);
 
@@ -59,25 +61,46 @@ export function openGroupAddSheet(evt, operationId) {
   // Group picker
   panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectGroup')]));
   const groupPickerEl = el('div', { 'data-testid': 'group-add-picker' });
-  renderGroupPickerSimple(groupPickerEl, groups, selection);
+  renderGroupPickerSimple(groupPickerEl, groups, selection, () => updateLivePreview());
   panel.appendChild(groupPickerEl);
 
-  // Head count
-  panel.appendChild(el('label', { className: 'form-label' }, [t('event.headCount')]));
-  inputs.headCount = el('input', {
-    type: 'number', className: 'auth-input settings-input', value: '',
-    'data-testid': 'group-add-head-count',
-  });
-  panel.appendChild(inputs.headCount);
+  // OI-0094 entry #6: live system-generated head count + avg weight, view-only.
+  const livePreview = {
+    head: 0, avgKg: 0,
+    headLabel: el('div', { className: 'form-static-value', 'data-testid': 'group-add-head-count-live' }, ['—']),
+    weightLabel: el('div', { className: 'form-static-value', 'data-testid': 'group-add-avg-weight-live' }, ['—']),
+  };
 
-  // Avg weight
-  const wLabel = `${t('event.avgWeight')} (${unitSys === 'imperial' ? 'lbs' : 'kg'})`;
-  panel.appendChild(el('label', { className: 'form-label' }, [wLabel]));
-  inputs.avgWeight = el('input', {
-    type: 'number', className: 'auth-input settings-input', value: '',
-    'data-testid': 'group-add-avg-weight',
-  });
-  panel.appendChild(inputs.avgWeight);
+  function updateLivePreview() {
+    if (!selection.groupId) {
+      livePreview.head = 0;
+      livePreview.avgKg = 0;
+      livePreview.headLabel.textContent = '—';
+      livePreview.weightLabel.textContent = '—';
+      return;
+    }
+    const dateJoined = inputs.dateJoined.value || todayStr;
+    const stub = { groupId: selection.groupId, dateLeft: null, headCount: 0, avgWeightKg: 0 };
+    const memberships = getAll('animalGroupMemberships');
+    const animals = getAll('animals');
+    const animalWeightRecords = getAll('animalWeightRecords');
+    livePreview.head = getLiveWindowHeadCount(stub, { memberships, now: dateJoined });
+    livePreview.avgKg = getLiveWindowAvgWeight(stub, { memberships, animals, animalWeightRecords, now: dateJoined });
+    livePreview.headLabel.textContent = String(livePreview.head);
+    livePreview.weightLabel.textContent = livePreview.avgKg > 0
+      ? display(livePreview.avgKg, 'weight', unitSys, 0)
+      : '—';
+  }
+
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.headCount')]));
+  panel.appendChild(livePreview.headLabel);
+
+  panel.appendChild(el('label', { className: 'form-label' }, [t('event.avgWeight')]));
+  panel.appendChild(livePreview.weightLabel);
+
+  panel.appendChild(el('div', { className: 'form-hint', style: { fontSize: '11px', color: 'var(--text2)', marginBottom: 'var(--space-3)' } }, [
+    t('event.systemGeneratedCaption'),
+  ]));
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'group-add-status' });
   panel.appendChild(statusEl);
@@ -92,18 +115,13 @@ export function openGroupAddSheet(evt, operationId) {
           statusEl.appendChild(el('span', {}, [t('event.selectGroup')]));
           return;
         }
-        const hc = parseInt(inputs.headCount.value, 10);
-        let aw = parseFloat(inputs.avgWeight.value);
-        if (!hc || hc < 1) {
+        if (!livePreview.head || livePreview.head < 1) {
           statusEl.appendChild(el('span', {}, [t('validation.headCountMin')]));
           return;
         }
-        if (!aw || aw <= 0) {
+        if (!livePreview.avgKg || livePreview.avgKg <= 0) {
           statusEl.appendChild(el('span', {}, [t('validation.avgWeightRequired')]));
           return;
-        }
-        if (unitSys === 'imperial') {
-          aw = convert(aw, 'weight', 'toMetric');
         }
         try {
           const gw = GroupWindowEntity.create({
@@ -112,8 +130,8 @@ export function openGroupAddSheet(evt, operationId) {
             groupId: selection.groupId,
             dateJoined: inputs.dateJoined.value,
             timeJoined: inputs.timeJoined.value || null,
-            headCount: hc,
-            avgWeightKg: aw,
+            headCount: livePreview.head,
+            avgWeightKg: livePreview.avgKg,
           });
           add('eventGroupWindows', gw, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
           groupAddSheet.close();
@@ -132,7 +150,7 @@ export function openGroupAddSheet(evt, operationId) {
   groupAddSheet.open();
 }
 
-function renderGroupPickerSimple(container, groups, selection) {
+function renderGroupPickerSimple(container, groups, selection, onChange) {
   clear(container);
   for (const group of groups) {
     const isSelected = selection.groupId === group.id;
@@ -141,7 +159,8 @@ function renderGroupPickerSimple(container, groups, selection) {
       'data-testid': `group-add-item-${group.id}`,
       onClick: () => {
         selection.groupId = group.id;
-        renderGroupPickerSimple(container, groups, selection);
+        renderGroupPickerSimple(container, groups, selection, onChange);
+        if (onChange) onChange();
       },
     }, [el('span', {}, [group.name])]));
   }
@@ -196,10 +215,13 @@ export function openGroupRemoveSheet(groupWindow) {
       onClick: () => {
         clear(statusEl);
         try {
-          update('eventGroupWindows', groupWindow.id, {
-            dateLeft: inputs.dateLeft.value,
-            timeLeft: inputs.timeLeft.value || null,
-          }, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+          // OI-0094 entry #7: route through closeGroupWindow so live values are stamped.
+          closeGroupWindow(
+            groupWindow.groupId,
+            groupWindow.eventId,
+            inputs.dateLeft.value,
+            inputs.timeLeft.value || null,
+          );
           groupRemoveSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

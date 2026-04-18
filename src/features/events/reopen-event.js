@@ -8,6 +8,39 @@ import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 
 /**
+ * Classify each window that was closed by the event-close flow:
+ *   - reopen: group has not since moved to another open event, and live
+ *     memberships > 0 (hasn't culled to zero).
+ *   - keepClosed: group has another open window elsewhere, or zero live
+ *     memberships for that group.
+ *
+ * Exported for unit testing (OI-0094 entry #10).
+ */
+export function classifyGwsForReopen(event) {
+  const oldDateOut = event.dateOut;
+  const candidates = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id && gw.dateLeft === oldDateOut);
+  const memberships = getAll('animalGroupMemberships');
+
+  const reopen = [];
+  const keepClosed = [];
+  for (const gw of candidates) {
+    const group = getById('groups', gw.groupId);
+    const otherOpen = getAll('eventGroupWindows').find(g => g.groupId === gw.groupId && g.id !== gw.id && !g.dateLeft);
+    if (otherOpen) {
+      keepClosed.push({ gw, group, reason: 'moved' });
+      continue;
+    }
+    const liveCount = memberships.filter(m => m.groupId === gw.groupId && !m.dateLeft).length;
+    if (liveCount <= 0) {
+      keepClosed.push({ gw, group, reason: 'empty' });
+      continue;
+    }
+    reopen.push({ gw, group });
+  }
+  return { reopen, keepClosed };
+}
+
+/**
  * Reopen a closed event.
  * @param {object} event — the closed event to reopen
  * @param {string} operationId
@@ -17,66 +50,44 @@ export function reopenEvent(event, operationId, onComplete) {
   if (!event.dateOut) return; // already open
 
   const oldDateOut = event.dateOut;
+  const { reopen, keepClosed } = classifyGwsForReopen(event);
 
-  // Check for group conflicts with subsequent events
-  const gwsToReopen = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id && gw.dateLeft === oldDateOut);
-  const conflicts = [];
-  for (const gw of gwsToReopen) {
-    const group = getById('groups', gw.groupId);
-    // Check if this group has an open window on another event
-    const otherOpenGws = getAll('eventGroupWindows').filter(g => g.groupId === gw.groupId && g.id !== gw.id && !g.dateLeft);
-    for (const other of otherOpenGws) {
-      const otherEvt = getById('events', other.eventId);
-      if (otherEvt && !otherEvt.dateOut) {
-        conflicts.push({ group, gw, otherEvent: otherEvt, otherGw: other });
-      }
+  // OI-0094 entry #10: summary dialog — explicit confirm before commit.
+  const overlay = el('div', {
+    'data-testid': 'reopen-event-summary-overlay',
+    style: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(0,0,0,0.5)', zIndex: '300', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  });
+  const card = el('div', { className: 'card', style: { padding: 'var(--space-5)', maxWidth: '480px', width: '90%' } });
+
+  card.appendChild(el('h3', { style: { marginBottom: 'var(--space-3)' } }, ['Reopen event?']));
+  card.appendChild(el('p', {
+    'data-testid': 'reopen-summary-line',
+    style: { fontSize: '13px', color: 'var(--text2)', lineHeight: '1.5', marginBottom: '8px' },
+  }, [
+    `${reopen.length} group window${reopen.length === 1 ? '' : 's'} will be reopened. `,
+    `${keepClosed.length} stay${keepClosed.length === 1 ? 's' : ''} closed because the group has since left.`,
+  ]));
+
+  if (keepClosed.length) {
+    const ul = el('ul', { style: { fontSize: '12px', color: 'var(--text2)', paddingLeft: '18px', marginBottom: '12px' } });
+    for (const kc of keepClosed) {
+      const reason = kc.reason === 'moved' ? 'already moved to another event' : 'no animals remain in this group';
+      ul.appendChild(el('li', { 'data-testid': 'reopen-kept-closed-item' }, [`${kc.group?.name || 'Group'} — ${reason}`]));
     }
+    card.appendChild(ul);
   }
 
-  if (conflicts.length) {
-    // Show conflict dialog
-    const overlay = el('div', {
-      style: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(0,0,0,0.5)', zIndex: '300', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-    });
-    const card = el('div', { className: 'card', style: { padding: 'var(--space-5)', maxWidth: '480px', width: '90%' } });
+  card.appendChild(el('div', { className: 'btn-row' }, [
+    el('button', { className: 'btn btn-green', 'data-testid': 'reopen-confirm', onClick: () => {
+      executeReopen(event, oldDateOut, reopen.map(r => r.gw));
+      overlay.remove();
+      onComplete?.();
+    } }, ['Reopen event']),
+    el('button', { className: 'btn btn-outline', 'data-testid': 'reopen-cancel', onClick: () => overlay.remove() }, ['Cancel']),
+  ]));
 
-    card.appendChild(el('h3', { style: { marginBottom: 'var(--space-3)' } }, ['Group conflict detected']));
-
-    for (const c of conflicts) {
-      const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === c.otherEvent.id && !pw.dateClosed);
-      const locName = pws[0] ? (getById('locations', pws[0].locationId)?.name || '?') : '?';
-      card.appendChild(el('p', { style: { fontSize: '13px', color: 'var(--text2)', lineHeight: '1.5', marginBottom: '8px' } }, [
-        `${c.group?.name || 'Group'} is currently on ${locName}. Reopening would put them back on this event too.`,
-      ]));
-
-      card.appendChild(el('button', { className: 'btn btn-outline btn-sm', style: { width: '100%', marginBottom: '6px', textAlign: 'left' }, onClick: () => {
-        // Option A: reopen but leave group on subsequent event
-        executeReopen(event, oldDateOut, gwsToReopen.filter(g => g.id !== c.gw.id));
-        overlay.remove();
-        onComplete?.();
-      } }, [`Reopen but leave ${c.group?.name} on ${locName}`]));
-
-      card.appendChild(el('button', { className: 'btn btn-outline btn-sm', style: { width: '100%', marginBottom: '6px', textAlign: 'left' }, onClick: () => {
-        // Option B: pull group back
-        const todayStr = new Date().toISOString().slice(0, 10);
-        update('eventGroupWindows', c.otherGw.id, { dateLeft: todayStr }, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
-        executeReopen(event, oldDateOut, gwsToReopen);
-        overlay.remove();
-        onComplete?.();
-      } }, [`Pull ${c.group?.name} back to this event`]));
-    }
-
-    card.appendChild(el('button', { className: 'btn btn-outline', style: { width: '100%', marginTop: '8px' }, onClick: () => overlay.remove() }, ['Cancel']));
-
-    overlay.appendChild(card);
-    document.body.appendChild(overlay);
-    return;
-  }
-
-  // No conflicts — proceed directly
-  if (!window.confirm(`Reopen this event? This clears the close date and re-opens paddock and group records that closed with the event.`)) return;
-  executeReopen(event, oldDateOut, gwsToReopen);
-  onComplete?.();
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
 }
 
 function executeReopen(event, oldDateOut, gwsToReopen) {

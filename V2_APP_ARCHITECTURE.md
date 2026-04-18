@@ -267,9 +267,27 @@ Entry points (never bypass — flows must call one of these at the mutation site
 - `getLiveWindowHeadCount(gw, { memberships, now })` — `src/calcs/window-helpers.js`. Every render and calc path reads head count via this helper. Open windows recompute from memberships; closed windows return the stored snapshot. Inclusive lower bound on `dateJoined`, exclusive upper on `dateLeft`.
 - `getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now })` — same gating, averages live animal weights; falls back to stored `avgWeightKg` when no weight records are available.
 
-Callers (authoritative list as of OI-0091): `cull-sheet.confirmCull`, `move-wizard` (close + destination creation both paths), `events/close`. Future triggers (wean, split, reweigh OI-0065, per-group move OI-0066) plug into the same entry points.
+**Entry points that must call the helpers** (authoritative as of OI-0094 — add to this table whenever a new flow mutates a group's head count, avg weight, or membership composition):
 
-**Grep contract:** no direct `gw.headCount` / `gw.avgWeightKg` reads in `src/features/**` or `src/calcs/**` outside the helpers module and the entity shape layer. Violations are a pre-commit failure.
+| # | Flow | File | Helper used | Notes |
+|---|------|------|-------------|-------|
+| 1 | Cull animal | `src/features/animals/cull-sheet.js` — `confirmCull` | `splitGroupWindow` | Per-group loop after membership close; auto-routes to `closeGroupWindow` if live head = 0. |
+| 2 | Whole-group move | `src/features/events/move-wizard.js` | `closeGroupWindow` on source + live-stamped destination windows | Duplicate-open guard on existing-event destination. |
+| 3 | Event close | `src/features/events/close.js` | `closeGroupWindow` | Per open gw on the closing event. |
+| 4 | Calving (new calf) | `src/features/health/calving.js` | `splitGroupWindow` via `maybeSplitForGroup` | No-op when dam's group isn't on an open event. |
+| 5 | Edit Group checkboxes | `src/features/animals/index.js` (Edit Group sheet) | `splitGroupWindow` per affected group | Adds + removes aggregated into one `affectedGroupIds` pass. |
+| 6 | Edit Animal group change | `src/features/animals/index.js` (Edit Animal) | `splitGroupWindow` on source + target | Skips if neither group is placed. |
+| 7 | Group Weights bulk update | `src/features/animals/index.js` (Group Weights sheet) | `splitGroupWindow` (avg weight shifts) | Head count unchanged; split only if a weight was written. |
+| 8 | Split Group sheet | `src/features/animals/index.js` (Split Group) | `splitGroupWindow` on source (+ target if placed) | Target usually new → no-op for target. |
+| 9 | §7 Add group | `src/features/events/group-windows.js` | direct `add()` with live values | No prior window to split — opens a new window with live head/weight. |
+| 10 | §7 Remove group | `src/features/events/group-windows.js` | `closeGroupWindow` | Replaces bare `update()` so live values land on close. |
+| 11 | §7 per-row Edit — `headCount`/`avgWeightKg` | `src/features/events/edit-group-window.js` | — (view-only on open windows) | Open windows render live values from the calc helpers; closed windows keep the editable inputs as historical-correction escape hatch. |
+| 12 | §7 per-row Delete window | `src/features/events/edit-group-window.js` | `remove('eventGroupWindows', …)` | Confirmation dialog: "Delete this window? This removes the group's historical presence on this event. Use only to clean up mistakes." |
+| 13 | Event reopen | `src/features/events/reopen-event.js` | `update()` to clear `dateLeft`; `classifyGwsForReopen` selects which | Summary dialog: "N group windows will be reopened. M stay closed because the group has since left." |
+
+Future triggers (wean, reweigh OI-0065, per-group move OI-0066) plug into the same entry points.
+
+**Grep contract:** no direct `gw.headCount` / `gw.avgWeightKg` reads in `src/features/**` or `src/calcs/**` outside the helpers module and the entity shape layer (closed-window render paths and form pre-population are allowed — closed snapshots are authoritative). No direct `update` / `insert` on `event_group_windows` outside `splitGroupWindow` / `closeGroupWindow` except for these narrow cases: (a) **new-window creation with no prior** — create-event flow (`src/features/events/index.js`), §7 Add group (`src/features/events/group-windows.js`), move-wizard destination creation (`src/features/events/move-wizard.js`), retro-place historical gap fill (`src/features/events/retro-place.js`); (b) **explicit user correction** in the per-row Edit dialog (`src/features/events/edit-group-window.js`) — closed-window snapshot or any-window `dateJoined` / `dateLeft`; (c) **selective reopen** (`src/features/events/reopen-event.js`) — clears `dateLeft` on windows returned by `classifyGwsForReopen`. Violations are a pre-commit failure.
 
 ---
 
@@ -504,6 +522,7 @@ One canonical name per concept. Grep must work. No aliases.
 | 2026-04-14 | Tier 3 migration testing — OI-0054 | §5.2: Added write-method-by-operation-type table (insert/update/upsert distinction). Documented OI-0054 origin (upsert bootstrap failure during onboarding). |
 | 2026-04-14 | Tier 3 migration testing — OI-0055 | New §5.5: Backup/Import/Export architecture covering CP-55/CP-56/CP-57. Documents FK_ORDER, TWO_PASS_TABLES, REFERENCE_TABLES, uniform operation_id delete/parity pattern, and the 10-step import flow. |
 | 2026-04-18 | OI-0091 event window split | New §4.4: Window-Split on State Change pattern. `event_group_window` is a period of stable state; state changes (cull/move/wean/event-close) close the current window with live values stamped and open a new window. Render and calc paths read through `getLiveWindowHeadCount` / `getLiveWindowAvgWeight` helpers — open windows recompute live, closed windows use stored snapshots. Ships with OI-0073 orphan cleanup (migration 025) as a coordinated P0 package. |
+| 2026-04-18 | OI-0094 state-change entry point completeness | §4.4 expanded with the authoritative 13-entry-point table. Ten additional flows now route through `splitGroupWindow` / `closeGroupWindow` (Edit Group checkboxes, Edit Animal group change, Group Weights, Split Group, calving, §7 Add, §7 Remove, §7 per-row Edit view-only-on-open, Delete window confirm, Event reopen summary). `classifyGwsForReopen` added to reopen-event for keep-closed-vs-reopen partitioning. Ships with OI-0093 (Animals bulk action bar removal) which eliminates one of the originally-eleven entry points. |
 
 ---
 

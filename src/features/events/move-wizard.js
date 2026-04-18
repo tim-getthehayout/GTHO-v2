@@ -61,6 +61,11 @@ export function openMoveWizard(sourceEvent, operationId, farmId) {
     // New event
     dateIn: todayStr,
     timeIn: '',
+    // OI-0101: one-way mirror — dateOut/timeOut auto-populate dateIn/timeIn
+    // until the farmer types into the open-side input once; after that the
+    // mirror stops. Editing the open values never rewrites close values.
+    dateInTouched: false,
+    timeInTouched: false,
   };
 
   function render() {
@@ -323,6 +328,24 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   });
   closeSection.appendChild(inputs.timeOut);
 
+  // OI-0101 one-way mirror: cascade dateOut→dateIn and timeOut→timeIn until
+  // the farmer touches the dest-side input. Listeners attach to dest inputs
+  // below in the `destType === 'new'` block once they exist in the DOM.
+  inputs.dateOut.addEventListener('input', () => {
+    state.dateOut = inputs.dateOut.value;
+    if (!state.dateInTouched && inputs.dateIn) {
+      inputs.dateIn.value = inputs.dateOut.value;
+      state.dateIn = inputs.dateOut.value;
+    }
+  });
+  inputs.timeOut.addEventListener('input', () => {
+    state.timeOut = inputs.timeOut.value;
+    if (!state.timeInTouched && inputs.timeIn) {
+      inputs.timeIn.value = inputs.timeOut.value;
+      state.timeIn = inputs.timeOut.value;
+    }
+  });
+
   // Post-graze observation fields on close-out section (OI-0040)
   const farmSettings = getFarmSettings();
   const postGraze = renderPostGrazeFields(farmSettings);
@@ -342,12 +365,21 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
       type: 'date', className: 'auth-input', value: state.dateIn,
       'data-testid': 'move-wizard-date-in',
     });
+    // OI-0101: first keystroke flips the mirror-stop flag.
+    inputs.dateIn.addEventListener('input', () => {
+      state.dateInTouched = true;
+      state.dateIn = inputs.dateIn.value;
+    });
     openSection.appendChild(inputs.dateIn);
 
     openSection.appendChild(el('label', { className: 'form-label' }, [t('event.timeIn')]));
     inputs.timeIn = el('input', {
       type: 'time', className: 'auth-input', value: state.timeIn,
       'data-testid': 'move-wizard-time-in',
+    });
+    inputs.timeIn.addEventListener('input', () => {
+      state.timeInTouched = true;
+      state.timeIn = inputs.timeIn.value;
     });
     openSection.appendChild(inputs.timeIn);
 

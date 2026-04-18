@@ -4,6 +4,315 @@
 
 ---
 
+### OI-0105 — Destination location picker needs an anchored search bar
+**Added:** 2026-04-18 | **Area:** v2-build / events / move-wizard / ui | **Priority:** P2 (usability — farms with many paddocks can't scan to the right one quickly)
+**Checkpoint:** bundle with OI-0100 / OI-0101 / OI-0103 / OI-0104 into a single field-testing-roadblock session brief
+
+**Status:** open — spec-ready.
+
+**What's wrong:** Tim hit this testing the move wizard on his farm data. Step 2 of the move wizard renders `renderLocationPicker` (`src/features/events/index.js:641`) as a flat list grouped into *Ready / In use / Confinement* sections. With many paddocks, the list scrolls and the farmer can't jump to a specific name. There is no search, no filter, no alphabetical anchor.
+
+**Fix — anchored search bar at the top of the picker:**
+
+1. Add a text input at the very top of the picker container, **sticky/anchored** so it stays visible while the list below it scrolls: `position: sticky; top: 0` inside the scroll container, with a white background and a subtle bottom border so it doesn't bleed into the list.
+2. On keystroke, filter each section's `locs` array by `loc.name` (case-insensitive `includes`). Sections with zero matches collapse away (don't render the empty section header).
+3. `placeholder`: `t('event.locationPicker.search')` → "Search paddocks".
+4. Clear-button (small `×` inside the input right edge) clears the filter and restores the full list.
+5. Applies to **every** caller of `renderLocationPicker` — move wizard Step 2, new-event dialog (`features/events/index.js:575`), and any future caller. Single component change = consistent behavior everywhere.
+
+**Files likely affected:**
+- `src/features/events/index.js` — add search-bar render at top of `renderLocationPicker`; filter logic
+- `src/styles/main.css` — `.loc-picker-search` rule (sticky positioning)
+- `src/i18n/locales/en.json` — `event.locationPicker.search` key
+- `tests/unit/events-location-picker.test.js` (new or extend) — typing into search filters the list; clearing restores it; empty sections don't render
+
+**Acceptance criteria:**
+
+- [ ] Search input renders at top of `renderLocationPicker` container, sticky on scroll
+- [ ] Typing filters each section by `loc.name` case-insensitively
+- [ ] Empty sections collapse (no orphan section headers)
+- [ ] Clear-button restores the full list
+- [ ] Used in move wizard Step 2 AND new-event location picker — same behavior both places
+- [ ] Keyboard focus lands in the search input when the picker first renders (accessibility + fast entry)
+
+**CP-55/CP-56 impact:** none (UI-only, no schema change).
+**Schema change:** none.
+
+**Related:**
+- **OI-0102** (multi-paddock selection — DESIGN REQUIRED) — shares the same component; if multi-pick lands later, the search bar naturally filters across selectable items.
+
+---
+
+### OI-0104 — Move wizard feed transfer: per-line "Leave as residual" vs "Move to new paddock" + relocate under post-graze observations
+**Added:** 2026-04-18 | **Area:** v2-build / events / move-wizard / feed / fertility | **Priority:** P1 (current wizard has no residual option — unconsumed feed either gets moved forward or hard-zeroed by `remainingQuantity: 0`, losing the fertility signal the farmer expects)
+**Checkpoint:** bundle with OI-0100 / OI-0101 / OI-0103 / OI-0105 into a single field-testing-roadblock session brief. **Residual-to-ledger persistence is OI-0092's scope** — this OI ships the UI + wiring; if OI-0092 isn't ready by implementation time, the "residual" choice stores to a temporary column/table slot per OI-0092's stub spec and flips to the real deposit path in the OI-0092 PR.
+
+**Status:** open — design decision locked below; implementation coordinates with OI-0092.
+
+**What's wrong (reproduced during Tim's farm testing):** Move wizard Step 3 renders a *Feed transfer* section with one checkbox per `batchId × locationId` line on the source event. Checked = create a matching delivery entry on the destination event (current behavior, `move-wizard.js:591–607`). Unchecked = the line just... vanishes, because the close-reading feed check stamps `remainingQuantity: 0` (line 487) which tells every downstream calc "the pasture was emptied." The farmer has no way to say *"I left 30 lbs on the pasture — it should count as residual feed for fertility, not as consumed."* v1 had this via `calcResidualOM()` + `feed_residual` NPK source (see GTHY_V1_FEATURE_AUDIT.md line 479 / 932 / 1218). v2 dropped it entirely — OI-0092 captures the gap, but without a UI there's no way for the farmer to signal residual intent at move time.
+
+Secondary problem: the Feed transfer section renders **below** the whole close section (post-graze obs + destination open section), which is the wrong mental ordering. Residual feed is a *post-graze observation of the paddock being closed* — the farmer just walked it, saw what was left, and now decides where it goes. It should sit **directly under the post-graze observations of the paddock being closed**, before the destination section.
+
+**Design (ratified with Tim, 2026-04-18):**
+
+Per-line **2-way radio**, replacing the current single checkbox:
+
+```
+Batch #7 Hay → North Pasture — remaining: 30 lbs
+  ( ) Move to new paddock      (default on active move)
+  ( ) Leave as residual        (records to fertility ledger)
+```
+
+- **Default** = *Move to new paddock* (preserves today's default-checked behavior for farmers who aren't fussing with residuals).
+- **Cross-farm moves** or cases where destination is an existing event in a different paddock: default stays *Move*.
+- **Leave as residual**: writes the remaining quantity to the residual-deposit path (OI-0092 — `event_feed_residual_deposits` table or `event_feed_entries.residual_qty` column per OI-0092's schema-shape decision). The close-reading feed check's `remainingQuantity` on that line gets stamped to the actual remaining amount (not the hardcoded 0) so DMI math on the closed event reflects reality.
+- **Move to new paddock**: unchanged behavior — create matching `event_feed_entries` row on destination with `source_event_id = sourceEvent.id`, `quantity = total remaining`. Close-reading check stamps `remainingQuantity: 0` for that line (because it was moved, not left).
+
+**Placement in Step 3 (reordered):**
+
+```
+Close [Source Paddock Name]
+  - Date out / Time out
+  - Post-graze observation card (OI-0100 shared Survey card)
+  - FEED TRANSFER (this OI — moved up from below)
+    - Per batch × location line with 2-way radio
+
+Open [Destination Paddock Name]   (only if destType === 'new')
+  - Date in / Time in (prefilled from dateOut/timeOut per OI-0101)
+  - Pre-graze observation card (OI-0100 shared Survey card)
+```
+
+**Amount handling:** the farmer does not enter a per-line amount. The amount that transfers (or becomes residual) is the **close-reading remaining** for that `batch × location` line — i.e., the total delivered on that line on this event minus everything consumed per prior feed checks. This is already computed for `transferToggles[].total` at `move-wizard.js:374–375`; the same value feeds either path. Future tightening (allow the farmer to correct the remaining with an inline number input on each line before committing) is a later follow-up — not this OI.
+
+**Writes on confirm (per selected line, all in the same transaction as the rest of the wizard save):**
+
+| Line choice | Close-reading `remainingQuantity` for line | Residual deposit | Destination delivery |
+|---|---|---|---|
+| Move to new paddock | `0` (existing behavior) | none | one `event_feed_entries` row on dest, `source_event_id = src.id`, `quantity = line.total` |
+| Leave as residual | `line.total` (the amount left) | OI-0092 path — deposit row(s) in fertility ledger with NPK contribution | none |
+
+**Files likely affected:**
+- `src/features/events/move-wizard.js` — replace checkbox render (lines 384–398) with radio-per-line; reorder Step 3 so Feed transfer sits between the close section and the open section; update `executeMoveWizard` write logic to branch on each line's choice
+- `src/entities/event-feed-residual-deposit.js` (new, per OI-0092 design) or `event-feed-entry.js` extension — depending on OI-0092 schema shape decision
+- `supabase/migrations/NNN_*.sql` — per OI-0092 (not this OI's direct scope, but sequencing: if OI-0092 migration not yet applied, this OI's "Leave as residual" arm records to a placeholder and a follow-up PR flips it)
+- `src/calcs/*` — NPK-R per OI-0092 (not this OI)
+- `src/i18n/locales/en.json` — keys: `event.feedTransfer.move`, `event.feedTransfer.residual`, `event.feedTransfer.residualCaption` ("Records to fertility ledger")
+- `tests/unit/move-wizard.test.js` — new cases for per-line radio: default is move, selecting residual writes the residual path, mixed (some move + some residual) handled correctly
+- `tests/e2e/move-wizard-residual.spec.js` (new) — farmer path: close Shenk, leave 30 lbs hay on north as residual, verify NPK ledger entry on destination paddock's fertility page (pending OI-0092 UI)
+
+**Acceptance criteria:**
+
+- [ ] Feed transfer section relocates to between the close section and the open section in Step 3
+- [ ] Each feed line shows a 2-way radio (Move / Residual), default = Move
+- [ ] Selecting Residual writes via OI-0092 path (or stub path if OI-0092 still in flight; see coordination note above) AND stamps real `remainingQuantity` on the close-reading check for that line
+- [ ] Selecting Move preserves current behavior — matching delivery row on destination, close-reading `remainingQuantity = 0`
+- [ ] A single move can mix choices per line (e.g., 2 of 3 lines move, 1 stays as residual)
+- [ ] Unit tests cover all three combinations (all move / all residual / mixed)
+- [ ] Commit message notes coordination with OI-0092 so reviewer knows whether this ships with OI-0092's ledger writes or as a transitional stub
+
+**CP-55/CP-56 impact:** **yes, inherited from OI-0092** — if OI-0092 adds `event_feed_residual_deposits` table or `event_feed_entries.residual_qty` column, CP-55 must serialize it and CP-56 must handle old backups missing the field. Flagged here explicitly so whoever picks this up doesn't forget — this is the v2 equivalent of the "UI field without Supabase column" trap, but with a known shape waiting in OI-0092.
+
+**Schema change:** none in this OI directly; sequences with OI-0092's schema addition.
+
+**Related:**
+- **OI-0092** — residual feed NPK deposits. This OI is the UI + wiring for OI-0092's farmer-facing capture step. OI-0092 owns the schema shape, the calc, the ledger deposit format. If OI-0092 ships first, this OI's "Leave as residual" arm writes the real deposit; if this ships first, the residual arm writes to a placeholder column with a TODO comment pointing at OI-0092.
+- **OI-0091** — the move-wizard close loop OI-0091 reworked is the integration surface. OI-0091 deliberately left `remainingQuantity: 0` in place because residual capture was OI-0092's scope. This OI is the first touch of that line since OI-0091 shipped.
+- **GTHY_V1_FEATURE_AUDIT.md lines 479 / 932 / 1218** — v1 parity reference: `calcResidualOM`, `feed_residual` NPK source, `event_feed_residual_checks` table.
+- **UI_SPRINT_SPEC.md §8a Move Feed Out** — different capability (pull feed out of an active event to inventory or another event). Residual and move-feed-out are complementary, not overlapping: move-feed-out is mid-event; this OI is at close/move time.
+
+---
+
+### OI-0103 — Feed check save button silently fails (entity field name mismatch: `checkDate` vs `date`)
+**Added:** 2026-04-18 | **Area:** v2-build / feed / bugs | **Priority:** P0 (blocks field testing — farmers can't record any feed check through the primary sheet)
+**Checkpoint:** bundle with OI-0100 / OI-0101 / OI-0104 / OI-0105 into a single field-testing-roadblock session brief; can ship in isolation if urgent
+
+**Status:** open — root cause identified, one-line fix.
+
+**What's wrong:** Tim hit this during farm testing — the Save button in the feed check sheet (`src/features/feed/check.js`) does nothing visible, and no check row lands in Supabase or localStorage. Root cause: the save handler (lines 259–263) calls `FeedCheckEntity.create` with `checkDate: dateInput.value`, but the entity (`src/entities/event-feed-check.js` line 7) declares the field as `date: { required: true, sbColumn: 'date' }`. The entity's `validate()` sees `date` missing (because only `checkDate` was passed) and rejects. The `add()` call throws before `queueWrite` fires. The sheet closes quietly — no error toast, no visual signal.
+
+This is a pure field-name typo. `move-wizard.js` (line 466) and `close.js` both call the same entity with the correct `date:` key, confirming the entity is right and `check.js` is the outlier.
+
+**Fix (three lines, one file):**
+
+```js
+// src/features/feed/check.js line 262 — change:
+checkDate: dateInput.value, time: timeInput.value || null,
+
+// to:
+date: dateInput.value, time: timeInput.value || null,
+```
+
+Grep `checkDate` across `src/features/feed/check.js` for any other instance of the same typo before shipping.
+
+**Why this went undetected:** exactly the class of bug CLAUDE.md's "E2E Testing — Verify Supabase, Not Just UI" rule was written to prevent. The existing test coverage (if any) probably asserted UI state (sheet closes, button clicks) without asserting `event_feed_checks` row count in the DB.
+
+**Files likely affected:**
+- `src/features/feed/check.js` — one-character rename per the snippet above (also audit for any `checkDate` references in the surrounding code — it should be none, but confirm)
+- `tests/unit/feed-check-save.test.js` (new or extend) — mock `add()`; assert `FeedCheckEntity.create` is called with a `date` key populated from `dateInput.value`
+- `tests/e2e/feed-check-save.spec.js` (new or extend) — open feed check sheet → enter a value → save → assert a row exists in `event_feed_checks` in Supabase (not just that the sheet closed)
+
+**Acceptance criteria:**
+
+- [ ] `checkDate` → `date` in `src/features/feed/check.js`
+- [ ] Unit test covers the entity create call signature
+- [ ] E2E test asserts the Supabase row exists after save (per CLAUDE.md §E2E Testing rule)
+- [ ] Manual verification: on Tim's farm data, save a feed check → row appears in Supabase `event_feed_checks`
+- [ ] Commit notes that this is a v1-trap-class bug — UI captured data, silent drop on validate, invisible to the user
+
+**CP-55/CP-56 impact:** none.
+**Schema change:** none.
+
+**Related:**
+- **OI-0050** — prior instance of the same class of bug (missing sync params in onboarding/settings calls). Same root cause: silent entity rejection with no user-visible error. Consider whether a blanket toast-on-entity-validation-error is a worthwhile follow-up (separate OI if so).
+
+---
+
+### OI-0102 — Multi-paddock selection in pasture picker (DESIGN REQUIRED, do not build)
+**Added:** 2026-04-18 | **Area:** v2-build / locations / picker / ux | **Priority:** P3 (QoL — farmers who run multi-paddock / strip groups currently have to create events paddock-by-paddock or rely on strip-graze which isn't the same thing)
+**Checkpoint:** design session required before implementation; explicitly deferred
+
+**Status:** open — **DESIGN REQUIRED, do not build.** Captured here so it doesn't get lost while the five field-testing roadblocks are being spec'd.
+
+**What Tim asked:** Explore allowing multi-paddock selection in the pasture picker so a farmer can put one animal group onto two or more paddocks at once, without using strip-graze. Today's picker (`renderLocationPicker` in `src/features/events/index.js:641`) is single-select (`selection.locationId`).
+
+**Why this is a design problem, not a UI toggle:**
+
+An event today is keyed on one paddock window at creation (though `event_paddock_windows` is already a table — v2 can in principle model multi-paddock events because it's a 1-to-many). Multi-pick implies several design decisions:
+
+1. **Event model implications.** Does multi-pick create one event with multiple paddock windows (true multi-paddock event — matches what Tim described), or one event per paddock (parallel events sharing a group)? Probably the former (schema already supports it) but answer needs to be explicit.
+2. **Strip-graze relationship.** Strip-graze today is "one paddock subdivided into strips." Multi-paddock is "one group on several whole paddocks." Are they mutually exclusive on an event, additive (some strips + some whole paddocks), or config-level twins? Needs a call.
+3. **Move flow downstream.** When the farmer moves off a multi-paddock event, are all the paddocks closed together? One at a time? Partial moves (close paddock A, keep group on B)?
+4. **Feed / observation attribution.** Today feed entries are `batchId × locationId` — multi-paddock events mean feed can target any of N locations. Observations (pre/post-graze) are keyed on a `paddock_window_id`, so each paddock needs its own observation card in the close flow. UI implications.
+5. **DMI / pasture capacity math.** DMI-5 and pasture-capacity forecasts use paddock area. Multi-paddock event = sum of areas across selected paddocks. Already computable with existing schema, but needs a sanity-check across all calcs.
+6. **Picker UX.** Checkboxes next to each location instead of click-to-select? Confirm button at the bottom of the picker? How does "In use" (paddock already occupied by another event) interact with multi-pick — gray out or allow (for shared grazing scenarios)?
+
+**Questions to answer before building:**
+
+1. One multi-paddock event or parallel events? (Strong lean: one event, multiple `event_paddock_windows` rows.)
+2. Can multi-paddock coexist with strip-graze on the same event?
+3. Partial-close behavior on moves: all-at-once or per-paddock?
+4. Picker UX: checkbox-per-row + sticky Confirm button? (Ties to OI-0105's sticky-search — same component would also host the sticky Confirm.)
+5. Feed / observation attribution: per-paddock cards or aggregate?
+6. Downstream calc surfaces that assume a single paddock — grep sweep and enumerate before building.
+
+**Files likely affected (once design locks):**
+
+- `src/features/events/index.js` — `renderLocationPicker` multi-mode; `openCreateEventDialog` to accept an array of location IDs
+- `src/features/events/move-wizard.js` — Step 2 to accept multiple destinations
+- `src/data/store.js` — event-open helper creates multiple PWs at once
+- Observation / feed / calc surfaces — audit pass
+
+**CP-55/CP-56 impact:** probably none (multi-paddock is already representable with today's `event_paddock_windows` table). Confirm once design locks.
+
+**Schema change:** probably none. Confirm once design locks.
+
+**Related:**
+
+- **OI-0105** (anchored search bar) — shares the same picker component; multi-pick should layer cleanly on top of the search bar.
+- **v1 behavior** — v1 had multi-paddock grazing via "multiple paddocks" toggle on event create; see GTHY_V1_FEATURE_AUDIT.md (search "multi-paddock" / "multiple paddocks") when design session starts. V1 parity is the likely answer for most of the questions above.
+
+---
+
+### OI-0101 — Move wizard: pre-populate destination open date/time from source close date/time
+**Added:** 2026-04-18 | **Area:** v2-build / events / move-wizard / ux | **Priority:** P2 (usability — farmer has to re-enter the same values they just entered; leading cause of accidental date mismatches between close and open)
+**Checkpoint:** bundle with OI-0100 / OI-0103 / OI-0104 / OI-0105 into a single field-testing-roadblock session brief
+
+**Status:** open — spec-ready.
+
+**What's wrong:** Move wizard Step 3 (`src/features/events/move-wizard.js`) has two independent date/time pairs: *Close source* (`dateOut` / `timeOut`, lines 312–324) and *Open destination* (`dateIn` / `timeIn`, lines 340–352). Both default to `todayStr` / `''` at wizard open (lines 59–64). When the farmer sets `dateOut = 2026-04-17` because the move actually happened yesterday, `dateIn` is still today — the destination event opens one day after the source closes, which is rarely what the farmer means.
+
+**Fix:**
+
+1. When `dateOut` input changes, mirror the value to `dateIn` (but only if the user hasn't manually edited `dateIn` already — track a `dateInTouched` flag, set `true` on first manual keystroke in `dateIn`).
+2. Same for `timeOut` → `timeIn`, with the same "don't overwrite after manual edit" guard.
+3. Mirror direction is **close → open only.** Changing `dateIn` doesn't affect `dateOut`. This prevents a user who wants to backdate the open (rare but legal) from accidentally rewriting the close.
+4. On initial render, since `dateOut` and `dateIn` both start as `todayStr`, no mirror is needed — they already match. Mirror kicks in only on user edits.
+
+**Why the "don't overwrite after manual edit" guard matters:** there are legitimate cases where the farmer wants open and close to differ — e.g., closed Shenk paddock at 6 PM, moved animals overnight in a holding pen, opened North Pasture at 7 AM the next day. Without the guard, typing in `dateIn` then changing `dateOut` would silently destroy the user's `dateIn` input. Two-way-sync-with-user-editability is a well-known UX pattern; one-way sync with manual-override-respect is the lighter-weight version and matches what Tim asked for.
+
+**Files likely affected:**
+- `src/features/events/move-wizard.js` — add `dateInTouched` / `timeInTouched` flags; attach `input` listeners on `dateOut` / `timeOut` that mirror into `dateIn` / `timeIn` unless flags are set; attach listeners on `dateIn` / `timeIn` that flip flags on first keystroke
+- `tests/unit/move-wizard.test.js` — cover: (a) changing dateOut mirrors to dateIn, (b) after manual dateIn edit, further dateOut changes don't overwrite, (c) same for time
+
+**Acceptance criteria:**
+
+- [ ] Changing `dateOut` updates `dateIn` to the same value (only if user hasn't touched `dateIn` yet)
+- [ ] Changing `timeOut` updates `timeIn` similarly
+- [ ] After the user types in `dateIn` (even once), further edits to `dateOut` don't touch `dateIn`
+- [ ] Opposite direction (changing `dateIn` / `timeIn`) never affects the close values
+- [ ] Unit tests cover the three behaviors above
+
+**CP-55/CP-56 impact:** none (client-side UX only).
+**Schema change:** none.
+
+**Related:**
+- **OI-0091** (window split on state change) — move-wizard date/time values drive `closePaddockWindow` / `closeGroupWindow` timing. Correct prefill reduces user error in the most common case (close = open = same instant).
+- **OI-0100** (pre-graze Survey card embed) — ships in the same wizard step; sequencing: OI-0101 is a 10-line change, no dependency on OI-0100.
+
+---
+
+### OI-0100 — Embed Survey paddock card as the pre-graze observation UI on move wizard + event close (includes slider for forage cover % and bale-ring helper)
+**Added:** 2026-04-18 | **Area:** v2-build / events / observations / ui | **Priority:** P1 (gap vs v1 — pre-graze obs today only capture height + cover%; farmers are asking for full pasture assessment at event open, and the bale-ring helper is a major UX win for cover% estimation)
+**Checkpoint:** bundle with OI-0101 / OI-0103 / OI-0104 / OI-0105 into a single field-testing-roadblock session brief. **Depends on GH-12** (Survey sheet v1 parity) shipping the paddock card as a reusable component; if GH-12 is still in flight, coordinate so the card lands once and both surfaces pick it up.
+
+**Status:** open — design locked with Tim 2026-04-18 ("simply use the survey card on the move wizard"). Implementation spec-ready pending GH-12 dependency check.
+
+**What's wrong:** Pre-graze observation fields today (`src/features/events/observation-fields.js` `renderPreGrazeFields`) capture only `forageHeightCm` + `forageCoverPct` as plain number inputs. The Survey sheet (GH-12, `UI_SPRINT_SPEC.md` SP section for surveys) has a much richer *paddock card*: rating slider, veg height, forage cover with bale-ring helper, forage condition dropdown, recovery window. Tim wants pre-graze to use the **same component** so a pre-graze observation captures the same assessment a survey would, eliminating the v2-is-less-than-v1 gap Tim hit during farm testing.
+
+**Critical design note — two tables, aligned fields:**
+
+Pre-graze observations write to **`event_observations`** (via `createObservation()` in `move-wizard.js:498`, keyed on `paddock_window_id`). Surveys write to **`paddock_observations`** (keyed on `location_id` directly). These are **different tables** and remain different — they represent different things (observation tied to an event vs standalone pasture survey). However, per OI-0063 schema alignment and migration 022, `event_observations` has the same columns as `paddock_observations`: `forage_condition`, `bale_ring_residue_count`, `forage_height_cm`, `forage_cover_pct`, recovery fields, etc. So the paddock-card **UI component** can be reused — its submit callback just routes to the right table depending on caller.
+
+**Design:**
+
+1. **Extract the paddock card from GH-12's survey implementation** into a reusable renderer, e.g., `src/features/observations/paddock-card.js`, exporting `renderPaddockCard({ saveTo: 'event_observations' | 'paddock_observations', initialValues, onValuesChange })`. Returns `{ container, getValues(), validate() }` — same shape as today's `renderPreGrazeFields`.
+2. **Pre-graze surface (move wizard + event close flows)** — replace `renderPreGrazeFields` call with `renderPaddockCard({ saveTo: 'event_observations', ... })`. The wizard's existing `createObservation(operationId, locationId, 'open', paddockWindowId, ...getValues())` call already writes to `event_observations` with `observation_phase = 'pre_graze'`; no change there.
+3. **Survey surface** — unchanged shape; GH-12's paddock card IS the source. Pass `saveTo: 'paddock_observations'`.
+4. **Post-graze (`renderPostGrazeFields`)** — out of scope for this OI. Keep today's behavior. If we decide later to use the same card for post-graze (flipping to `observation_phase = 'post_graze'`), that's a follow-up.
+5. **Forage cover % slider.** Item 2 of Tim's roadblock list asks for the cover-% input to be a slider bar (UI_SPRINT_SPEC.md line 125 documents "narrow slider (~240px max width) with percentage readout"). This is already part of the GH-12 paddock card — embedding the card gets us the slider automatically.
+6. **Bale-ring helper.** Already part of GH-12 per UI_SPRINT_SPEC.md line 618 — "Bale-ring residue helper — farm setting (diameter default 12 ft) + registered calc `survey.baleRingCover` + auto-fill forage cover." Same deal — embedding the card gets us the helper.
+
+**Fallbacks (if GH-12 paddock card not yet shipped as extractable component):**
+
+Option A — **Block this OI on GH-12 landing first.** Cleanest; zero duplication. Flag to Tim at handoff time if this is the right sequencing.
+
+Option B — **Build the card now as part of this OI, in the shared location from day one** (`src/features/observations/paddock-card.js`), and GH-12's survey implementation adopts it when it lands. Keeps this roadblock moving without waiting on GH-12.
+
+Default to Option A unless Tim signals this OI is more time-sensitive than GH-12.
+
+**Files likely affected:**
+
+- `src/features/observations/paddock-card.js` (new) — shared card component (extracted from or written as shared with GH-12)
+- `src/features/events/observation-fields.js` — `renderPreGrazeFields` delegates to `renderPaddockCard({ saveTo: 'event_observations' })` or is deprecated in favor of direct callers using the shared card
+- `src/features/events/move-wizard.js` lines 354–356 — swap to shared card
+- `src/features/events/close.js` — same swap (close flow also has pre-graze? confirm — if no, skip)
+- `src/features/surveys/*` (GH-12) — coordinate so survey sheet also uses the shared card
+- `tests/unit/observations-paddock-card.test.js` (new) — component tests (rating slider range, cover% slider with bale-ring helper unlocks, forage condition enum, recovery window validation)
+- `tests/unit/move-wizard.test.js` — extend; assert the paddock card renders inside Step 3's open destination section, and `getValues()` output flows through to `createObservation`
+
+**Acceptance criteria:**
+
+- [ ] Shared `renderPaddockCard` component lives in one place and is imported by both the move wizard pre-graze section and the survey sheet
+- [ ] Move wizard Step 3 renders the full card (rating slider, veg height, cover% slider with bale-ring helper, forage condition, recovery window) under *Open destination*
+- [ ] Cover % input is a slider with percentage readout (per UI_SPRINT_SPEC.md line 125)
+- [ ] Bale-ring helper auto-fills cover % when used
+- [ ] Values submitted via `createObservation` land in `event_observations` with the correct `observation_phase = 'pre_graze'`
+- [ ] Validation messages match existing pre-graze required/optional behavior (obs-badge tied to `farm_settings.recovery_required`)
+- [ ] No change to `paddock_observations` writes — survey behavior unchanged
+- [ ] Unit tests cover the shared component; move-wizard integration test confirms values flow through
+
+**CP-55/CP-56 impact:** none — `event_observations` already has all the columns (migrations 021 + 022; see OI-0063 for the alignment work and OI-0089 for the doc catch-up). Pure UI integration.
+
+**Schema change:** none.
+
+**Related:**
+- **GH-12** (Survey sheet v1 parity) — source of the paddock card component; scheduling dependency.
+- **OI-0063** (schema alignment between `event_observations` and `paddock_observations`) — closed, made this reuse architecturally possible.
+- **OI-0089** (V2_SCHEMA_DESIGN.md catch-up) — closed, docs now reflect migration 022's `bale_ring_residue_count` on `event_observations`.
+- **OI-0068** (pre-graze inline editable fields per v4 mockup) — closed; this OI extends the inline-field pattern from "height + cover" to the full Survey card.
+
+---
+
 ### OI-0099 — Edit Animal silent-drop inputs (damId, sireTag, weaned, confirmedBred) — two classes of fix
 **Added:** 2026-04-18 | **Area:** v2-build / animals / data integrity / schema | **Priority:** P1 (silent data loss on every Edit Animal save; spans both pure wiring bugs and "UI field without Supabase column" traps)
 **Checkpoint:** after OI-0096 ships (do not bundle — OI-0099 has design-required components and a potential schema migration)
@@ -1893,6 +2202,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-18 | Farm-testing roadblocks captured — OI-0100 through OI-0105 | Tim hit six roadblocks testing v2 against his own farm data. Each captured as a discrete OI so nothing gets lost. **OI-0100** (P1) — pre-graze observations embed the **Survey paddock card** (rating slider, veg height, cover% slider with bale-ring helper, forage condition, recovery window) on the move wizard and event-close flows. Key design note: `event_observations` and `paddock_observations` are different tables on purpose (observation-of-event vs standalone-pasture-survey), but their fields are aligned per OI-0063/migration 022, so the **UI component** reuses cleanly — the submit callback just routes to the right table based on caller. Tim confirmed: *"You mean simply use the survey card on the move wizard, yes that makes sense."* Depends on GH-12 shipping the extractable component (or this OI builds it in the shared location and GH-12 adopts later). **OI-0101** (P2) — move wizard destination `dateIn`/`timeIn` one-way mirror from `dateOut`/`timeOut` with manual-override-respect guard. 10-line change. **OI-0102** (P3, DESIGN REQUIRED, do not build) — explore multi-paddock selection in the pasture picker. Captured stub per Tim's request ("Add OI- to explore"); six design questions enumerated (event model implications, strip-graze relationship, partial-close behavior, picker UX, feed/observation attribution, calc-surface audit). Deferred to a design session. **OI-0103** (P0) — feed check Save button silently fails. Root cause: `src/features/feed/check.js:262` passes `checkDate:` but entity field is `date:` (`src/entities/event-feed-check.js:7`). Entity validate rejects silently; no UI error. One-character fix; e2e test must assert Supabase row exists after save per CLAUDE.md §E2E Testing. Blocks all field testing on feed check path. **OI-0104** (P1) — move wizard feed transfer gets a per-line **2-way radio** (Move to new paddock / Leave as residual) replacing the current single checkbox. Default = Move. Residual path writes to the fertility ledger via **OI-0092**'s schema (sequencing note: if OI-0092 not yet shipped, this OI writes to a placeholder column with a TODO pointer, flips to the real path in OI-0092's PR). Feed transfer section also **relocates** from the bottom of Step 3 to sit between the close section and the open section (correct mental ordering — residual feed is a post-graze observation of the paddock being closed). Close-reading `remainingQuantity` stamps real-remaining-amount on residual lines instead of hardcoded 0. V1 parity for `calcResidualOM` / `feed_residual` NPK source. **OI-0105** (P2) — anchored sticky search bar at the top of `renderLocationPicker`, with case-insensitive filter and auto-collapsing empty sections; applies to every caller (move wizard Step 2, new-event dialog, future callers). **Bundling plan:** OI-0100 / OI-0101 / OI-0103 / OI-0104 / OI-0105 bundled into one Claude Code session brief (5 implementable items). OI-0102 stays open, design-required, not in the brief. CP-55/CP-56 impact: none direct for OI-0100/0101/0103/0105; inherited from OI-0092 for OI-0104. Schema change: none direct (OI-0104 sequences with OI-0092). |
 | 2026-04-18 | OI-0099 captured — Edit Animal silent-drop audit (4 remaining inputs) | After the OI-0095/0096/0097 combined session brief was written, Tim flagged that the four adjacent silently-dropped `saveAnimal` inputs (`damId`, `sireTag`, `weaned`, `confirmedBred`) should be documented before they get lost. **OI-0099 added** (P1, mixed implementability). Investigation split the four into two classes: **Class A (pure silent-save bugs)** — `damId` (entity + `dam_id` column exist, just not read in `saveAnimal`) and `weaned` (entity + `weaned` + `weaned_date` columns exist, checkbox not read). Both are one-line wiring fixes, ship-ready after OI-0096 lands. **Class B (UI field without Supabase column — the v1 trap per CLAUDE.md)** — `sireTag` (freeform text input, no matching entity field; v2 entity uses `sireAnimalId` / `sireAiBullId` FKs instead) and `confirmedBred` (checkbox, no matching entity field at all). Both Class B items require Tim's design decision before implementation. Three options each documented: for `sireTag` — replace with animal/AI-bull picker (B1), add `sire_tag` column (B2), or remove entirely (B3). For `confirmedBred` — add `confirmed_bred` column (B4), derive from calving records (B5), or build full `animal_breeding_status` table (B6). Until design locks, Class B inputs stay in the DOM but should get a `disabled` attribute + stopgap caption so farmers don't think they're working. CP-55/CP-56 impact flagged for Class B if B2/B4 chosen (new columns require backup-migration chain entry). No session brief yet — Class A can ship as a small follow-up once OI-0095/0096/0097 land; Class B needs a design session. |
 | 2026-04-18 | Dependency review + design-lock for the three-OI bundle (OI-0095 + OI-0096 + OI-0097) | Follow-on to the morning session that drafted OI-0095/0096/0097. Walked the bundle for order-of-operations gaps before writing the combined Claude Code session brief. **Found seven dependencies** worth flagging: (1) `maybeSplitForGroup` is not a shared helper — it's defined locally twice (`src/features/health/calving.js:19` and `src/features/animals/index.js:31`), so OI-0094 never actually promoted it; session brief now includes a **prerequisite step** to extract it to `src/data/store.js`, update both existing callers, and make it importable from the Quick Weight sheet; (2) OI-0095's `Files likely affected` list was missing `src/features/events/close.js:209` (close-event paddock window loop) and `src/features/events/index.js:832` (Quick Move new-window open) — both added with explicit in-scope/carve-out notes; (3) OI-0097 is fully independent of 0095/0096 helpers and can ship in isolation if needed (documented but kept in the bundle); (4) `SESSION_BRIEF_2026-04-17_empty-group-archive.md` on main still contains the broken §7 Remove wiring guidance — plan: annotate it with a correction banner when OI-0097 ships; (5) unit tests that positively asserted `maybeShowEmptyGroupPrompt` on §7 Remove must be removed by OI-0097; (6) OI-0096 Option A vs B needed a call; (7) OI-0095 Part B orphan cleanup needed migration-vs-app-side decision. **Locked decisions (with Tim):** **OI-0095 Part B → app-side one-time script** (no SQL migration, no `schema_version` bump, no CP-55/CP-56 impact). Guarded by `user_preferences.paddock_orphan_cleanup_done` flag, invoked from app boot after store init, routes through the new `closePaddockWindow` helper so sync queues normally. **OI-0096 Edit Animal redesign** — replace the editable `currentWeight` input with a **read-only current-weight display + ⚖ Weight button** that opens the Quick Weight sheet for the animal. Existing "Weight history" read-only list stays. No editable field = no silent-save footgun. **OI-0098 added** (P3, DESIGN REQUIRED, do not build) — inline edit/delete of historical weight records in Edit Animal, deferred from OI-0096. Six open design questions documented, centered on the closed-window snapshot ripple: editing a past weight that triggered a `splitGroupWindow` on a now-closed window raises "do stamps re-compute (B) or stay frozen (A)?" — a real architectural question, not a UI detail. Needs its own design session with Tim before implementation. Files-affected and Acceptance-criteria sections of OI-0095 and OI-0096 updated in lockstep. Next deliverable: combined session brief for OI-0095 + OI-0096 + OI-0097. |
 | 2026-04-18 | Paddock-side window-split architecture (OI-0095 + follow-up batching) | After OI-0094 shipped, Tim asked to walk every event-window trigger systematically (group change, acreage change, weight change, feed) to catch anything the group-side pass missed. Walk surfaced: (1) feed is not a window trigger (time-stamped ledger, correct as-is); (2) weight has two real gaps on the group side — per-animal Quick Weight sheet (`src/features/health/weight.js`) never calls `splitGroupWindow`; Edit Animal `currentWeight` input is created but silently no-ops in `saveAnimal`; (3) §7 Remove group in OI-0090 session brief was incorrectly listed as a `maybeShowEmptyGroupPrompt` wiring point (closes the PW but doesn't touch `animal_group_memberships`); (4) **acreage/area is the biggest architectural miss** — `event_paddock_window` has the row structure for splits (GH-4 added `is_strip_graze`/`strip_group_id`/`area_pct` columns) but no discipline of splitting. `edit-paddock-window.js` mutates `area_pct` in place on open windows, destroying historical effective-area; `submove.js` Advance Strip splits correctly but the pattern is inline, not a reusable helper; `reopen-event.js` blindly reopens closed PWs without a classifier analog to OI-0094's `classifyGwsForReopen`. **OI-0095 added** (P0, architectural fix — paddock analog of OI-0091). Scope: new `splitPaddockWindow` + `closePaddockWindow` store helpers; new `getOpenPwForLocation` calc helper; lift Advance Strip onto the helper; route `edit-paddock-window.js` `areaPct`/`isStripGraze` edits through the helper on open windows; route `move-wizard.js` close loop through `closePaddockWindow`; build `classifyPwsForReopen` + summary dialog on reopen; fix hard-coded `areaPct: 100` reads in `dashboard/index.js` + `locations/index.js`; audit `calcs/feed-forage.js` + rotation-calendar reads; orphan prevention (helper assertions) + one-time cleanup; extend `V2_APP_ARCHITECTURE.md` §4.4 with paddock-side subsection and grep-contract row. No schema change (GH-4 columns already exist). No CP-55/CP-56 impact (more rows over time; existing export/import handles the table). Thin pointer `github/issues/paddock-window-split-architecture.md` written; session brief deferred until the two smaller follow-ups (weight-side OI + §7 Remove group correction) are drafted so they batch into a single Claude Code handoff per Tim's direction: *"lets walk through all event window related items and wrap it all in at the end."* |

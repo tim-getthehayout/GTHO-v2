@@ -401,12 +401,13 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     panel.appendChild(openSection);
   }
 
-  // Feed transfer section (CP-29)
+  // Feed transfer section (CP-29; OI-0104: 2-way radio + residual capture)
   const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
   const transferToggles = [];
+  let feedSection = null;
 
   if (feedEntries.length) {
-    const feedSection = el('div', { className: 'close-open-section', style: { marginTop: 'var(--space-4)' } }, [
+    feedSection = el('div', { className: 'close-open-section', style: { marginTop: 'var(--space-4)' } }, [
       el('div', { className: 'close-open-section-title' }, [t('event.feedTransfer')]),
     ]);
 
@@ -423,27 +424,67 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
       const loc = getById('locations', group.locationId);
       const batchName = batch ? batch.name : '?';
       const locName = loc ? loc.name : '?';
-
-      const checkbox = el('input', {
-        type: 'checkbox',
+      const unit = batch?.unit || '';
+      const safeKey = key.replace('|', '-');
+      const toggle = {
+        key,
+        batchId: group.batchId,
+        locationId: group.locationId,
+        total: group.total,
+        choice: 'move',  // default
+      };
+      const radioName = `move-wizard-transfer-${safeKey}`;
+      const moveRadio = el('input', {
+        type: 'radio', name: radioName, value: 'move',
         checked: 'true',
-        'data-testid': `move-wizard-transfer-${key.replace('|', '-')}`,
+        'data-testid': `move-wizard-transfer-move-${safeKey}`,
       });
-      transferToggles.push({ key, batchId: group.batchId, locationId: group.locationId, total: group.total, checkbox });
+      const residualRadio = el('input', {
+        type: 'radio', name: radioName, value: 'residual',
+        'data-testid': `move-wizard-transfer-residual-${safeKey}`,
+      });
+      moveRadio.addEventListener('change', () => { if (moveRadio.checked) toggle.choice = 'move'; });
+      residualRadio.addEventListener('change', () => { if (residualRadio.checked) toggle.choice = 'residual'; });
+      transferToggles.push(toggle);
 
-      feedSection.appendChild(el('label', {
-        style: { display: 'flex', alignItems: 'center', gap: 'var(--space-3)', padding: '6px 0', cursor: 'pointer' },
+      feedSection.appendChild(el('div', {
+        style: { padding: '8px 0', borderBottom: '1px solid var(--border)' },
       }, [
-        checkbox,
-        el('span', { style: { fontSize: '13px' } }, [
-          `${batchName} → ${locName}: ${group.total} ${batch?.unit || ''}`,
+        el('div', {
+          style: { fontSize: '13px', fontWeight: '600', marginBottom: '6px' },
+          'data-testid': `move-wizard-transfer-label-${safeKey}`,
+        }, [
+          `${batchName} → ${locName}`,
+          el('span', { style: { color: 'var(--text2)', fontWeight: '400' } }, [
+            ` — remaining: ${group.total} ${unit}`,
+          ]),
+        ]),
+        el('label', {
+          style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: '4px 0', cursor: 'pointer' },
+        }, [
+          moveRadio,
+          el('span', { style: { fontSize: '13px' } }, [t('event.feedTransferMoveLabel')]),
+        ]),
+        el('label', {
+          style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: '4px 0', cursor: 'pointer' },
+        }, [
+          residualRadio,
+          el('div', {}, [
+            el('div', { style: { fontSize: '13px' } }, [t('event.feedTransferResidualLabel')]),
+            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('event.feedTransferResidualCaption')]),
+          ]),
         ]),
       ]));
     }
+  }
 
-    panel.appendChild(feedSection);
-  } else {
-    panel.appendChild(el('div', {
+  // OI-0104 Step 3 reorder: feed transfer sits under Close section (between
+  // post-graze observation card and Open destination section). Append order:
+  //   closeSection → feedSection (if any) → openSection (if destType==='new')
+  if (feedSection) {
+    closeSection.appendChild(feedSection);
+  } else if (feedEntries.length === 0) {
+    closeSection.appendChild(el('div', {
       className: 'form-hint',
       style: { fontStyle: 'italic', marginTop: 'var(--space-4)' },
     }, [t('event.feedTransferNone')]));
@@ -513,24 +554,48 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       add('eventFeedChecks', check, FeedCheckEntity.validate,
         FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
 
-      // Create check items with remaining = 0 (all consumed or transferred)
+      // OI-0104: per-line close-reading remainingQuantity is driven by the farmer's
+      // Move/Residual choice captured in transferToggles. Move lines stamp 0 (all
+      // transferred to new paddock); Residual lines stamp the live remaining
+      // amount so the fertility ledger can pick it up downstream.
+      //
+      // Fall-back for groups with no matching toggle (should not happen since
+      // transferToggles is built from the same feedGroups earlier in the render
+      // pass): treat as Move, remainingQuantity = 0.
+      const toggleByKey = new Map((transferToggles || []).map(tog => [tog.key, tog]));
       const feedGroups = {};
       for (const entry of feedEntries) {
         const key = `${entry.batchId}|${entry.locationId}`;
-        if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId };
+        if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
+        feedGroups[key].total += entry.quantity;
       }
-      for (const group of Object.values(feedGroups)) {
-        // OI-0092: residual feed NPK deposit is a v1-parity gap tracked separately.
-        // remainingQuantity:0 is a deliberate placeholder here; do not change.
+      for (const [groupKey, group] of Object.entries(feedGroups)) {
+        const toggle = toggleByKey.get(groupKey);
+        const choice = toggle?.choice || 'move';
+        const remaining = choice === 'residual' ? group.total : 0;
         const checkItem = FeedCheckItemEntity.create({
           operationId,
           feedCheckId: check.id,
           batchId: group.batchId,
           locationId: group.locationId,
-          remainingQuantity: 0,
+          remainingQuantity: remaining,
         });
         add('eventFeedCheckItems', checkItem, FeedCheckItemEntity.validate,
           FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+
+        // OI-0104 placeholder for OI-0092: when the farmer elects to leave the
+        // remaining feed as residual, log a capture signal so the future residual-
+        // deposit → fertility-ledger path (OI-0092) can consume it. Real ledger
+        // write (table/column TBD per OI-0092) lands in a follow-up PR.
+        if (choice === 'residual' && remaining > 0) {
+          logger.info('residual-capture', 'feed left as residual on close', {
+            eventId: sourceEvent.id,
+            batchId: group.batchId,
+            locationId: group.locationId,
+            remainingQty: remaining,
+            closeReadingCheckItemId: checkItem.id,
+          });
+        }
       }
     }
 
@@ -630,10 +695,12 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       createObservation(operationId, state.locationId, 'open', newPW.id, new Date().toISOString(),
         preGraze ? preGraze.getValues() : {});
 
-      // Step 8: Feed transfer — create entries on destination with source_event_id
+      // Step 8: Feed transfer — only 'move' lines write a destination delivery row.
+      // 'residual' lines are already captured by the close-reading remainingQuantity
+      // stamp above (Step 1); the fertility-ledger write lands with OI-0092.
       if (transferToggles && transferToggles.length) {
         for (const toggle of transferToggles) {
-          if (!toggle.checkbox.checked) continue;
+          if (toggle.choice !== 'move') continue;
           const transferEntry = FeedEntryEntity.create({
             operationId,
             eventId: newEvent.id,

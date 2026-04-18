@@ -30,7 +30,7 @@ export function renderPreGrazeCard({ farmSettings = null, paddockAcres = null, i
   const notes = renderNotes(initialValues.notes);
 
   const container = el('div', {
-    className: 'obs-fields paddock-card obs-pre-graze-card',
+    className: 'obs-fields obs-pre-graze-card',
     'data-testid': 'obs-pre-graze-card',
   }, [header, state.container, quality.container, condition.container, notes.container]);
 

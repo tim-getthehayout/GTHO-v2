@@ -307,3 +307,74 @@ describe('renderSurveyCard (variant C)', () => {
     expect(header.textContent).toBe('Survey Observations');
   });
 });
+
+describe('OI-0114 NC-2 / NC-5 / NC-6 / NC-7 polish', () => {
+  beforeEach(() => seedOp('imperial'));
+
+  it('NC-2: pre-graze top row uses .obs-top-row class with three .obs-field children', () => {
+    const card = renderPreGrazeCard({ farmSettings: null });
+    document.body.appendChild(card.container);
+    const topRow = card.container.querySelector('.obs-top-row');
+    expect(topRow).toBeTruthy();
+    const fields = topRow.querySelectorAll(':scope > .obs-field');
+    expect(fields.length).toBe(3);
+    // Rings cell carries the narrower-input marker.
+    const rings = topRow.querySelector('.obs-field-rings');
+    expect(rings).toBeTruthy();
+  });
+
+  it('NC-5: Forage Height, Cover, and Residual inputs are wrapped in .input-suffix', () => {
+    const pre = renderPreGrazeCard({ farmSettings: null });
+    document.body.appendChild(pre.container);
+    const heightInput = pre.container.querySelector('[data-testid="obs-card-forage-height"]');
+    const coverInput = pre.container.querySelector('[data-testid="obs-card-forage-cover"]');
+    expect(heightInput.parentElement.classList.contains('input-suffix')).toBe(true);
+    expect(coverInput.parentElement.classList.contains('input-suffix')).toBe(true);
+    // Trailing suffix label is the sibling inside the wrapper.
+    const heightSuffix = heightInput.parentElement.querySelector('.input-suffix-label');
+    expect(heightSuffix).toBeTruthy();
+    expect(heightSuffix.textContent).toBe('in'); // imperial length unit
+
+    const post = renderPostGrazeCard({ farmSettings: null });
+    document.body.appendChild(post.container);
+    const residual = post.container.querySelector('[data-testid="obs-card-residual-height"]');
+    expect(residual.parentElement.classList.contains('input-suffix')).toBe(true);
+  });
+
+  it('NC-5: labels no longer carry unit parens — pure field names', () => {
+    const pre = renderPreGrazeCard({ farmSettings: null });
+    document.body.appendChild(pre.container);
+    // Walk the .obs-compact-label text — match the top-level label nodes.
+    const labels = [...pre.container.querySelectorAll('.obs-compact-label')].map(l => {
+      // Exclude any nested .label-aux children so only the top-level label reads.
+      const aux = l.querySelector('.label-aux');
+      if (!aux) return l.textContent;
+      return l.textContent.replace(aux.textContent, '');
+    });
+    expect(labels.some(s => s.includes('('))).toBe(false);
+    expect(labels.some(s => s.includes('%'))).toBe(false);
+  });
+
+  it('NC-3: Bale Rings sub-label uses .label-aux (not inline style)', () => {
+    const pre = renderPreGrazeCard({ farmSettings: null });
+    document.body.appendChild(pre.container);
+    const aux = pre.container.querySelector('.label-aux');
+    expect(aux).toBeTruthy();
+    expect(aux.textContent).toBe('(Forage Cover % Calculator)');
+  });
+
+  it('NC-6: Required pill renders with .obs-required (amber-family in CSS)', () => {
+    const card = renderPreGrazeCard({ farmSettings: { recoveryRequired: true } });
+    document.body.appendChild(card.container);
+    const badge = card.container.querySelector('[data-testid="obs-card-badge"]');
+    expect(badge.classList.contains('obs-required')).toBe(true);
+    expect(badge.classList.contains('obs-optional')).toBe(false);
+  });
+
+  it('NC-7: pre-graze container className no longer carries dead paddock-card class', () => {
+    const card = renderPreGrazeCard({ farmSettings: null });
+    expect(card.container.className).not.toMatch(/\bpaddock-card\b/);
+    expect(card.container.className).toMatch(/obs-fields/);
+    expect(card.container.className).toMatch(/obs-pre-graze-card/);
+  });
+});

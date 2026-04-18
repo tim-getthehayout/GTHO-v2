@@ -161,30 +161,33 @@ export function renderForageStateRow({ farmSettings, paddockAcres, initialValues
   // available; active as soon as `setPaddockAcres` brings it online.
   baleRingInput.addEventListener('input', runBrcFromCurrentInput);
 
-  const topRow = el('div', {
-    className: 'obs-top-row',
-    style: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px', marginBottom: '6px' },
-  }, [
-    el('div', {}, [
-      el('div', { className: 'obs-compact-label' }, [`${t('event.forageHeight')} (${heightUnit})`]),
-      heightInput,
+  // OI-0114 NC-2/3/5: top row is now a flex-end row (layout in main.css),
+  // inputs are wrapped with .input-suffix to float the unit inside, and
+  // labels are pure field names (no parenthesized unit suffix).
+  const topRow = el('div', { className: 'obs-top-row' }, [
+    el('div', { className: 'obs-field' }, [
+      el('div', { className: 'obs-compact-label' }, [t('event.forageHeight')]),
+      withSuffix(heightInput, heightUnit),
     ]),
-    el('div', {}, [
-      el('div', { className: 'obs-compact-label' }, [`${t('event.forageCover')} (%)`]),
-      coverInput,
+    el('div', { className: 'obs-field' }, [
+      el('div', { className: 'obs-compact-label' }, [t('event.forageCover')]),
+      withSuffix(coverInput, '%'),
     ]),
-    el('div', {}, [
+    el('div', { className: 'obs-field obs-field-rings' }, [
       el('div', { className: 'obs-compact-label' }, [
         t('event.residualBaleRings'),
-        el('div', { style: { fontSize: '10px', color: 'var(--text3)', fontWeight: '400' } }, [t('event.forageCoverCalculator')]),
+        el('div', { className: 'label-aux' }, [t('event.forageCoverCalculator')]),
       ]),
       el('div', { style: { display: 'flex', alignItems: 'center' } }, [baleRingInput, previewChip]),
     ]),
-    helperNote,
   ]);
+  // The helper note sits below the row in normal flow (was grid-column: 1/-1
+  // in the old grid layout; with flex we just make it a sibling block).
+  helperNote.style.gridColumn = '';
+  const topRowWrap = el('div', { className: 'obs-top-row-wrap' }, [topRow, helperNote]);
 
   return {
-    container: topRow,
+    container: topRowWrap,
     heightInput,
     coverInput,
     baleRingInput,
@@ -328,6 +331,8 @@ export function renderRecoveryWindow(initialMin, initialMax) {
 
 /**
  * Residual height single-field row for post-graze.
+ * OI-0114 NC-5: unit suffix floats inside the input via withSuffix; label
+ * is the pure field name.
  */
 export function renderResidualHeight(initialCm, unitSys) {
   const heightUnit = unitLabel('length', unitSys);
@@ -338,8 +343,8 @@ export function renderResidualHeight(initialCm, unitSys) {
     'data-testid': 'obs-card-residual-height',
   });
   const container = el('div', { style: { marginBottom: '10px' } }, [
-    el('label', { className: 'form-label' }, [`${t('event.residualHeight')} (${heightUnit})`]),
-    input,
+    el('label', { className: 'form-label' }, [t('event.residualHeight')]),
+    withSuffix(input, heightUnit),
   ]);
   return { container, input };
 }
@@ -359,6 +364,18 @@ export function renderNotes(initialValue) {
     input,
   ]);
   return { container, input };
+}
+
+/**
+ * OI-0114 NC-5: wrap an input in an `.input-suffix` container with an
+ * absolutely-positioned `.input-suffix-label` span. Keeps the unit floating
+ * inside the input at the right edge instead of crowding the field label.
+ */
+export function withSuffix(input, suffixText) {
+  return el('div', { className: 'input-suffix' }, [
+    input,
+    el('span', { className: 'input-suffix-label' }, [suffixText]),
+  ]);
 }
 
 /**

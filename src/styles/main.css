@@ -1205,8 +1205,78 @@ body {
   padding: 2px 8px;
   border-radius: var(--radius-sm);
 }
-.obs-required { background: var(--color-red-light, #fde8e8); color: var(--color-red-base); }
+/* OI-0114 NC-6: Required is a soft call-to-action, not a validation error. */
+.obs-required { background: var(--color-amber-light, #faeeda); color: var(--color-amber-dark, #854f0b); }
 .obs-optional { background: var(--color-green-light, #e8f5e9); color: var(--color-green-dark); }
+
+/* OI-0114 NC-2/3/4: shared layout + typography for the pre-graze / survey top row. */
+.obs-top-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+.obs-top-row .obs-field {
+  margin-bottom: 0;
+  flex: 0 0 auto;
+}
+.obs-top-row .obs-field input[type="number"] {
+  width: 88px;
+}
+.obs-top-row .obs-field-rings input[type="number"] {
+  width: 72px;
+}
+.obs-compact-label {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  margin-bottom: 4px;
+}
+.obs-compact-label .label-aux {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text3);
+  margin-top: 1px;
+}
+.obs-compact-input {
+  font-family: inherit;
+  font-size: 15px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text1);
+  -webkit-appearance: none;
+  -moz-appearance: textfield;
+  appearance: none;
+}
+.obs-compact-input::-webkit-outer-spin-button,
+.obs-compact-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.obs-compact-input:focus {
+  outline: none;
+  border-color: var(--color-teal-base, #0a7ea4);
+  box-shadow: 0 0 0 3px rgba(10, 126, 164, 0.15);
+}
+/* OI-0114 NC-5: unit suffix floats inside the input, right-aligned. */
+.input-suffix { position: relative; display: inline-block; }
+.input-suffix .obs-compact-input { padding-right: 28px; }
+.input-suffix-label {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--text3);
+  pointer-events: none;
+}
 
 /* Member management (CP-66) */
 .member-list { margin-top: var(--space-3); }

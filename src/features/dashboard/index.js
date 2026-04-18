@@ -249,6 +249,77 @@ function getEventsInPeriod(period) {
   });
 }
 
+/**
+ * OI-0075 Bug 7: shared Pasture % computation used by both desktop and mobile
+ * stat cards. Mass balance via DMI-4 across all supplied events:
+ *   pasture_pct = (total_dmi - stored_consumed) / total_dmi × 100
+ *
+ * Returns { pasturePercent: number|null, color: string, subLabel: string }.
+ * Null when no events have animals + DMI data to compute from.
+ */
+export function computePasturePercent(events) {
+  const dmi1 = getCalcByName('DMI-1');
+  const dmi2 = getCalcByName('DMI-2');
+  const dmi4 = getCalcByName('DMI-4');
+  if (!dmi2 || !dmi4) return { pasturePercent: null, color: 'var(--color-teal-base)', subLabel: 'no grazing events' };
+
+  const memberships = getAll('animalGroupMemberships');
+  const animals = getAll('animals');
+  const animalWeightRecords = getAll('animalWeightRecords');
+  const batches = getAll('batches');
+  const batchMap = new Map(batches.map(b => [b.id, b]));
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  let totalDmiKg = 0;
+  let totalStoredDmKg = 0;
+  for (const event of events) {
+    const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
+    for (const gw of gws) {
+      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
+      const now = gw.dateLeft || event.dateOut || todayStr;
+      const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+      const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
+      const dmiKgPerDay = dmi2.fn({
+        headCount: liveHead, avgWeightKg: liveAvg,
+        dmiPct: cls?.dmiPct ?? 2.5, dmiPctLactating: cls?.dmiPctLactating ?? (cls?.dmiPct ?? 2.5), isLactating: false,
+      });
+      const days = daysBetweenInclusive(gw.dateJoined || event.dateIn, now);
+      totalDmiKg += dmiKgPerDay * days;
+    }
+    if (dmi1) {
+      const fes = getAll('eventFeedEntries').filter(fe => fe.eventId === event.id);
+      if (fes.length) {
+        const entries = fes.map(fe => {
+          const b = batchMap.get(fe.batchId);
+          const qtyUnits = fe.entryType === 'removal' ? -(fe.quantity ?? 0) : (fe.quantity ?? 0);
+          return { qtyKg: qtyUnits * (b?.weightPerUnitKg ?? 0), dmPct: b?.dmPct ?? 100 };
+        });
+        totalStoredDmKg += dmi1.fn({ entries, remainingDmKg: 0 });
+      }
+    }
+  }
+
+  if (totalDmiKg <= 0) {
+    return {
+      pasturePercent: null,
+      color: 'var(--color-teal-base)',
+      subLabel: events.length ? 'no animals on events' : 'no grazing events',
+    };
+  }
+  const split = dmi4.fn({ totalDmiKg, storedConsumedKg: totalStoredDmKg });
+  const pct = Math.max(0, Math.min(100, Math.round(split.pasturePct)));
+  // Color grade: green ≥ 75%, amber 50–74%, red < 50% (matches v1 color logic).
+  let color = 'var(--color-red-base)';
+  if (pct >= 75) color = 'var(--color-green-base)';
+  else if (pct >= 50) color = 'var(--color-amber-base)';
+  const closedCount = events.filter(e => e.dateOut).length;
+  const openCount = events.length - closedCount;
+  const subLabel = closedCount > 0
+    ? `${closedCount} closed \u00B7 ${openCount} open`
+    : 'open events';
+  return { pasturePercent: pct, color, subLabel };
+}
+
 function computeDesktopMetrics(events, _unitSys) {
   const cst1 = getCalcByName('CST-1');
   const npk1 = getCalcByName('NPK-1');
@@ -300,22 +371,11 @@ function computeDesktopMetrics(events, _unitSys) {
     }
   }
 
-  // Pasture % (avg from closed events, or estimate from open)
-  let pasturePercent = null;
-  let pastureSub = '';
-  const closedEvents = events.filter(e => e.dateOut);
-  const openEvents = events.filter(e => !e.dateOut);
-  if (closedEvents.length) {
-    // Average pasture% from closed events (placeholder — actual calculation depends on DMI-4)
-    pastureSub = `avg, ${closedEvents.length} closed events`;
-    pasturePercent = null; // Requires feed check data not yet available
-  }
-  if (pasturePercent === null && openEvents.length) {
-    pastureSub = 'estimated, open events';
-  }
-  if (!events.length) {
-    pastureSub = 'no grazing events';
-  }
+  // Pasture % — OI-0075 Bug 7: live compute via mass balance DMI-4 across events.
+  const pastureMetric = computePasturePercent(events);
+  const pasturePercent = pastureMetric.pasturePercent;
+  const pastureSub = pastureMetric.subLabel;
+  const pastureColorDesktop = pastureMetric.color;
 
   // NPK / Acre
   let totalNPK = { n: 0, p: 0, k: 0 };
@@ -344,8 +404,10 @@ function computeDesktopMetrics(events, _unitSys) {
       }
       for (const pw of pws) {
         const loc = getById('locations', pw.locationId);
-        if (loc?.areaHa) {
-          totalAcres += convert(loc.areaHa, 'area', 'toImperial');
+        // OI-0075: entity field is areaHectares; areaHa kept as legacy fallback.
+        const ha = loc?.areaHectares ?? loc?.areaHa;
+        if (ha) {
+          totalAcres += convert(ha, 'area', 'toImperial');
         }
       }
     }
@@ -387,7 +449,7 @@ function computeDesktopMetrics(events, _unitSys) {
     {
       value: pasturePercent !== null ? `${pasturePercent}%` : '\u2014',
       label: pastureSub || '\u00A0',
-      color: 'var(--color-teal-base)',
+      color: pastureColorDesktop,
     },
     {
       value: npkPerAcre > 0 ? `${npkPerAcre.toFixed(1)} /ac` : '\u2014',
@@ -411,9 +473,10 @@ function computeMobileMetrics(events, _unitSys) {
   const animalWeightRecords = getAll('animalWeightRecords');
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  // Pasture % — placeholder
-  const pastureVal = '\u2014';
-  const pastureColor = 'var(--color-teal-base)';
+  // Pasture % — OI-0075 Bug 7: live compute via the shared helper. Was hard-coded em-dash.
+  const pastureMetric = computePasturePercent(events);
+  const pastureVal = pastureMetric.pasturePercent !== null ? `${pastureMetric.pasturePercent}%` : '\u2014';
+  const pastureColor = pastureMetric.color;
 
   // NPK / Acre
   let totalNPK = 0;
@@ -443,7 +506,8 @@ function computeMobileMetrics(events, _unitSys) {
       }
       for (const pw of pws) {
         const loc = getById('locations', pw.locationId);
-        if (loc?.areaHa) totalAcres += convert(loc.areaHa, 'area', 'toImperial');
+        const ha = loc?.areaHectares ?? loc?.areaHa;
+        if (ha) totalAcres += convert(ha, 'area', 'toImperial');
       }
     }
   }
@@ -914,19 +978,25 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const animals = getAll('animals');
   const animalWeightRecords = getAll('animalWeightRecords');
 
-  // Location name + acreage (multi-paddock: comma-join names, sum area)
+  // Location name + acreage (multi-paddock: comma-join names, sum area).
+  // OI-0075 Bug 3 root cause: every site here used `loc.areaHa`, but the
+  // location entity stores the column as `areaHectares`. That silently made
+  // `totalAreaHa` always 0 on real Supabase data, which in turn made the
+  // capacity-line gate (`availableDmKg > 0`) fail because FOR-1 never ran
+  // (it requires a positive area). Using the entity field name fixes it.
+  const locArea = (l) => l?.areaHectares ?? l?.areaHa ?? 0;
   let locName, totalAreaHa = 0;
   if (openPws.length > 1) {
     const names = openPws.map(pw => {
       const loc = getById('locations', pw.locationId);
-      if (loc?.areaHa) totalAreaHa += loc.areaHa;
+      totalAreaHa += locArea(loc);
       return loc?.name || '?';
     });
     locName = names.join(', ');
   } else {
     const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
     locName = loc?.name || '?';
-    totalAreaHa = loc?.areaHa || 0;
+    totalAreaHa = locArea(loc);
   }
   const areaDisplay = totalAreaHa > 0 ? display(totalAreaHa, 'area', unitSys, 2) : '';
   const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
@@ -984,10 +1054,38 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     }
   }
 
-  // Stored feed consumed (from DMI-1)
+  // Stored feed consumed (from DMI-1).
+  // OI-0075 Bug 5: fe.quantity is in the batch's UNITS (bales, lbs, tonnes), not
+  // kg, and dmPct needs to come from the batch, not be hardcoded to 100. Pre-fix,
+  // "2 bales at 500 kg × 85% DM" rendered as 2 lbs DM instead of ~1874 lbs DM.
+  // v1 calcConsumedDMI also subtracts residual from the latest close-reading
+  // feed check, so we factor that in when a close-reading exists.
   let storedConsumedKg = 0;
   if (dmi1 && feedEntries.length) {
-    storedConsumedKg = dmi1.fn({ entries: feedEntries.map(fe => ({ qtyKg: (fe.entryType === 'removal' ? -(fe.quantity ?? 0) : (fe.quantity ?? 0)), dmPct: 100 })), remainingDmKg: 0 });
+    const entries = feedEntries.map(fe => {
+      const b = batchMap.get(fe.batchId);
+      const qtyUnits = fe.entryType === 'removal' ? -(fe.quantity ?? 0) : (fe.quantity ?? 0);
+      const weightPerUnitKg = b?.weightPerUnitKg ?? 0;
+      const dmPct = b?.dmPct ?? 100;
+      return { qtyKg: qtyUnits * weightPerUnitKg, dmPct };
+    });
+    // v1 parity: subtract the latest close-reading feed check's remaining DM
+    // across items. When no close-reading exists yet, remainingDmKg = 0.
+    const feedChecks = getAll('eventFeedChecks')
+      .filter(fc => fc.eventId === event.id && fc.isCloseReading)
+      .sort((a, b) => (b.date || b.createdAt || '').localeCompare(a.date || a.createdAt || ''));
+    let remainingDmKg = 0;
+    if (feedChecks.length) {
+      const latest = feedChecks[0];
+      const items = getAll('eventFeedCheckItems').filter(ci => ci.feedCheckId === latest.id);
+      for (const ci of items) {
+        const b = batchMap.get(ci.batchId);
+        const wpu = b?.weightPerUnitKg ?? 0;
+        const dm = b?.dmPct ?? 100;
+        remainingDmKg += (ci.remainingQuantity ?? 0) * wpu * (dm / 100);
+      }
+    }
+    storedConsumedKg = dmi1.fn({ entries, remainingDmKg });
   }
 
   // Pasture/stored split
@@ -1002,13 +1100,27 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   }
 
   // Forage / capacity
+  // OI-0075 Bug 3: pre-OI-0112 this read from event_observations; after OI-0112
+  // migration it must read from paddock_observations (type='open', source='event').
+  // Match on the open PW's id; fall back to a same-location lookup for legacy rows.
   const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
   const forageType = loc?.forageTypeId ? getById('forageTypes', loc.forageTypeId) : null;
-  const obs = getAll('eventObservations')
-    .filter(o => o.eventId === event.id && (o.observationPhase === 'pre_graze' || !o.observationPhase))
-    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+  const allObs = primaryPw
+    ? getAll('paddockObservations').filter(o => o.locationId === primaryPw.locationId && o.type === 'open' && o.source === 'event')
+    : [];
+  const obs = (primaryPw && allObs.find(o => o.sourceId === primaryPw.id))
+    || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+    || null;
 
   let availableDmKg = 0, estAuds = 0, daysRemaining = 0, forageHeightDisplay = '';
+  // Track why capacity can't be computed so the user sees "what's missing" hints
+  // instead of a silent disappearance (OI-0075 Bug 3).
+  const capacityBlockers = [];
+  if (!forageType) capacityBlockers.push('forage type');
+  if (!obs?.forageHeightCm) capacityBlockers.push('forage height');
+  if (totalHead <= 0) capacityBlockers.push('animals');
+  if (totalAreaHa <= 0) capacityBlockers.push('paddock area');
+
   if (for1 && obs?.forageHeightCm && totalAreaHa > 0) {
     const residualCm = forageType?.minResidualHeightCm ?? 5;
     const dmPerCmPerHa = forageType?.dmKgPerCmPerHa ?? 110;
@@ -1113,12 +1225,29 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   }
 
   // §7: Capacity line (green)
+  // OI-0075 Bug 3: the old `availableDmKg > 0 && dailyDmiKg > 0` gate silently
+  // hid the line whenever a farmer had data missing (no forage type on the
+  // paddock, no pre-graze observation yet, etc.). Now: render the line
+  // whenever EITHER the full estimate works OR we can at least show partial
+  // info (forage height, ADA) with a hint naming what's missing.
   if (availableDmKg > 0 && dailyDmiKg > 0) {
     let capText = `Est. capacity: ${Math.round(estAuds)} AUDs \u00B7 ~${daysRemaining} days remaining`;
     if (hasStoredFeed) capText += ' (incl. stored feed)';
     if (forageHeightDisplay) capText += ` \u00B7 ${forageHeightDisplay}"`;
     if (totalAcres > 0) capText += ` \u00B7 ADA est: ${adaPerAc.toFixed(1)}/ac`;
     children.push(el('div', { style: { fontSize: '12px', color: 'var(--color-green-dark, #3B6D11)', fontWeight: '500', marginBottom: 'var(--space-1)' } }, [capText]));
+  } else if (capacityBlockers.length) {
+    // Informative hint: tell the user which inputs are missing instead of
+    // dropping the row silently. Partial info (ADA) is shown when available.
+    const partialParts = [];
+    if (forageHeightDisplay) partialParts.push(`${forageHeightDisplay}"`);
+    if (totalAcres > 0 && adaPerAc > 0) partialParts.push(`ADA est: ${adaPerAc.toFixed(1)}/ac`);
+    const hintText = `Capacity: add ${capacityBlockers.join(' + ')} to estimate`
+      + (partialParts.length ? ` \u00B7 ${partialParts.join(' \u00B7 ')}` : '');
+    children.push(el('div', {
+      style: { fontSize: '12px', color: 'var(--text3, var(--text2))', fontStyle: 'italic', marginBottom: 'var(--space-1)' },
+      'data-testid': `dashboard-capacity-hint-${event.id}`,
+    }, [hintText]));
   }
 
   // §8: Breakdown line (gray)
@@ -1140,7 +1269,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     for (const pw of subPaddocks) {
       const subLoc = getById('locations', pw.locationId);
       const subName = subLoc?.name || '?';
-      const subArea = subLoc?.areaHa ? `${display(subLoc.areaHa, 'area', unitSys, 2)} ${areaUnit}` : '';
+      const subLocHa = subLoc?.areaHectares ?? subLoc?.areaHa;
+      const subArea = subLocHa ? `${display(subLocHa, 'area', unitSys, 2)} ${areaUnit}` : '';
       const isActive = !pw.dateClosed;
       children.push(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' } }, [
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } }, [
@@ -1215,7 +1345,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     for (const pw of allPws) {
       const pwLoc = getById('locations', pw.locationId);
       if (pwLoc) {
-        chartLocations[pw.locationId] = { areaHa: pwLoc.areaHa };
+        // DMI-8 expects { areaHa } as its calc contract; read from entity's areaHectares.
+        chartLocations[pw.locationId] = { areaHa: pwLoc.areaHectares ?? pwLoc.areaHa };
         if (pwLoc.forageTypeId) {
           const ft = getById('forageTypes', pwLoc.forageTypeId);
           if (ft) chartForageTypes[pw.locationId] = { dmKgPerCmPerHa: ft.dmKgPerCmPerHa, minResidualHeightCm: ft.minResidualHeightCm, utilizationPct: ft.utilizationPct };
@@ -1246,7 +1377,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       const sFt = {}, sLoc = {}, sAc = {};
       for (const pw of sPws) {
         const l = getById('locations', pw.locationId);
-        if (l) { sLoc[pw.locationId] = { areaHa: l.areaHa }; if (l.forageTypeId) { const f = getById('forageTypes', l.forageTypeId); if (f) sFt[pw.locationId] = { dmKgPerCmPerHa: f.dmKgPerCmPerHa, minResidualHeightCm: f.minResidualHeightCm, utilizationPct: f.utilizationPct }; } }
+        if (l) { sLoc[pw.locationId] = { areaHa: l.areaHectares ?? l.areaHa }; if (l.forageTypeId) { const f = getById('forageTypes', l.forageTypeId); if (f) sFt[pw.locationId] = { dmKgPerCmPerHa: f.dmKgPerCmPerHa, minResidualHeightCm: f.minResidualHeightCm, utilizationPct: f.utilizationPct }; } }
       }
       for (const gw of sGws) { if (gw.animalClassId) { const c = getById('animalClasses', gw.animalClassId); if (c) sAc[gw.animalClassId] = { dmiPct: c.dmiPct, dmiPctLactating: c.dmiPctLactating }; } }
       srcCtx = { event: srcEvt, gws: sGws, fe: sFe, fc: sFc, fci: sFci, pws: sPws, obs: sObs, ft: sFt, loc: sLoc, ac: sAc };

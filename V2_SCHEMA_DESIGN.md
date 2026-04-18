@@ -1112,6 +1112,62 @@ CREATE TABLE paddock_observations (
 );
 ```
 
+### 5.8 event_observations
+
+**New in v2** — added by migration 021 (OI-0063, SP-2). Documented retroactively per OI-0089.
+**Audit refs:** GRZ-01, GRZ-03 (event-time equivalents of §5.7)
+
+Event-time observations captured from inside an active event — either pre-graze (before animals start grazing the window) or post-graze (on close). Scoped to a specific `event_paddock_window` when known, so a multi-paddock event can carry one observation per window per phase. The field set deliberately mirrors §5.7 `paddock_observations` so pre-graze assessments during an event capture the same pasture data that a standalone survey would; post-graze-only fields (residual height, recovery days) live here too.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| id | uuid | PK | |
+| operation_id | uuid | NOT NULL, FK → operations | RLS scope |
+| event_id | uuid | NOT NULL, FK → events | Parent event |
+| paddock_window_id | uuid | NULL, FK → event_paddock_windows | Which window within the event; NULL for event-level observations |
+| observation_phase | text | NULL | `'pre_graze'` or `'post_graze'` |
+| forage_height_cm | numeric(6,2) | NULL | Average forage height |
+| forage_cover_pct | numeric(5,2) | NULL | Percent of paddock with usable forage (0–100) |
+| forage_quality | integer | NULL, CHECK 1–100 | Same 1–100 relative scale as §5.7 |
+| forage_condition | text | NULL | `'dry'`, `'fair'`, `'good'`, `'lush'` |
+| stored_feed_only | boolean | NOT NULL, DEFAULT false | True when the window is bale-fed only (no standing forage consumed); drives feed-check and DMI logic |
+| post_graze_height_cm | numeric(6,2) | NULL | Residual standing height after the window closes |
+| recovery_min_days | integer | NULL | Estimated minimum recovery days (post-graze) |
+| recovery_max_days | integer | NULL | Estimated maximum recovery days (post-graze) |
+| bale_ring_residue_count | integer | NULL | Bale-ring residues counted during the observation (migration 022, SP-9) |
+| notes | text | NULL | |
+| created_at | timestamptz | NOT NULL, DEFAULT now() | |
+| updated_at | timestamptz | NOT NULL, DEFAULT now() | |
+
+**Design decisions:**
+- **Why a second observations table.** §5.7 `paddock_observations` is the canonical ledger keyed on `location_id`. §5.8 is scoped to an event and its windows — it answers "what did this event see?" without requiring a join back through the window to the location. The event-scoped view is what the event detail UI (SP-2) reads; the location ledger is what the rotation calculations read. Both tables are populated together: event open/close triggers a paddock_observation AND an event_observation.
+- **`forage_condition` vocabulary differs from §5.7.** §5.7 uses `poor/fair/good/excellent` (survey vocabulary); §5.8 uses `dry/fair/good/lush` (event-time vocabulary). Different contexts, different assessments — do not conflate the two.
+- **`stored_feed_only` lives here, not on the event.** A multi-paddock event can have some windows that are bale-fed and some that are grazed, so the flag is per-window per-phase, not event-level.
+- **`paddock_window_id` is nullable.** Event-level observations (rare — typically notes that span all windows) use NULL. Per-window observations (the common case) carry the FK.
+- **No CHECK on `observation_phase` values beyond the enum.** Both phases are legal independently; most windows carry one pre_graze + one post_graze row, but a window can have only one phase (e.g., still open).
+
+```sql
+CREATE TABLE event_observations (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id            uuid NOT NULL REFERENCES operations(id),
+  event_id                uuid NOT NULL REFERENCES events(id),
+  paddock_window_id       uuid REFERENCES event_paddock_windows(id),
+  observation_phase       text CHECK (observation_phase IN ('pre_graze', 'post_graze')),
+  forage_height_cm        numeric(6,2),
+  forage_cover_pct        numeric(5,2),
+  forage_quality          integer CHECK (forage_quality IS NULL OR (forage_quality >= 1 AND forage_quality <= 100)),
+  forage_condition        text CHECK (forage_condition IS NULL OR forage_condition IN ('dry', 'fair', 'good', 'lush')),
+  stored_feed_only        boolean NOT NULL DEFAULT false,
+  post_graze_height_cm    numeric(6,2),
+  recovery_min_days       integer,
+  recovery_max_days       integer,
+  bale_ring_residue_count integer,
+  notes                   text,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now()
+);
+```
+
 ---
 
 ## Domain 6: Surveys
@@ -2127,6 +2183,40 @@ CREATE TABLE animal_weight_records (
 );
 ```
 
+### 9.11 animal_notes
+
+**New in v2** — added by migration 012 as a "Domain 9 amendment" (OI-0003 resolution). Documented retroactively per OI-0089.
+**Audit refs:** ANI-09
+
+Per-animal free-form notes, timestamped. Sibling to the other per-animal time-series tables in Domain 9 (weights, BCS, treatments, breeding, heats, calving) — same shape, same grain, one row per observation. Notes are not derived from any other record and are not consumed by any calculation; they exist for the farmer's own record-keeping and display on the animal detail screen.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| id | uuid | PK | |
+| operation_id | uuid | FK → operations, NOT NULL | RLS scope |
+| animal_id | uuid | FK → animals, NOT NULL | Which animal |
+| noted_at | timestamptz | NOT NULL | When the note applies to (may differ from created_at if back-dated) |
+| note | text | NOT NULL | Free-form body |
+| created_at | timestamptz | NOT NULL, DEFAULT now() | |
+| updated_at | timestamptz | NOT NULL, DEFAULT now() | |
+
+**Design decisions:**
+- **Why its own table, not a column on `animals`.** A single `notes` column would only hold the latest note and would lose history. Notes are time-series data — the farmer often wants to see that "off feed, watching" was logged on the 12th and "ate normally today" was logged on the 15th. Same reasoning as §9.5 `animal_bcs_scores` and §9.10 `animal_weight_records`.
+- **`noted_at` separate from `created_at`.** `noted_at` is the observation timestamp the farmer is asserting (can be edited, can be back-dated). `created_at` is when the row hit the database. Needed because farmers often enter notes from memory after the fact.
+- **No `source` column** (unlike §9.10). All notes are manual entries; there is no scale-import or derived-source case to disambiguate.
+
+```sql
+CREATE TABLE animal_notes (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id  uuid NOT NULL REFERENCES operations(id),
+  animal_id     uuid NOT NULL REFERENCES animals(id),
+  noted_at      timestamptz NOT NULL,
+  note          text NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+```
+
 ---
 
 ## Domain 10: Feed Quality
@@ -2438,6 +2528,7 @@ CREATE TABLE release_notes (
 | 2026-04-12 | Session 7 — Calculation spec review | D3 animal_classes: excretion_n/p/k_pct → excretion_n/p/k_rate (NRCS unit alignment). Species CHECK updated: 'cattle' → 'beef_cattle' + 'dairy_cattle'. Added dmi_pct_lactating. D9 animal_calving_records: Added dried_off_date for dairy dry-off tracking. |
 | 2026-04-12 | Session 8 — UX flows review | D1 farm_settings: Added forage_quality_scale_min (default 1), forage_quality_scale_max (default 100) for configurable survey assessment range (A41). |
 | 2026-04-14 | Tier 3 migration testing — OI-0055 | Root-cause fix: added `operation_id uuid NOT NULL FK → operations` to four tables that were missing it: §5.6 event_feed_check_items, §6.2 survey_draft_entries, §7.2 harvest_event_fields, §11.4 todo_assignments. Updated column specs, design decision notes, and CREATE TABLE SQL for all four. Design Principle #8 simplified — no longer has exceptions. Migration 019 adds the column + backfill. |
+| 2026-04-17 | Local-only fields audit — OI-0089 | Retroactive documentation of two tables that existed in live Supabase, entity code, and §5.3a but were missing from this design doc. Added §5.8 `event_observations` (migration 021 + `bale_ring_residue_count` from migration 022, SP-2 event-time pasture observations) and §9.11 `animal_notes` (migration 012 "Domain 9 amendment", OI-0003). Both sections match existing style (column table, design decisions, CREATE TABLE). No schema change — doc catch-up only. Live ground truth: `SCHEMA_DUMP_2026-04-17.md`. |
 
 ---
 

@@ -344,6 +344,29 @@ function renderSummary(ctx) {
         });
         return dateInInput;
       })(),
+      (() => {
+        // OI-0116: sibling time input for event.time_in. Same three OI-0115
+        // teardown guards verbatim — a phantom change fired during a parent
+        // re-render's clear() must not write garbage to the store. Interim
+        // direct-writer until OI-0117 switches both inputs to write-through
+        // on the earliest child window.
+        const renderedTimeIn = event.timeIn || '';
+        const timeInInput = el('input', { type: 'time', value: renderedTimeIn, placeholder: 'HH:MM', 'data-testid': 'detail-time-in', style: { fontSize: '13px', padding: '2px 4px', border: '0.5px solid var(--border2)', borderRadius: '4px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', width: '90px' } });
+        timeInInput.addEventListener('change', () => {
+          // Guard 1: teardown. Phantom change after DOM removal is ignored.
+          if (!timeInInput.isConnected) return;
+          const raw = timeInInput.value;
+          // Empty string → null (spec acceptance #5 — normalize, don't store "").
+          const newTime = raw === '' ? null : raw;
+          // Guard 2: render-time snapshot identity (phantom no-op).
+          if ((newTime ?? '') === renderedTimeIn) return;
+          const evt = getById('events', ctx.eventId);
+          // Guard 3: already matches the store.
+          if ((newTime ?? null) === (evt?.timeIn ?? null)) return;
+          update('events', ctx.eventId, { timeIn: newTime }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+        });
+        return timeInInput;
+      })(),
       ` \u00B7 Out ${dateOutStr} \u00B7 $${totalCost.toFixed(2)}`,
     ]),
   ]));

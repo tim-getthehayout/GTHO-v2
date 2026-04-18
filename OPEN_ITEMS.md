@@ -4,11 +4,194 @@
 
 ---
 
+### OI-0111 — Settings UI skips unit conversion: stores whatever number the user typed regardless of unit system (caused silent corruption of Tim's AU weight + residual height defaults 2026-04-18)
+**Added:** 2026-04-18 | **Area:** v2-build / settings / units / data-integrity | **Priority:** P0 (silent data corruption — every imperial user hitting Settings can rewrite metric columns with imperial numbers; downstream DMI / threshold / pricing calcs then run on nonsense)
+**Checkpoint:** ship as its own spec-file handoff — not bundled. Class-of-bug fix that touches entity + migration + UI + tests + backup-migrations; too much surface area to piggyback on another session brief.
+
+**Status:** open — spec ready for handoff. Spec file: `github/issues/BUG_settings-ui-unit-conversion.md`.
+
+**What's wrong:** `src/features/settings/index.js:97–172` (`renderFarmSection`) renders each numeric field as `<input value="{fs[key]}">` and saves via `parseFloat(val)` into the same key — no conversion on render, no conversion on save, and no unit suffix in the label. The field keys `defaultAuWeightKg`, `defaultResidualHeightCm`, `nPricePerKg`, `pPricePerKg`, `kPricePerKg`, `defaultManureRateKgPerDay` are stored metric (per the metric-internal rule in CLAUDE.md Known Traps), but the UI presents and accepts their raw metric values regardless of the user's unit system.
+
+This violates:
+
+- CLAUDE.md Known Traps — *"Unit confusion: always store metric, display converted."*
+- CLAUDE.md §"New UI Fields → Supabase Column Rule" — the v2 mirror: column exists, but the UI bypasses the conversion layer, so stored values are silently wrong.
+
+**Confirmed incident (2026-04-18):** Tim opened Settings, saw `454` (kg) and `10` (cm) in fields labeled only "AU Reference Weight" and "Default Residual Height", assumed the numbers were wrong for his imperial operation, and changed them to `1000` and `4`. Farm settings now contain `1000 kg` (~2,200 lbs) for AU weight and `4 cm` (~1.5 in) for residual height. Every DMI, stocking-rate, residual-badge, and threshold calculation reading those fields is operating on bad data. **Immediate recovery: Tim must manually re-enter `454` (AU weight) and `10` (residual height) in Settings before the fix ships.**
+
+**Also in scope — rename `baleRingResidueDiameterFt` to metric storage.** Per Tim's direction this session: the bale-ring field currently stores feet, which violates metric-internal. Migration 027 renames to `bale_ring_residue_diameter_cm`, converts stored values × 30.48, updates default `12.0 → 365.76`. The BRC-1 calc (`src/calcs/survey-bale-ring.js`) stays imperial-native; callers convert cm → ft inline before invoking.
+
+**Precision rule:** the fix must round-trip cleanly — typing `3.0` inches, saving, reopening must show `3.0` again. Store full-precision JS float from `convert()`; round only at display time. Test required per unit-bearing field.
+
+**Fix:**
+
+See the spec file for the full design — field descriptor with `measureType` / `inverted` / `currency` / `perDay` / `displayUnit` flags, render-path conversion, save-path inverse conversion, unit-label composition, migration 027 for the bale-ring rename, BACKUP_MIGRATIONS[26] entry, and round-trip unit test.
+
+**Files affected:**
+
+- `src/features/settings/index.js` — rewrite `renderFarmSection` render + save paths to use the unit-aware descriptor.
+- `src/entities/farm-setting.js` — rename bale-ring field everywhere.
+- `src/features/observations/paddock-card.js` — update field reference + inline cm → ft conversion for the BRC-1 calc.
+- `src/utils/units.js` — optional `convertInverted()` helper (or inline the divide).
+- `src/i18n/locales/en.json` — new keys for unit labels + bale-ring label.
+- `src/data/backup-migrations.js` — `26` entry for ft → cm rename.
+- `supabase/migrations/027_bale_ring_diameter_to_cm.sql` — new, write + run + verify.
+- `tests/unit/settings-unit-roundtrip.test.js` — new.
+- `tests/unit/paddock-card.test.js` — fixture rename.
+- `V2_SCHEMA_DESIGN.md §1.3`, `V2_MIGRATION_PLAN.md §5.3` — rename column in docs.
+- `OPEN_ITEMS.md` (OI-0107/OI-0110 acceptance mentions), `UI_SPRINT_SPEC.md`, `GH-12_survey-sheet-v1-parity.md`, `observation-boxes-redesign.md` — find/replace field name in text references.
+
+**Acceptance criteria:**
+
+- [ ] Every unit-bearing field in `renderFarmSection` displays converted to the user's unit system with a unit-suffixed label.
+- [ ] Every unit-bearing field converts back to metric on save; metric storage is never rounded or truncated.
+- [ ] Round-trip test passes for every field (entered value = displayed value after save + reload, at the field's display precision).
+- [ ] `baleRingResidueDiameterFt` renamed to `baleRingResidueDiameterCm` everywhere; migration 027 applied and verified (`information_schema.columns` confirms only `_cm` column exists).
+- [ ] BACKUP_MIGRATIONS[26] converts old `_ft` backups to `_cm` on import.
+- [ ] Imperial user sees `1000 lbs` / `4 in` as defaults and typing those stores `453.592...` kg / `10.16` cm.
+- [ ] Metric user behavior unchanged from today (values shown and stored in metric, now with unit-suffixed labels).
+- [ ] `npx vitest run` clean.
+
+**CP-55/CP-56 impact:** **yes** — `farm_settings.bale_ring_residue_diameter_ft` is renamed to `_cm`. CP-55 export picks up the new column automatically via `toSupabaseShape()`. CP-56 import must migrate old backups: `BACKUP_MIGRATIONS[26]` renames the field and multiplies by 30.48. No other column changes. `%`/day fields do not impact backup because their stored values are unchanged.
+
+**Schema change:** yes — migration 027 renames `farm_settings.bale_ring_residue_diameter_ft` to `bale_ring_residue_diameter_cm`, converts stored values × 30.48, sets default 365.76, drops the old column. `schema_version` bumps to 27.
+
+**Related:**
+- **OI-0050** — broken store-call param counts in the same settings file (different bug class, same file).
+- **OI-0053** — migrations committed but never executed; reinforces the write-+-run-+-verify rule for migration 027 here.
+- **OI-0106** — PostgREST numeric coercion sweep; farm-setting numerics were coerced there. Orthogonal to this UI bug (coercion fine; display/save wrong).
+- **GH-3** — unit_system migration to operations; confirm settings UI reads the unit system from `operations.unit_system`, not from `user_preferences`.
+
+---
+
+### OI-0113 — Sunset `event_observations` table (migration 021): zero writers after OI-0112 ships; deprecate + drop or keep frozen
+**Added:** 2026-04-18 | **Area:** v2-build / schema / observations / cleanup | **Priority:** P3 (no user-visible harm; pure hygiene — an empty table in every backup and a phantom entity in the codebase)
+**Checkpoint:** defer until OI-0112 ships and merges. Not in the `SESSION_BRIEF_2026-04-18_observation-boxes-redesign.md` bundle — follow-up after the observation boxes work lands and we confirm no callers slip through.
+
+**Status:** open — DECISION REQUIRED before implementation. Two options documented below; Tim picks.
+
+**What's wrong:** Migration 021 (`supabase/migrations/021_create_event_observations.sql`) created the `event_observations` table intended as a phase-aware sibling of `paddock_observations` (with `observation_phase = 'pre_graze' | 'post_graze'`). A codebase audit on 2026-04-18 confirmed **zero writers** exist — every observation surface in v2 writes to `paddock_observations` via `type: 'open' | 'close'` and `source: 'event' | 'survey'`. The `event_observations` entity (`src/entities/event-observation.js`), table, columns, and RLS policies are dead weight. Once OI-0112 (Observation Boxes Redesign) ships, this stays true permanently — the spec locks all seven observation surfaces onto `paddock_observations`.
+
+**Why this happened:** OI-0063 (closed) added columns to `event_observations` to align it with `paddock_observations` so either table could serve the observation role. The convergence decision landed the other way (on `paddock_observations`) during the 2026-04-18 design session — `type` + `source` + phase-agnostic `recovery_min_days/max_days` already covered pre-graze, post-graze, and survey shapes without needing a second table.
+
+**Two options:**
+
+**Option A — deprecate + drop (clean cut).** Migration 028: `DROP TABLE event_observations CASCADE;`. Drop the entity file. Drop the table from `BACKUP_TABLES` + `FK_ORDER` in backup-export.js / backup-import.js. Add `BACKUP_MIGRATIONS[27]` entry that discards any `event_observations` rows in older backups (should be empty in practice — no writers ever shipped). Schema_version 27 → 28. V2_SCHEMA_DESIGN.md §5.8 removed. V2_MIGRATION_PLAN.md §5.3 + §5.3a updated.
+
+**Option B — keep frozen (defensive).** Leave the table in schema, entity, and backup pipeline. Add a SQL `REVOKE INSERT ON event_observations FROM ... ` and a CHECK constraint that effectively blocks new rows. Rationale: if we ever want to re-separate observation tables for scale/access reasons, the column inventory is preserved. Cost: every backup carries an empty table forever; every new dev has to ask "what's this for?"
+
+**Recommendation:** Option A. The symmetry argument for keeping the table is weak — `paddock_observations` with `source: 'event'` is semantically identical. Zero writers × zero readers × zero historical rows = no value in preservation.
+
+**Files affected (Option A):**
+
+- `supabase/migrations/028_drop_event_observations.sql` — new; `DROP TABLE event_observations CASCADE;` plus `UPDATE operations SET schema_version = 28;`
+- `src/entities/event-observation.js` — delete
+- `src/data/backup-export.js` — remove from `BACKUP_TABLES`
+- `src/data/backup-import.js` — remove from `FK_ORDER`; bump `CURRENT_SCHEMA_VERSION = 28`
+- `src/data/backup-migrations.js` — `27: (b) => { delete b.event_observations; b.schema_version = 28; return b; }`
+- `V2_SCHEMA_DESIGN.md §5.8` — remove section
+- `V2_MIGRATION_PLAN.md §5.3` / §5.3a — remove table from lists
+- `tests/unit/data/backup-roundtrip.test.js` — remove `event_observations` fixture cases
+- Grep for any stragglers: `grep -rn "event_observations\|eventObservations\|EventObservation" src/` — should be zero after deletion
+
+**Acceptance criteria (Option A):**
+
+- [ ] Migration 028 applied and verified via `SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'event_observations';` returns 0
+- [ ] Zero matches for `event_observations` / `eventObservations` / `EventObservation` in `src/` after the commit
+- [ ] `schema_version` is 28 after OI-0112 ships (OI-0112 doesn't bump; only this OI does)
+- [ ] Backup taken before this OI round-trips cleanly through CP-55/CP-56 with `event_observations` rows discarded (expected empty anyway)
+- [ ] `npx vitest run` clean
+
+**CP-55/CP-56 impact:** yes — `event_observations` removed from `BACKUP_TABLES` / `FK_ORDER`; `BACKUP_MIGRATIONS[27]` discards the key for older backups. Low-risk because no real data has ever landed in the table.
+
+**Schema change:** yes — migration 028 drops `event_observations` + RLS policies (CASCADE handles dependencies). Bumps `schema_version` 27 → 28.
+
+**Ordering with OI-0111:** OI-0111 ships migration 027 (bale-ring rename). This OI ships migration 028. Strict ordering: OI-0111 before OI-0112 before OI-0113. If OI-0113 ships before OI-0112, any lingering event_observations writer (theoretical — the audit found none) would start crashing at migration-run time.
+
+**Related:**
+- **OI-0063** — shipped the column alignment that made this table redundant. Closed.
+- **OI-0087** — added `event_observations` to the backup pipeline. Closed. This OI un-adds it.
+- **OI-0089** — V2_SCHEMA_DESIGN.md §5.8 added. Closed. This OI removes that section.
+- **OI-0112** — Observation Boxes Redesign. Prerequisite — must ship first. This OI is the tail-end cleanup.
+
+---
+
+### OI-0112 — Observation Boxes Redesign (umbrella): three unified card variants (Pre-Graze / Post-Graze / Survey) migrate all seven observation surfaces onto `paddock_observations`
+**Added:** 2026-04-18 | **Area:** v2-build / observations / events / surveys / ui / big-bang | **Priority:** P1 (UX + consistency across seven surfaces; absorbs OI-0107 + OI-0110 and extends both to add post-graze and survey variants)
+**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_observation-boxes-redesign.md` alongside OI-0108 / OI-0109 / OI-0111 (bale-ring rename runs first). Ship as a single commit so visual rollout is consistent across all seven surfaces.
+
+**Status:** open — spec ready for handoff. Spec file: `github/issues/observation-boxes-redesign.md`. Interactive design mockup: `/sessions/happy-dreamy-keller/mnt/App Migration Project/pre-graze-box-mockup.html` (three variants side-by-side, live BRC preview, chip picker, anchored slider).
+
+**What's wrong:** The current `renderPaddockCard` (OI-0100) ships a correct field set but a poor layout — tall single-column stack, native select for condition, unlabeled quality slider, two separate recovery fields. Tim's field testing on 2026-04-18 flagged: (a) the move wizard pre-graze UI is "not good," (b) Sub-move Open is missing bale-ring/quality/condition/notes (OI-0110), (c) Event Detail pre-graze is missing the same fields (OI-0107), (d) no surface collects post-graze notes today. The old `renderPreGrazeFields` / `renderPostGrazeFields` helpers in `src/features/events/observation-fields.js` are minimal-height+cover only. The Survey sheet uses a hand-rolled inline form.
+
+**Why a unified redesign (not seven one-offs):** seven surfaces, same content needs, same write path — divergence is the bug. Also: post-graze needs a Notes field that doesn't exist today (no schema change — `paddock_observations.notes` already present and phase-agnostic); Survey needs pre-graze fields **plus** recovery window (readiness forecast), which requires its own dedicated variant shape.
+
+**Three card variants (full contract in spec file):**
+
+- **Pre-Graze Observations** — compact top row (Height · Cover · Residual Bale Rings with inline `≈ XX% cover` preview chip), Relative Forage Quality slider with Poor/Fair/Good/Excellent anchors + color-graded track, Forage Condition chip group (4 chips, single-select with deselect), Notes.
+- **Post-Graze Observations** — Residual Height (compact top row), Recovery Window (`Min – Max days`), Notes (new capability).
+- **Survey Observations** — Variant A's fields + Recovery Window + Notes (no separate post-graze survey variant; surveys are readiness assessments, both pieces needed together).
+
+Header treatment (all three): title + `Optional` / `Required` pill. Required only renders on Pre-Graze and Survey when `farmSettings.recoveryRequired === true`.
+
+**Write path (all seven surfaces):** `paddock_observations` only. `type: 'open'` for pre-graze and survey; `type: 'close'` for post-graze. `source: 'event'` for event-originated; `source: 'survey'` for survey-originated. Recovery columns (`recovery_min_days/max_days`) are phase-agnostic and already accept values on either `type` row — no schema change needed. Covers both individual survey sheet and bulk survey entry (one card per paddock in bulk mode).
+
+**Seven surfaces migrated in one commit:**
+
+| # | Surface | File | Current | Replace with |
+|---|---|---|---|---|
+| 1 | Move wizard destination | `src/features/events/move-wizard.js` ~387–399 | `renderPaddockCard` | `renderPreGrazeCard` |
+| 2 | Move wizard source | `src/features/events/move-wizard.js` ~350–353 | `renderPostGrazeFields` | `renderPostGrazeCard` |
+| 3 | Close Event sheet | `src/features/events/close.js` ~117–120 | `renderPostGrazeFields` | `renderPostGrazeCard` |
+| 4 | Sub-move Open sheet (absorbs OI-0110) | `src/features/events/submove.js` ~64–67 | minimal `renderPreGrazeFields` | `renderPreGrazeCard` |
+| 5 | Sub-move Close sheet | `src/features/events/submove.js` ~150–182 | `renderPostGrazeFields` | `renderPostGrazeCard` |
+| 6 | Survey draft entry (individual + bulk) | `src/features/surveys/index.js` ~297–372 | inline hand-rolled form | `renderSurveyCard` |
+| 7 | Event detail pre/post panels (absorbs OI-0107) | `src/features/events/detail.js` around pre/post display blocks | read-only display | editable `renderPreGrazeCard` + `renderPostGrazeCard`, one per paddock window |
+
+**Files affected:**
+
+- **New:** `src/features/observations/pre-graze-card.js`, `post-graze-card.js`, `survey-card.js`, `_shared.js` (sub-renderers for forage-state row, slider, chips, recovery row, notes, BRC helper — internal DRY).
+- **Delete after migration:** `src/features/observations/paddock-card.js` (renderPaddockCard becomes dead code — its one caller is migrated to `renderPreGrazeCard`); `src/features/events/observation-fields.js` (renderPreGrazeFields / renderPostGrazeFields become dead code). Verify no remaining imports via grep before deleting.
+- **Modified:** all seven caller files in the table above.
+- **Tests:** unit tests per card variant + `_shared.js`; caller smoke tests for sub-move, event detail, survey; E2E tests per CLAUDE.md §"E2E Testing — Verify Supabase, Not Just UI" — fill pre-graze card on a move destination → save → assert `paddock_observations` row has every field; same for sub-move, survey (individual + bulk).
+
+**Acceptance criteria (excerpt — full list in spec file):**
+
+- [ ] All three variants render per mockup with compact top row, anchor-labeled slider, chip condition picker, inline BRC preview chip.
+- [ ] BRC-1 auto-fill: typing a ring count with `baleRingResidueDiameter` + `paddockAcres` populates Forage Cover via `src/calcs/survey-bale-ring.js`.
+- [ ] Required validation: pre-graze and survey block save if height or cover is empty when `farmSettings.recoveryRequired === true`; post-graze always saves.
+- [ ] All seven surfaces render the correct card variant, with the correct write mapping (`type` / `source`).
+- [ ] `renderPreGrazeFields` / `renderPostGrazeFields` / `renderPaddockCard` are deleted; no remaining imports (grep clean).
+- [ ] `npx vitest run` clean; all user-facing strings use `t()`; no `innerHTML` assignments with dynamic content.
+
+**CP-55/CP-56 impact:** **none.** Pure UI + caller migration. No new Supabase columns. No change to `paddock_observations` shape. Survey rows (pre-graze `type: 'open'` with `recovery_min_days/max_days` populated) are already valid against the existing schema.
+
+**Schema change:** none.
+
+**Dependency on OI-0111 (bale-ring field rename):** OI-0111 ships migration 027 renaming `farm_settings.bale_ring_residue_diameter_ft` → `bale_ring_residue_diameter_cm`. If OI-0111 ships first, this OI reads the new `baleRingResidueDiameterCm` and converts cm → ft inline before invoking the BRC-1 calc (which stays imperial-native). If this OI ships first, it uses the old `baleRingResidueDiameterFt` field and OI-0111 updates the reference when migration 027 lands. Either order works — implementation commit must flag which field name it targets.
+
+**Dependency blocker for OI-0113 (event_observations sunset):** OI-0113 drops the `event_observations` table in migration 028 after confirming zero writers. This OI's design locks "zero writers on `event_observations`" as a hard rule. OI-0113 must ship **after** OI-0112 merges.
+
+**Base doc impact:** GH-10 §5 Pre-graze Observations and §6 Post-graze Observations both need rewording after this ships — §5 describes one card per open paddock window with full field set; §6 parallels for closed windows + adds Notes. GH-12 §Survey Card updated for Recovery row inclusion. V2_UX_FLOWS.md §17.15 (Event Detail) and §Survey flows picked up at sprint reconciliation. UI_SPRINT_SPEC.md **SP-12** captures the revision.
+
+**Related:**
+- **OI-0100** — shipped `renderPaddockCard` (the component this spec supersedes). Closed.
+- **OI-0107** — Event Detail pre-graze migration. Superseded by this OI (Surface #7 pre-graze panel).
+- **OI-0110** — Sub-move Open pre-graze migration. Superseded by this OI (Surface #4).
+- **OI-0111** — Settings UI unit conversion + bale-ring rename. Runs first if possible; either ship order works.
+- **OI-0113** — Sunset `event_observations` table. Depends on this OI shipping first.
+- **GH-10 / SP-2** — Event Detail spec; §5 and §6 underspecified the post-graze editability + Notes. This OI fills the gap.
+- **GH-12 / SP-9** — Survey Sheet v1 parity; source of the paddock card design lineage.
+
+---
+
 ### OI-0110 — Sub-move Open sheet pre-graze: swap `renderPreGrazeFields` for the shared paddock card (bale-ring helper + forage quality + condition chips missing today)
 **Added:** 2026-04-18 | **Area:** v2-build / events / submove / observations / ui | **Priority:** P1 (same-class-of-gap as OI-0107 — Tim hit this during field testing immediately after trying the sub-move flow: no bale-ring helper, no numeric quality slider, no condition chips)
-**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_event-detail-quick-access.md` alongside OI-0107 / OI-0108 / OI-0109. Ship as a single commit with OI-0107 — both are `renderPaddockCard` adoptions with identical change shape.
+**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_observation-boxes-redesign.md` alongside OI-0107 / OI-0108 / OI-0109 / OI-0112 / OI-0113.
 
-**Status:** open — spec ready for handoff. Spec file: `github/issues/submove-open-pregraze-paddock-card.md`.
+**Status:** SUPERSEDED by OI-0112 (Observation Boxes Redesign). This OI's scope — Sub-move Open sheet rendering the full pre-graze paddock card — is absorbed into OI-0112 as **Surface #4 (Sub-move Open)**. Sub-move Close is also migrated in the same work (**Surface #5**). Writes go to `paddock_observations` (not `event_observations` as the original OI-0110 spec targeted — that's the OI-0113 sunset). The authoritative spec for implementation is `github/issues/observation-boxes-redesign.md`. Kept open here for traceability — close when OI-0112 ships.
+
+**Previous status:** open — spec ready for handoff. Spec file: `github/issues/submove-open-pregraze-paddock-card.md` (retained for historical context; do not implement from this file — use the umbrella spec instead).
 
 **What's wrong:** `src/features/events/submove.js:66` calls `renderPreGrazeFields(farmSettings)` — the minimal height + cover-only version from `observation-fields.js:34`. It's missing:
 
@@ -203,9 +386,11 @@ During implementation, confirm that the Deliver Feed sheet (`openDeliverFeedShee
 
 ### OI-0107 — Event Detail pre-graze: swap the inline fields for the shared paddock card, one card per open paddock window (enables bale-ring helper + full survey-card fields)
 **Added:** 2026-04-18 | **Area:** v2-build / events / detail view / observations / ui | **Priority:** P1 (gap vs v1 + vs OI-0100 — Tim wants the same paddock assessment fields on event detail that the move wizard pre-graze now has; bale-ring helper is the primary UX win that's missing here)
-**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_event-detail-quick-access.md` alongside OI-0108 / OI-0109 / OI-0110. Ship as a single commit with OI-0110 — both are `renderPaddockCard` adoptions with identical change shape.
+**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_observation-boxes-redesign.md` alongside OI-0108 / OI-0109 / OI-0110 / OI-0112 / OI-0113.
 
-**Status:** open — spec ready for handoff. Spec file: `github/issues/event-detail-pregraze-paddock-card.md`.
+**Status:** SUPERSEDED by OI-0112 (Observation Boxes Redesign). This OI's scope — Event Detail §5 pre-graze rendering the shared paddock card, one per open paddock window — is absorbed into OI-0112 as **Surface #7 (pre-graze panel)** with the same "one card per window" shape. The post-graze panel also becomes editable in the same work. The authoritative spec for implementation is `github/issues/observation-boxes-redesign.md`. Kept open here for traceability — close when OI-0112 ships.
+
+**Previous status:** open — spec ready for handoff. Spec file: `github/issues/event-detail-pregraze-paddock-card.md` (retained for historical context; do not implement from this file — use the umbrella spec instead).
 
 **What's wrong:** Event Detail §5 Pre-graze Observations (`src/features/events/detail.js:554–705` `renderPreGraze`) is today a single event-wide card with four inline fields: forage height, forage cover % (with slider), forage quality, condition chips. It does NOT include:
 
@@ -2724,6 +2909,8 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-18 | Observation boxes redesign — big-bang unification across 7 surfaces | **OI-0112 added** (P1, umbrella): three card variants (Pre-Graze / Post-Graze / Survey) replace the current `renderPaddockCard` + `renderPreGrazeFields` + `renderPostGrazeFields` + inline survey form across all seven observation surfaces. Pure UI + caller migration; zero schema change. Writes converge on `paddock_observations` (`type: 'open' \| 'close'` + `source: 'event' \| 'survey'`). Post-graze gains Notes (new capability, existing column). Survey is a dedicated third variant (pre-graze fields + Recovery Window + Notes) — readiness-assessment shape. Full spec `github/issues/observation-boxes-redesign.md`; interactive mockup `App Migration Project/pre-graze-box-mockup.html`. **OI-0113 added** (P3, follow-up): sunset `event_observations` table (migration 021, zero writers) — Option A recommended (migration 028 drop + BACKUP_MIGRATIONS[27] entry). Must ship AFTER OI-0112 merges. **OI-0107 + OI-0110 marked SUPERSEDED** — their scopes absorbed as Surfaces #7 and #4 of OI-0112; kept open for traceability, close when OI-0112 ships. **UI_SPRINT_SPEC.md SP-12 added** tracking the revision (supersedes SP-3 bottom-row + GH-10 §5/§6 post-graze editability). Dependency order locked: **OI-0111 → OI-0112 → OI-0113** (bale-ring rename, then card redesign, then event_observations drop). Session brief `github/issues/SESSION_BRIEF_2026-04-18_observation-boxes-redesign.md` bundles OI-0108 (Feed DMI → DM label) + OI-0109 (Dashboard 3-button row) + OI-0112 umbrella for Claude Code handoff. Design session: three Q+A lock-ins (write path → post-graze scope → big-bang migration order + survey addendum) resolved all open scope questions before spec write. CP-55/CP-56 impact for OI-0112: none; for OI-0113: yes (removes `event_observations` from BACKUP_TABLES/FK_ORDER, BACKUP_MIGRATIONS[27] discards legacy rows). |
+| 2026-04-18 | Settings UI unit-conversion bug discovered during live use | **OI-0111 added** (P0, silent data corruption). Tim opened Settings, saw `454` in "AU Reference Weight" and `10` in "Default Residual Height", assumed the metric values were wrong for his imperial operation, and changed them to `1000` and `4`. Root cause: `src/features/settings/index.js` `renderFarmSection` (lines 97–172) renders raw metric values with no conversion on render and no conversion on save — and labels carry no unit suffix. Violates CLAUDE.md Known Traps "Unit confusion: always store metric, display converted" and mirrors the v1 "UI field without Supabase column" trap at the conversion layer. Scope: every unit-bearing field in the settings form (`defaultAuWeightKg`, `defaultResidualHeightCm`, `nPricePerKg`/`pPricePerKg`/`kPricePerKg` — inverted conversion for price-per-weight, `defaultManureRateKgPerDay`, `baleRingResidueDiameterFt`). Per Tim's direction this session, the bale-ring field is renamed to metric storage as part of the fix — migration 027 `bale_ring_residue_diameter_ft → bale_ring_residue_diameter_cm` (× 30.48, default 12.0 ft → 365.76 cm, drops old column), `schema_version` 26 → 27, `BACKUP_MIGRATIONS[26]` handles old backups. Precision rule locked: store full JS-float precision from `convert()`; round only at display time; round-trip test per unit-bearing field must show entered imperial value unchanged after save + reload. Calc `src/calcs/survey-bale-ring.js` stays imperial-native; callers convert cm → ft inline. Full spec `github/issues/BUG_settings-ui-unit-conversion.md`. CP-55/CP-56 impact captured (farm_settings column rename only; no other state-shape changes). Immediate recovery instruction for Tim: manually re-enter `454` and `10` in Settings before the fix ships. |
 | 2026-04-18 | OI-0106 base-doc reconciliation | After OI-0106 closed and Claude Code updated CLAUDE.md Known Traps, audited Cowork-owned design docs for parity. Two gaps found and closed. **V2_APP_ARCHITECTURE.md** — the entity contract appeared only as a one-line comment in the §3 File Structure code block (line 82). Added new **§3.1 Entity Contract** describing all five required exports (`FIELDS`, `create`, `validate`, `toSupabaseShape`, `fromSupabaseShape`) and, critically, spelling out `fromSupabaseShape`'s dual responsibility: (a) reverse the key mapping, (b) coerce PostgREST-stringified numerics via `row.col != null ? Number(row.col) : null`. Enumerates the four harm classes (string concat in sums, `.toFixed` TypeError, strict `typeof` validator silent-rejection, lex threshold comparisons) with `event-observation.js` as the reference implementation. **V2_INFRASTRUCTURE.md §6.1** — expanded the entity shape-function test pattern from a single local round-trip to a two-test pattern: (a) local round-trip for key mapping, (b) PostgREST pull simulation with stringified numerics asserting `typeof === 'number'`. Flags that the local round-trip alone does NOT catch PostgREST-string bugs because it routes through local objects that were never PostgREST-serialized. **OI-0103 reconciliation audit** — no base doc changes needed; V2_SCHEMA_DESIGN.md's `event_feed_checks.date` column was always spec'd correctly — the bug was code drifting from spec (`checkDate:` typo) in `src/features/feed/check.js`. Change Log rows added to both V2_APP_ARCHITECTURE.md and V2_INFRASTRUCTURE.md. No schema change, no CP-55/CP-56 impact, no `schema_version` bump. Close-out of the OI-0103 → OI-0106 chain: code ✓, CLAUDE.md ✓, Cowork-owned design docs ✓. |
 | 2026-04-18 | OI-0106 shipped — PostgREST stringified-numeric sweep (three-commit bundle) | Tier 1 `43d46b2`, Tier 2 `33c6add`, Tier 3 `caada42` (GH-15). Structural follow-up to OI-0103's `d55ba9b` hotfix. Every entity's `fromSupabaseShape` now coerces numeric/integer columns via `Number(v)` null-safe. **Tier 1** (6 entities, 33 fields — dashboard/feed/DMI hot path): batch, event-group-window, animal-weight-record, farm-setting (16 threshold/default/price cols), location, animal-class. **Tier 2** (9 entities, ~45 fields — reports + specific flows): event-paddock-window (strip-graze band), paddock-observation, survey-draft-entry, forage-type, feed-type, batch-nutritional-profile (12 lab cols), harvest-event-field, animal-bcs-score, batch-adjustment. **Tier 3** (10 entities, 75 fields — nutrient/cost math): soil-test (18 chemistry cols), manure-batch (15 nutrient cols), manure-batch-transaction, input-product (13 pct + cost), amendment, amendment-location (14 cols), npk-price-history, spreader, animal-treatment, farm. **Four harm classes removed:** (1) silent math corruption via concat ("0"+"1"+"2"="012"), (2) `.toFixed()` TypeError on strings, (3) strict typeof-number validator silent-rejection in `add()`/`update()` (blocked `batch.js`, `batch-adjustment.js`, `harvest-event-field.js`, `npk-price-history.js`, `event-group-window.js`), (4) lex comparisons on threshold badges ("100" < "60" lex-true, numeric-false — dashboard AUD/rotation/cost/NPK badges). **Tests:** 33 new (8 Tier 1 round-trip + 9 Tier 2 + 10 Tier 3 + 3 mergeRemote integration on batch path + 3 pre-OI-0106 backup round-trip cases in `backup-roundtrip.test.js`). Suite 969 → 1002. **CP-56 audit:** `backup-import.js:402` calls `pullAllRemote()` which routes every reinserted row through `fromSupabaseShape` — every entity now coerces, so post-import in-memory state is guaranteed numeric. No defensive wraps needed at import time. No backup-JSON wire-format change, no `schema_version` bump, no migration. **CLAUDE.md Known Traps** updated with new entry documenting the trap, four harm classes, reference pattern (`event-observation.js`), and round-trip-test requirement per new numeric column. GH-15 filed + closed; spec file renamed `BUG_` → `GH-15_`. Root-cause framing (same as OI-0050, OI-0103): silent data corruption invisible to the user until someone checks downstream state. |
 | 2026-04-18 | OI-0099 shipped — Edit Animal silent-drop inputs complete fix | Commit `b584138` (GH-14). All four silent-drop inputs closed in one bundle per Tim's "no gaps" direction. **Migration 026** (`animals.confirmed_bred boolean NOT NULL DEFAULT false`) applied and verified via MCP; `schema_version` 25 → 26; `BACKUP_MIGRATIONS[25]` no-op chain entry; `CURRENT_SCHEMA_VERSION` bumped in backup-import.js. **Class A** — `damId` + `weaned` now read in `saveAnimal`; `weanedDate` auto-stamps on check, editable for back-date, clears on uncheck. **Class B sireTag** — freeform input replaced with three-mode picker (Animal-in-herd / AI-bull-from-list / None) with mutual exclusivity between `sireAnimalId` and `sireAiBullId`; inline "+ Add AI bull" sub-dialog creates an `ai_bulls` record via 5-param `add()` and selects it immediately (escape hatch for pre-app / historical / external bulls). **Class B confirmedBred** — direct stored boolean via new column; reverses A29's original "derive from breeding records" design. **Docs** — V2_SCHEMA_DESIGN.md §3.2 updated (new column row, A29 rewritten, A28 annotated with picker + `ai_bulls` v1-era-name note, CREATE TABLE DDL amended, Change Log row added). **v1-migration.js** preserves v1 `confirmedBred` when present. **CP-55** auto-picks `confirmed_bred` via `select('*')`; **CP-56** missing-column fallback resolves to `false`. **969 tests pass** — 4 new entity cases (default, round-trip, missing-column fallback, sire FK mutual-exclusivity), 5 new Edit Animal dialog integration cases (four-input persistence, sire mode switch, None clears, weaned-off clears date, inline Add AI bull creates row + selects), new e2e `edit-animal-silent-drop-inputs.spec.js` asserting Supabase rows directly per CLAUDE.md rule. Param-count grep verified (5-param `add()` / 6-param `update()`). Spec file renamed to `github/issues/GH-14_edit-animal-silent-drop-inputs.md`; GH issue #14 closed with commit hash. |

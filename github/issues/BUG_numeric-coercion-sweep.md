@@ -68,6 +68,13 @@ Null-safe. Default to `null` (not `0`) when the column is null so `validate()` s
 
 **Scope-limiting note from Claude Code's hotfix writeup:** "Worth flagging as a separate OI for a sweep across all numeric entity reads — grep for numeric sbColumn types in entities without `Number(...)` wrappers. I'll leave the sweep out of this hotfix unless you want it now." That sweep is this issue.
 
-**CP-55/CP-56 impact:** none schema-wise. BUT backups taken before `d55ba9b` may contain stringified numerics; CP-56 file-upload import path must be audited. Claude Code should confirm the re-pull via `pullAllRemote` runs through the (now-coercing) `fromSupabaseShape` and add an explicit test case for a backup JSON with stringified numerics.
+**CP-55/CP-56 impact:** none on the backup-JSON wire format; post-import in-memory state is what changes (it gets *better*, not worse).
+
+- **CP-55 (export)** reads raw PostgREST rows directly (`backup-export.js:188` writes `supabase.from(table).select('*')` output straight into `tables[tableName]`). PostgREST returns `numeric` columns as strings, so **every backup JSON — old and new — contains stringified numerics**. OI-0106 is a pull-side coercion fix; CP-55 output is byte-identical before and after the sweep for the same Supabase data.
+- **CP-56 (import)** inserts JSON rows into Supabase (PostgreSQL silently accepts strings for `numeric` columns) and then re-pulls via `pullAllRemote()` (`backup-import.js:402`), which routes through `fromSupabaseShape`. *Before OI-0106*: post-import in-memory state has stringified numerics — same trap as a normal pull. *After OI-0106*: post-import in-memory state is guaranteed numeric.
+- **`BACKUP_MIGRATIONS` chain** is all structural (add table / column / enum rewrite); no arithmetic on numeric fields → unaffected.
+- **`tests/unit/backup-roundtrip.test.js`** — already modified on the working tree for OI-0099 Class B4. After OI-0106 lands, some fields flip from string → number on the post-import side. Re-verify the assertion shape (prefer positive `typeof === 'number'` checks) and add a fixture case with stringified numerics in the backup JSON to prove the round-trip normalises to numbers in memory.
+
+**Spec-sync rule:** wire format + schema_version + column list all unchanged → no CP-55/CP-56 spec update needed by the letter of the CLAUDE.md rule. Flagged here anyway so a future dev sees the reasoning.
 
 **Schema change:** none.

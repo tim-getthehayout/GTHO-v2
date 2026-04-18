@@ -29,6 +29,27 @@ export function getLiveWindowHeadCount(gw, { memberships, now }) {
   return memberships.filter(m => isMembershipLive(m, gw.groupId, now)).length;
 }
 
+/**
+ * OI-0095 helper: return the single currently-open event_paddock_window for
+ * a (locationId, eventId) pair, or null. Used by calcs/renders that need
+ * "what area_pct is in force right now" without scanning every window.
+ *
+ * Pure — requires the `paddockWindows` array to be passed in. Callers threading
+ * through fresh store state (e.g., dashboard/index.js, locations/index.js)
+ * should `getAll('eventPaddockWindows')` and pass that array.
+ *
+ * @param {string} locationId
+ * @param {string} eventId
+ * @param {Array} paddockWindows
+ * @returns {object|null}
+ */
+export function getOpenPwForLocation(locationId, eventId, paddockWindows) {
+  if (!locationId || !eventId || !paddockWindows) return null;
+  return paddockWindows.find(
+    pw => pw.locationId === locationId && pw.eventId === eventId && !pw.dateClosed,
+  ) || null;
+}
+
 export function getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now }) {
   if (gw.dateLeft != null) return gw.avgWeightKg ?? 0;
   if (!memberships || !animals || !now) return gw.avgWeightKg ?? 0;

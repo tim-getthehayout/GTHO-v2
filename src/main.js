@@ -2,6 +2,7 @@
 /** @file Application entry point — boot sequence per V2_APP_ARCHITECTURE.md */
 
 import { init as initStore, setSyncAdapter } from './data/store.js';
+import { closePaddockWindowOrphans } from './data/one-time-fixes.js';
 import { CustomSync } from './data/custom-sync.js';
 import { pullAllRemote } from './data/pull-remote.js';
 import { loadLocale } from './i18n/i18n.js';
@@ -210,6 +211,12 @@ async function showApp(app) {
     await syncAdapter.flush();
     await pullAllRemote();
   }
+
+  // OI-0095 Part B: one-time app-side paddock-window orphan cleanup.
+  // Guarded by a per-device localStorage flag — runs once, no-op thereafter.
+  // Must run after store init + initial pull so the scan sees current data;
+  // the helper writes through the normal store → sync path.
+  closePaddockWindowOrphans();
 
   // Migrate legacy unit system from localStorage to operation (A44)
   migrateUnitSystemFromLocalStorage();

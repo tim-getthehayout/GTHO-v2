@@ -289,6 +289,37 @@ Future triggers (wean, reweigh OI-0065, per-group move OI-0066) plug into the sa
 
 **Grep contract:** no direct `gw.headCount` / `gw.avgWeightKg` reads in `src/features/**` or `src/calcs/**` outside the helpers module and the entity shape layer (closed-window render paths and form pre-population are allowed — closed snapshots are authoritative). No direct `update` / `insert` on `event_group_windows` outside `splitGroupWindow` / `closeGroupWindow` except for these narrow cases: (a) **new-window creation with no prior** — create-event flow (`src/features/events/index.js`), §7 Add group (`src/features/events/group-windows.js`), move-wizard destination creation (`src/features/events/move-wizard.js`), retro-place historical gap fill (`src/features/events/retro-place.js`); (b) **explicit user correction** in the per-row Edit dialog (`src/features/events/edit-group-window.js`) — closed-window snapshot or any-window `dateJoined` / `dateLeft`; (c) **selective reopen** (`src/features/events/reopen-event.js`) — clears `dateLeft` on windows returned by `classifyGwsForReopen`. Violations are a pre-commit failure.
 
+### 4.4b Paddock-Side Window-Split (OI-0095)
+
+The same principle applies to `event_paddock_window`: a paddock window is a **period of stable placement state** on an event. `locationId`, `areaPct`, `isStripGraze`, `stripGroupId`, and `noPasture` are constant over the window's lifetime by definition. Unlike group windows there is no live-recompute source — `areaPct` is a farmer's plan, not a derivation — so both the closing and opening rows carry a stored snapshot. When state changes (strip advance, strip-size re-plan mid-event, strip-graze toggled on/off), the current open window closes with its prior state intact (historical truth) and a new window opens with the new state stamped in.
+
+**Rule of thumb (paddock-side):** *every change to `areaPct`, `isStripGraze`, `stripGroupId`, or `noPasture` on an open window splits the window. Direct `update()` on those columns on an open window is a bug.* `dateOpened` / `timeOpened` / `dateClosed` / `timeClosed` remain directly editable — they are the window's own bounds, not state that splits it.
+
+Entry points:
+
+- `splitPaddockWindow(locationId, eventId, changeDate, changeTime, newState)` — `src/data/store.js`. Closes current open PW, opens a new PW with `newState` overriding the prior state. Logs warn and no-ops if no open PW exists for the pair.
+- `closePaddockWindow(locationId, eventId, closeDate, closeTime)` — `src/data/store.js`. Terminal close; no new window. Used by move-wizard close loop and event-close close loop.
+- `getOpenPwForLocation(locationId, eventId, paddockWindows)` — `src/calcs/window-helpers.js`. Returns the single currently-open PW for the pair, or null. Render/calc paths that need "what `areaPct` is in force right now" read through this helper instead of iterating windows.
+
+**Paddock entry-point table (authoritative as of OI-0095):**
+
+| Flow | File | Helper / path |
+|------|------|---------------|
+| Advance Strip | `src/features/events/submove.js` | `closePaddockWindow` for the close half + direct `add()` for the open half (the UI exposes distinct close/open dates, so a single `splitPaddockWindow` call doesn't fit) |
+| Edit paddock window — OPEN, `areaPct` or `isStripGraze` changed | `src/features/events/edit-paddock-window.js` | `splitPaddockWindow` |
+| Edit paddock window — OPEN, `dateOpened` / `timeOpened` only | `src/features/events/edit-paddock-window.js` | direct `update()` (metadata edit, not a state change) |
+| Edit paddock window — CLOSED | `src/features/events/edit-paddock-window.js` | direct `update()` (historical-correction escape hatch) |
+| Edit paddock window — Reopen | `src/features/events/edit-paddock-window.js` | direct `update({ dateClosed: null })` with same-paddock overlap guard against other open PWs |
+| Move wizard close loop | `src/features/events/move-wizard.js` | `closePaddockWindow` |
+| Close event close-all loop | `src/features/events/close.js` | `closePaddockWindow` |
+| Create Event initial window | `src/features/events/index.js` | direct `add()` (new window, no prior to split) |
+| Quick Move new-event window | `src/features/events/index.js` | direct `add()` |
+| Event reopen | `src/features/events/reopen-event.js` | `classifyPwsForReopen` selects which PWs to reopen; direct `update({ dateClosed: null })` on the approved set |
+
+Future triggers (paddock swap within event, per-group strip reassignment, OI-0065 reweigh's paddock-side interactions) plug into the same entry points.
+
+**Grep contract (paddock):** no `areaPct: 100` literal reads in `src/features/**` (test files excluded). No direct `update('eventPaddockWindows', ...)` in `src/features/**` mutating `areaPct`, `isStripGraze`, or `stripGroupId` on open windows except inside `splitPaddockWindow` itself. Allowed exceptions: (a) new-window creation (`add('eventPaddockWindows', ...)` in create-event, Quick Move, Advance Strip's open-half, move-wizard destination, `splitPaddockWindow` internal); (b) the Edit paddock window dialog's closed-window historical-correction path; (c) the Edit paddock window dialog's metadata-only update (`dateOpened` / `timeOpened`) on open windows; (d) reopen's selective `dateClosed: null` clears on `classifyPwsForReopen`-approved PWs.
+
 ---
 
 ## 5. Sync Layer — Pluggable SyncAdapter
@@ -523,6 +554,7 @@ One canonical name per concept. Grep must work. No aliases.
 | 2026-04-14 | Tier 3 migration testing — OI-0055 | New §5.5: Backup/Import/Export architecture covering CP-55/CP-56/CP-57. Documents FK_ORDER, TWO_PASS_TABLES, REFERENCE_TABLES, uniform operation_id delete/parity pattern, and the 10-step import flow. |
 | 2026-04-18 | OI-0091 event window split | New §4.4: Window-Split on State Change pattern. `event_group_window` is a period of stable state; state changes (cull/move/wean/event-close) close the current window with live values stamped and open a new window. Render and calc paths read through `getLiveWindowHeadCount` / `getLiveWindowAvgWeight` helpers — open windows recompute live, closed windows use stored snapshots. Ships with OI-0073 orphan cleanup (migration 025) as a coordinated P0 package. |
 | 2026-04-18 | OI-0094 state-change entry point completeness | §4.4 expanded with the authoritative 13-entry-point table. Ten additional flows now route through `splitGroupWindow` / `closeGroupWindow` (Edit Group checkboxes, Edit Animal group change, Group Weights, Split Group, calving, §7 Add, §7 Remove, §7 per-row Edit view-only-on-open, Delete window confirm, Event reopen summary). `classifyGwsForReopen` added to reopen-event for keep-closed-vs-reopen partitioning. Ships with OI-0093 (Animals bulk action bar removal) which eliminates one of the originally-eleven entry points. |
+| 2026-04-18 | OI-0095 paddock-window split architecture | New §4.4b: paddock-side analog of the group-window split. Adds `splitPaddockWindow` + `closePaddockWindow` store helpers and `getOpenPwForLocation` calc helper. Every paddock-window state-change entry point routes through the helpers (Advance Strip, edit-paddock-window on open, move-wizard close loop, event-close close loop). `classifyPwsForReopen` added alongside `classifyGwsForReopen` so the reopen summary dialog classifies both sides. Hardcoded `areaPct: 100` literals in dashboard + locations replaced with `getOpenPwForLocation(...)?.areaPct ?? 100`. One-time app-side orphan cleanup (`src/data/one-time-fixes.js`) runs once per device via localStorage flag — no schema change, no CP-55/CP-56 impact. |
 
 ---
 

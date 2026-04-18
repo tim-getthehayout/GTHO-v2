@@ -354,7 +354,10 @@ function buildLocationCard(loc, operationId, farmId, unitSys) {
     const for1 = getCalcByName('FOR-1');
     if (for1) {
       const residual = forageType.minResidualHeightCm ?? 5;
-      const dmAvail = for1.fn({ forageHeightCm: latestObs.forageHeightCm, residualHeightCm: residual, areaHectares: loc.areaHa, areaPct: 100, coverPct: latestObs.forageCoverPct ?? 80, dmKgPerCmPerHa: forageType.dmKgPerCmPerHa ?? 110 });
+      // OI-0095: prefer the areaPct of the currently-open PW on this location (if any) over a literal 100.
+      const openPwForArea = epws.find(pw => { const evt = getById('events', pw.eventId); return evt && !evt.dateOut; });
+      const areaPctForCalc = openPwForArea?.areaPct ?? 100;
+      const dmAvail = for1.fn({ forageHeightCm: latestObs.forageHeightCm, residualHeightCm: residual, areaHectares: loc.areaHa, areaPct: areaPctForCalc, coverPct: latestObs.forageCoverPct ?? 80, dmKgPerCmPerHa: forageType.dmKgPerCmPerHa ?? 110 });
       const dmLbs = fmtNum(convert(dmAvail, 'weight', 'toImperial'));
       const auds = (dmAvail / 11).toFixed(0);
       const heightDisplay = display(latestObs.forageHeightCm, 'length', unitSys, 1);

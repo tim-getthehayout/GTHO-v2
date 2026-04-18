@@ -1,6 +1,6 @@
 /** @file Tests for window-helpers — OI-0091. */
 import { describe, it, expect } from 'vitest';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../src/calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, getOpenPwForLocation } from '../../src/calcs/window-helpers.js';
 
 const GW = {
   id: 'gw-1',
@@ -102,5 +102,41 @@ describe('getLiveWindowAvgWeight', () => {
     const animalWeightRecords = [{ animalId: 'a1', weightKg: 999, date: '2026-05-01' }];
     const result = getLiveWindowAvgWeight(GW, { memberships, animals, animalWeightRecords, now: '2026-04-10' });
     expect(result).toBe(450);
+  });
+});
+
+describe('getOpenPwForLocation', () => {
+  const EVT = 'e1';
+  const LOC = 'l1';
+
+  it('returns the open PW when present', () => {
+    const pws = [
+      { id: 'pw-0', eventId: EVT, locationId: LOC, dateClosed: '2026-04-10' },
+      { id: 'pw-1', eventId: EVT, locationId: LOC, dateClosed: null },
+    ];
+    const result = getOpenPwForLocation(LOC, EVT, pws);
+    expect(result.id).toBe('pw-1');
+  });
+
+  it('returns null when every PW for this (loc,event) is closed', () => {
+    const pws = [
+      { id: 'pw-0', eventId: EVT, locationId: LOC, dateClosed: '2026-04-10' },
+      { id: 'pw-1', eventId: EVT, locationId: LOC, dateClosed: '2026-04-20' },
+    ];
+    expect(getOpenPwForLocation(LOC, EVT, pws)).toBeNull();
+  });
+
+  it('ignores other locations and other events', () => {
+    const pws = [
+      { id: 'pw-a', eventId: 'e2', locationId: LOC, dateClosed: null },
+      { id: 'pw-b', eventId: EVT, locationId: 'l2', dateClosed: null },
+    ];
+    expect(getOpenPwForLocation(LOC, EVT, pws)).toBeNull();
+  });
+
+  it('returns null on missing args', () => {
+    expect(getOpenPwForLocation(null, EVT, [])).toBeNull();
+    expect(getOpenPwForLocation(LOC, null, [])).toBeNull();
+    expect(getOpenPwForLocation(LOC, EVT, null)).toBeNull();
   });
 });

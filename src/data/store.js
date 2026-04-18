@@ -5,6 +5,7 @@ import { validate as validateOperation, toSupabaseShape as operationToSb } from 
 import { validate as validateUserPref, toSupabaseShape as userPrefToSb } from '../entities/user-preference.js';
 import * as GroupWindowEntity from '../entities/event-group-window.js';
 import * as GroupEntity from '../entities/group.js';
+import * as PaddockWindowEntity from '../entities/event-paddock-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../calcs/window-helpers.js';
 import { logger } from '../utils/logger.js';
 
@@ -661,6 +662,94 @@ export function maybeSplitForGroup(groupId, changeDate) {
   splitGroupWindow(groupId, openGW.eventId, changeDate, null, {
     headCount: liveHead, avgWeightKg: liveAvg,
   });
+}
+
+// --- OI-0095: Event Paddock Window Split on State Change ---
+
+function findOpenPaddockWindow(locationId, eventId) {
+  return state.eventPaddockWindows.find(
+    w => w.locationId === locationId && w.eventId === eventId && !w.dateClosed,
+  );
+}
+
+/**
+ * Close the current open event_paddock_window for (locationId, eventId) by
+ * stamping dateClosed / timeClosed. No new window opens. Terminal close path
+ * used by event-close and move-wizard close loops.
+ *
+ * @param {string} locationId
+ * @param {string} eventId
+ * @param {string} closeDate   ISO date (YYYY-MM-DD)
+ * @param {string|null} closeTime  HH:mm:ss or null
+ * @returns {{ closedId: string|null }}
+ */
+export function closePaddockWindow(locationId, eventId, closeDate, closeTime) {
+  const openPW = findOpenPaddockWindow(locationId, eventId);
+  if (!openPW) {
+    logger.warn('store', 'closePaddockWindow: no open window found', { locationId, eventId });
+    return { closedId: null };
+  }
+  update(
+    'eventPaddockWindows', openPW.id,
+    { dateClosed: closeDate, timeClosed: closeTime },
+    PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows',
+  );
+  return { closedId: openPW.id };
+}
+
+/**
+ * Split the current open event_paddock_window on a state change: close it at
+ * changeDate with its existing areaPct / isStripGraze / stripGroupId snapshot
+ * intact (historical truth), then open a new window carrying newState.
+ *
+ * Accepts any of { areaPct, isStripGraze, stripGroupId, noPasture } in newState;
+ * fields not provided fall back to the closing row's values.
+ *
+ * @param {string} locationId
+ * @param {string} eventId
+ * @param {string} changeDate   ISO date
+ * @param {string|null} changeTime  HH:mm:ss or null
+ * @param {{ areaPct?: number, isStripGraze?: boolean, stripGroupId?: string|null, noPasture?: boolean }} newState
+ * @returns {{ closedId: string|null, newId: string|null }}
+ */
+export function splitPaddockWindow(locationId, eventId, changeDate, changeTime, newState) {
+  const openPW = findOpenPaddockWindow(locationId, eventId);
+  if (!openPW) {
+    logger.warn('store', 'splitPaddockWindow: no open window found', { locationId, eventId });
+    return { closedId: null, newId: null };
+  }
+
+  // Close current window (snapshot preserved intact — dateClosed only).
+  update(
+    'eventPaddockWindows', openPW.id,
+    { dateClosed: changeDate, timeClosed: changeTime },
+    PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows',
+  );
+
+  // Open new window with newState overriding the closing row's state.
+  const next = {
+    areaPct: newState && newState.areaPct !== undefined ? newState.areaPct : openPW.areaPct,
+    isStripGraze: newState && newState.isStripGraze !== undefined ? newState.isStripGraze : openPW.isStripGraze,
+    stripGroupId: newState && newState.stripGroupId !== undefined ? newState.stripGroupId : openPW.stripGroupId,
+    noPasture: newState && newState.noPasture !== undefined ? newState.noPasture : openPW.noPasture,
+  };
+  const newPW = PaddockWindowEntity.create({
+    operationId: openPW.operationId,
+    eventId,
+    locationId,
+    dateOpened: changeDate,
+    timeOpened: changeTime,
+    areaPct: next.areaPct,
+    isStripGraze: next.isStripGraze,
+    stripGroupId: next.stripGroupId,
+    noPasture: next.noPasture,
+  });
+  add(
+    'eventPaddockWindows', newPW,
+    PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows',
+  );
+
+  return { closedId: openPW.id, newId: newPW.id };
 }
 
 // --- OI-0090 / SP-11: Group archive / reactivate ---

@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, closeGroupWindow } from '../../data/store.js';
+import { getAll, getById, add, update, closeGroupWindow, closePaddockWindow } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { logger } from '../../utils/logger.js';
 import { maybeShowEmptyGroupPrompt } from '../animals/empty-group-prompt.js';
@@ -491,13 +491,10 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       }
     }
 
-    // Step 2: Close all open paddock windows
+    // Step 2: Close all open paddock windows (OI-0095: route through closePaddockWindow)
     const sourcePWs = getAll('eventPaddockWindows').filter(w => w.eventId === sourceEvent.id && !w.dateClosed);
     for (const pw of sourcePWs) {
-      update('eventPaddockWindows', pw.id, {
-        dateClosed: dateOut,
-        timeClosed: timeOut,
-      }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+      closePaddockWindow(pw.locationId, sourceEvent.id, dateOut, timeOut);
       createObservation(operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
         postGraze ? postGraze.getValues() : {});
     }

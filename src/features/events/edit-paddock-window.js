@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, update, remove } from '../../data/store.js';
+import { getAll, getById, update, remove, splitPaddockWindow } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 
 let editPwSheet = null;
@@ -66,6 +66,13 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
       el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [stripCheck, 'Strip graze']),
     ]),
   ]));
+  if (!isClosed) {
+    // OI-0095: editing area_pct / is_strip_graze on an open window splits the window so
+    // the prior area is preserved as historical truth.
+    panel.appendChild(el('div', { className: 'form-hint', style: { fontSize: '11px', color: 'var(--text2)', marginBottom: 'var(--space-3)' } }, [
+      'Saving creates a new window from today forward. The prior area is preserved in the grazing history.',
+    ]));
+  }
 
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
@@ -74,6 +81,8 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
     clear(statusEl);
     const newDateOpened = dateOpenedInput.value;
     const newDateClosed = dateClosedInput?.value || null;
+    const newAreaPct = parseInt(areaPctInput.value, 10) || 100;
+    const newIsStrip = stripCheck.checked;
 
     // Range guards
     if (!newDateOpened) { statusEl.appendChild(el('span', {}, ['Date opened is required'])); return; }
@@ -94,18 +103,46 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
       }
     }
 
-    const changes = {
-      dateOpened: newDateOpened,
-      timeOpened: timeOpenedInput.value || null,
-      areaPct: parseInt(areaPctInput.value, 10) || 100,
-      isStripGraze: stripCheck.checked,
-    };
-    if (isClosed) {
-      changes.dateClosed = newDateClosed;
-      changes.timeClosed = timeClosedInput?.value || null;
+    // OI-0095: on an OPEN window, if areaPct / isStripGraze changed, route through
+    // splitPaddockWindow so the prior state is preserved as historical truth. Metadata
+    // edits (dateOpened, timeOpened) stay as direct update(). On a CLOSED window, direct
+    // update() is the historical-correction escape hatch for all fields.
+    if (!isClosed) {
+      const stateChanged = (newAreaPct !== (pw.areaPct ?? 100)) || (newIsStrip !== !!pw.isStripGraze);
+      if (stateChanged) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const newState = { areaPct: newAreaPct, isStripGraze: newIsStrip };
+        if (newIsStrip && !pw.isStripGraze) {
+          // Turning strip-graze on: fresh stripGroupId
+          newState.stripGroupId = crypto.randomUUID();
+        } else if (!newIsStrip && pw.isStripGraze) {
+          // Turning strip-graze off: clear stripGroupId, reset areaPct to 100 unless explicitly set
+          newState.stripGroupId = null;
+        }
+        splitPaddockWindow(pw.locationId, event.id, todayStr, null, newState);
+      }
+      // Apply metadata-only changes (dateOpened/timeOpened) to the window the farmer
+      // is editing. If a split fired, pw.id is the closed row now; the metadata edit
+      // on the closed row is still legitimate (farmer may correct the dateOpened of
+      // the original window).
+      const metaChanges = {
+        dateOpened: newDateOpened,
+        timeOpened: timeOpenedInput.value || null,
+      };
+      if (metaChanges.dateOpened !== pw.dateOpened || metaChanges.timeOpened !== pw.timeOpened) {
+        update('eventPaddockWindows', pw.id, metaChanges, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+      }
+    } else {
+      const changes = {
+        dateOpened: newDateOpened,
+        timeOpened: timeOpenedInput.value || null,
+        areaPct: newAreaPct,
+        isStripGraze: newIsStrip,
+        dateClosed: newDateClosed,
+        timeClosed: timeClosedInput?.value || null,
+      };
+      update('eventPaddockWindows', pw.id, changes, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
     }
-
-    update('eventPaddockWindows', pw.id, changes, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
     editPwSheet.close();
   }
 
@@ -124,6 +161,16 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
   if (isClosed) {
     panel.appendChild(el('div', { style: { marginTop: '10px' } }, [
       el('button', { className: 'btn btn-outline btn-sm', style: { width: '100%' }, onClick: () => {
+        // OI-0095: same-paddock overlap guard — block if any OTHER PW on this location
+        // is currently open (any event). Prevents two overlapping open windows on the
+        // same paddock.
+        const sameLocationOpen = getAll('eventPaddockWindows').find(w =>
+          w.locationId === pw.locationId && w.id !== pw.id && !w.dateClosed,
+        );
+        if (sameLocationOpen) {
+          window.alert('Cannot reopen — this paddock has an open window on another event. Close that first.');
+          return;
+        }
         if (!window.confirm(`Reopen ${locName} on this event? Animals will be recorded as on this paddock from ${pw.dateOpened} with no end date.`)) return;
         update('eventPaddockWindows', pw.id, { dateClosed: null, timeClosed: null }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
         editPwSheet.close();

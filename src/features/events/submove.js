@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update } from '../../data/store.js';
+import { getAll, getById, add, update, closePaddockWindow } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import { createObservation, renderLocationPicker } from './index.js';
 import { getFarmSettings, renderPreGrazeFields, renderPostGrazeFields } from './observation-fields.js';
@@ -172,10 +172,13 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
         const pgv = postGraze.validate();
         if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
         try {
-          update('eventPaddockWindows', paddockWindow.id, {
-            dateClosed: inputs.dateClosed.value,
-            timeClosed: inputs.timeClosed.value || null,
-          }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          // OI-0095: terminal close — route through closePaddockWindow.
+          closePaddockWindow(
+            paddockWindow.locationId,
+            paddockWindow.eventId,
+            inputs.dateClosed.value,
+            inputs.timeClosed.value || null,
+          );
           createObservation(paddockWindow.operationId, paddockWindow.locationId, 'close', paddockWindow.id, new Date().toISOString(), postGraze.getValues());
           submoveCloseSheet.close();
         } catch (err) {
@@ -278,12 +281,19 @@ export function openAdvanceStripSheet(evt, operationId) {
       onClick: () => {
         clear(statusEl);
         try {
-          // Close current strip window
-          update('eventPaddockWindows', openStrip.id, {
-            dateClosed: inputs.dateClosed.value,
-            timeClosed: inputs.timeClosed.value || null,
-          }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-          createObservation(operationId, openStrip.locationId, 'close', openStrip.id, new Date().toISOString());
+          // OI-0095: Advance Strip is the architectural exemplar for paddock splits.
+          // Route the close through closePaddockWindow so the helper contract is uniform;
+          // the open half uses add() directly because this UI lets the farmer enter
+          // distinct close/open dates (e.g., strip grazing with a gap between strips).
+          const { closedId } = closePaddockWindow(
+            openStrip.locationId,
+            evt.id,
+            inputs.dateClosed.value,
+            inputs.timeClosed.value || null,
+          );
+          if (closedId) {
+            createObservation(operationId, openStrip.locationId, 'close', closedId, new Date().toISOString());
+          }
 
           // Open next strip window
           const nextPW = PaddockWindowEntity.create({
@@ -311,11 +321,13 @@ export function openAdvanceStripSheet(evt, operationId) {
       onClick: () => {
         clear(statusEl);
         try {
-          // Close current strip without opening next
-          update('eventPaddockWindows', openStrip.id, {
-            dateClosed: inputs.dateClosed.value,
-            timeClosed: inputs.timeClosed.value || null,
-          }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+          // OI-0095: terminal close (end strip graze early) — route through closePaddockWindow.
+          closePaddockWindow(
+            openStrip.locationId,
+            evt.id,
+            inputs.dateClosed.value,
+            inputs.timeClosed.value || null,
+          );
           createObservation(operationId, openStrip.locationId, 'close', openStrip.id, new Date().toISOString());
           advanceStripSheet.close();
         } catch (err) {

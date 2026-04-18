@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, closeGroupWindow } from '../../data/store.js';
+import { getAll, getById, add, update, closeGroupWindow, closePaddockWindow } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
@@ -203,13 +203,10 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
       }
     }
 
-    // 2. Close all open paddock windows + create close observations
+    // 2. Close all open paddock windows + create close observations (OI-0095: helper)
     const openPWs = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
     for (const pw of openPWs) {
-      update('eventPaddockWindows', pw.id, {
-        dateClosed: dateOut,
-        timeClosed: timeOut,
-      }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+      closePaddockWindow(pw.locationId, evt.id, dateOut, timeOut);
       createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
         postGraze ? postGraze.getValues() : {});
     }

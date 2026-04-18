@@ -1013,9 +1013,13 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     const residualCm = forageType?.minResidualHeightCm ?? 5;
     const dmPerCmPerHa = forageType?.dmKgPerCmPerHa ?? 110;
     const coverPct = obs.forageCoverPct ?? 80;
+    // OI-0095: read areaPct from the open PW instead of hard-coded 100. For multi-paddock
+    // events we fall back to 100 because combined areaHa already sums the paddocks; a
+    // single effective areaPct doesn't cleanly represent per-paddock variation.
+    const areaPctForCalc = openPws.length === 1 ? (primaryPw?.areaPct ?? 100) : 100;
     availableDmKg = for1.fn({
       forageHeightCm: obs.forageHeightCm, residualHeightCm: residualCm,
-      areaHectares: totalAreaHa, areaPct: 100, coverPct, dmKgPerCmPerHa: dmPerCmPerHa,
+      areaHectares: totalAreaHa, areaPct: areaPctForCalc, coverPct, dmKgPerCmPerHa: dmPerCmPerHa,
     });
     if (for2) estAuds = for2.fn({ availableDmKg, dmPerAudKg: 11 });
     if (for3 && dailyDmiKg > 0) daysRemaining = for3.fn({ availableDmKg, groupDmiKgPerDay: dailyDmiKg });

@@ -1,11 +1,16 @@
-/** @file Entity: events — V2_SCHEMA_DESIGN.md §5.1 */
+/** @file Entity: events — V2_SCHEMA_DESIGN.md §5.1
+ *
+ * OI-0117: event start datetime is DERIVED from the earliest child window
+ * (`event_paddock_windows.date_opened` / `event_group_windows.date_joined`).
+ * Columns `date_in` and `time_in` were dropped in migration 028. Use
+ * `getEventStart(eventId)` / `getEventStartDate(eventId)` from
+ * `src/features/events/event-start.js` to read the start datetime.
+ */
 
 export const FIELDS = {
   id:           { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId:  { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
   farmId:       { type: 'uuid',        required: true,  sbColumn: 'farm_id' },
-  dateIn:       { type: 'date',        required: true,  sbColumn: 'date_in' },
-  timeIn:       { type: 'text',        required: false, sbColumn: 'time_in' },
   dateOut:      { type: 'date',        required: false, sbColumn: 'date_out' },
   timeOut:      { type: 'text',        required: false, sbColumn: 'time_out' },
   sourceEventId: { type: 'uuid',       required: false, sbColumn: 'source_event_id' },
@@ -19,8 +24,6 @@ export function create(data = {}) {
     id: data.id ?? crypto.randomUUID(),
     operationId: data.operationId ?? null,
     farmId: data.farmId ?? null,
-    dateIn: data.dateIn ?? null,
-    timeIn: data.timeIn ?? null,
     dateOut: data.dateOut ?? null,
     timeOut: data.timeOut ?? null,
     sourceEventId: data.sourceEventId ?? null,
@@ -34,7 +37,6 @@ export function validate(record) {
   const errors = [];
   if (!record.operationId) errors.push('operationId is required');
   if (!record.farmId) errors.push('farmId is required');
-  if (!record.dateIn) errors.push('dateIn is required');
   return { valid: errors.length === 0, errors };
 }
 
@@ -43,8 +45,6 @@ export function toSupabaseShape(record) {
     id: record.id,
     operation_id: record.operationId,
     farm_id: record.farmId,
-    date_in: record.dateIn,
-    time_in: record.timeIn,
     date_out: record.dateOut,
     time_out: record.timeOut,
     source_event_id: record.sourceEventId,
@@ -59,8 +59,6 @@ export function fromSupabaseShape(row) {
     id: row.id,
     operationId: row.operation_id,
     farmId: row.farm_id,
-    dateIn: row.date_in,
-    timeIn: row.time_in,
     dateOut: row.date_out,
     timeOut: row.time_out,
     sourceEventId: row.source_event_id,

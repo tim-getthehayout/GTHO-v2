@@ -9,6 +9,13 @@
  *   sharing the same date.
  * - edit: batch is locked to the entry's batch; only date + qty editable.
  *   Save updates the row + adjusts batch.remaining by the delta.
+ *
+ * OI-0117 note on `event.dateIn` reads below: `events.date_in` was dropped
+ * from Supabase in migration 028. These pure validators accept an event-like
+ * object `{ dateIn, dateOut }` — callers must supply `dateIn` as the DERIVED
+ * event start (from `getEventStart()` / `getEventStartDate()`), not a stored
+ * column. The field name is retained for ergonomic consistency across the
+ * form surface; the value provenance changed.
  */
 
 import { el, clear } from '../../ui/dom.js';

@@ -27,6 +27,7 @@ import { openEditPaddockWindowDialog } from './edit-paddock-window.js';
 import { reopenEvent } from './reopen-event.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { openEditFeedCheckDialog } from './edit-feed-check.js';
+import { getEventStart, setEventStart } from './event-start.js';
 import {
   renderInlineFeedForm,
   openAddMode as openFeedFormAdd,
@@ -232,7 +233,11 @@ function renderSummary(ctx) {
 
   const unitSys = getUnitSystem();
   const todayStr = new Date().toISOString().slice(0, 10);
-  const dayCount = daysBetweenInclusive(event.dateIn, event.dateOut || todayStr);
+  // OI-0117: event start is derived from the earliest child window.
+  const eventStart = getEventStart(ctx.eventId);
+  const eventDateIn = eventStart?.date || null;
+  const eventTimeIn = eventStart?.time || null;
+  const dayCount = eventDateIn ? daysBetweenInclusive(eventDateIn, event.dateOut || todayStr) : 0;
 
   // Head count and weight from group windows (OI-0091: live recompute for open windows)
   const memberships = getAll('animalGroupMemberships');
@@ -294,7 +299,7 @@ function renderSummary(ctx) {
   heroTokens.push(`${auValue.toFixed(1)} AU`);
 
   // Sub-line
-  const dateInStr = formatShortDate(event.dateIn);
+  const dateInStr = eventDateIn ? formatShortDate(eventDateIn) : '\u2014';
   const dateOutStr = event.dateOut ? formatShortDate(event.dateOut) : '\u2014';
 
   el2.appendChild(el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
@@ -304,66 +309,71 @@ function renderSummary(ctx) {
     el('div', { style: { fontSize: '13px', color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } }, [
       'In ',
       (() => {
-        // OI-0115: capture the render-time value so phantom `change` events
-        // fired during teardown (e.g. a parallel `renderSummary` triggered by
-        // `notify('eventPaddockWindows')` on sub-move Save, replacing this
-        // input in the DOM while a native date picker is implicitly focused
-        // on iOS Safari) cannot overwrite `event.dateIn` with whatever the
-        // browser's picker had as its default value.
-        const renderedDateIn = event.dateIn || '';
+        // OI-0115/OI-0117: capture the render-time value so phantom `change`
+        // events fired during teardown cannot write garbage. Writes go through
+        // `setEventStart()` which updates the earliest child window rather
+        // than a stored `events.date_in` column (dropped in migration 028).
+        const renderedDateIn = eventDateIn || '';
         const dateInInput = el('input', { type: 'date', value: renderedDateIn, style: { fontSize: '13px', padding: '2px 4px', border: '0.5px solid var(--border2)', borderRadius: '4px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', width: '130px' } });
-        dateInInput.addEventListener('change', () => {
+        dateInInput.addEventListener('change', async () => {
           // Guard 1: the element was torn down by a re-render. Ignore the
-          // phantom change — the new input (with the correct value from the
-          // current store) is now authoritative.
+          // phantom change — the new input (with the correct derived value
+          // from the current store) is now authoritative.
           if (!dateInInput.isConnected) return;
           const newDate = dateInInput.value;
           if (!newDate) return;
           // Guard 2: the value hasn't actually changed from the render-time
-          // snapshot. A phantom change with the same value is benign but a
-          // phantom change with a DIFFERENT value (e.g. today's date from a
-          // dismissed native picker) is the OI-0115 corruption vector. Only
-          // proceed when there's a real user-driven edit.
+          // snapshot. Only a real user-driven edit should proceed.
           if (newDate === renderedDateIn) return;
-          const evt = getById('events', ctx.eventId);
-          // Guard 3: the store's current value already matches what the user
-          // typed — a no-op update that only risks re-firing subscribers.
-          if (newDate === evt?.dateIn) return;
-          // Reject-on-narrow: check if any child record has date_joined < new date_in
-          const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === ctx.eventId);
-          const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId);
-          const earlyPw = pws.find(pw => pw.dateOpened < newDate);
-          const earlyGw = gws.find(gw => gw.dateJoined < newDate);
-          if (earlyPw || earlyGw) {
-            const name = earlyPw ? (getById('locations', earlyPw.locationId)?.name || 'a paddock') : (getById('groups', earlyGw.groupId)?.name || 'a group');
-            window.alert(`Cannot move event start to ${newDate}. ${name} joined on ${earlyPw?.dateOpened || earlyGw?.dateJoined}, which is before the new start date. Edit that record first.`);
-            dateInInput.value = evt.dateIn;
+          // Guard 3: the store's current derived value already matches what
+          // the user typed — no-op update that would only re-fire subscribers.
+          const currentStart = getEventStart(ctx.eventId);
+          if (newDate === (currentStart?.date || '')) return;
+          const result = await setEventStart(ctx.eventId, newDate, currentStart?.time ?? null, {
+            confirm: (names) => window.confirm(
+              `Moving the event start will also update these windows with the same opening time: ${names.join(', ')}. Continue?`
+            ),
+          });
+          if (result.blockedBy) {
+            window.alert(`Cannot move event start to ${newDate}. "${result.blockedBy.name}" opened on ${result.blockedBy.date}${result.blockedBy.time ? ' ' + result.blockedBy.time : ''}, which is before the new start. Edit that window first.`);
+            dateInInput.value = renderedDateIn;
             return;
           }
-          update('events', ctx.eventId, { dateIn: newDate }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+          if (result.cancelled) {
+            dateInInput.value = renderedDateIn;
+          }
         });
         return dateInInput;
       })(),
       (() => {
-        // OI-0116: sibling time input for event.time_in. Same three OI-0115
-        // teardown guards verbatim — a phantom change fired during a parent
-        // re-render's clear() must not write garbage to the store. Interim
-        // direct-writer until OI-0117 switches both inputs to write-through
-        // on the earliest child window.
-        const renderedTimeIn = event.timeIn || '';
+        // OI-0116/OI-0117: sibling time input. Same teardown guards; writes
+        // now go through `setEventStart()` rather than a stored column.
+        const renderedTimeIn = eventTimeIn || '';
         const timeInInput = el('input', { type: 'time', value: renderedTimeIn, placeholder: 'HH:MM', 'data-testid': 'detail-time-in', style: { fontSize: '13px', padding: '2px 4px', border: '0.5px solid var(--border2)', borderRadius: '4px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', width: '90px' } });
-        timeInInput.addEventListener('change', () => {
+        timeInInput.addEventListener('change', async () => {
           // Guard 1: teardown. Phantom change after DOM removal is ignored.
           if (!timeInInput.isConnected) return;
           const raw = timeInInput.value;
-          // Empty string → null (spec acceptance #5 — normalize, don't store "").
+          // Empty string → null (normalize, don't store "").
           const newTime = raw === '' ? null : raw;
           // Guard 2: render-time snapshot identity (phantom no-op).
           if ((newTime ?? '') === renderedTimeIn) return;
-          const evt = getById('events', ctx.eventId);
-          // Guard 3: already matches the store.
-          if ((newTime ?? null) === (evt?.timeIn ?? null)) return;
-          update('events', ctx.eventId, { timeIn: newTime }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+          // Guard 3: already matches the store's derived time.
+          const currentStart = getEventStart(ctx.eventId);
+          if ((newTime ?? null) === (currentStart?.time ?? null)) return;
+          const result = await setEventStart(ctx.eventId, currentStart?.date ?? null, newTime, {
+            confirm: (names) => window.confirm(
+              `Moving the event start time will also update these windows with the same opening date: ${names.join(', ')}. Continue?`
+            ),
+          });
+          if (result.blockedBy) {
+            window.alert(`Cannot move event start time. "${result.blockedBy.name}" opened on ${result.blockedBy.date}${result.blockedBy.time ? ' ' + result.blockedBy.time : ''}, which is before the new start. Edit that window first.`);
+            timeInInput.value = renderedTimeIn;
+            return;
+          }
+          if (result.cancelled) {
+            timeInInput.value = renderedTimeIn;
+          }
         });
         return timeInInput;
       })(),
@@ -406,6 +416,7 @@ function renderDmiChart(ctx) {
 function buildDmi8ChartData(ctx, dmi8, event) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const eventDateInForChart = getEventStart(event.id)?.date || null;
 
   // Gather event data for DMI-8
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId);
@@ -480,7 +491,10 @@ function buildDmi8ChartData(ctx, dmi8, event) {
         if (cls2) srcAc[gw.animalClassId] = { dmiPct: cls2.dmiPct, dmiPctLactating: cls2.dmiPctLactating };
       }
     }
-    sourceCtx = { event: srcEvt, gws: srcGws, fe: srcFe, fc: srcFc, fci: srcFci, pws: srcPws, obs: srcObs, ft: srcFt, loc: srcLoc, ac: srcAc };
+    // OI-0117: DMI-8 reads `event.dateIn` as a start-of-event cursor. The
+    // column is dropped, so decorate the event with the derived start here.
+    const srcEvtDecorated = { ...srcEvt, dateIn: getEventStart(srcEvt.id)?.date || null };
+    sourceCtx = { event: srcEvtDecorated, gws: srcGws, fe: srcFe, fc: srcFc, fci: srcFci, pws: srcPws, obs: srcObs, ft: srcFt, loc: srcLoc, ac: srcAc };
     return sourceCtx;
   }
 
@@ -491,7 +505,7 @@ function buildDmi8ChartData(ctx, dmi8, event) {
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().slice(0, 10);
 
-    if (dateStr < event.dateIn) {
+    if (eventDateInForChart && dateStr < eventDateInForChart) {
       // Source event bridge: use source event data for dates before this event
       const src = getSourceCtx();
       if (!src) continue;
@@ -511,7 +525,7 @@ function buildDmi8ChartData(ctx, dmi8, event) {
     const label = i === 0 ? `${dayName} \u2713` : dayName;
 
     const result = dmi8.fn({
-      event, date: dateStr, groupWindows: gws,
+      event: { ...event, dateIn: eventDateInForChart }, date: dateStr, groupWindows: gws,
       memberships, animals, animalWeightRecords,
       feedEntries, feedChecks,
       feedCheckItems, paddockWindows: pws, observations, forageTypes,
@@ -898,8 +912,12 @@ export function computeFeedEntryDm(quantity, batch, unitSys) {
 function renderFeedEntries(ctx) {
   const el2 = ctx.sections.feedEntries;
   clear(el2);
-  const event = getById('events', ctx.eventId);
-  if (!event) return;
+  const rawEvent = getById('events', ctx.eventId);
+  if (!rawEvent) return;
+  // OI-0117: feed-entry-inline-form's pure validators (clampDateToEvent,
+  // validateFeedEntryForm) read `event.dateIn`. Decorate with the derived
+  // start here so those pure functions keep their current shape.
+  const event = { ...rawEvent, dateIn: getEventStart(ctx.eventId)?.date || null };
 
   const isActive = !event.dateOut;
   const feedEntries = getAll('eventFeedEntries')
@@ -1148,7 +1166,7 @@ function renderDmiNpk(ctx) {
     let totalN = 0, totalP = 0, totalK = 0;
     for (const gw of gws) {
       const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
-      const days = daysBetweenInclusive(gw.dateJoined || event.dateIn, gw.dateLeft || event.dateOut || todayStr);
+      const days = daysBetweenInclusive(gw.dateJoined || getEventStart(event.id)?.date || todayStr, gw.dateLeft || event.dateOut || todayStr);
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
       const result = npk1.fn({
         headCount: live.head,

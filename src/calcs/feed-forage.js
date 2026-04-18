@@ -539,7 +539,7 @@ registerCalc({
   formula: 'See V2_CALCULATION_SPEC.md § DMI-8',
   source: 'V2_CALCULATION_SPEC.md §4.2',
   inputs: [
-    { name: 'event', type: 'object', unit: '{ id, dateIn, dateOut, sourceEventId }' },
+    { name: 'event', type: 'object', unit: '{ id, dateIn, dateOut, sourceEventId } — dateIn is the DERIVED event start (getEventStartDate); caller must decorate since events.date_in was dropped in migration 028 (OI-0117)' },
     { name: 'date', type: 'string', unit: 'YYYY-MM-DD' },
     { name: 'groupWindows', type: 'array', unit: '{ headCount, avgWeightKg, animalClassId, dateJoined, dateLeft }' },
     { name: 'memberships', type: 'array', unit: '{ groupId, animalId, dateJoined, dateLeft }' },

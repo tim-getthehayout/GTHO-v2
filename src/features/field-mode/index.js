@@ -15,6 +15,7 @@ import { openHarvestSheet } from '../harvest/index.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { openMoveWizard } from '../events/move-wizard.js';
+import { getEventStartDate } from '../events/event-start.js';
 import { openSurveySheet } from '../locations/index.js';
 import { openTodoSheet } from '../todos/todo-sheet.js';
 import { buildLocationCard } from '../dashboard/index.js';
@@ -488,7 +489,8 @@ function renderActiveEvents(container) {
     const locNames = pws.map(w => { const loc = getById('locations', w.locationId); return loc?.name || '?'; }).join(', ');
     const locAcres = pws.reduce((sum, w) => { const loc = getById('locations', w.locationId); return sum + (loc?.areaHa ? convert(loc.areaHa, 'area', 'toImperial') : 0); }, 0);
     const groupNames = gws.map(w => { const g = getById('groups', w.groupId); return g?.name || '?'; }).join(' \u00B7 ');
-    const dayCount = evt.dateIn ? daysBetweenInclusive(evt.dateIn, todayStr) : 0;
+    const evtStartDate = getEventStartDate(evt.id);
+    const dayCount = evtStartDate ? daysBetweenInclusive(evtStartDate, todayStr) : 0;
     const subMoves = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && w.dateClosed).length;
     const isExpanded = expandedEventId === evt.id;
 

@@ -12,7 +12,8 @@ import * as GroupWindowEntity from '../../src/entities/event-group-window.js';
 const OP = '00000000-0000-0000-0000-0000000000aa';
 const GROUP = '00000000-0000-0000-0000-0000000000bb';
 
-const mkEvent = (id, dateIn, dateOut) => ({ id, dateIn, dateOut });
+const mkEvent = (id, dateIn, dateOut) => ({ id, dateOut, _start: dateIn });
+const startMap = (events) => new Map(events.map(e => [e.id, e._start || null]));
 const mkGw = (overrides = {}) => GroupWindowEntity.create({
   operationId: OP,
   eventId: 'e1',
@@ -31,7 +32,7 @@ describe('retro-place: computeCandidateEvents', () => {
       mkEvent('c', '2026-04-01', '2026-04-30'), // entirely after
     ];
     const result = computeCandidateEvents({
-      sourceEventId: 'src', gapStart: '2026-03-10', gapEnd: '2026-03-20', allEvents: events,
+      sourceEventId: 'src', gapStart: '2026-03-10', gapEnd: '2026-03-20', allEvents: events, startByEventId: startMap(events),
     });
     expect(result.map(e => e.id)).toEqual(['a']);
   });
@@ -42,7 +43,7 @@ describe('retro-place: computeCandidateEvents', () => {
       mkEvent('a', '2026-03-01', '2026-03-31'),
     ];
     const result = computeCandidateEvents({
-      sourceEventId: 'src', gapStart: '2026-03-10', gapEnd: '2026-03-20', allEvents: events,
+      sourceEventId: 'src', gapStart: '2026-03-10', gapEnd: '2026-03-20', allEvents: events, startByEventId: startMap(events),
     });
     expect(result.map(e => e.id)).toEqual(['a']);
   });
@@ -53,7 +54,7 @@ describe('retro-place: computeCandidateEvents', () => {
       mkEvent('b', '2026-03-01', '2026-03-31'),
     ];
     const result = computeCandidateEvents({
-      sourceEventId: 'src', gapStart: '2026-03-10', gapEnd: '2026-03-20', allEvents: events,
+      sourceEventId: 'src', gapStart: '2026-03-10', gapEnd: '2026-03-20', allEvents: events, startByEventId: startMap(events),
     });
     expect(result.map(e => e.id)).toEqual(['b']);
   });
@@ -63,7 +64,7 @@ describe('retro-place: computeCandidateEvents', () => {
       mkEvent('a', '2026-04-01', '2026-04-30'),
     ];
     const result = computeCandidateEvents({
-      sourceEventId: 'src', gapStart: '2026-03-10', gapEnd: '2026-03-20', allEvents: events,
+      sourceEventId: 'src', gapStart: '2026-03-10', gapEnd: '2026-03-20', allEvents: events, startByEventId: startMap(events),
     });
     expect(result).toEqual([]);
   });

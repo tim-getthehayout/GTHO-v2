@@ -9,7 +9,7 @@
  *     store-identity) — phantom changes are no-ops
  *   - Legitimate edit still succeeds
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { _reset, add, update, getById } from '../../src/data/store.js';
 import * as OperationEntity from '../../src/entities/operation.js';
 import * as FarmEntity from '../../src/entities/farm.js';
@@ -27,6 +27,7 @@ import '../../src/calcs/capacity.js';
 import '../../src/calcs/advanced.js';
 import '../../src/calcs/survey-bale-ring.js';
 import { openEventDetailSheet, closeEventDetailSheet } from '../../src/features/events/detail.js';
+import { getEventStart } from '../../src/features/events/event-start.js';
 
 const OP = '00000000-0000-0000-0000-0000000000aa';
 const FARM = '00000000-0000-0000-0000-0000000000bb';
@@ -42,6 +43,9 @@ beforeEach(() => {
   _reset();
   localStorage.clear();
   document.body.innerHTML = '';
+  // setEventStart prompts via window.confirm when more than one tied window
+  // will move on a move-later; auto-accept in tests so writes proceed.
+  vi.stubGlobal('confirm', () => true);
   add('operations', OperationEntity.create({ id: OP, name: 'Op', unitSystem: 'imperial' }),
     OperationEntity.validate, OperationEntity.toSupabaseShape, 'operations');
   add('farms', FarmEntity.create({ id: FARM, operationId: OP, name: 'Farm' }),
@@ -52,19 +56,21 @@ beforeEach(() => {
     id: LOC, operationId: OP, farmId: FARM, name: 'G1',
     type: 'land', landUse: 'pasture', areaHectares: 2,
   }), LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+  // OI-0117: event no longer stores date_in/time_in — the anchor paddock
+  // window carries the start datetime via date_opened / time_opened.
   add('events', EventEntity.create({
     id: EVT, operationId: OP, farmId: FARM,
-    type: 'graze', dateIn: '2026-04-16', timeIn: '08:30', dateOut: null,
+    type: 'graze', dateOut: null,
   }), EventEntity.validate, EventEntity.toSupabaseShape, 'events');
   add('eventPaddockWindows', PaddockWindowEntity.create({
     id: PW, operationId: OP, eventId: EVT, locationId: LOC,
-    dateOpened: '2026-04-16', areaPct: 100,
+    dateOpened: '2026-04-16', timeOpened: '08:30', areaPct: 100,
   }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
   add('groups', GroupEntity.create({ id: GROUP, operationId: OP, farmId: FARM, name: 'Herd' }),
     GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
   add('eventGroupWindows', GroupWindowEntity.create({
     id: GW, operationId: OP, eventId: EVT, groupId: GROUP,
-    dateJoined: '2026-04-16', headCount: 10, avgWeightKg: 500,
+    dateJoined: '2026-04-16', timeJoined: '08:30', headCount: 10, avgWeightKg: 500,
   }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
 });
 
@@ -72,8 +78,12 @@ function findTimeInInput() {
   return document.querySelector('[data-testid="detail-time-in"]');
 }
 
-describe('OI-0116 — Event Detail hero line time_in input', () => {
-  it('renders the time input next to the date input with the store value', () => {
+async function flush() {
+  await Promise.resolve(); await Promise.resolve();
+}
+
+describe('OI-0116/OI-0117 — Event Detail hero line time input (derived + write-through)', () => {
+  it('renders the time input next to the date input with the derived child-window time', () => {
     openEventDetailSheet({ id: EVT }, OP, FARM);
     const timeInput = findTimeInInput();
     expect(timeInput).toBeTruthy();
@@ -82,71 +92,68 @@ describe('OI-0116 — Event Detail hero line time_in input', () => {
     closeEventDetailSheet();
   });
 
-  it('renders empty value when timeIn is null on the event row', () => {
-    // Replace the seed event with one that has no timeIn.
-    update('events', EVT, { timeIn: null }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+  it('renders empty value when the anchor paddock window has no timeOpened', () => {
+    update('eventPaddockWindows', PW, { timeOpened: null }, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
     openEventDetailSheet({ id: EVT }, OP, FARM);
     const timeInput = findTimeInInput();
     expect(timeInput.value).toBe('');
     closeEventDetailSheet();
   });
 
-  it('edit persists to the store on change', () => {
+  it('edit writes through to the earliest child paddock window timeOpened', async () => {
     openEventDetailSheet({ id: EVT }, OP, FARM);
     const timeInput = findTimeInInput();
     timeInput.value = '14:45';
     timeInput.dispatchEvent(new Event('change', { bubbles: true }));
-    const evt = getById('events', EVT);
-    expect(evt.timeIn).toBe('14:45');
+    await flush();
+    expect(getEventStart(EVT)?.time).toBe('14:45');
+    expect(getById('eventPaddockWindows', PW).timeOpened).toBe('14:45');
     closeEventDetailSheet();
   });
 
-  it('empty string clears to null (not ""), per spec acceptance #5', () => {
+  it('empty string clears child-window timeOpened to null (not "")', async () => {
     openEventDetailSheet({ id: EVT }, OP, FARM);
     const timeInput = findTimeInInput();
     timeInput.value = '';
     timeInput.dispatchEvent(new Event('change', { bubbles: true }));
-    const evt = getById('events', EVT);
-    expect(evt.timeIn).toBeNull();
+    await flush();
+    expect(getEventStart(EVT)?.time).toBeNull();
+    expect(getById('eventPaddockWindows', PW).timeOpened).toBeNull();
     closeEventDetailSheet();
   });
 
-  it('OI-0115 Guard 1: phantom change after DOM removal is a no-op', () => {
+  it('OI-0115 Guard 1: phantom change after DOM removal is a no-op', async () => {
     openEventDetailSheet({ id: EVT }, OP, FARM);
     const timeInput = findTimeInInput();
-    // Tear the input out of the DOM (models a parent re-render's clear()).
     timeInput.remove();
-    // Fire a late change with a different value — must not write.
     timeInput.value = '23:59';
     timeInput.dispatchEvent(new Event('change', { bubbles: true }));
-    const evt = getById('events', EVT);
-    expect(evt.timeIn).toBe('08:30');
+    await flush();
+    expect(getById('eventPaddockWindows', PW).timeOpened).toBe('08:30');
     closeEventDetailSheet();
   });
 
-  it('OI-0115 Guard 2: phantom change with render-time snapshot value is a no-op', () => {
+  it('OI-0115 Guard 2: phantom change with render-time snapshot value is a no-op', async () => {
     openEventDetailSheet({ id: EVT }, OP, FARM);
     const timeInput = findTimeInInput();
-    // Fire a change with the SAME value that was rendered (08:30). Must not
-    // re-fire update() and must not trigger subscriber thrashing.
     timeInput.dispatchEvent(new Event('change', { bubbles: true }));
-    const evt = getById('events', EVT);
-    expect(evt.timeIn).toBe('08:30');
+    await flush();
+    expect(getById('eventPaddockWindows', PW).timeOpened).toBe('08:30');
     closeEventDetailSheet();
   });
 
-  it('legitimate user edit still writes (fix does not break the happy path)', () => {
+  it('legitimate user edit still writes (fix does not break the happy path)', async () => {
     openEventDetailSheet({ id: EVT }, OP, FARM);
     const firstInput = findTimeInInput();
     firstInput.value = '07:15';
     firstInput.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(getById('events', EVT).timeIn).toBe('07:15');
-    // The events subscription re-rendered the summary — the prior input is
-    // detached. Re-query for the fresh one (real-user experience).
+    await flush();
+    expect(getById('eventPaddockWindows', PW).timeOpened).toBe('07:15');
     const secondInput = findTimeInInput();
     secondInput.value = '';
     secondInput.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(getById('events', EVT).timeIn).toBeNull();
+    await flush();
+    expect(getById('eventPaddockWindows', PW).timeOpened).toBeNull();
     closeEventDetailSheet();
   });
 });

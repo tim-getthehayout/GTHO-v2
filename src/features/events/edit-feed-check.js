@@ -17,6 +17,7 @@ import { today, formatDate } from '../../utils/date-utils.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { openFeedCheckSheet } from '../feed/check.js';
+import { getEventStartDate } from './event-start.js';
 
 let editFcSheet = null;
 
@@ -382,7 +383,8 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
     const newRemaining = parseFloat(remainingInput.value);
 
     if (!newDate) { statusEl.appendChild(el('span', {}, ['Date is required'])); return; }
-    if (newDate < event.dateIn) { statusEl.appendChild(el('span', {}, ['Feed check date must be on or after the event start date.'])); return; }
+    const evtStart = getEventStartDate(event.id);
+    if (evtStart && newDate < evtStart) { statusEl.appendChild(el('span', {}, ['Feed check date must be on or after the event start date.'])); return; }
     if (event.dateOut && newDate > event.dateOut) { statusEl.appendChild(el('span', {}, ['Feed check date must be on or before the event end date.'])); return; }
     if (newDate > today()) { statusEl.appendChild(el('span', {}, ["Feed check date can't be in the future."])); return; }
     if (isNaN(newRemaining) || newRemaining < 0) { statusEl.appendChild(el('span', {}, ["Remaining amount can't be negative."])); return; }

@@ -15,8 +15,11 @@ const FT_ID = 'ee0e8400-e29b-41d4-a716-446655440000';
 
 describe('entity: event', () => {
   it('exports FIELDS with sbColumn for every field', () => {
+    // OI-0117: dateIn/timeIn dropped (derived from earliest child window).
     expect(Object.keys(FIELDS)).toContain('sourceEventId');
-    expect(Object.keys(FIELDS)).toHaveLength(11);
+    expect(Object.keys(FIELDS)).not.toContain('dateIn');
+    expect(Object.keys(FIELDS)).not.toContain('timeIn');
+    expect(Object.keys(FIELDS)).toHaveLength(9);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }
@@ -24,7 +27,7 @@ describe('entity: event', () => {
 
   describe('validate', () => {
     it('passes for valid record', () => {
-      const r = create({ operationId: OP_ID, farmId: FARM_ID, dateIn: '2024-06-01', timeIn: '08:00', notes: 'Morning move' });
+      const r = create({ operationId: OP_ID, farmId: FARM_ID, notes: 'Morning move' });
       expect(validate(r)).toEqual({ valid: true, errors: [] });
     });
     it('fails when required fields missing', () => {
@@ -34,13 +37,13 @@ describe('entity: event', () => {
 
   describe('shape round-trip', () => {
     it('round-trips correctly', () => {
-      const r = create({ operationId: OP_ID, farmId: FARM_ID, dateIn: '2024-06-01', timeIn: '08:00', notes: 'Morning move' });
+      const r = create({ operationId: OP_ID, farmId: FARM_ID, notes: 'Morning move' });
       expect(fromSupabaseShape(toSupabaseShape(r))).toEqual(r);
     });
 
     it('preserves sourceEventId through round-trip', () => {
       const srcId = '110e8400-e29b-41d4-a716-446655440000';
-      const r = create({ operationId: OP_ID, farmId: FARM_ID, dateIn: '2024-06-01', sourceEventId: srcId });
+      const r = create({ operationId: OP_ID, farmId: FARM_ID, sourceEventId: srcId });
       const roundTripped = fromSupabaseShape(toSupabaseShape(r));
       expect(roundTripped.sourceEventId).toBe(srcId);
       expect(roundTripped).toEqual(r);

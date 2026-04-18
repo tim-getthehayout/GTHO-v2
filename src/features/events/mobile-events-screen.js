@@ -9,6 +9,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, getVisibleEvents } from '../../data/store.js';
 import { renderEventsLog } from './list-view/events-log.js';
+import { getEventStartDate } from './event-start.js';
 
 /**
  * Render the GRZ-11 active-rotation banner.
@@ -46,7 +47,6 @@ function renderActiveRotationBanner() {
         ? groups.map(g => g.name).join(', ')
         : '—';
 
-      const dateIn = event.dateIn;
       const isActive = !pw.closedAt;
 
       chips.push(el('div', {
@@ -62,7 +62,8 @@ function renderActiveRotationBanner() {
 
     // Detail line under chips for this event
     const today = new Date().toISOString().slice(0, 10);
-    const days = Math.max(1, Math.round((new Date(today) - new Date(event.dateIn)) / 86400000) + 1);
+    const startDate = getEventStartDate(event.id);
+    const days = startDate ? Math.max(1, Math.round((new Date(today) - new Date(startDate)) / 86400000) + 1) : 1;
 
     chips.push(el('div', { className: 'active-rotation-banner__detail' }, [
       t('event.detailSummary', { days, feedings: allFeedEntries.filter(fe => fe.eventId === event.id).length, groups: groupWindows.length }),

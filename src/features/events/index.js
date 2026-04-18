@@ -22,6 +22,7 @@ import { readStateFromUrl, getCalendarState } from './calendar-state.js';
 import { renderCalendarGrid } from './rotation-calendar/calendar-grid.js';
 import { renderEventsLog } from './list-view/events-log.js';
 import { renderMobileEventsScreen } from './mobile-events-screen.js';
+import { getEventStart, getEventStartDate } from './event-start.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -199,12 +200,13 @@ function renderEventList(rootContainer) { // eslint-disable-line no-unused-vars
     return;
   }
 
-  // Sort: active first (dateOut null), then by dateIn descending
+  // Sort: active first (dateOut null), then by derived start descending
+  const startByEvt = new Map(events.map(e => [e.id, getEventStartDate(e.id) || '']));
   const sorted = [...events].sort((a, b) => {
     const aActive = !a.dateOut;
     const bActive = !b.dateOut;
     if (aActive !== bActive) return aActive ? -1 : 1;
-    return (b.dateIn || '').localeCompare(a.dateIn || '');
+    return (startByEvt.get(b.id) || '').localeCompare(startByEvt.get(a.id) || '');
   });
 
   const operations = getAll('operations');
@@ -231,7 +233,8 @@ function renderEventCard(evt, operationId) {
   // Day count
   const todayStr = new Date().toISOString().slice(0, 10);
   const endDate = evt.dateOut || todayStr;
-  const dayCount = evt.dateIn ? daysBetweenInclusive(evt.dateIn, endDate) : 0;
+  const start = getEventStart(evt.id);
+  const dayCount = start?.date ? daysBetweenInclusive(start.date, endDate) : 0;
 
   return el('div', {
     className: 'card event-card',
@@ -245,7 +248,7 @@ function renderEventCard(evt, operationId) {
           ...(!getActiveFarmId() ? [renderFarmChip(evt.farmId)] : []),
         ]),
         el('div', { className: 'event-card-date' }, [
-          evt.dateIn + (evt.timeIn ? ` ${evt.timeIn}` : ''),
+          (start?.date || '') + (start?.time ? ` ${start.time}` : ''),
         ]),
       ]),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-3)' } }, [
@@ -878,12 +881,11 @@ function saveEvent(selection, inputs, operationId, farmId, unitSys, statusEl) {
   }
 
   try {
-    // 1. Create event
+    // 1. Create event. OI-0117: date_in/time_in dropped — start is derived
+    // from the earliest child window (created below).
     const event = EventEntity.create({
       operationId,
       farmId,
-      dateIn,
-      timeIn,
       notes: inputs.notes.value.trim() || null,
     });
     add('events', event, EventEntity.validate, EventEntity.toSupabaseShape, 'events');

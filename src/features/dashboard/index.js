@@ -21,6 +21,7 @@ import { openGroupAddSheet } from '../events/group-windows.js';
 import { openEventDetailSheet } from '../events/detail.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getEventStartDate } from '../events/event-start.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -242,7 +243,9 @@ function getEventsInPeriod(period) {
 
   const cutoff = new Date(now.getTime() - cutoffMs);
   return allEvents.filter(e => {
-    const dateIn = new Date(e.dateIn);
+    const startDate = getEventStartDate(e.id);
+    if (!startDate) return false;
+    const dateIn = new Date(startDate);
     const dateOut = e.dateOut ? new Date(e.dateOut) : now;
     // Event overlaps the period if it started before now and ended after cutoff
     return dateOut >= cutoff && dateIn <= now;
@@ -283,7 +286,7 @@ export function computePasturePercent(events) {
         headCount: liveHead, avgWeightKg: liveAvg,
         dmiPct: cls?.dmiPct ?? 2.5, dmiPctLactating: cls?.dmiPctLactating ?? (cls?.dmiPct ?? 2.5), isLactating: false,
       });
-      const days = daysBetweenInclusive(gw.dateJoined || event.dateIn, now);
+      const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
       totalDmiKg += dmiKgPerDay * days;
     }
     if (dmi1) {
@@ -348,7 +351,7 @@ function computeDesktopMetrics(events, _unitSys) {
           dmiPctLactating: cls?.dmiPctLactating ?? (cls?.dmiPct ?? 2.5),
           isLactating: false,
         });
-        const days = daysBetweenInclusive(gw.dateJoined || event.dateIn, now);
+        const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
         totalDmiKg += dmiKgPerDay * days;
       }
     }
@@ -389,7 +392,7 @@ function computeDesktopMetrics(events, _unitSys) {
         const now = gw.dateLeft || event.dateOut || todayStr;
         const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
-        const days = daysBetweenInclusive(gw.dateJoined || event.dateIn, now);
+        const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
         const result = npk1.fn({
           headCount: liveHead,
           avgWeightKg: liveAvg,
@@ -490,7 +493,7 @@ function computeMobileMetrics(events, _unitSys) {
         const now = gw.dateLeft || event.dateOut || todayStr;
         const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
-        const days = daysBetweenInclusive(gw.dateJoined || event.dateIn, now);
+        const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
         const result = npk1.fn({
           headCount: liveHead,
           avgWeightKg: liveAvg,
@@ -527,7 +530,8 @@ function computeMobileMetrics(events, _unitSys) {
       }));
       feedCostTotal += cst1.fn({ entries: costEntries });
       const todayStr = new Date().toISOString().slice(0, 10);
-      totalDays += daysBetweenInclusive(event.dateIn, event.dateOut || todayStr);
+      const startDate = getEventStartDate(event.id);
+      if (startDate) totalDays += daysBetweenInclusive(startDate, event.dateOut || todayStr);
     }
   }
   const costPerDay = totalDays > 0 ? feedCostTotal / totalDays : 0;
@@ -687,7 +691,8 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
       const loc = getById('locations', pws[0].locationId);
       locationName = loc ? loc.name : '?';
     }
-    dayCount = daysBetweenInclusive(activeEvent.dateIn, todayStr);
+    const startDate = getEventStartDate(activeEvent.id);
+    dayCount = startDate ? daysBetweenInclusive(startDate, todayStr) : 0;
   }
 
   // Composition line
@@ -763,7 +768,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     const npk1 = getCalcByName('NPK-1');
     if (npk1) {
       const cls = activeGW.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
-      const days = daysBetweenInclusive(activeGW.dateJoined || activeEvent.dateIn, todayStr);
+      const days = daysBetweenInclusive(activeGW.dateJoined || getEventStartDate(activeEvent.id) || todayStr, todayStr);
       const result = npk1.fn({
         headCount: activeLiveHead,
         avgWeightKg: activeLiveAvg,
@@ -796,7 +801,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
       if (prices) {
         const npk1 = getCalcByName('NPK-1');
         const cls2 = activeGW?.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
-        const days2 = daysBetweenInclusive(activeGW?.dateJoined || activeEvent?.dateIn || todayStr, todayStr);
+        const days2 = daysBetweenInclusive(activeGW?.dateJoined || (activeEvent && getEventStartDate(activeEvent.id)) || todayStr, todayStr);
         const r = npk1.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days2, excretionNRate: cls2?.excretionNRate ?? 0.34, excretionPRate: cls2?.excretionPRate ?? 0.092, excretionKRate: cls2?.excretionKRate ?? 0.24 });
         const val = npk2.fn({ nKg: r.nKg ?? r.n ?? 0, pKg: r.pKg ?? r.p ?? 0, kKg: r.kKg ?? r.k ?? 0, nPricePerKg: prices.nPricePerKg ?? 0, pPricePerKg: prices.pPricePerKg ?? 0, kPricePerKg: prices.kPricePerKg ?? 0 });
         npkValueStr = ` \u00B7 $${val.toFixed(2)} fert value`;
@@ -888,7 +893,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     if (npkEl) {
       const cls4 = activeGW?.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
       const npk1b = getCalcByName('NPK-1');
-      const days4 = daysBetweenInclusive(activeGW?.dateJoined || activeEvent?.dateIn || todayStr, todayStr);
+      const days4 = daysBetweenInclusive(activeGW?.dateJoined || (activeEvent && getEventStartDate(activeEvent.id)) || todayStr, todayStr);
       const r2 = npk1b.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days4, excretionNRate: cls4?.excretionNRate ?? 0.34, excretionPRate: cls4?.excretionPRate ?? 0.092, excretionKRate: cls4?.excretionKRate ?? 0.24 });
       const nL = convert(r2.nKg ?? r2.n ?? 0, 'weight', 'toImperial').toFixed(1);
       const pL = convert(r2.pKg ?? r2.p ?? 0, 'weight', 'toImperial').toFixed(1);
@@ -1024,7 +1029,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const for2 = getCalcByName('FOR-2');
   const for3 = getCalcByName('FOR-3');
 
-  const dayCount = daysBetweenInclusive(event.dateIn, todayStr);
+  const eventStartDate = getEventStartDate(event.id);
+  const dayCount = eventStartDate ? daysBetweenInclusive(eventStartDate, todayStr) : 0;
 
   // Feed cost
   const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === event.id);
@@ -1153,7 +1159,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     let totalN = 0, totalP = 0, totalK = 0;
     for (const gw of gws) {
       const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
-      const days = daysBetweenInclusive(gw.dateJoined || event.dateIn, todayStr);
+      const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), todayStr);
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
       const r = npk1.fn({
         headCount: live.head, avgWeightKg: live.avg, days,
@@ -1214,7 +1220,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   // §4 + §5: Event type badge + summary line
   children.push(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: 'var(--space-2)' } }, [
     el('span', { style: { background: '#F4F8EC', color: '#3B6D11', fontSize: '12px', borderRadius: '4px', padding: '2px 6px', marginRight: '6px' } }, [eventType]),
-    `Day ${dayCount} \u00B7 In ${formatShortDate(event.dateIn)} \u00B7 $${feedCost.toFixed(2)}`,
+    `Day ${dayCount} \u00B7 In ${eventStartDate ? formatShortDate(eventStartDate) : '\u2014'} \u00B7 $${feedCost.toFixed(2)}`,
   ]));
 
   // §6: Weight line
@@ -1380,7 +1386,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
         if (l) { sLoc[pw.locationId] = { areaHa: l.areaHectares ?? l.areaHa }; if (l.forageTypeId) { const f = getById('forageTypes', l.forageTypeId); if (f) sFt[pw.locationId] = { dmKgPerCmPerHa: f.dmKgPerCmPerHa, minResidualHeightCm: f.minResidualHeightCm, utilizationPct: f.utilizationPct }; } }
       }
       for (const gw of sGws) { if (gw.animalClassId) { const c = getById('animalClasses', gw.animalClassId); if (c) sAc[gw.animalClassId] = { dmiPct: c.dmiPct, dmiPctLactating: c.dmiPctLactating }; } }
-      srcCtx = { event: srcEvt, gws: sGws, fe: sFe, fc: sFc, fci: sFci, pws: sPws, obs: sObs, ft: sFt, loc: sLoc, ac: sAc };
+      // OI-0117: DMI-8 reads `event.dateIn` as a start cursor; decorate with derived start.
+      const srcEvtDecorated = { ...srcEvt, dateIn: getEventStartDate(srcEvt.id) };
+      srcCtx = { event: srcEvtDecorated, gws: sGws, fe: sFe, fc: sFc, fci: sFci, pws: sPws, obs: sObs, ft: sFt, loc: sLoc, ac: sAc };
       return srcCtx;
     }
 
@@ -1388,7 +1396,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       const d = new Date(todayStr2 + 'T00:00:00');
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().slice(0, 10);
-      if (dateStr < event.dateIn) {
+      if (eventStartDate && dateStr < eventStartDate) {
         const src = getSrcCtx();
         if (!src) continue;
         const dayName = dayNames[d.getDay()];
@@ -1399,7 +1407,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       const dayName = dayNames[d.getDay()];
       const label = i === 0 ? `${dayName} \u2713` : dayName;
       const result = dmi8.fn({
-        event, date: dateStr, groupWindows: chartGws,
+        event: { ...event, dateIn: eventStartDate }, date: dateStr, groupWindows: chartGws,
         memberships, animals, animalWeightRecords,
         feedEntries, feedChecks: chartFeedChecks,
         feedCheckItems: chartFeedCheckItems, paddockWindows: chartPws, observations: chartObs,

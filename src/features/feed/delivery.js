@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update } from '../../data/store.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { getEventStartDate } from '../events/event-start.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as BatchEntity from '../../entities/batch.js';
 
@@ -50,7 +51,8 @@ export function openDeliverFeedSheet(evt, operationId) {
   // Groups + day count
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === evt.id && !gw.dateLeft);
   const groupNames = gws.map(gw => { const g = getById('groups', gw.groupId); return g?.name || ''; }).filter(Boolean).join(', ');
-  const dayCount = daysBetweenInclusive(evt.dateIn, todayStr);
+  const evtStart = getEventStartDate(evt.id);
+  const dayCount = evtStart ? daysBetweenInclusive(evtStart, todayStr) : 0;
 
   // No batches
   if (!batches.length) {

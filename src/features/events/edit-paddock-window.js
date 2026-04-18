@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, update, remove, splitPaddockWindow } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
+import { getEventStartFloorExcluding } from './event-start.js';
 
 let editPwSheet = null;
 
@@ -86,7 +87,12 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
 
     // Range guards
     if (!newDateOpened) { statusEl.appendChild(el('span', {}, ['Date opened is required'])); return; }
-    if (newDateOpened < event.dateIn) { statusEl.appendChild(el('span', {}, ['Paddock can\'t open before the event started'])); return; }
+    // OI-0117: floor the new open date against the earliest OTHER child
+    // window — if this paddock is currently the anchor, moving its open date
+    // later is allowed so long as it doesn't move the event start past a
+    // sibling's opening.
+    const floorDate = getEventStartFloorExcluding(event.id, pw.id, 'paddock');
+    if (floorDate && newDateOpened < floorDate) { statusEl.appendChild(el('span', {}, ['Paddock can\'t open before the event started'])); return; }
     if (event.dateOut && newDateOpened > event.dateOut) { statusEl.appendChild(el('span', {}, ['Paddock can\'t open after the event closed'])); return; }
     if (newDateClosed && newDateClosed < newDateOpened) { statusEl.appendChild(el('span', {}, ['Close date must be after open date'])); return; }
     if (event.dateOut && newDateClosed && newDateClosed > event.dateOut) { statusEl.appendChild(el('span', {}, ['Paddock can\'t stay open after the event closed'])); return; }

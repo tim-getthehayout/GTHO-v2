@@ -8,6 +8,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import { renderReferenceConsole } from './reference-console.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getEventStartDate } from '../events/event-start.js';
 
 /** Active tab state */
 let activeTab = 'feed';
@@ -257,7 +258,7 @@ function renderNpkTab() {
     const gws = groupWindows.filter(gw => gw.eventId === event.id);
     const paddockWindows = getAll('eventPaddockWindows').filter(pw => pw.eventId === event.id);
 
-    const dateIn = event.dateIn;
+    const dateIn = getEventStartDate(event.id);
     const dateOut = event.dateOut;
     const days = dateIn && dateOut ? daysBetweenInclusive(dateIn, dateOut) : 1;
 
@@ -521,7 +522,7 @@ function renderSeasonTab() {
   for (const event of events) {
     const gws = groupWindows.filter(gw => gw.eventId === event.id);
     const pws = paddockWindows.filter(pw => pw.eventId === event.id);
-    const dateIn = event.dateIn;
+    const dateIn = getEventStartDate(event.id);
     const dateOut = event.dateOut ?? new Date().toISOString().slice(0, 10);
     const totalDays = dateIn ? daysBetweenInclusive(dateIn, dateOut) : 1;
 

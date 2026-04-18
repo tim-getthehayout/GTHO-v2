@@ -544,13 +544,13 @@ export function transformV1ToV2(v1, opts) {
   for (const ev of ensure('events')) {
     const eventId = ids.events.remap(ev.id);
 
-    // §2.2: Event
+    // §2.2: Event. OI-0117: date_in/time_in dropped from events — the start
+    // datetime is derived from the first child paddock window (anchor)
+    // written below.
     v2Events.push({
       id: eventId,
       operation_id: opId,
       farm_id: farmId,
-      date_in: ev.dateIn || ev.date_in || ev.startDate || migrationDate,
-      time_in: ev.timeIn || ev.time_in || null,
       date_out: ev.dateOut || ev.date_out || ev.endDate || null,
       time_out: ev.timeOut || ev.time_out || null,
       source_event_id: null, // §2.2: NULL for all migrated events

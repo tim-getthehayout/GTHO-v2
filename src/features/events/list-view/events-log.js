@@ -13,6 +13,7 @@ import { display } from '../../../utils/units.js';
 import { daysBetweenInclusive } from '../../../utils/date-utils.js';
 import { navigate } from '../../../ui/router.js';
 import { buildGroupLabel } from '../rotation-calendar/past-block.js';
+import { getEventStartDate } from '../event-start.js';
 
 /**
  * Render the events log.
@@ -55,12 +56,13 @@ export function renderEventsLog(container) {
     if (filter === 'open') events = events.filter(e => !e.dateOut);
     if (filter === 'closed') events = events.filter(e => !!e.dateOut);
 
-    // Sort: open first (by dateIn desc), then closed (by dateOut desc)
+    // Sort: open first (by derived start desc), then closed (by dateOut desc)
+    const startByEvt = new Map(events.map(e => [e.id, getEventStartDate(e.id) || '']));
     events.sort((a, b) => {
       if (!a.dateOut && b.dateOut) return -1;
       if (a.dateOut && !b.dateOut) return 1;
-      const dateA = a.dateOut || a.dateIn;
-      const dateB = b.dateOut || b.dateIn;
+      const dateA = a.dateOut || startByEvt.get(a.id);
+      const dateB = b.dateOut || startByEvt.get(b.id);
       return new Date(dateB) - new Date(dateA);
     });
 
@@ -78,7 +80,8 @@ export function renderEventsLog(container) {
       const groupWindows = allGroupWindows.filter(gw => gw.eventId === event.id);
       const isActive = !event.dateOut;
       const today = new Date().toISOString().slice(0, 10);
-      const days = daysBetweenInclusive(event.dateIn, event.dateOut || today);
+      const eventStart = startByEvt.get(event.id) || '';
+      const days = eventStart ? daysBetweenInclusive(eventStart, event.dateOut || today) : 0;
 
       // Location summary
       const locationNames = [...new Set(
@@ -98,8 +101,8 @@ export function renderEventsLog(container) {
 
       // Date range
       const dateRange = event.dateOut
-        ? `${event.dateIn} – ${event.dateOut}`
-        : `${event.dateIn} – ongoing`;
+        ? `${eventStart} – ${event.dateOut}`
+        : `${eventStart} – ongoing`;
 
       // Badge
       const badge = el('span', {

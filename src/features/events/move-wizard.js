@@ -18,6 +18,7 @@ import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
+import { getEventStartDate } from './event-start.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -289,7 +290,7 @@ function renderStep2(panel, state, render, operationId, sourceEvent) {
         }, [
           el('div', {}, [
             el('span', { style: { fontWeight: '500' } }, [locNames || evt.id.slice(0, 8)]),
-            el('div', { className: 'window-detail' }, [evt.dateIn]),
+            el('div', { className: 'window-detail' }, [getEventStartDate(evt.id) || '']),
           ]),
         ]));
       }
@@ -671,11 +672,11 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       // Step 6: Create new event
       // Cross-farm move: use destination farm, link back via sourceEventId
       const isCrossFarm = state.destFarmId && state.destFarmId !== farmId;
+      // OI-0117: date_in/time_in dropped — start is derived from the first
+      // child paddock window (created immediately below with dateOpened/timeOpened).
       const newEvent = EventEntity.create({
         operationId,
         farmId: state.destFarmId || farmId,
-        dateIn,
-        timeIn,
         sourceEventId: isCrossFarm ? sourceEvent.id : null,
       });
       add('events', newEvent, EventEntity.validate, EventEntity.toSupabaseShape, 'events');

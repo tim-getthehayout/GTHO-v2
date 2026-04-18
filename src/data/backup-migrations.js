@@ -87,4 +87,35 @@ export const BACKUP_MIGRATIONS = {
     b.schema_version = 27;
     return b;
   },
+  // 027 → 028: OI-0117 — drop events.date_in and events.time_in. Event start
+  //            datetime is now derived from the earliest child window
+  //            (event_paddock_windows.date_opened / event_group_windows.date_joined).
+  //            Backup import: if a v27 event's stored date_in disagrees with
+  //            MIN(child opening), log the drift for OI-0115-era audit, then
+  //            discard both columns — the target doesn't exist post-v28.
+  27: (b) => {
+    const events = (b.tables && b.tables.events) || [];
+    const paddockWindows = (b.tables && b.tables.event_paddock_windows) || [];
+    const groupWindows = (b.tables && b.tables.event_group_windows) || [];
+    for (const evt of events) {
+      const childDates = [];
+      for (const pw of paddockWindows) if (pw.event_id === evt.id && pw.date_opened) childDates.push(pw.date_opened);
+      for (const gw of groupWindows) if (gw.event_id === evt.id && gw.date_joined) childDates.push(gw.date_joined);
+      const minChild = childDates.length ? childDates.slice().sort()[0] : null;
+      if (minChild && evt.date_in && minChild !== evt.date_in) {
+        // OI-0115 drift detected in this backup. Log so Tim can audit.
+        // Logger imports in backup-migrations.js are discouraged to keep the
+        // migration chain dependency-free; console.warn is fine here — the
+        // v1→v2 migration file uses the same pattern.
+        // eslint-disable-next-line no-console
+        console.warn('[backup-migrations 27→28] OI-0115 drift in backup', {
+          event_id: evt.id, stored_date_in: evt.date_in, min_child: minChild,
+        });
+      }
+      delete evt.date_in;
+      delete evt.time_in;
+    }
+    b.schema_version = 28;
+    return b;
+  },
 };

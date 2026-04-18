@@ -9,6 +9,7 @@ import { convert, display, unitLabel } from '../../utils/units.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { openResolveDialog } from './resolve-window-change.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getEventStartFloorExcluding } from './event-start.js';
 
 let editGwSheet = null;
 
@@ -110,7 +111,9 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
 
     // Validation
     if (!newDateJoined) { statusEl.appendChild(el('span', {}, ['Date joined is required'])); return; }
-    if (newDateJoined < event.dateIn) { statusEl.appendChild(el('span', {}, ['Group can\'t join before the event started'])); return; }
+    // OI-0117: floor against siblings — see edit-paddock-window.js for rationale.
+    const floorDate = getEventStartFloorExcluding(event.id, gw.id, 'group');
+    if (floorDate && newDateJoined < floorDate) { statusEl.appendChild(el('span', {}, ['Group can\'t join before the event started'])); return; }
     if (event.dateOut && newDateJoined > event.dateOut) { statusEl.appendChild(el('span', {}, ['Group can\'t join after the event closed'])); return; }
     if (newDateLeft && newDateLeft < newDateJoined) { statusEl.appendChild(el('span', {}, ['Leave date must be after join date'])); return; }
     if (event.dateOut && newDateLeft && newDateLeft > event.dateOut) { statusEl.appendChild(el('span', {}, ['Group can\'t stay after the event closed'])); return; }

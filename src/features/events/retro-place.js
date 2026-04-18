@@ -13,6 +13,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update } from '../../data/store.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getEventStartDate } from './event-start.js';
 
 let pickerSheet = null;
 
@@ -43,13 +44,16 @@ function showToast(message) {
  * @param {object} args - { sourceEventId, gapStart, gapEnd, allEvents }
  * @returns {Array} candidate event records, full-containment only
  */
-export function computeCandidateEvents({ sourceEventId, gapStart, gapEnd, allEvents }) {
-  return allEvents.filter(e =>
-    e.id !== sourceEventId &&
-    e.dateIn && e.dateOut &&
-    e.dateIn <= gapStart &&
-    e.dateOut >= gapEnd
-  );
+export function computeCandidateEvents({ sourceEventId, gapStart, gapEnd, allEvents, startByEventId }) {
+  // OI-0117: start date is derived from the earliest child window, so callers
+  // must supply it via `startByEventId` (Map<eventId, 'YYYY-MM-DD'>) — this
+  // keeps the function pure for testing while decoupling it from the store.
+  return allEvents.filter(e => {
+    if (e.id === sourceEventId || !e.dateOut) return false;
+    const start = startByEventId ? startByEventId.get(e.id) : null;
+    if (!start) return false;
+    return start <= gapStart && e.dateOut >= gapEnd;
+  });
 }
 
 /**
@@ -206,7 +210,8 @@ export function openRetroPlaceFlow(ctx) {
   if (!panel) return;
 
   const allEvents = getAll('events');
-  const candidates = computeCandidateEvents({ sourceEventId: sourceEvent.id, gapStart, gapEnd, allEvents });
+  const startByEventId = new Map(allEvents.map(e => [e.id, getEventStartDate(e.id)]));
+  const candidates = computeCandidateEvents({ sourceEventId: sourceEvent.id, gapStart, gapEnd, allEvents, startByEventId });
 
   clear(panel);
   panel.appendChild(el('div', { className: 'sheet-handle' }));
@@ -248,7 +253,7 @@ export function openRetroPlaceFlow(ctx) {
       style: { padding: '12px', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', marginBottom: '8px' },
       onClick: () => handleEventPicked(evt, panel, ctx, groupName),
     }, [
-      el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [`${evt.dateIn} \u2192 ${evt.dateOut}`]),
+      el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [`${startByEventId.get(evt.id) || ''} \u2192 ${evt.dateOut}`]),
       el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [`\uD83D\uDCCD ${paddockNames || 'No paddocks'}`]),
       el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [groupChips || 'No groups']),
     ]));

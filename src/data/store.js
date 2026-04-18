@@ -570,7 +570,7 @@ export function closeGroupWindow(groupId, eventId, closeDate, closeTime) {
   const group = state.groups.find(g => g.id === groupId);
   const event = state.events.find(e => e.id === eventId);
   const groupName = group?.name || 'Group';
-  const eventLabel = event ? (event.dateIn || event.id.slice(0, 8)) : 'event';
+  const eventLabel = event ? event.id.slice(0, 8) : 'event';
   showWindowClosedToast(`${groupName} ended on ${eventLabel} as of ${closeDate}`);
 
   return { closedId: openGW.id };

@@ -20,6 +20,7 @@ import { renderHeaderStrip } from './header-strip.js';
 import { renderToolbar } from './toolbar.js';
 import { renderLegend } from './legend.js';
 import { navigate } from '../../../ui/router.js';
+import { getEventStartDate } from '../event-start.js';
 import { getLiveWindowHeadCount } from '../../../calcs/window-helpers.js';
 
 const ROW_HEIGHT = 72;
@@ -140,7 +141,9 @@ export function renderCalendarGrid(container) {
       const event = allEvents.find(e => e.id === pw.eventId);
       if (!event) continue;
 
-      const eventStart = new Date(event.dateIn);
+      const eventStartDate = getEventStartDate(event.id);
+      if (!eventStartDate) continue;
+      const eventStart = new Date(eventStartDate);
       const eventEnd = event.dateOut ? new Date(event.dateOut) : new Date();
 
       // Check overlap with visible range
@@ -161,7 +164,7 @@ export function renderCalendarGrid(container) {
         .filter(Boolean)
         .map(g => ({ id: g.id, name: g.name }));
 
-      const days = daysBetweenInclusive(event.dateIn, event.dateOut || new Date().toISOString().slice(0, 10));
+      const days = daysBetweenInclusive(eventStartDate, event.dateOut || new Date().toISOString().slice(0, 10));
       const isActive = !event.dateOut;
 
       // Strips for active strip-grazed events

@@ -896,6 +896,24 @@ function renderGroups(ctx) {
 
 const KG_TO_LBS = 2.20462;
 
+/**
+ * OI-0108 — pure helper for the feed-entry DM display (testable seam).
+ * Returns { text, missing } where `missing` is true when the batch lacks
+ * weightPerUnitKg or dmPct (silent-zero guard).
+ */
+export function computeFeedEntryDm(quantity, batch, unitSys) {
+  const weightKg = batch?.weightPerUnitKg;
+  const dmPct = batch?.dmPct;
+  const canCompute = weightKg != null && weightKg > 0 && dmPct != null && dmPct > 0;
+  const massUnit = unitLabel('weight', unitSys);
+  if (!canCompute) {
+    return { text: t('event.feedEntryDm', { n: '—', unit: massUnit }), missing: true };
+  }
+  const dmKg = (quantity || 0) * weightKg * (dmPct / 100);
+  const n = Math.round(unitSys === 'imperial' ? dmKg * KG_TO_LBS : dmKg);
+  return { text: t('event.feedEntryDm', { n, unit: massUnit }), missing: false };
+}
+
 function renderFeedEntries(ctx) {
   const el2 = ctx.sections.feedEntries;
   clear(el2);
@@ -933,20 +951,26 @@ function renderFeedEntries(ctx) {
   if (!feedEntries.length) {
     list.appendChild(el('div', { className: 'form-hint' }, [t('event.noFeedEntries')]));
   } else {
+    const unitSys = getUnitSystem();
     for (const fe of feedEntries) {
       const batch = batchMap.get(fe.batchId);
       const feedName = batch?.name || '?';
       const unit = batch?.unit || '';
       const desc = `${fe.quantity ?? 0} ${unit} ${feedName}`.trim();
       const cost = (fe.quantity || 0) * (batch?.costPerUnit ?? 0);
-      const dmiKg = (fe.quantity || 0) * (batch?.weightPerUnitKg ?? 0) * ((batch?.dmPct ?? 0) / 100);
-      const dmiLbs = dmiKg * KG_TO_LBS;
+
+      // OI-0108: formula produces dry matter DELIVERED (DM), not DMI (per-head intake).
+      // The guard below shows em-dash when batch is missing weight/DM — otherwise a
+      // legitimate `quantity === 0` row is indistinguishable from a missing-data row.
+      const dm = computeFeedEntryDm(fe.quantity, batch, unitSys);
+      const dmDivAttrs = { 'data-testid': `detail-feed-entry-dm-${fe.id}` };
+      if (dm.missing) dmDivAttrs.title = t('event.feedEntryDmMissing');
 
       const rightChildren = [
         el('div', {
           style: { textAlign: 'right', fontSize: '12px', color: 'var(--text2)', lineHeight: '1.4' },
         }, [
-          el('div', {}, [`${Math.round(dmiLbs)} lbs DMI`]),
+          el('div', dmDivAttrs, [dm.text]),
           el('div', {}, [`$${cost.toFixed(2)}`]),
         ]),
       ];

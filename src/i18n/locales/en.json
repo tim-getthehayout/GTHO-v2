@@ -230,6 +230,8 @@
     "moveToExisting": "Move to existing event",
     "feedEntries": "Feed Entries",
     "noFeedEntries": "No feed delivered.",
+    "feedEntryDm": "{n} {unit} DM",
+    "feedEntryDmMissing": "Batch is missing weight-per-unit or DM %. Edit the batch in Feed to populate.",
     "confirmDeleteFeed": "Delete this feed entry?",
     "deliverFeed": "Deliver feed",
     "feedChecks": "Feed Checks",

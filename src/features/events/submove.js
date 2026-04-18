@@ -6,7 +6,8 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, closePaddockWindow } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import { createObservation, renderLocationPicker } from './index.js';
-import { getFarmSettings, renderPreGrazeFields, renderPostGrazeFields } from './observation-fields.js';
+import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
+import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 
 // ---------------------------------------------------------------------------
 // Sub-move open sheet (CP-18)
@@ -61,9 +62,11 @@ export function openSubmoveOpenSheet(evt, operationId) {
   renderLocationPicker(locPickerEl, locations, selection);
   panel.appendChild(locPickerEl);
 
-  // Pre-graze observation fields (OI-0041)
-  const farmSettings = getFarmSettings();
-  const preGraze = renderPreGrazeFields(farmSettings);
+  // Pre-graze observation card (OI-0112 surface #4 — fixes OI-0110 missing fields).
+  // paddockAcres is unknown at render time (location picked in the same sheet);
+  // BRC auto-fill stays inactive here. Farmer can still enter cover% manually.
+  const farmSettings = getAll('farmSettings')[0] || null;
+  const preGraze = renderPreGrazeCard({ farmSettings, paddockAcres: null, initialValues: {} });
   panel.appendChild(preGraze.container);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-open-status' });
@@ -155,9 +158,9 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   });
   panel.appendChild(inputs.timeClosed);
 
-  // Post-graze observation fields (OI-0040)
-  const farmSettings2 = getFarmSettings();
-  const postGraze = renderPostGrazeFields(farmSettings2);
+  // Post-graze observation card (OI-0112 surface #5).
+  const farmSettings2 = getAll('farmSettings')[0] || null;
+  const postGraze = renderPostGrazeCard({ farmSettings: farmSettings2 });
   panel.appendChild(postGraze.container);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-close-status' });

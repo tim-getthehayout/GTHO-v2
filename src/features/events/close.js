@@ -11,7 +11,7 @@ import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import * as ManureTxEntity from '../../entities/manure-batch-transaction.js';
 import { createObservation } from './index.js';
-import { getFarmSettings, renderPostGrazeFields } from './observation-fields.js';
+import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 
 let closeEventSheet = null;
 
@@ -114,9 +114,9 @@ export function openCloseEventSheet(evt, operationId) {
     }, ['Confinement NPK will be routed to manure batches on close.']));
   }
 
-  // Post-graze observation fields (OI-0040)
-  const farmSettings = getFarmSettings();
-  const postGraze = renderPostGrazeFields(farmSettings);
+  // Post-graze observation card (OI-0112 surface #3).
+  const farmSettings = getAll('farmSettings')[0] || null;
+  const postGraze = renderPostGrazeCard({ farmSettings });
   panel.appendChild(postGraze.container);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'close-event-status' });

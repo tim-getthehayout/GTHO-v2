@@ -11,8 +11,10 @@ import { formatShortDate } from '../../utils/date-format.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { logger } from '../../utils/logger.js';
 import * as EventEntity from '../../entities/event.js';
-import * as EventObsEntity from '../../entities/event-observation.js';
+import * as PaddockObsEntity from '../../entities/paddock-observation.js';
 import * as BatchEntity from '../../entities/batch.js';
+import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
+import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { openMoveWizard } from './move-wizard.js';
 import { openCloseEventSheet } from './close.js';
 import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
@@ -136,7 +138,8 @@ export function openEventDetailSheet(event, operationId, farmId) {
     renderSubmoves(ctx);
     renderSummary(ctx);
   }));
-  unsubs.push(subscribe('eventObservations', () => {
+  // OI-0112: pre/post cards now write to paddockObservations.
+  unsubs.push(subscribe('paddockObservations', () => {
     renderPreGraze(ctx);
     renderPostGraze(ctx);
     renderDmiChart(ctx);
@@ -507,9 +510,9 @@ function renderPaddocks(ctx) {
     const headerText = `${locName}`;
     const statsText = areaDisplay ? `${areaDisplay} ${areaUnit} \u00B7 Day ${dayCount} on paddock` : `Day ${dayCount} on paddock`;
 
-    // Latest pre-graze observation for this paddock
-    const obs = getAll('eventObservations')
-      .filter(o => o.eventId === ctx.eventId && (o.paddockWindowId === pw.id || !o.paddockWindowId) && (o.observationPhase === 'pre_graze' || !o.observationPhase))
+    // Latest pre-graze observation for this paddock (OI-0112: paddock_observations).
+    const obs = getAll('paddockObservations')
+      .filter(o => o.locationId === pw.locationId && o.type === 'open' && o.source === 'event' && (o.sourceId === pw.id || !o.sourceId))
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
 
     const heightStr = obs?.forageHeightCm != null ? display(obs.forageHeightCm, 'length', unitSys, 1) : '\u2014';
@@ -552,156 +555,104 @@ function renderPaddocks(ctx) {
 // ---------------------------------------------------------------------------
 
 function renderPreGraze(ctx) {
+  // OI-0112 surface #7: one editable pre-graze card per open paddock window,
+  // writing to `paddock_observations` with `type: 'open'` + `source: 'event'`.
   const el2 = ctx.sections.preGraze;
   clear(el2);
   const event = getById('events', ctx.eventId);
   if (!event) return;
 
   const isActive = !event.dateOut;
-  const disabled = !isActive;
-  const unitSys = getUnitSystem();
-  const heightUnit = unitSys === 'imperial' ? 'in.' : 'cm';
+  const farmSettings = getAll('farmSettings')[0] || null;
+  const openPaddockWindows = getAll('eventPaddockWindows')
+    .filter(pw => pw.eventId === ctx.eventId && !pw.dateClosed);
 
-  // Find latest pre-graze observation (phase = 'pre_graze' or null for backward compat)
-  const obs = getAll('eventObservations')
-    .filter(o => o.eventId === ctx.eventId && (o.observationPhase === 'pre_graze' || !o.observationPhase))
-    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
-
-  const heightVal = obs?.forageHeightCm != null
-    ? (unitSys === 'imperial' ? convert(obs.forageHeightCm, 'length', 'toImperial') : obs.forageHeightCm)
-    : '';
-  const coverVal = obs?.forageCoverPct ?? '';
-  const qualityVal = obs?.forageQuality ?? '';
-  const conditionVal = obs?.forageCondition || '';
-  const conditions = ['Poor', 'Fair', 'Good', 'Excellent'];
-  const conditionMap = { 'Poor': 'dry', 'Fair': 'fair', 'Good': 'good', 'Excellent': 'lush' };
-
-
-  let savedTimer = null;
-  const savedIndicator = el('span', {
-    style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' },
-  }, ['Saved']);
-
-  function showSaved() {
-    if (savedTimer) clearTimeout(savedTimer);
-    savedIndicator.style.opacity = '1';
-    savedTimer = setTimeout(() => { savedIndicator.style.opacity = '0'; }, 2000);
+  if (!openPaddockWindows.length) {
+    const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
+      el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.preGrazeObs')]),
+      el('div', { className: 'form-hint' }, [t('event.noObservations')]),
+    ]);
+    el2.appendChild(card);
+    return;
   }
 
-  function saveField(changes) {
-    const obsData = {
-      operationId: ctx.operationId,
-      eventId: ctx.eventId,
-      observationPhase: 'pre_graze',
-      ...changes,
-    };
-    if (obs) {
-      update('eventObservations', obs.id, obsData, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
-    } else {
-      const rec = EventObsEntity.create(obsData);
-      add('eventObservations', rec, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
+  for (const pw of openPaddockWindows) {
+    const loc = getById('locations', pw.locationId);
+    const paddockAcres = loc?.areaHa != null
+      ? convert(loc.areaHa, 'area', 'toImperial')
+      : null;
+
+    // Prefer phase-aware lookup by paddockWindowId; fall back to first open
+    // observation on this event for backward compat with pre-OI-0112 rows.
+    const allObs = getAll('paddockObservations')
+      .filter(o => o.locationId === pw.locationId && o.type === 'open' && o.source === 'event');
+    const obs = allObs.find(o => o.sourceId === pw.id)
+      || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+      || null;
+
+    const card = renderPreGrazeCard({
+      farmSettings,
+      paddockAcres,
+      initialValues: obs ? {
+        forageHeightCm: obs.forageHeightCm,
+        forageCoverPct: obs.forageCoverPct,
+        forageQuality: obs.forageQuality,
+        forageCondition: obs.forageCondition,
+        baleRingResidueCount: obs.baleRingResidueCount,
+        notes: obs.notes,
+      } : {},
+    });
+
+    // Header above each card naming the paddock.
+    const header = loc
+      ? el('div', { style: { fontWeight: '600', fontSize: '14px', marginBottom: '6px' } }, [loc.name])
+      : null;
+
+    // Save button — writes/updates one paddock_observation per window.
+    const statusEl = el('span', {
+      style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' },
+    }, [t('settings.saved')]);
+    function showSaved() {
+      statusEl.style.opacity = '1';
+      setTimeout(() => { statusEl.style.opacity = '0'; }, 2000);
     }
-    showSaved();
-  }
-
-  // Inputs
-  const heightInput = el('input', {
-    type: 'number', style: { width: '52px' }, step: '0.5', max: '999',
-    className: 'obs-input', value: heightVal, disabled,
-    'data-testid': 'detail-pregraze-height',
-    onBlur: () => {
-      const raw = parseFloat(heightInput.value);
-      const cm = !isNaN(raw) ? (unitSys === 'imperial' ? convert(raw, 'length', 'toMetric') : raw) : null;
-      saveField({ forageHeightCm: cm });
-    },
-  });
-
-  const coverInput = el('input', {
-    type: 'number', style: { width: '60px' }, min: '0', max: '100', step: '1',
-    className: 'obs-input', value: coverVal, disabled,
-    'data-testid': 'detail-pregraze-cover',
-  });
-  const coverSlider = el('input', {
-    type: 'range', style: { width: '140px' }, min: '0', max: '100',
-    className: 'cover-slider', value: coverVal || 50, disabled,
-  });
-  // Sync slider ↔ input
-  coverSlider.addEventListener('input', () => { coverInput.value = coverSlider.value; });
-  coverInput.addEventListener('input', () => { coverSlider.value = coverInput.value; });
-  const coverBlur = () => {
-    const v = parseInt(coverInput.value, 10);
-    saveField({ forageCoverPct: !isNaN(v) ? v : null });
-  };
-  coverInput.addEventListener('blur', coverBlur);
-  coverSlider.addEventListener('change', coverBlur);
-
-  const qualityInput = el('input', {
-    type: 'number', style: { width: '60px' }, min: '1', max: '100', step: '1',
-    className: 'obs-input', value: qualityVal, disabled,
-    'data-testid': 'detail-pregraze-quality',
-    onBlur: () => {
-      const v = parseInt(qualityInput.value, 10);
-      saveField({ forageQuality: !isNaN(v) ? v : null });
-    },
-  });
-
-  // Condition chip picker
-  let activeCondition = conditionVal;
-  const chipContainer = el('div', { className: 'qual-picker', style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } });
-  for (const label of conditions) {
-    const dbVal = conditionMap[label];
-    const isActive = activeCondition === dbVal;
-    const chip = el('button', {
-      type: 'button',
-      className: `qual-chip${isActive ? ' active' : ''}`,
-      disabled,
-      style: {
-        padding: '4px 10px', fontSize: '12px', borderRadius: '12px', border: '1px solid var(--border)',
-        background: isActive ? 'var(--color-green-base)' : 'transparent',
-        color: isActive ? '#fff' : 'var(--text1)',
-        cursor: disabled ? 'default' : 'pointer',
-      },
+    const saveBtn = el('button', {
+      className: 'btn btn-outline btn-xs',
+      'data-testid': `detail-pregraze-save-${pw.id}`,
+      disabled: !isActive,
       onClick: () => {
-        if (disabled) return;
-        activeCondition = dbVal;
-        saveField({ forageCondition: dbVal });
-        // Re-render to update chip states (subscription will trigger)
+        const values = card.getValues();
+        if (obs) {
+          update('paddockObservations', obs.id, values,
+            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+        } else {
+          const newObs = PaddockObsEntity.create({
+            operationId: ctx.operationId,
+            locationId: pw.locationId,
+            observedAt: new Date().toISOString(),
+            type: 'open',
+            source: 'event',
+            sourceId: pw.id,
+            ...values,
+          });
+          add('paddockObservations', newObs,
+            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+        }
+        showSaved();
       },
-    }, [label]);
-    chipContainer.appendChild(chip);
+    }, [t('action.save')]);
+
+    const wrap = el('div', {
+      className: 'card',
+      style: { marginBottom: 'var(--space-4)' },
+      'data-testid': `detail-pregraze-card-${pw.id}`,
+    }, [
+      header,
+      card.container,
+      el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [saveBtn, statusEl]),
+    ].filter(Boolean));
+    el2.appendChild(wrap);
   }
-
-  const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
-    el('div', { style: { display: 'flex', alignItems: 'center', marginBottom: 'var(--space-3)' } }, [
-      el('span', { className: 'sec' }, [t('event.preGraze')]),
-      savedIndicator,
-    ]),
-    // Row 1: Height + Cover
-    el('div', { className: 'obs-field-row', style: { display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: 'var(--space-3)', alignItems: 'flex-start' } }, [
-      el('div', { className: 'obs-field' }, [
-        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' } }, [`Avg. Forage Height (${heightUnit})`]),
-        heightInput,
-      ]),
-      el('div', { className: 'obs-field' }, [
-        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' } }, ['Forage Cover (%)']),
-        el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [coverInput]),
-        el('div', { style: { marginTop: '4px' } }, [coverSlider]),
-      ]),
-    ]),
-    // Row 2: Quality + Condition
-    el('div', { className: 'obs-field-row', style: { display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-start' } }, [
-      el('div', { className: 'obs-field' }, [
-        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' } }, ['Forage Quality (1\u2013100)']),
-        qualityInput,
-      ]),
-      el('div', { className: 'obs-field' }, [
-        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '4px' } }, ['Condition']),
-        chipContainer,
-      ]),
-    ]),
-  ]);
-
-  el2.appendChild(card);
 }
 
 // ---------------------------------------------------------------------------
@@ -709,105 +660,92 @@ function renderPreGraze(ctx) {
 // ---------------------------------------------------------------------------
 
 function renderPostGraze(ctx) {
+  // OI-0112 surface #7: one editable post-graze card per closed paddock
+  // window, writing to `paddock_observations` with type 'close', source 'event'.
   const el2 = ctx.sections.postGraze;
   clear(el2);
   const event = getById('events', ctx.eventId);
   if (!event) return;
 
-  const unitSys = getUnitSystem();
-  const postObs = getAll('eventObservations')
-    .filter(o => o.eventId === ctx.eventId && o.observationPhase === 'post_graze')
-    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const farmSettings = getAll('farmSettings')[0] || null;
+  const closedPaddockWindows = getAll('eventPaddockWindows')
+    .filter(pw => pw.eventId === ctx.eventId && !!pw.dateClosed);
 
-  const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
-    el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.postGraze')]),
-  ]);
-
-  if (!postObs.length) {
-    card.appendChild(el('div', { className: 'form-hint' }, [t('event.postGrazeEmpty')]));
-  } else {
-    const isClosed = !!event.dateOut;
-    const heightUnit = unitSys === 'imperial' ? 'in.' : 'cm';
-
-    for (const obs of postObs) {
-      const pw = obs.paddockWindowId ? getById('eventPaddockWindows', obs.paddockWindowId) : null;
-      const loc = pw ? getById('locations', pw.locationId) : null;
-      const label = loc ? loc.name : '';
-      const canEdit = !isClosed;
-
-      const heightVal = obs.postGrazeHeightCm != null
-        ? (unitSys === 'imperial' ? convert(obs.postGrazeHeightCm, 'length', 'toImperial') : obs.postGrazeHeightCm)
-        : '';
-
-      let postSavedTimer = null;
-      const postSaved = el('span', { style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' } }, ['Saved']);
-      function showPostSaved() {
-        if (postSavedTimer) clearTimeout(postSavedTimer);
-        postSaved.style.opacity = '1';
-        postSavedTimer = setTimeout(() => { postSaved.style.opacity = '0'; }, 2000);
-      }
-      function savePostField(changes) {
-        update('eventObservations', obs.id, changes, EventObsEntity.validate, EventObsEntity.toSupabaseShape, 'event_observations');
-        showPostSaved();
-      }
-
-      const hInput = el('input', {
-        type: 'number', className: 'obs-input', style: { width: '52px' }, step: '0.5',
-        value: heightVal, disabled: !canEdit,
-        onBlur: () => {
-          const raw = parseFloat(hInput.value);
-          const cm = !isNaN(raw) ? (unitSys === 'imperial' ? convert(raw, 'length', 'toMetric') : raw) : null;
-          savePostField({ postGrazeHeightCm: cm });
-        },
-      });
-      // Recovery date preview helper
-      const closedDate = pw?.dateClosed || null;
-      const recoveryPreview = el('div', { style: { fontSize: '11px', color: 'var(--text3)', marginTop: '2px' } });
-      function updateRecoveryPreview() {
-        clear(recoveryPreview);
-        if (!closedDate) { recoveryPreview.textContent = 'Recovery dates available after paddock closes'; return; }
-        const minD = parseInt(minInput.value, 10);
-        const maxD = parseInt(maxInput.value, 10);
-        if (isNaN(minD) && isNaN(maxD)) return;
-        const base = new Date(closedDate + 'T00:00:00');
-        const parts = [];
-        if (!isNaN(minD)) { const d = new Date(base.getTime() + minD * 86400000); parts.push(`earliest ${formatShortDate(d.toISOString().slice(0, 10))}`); }
-        if (!isNaN(maxD)) { const d = new Date(base.getTime() + maxD * 86400000); parts.push(`latest ${formatShortDate(d.toISOString().slice(0, 10))}`); }
-        if (parts.length) recoveryPreview.textContent = `Ready: ${parts.join(' \u2013 ')}`;
-      }
-
-      const minInput = el('input', {
-        type: 'number', className: 'obs-input', style: { width: '52px' }, step: '1',
-        value: obs.recoveryMinDays ?? '', disabled: !canEdit,
-        onBlur: () => { const v = parseInt(minInput.value, 10); savePostField({ recoveryMinDays: !isNaN(v) ? v : null }); },
-        onInput: () => updateRecoveryPreview(),
-      });
-      const maxInput = el('input', {
-        type: 'number', className: 'obs-input', style: { width: '52px' }, step: '1',
-        value: obs.recoveryMaxDays ?? '', disabled: !canEdit,
-        onBlur: () => { const v = parseInt(maxInput.value, 10); savePostField({ recoveryMaxDays: !isNaN(v) ? v : null }); },
-        onInput: () => updateRecoveryPreview(),
-      });
-      updateRecoveryPreview();
-
-      card.appendChild(el('div', { style: { padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' } }, [
-        label ? el('div', { style: { fontWeight: '500', fontSize: '13px', marginBottom: '4px' } }, [label]) : null,
-        el('div', { className: 'obs-field-row', style: { display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } }, [
-          el('span', { style: { color: 'var(--text2)' } }, [`Avg height (${heightUnit}):`]),
-          hInput,
-          el('span', { style: { color: 'var(--text2)' } }, ['Recovery min:']),
-          minInput,
-          el('span', { style: { color: 'var(--text2)' } }, ['max:']),
-          maxInput,
-          el('span', { style: { color: 'var(--text2)' } }, ['days']),
-          postSaved,
-        ]),
-        recoveryPreview,
-      ].filter(Boolean)));
-    }
+  if (!closedPaddockWindows.length) {
+    const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
+      el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.postGrazeObs')]),
+      el('div', { className: 'form-hint' }, [t('event.postGrazeEmpty')]),
+    ]);
+    el2.appendChild(card);
+    return;
   }
 
-  el2.appendChild(card);
+  for (const pw of closedPaddockWindows) {
+    const loc = getById('locations', pw.locationId);
+
+    const allObs = getAll('paddockObservations')
+      .filter(o => o.locationId === pw.locationId && o.type === 'close' && o.source === 'event');
+    const obs = allObs.find(o => o.sourceId === pw.id)
+      || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+      || null;
+
+    const card = renderPostGrazeCard({
+      farmSettings,
+      initialValues: obs ? {
+        residualHeightCm: obs.residualHeightCm,
+        recoveryMinDays: obs.recoveryMinDays,
+        recoveryMaxDays: obs.recoveryMaxDays,
+        notes: obs.notes,
+      } : {},
+    });
+
+    const header = loc
+      ? el('div', { style: { fontWeight: '600', fontSize: '14px', marginBottom: '6px' } }, [loc.name])
+      : null;
+
+    const statusEl = el('span', {
+      style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' },
+    }, [t('settings.saved')]);
+    function showSaved() {
+      statusEl.style.opacity = '1';
+      setTimeout(() => { statusEl.style.opacity = '0'; }, 2000);
+    }
+    const saveBtn = el('button', {
+      className: 'btn btn-outline btn-xs',
+      'data-testid': `detail-postgraze-save-${pw.id}`,
+      onClick: () => {
+        const values = card.getValues();
+        if (obs) {
+          update('paddockObservations', obs.id, values,
+            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+        } else {
+          const newObs = PaddockObsEntity.create({
+            operationId: ctx.operationId,
+            locationId: pw.locationId,
+            observedAt: new Date().toISOString(),
+            type: 'close',
+            source: 'event',
+            sourceId: pw.id,
+            ...values,
+          });
+          add('paddockObservations', newObs,
+            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+        }
+        showSaved();
+      },
+    }, [t('action.save')]);
+
+    const wrap = el('div', {
+      className: 'card',
+      style: { marginBottom: 'var(--space-4)' },
+      'data-testid': `detail-postgraze-card-${pw.id}`,
+    }, [
+      header,
+      card.container,
+      el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [saveBtn, statusEl]),
+    ].filter(Boolean));
+    el2.appendChild(wrap);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -4,11 +4,11 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
-import { getUnitSystem } from '../../utils/preferences.js';
-import { unitLabel } from '../../utils/units.js';
+import { convert } from '../../utils/units.js';
 import * as SurveyEntity from '../../entities/survey.js';
 import * as DraftEntryEntity from '../../entities/survey-draft-entry.js';
 import * as ObservationEntity from '../../entities/paddock-observation.js';
+import { renderSurveyCard } from '../observations/survey-card.js';
 
 let unsubs = [];
 
@@ -271,105 +271,58 @@ function openDraftEntrySheet(survey, existingEntry, _operationId) {
   if (!panel) return;
   clear(panel);
 
-  const unitSys = getUnitSystem();
-  const inputs = {};
   const isEdit = !!existingEntry;
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [
     isEdit ? t('survey.editSurvey') : t('survey.addEntry'),
   ]));
 
-  // Location picker (for new entries on single surveys)
+  // Location picker (for new entries on single surveys).
+  let locationSelect = null;
+  let fixedLocationId = null;
   if (!isEdit) {
     const locations = getAll('locations').filter(l => !l.archived && l.type === 'land');
     panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectLocation')]));
-    inputs.locationId = el('select', {
+    locationSelect = el('select', {
       className: 'auth-select', 'data-testid': 'draft-entry-location',
     }, locations.map(l => el('option', { value: l.id }, [l.name])));
-    panel.appendChild(inputs.locationId);
+    panel.appendChild(locationSelect);
   } else {
     const loc = getById('locations', existingEntry.locationId);
     panel.appendChild(el('p', { className: 'form-hint', style: { marginBottom: 'var(--space-3)' } }, [
       loc ? loc.name : '',
     ]));
+    fixedLocationId = existingEntry.locationId;
   }
 
-  // Forage height
-  const heightLabel = `${t('survey.forageHeight')} (${unitLabel('length', unitSys)})`;
-  panel.appendChild(el('label', { className: 'form-label' }, [heightLabel]));
-  inputs.forageHeightCm = el('input', {
-    type: 'number', className: 'auth-input settings-input',
-    value: existingEntry?.forageHeightCm ?? '',
-    'data-testid': 'draft-entry-height',
+  // OI-0112 surface #6: replace the hand-rolled form with the shared survey card.
+  // paddockAcres is computed from the selected/fixed location so the BRC helper
+  // surfaces when the farm has a bale-ring diameter set. On the "new entry /
+  // single-mode" path the location can change before save — the acres used for
+  // BRC auto-fill match the location the card was rendered with (the initial
+  // option). A future PR can re-render on location change if that turns out
+  // to matter in the field.
+  const farmSettings = getAll('farmSettings')[0] || null;
+  const initialLocationId = fixedLocationId || locationSelect?.value || null;
+  const initialLoc = initialLocationId ? getById('locations', initialLocationId) : null;
+  const paddockAcres = initialLoc?.areaHa != null
+    ? convert(initialLoc.areaHa, 'area', 'toImperial')
+    : null;
+  const card = renderSurveyCard({
+    farmSettings,
+    paddockAcres,
+    initialValues: existingEntry ? {
+      forageHeightCm: existingEntry.forageHeightCm,
+      forageCoverPct: existingEntry.forageCoverPct,
+      forageQuality: existingEntry.forageQuality,
+      forageCondition: existingEntry.forageCondition,
+      baleRingResidueCount: existingEntry.baleRingResidueCount,
+      recoveryMinDays: existingEntry.recoveryMinDays,
+      recoveryMaxDays: existingEntry.recoveryMaxDays,
+      notes: existingEntry.notes,
+    } : {},
   });
-  panel.appendChild(inputs.forageHeightCm);
-
-  // Forage cover %
-  panel.appendChild(el('label', { className: 'form-label' }, [t('survey.forageCover')]));
-  inputs.forageCoverPct = el('input', {
-    type: 'number', className: 'auth-input settings-input',
-    value: existingEntry?.forageCoverPct ?? '',
-    'data-testid': 'draft-entry-cover',
-  });
-  panel.appendChild(inputs.forageCoverPct);
-
-  // Forage quality (numeric slider-like input)
-  panel.appendChild(el('label', { className: 'form-label' }, [t('survey.forageQuality')]));
-  inputs.forageQuality = el('input', {
-    type: 'number', className: 'auth-input settings-input',
-    value: existingEntry?.forageQuality ?? '',
-    'data-testid': 'draft-entry-quality',
-  });
-  panel.appendChild(inputs.forageQuality);
-
-  // Forage condition
-  panel.appendChild(el('label', { className: 'form-label' }, [t('survey.forageCondition')]));
-  inputs.forageCondition = el('select', {
-    className: 'auth-select', 'data-testid': 'draft-entry-condition',
-  }, [
-    el('option', { value: '' }, ['—']),
-    el('option', { value: 'poor' }, [t('survey.conditionPoor')]),
-    el('option', { value: 'fair' }, [t('survey.conditionFair')]),
-    el('option', { value: 'good' }, [t('survey.conditionGood')]),
-    el('option', { value: 'excellent' }, [t('survey.conditionExcellent')]),
-  ]);
-  if (existingEntry?.forageCondition) inputs.forageCondition.value = existingEntry.forageCondition;
-  panel.appendChild(inputs.forageCondition);
-
-  // Bale ring residue
-  panel.appendChild(el('label', { className: 'form-label' }, [t('survey.baleRingResidue')]));
-  inputs.baleRingResidueCount = el('input', {
-    type: 'number', className: 'auth-input settings-input',
-    value: existingEntry?.baleRingResidueCount ?? '',
-    'data-testid': 'draft-entry-residue',
-  });
-  panel.appendChild(inputs.baleRingResidueCount);
-
-  // Recovery days
-  panel.appendChild(el('label', { className: 'form-label' }, [t('survey.recoveryMin')]));
-  inputs.recoveryMinDays = el('input', {
-    type: 'number', className: 'auth-input settings-input',
-    value: existingEntry?.recoveryMinDays ?? '',
-    'data-testid': 'draft-entry-recovery-min',
-  });
-  panel.appendChild(inputs.recoveryMinDays);
-
-  panel.appendChild(el('label', { className: 'form-label' }, [t('survey.recoveryMax')]));
-  inputs.recoveryMaxDays = el('input', {
-    type: 'number', className: 'auth-input settings-input',
-    value: existingEntry?.recoveryMaxDays ?? '',
-    'data-testid': 'draft-entry-recovery-max',
-  });
-  panel.appendChild(inputs.recoveryMaxDays);
-
-  // Notes
-  panel.appendChild(el('label', { className: 'form-label' }, [t('survey.notes')]));
-  inputs.notes = el('textarea', {
-    className: 'auth-input', value: existingEntry?.notes || '',
-    'data-testid': 'draft-entry-notes',
-    style: { minHeight: '40px', resize: 'vertical' },
-  });
-  panel.appendChild(inputs.notes);
+  panel.appendChild(card.container);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'draft-entry-status' });
   panel.appendChild(statusEl);
@@ -378,7 +331,7 @@ function openDraftEntrySheet(survey, existingEntry, _operationId) {
     el('button', {
       className: 'btn btn-green',
       'data-testid': 'draft-entry-save',
-      onClick: () => saveDraftEntry(survey, existingEntry, inputs, statusEl),
+      onClick: () => saveDraftEntry(survey, existingEntry, card, locationSelect, statusEl),
     }, [t('action.save')]),
     el('button', {
       className: 'btn btn-outline',
@@ -390,25 +343,14 @@ function openDraftEntrySheet(survey, existingEntry, _operationId) {
   draftEntrySheet.open();
 }
 
-function saveDraftEntry(survey, existingEntry, inputs, statusEl) {
+function saveDraftEntry(survey, existingEntry, card, locationSelect, statusEl) {
   clear(statusEl);
-  const parseNum = (input) => {
-    const v = input.value;
-    return v === '' ? null : parseFloat(v);
-  };
-
+  const values = card.getValues();
   const data = {
     operationId: survey.operationId,
     surveyId: survey.id,
-    locationId: existingEntry ? existingEntry.locationId : inputs.locationId.value,
-    forageHeightCm: parseNum(inputs.forageHeightCm),
-    forageCoverPct: parseNum(inputs.forageCoverPct),
-    forageQuality: parseNum(inputs.forageQuality),
-    forageCondition: inputs.forageCondition.value || null,
-    baleRingResidueCount: parseNum(inputs.baleRingResidueCount),
-    recoveryMinDays: parseNum(inputs.recoveryMinDays),
-    recoveryMaxDays: parseNum(inputs.recoveryMaxDays),
-    notes: inputs.notes.value.trim() || null,
+    locationId: existingEntry ? existingEntry.locationId : locationSelect?.value || null,
+    ...values,
   };
 
   try {

@@ -16,8 +16,8 @@ import { createObservation, renderLocationPicker } from './index.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
-import { getFarmSettings, renderPostGrazeFields, renderPreGrazeFields } from './observation-fields.js';
-import { renderPaddockCard } from '../observations/paddock-card.js';
+import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
+import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -347,9 +347,9 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     }
   });
 
-  // Post-graze observation fields on close-out section (OI-0040)
-  const farmSettings = getFarmSettings();
-  const postGraze = renderPostGrazeFields(farmSettings);
+  // Post-graze observation card on close-out section (OI-0112 surface #2).
+  const farmSettings = getAll('farmSettings')[0] || null;
+  const postGraze = renderPostGrazeCard({ farmSettings });
   closeSection.appendChild(postGraze.container);
 
   panel.appendChild(closeSection);
@@ -384,18 +384,12 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     });
     openSection.appendChild(inputs.timeIn);
 
-    // Pre-graze observation fields on destination section (OI-0041, extended to the
-    // shared paddock card per OI-0100).
+    // Pre-graze observation card on destination section (OI-0112 surface #1).
     const destLoc = state.locationId ? getById('locations', state.locationId) : null;
     const paddockAcres = destLoc?.areaHa != null
       ? convert(destLoc.areaHa, 'area', 'toImperial')
       : null;
-    preGraze = renderPaddockCard({
-      saveTo: 'event_observations',
-      farmSettings,
-      paddockAcres,
-      initialValues: {},
-    });
+    preGraze = renderPreGrazeCard({ farmSettings, paddockAcres, initialValues: {} });
     openSection.appendChild(preGraze.container);
 
     panel.appendChild(openSection);

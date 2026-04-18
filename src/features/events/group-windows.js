@@ -8,7 +8,6 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { display } from '../../utils/units.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
-import { maybeShowEmptyGroupPrompt } from '../animals/empty-group-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Group add sheet (CP-18)
@@ -217,15 +216,16 @@ export function openGroupRemoveSheet(groupWindow) {
         clear(statusEl);
         try {
           // OI-0094 entry #7: route through closeGroupWindow so live values are stamped.
+          // OI-0097 scope-boundary: §7 Remove group closes the event_group_window only —
+          // it does not touch animal_group_memberships, so "empty" is checked by
+          // membership-mutation flows only (cull, move, split, Edit Group, Edit Animal
+          // group change), not here. Do NOT call maybeShowEmptyGroupPrompt.
           closeGroupWindow(
             groupWindow.groupId,
             groupWindow.eventId,
             inputs.dateLeft.value,
             inputs.timeLeft.value || null,
           );
-          // OI-0090: if removing the group from this event leaves it with no live
-          // memberships anywhere, surface the archive prompt.
-          maybeShowEmptyGroupPrompt(groupWindow.groupId);
           groupRemoveSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

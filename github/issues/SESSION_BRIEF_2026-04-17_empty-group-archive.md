@@ -1,5 +1,7 @@
 # Session Brief — Empty Group Archive Flow (OI-0090 / SP-11 Parts 2–4)
 
+> **CORRECTION (2026-04-18):** §7 Remove group was incorrectly listed as a `maybeShowEmptyGroupPrompt` wiring point in Phase 3. OI-0097 removed that call. §7 Remove closes the `event_group_window` only — it does not touch `animal_group_memberships`, so the empty-group check does not apply at this entry point. See `OPEN_ITEMS.md § OI-0097` for detail. This brief is retained as historical; do not follow the §7 Remove guidance below.
+
 **Date:** 2026-04-17
 **Issue covered:** OI-0090
 **Prerequisites (hard):**

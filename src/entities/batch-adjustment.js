@@ -51,14 +51,16 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: all three quantity cols have strict typeof validate — must coerce.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id: row.id,
     batchId: row.batch_id,
     operationId: row.operation_id,
     adjustedBy: row.adjusted_by,
-    previousQty: row.previous_qty,
-    newQty: row.new_qty,
-    delta: row.delta,
+    previousQty: n(row.previous_qty),
+    newQty: n(row.new_qty),
+    delta: n(row.delta),
     reason: row.reason,
     createdAt: row.created_at,
   };

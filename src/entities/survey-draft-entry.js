@@ -69,18 +69,20 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: coerce PostgREST-stringified numeric/integer columns.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id: row.id,
     operationId: row.operation_id,
     surveyId: row.survey_id,
     locationId: row.location_id,
-    forageHeightCm: row.forage_height_cm,
-    forageCoverPct: row.forage_cover_pct,
-    forageQuality: row.forage_quality,
+    forageHeightCm: n(row.forage_height_cm),
+    forageCoverPct: n(row.forage_cover_pct),
+    forageQuality: n(row.forage_quality),
     forageCondition: row.forage_condition,
-    baleRingResidueCount: row.bale_ring_residue_count,
-    recoveryMinDays: row.recovery_min_days,
-    recoveryMaxDays: row.recovery_max_days,
+    baleRingResidueCount: n(row.bale_ring_residue_count),
+    recoveryMinDays: n(row.recovery_min_days),
+    recoveryMaxDays: n(row.recovery_max_days),
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

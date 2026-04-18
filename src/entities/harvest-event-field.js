@@ -63,16 +63,19 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: validate() uses strict typeof on quantity — stringified values
+  // silently reject. weightPerUnitKg rolls up into batch totals.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id: row.id,
     operationId: row.operation_id,
     harvestEventId: row.harvest_event_id,
     locationId: row.location_id,
     feedTypeId: row.feed_type_id,
-    quantity: row.quantity,
-    weightPerUnitKg: row.weight_per_unit_kg,
-    dmPct: row.dm_pct,
-    cuttingNumber: row.cutting_number,
+    quantity: n(row.quantity),
+    weightPerUnitKg: n(row.weight_per_unit_kg),
+    dmPct: n(row.dm_pct),
+    cuttingNumber: n(row.cutting_number),
     batchId: row.batch_id,
     notes: row.notes,
     createdAt: row.created_at,

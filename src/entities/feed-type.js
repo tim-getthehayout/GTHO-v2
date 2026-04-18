@@ -77,18 +77,20 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: feed_type numerics feed DMI calcs and weight-per-unit rollups.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id: row.id,
     operationId: row.operation_id,
     name: row.name,
     category: row.category,
     unit: row.unit,
-    dmPct: row.dm_pct,
-    nPct: row.n_pct,
-    pPct: row.p_pct,
-    kPct: row.k_pct,
-    defaultWeightKg: row.default_weight_kg,
-    cuttingNumber: row.cutting_number,
+    dmPct: n(row.dm_pct),
+    nPct: n(row.n_pct),
+    pPct: n(row.p_pct),
+    kPct: n(row.k_pct),
+    defaultWeightKg: n(row.default_weight_kg),
+    cuttingNumber: n(row.cutting_number),
     forageTypeId: row.forage_type_id,
     harvestActive: row.harvest_active,
     archived: row.archived,

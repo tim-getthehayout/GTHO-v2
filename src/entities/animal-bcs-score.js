@@ -52,12 +52,14 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: score is numeric — must coerce for downstream averages and
+  // strict typeof checks.
   return {
     id:          row.id,
     operationId: row.operation_id,
     animalId:    row.animal_id,
     scoredAt:    row.scored_at,
-    score:       row.score,
+    score:       row.score != null ? Number(row.score) : null,
     likelyCull:  row.likely_cull,
     notes:       row.notes,
     createdAt:   row.created_at,

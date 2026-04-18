@@ -88,24 +88,26 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: every lab-result column is a PostgREST-stringified numeric.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id:          row.id,
     operationId: row.operation_id,
     batchId:     row.batch_id,
     testedAt:    row.tested_at,
     source:      row.source,
-    dmPct:       row.dm_pct,
-    proteinPct:  row.protein_pct,
-    adfPct:      row.adf_pct,
-    ndfPct:      row.ndf_pct,
-    tdnPct:      row.tdn_pct,
-    rfv:         row.rfv,
-    nPct:        row.n_pct,
-    pPct:        row.p_pct,
-    kPct:        row.k_pct,
-    caPct:       row.ca_pct,
-    mgPct:       row.mg_pct,
-    sPct:        row.s_pct,
+    dmPct:       n(row.dm_pct),
+    proteinPct:  n(row.protein_pct),
+    adfPct:      n(row.adf_pct),
+    ndfPct:      n(row.ndf_pct),
+    tdnPct:      n(row.tdn_pct),
+    rfv:         n(row.rfv),
+    nPct:        n(row.n_pct),
+    pPct:        n(row.p_pct),
+    kPct:        n(row.k_pct),
+    caPct:       n(row.ca_pct),
+    mgPct:       n(row.mg_pct),
+    sPct:        n(row.s_pct),
     lab:         row.lab,
     notes:       row.notes,
     createdAt:   row.created_at,

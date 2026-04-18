@@ -68,17 +68,19 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: forage_types drives DMI yields, residual targets, and NPK rates.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id: row.id,
     operationId: row.operation_id,
     name: row.name,
-    dmPct: row.dm_pct,
-    nPerTonneDm: row.n_per_tonne_dm,
-    pPerTonneDm: row.p_per_tonne_dm,
-    kPerTonneDm: row.k_per_tonne_dm,
-    dmKgPerCmPerHa: row.dm_kg_per_cm_per_ha,
-    minResidualHeightCm: row.min_residual_height_cm,
-    utilizationPct: row.utilization_pct,
+    dmPct: n(row.dm_pct),
+    nPerTonneDm: n(row.n_per_tonne_dm),
+    pPerTonneDm: n(row.p_per_tonne_dm),
+    kPerTonneDm: n(row.k_per_tonne_dm),
+    dmKgPerCmPerHa: n(row.dm_kg_per_cm_per_ha),
+    minResidualHeightCm: n(row.min_residual_height_cm),
+    utilizationPct: n(row.utilization_pct),
     notes: row.notes,
     isSeeded: row.is_seeded,
     archived: row.archived,

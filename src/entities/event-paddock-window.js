@@ -65,6 +65,8 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: area_pct is numeric (strip-graze proportional band); drives
+  // dashboard + rotation calendar math.
   return {
     id: row.id,
     operationId: row.operation_id,
@@ -77,7 +79,7 @@ export function fromSupabaseShape(row) {
     noPasture: row.no_pasture,
     isStripGraze: row.is_strip_graze,
     stripGroupId: row.strip_group_id,
-    areaPct: row.area_pct,
+    areaPct: row.area_pct != null ? Number(row.area_pct) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

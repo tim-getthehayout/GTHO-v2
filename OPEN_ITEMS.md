@@ -4,6 +4,472 @@
 
 ---
 
+### OI-0110 — Sub-move Open sheet pre-graze: swap `renderPreGrazeFields` for the shared paddock card (bale-ring helper + forage quality + condition chips missing today)
+**Added:** 2026-04-18 | **Area:** v2-build / events / submove / observations / ui | **Priority:** P1 (same-class-of-gap as OI-0107 — Tim hit this during field testing immediately after trying the sub-move flow: no bale-ring helper, no numeric quality slider, no condition chips)
+**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_event-detail-quick-access.md` alongside OI-0107 / OI-0108 / OI-0109. Ship as a single commit with OI-0107 — both are `renderPaddockCard` adoptions with identical change shape.
+
+**Status:** open — spec ready for handoff. Spec file: `github/issues/submove-open-pregraze-paddock-card.md`.
+
+**What's wrong:** `src/features/events/submove.js:66` calls `renderPreGrazeFields(farmSettings)` — the minimal height + cover-only version from `observation-fields.js:34`. It's missing:
+
+- Bale-ring residue count input
+- BRC-1 auto-fill of cover % from bale-ring count + paddock area
+- Forage quality (1–100 slider)
+- Condition chips (poor / fair / good / excellent)
+- Recovery min/max days
+- Notes
+
+Tim hit this the moment he tried to log a sub-move after the OI-0100 work shipped. OI-0100 migrated `move-wizard.js` Step 3 pre-graze to the shared `renderPaddockCard` component, but `submove.js` was not migrated in the same commit. This is a straight one-caller follow-up — the same swap OI-0107 is doing for the Event Detail pre-graze.
+
+**Fix:**
+
+Replace the `renderPreGrazeFields(farmSettings)` call with `renderPaddockCard({ saveTo: 'event_observations', farmSettings, paddockAcres, initialValues })`. The sub-move open flow already has the destination `locationId` in hand (that's what the flow is targeting) — read the location's `areaHectares`, convert to acres, and pass as `paddockAcres` so the bale-ring helper surfaces.
+
+```js
+// Replace:
+const preGraze = renderPreGrazeFields(farmSettings);
+// With:
+const loc = getById('locations', destinationLocationId);
+const paddockAcres = loc ? convert(loc.areaHectares, 'area', 'toImperial') : null;
+const preGraze = renderPaddockCard({
+  saveTo: 'event_observations',
+  farmSettings,
+  paddockAcres,
+  initialValues: {},  // sub-move opens a new paddock window; no prior observation to pre-fill
+});
+```
+
+Persistence path is unchanged — the existing `createObservation(operationId, locationId, 'open', paddockWindowId, ...preGraze.getValues())` call (or equivalent in the submove save flow) already writes to `event_observations` with `observation_phase = 'pre_graze'`. The `getValues()` shape matches because `renderPaddockCard` is a superset of `renderPreGrazeFields` (same keys for height + cover, plus the additional fields the minimal version was missing).
+
+**Confirm before implementing:** Grep `submove.js` for every consumer of `preGraze.getValues()` and `preGraze.validate()`. Make sure the saved record carries the new fields through to the `event_observations` write. If a sub-flow discards fields (e.g. destructures only `{ forageHeightCm, forageCoverPct }`), widen the destructure or pass `...preGraze.getValues()` through unchanged.
+
+**Files affected:**
+
+- `src/features/events/submove.js` — line 9 import + line 66 render call + the save path where `preGraze.getValues()` flows into `createObservation`.
+- `tests/unit/submove.test.js` (or the nearest existing submove test file) — add: (1) sub-move open sheet renders the full paddock card; (2) bale-ring helper surfaces when farm settings + paddock acres present; (3) saved observation includes the new fields on `event_observations`.
+
+**Acceptance criteria:**
+
+- [ ] Sub-move Open sheet renders all `renderPaddockCard` fields: height, quality slider, cover % (with bale-ring helper when applicable), condition chips, bale-ring residue count, recovery min/max, notes.
+- [ ] BRC-1 auto-fill of cover % works when farm settings has `baleRingResidueDiameterFt` and the paddock has `areaHectares`.
+- [ ] Saved observation row in `event_observations` carries every field the paddock card collected (`paddockWindowId`, `observationPhase: 'pre_graze'`, and all the new fields).
+- [ ] No regression in the existing sub-move flow — date/time, location picker, group selection, etc. behave identically.
+- [ ] `renderPreGrazeFields` can stay in `observation-fields.js` for now (event-close post-graze still uses `renderPostGrazeFields` from the same file); deprecating the pre-graze helper is a follow-up.
+- [ ] `npx vitest run` clean.
+
+**CP-55/CP-56 impact:** none — schema already aligned (migration 022 + OI-0063). Pure UI integration, identical to OI-0100.
+
+**Schema change:** none.
+
+**Related:**
+- **OI-0100** — shipped the shared `renderPaddockCard` and migrated the move wizard. This OI closes the parity gap for the sub-move caller. (A follow-up OI will handle the event-close post-graze path if Tim wants the full card there too.)
+- **OI-0107** — same-shape fix for the Event Detail pre-graze. Ship these two together.
+- **GH-12 / SP-9** — survey sheet paddock-card spec; source of the shared component's field set.
+
+---
+
+### OI-0109 — Dashboard location card: replace stacked Feed check + Feed buttons with 3-button bottom row (Feed Check · Feed · Sub-Move)
+**Added:** 2026-04-18 | **Area:** v2-build / dashboard / ui | **Priority:** P1 (quick-access gap — sub-move today is buried in the card body as a teal text link; farmers asked for a dedicated quick-access button next to Feed Check and Feed)
+**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_event-detail-quick-access.md` alongside OI-0107 / OI-0108 / OI-0110.
+
+**Status:** open — spec ready for handoff. Spec file: `github/issues/dashboard-card-3-button-bottom-row.md`.
+
+**What's wrong:** SP-3 (GH-11) removed v1's two small bottom buttons and replaced them with two large full-width stacked buttons (amber Feed Check + green Feed). After field testing, Tim flagged two issues with that layout:
+
+1. **No quick-access Sub-Move button** — opening a sub-move today requires scrolling into the card body and tapping the `+ Add sub-move` teal link. That's buried when Groups, DMI chart, and sub-paddocks are populated. Sub-move is a primary, frequently-used action during grazing rotation; it should sit next to Feed Check and Feed.
+2. **Two large stacked full-width buttons take too much vertical space** — especially on mobile where card height is already the limiting factor for dashboard density.
+
+**Fix (v1 small-button style, 3-up row):**
+
+Replace the two full-width stacked buttons with a single row containing three equal-width buttons (each ~1/3 card width, matching v1's small-button visual style):
+
+| Position | Label | Color | Opens |
+|---|---|---|---|
+| 1 | Feed Check | amber outline (`#FDF6EA` bg, amber border, `#8B6914` text) | `openFeedCheckSheet(event, operationId)` |
+| 2 | Feed | green outline (green bg, white text) | `openDeliverFeedSheet(event, operationId)` |
+| 3 | Sub-Move | teal outline (`btn btn-outline` with teal accent) | `openSubmoveOpenSheet(event, operationId)` |
+
+Row layout: `display: flex; gap: 6px;` — each button `flex: 1`, `padding: 10px 8px`, `font-size: 13px`, `font-weight: 600`, border-radius `8px`. Mirror the v1 `.grp-actions` row style already extracted in GH-4 (dashboard group card).
+
+**The `+ Add sub-move` teal text link:**
+
+- On the dashboard card body (above the SUB-PADDOCKS section, rendered when no sub-moves exist) — **remove** (the new Sub-Move button supersedes it for quick-access, and removing it avoids two paths to the same sheet on the same card).
+- Inside the **SUB-PADDOCKS section** (rendered only when sub-moves exist) — **keep** (Tim explicitly asked to keep the in-section link; it's the mid-flow "add another sub-move from here" affordance, not a quick-access entry point).
+- Inside the **Event Detail sheet** (SP-2 §Sub-move History `+ Add sub-move` button) — **no change** (separate surface, already spec'd, Tim explicitly excluded it).
+
+**Files affected:**
+
+- `src/features/dashboard/index.js` — `buildLocationCard()` around lines 1293–1305 (replace the two large buttons with the 3-up row) and around lines 1130–1140 (remove the standalone `+ Add sub-move` teal link that renders when no sub-moves exist).
+- `tests/unit/features/dashboard.test.js` — update the existing large-button assertion; add tests for the three-button row and its click handlers.
+
+**Acceptance criteria:**
+
+- [ ] Dashboard location card renders a single bottom row with three buttons: Feed Check · Feed · Sub-Move, left to right, equal width.
+- [ ] Each button uses the small-button style (13px, 10px/8px padding, 1/3 card width via `flex: 1`).
+- [ ] Feed Check opens `openFeedCheckSheet(event, operationId)`; Feed opens `openDeliverFeedSheet(event, operationId)`; Sub-Move opens `openSubmoveOpenSheet(event, operationId)`.
+- [ ] `+ Add sub-move` teal link above the SUB-PADDOCKS section is removed; the link **inside** the SUB-PADDOCKS section (shown when sub-moves exist) stays unchanged.
+- [ ] Event Detail sheet's Sub-move History `+ Add sub-move` button is unchanged (this OI does not touch `src/features/events/detail.js`).
+- [ ] Card testid `dashboard-loc-card-{event.id}` still present.
+- [ ] New testids: `dashboard-submove-btn-{event.id}` (in addition to existing `dashboard-feed-check-btn-{event.id}` and `dashboard-feed-btn-{event.id}`).
+- [ ] Works on mobile (≤ 720px — row wraps to 2+1 only if absolute width < 240px, otherwise stays 3-up) and desktop.
+- [ ] `npx vitest run` clean.
+
+**CP-55/CP-56 impact:** none — visual/wiring only, no schema or state-shape change.
+
+**Schema change:** none.
+
+**Base doc impact:** This is a deliberate reversal of SP-3's "only two deltas" decision (UI_SPRINT_SPEC.md line 21, 182–184 and GH-11 §13–16, §The two changes from v1). The end-of-sprint reconciliation pass into V2_UX_FLOWS.md §17.7 must reflect the 3-button row, not the two-large-button design. UI_SPRINT_SPEC.md SP-12 captures this revision.
+
+**Related:**
+- **OI-0100** — shared paddock-card component (related via the event-detail quick-access bundle, not this specific card).
+- **SP-3 / GH-11** — superseded by this revision for the bottom-button section only; all other SP-3 specs (accent bar, header, summary line, capacity, breakdown, sub-paddocks, groups, DMI chart, DMI/NPK summary) stand.
+
+---
+
+### OI-0108 — Event Detail feed entry display: label says "DMI" but value is dry matter (DM); rename label and guard the silent-zero path when a batch is missing weight or DM%
+**Added:** 2026-04-18 | **Area:** v2-build / events / detail view / labels / feed | **Priority:** P1 (terminology bug on a user-facing row; also surfaces a silent-zero bug for bales whose batch is missing weight-per-unit or DM%)
+**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_event-detail-quick-access.md` alongside OI-0107 / OI-0109 / OI-0110.
+
+**Status:** open — spec ready for handoff. Spec file: `github/issues/event-detail-feed-entry-dm-label.md`.
+
+**What's wrong:** `src/features/events/detail.js:942–949` computes a per-entry value as:
+
+```js
+const dmiKg = (fe.quantity || 0) * (batch?.weightPerUnitKg ?? 0) * ((batch?.dmPct ?? 0) / 100);
+const dmiLbs = dmiKg * KG_TO_LBS;
+// …
+el('div', {}, [`${Math.round(dmiLbs)} lbs DMI`]),
+```
+
+The formula (`quantity × weight_per_unit × DM%`) produces **dry matter delivered** (DM) — the absolute mass of dry matter in the feed entry. Not **dry matter intake** (DMI), which is consumption per head per day (what the dashboard summary line and DMI chart use). Labelling a feed-delivery row "DMI" conflates the two.
+
+Second, on a bale-type batch, if `weightPerUnitKg` or `dmPct` is null/zero, the result is `0 lbs DMI` — silently. Tim saw this during field testing on a real bale delivery: the row displayed `0 lbs DMI` instead of the ~850 lbs DM that two 500-lb bales at 85% DM should produce. The zero is indistinguishable from "no data captured yet" vs. "batch is missing parameters" vs. "entry has zero quantity." Users can't tell whether to fix the batch, the entry, or ignore the zero.
+
+**Fix (three parts):**
+
+### Part A — Rename the label
+
+In `src/features/events/detail.js:949`, change the display from `{N} lbs DMI` to `{N} lbs DM`. Rename the local vars `dmiKg` / `dmiLbs` to `dmKg` / `dmLbs` for readability (they were never DMI). Add an i18n key `event.feedEntryDm` with English string `"{n} {unit} DM"` so units and localisation round-trip cleanly.
+
+### Part B — Missing-parameter guard (no silent zero)
+
+Show `—` instead of `0 lbs DM` when the computation can't produce a real number. A zero is legitimate only when `quantity === 0`; everywhere else (batch missing weight, missing DM%, or both) the correct display is the em-dash:
+
+```js
+const weightKg = batch?.weightPerUnitKg;
+const dmPct = batch?.dmPct;
+const canCompute = weightKg != null && weightKg > 0 && dmPct != null && dmPct > 0;
+const dmKg = canCompute ? (fe.quantity || 0) * weightKg * (dmPct / 100) : null;
+const dmLbs = dmKg != null ? dmKg * KG_TO_LBS : null;
+const dmDisplay = dmLbs != null ? `${Math.round(dmLbs)} lbs DM` : '— lbs DM';
+```
+
+Add `title` attribute (tooltip) on the em-dash case: `"Batch is missing weight-per-unit or DM %. Edit the batch in Feed to populate."` (new i18n key `event.feedEntryDmMissing`). This is the v1-trap class: a blank state that's actionable by the user, not a silent zero that looks like data.
+
+### Part C — Metric unit support
+
+The hardcoded `KG_TO_LBS` conversion is imperial-only. Follow the pattern already used in the Event Summary hero line (§2 of GH-10) — read `operation.unitSystem` and display `lbs DM` (imperial) or `kg DM` (metric) via `unitLabel('mass', unitSys)`.
+
+**Files affected:**
+
+- `src/features/events/detail.js` lines 942–949 (+ variable renames; add unit switch)
+- `src/i18n/locales/en.json` — add `event.feedEntryDm` and `event.feedEntryDmMissing`
+- `tests/unit/features/events/detail.test.js` — add: (1) renders `N lbs DM` for a batch with weight+DM populated, (2) renders `— lbs DM` when weight is null, (3) renders `— lbs DM` when DM% is null, (4) renders `0 lbs DM` only when `quantity === 0` and batch parameters are valid, (5) renders `kg DM` under metric unit system.
+
+**Verify the bale-parameter entry flow (no code change expected — audit only):**
+
+During implementation, confirm that the Deliver Feed sheet (`openDeliverFeedSheet`) captures `weightPerUnitKg` and `dmPct` on the batch it creates. If the sheet assumes a shared bale weight/DM without per-batch storage, that's a separate OI. Flag findings in the commit message; do not silently extend scope. Per CLAUDE.md "Fix Root Causes, Not Symptoms", if the audit finds the sheet does NOT populate these fields, stop and add a follow-up OI rather than patching both surfaces in one commit.
+
+**Acceptance criteria:**
+
+- [ ] Feed-entry row in Event Detail shows `{N} lbs DM` (not `DMI`), rounded to whole lbs.
+- [ ] Label reads `kg DM` under metric unit system.
+- [ ] Row shows `— lbs DM` when batch is missing `weightPerUnitKg` or `dmPct` (not `0 lbs DMI`).
+- [ ] Row still shows `0 lbs DM` when entry `quantity === 0` and batch parameters are populated (legitimate zero).
+- [ ] Tooltip on the em-dash case present (text via i18n key).
+- [ ] Local variables renamed `dmKg` / `dmLbs` (not `dmiKg` / `dmiLbs`).
+- [ ] New i18n keys added to `en.json`.
+- [ ] 5 new unit tests pass; existing detail tests unchanged in behavior.
+
+**CP-55/CP-56 impact:** none — rendering and label only, no schema or state-shape change.
+
+**Schema change:** none.
+
+**Related:**
+- **OI-0106** (numeric coercion sweep) — `batch.weightPerUnitKg` and `batch.dmPct` are on the Tier 1 list. This OI's "missing parameter" path will work correctly after OI-0106 ships (coerced numbers compare correctly against `> 0`). If OI-0106 ships first, this OI is purely label + em-dash; if this OI ships first, the em-dash path is belt-and-braces for un-coerced numerics too (since `null > 0` is `false`, and the explicit `Number()` check handles stringified values safely).
+- **GH-10** (Event Detail spec) — §8 Feed Entries currently says "amount + unit, date, cost" and doesn't name the DMI/DM label. No spec change needed; this OI implements the per-entry display that was left underspecified.
+
+---
+
+### OI-0107 — Event Detail pre-graze: swap the inline fields for the shared paddock card, one card per open paddock window (enables bale-ring helper + full survey-card fields)
+**Added:** 2026-04-18 | **Area:** v2-build / events / detail view / observations / ui | **Priority:** P1 (gap vs v1 + vs OI-0100 — Tim wants the same paddock assessment fields on event detail that the move wizard pre-graze now has; bale-ring helper is the primary UX win that's missing here)
+**Checkpoint:** bundle into `SESSION_BRIEF_2026-04-18_event-detail-quick-access.md` alongside OI-0108 / OI-0109 / OI-0110. Ship as a single commit with OI-0110 — both are `renderPaddockCard` adoptions with identical change shape.
+
+**Status:** open — spec ready for handoff. Spec file: `github/issues/event-detail-pregraze-paddock-card.md`.
+
+**What's wrong:** Event Detail §5 Pre-graze Observations (`src/features/events/detail.js:554–705` `renderPreGraze`) is today a single event-wide card with four inline fields: forage height, forage cover % (with slider), forage quality, condition chips. It does NOT include:
+
+- **Bale-ring residue count** (field name `baleRingResidueCount`, already a column on `event_observations` via migration 022)
+- **BRC-1 auto-fill of cover %** from the bale-ring count × ring diameter × paddock area (registered calc `src/calcs/survey-bale-ring.js`)
+- **Recovery min/max days** (already captured on `event_observations`)
+- **Notes** (already captured)
+
+OI-0100 (closed 2026-04-18, commit `8ff3572`) shipped the reusable `renderPaddockCard` component at `src/features/observations/paddock-card.js` with the contract `{ saveTo, farmSettings, paddockAcres, initialValues } → { container, getValues, validate }`. The move wizard Step 3 already uses it. Event Detail is the last pre-graze surface still using a shallower inline implementation.
+
+Tim's exact phrasing during field testing: *"Use survey card but write observations to event observations table"* — i.e., the same full-featured card as the survey sheet, persisted to `event_observations` not `paddock_observations`. That's exactly the component OI-0100 shipped.
+
+**Fix (swap the inline implementation for the shared card; one card per open paddock window):**
+
+Replace the event-level `renderPreGraze` with a per-paddock render loop. One card per open paddock window, because:
+
+1. BRC-1 needs `paddockAcres` to compute. An event-level card cannot supply a single `paddockAcres` when the event has multiple open sub-paddocks.
+2. The schema already keys observations by `paddock_window_id` (migration 021) — one observation per paddock per phase is the correct data shape.
+3. Aligns with Paddocks §4 in GH-10 (also one card per paddock window).
+
+**Render loop (rough shape):**
+
+```js
+function renderPreGraze(ctx) {
+  const el2 = ctx.sections.preGraze;
+  clear(el2);
+  const event = getById('events', ctx.eventId);
+  if (!event) return;
+
+  const farmSettings = getAll('farmSettings').find(fs => fs.farmId === ctx.farmId) || null;
+  const openWindows = getAll('eventPaddockWindows')
+    .filter(pw => pw.eventId === ctx.eventId && !pw.dateClosed);
+
+  for (const pw of openWindows) {
+    const loc = getById('locations', pw.locationId);
+    const paddockAcres = loc?.areaHectares != null
+      ? convert(loc.areaHectares, 'area', 'toImperial')  // hectares → acres
+      : null;
+
+    // Latest pre-graze observation for THIS paddock window
+    const obs = getAll('eventObservations')
+      .filter(o =>
+        o.eventId === ctx.eventId &&
+        (o.paddockWindowId === pw.id || (!o.paddockWindowId && openWindows.length === 1)) &&
+        (o.observationPhase === 'pre_graze' || !o.observationPhase),
+      )
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+
+    const card = renderPaddockCard({
+      saveTo: 'event_observations',
+      farmSettings,
+      paddockAcres,
+      initialValues: obs || {},
+    });
+
+    // Auto-save-on-blur adapter — one call per field, identical to existing Notes pattern
+    // On first save for this paddock: add(); subsequent: update(); paddockWindowId: pw.id,
+    // observationPhase: 'pre_graze'. See spec file for full wiring.
+
+    el2.appendChild(card.container);
+  }
+}
+```
+
+**Save semantics:**
+
+- Auto-save-on-blur, one field at a time — same pattern as the existing pre-graze card and the Notes section (GH-10 §11). No explicit Save button on the card in detail view.
+- If no observation exists for a paddock yet, first blur on any field creates the observation via `add('eventObservations', ...)` with `paddockWindowId: pw.id`, `observationPhase: 'pre_graze'`. Subsequent blurs `update()`.
+- **Back-compat read rule (observations written before migration 022 / OI-0063):** include `(o.paddockWindowId === pw.id || (!o.paddockWindowId && openWindows.length === 1))` — a null `paddockWindowId` is attributed to the sole paddock only when there's exactly one. Matches the §4 Paddocks fallback in GH-10.
+
+**`renderPaddockCard` needs an auto-save adapter — it was built for commit-on-Next:**
+
+The shared card was built for move-wizard Step 3 (single-commit-on-Next pattern). Event Detail wants blur-level auto-save. Two paths:
+
+**Path A (recommended) — thin adapter in `detail.js`:** Wrap the card's `container` with blur listeners that call `getValues()` per-field and route the delta to `update()` / `add()`. Leaves the shared component unchanged. Adapter pattern already in use for the existing inline fields (see the `showSaved()` and `saveField()` helpers in `renderPreGraze` today — reuse those exact helpers with the widened field set).
+
+**Path B — extend `renderPaddockCard`:** Add an `onFieldBlur` callback so callers can hook per-field saves without a wrapper. More invasive; touches the move-wizard consumer too. Defer to a follow-up unless Path A proves painful.
+
+Default to Path A for this OI.
+
+**Read-only when event is closed:** Same rule as today's `renderPreGraze` — `disabled = !isActive`. `renderPaddockCard` doesn't have a `disabled` prop today; add one in this OI (small change to the shared component, benefits every caller), OR disable inputs by walking `card.container.querySelectorAll('input, select, textarea, button')` in the adapter. Either is acceptable; the adapter approach is smaller.
+
+**Files affected:**
+
+- `src/features/events/detail.js` — replace `renderPreGraze` body with the per-paddock loop above; import `renderPaddockCard` from `../observations/paddock-card.js`.
+- `src/features/observations/paddock-card.js` — optional: add a `disabled` prop for the closed-event read-only case.
+- `tests/unit/features/events/detail.test.js` — update existing pre-graze tests:
+  - Renders one card per open paddock window.
+  - Bale-ring helper surfaces when `farmSettings.baleRingResidueDiameterFt` and `paddockAcres` are both present.
+  - Entering a bale-ring count auto-fills the cover % via BRC-1.
+  - Save-on-blur creates an observation row scoped to the correct `paddockWindowId`.
+  - Subsequent blur updates, not inserts (one row per paddock × phase).
+  - Closed event → card disabled.
+
+**Acceptance criteria:**
+
+- [ ] Event Detail §5 renders one `renderPaddockCard`-based card per open paddock window.
+- [ ] Each card includes: forage height, forage quality slider (1–100), forage cover % with slider AND bale-ring helper, forage condition, bale-ring residue count, recovery min/max, notes.
+- [ ] Bale-ring helper auto-fills cover when `farmSettings.baleRingResidueDiameterFt` and `paddockAcres` are populated; hidden otherwise.
+- [ ] Save-on-blur writes to `event_observations` with correct `paddockWindowId` + `observationPhase: 'pre_graze'`.
+- [ ] Observations written before migration 022 (null `paddockWindowId`) still render correctly when there's exactly one open paddock on the event.
+- [ ] Closed events render the card read-only (inputs disabled).
+- [ ] `npx vitest run` clean; updated tests pass; no regression in move-wizard or survey-sheet consumers of `renderPaddockCard`.
+
+**CP-55/CP-56 impact:** none — schema already in place (migration 022 added `bale_ring_residue_count` to `event_observations`; OI-0063 alignment earlier). All fields round-trip through the existing `event-observation` entity. Pure UI integration.
+
+**Schema change:** none.
+
+**Base doc impact:** GH-10 §5 Pre-graze Observations currently describes four inline fields at event-level. After this OI ships, §5 should read "one card per open paddock window, each rendering the shared paddock card (same as move wizard Step 3 and survey draft entry)." Reconciliation into V2_UX_FLOWS.md §17.15 at sprint end picks this up; UI_SPRINT_SPEC.md SP-12 tracks the revision.
+
+**Related:**
+- **OI-0100** — shipped the shared `renderPaddockCard`. This OI is one of the last consumer migrations.
+- **OI-0110** — same-shape migration for the sub-move Open sheet's pre-graze. Ship together.
+- **OI-0063** / **migration 022** — schema alignment that made `event_observations.bale_ring_residue_count` exist. Closed.
+- **OI-0068** — pre-graze inline editable fields per v4 mockup. This OI extends that inline-field pattern to the full survey card.
+- **GH-10 / SP-2** — Event Detail spec. §5 underspecified the full field set; this OI is the operational spec for what ships in §5.
+- **GH-12 / SP-9** — Survey sheet v1 parity; source of the paddock card design.
+
+---
+
+### OI-0106 — Sweep: coerce PostgREST stringified numerics across every entity (class-of-bug fix after OI-0103 hotfix)
+**Added:** 2026-04-18 | **Area:** v2-build / data / entities / sync / calcs | **Priority:** P0 (class-of-bug — latent silent math/validate/render failures across the whole app on any pulled-from-Supabase record with a `numeric` column)
+**Checkpoint:** standalone Claude Code session — full-codebase sweep, one commit (or one commit per priority tier if Claude Code prefers)
+
+**Status:** open — spec ready for handoff. Thin pointer: `github/issues/BUG_numeric-coercion-sweep.md`.
+
+**What's wrong:** PostgREST returns PostgreSQL `numeric`/`decimal` columns as JavaScript **strings** (arbitrary-precision safety), not numbers. Pure integer types (`int4`, `int8` under the safe-integer ceiling) come back as numbers; everything else is a string. Every `fromSupabaseShape(row)` in `src/entities/` that passes `row.some_numeric_column` through untouched writes that string into in-memory state. Downstream code then:
+
+1. **Silently corrupts math** via string concatenation — `total += entry.quantity` becomes `"0" + "1" + "2"` = `"012"`, not `3`. (This was the secondary bug in OI-0103 after the field-name fix — group totals in the feed-check sheet were concatenating instead of summing.)
+2. **Crashes render** at format time — `stringValue.toFixed(1)` throws `TypeError` with no recovery. (The `.toFixed(1)` call in the feed-check sheet threw before Save was clickable, which is why the entity-field-name fix alone didn't resolve OI-0103.)
+3. **Silent entity `validate()` rejection** — entities with strict `typeof record.quantity !== 'number'` checks reject records that round-tripped through Supabase. `add()`/`update()` throw, click handlers crash silently, sheet stays open, data never persists. Nothing in the console because `validate()` errors are returned as `{ valid: false, errors }` objects, not thrown.
+4. **Lex comparisons on thresholds** — `value > threshold` with string `value` is lexicographic, not numeric. Dashboard threshold badges (AUD target/warn, rotation target/warn, NPK warn, cost-per-day) compare strings, not numbers. Badges may render red when they should be green, or vice versa. Hard to notice because the colour still renders.
+5. **Backup/restore round-trip** — in-memory state had strings until the hotfix; any backup JSON Tim downloaded this week may contain stringified numerics. CP-56 import currently does not coerce; after the sweep, CP-56 still should run pulled records through `fromSupabaseShape` (which it does via `pullAllRemote`), but backup JSON restored via the file-upload path skips that. Sweep must include a guard.
+
+**Where it came from:** OI-0103 was a two-layer bug. Layer 1 was the `checkDate:` vs `date:` entity-field-name typo, fixed in `38925be`. Layer 2 — surfaced only when Tim's real Supabase data flowed through the sheet — was this stringified-numeric issue. Fixed in `d55ba9b` for three surfaces (`event-feed-entry`, `event-feed-check-item`, `feed/check.js` sum). Every other numeric column in every other entity is still un-coerced.
+
+**Scope (authoritative entity list — 24 entities, 94 numeric fields):**
+
+Already coerced (reference pattern — no work, keep aligned):
+- `event-observation.js` — 8 numeric/integer fields (fully coerced)
+- `event-feed-entry.js` — `quantity` (coerced via hotfix)
+- `event-feed-check-item.js` — `remainingQuantity` (coerced via hotfix)
+- `farm-setting.js` — `baleRingResidueDiameterFt` only (1 of 17 — rest still un-coerced)
+
+**Tier 1 (P0 — actively broken on live-data pull; dashboard, feed, DMI paths):**
+
+| Entity | Numeric fields | Downstream impact |
+|---|---|---|
+| `batch.js` | `quantity`, `remaining`, `weightPerUnitKg`, `dmPct`, `costPerUnit` | Feed-check sheet (group total, `.toFixed` in delivery list), DMI calc, cost-per-day badge, dashboard AUD. `validate()` uses `typeof !== 'number'` on `quantity` and `remaining` → silent reject. |
+| `event-group-window.js` | `headCount` (int), `avgWeightKg` | DMI (`headCount × avgWeightKg × dmiPct`), dashboard AU-days, threshold badges. `validate()` uses strict `typeof` on both. |
+| `animal-weight-record.js` | `weightKg` | Rolls up into group-window `avgWeightKg` — compound effect. |
+| `farm-setting.js` (remaining 16 cols) | `defaultAuWeightKg`, `defaultResidualHeightCm`, `defaultUtilizationPct`, `nPricePerKg`, `pPricePerKg`, `kPricePerKg`, `defaultManureRateKgPerDay`, `forageQualityScaleMin`/`Max`, 5× threshold cols, `thresholdNpkWarnPerHa`, `thresholdCostPerDayTarget`/`Warn` | Every dashboard threshold read; NPK pricing; DMI defaults when a batch is missing a value. Threshold lex comparisons are the worst quiet bug here. |
+| `location.js` | `areaHectares`, `capturePercent` | Divides into AUD, stocking rate, every AUD/ha rollup. Division-by-string returns `NaN` silently. |
+| `animal-class.js` | `defaultWeightKg`, `dmiPct`, `dmiPctLactating`, `excretionNRate`, `excretionPRate`, `excretionKRate` | DMI calc core inputs; NPK excretion rates. |
+
+**Tier 2 (P1 — manifest in specific reports/flows):**
+
+| Entity | Numeric fields |
+|---|---|
+| `event-paddock-window.js` | `areaPct` (strip-graze proportional band on dashboard + rotation calendar) |
+| `paddock-observation.js` | `forageHeightCm`, `forageCoverPct`, `forageQuality` (int), `residualHeightCm` |
+| `survey-draft-entry.js` | same four + `baleRingResidueCount`, `recoveryMinDays`/`Max` (ints) |
+| `forage-type.js` | `dmPct`, `nPerTonneDm`, `pPerTonneDm`, `kPerTonneDm`, `dmKgPerCmPerHa`, `minResidualHeightCm`, `utilizationPct` |
+| `feed-type.js` | `dmPct`, `nPct`, `pPct`, `kPct`, `defaultWeightKg` |
+| `batch-nutritional-profile.js` | 12 `*Pct` columns + `rfv` |
+| `harvest-event-field.js` | `quantity`, `weightPerUnitKg`, `dmPct` — `validate()` strict typeof on `quantity` |
+| `animal-bcs-score.js` | `score` — strict `typeof` in validate |
+| `batch-adjustment.js` | `previousQty`, `newQty`, `delta` — all three have strict `typeof` validate |
+
+**Tier 3 (P2 — reports/nutrient math, less likely to crash):**
+
+| Entity | Numeric fields |
+|---|---|
+| `soil-test.js` | 18 nutrient + chemistry cols |
+| `manure-batch.js` | 14 nutrient + `estimatedVolumeKg` |
+| `manure-batch-transaction.js` | `volumeKg` |
+| `input-product.js` | 13 `*Pct` + `costPerUnit` |
+| `amendment.js` | `totalQty`, `costOverride` |
+| `amendment-location.js` | `qty`, 12 `*Kg` cols, `areaHa` |
+| `npk-price-history.js` | `nPricePerKg`, `pPricePerKg`, `kPricePerKg` |
+| `spreader.js` | `capacityKg` |
+| `animal-treatment.js` | `doseAmount` |
+| `farm.js` | `latitude`, `longitude`, `areaHectares` |
+
+**Fix pattern (apply uniformly — match `event-observation.js`):**
+
+```js
+// In fromSupabaseShape(row) — for every field whose FIELDS entry has type 'numeric' or 'integer':
+someField: row.some_column != null ? Number(row.some_column) : null,
+```
+
+One line per column, null-safe. Default to `null` (not `0`) when the column is null so `validate()` still catches "required" failures correctly. If the existing `create()` default is `0` or a number, keep that unchanged — coercion happens only on the inbound pull path.
+
+**Defense-in-depth at critical math hotspots (already partially applied in `feed/check.js`):** where a feature file sums or divides a column that feeds a user-facing value, wrap the read with `Number(x) || 0`. Not a replacement for the entity fix — a belt-and-braces guard for future entity drift. Candidates:
+
+- `src/features/dashboard/index.js` — AU-days, cost-per-day, threshold comparisons
+- `src/features/feed/index.js` — feed totals, days-on-hand
+- `src/features/reports/index.js` — DMI chart, trend aggregates
+- `src/calcs/window-helpers.js`, `core.js`, `feed-forage.js` — calc chain inputs
+
+Scope-limit the defensive wraps to aggregation sites that already have a history of silent errors; don't blanket-wrap every multiplication. The entity fix is the structural solution; the defensive wraps are insurance.
+
+**Test pattern (round-trip + mergeRemote):**
+
+One round-trip test per entity with a numeric column. Pattern:
+
+```js
+test('fromSupabaseShape coerces stringified numerics', () => {
+  const row = {
+    // every numeric/integer column as a stringified value (what PostgREST returns):
+    quantity: '42.5',
+    head_count: '10',
+    // ...
+  };
+  const record = fromSupabaseShape(row);
+  expect(typeof record.quantity).toBe('number');
+  expect(record.quantity).toBe(42.5);
+  // ...
+});
+```
+
+Plus at least one integration test driving the pull path (`mergeRemote(entityType, [row])` then read back from store, verify downstream math). The hotfix added this pattern for the feed-check save path — mirror it for at least one entity per tier.
+
+**CP-55/CP-56 impact:** none schema-wise. BUT CP-56 backup-file import path should be audited: if a backup JSON was written while in-memory state had stringified numerics (possible for any backup taken before `d55ba9b`), the file-upload import path re-injects those strings. CP-56 currently inserts to Supabase (which accepts strings for numeric columns) then re-pulls via `pullAllRemote` (which after the sweep will coerce). So the sweep implicitly fixes the backup round-trip for anything that came from a bad backup — provided `pullAllRemote` is called on the import completion path. Claude Code should confirm this flow during implementation and add a test case with a stringified-numeric backup JSON to prove the round-trip lands as numbers in memory.
+
+**Schema change:** none.
+
+**Acceptance criteria:**
+
+- [ ] Every entity in the Scope table above: every numeric/integer field in `FIELDS` has a `Number(row.col) != null ? Number(row.col) : null` pattern in `fromSupabaseShape`. No exceptions — defensive wrapping even where the column is theoretically `int4` (cheap insurance against future type changes).
+- [ ] One unit round-trip test per entity in Tier 1 + Tier 2 (at minimum), proving stringified inputs come out as `typeof 'number'` on every field.
+- [ ] One integration test exercising the `mergeRemote` path for a Tier 1 entity (pick `batch.js` — it's the one Tim just got burned by) — seed with stringified row, call `mergeRemote`, read store, verify downstream sum is a number.
+- [ ] Defensive `Number(x) || 0` wraps added to the aggregation hotspots listed above (dashboard, reports, calcs) — scope-limited to sum/divide/compare-to-threshold sites.
+- [ ] CP-56 file-upload import path audited: either the re-pull after insert coerces (in which case confirm with a test), or add explicit coercion.
+- [ ] 961 tests pass before the sweep; ≥970 pass after (rough floor — should be ~1000 with the new round-trip tests).
+- [ ] Commit message notes this is the structural follow-up to OI-0103's `d55ba9b` hotfix, class-of-bug label "PostgREST-stringified-numeric".
+- [ ] Update CLAUDE.md "Known Traps" with a new entry: *"PostgREST returns `numeric` as strings — every entity's `fromSupabaseShape` must coerce via `Number(...)`. Pattern in `event-observation.js`."*
+
+**Critical issues the sweep must look at (prioritised by class-of-harm, not tier):**
+
+1. **`typeof === 'number'` validators** (silent rejects) — `batch.js`, `batch-adjustment.js`, `event-group-window.js`, `event-feed-entry.js`, `event-feed-check-item.js`, `harvest-event-field.js`, `animal-bcs-score.js`. These are the silent-drop class. After the sweep, these should pass; add a regression test for each that round-trips a stringified value through `validate()`.
+2. **`.toFixed()` call sites** (hard crashes) — `feed/check.js`, `move-wizard.js`, `paddock-card.js`, `locations/index.js`, `dashboard/index.js`, `edit-group-window.js`, `detail.js`, `feed-forage.js` (calc), `reports/index.js`, `feed-entry-inline-form.js`, `field-mode/index.js`, `harvest/index.js`, `feed/index.js`, `feed/delivery.js`, `dmi-chart.js`, `observation-fields.js`, `amendments/entry.js`, `rotation-calendar/sidebar.js`, `amendments/reference-tables.js`, `amendments/manure.js`, `utils/units.js`. After the entity fix, these are safe; add targeted render tests for the highest-traffic ones (`dashboard`, `feed/check`, `detail`) to catch regressions.
+3. **Threshold lex comparisons** (quiet wrongness) — `farm-setting.js` thresholds flow into `dashboard/index.js` badge logic. A threshold read as `"50"` and a value read as `"100"` satisfies `value > threshold` lexicographically (`"100" > "50"` is `false` lex). Dashboard badges may render wrong. Test: seed Supabase-shaped `farm_settings` with stringified thresholds, render the dashboard, assert the badge colour matches the numeric comparison.
+4. **Divide-by-string → NaN** (silent zeroes/blanks) — `areaHectares` in `location.js`, `quantity`/`weightPerUnitKg` in `batch.js` feed per-unit math. Division cascades NaN through every downstream calc. Test: stringified area, run AUD/ha calc, assert finite number.
+5. **Chart axis / aggregation** (visual anomalies) — `dmi-chart.js`, `reports/index.js`, `rotation-calendar/sidebar.js`. If an axis range is built from `d3.extent(records, r => r.quantity)` with string quantities, lex sort picks the wrong extent. Spot-check each chart after the fix with a visual or snapshot test.
+6. **Calc-registry inputs** — `registerCalc()` formulas in `src/calcs/*.js` read directly from entity-shaped records. After the entity fix they're safe. No calc-registry change needed; audit by grep to confirm no calc uses `parseFloat`/`parseInt` today (which would mask the issue).
+
+**Files likely affected:**
+
+- `src/entities/*.js` — 24 files (Tier 1–3 above)
+- `src/features/dashboard/index.js`, `src/features/reports/index.js`, `src/features/feed/index.js` — defensive wraps at aggregation sites
+- `src/calcs/window-helpers.js`, `src/calcs/core.js`, `src/calcs/feed-forage.js` — confirm no implicit string coercion in chains; add Tier 1 integration test
+- `src/data/backup-import.js` — confirm re-pull coerces; possibly add explicit coercion for file-upload path
+- `tests/unit/entities-*.test.js` (new) — one round-trip test per Tier 1+2 entity
+- `tests/unit/merge-remote-numeric-coercion.test.js` (new) — integration test for `batch.js` pull path
+- `CLAUDE.md` — Known Traps entry
+
+**Related:**
+- **OI-0103** — the feed-check save bug whose surface fix exposed the class-of-bug behind it. Closed. This OI is the structural follow-up.
+- **OI-0050** — prior silent-sync class of bug (missing sync params). Same family: silent data loss, invisible to user. Worth flagging the pattern in the CLAUDE.md Known Traps entry.
+- **CLAUDE.md "E2E Testing — Verify Supabase, Not Just UI"** — same family of invisible-until-real-data-flows bug. The integration test requirement above enforces this rule for the pull path (not just the push path it was originally written for).
+
+---
+
 ### OI-0105 — Destination location picker needs an anchored search bar
 **Added:** 2026-04-18 | **Area:** v2-build / events / move-wizard / ui | **Priority:** P2 (usability — farms with many paddocks can't scan to the right one quickly)
 **Checkpoint:** bundle with OI-0100 / OI-0101 / OI-0103 / OI-0104 into a single field-testing-roadblock session brief
@@ -126,7 +592,11 @@ Open [Destination Paddock Name]   (only if destType === 'new')
 **Added:** 2026-04-18 | **Area:** v2-build / feed / bugs | **Priority:** P0 (blocks field testing — farmers can't record any feed check through the primary sheet)
 **Checkpoint:** bundle with OI-0100 / OI-0101 / OI-0104 / OI-0105 into a single field-testing-roadblock session brief; can ship in isolation if urgent
 
-**Status:** closed — 2026-04-18. Shipped as commit `38925be`. `src/features/feed/check.js:262` now passes `date:` (matching the entity FIELDS key) instead of `checkDate:`. Two read sites in the same file (`allChecks.sort` and the "Last check" info line) were also falling through to `createdAt` because the column never populated — fixed to read `date` first. Siblings (move-wizard.js:466, close.js:185) already used the correct key. v1-trap class captured in commit message: UI captured data, silent drop on entity validate, invisible to user. 936 tests pass (3 new unit guarding entity round-trip + validate-reject-on-null-date; 1 e2e verifying Supabase row lands per CLAUDE.md rule).
+**Status:** closed — 2026-04-18. Shipped as commit `38925be` (field-name fix) + hotfix commit `d55ba9b` (PostgREST-stringified-numeric coercion — surfaced only against live Supabase data, not against the test suite which seeded via `add() + FeedEntryEntity.create({ quantity: 10 })` with plain numbers). `src/features/feed/check.js:262` now passes `date:` (matching the entity FIELDS key) instead of `checkDate:`. Two read sites in the same file (`allChecks.sort` and the "Last check" info line) were also falling through to `createdAt` because the column never populated — fixed to read `date` first. Siblings (move-wizard.js:466, close.js:185) already used the correct key. v1-trap class captured in commit message: UI captured data, silent drop on entity validate, invisible to user.
+
+**Hotfix (`d55ba9b`):** after field-name fix landed, Tim hit a second layer — the sheet's `.toFixed(1)` throws `TypeError` on live pull and `group.totalDelivered += e.quantity` string-concatenates instead of summing, because PostgREST returns `numeric` columns as JavaScript strings. Fixed at three layers: `event-feed-entry.js.fromSupabaseShape` coerces `quantity` via `Number(...)`; `event-feed-check-item.js.fromSupabaseShape` coerces `remainingQuantity`; `feed/check.js` sum uses `Number(e.quantity) || 0` as belt-and-braces. New integration test `tests/unit/feed-check-save-integration.test.js` drives the full `openFeedCheckSheet → click Save → Supabase-sync-push` path covering both plain-number and Supabase-string-via-mergeRemote inputs. 961 tests pass.
+
+**Follow-up opened:** **OI-0106** — full-codebase sweep of the same class-of-bug. Every entity with a `numeric` column in its `sbColumn` type feeds into math, `.toFixed`, `typeof` validation, or threshold comparison and is still vulnerable. OI-0103's hotfix was scope-limited to the feed-check save path because that was what blocked Tim; the structural sweep is OI-0106.
 
 **What's wrong:** Tim hit this during farm testing — the Save button in the feed check sheet (`src/features/feed/check.js`) does nothing visible, and no check row lands in Supabase or localStorage. Root cause: the save handler (lines 259–263) calls `FeedCheckEntity.create` with `checkDate: dateInput.value`, but the entity (`src/entities/event-feed-check.js` line 7) declares the field as `date: { required: true, sbColumn: 'date' }`. The entity's `validate()` sees `date` missing (because only `checkDate` was passed) and rejects. The `add()` call throws before `queueWrite` fires. The sheet closes quietly — no error toast, no visual signal.
 
@@ -317,7 +787,7 @@ Default to Option A unless Tim signals this OI is more time-sensitive than GH-12
 **Added:** 2026-04-18 | **Area:** v2-build / animals / data integrity / schema | **Priority:** P1 (silent data loss on every Edit Animal save; spans both pure wiring bugs and "UI field without Supabase column" traps)
 **Checkpoint:** OI-0096 shipped 2026-04-18; this OI is now unblocked. Tim chose to bundle Class A + Class B into a single spec (no gaps) rather than ship Class A first and leave Class B fields misleadingly live.
 
-**Status:** open — **design locked 2026-04-18; ready for implementation.** Class A + Class B ship together as one spec. See "Locked design decisions (2026-04-18)" below.
+**Status:** closed — 2026-04-18. GH issue #14; spec file renamed to `github/issues/GH-14_edit-animal-silent-drop-inputs.md`. Migration 026 (`animals.confirmed_bred BOOLEAN NOT NULL DEFAULT false`) applied and verified via MCP — column exists, `schema_version = 26`. `BACKUP_MIGRATIONS[25]` no-op chain entry added; `CURRENT_SCHEMA_VERSION` bumped 25→26. Animal entity gains `confirmedBred` field in FIELDS/create/toSupabaseShape/fromSupabaseShape (default/fallback to `false` so pre-migration-026 backup rows resolve correctly). `saveAnimal` now reads all four previously-dropped inputs: `damId` (Class A select), `weaned` + `weanedDate` (Class A — checkbox toggle auto-stamps today and clears on uncheck; date field editable for back-date), sire FKs via the new picker (Class B B1 — three modes Animal-in-herd / AI-bull-from-list / None with mutual exclusivity between `sireAnimalId` and `sireAiBullId`; inline "+ Add AI bull" sub-dialog creates an `ai_bulls` record with 5-param `add()` and selects it immediately), and `confirmedBred` (Class B B4 — direct stored boolean, reverses A29's original "derive from breeding records" design). V2_SCHEMA_DESIGN.md §3.2 updated with new column row, A29 rewritten to document the reversal, A28 annotated with picker + ai_bulls v1-era-name note, Change Log row added. v1-migration.js preserves v1 `confirmedBred` when present. CP-55 export auto-picks `confirmed_bred` via `select('*')`; CP-56 import relies on column default for missing-column old backups. 969 tests pass (9 unit: entity defaults + round-trip + missing-column fallback + sire FK mutual-exclusivity round-trip; 5 Edit Animal dialog integration covering four-input persistence + mode switching + inline Add AI bull). E2E spec `edit-animal-silent-drop-inputs.spec.js` asserts Supabase rows directly per CLAUDE.md rule. Param-count grep verified (5-param `add()` / 6-param `update()` on every touched store call).
 
 **What's wrong:** The Edit Animal dialog (`src/features/animals/index.js`) captures four inputs that `saveAnimal` (lines 1377–1419) silently drops. Every time a farmer edits an animal and changes any of these four fields, nothing is saved. No warning, no error, no visual feedback — the next render re-reads the unchanged value from the store and the farmer sees their edit "disappear."
 
@@ -2247,6 +2717,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-18 | OI-0103 hotfix documentation + OI-0106 sweep opened | After `d55ba9b` shipped (hotfix for the secondary layer of OI-0103 — PostgREST returning `numeric` columns as JS strings), updated OI-0103 status to reflect the two-layer fix (`38925be` field-name + `d55ba9b` numeric coercion) and opened **OI-0106** (P0 — full-codebase numeric-coercion sweep). OI-0106 is the structural follow-up that Claude Code explicitly scope-limited out of `d55ba9b` to keep the hotfix minimal. Spec enumerates every one of 24 entities with numeric `sbColumn` fields, split into three priority tiers (Tier 1 — dashboard/feed/DMI paths; Tier 2 — reports and flow-specific; Tier 3 — nutrient math) with 94 numeric fields total. Critical issue classes called out: (1) `typeof === 'number'` silent validate rejections; (2) `.toFixed()` TypeError crashes; (3) threshold lex comparisons that quietly lie about dashboard badge colour; (4) divide-by-string NaN cascades through calc chains; (5) chart axis anomalies from lex sorts; (6) calc-registry input hygiene. Fix pattern matches the existing `event-observation.js` reference: `row.col != null ? Number(row.col) : null`. Defensive `Number(x) || 0` wraps at aggregation hotspots (`dashboard/index.js`, `reports/index.js`, `feed/index.js`, calcs) as belt-and-braces. CP-56 file-upload backup-import path must be audited since backups taken before `d55ba9b` may contain stringified numerics. Thin pointer `github/issues/BUG_numeric-coercion-sweep.md` written. **Root-cause framing:** OI-0050 (missing sync params) and OI-0103 (entity field-name typo + PostgREST numerics) are the same class of bug — silent data/calc corruption invisible to the user until someone checks downstream state. This sweep is the last major structural fix of that class that's visible from Tim's current testing; future instances of this class should be surfaced as CLAUDE.md Known-Traps additions plus round-trip entity tests. |
 | 2026-04-18 | OI-0099 design lock — Class A + Class B bundled into one spec | With OI-0096 shipped this morning, Tim opted to close OI-0099 end-to-end rather than ship Class A first and leave the Class B inputs misleadingly live ("no gaps"). Locked four decisions: (1) **Class A damId** — read `inputs.damId.value \|\| null` in `saveAnimal`, one-line wiring fix, entity + column already exist; (2) **Class A weaned + weanedDate** — read `inputs.weaned?.checked`, auto-stamp `weanedDate = todayStr` when checkbox flips on, render an editable date field so the farmer can back-date (e.g., "weaned two weeks ago"), clear `weanedDate` when checkbox flips off; (3) **Class B sireTag → picker + inline Add AI bull (B1 refined)** — remove freeform text input; replace with picker offering "Animal in this herd" (writes `sireAnimalId`), "AI bull from list" (writes `sireAiBullId`), and "Add AI bull" (inline creates an `ai_bulls` record and sets `sireAiBullId`). Picker rows render ear tag + name (Tim's note: *"The picker needs to show ear tag and name"*). No new column on `animals`. Handles the "animals that pre-date the app" case (Tim's note) via the inline Add AI bull escape hatch. Semantic tension flagged: `ai_bulls` will in practice hold historical/external non-AI bulls too — acceptable for now, potential rename is a future OI. (4) **Class B confirmedBred → new column (B4)** — add `animals.confirmed_bred boolean NOT NULL DEFAULT false`. Schema migration + execution per CLAUDE.md Migration Execution Rule + `schema_version` bump + `BACKUP_MIGRATIONS` no-op entry + V2_SCHEMA_DESIGN.md §3.2 update + CP-55/CP-56 spec updates (add to `animals` export shape; backup-migration chain entry treats missing column as `false`). Single GitHub issue covers all four inputs. Acceptance criteria collapsed into one 21-item list. Status flipped open → "design locked, ready for implementation." OI-0098 (inline edit/delete of historical weight records) unrelated and stays open DESIGN REQUIRED. |
 | 2026-04-18 | Field-testing roadblocks bundle shipped — OI-0100 / OI-0101 / OI-0103 / OI-0104 / OI-0105 closed | Five-commit bundle per `SESSION_BRIEF_2026-04-18_field-testing-roadblocks.md`. Shipped in dependency order. **OI-0103** (`38925be`, P0) — `src/features/feed/check.js:262` `checkDate:` → `date:` entity-field rename; Save button now persists to `event_feed_checks` instead of silently dropping. Two sibling read sites also fixed. v1-trap class noted in commit. **OI-0101** (`373f276`, P2) — move-wizard Step 3 dateIn/timeIn one-way mirror from dateOut/timeOut; first keystroke on open-side flips the touched flag and stops cascade. **OI-0105** (`8c71cb8`, P2) — sticky search bar on `renderLocationPicker` with case-insensitive filter, clear button, empty-state message, query persisted on `container.dataset` across internal re-renders. Applies to both picker callers. **OI-0100** (`8ff3572`, P1) — GH-12's inline paddock card extracted to a new shared module `src/features/observations/paddock-card.js`; move-wizard Step 3 pre-graze renders the shared card (rating slider, cover % with BRC-1 bale-ring helper, forage condition, bale-ring count, recovery days, notes). Survey sheet NOT migrated in this commit — follow-up PR can adopt the shared module. **OI-0104** (`1a22923`, P1) — 2-way per-line radio (Move / Leave as residual) replaces the per-line checkbox; Feed Transfer section relocated under Close; residual lines stamp real `remainingQuantity` instead of hardcoded 0 and emit `logger.info('residual-capture', ...)` — real fertility-ledger write lands with OI-0092's schema in a follow-up PR. **OI-0102** stays open (DESIGN REQUIRED, not built). Prerequisite for OI-0100 (Phase 0 `maybeSplitForGroup` shared-export) not needed this bundle — that happened in earlier paddock-window commits. 959 tests pass (25 new unit + 3 new e2e specs, two of which verify Supabase rows per CLAUDE.md rule). No schema change, no migration, no `schema_version` bump, no CP-55/CP-56 impact this bundle (OI-0092 carries its own when it ships). |
 | 2026-04-18 | Farm-testing roadblocks captured — OI-0100 through OI-0105 | Tim hit six roadblocks testing v2 against his own farm data. Each captured as a discrete OI so nothing gets lost. **OI-0100** (P1) — pre-graze observations embed the **Survey paddock card** (rating slider, veg height, cover% slider with bale-ring helper, forage condition, recovery window) on the move wizard and event-close flows. Key design note: `event_observations` and `paddock_observations` are different tables on purpose (observation-of-event vs standalone-pasture-survey), but their fields are aligned per OI-0063/migration 022, so the **UI component** reuses cleanly — the submit callback just routes to the right table based on caller. Tim confirmed: *"You mean simply use the survey card on the move wizard, yes that makes sense."* Depends on GH-12 shipping the extractable component (or this OI builds it in the shared location and GH-12 adopts later). **OI-0101** (P2) — move wizard destination `dateIn`/`timeIn` one-way mirror from `dateOut`/`timeOut` with manual-override-respect guard. 10-line change. **OI-0102** (P3, DESIGN REQUIRED, do not build) — explore multi-paddock selection in the pasture picker. Captured stub per Tim's request ("Add OI- to explore"); six design questions enumerated (event model implications, strip-graze relationship, partial-close behavior, picker UX, feed/observation attribution, calc-surface audit). Deferred to a design session. **OI-0103** (P0) — feed check Save button silently fails. Root cause: `src/features/feed/check.js:262` passes `checkDate:` but entity field is `date:` (`src/entities/event-feed-check.js:7`). Entity validate rejects silently; no UI error. One-character fix; e2e test must assert Supabase row exists after save per CLAUDE.md §E2E Testing. Blocks all field testing on feed check path. **OI-0104** (P1) — move wizard feed transfer gets a per-line **2-way radio** (Move to new paddock / Leave as residual) replacing the current single checkbox. Default = Move. Residual path writes to the fertility ledger via **OI-0092**'s schema (sequencing note: if OI-0092 not yet shipped, this OI writes to a placeholder column with a TODO pointer, flips to the real path in OI-0092's PR). Feed transfer section also **relocates** from the bottom of Step 3 to sit between the close section and the open section (correct mental ordering — residual feed is a post-graze observation of the paddock being closed). Close-reading `remainingQuantity` stamps real-remaining-amount on residual lines instead of hardcoded 0. V1 parity for `calcResidualOM` / `feed_residual` NPK source. **OI-0105** (P2) — anchored sticky search bar at the top of `renderLocationPicker`, with case-insensitive filter and auto-collapsing empty sections; applies to every caller (move wizard Step 2, new-event dialog, future callers). **Bundling plan:** OI-0100 / OI-0101 / OI-0103 / OI-0104 / OI-0105 bundled into one Claude Code session brief (5 implementable items). OI-0102 stays open, design-required, not in the brief. CP-55/CP-56 impact: none direct for OI-0100/0101/0103/0105; inherited from OI-0092 for OI-0104. Schema change: none direct (OI-0104 sequences with OI-0092). |

@@ -63,4 +63,9 @@ export const BACKUP_MIGRATIONS = {
   // 024 → 025: OI-0073 Part B — one-shot data cleanup (close orphan open event_group_windows).
   //            No backup shape change — data migration only.
   24: (b) => { b.schema_version = 25; return b; },
+  // 025 → 026: OI-0099 Class B — animals.confirmed_bred boolean NOT NULL DEFAULT false.
+  //            No-op: new column defaults to false, so backups from before this version
+  //            (which have no confirmed_bred key on animals rows) resolve correctly when
+  //            Supabase re-inserts them — the column default supplies the value.
+  25: (b) => { b.schema_version = 26; return b; },
 };

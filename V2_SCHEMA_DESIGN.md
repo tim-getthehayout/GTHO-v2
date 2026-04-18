@@ -490,7 +490,7 @@ CREATE TABLE animal_classes (
 
 ### 3.2 animals
 
-**Purpose:** Core livestock entity. Every animal belongs to an operation, has a class (which determines its role and species), and optionally has lineage links (dam, sire). Weight, group membership, confirmed bred status, and weaning target date are all derived — not stored on this table (A2).
+**Purpose:** Core livestock entity. Every animal belongs to an operation, has a class (which determines its role and species), and optionally has lineage links (dam, sire). Weight, group membership, and weaning target date are all derived — not stored on this table (A2). `confirmed_bred` is stored directly (see OI-0099 for the 2026-04-18 decision to reverse the original "derived from breeding records" design).
 **Audit refs:** ANI-01, ANI-02, ANI-10, ANI-11, ANI-12, ANI-13
 
 | Column | Type | Constraints | Notes |
@@ -508,6 +508,7 @@ CREATE TABLE animal_classes (
 | birth_date | date | | Drives weaning target calc (birth_date + class.weaning_age_days) |
 | weaned | boolean | | null=unknown, false=not weaned, true=weaned |
 | weaned_date | date | | When marked weaned |
+| confirmed_bred | boolean | NOT NULL, DEFAULT false | Pregnancy-check / palpation confirmed. Stored state per OI-0099 (reverses the original A29 "derived" design). Migration 026. |
 | notes | text | | |
 | active | boolean | DEFAULT true | false = culled |
 | cull_date | date | | Flattened from v1 cullRecord object |
@@ -520,11 +521,10 @@ CREATE TABLE animal_classes (
 - **Current weight:** Latest record from `animal_weight_records` (D9)
 - **Wean target date:** `birth_date + animal_classes.weaning_age_days`
 - **Current group:** Open membership from `animal_group_memberships` (date_left IS NULL)
-- **Confirmed bred:** Most recent breeding record with confirmed_date and no subsequent calving (A29)
 
 **Design decisions:**
-- **Sire linkage via FKs, not free text (A28):** V1's sireTag (free text) replaced by two FKs: `sire_animal_id` for herd bulls, `sire_ai_bull_id` for AI sires. At most one populated. Lineage on the animal record; breeding history details on `animal_breeding_records` (D9).
-- **Confirmed bred derived, not stored (A29):** V1 stored `confirmedBred` and `confirmedBredDate` on the animal. V2 derives from breeding records: most recent breeding record with a confirmed_date and no subsequent calving event = currently confirmed bred. Resets naturally when calving is recorded.
+- **Sire linkage via FKs, not free text (A28):** V1's sireTag (free text) replaced by two FKs: `sire_animal_id` for herd bulls, `sire_ai_bull_id` for AI sires. At most one populated. Lineage on the animal record; breeding history details on `animal_breeding_records` (D9). Edit Animal's sire picker writes these two FKs directly with mutual exclusivity (OI-0099 Class B B1). Inline "Add AI bull" from the picker creates `ai_bulls` rows for historical / external / non-AI bulls that predate the app — the table name is a v1-era artifact retained for now; rename/split is a future OI.
+- **Confirmed bred stored, not derived (A29 — reversed by OI-0099 on 2026-04-18):** V1 stored `confirmedBred` on the animal; v2 originally planned to derive from breeding records ("most recent confirmed breeding with no subsequent calving"). Deriving turned out to block the Edit Animal UI (farmer can confirm pregnancy months before any calving record exists) and required rules that were never implemented. Migration 026 adds `confirmed_bred boolean NOT NULL DEFAULT false`; the Edit Animal checkbox writes directly. If a richer breeding-status model is ever needed (palpation dates, methods, repro history) that's a new `animal_breeding_status` table (see OI-0099 "Option B6" — deferred).
 - **Cull fields flattened:** V1's `cullRecord` JSONB object ({date, reason, notes}) promoted to three proper columns for queryability.
 - **No healthEvents[], calvingRecords[], weightHistory[]:** All moved to their own tables in D9 and weight records table. No JSONB arrays on the animal record.
 
@@ -543,6 +543,7 @@ CREATE TABLE animals (
   birth_date       date,
   weaned           boolean,
   weaned_date      date,
+  confirmed_bred   boolean NOT NULL DEFAULT false,
   notes            text,
   active           boolean DEFAULT true,
   cull_date        date,
@@ -2517,6 +2518,7 @@ CREATE TABLE release_notes (
 | 2026-04-12 | animal_classes, animal_calving_records, farm_settings, npk_price_history (amended/new) | Calculation spec review: excretion columns renamed _pct → _rate (NRCS standard unit). Species split 'cattle' → 'beef_cattle'/'dairy_cattle' for distinct lactation logic and DMI rates. Added dmi_pct_lactating on animal_classes. Added dried_off_date on animal_calving_records for dairy dry-off tracking. Removed default_dm_per_aud_kg from farm_settings (DMI lives on class, seeded at onboarding). Excretion rates and DMI are 2-tier: class → NRCS code constant. New table npk_price_history (D8.10) resolves A16 — per-farm price tracking over time. |
 | 2026-04-12 | farm_settings (amended) | UX flows review: Added forage_quality_scale_min/max (A41) for farm-configurable forage quality assessment range (default 1–100, expandable for RFQ or other scales). |
 | 2026-04-13 | operations (amended) | Added unit_system column (text NOT NULL DEFAULT 'imperial', CHECK IN ('metric','imperial')). Resolves OI-0002. Decision A44: unit system is operation-wide, same rationale as currency. Storage remains metric per V2_INFRASTRUCTURE.md §1.1; column controls display layer only. |
+| 2026-04-18 | animals (amended) | Added `confirmed_bred boolean NOT NULL DEFAULT false` (migration 026). Reverses A29's original "confirmed bred derived from breeding records" design — direct stored boolean written by the Edit Animal checkbox (OI-0099 Class B B4). A richer breeding-status model (palpation dates, methods, repro history) deferred to a future OI. Also clarifies A28 sire linkage: Edit Animal's sire picker writes `sire_animal_id` / `sire_ai_bull_id` with mutual exclusivity and offers an inline "Add AI bull" action; `ai_bulls` table retains its v1-era name but will hold historical / external / non-AI bulls in practice. |
 
 ---
 

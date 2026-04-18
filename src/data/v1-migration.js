@@ -294,6 +294,9 @@ export function transformV1ToV2(v1, opts) {
     birth_date: a.birthDate || a.birth_date || null,
     weaned: null,
     weaned_date: null,
+    // OI-0099: confirmed_bred column added in migration 026. v1 had a
+    // `confirmedBred` boolean; preserve when present, default to false.
+    confirmed_bred: a.confirmedBred === true || a.confirmed_bred === true ? true : false,
     notes: a.notes || null,
     active: a.archived === true ? false : true,
     cull_date: null,

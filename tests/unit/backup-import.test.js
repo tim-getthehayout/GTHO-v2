@@ -78,19 +78,19 @@ describe('backup-import (CP-56)', () => {
 
   describe('migrateBackupForward — §5.7 step 5', () => {
     it('returns no-op when schema_version matches current', () => {
-      const backup = { ...fixture, schema_version: 25 };
+      const backup = { ...fixture, schema_version: 26 };
       const result = migrateBackupForward(backup);
       expect(result.migrated).toBe(false);
-      expect(result.from).toBe(25);
-      expect(result.to).toBe(25);
+      expect(result.from).toBe(26);
+      expect(result.to).toBe(26);
     });
 
-    it('migrates 14 → 25 through the chain', () => {
+    it('migrates 14 → 26 through the chain', () => {
       const backup = { ...fixture, schema_version: 14 };
       const result = migrateBackupForward(backup);
       expect(result.migrated).toBe(true);
       expect(result.from).toBe(14);
-      expect(result.to).toBe(25);
+      expect(result.to).toBe(26);
     });
 
     it('returns error when migration is missing', () => {

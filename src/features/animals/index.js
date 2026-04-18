@@ -1111,7 +1111,7 @@ function ensureAnimalSheetDOM() {
   ]));
 }
 
-function openAnimalSheet(existingAnimal, operationId, farmId) {
+export function openAnimalSheet(existingAnimal, operationId, farmId) {
   ensureAnimalSheetDOM();
   if (!animalSheet) animalSheet = new Sheet('ae-sheet-wrap');
   const panel = document.getElementById('ae-sheet-panel');
@@ -1222,17 +1222,176 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
     groupPicker,
   ]));
 
-  // Dam + Sire (v1 gap fix)
+  // Dam (v1 gap fix — OI-0099 Class A wires saveAnimal to read this).
   const allAnimals = getAll('animals');
   const females = allAnimals.filter(a => a.sex === 'female');
-  inputs.damId = el('select', {}, [
+  inputs.damId = el('select', { 'data-testid': 'edit-animal-dam-select' }, [
     el('option', { value: '' }, ['\u2014 unknown \u2014']),
     ...females.map(a => el('option', { value: a.id, selected: existingAnimal?.damId === a.id }, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`])),
   ]);
-  inputs.sireTag = el('input', { type: 'text', placeholder: 'Bull tag or name', value: existingAnimal?.sireTag || '' });
-  panel.appendChild(el('div', { className: 'two' }, [
-    el('div', { className: 'field' }, [el('label', {}, ['Dam ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['mother'])]), inputs.damId]),
-    el('div', { className: 'field' }, [el('label', {}, ['Sire tag/name ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), inputs.sireTag]),
+  panel.appendChild(el('div', { className: 'field' }, [
+    el('label', {}, ['Dam ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['mother'])]),
+    inputs.damId,
+  ]));
+
+  // Sire picker (OI-0099 Class B B1: three modes — Animal in herd / AI bull / None,
+  // with an inline Add AI bull sub-dialog). Replaces the legacy freeform `sireTag`
+  // input which had no matching entity field and was silently dropped on save.
+  //
+  // Mutual exclusivity: only one of sireAnimalId / sireAiBullId is populated at a
+  // time; the mode controls which FK is written. "None" writes both to null.
+  //
+  // Semantic note: ai_bulls will effectively hold historical/external non-AI bulls
+  // that farmers add inline. The table name is a v1-era artifact; renaming/
+  // splitting is a future OI (deferred per OI-0099 spec).
+  const males = allAnimals.filter(a => a.sex === 'male' && a.active !== false);
+  const sireSelection = {
+    mode: existingAnimal?.sireAnimalId ? 'animal'
+      : existingAnimal?.sireAiBullId ? 'aiBull'
+        : 'none',
+    sireAnimalId: existingAnimal?.sireAnimalId || null,
+    sireAiBullId: existingAnimal?.sireAiBullId || null,
+  };
+
+  const sireModeBar = el('div', {
+    'data-testid': 'sire-mode-bar',
+    style: { display: 'flex', gap: '4px', marginBottom: '6px' },
+  });
+  const sireListContainer = el('div', {
+    'data-testid': 'sire-list-container',
+    style: { maxHeight: '160px', overflowY: 'auto', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px' },
+  });
+  const sireSummary = el('div', {
+    'data-testid': 'sire-summary',
+    style: { fontSize: '11px', color: 'var(--text2)', marginTop: '4px' },
+  });
+
+  function labelForAnimal(a) {
+    const tag = a.tagNum ? String(a.tagNum) : '';
+    const name = a.name ? String(a.name) : '';
+    if (tag && name) return `${tag} \u2014 ${name}`;
+    return tag || name || `A-${a.id.slice(0, 5)}`;
+  }
+  function labelForBull(b) {
+    const name = b.name || '?';
+    const tag = b.tag ? ` \u00B7 ${b.tag}` : '';
+    const breed = b.breed ? `  [${b.breed}]` : '';
+    return `${name}${tag}${breed}`;
+  }
+  function updateSireSummary() {
+    clear(sireSummary);
+    if (sireSelection.mode === 'animal' && sireSelection.sireAnimalId) {
+      const a = allAnimals.find(x => x.id === sireSelection.sireAnimalId);
+      sireSummary.appendChild(el('span', {}, [`Selected: ${a ? labelForAnimal(a) : '(missing)'}`]));
+    } else if (sireSelection.mode === 'aiBull' && sireSelection.sireAiBullId) {
+      const bulls = getAll('aiBulls');
+      const b = bulls.find(x => x.id === sireSelection.sireAiBullId);
+      sireSummary.appendChild(el('span', {}, [`Selected: ${b ? labelForBull(b) : '(missing)'}`]));
+    } else if (sireSelection.mode === 'none') {
+      sireSummary.appendChild(el('span', { style: { fontStyle: 'italic' } }, ['No sire set']));
+    } else {
+      sireSummary.appendChild(el('span', { style: { fontStyle: 'italic' } }, ['Select a sire below']));
+    }
+  }
+
+  function renderSirePicker() {
+    clear(sireModeBar);
+    const modes = [
+      { key: 'animal', label: 'Animal in herd' },
+      { key: 'aiBull', label: 'AI bull' },
+      { key: 'none', label: 'None' },
+    ];
+    for (const m of modes) {
+      const active = sireSelection.mode === m.key;
+      sireModeBar.appendChild(el('button', {
+        type: 'button',
+        className: active ? 'btn btn-teal btn-xs' : 'btn btn-outline btn-xs',
+        'data-testid': `sire-mode-${m.key}`,
+        onClick: () => {
+          // OI-0099: mutual exclusivity — switching mode clears the other FK.
+          sireSelection.mode = m.key;
+          if (m.key === 'animal') sireSelection.sireAiBullId = null;
+          if (m.key === 'aiBull') sireSelection.sireAnimalId = null;
+          if (m.key === 'none') {
+            sireSelection.sireAnimalId = null;
+            sireSelection.sireAiBullId = null;
+          }
+          renderSirePicker();
+        },
+      }, [m.label]));
+    }
+
+    clear(sireListContainer);
+    if (sireSelection.mode === 'animal') {
+      if (!males.length) {
+        sireListContainer.appendChild(el('div', {
+          style: { fontSize: '12px', color: 'var(--text2)', fontStyle: 'italic', padding: '6px' },
+        }, ['No male animals in this operation yet.']));
+      } else {
+        for (const a of males) {
+          const isSel = sireSelection.sireAnimalId === a.id;
+          sireListContainer.appendChild(el('div', {
+            className: `loc-picker-item${isSel ? ' selected' : ''}`,
+            'data-testid': `sire-animal-${a.id}`,
+            onClick: () => {
+              sireSelection.sireAnimalId = a.id;
+              sireSelection.sireAiBullId = null;
+              renderSirePicker();
+            },
+          }, [el('span', {}, [labelForAnimal(a)])]));
+        }
+      }
+    } else if (sireSelection.mode === 'aiBull') {
+      // Inline "+ Add AI bull" action at the top of the list.
+      sireListContainer.appendChild(el('div', {
+        className: 'loc-picker-item',
+        'data-testid': 'sire-add-ai-bull',
+        style: { color: 'var(--teal)', fontWeight: '500' },
+        onClick: () => openAddAiBullSubDialog(operationId, (newBullId) => {
+          sireSelection.sireAiBullId = newBullId;
+          sireSelection.sireAnimalId = null;
+          renderSirePicker();
+        }),
+      }, [el('span', {}, ['+ Add AI bull'])]));
+
+      const bulls = getAll('aiBulls').filter(b => b.operationId === operationId && !b.archived);
+      if (!bulls.length) {
+        sireListContainer.appendChild(el('div', {
+          style: { fontSize: '12px', color: 'var(--text2)', fontStyle: 'italic', padding: '6px' },
+        }, ['No AI bulls on file. Use + Add AI bull above.']));
+      } else {
+        for (const b of bulls) {
+          const isSel = sireSelection.sireAiBullId === b.id;
+          sireListContainer.appendChild(el('div', {
+            className: `loc-picker-item${isSel ? ' selected' : ''}`,
+            'data-testid': `sire-ai-bull-${b.id}`,
+            onClick: () => {
+              sireSelection.sireAiBullId = b.id;
+              sireSelection.sireAnimalId = null;
+              renderSirePicker();
+            },
+          }, [el('span', {}, [labelForBull(b)])]));
+        }
+      }
+    } else {
+      sireListContainer.appendChild(el('div', {
+        style: { fontSize: '12px', color: 'var(--text2)', fontStyle: 'italic', padding: '6px' },
+      }, ['No sire will be saved on this animal.']));
+    }
+
+    updateSireSummary();
+  }
+  renderSirePicker();
+
+  // Shim the picker output to the `inputs.*` accessor pattern saveAnimal reads.
+  inputs.sireAnimalId = { get value() { return sireSelection.mode === 'animal' ? (sireSelection.sireAnimalId || '') : ''; } };
+  inputs.sireAiBullId = { get value() { return sireSelection.mode === 'aiBull' ? (sireSelection.sireAiBullId || '') : ''; } };
+
+  panel.appendChild(el('div', { className: 'field', 'data-testid': 'sire-picker' }, [
+    el('label', {}, ['Sire']),
+    sireModeBar,
+    sireListContainer,
+    sireSummary,
   ]));
 
   // Notes
@@ -1245,10 +1404,33 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
   inputs.name = { value: existingAnimal?.name || '' };
 
   // ── Weaning toggle (v1 gap fix) ──
+  // OI-0099 Class A: wired into saveAnimal. Plus weanedDate field (locked behavior):
+  //   off → weaned=false, weanedDate=null, date field disabled
+  //   off → on flip → weaned=true, weanedDate defaults to today, date field enabled + editable
+  //   farmer edits date while on → weanedDate takes the edited value (back-date support)
+  //   on → off flip → weaned=false, weanedDate=null, date field disabled again
   if (isEdit) {
     panel.appendChild(el('div', { className: 'div' }));
     const weanedCheck = el('input', { type: 'checkbox', style: { width: '18px', height: '18px', accentColor: 'var(--teal)', flexShrink: '0' } });
     if (existingAnimal.weaned) weanedCheck.checked = true;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const weanedDateInput = el('input', {
+      type: 'date',
+      value: existingAnimal.weanedDate || '',
+      'data-testid': 'edit-animal-weaned-date',
+    });
+    weanedDateInput.disabled = !weanedCheck.checked;
+    weanedCheck.addEventListener('change', () => {
+      if (weanedCheck.checked) {
+        // Flip on — default to today if no prior date
+        if (!weanedDateInput.value) weanedDateInput.value = todayStr;
+        weanedDateInput.disabled = false;
+      } else {
+        // Flip off — clear
+        weanedDateInput.value = '';
+        weanedDateInput.disabled = true;
+      }
+    });
     panel.appendChild(el('label', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer' } }, [
       weanedCheck,
       el('div', {}, [
@@ -1256,7 +1438,12 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
         el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, ['Uncheck to mark as unweaned and track in the Weaning report']),
       ]),
     ]));
+    panel.appendChild(el('div', { className: 'field' }, [
+      el('label', {}, ['Weaned date ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['editable to back-date'])]),
+      weanedDateInput,
+    ]));
     inputs.weaned = weanedCheck;
+    inputs.weanedDate = weanedDateInput;
 
     // ── Calving history (females only, v1 gap fix) ──
     if (existingAnimal.sex === 'female') {
@@ -1372,6 +1559,73 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
   animalSheet.open();
 }
 
+/**
+ * OI-0099: Inline "Add AI bull" sub-dialog. Opens a modal overlay from within
+ * the Edit Animal sire picker. Captures name (required), tag (optional),
+ * breed (optional). On save: creates an `ai_bulls` row via the standard 5-param
+ * add() flow, then invokes `onSelected(newBull.id)` so the caller can set
+ * `sireAiBullId` on the current animal without closing the Edit Animal dialog.
+ */
+function openAddAiBullSubDialog(operationId, onSelected) {
+  const overlay = el('div', {
+    'data-testid': 'add-ai-bull-overlay',
+    style: {
+      position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+      background: 'rgba(0,0,0,0.5)', zIndex: '320',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    },
+  });
+  const card = el('div', { className: 'card', style: { padding: 'var(--space-5)', maxWidth: '380px', width: '90%' } });
+
+  card.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: 'var(--space-3)' } }, ['Add AI bull']));
+
+  const nameInput = el('input', { type: 'text', placeholder: 'Name (required)', 'data-testid': 'add-ai-bull-name' });
+  const tagInput = el('input', { type: 'text', placeholder: 'Tag (optional)', 'data-testid': 'add-ai-bull-tag' });
+  const breedInput = el('input', { type: 'text', placeholder: 'Breed (optional)', 'data-testid': 'add-ai-bull-breed' });
+
+  card.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Name']), nameInput]));
+  card.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Tag']), tagInput]));
+  card.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Breed']), breedInput]));
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'add-ai-bull-status' });
+  card.appendChild(statusEl);
+
+  card.appendChild(el('div', { className: 'btn-row' }, [
+    el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'add-ai-bull-save',
+      onClick: () => {
+        clear(statusEl);
+        const name = nameInput.value.trim();
+        if (!name) { statusEl.appendChild(el('span', {}, ['Name is required'])); return; }
+        try {
+          const rec = AiBullEntity.create({
+            operationId,
+            name,
+            tag: tagInput.value.trim() || null,
+            breed: breedInput.value.trim() || null,
+          });
+          add('aiBulls', rec, AiBullEntity.validate, AiBullEntity.toSupabaseShape, 'ai_bulls');
+          overlay.remove();
+          if (onSelected) onSelected(rec.id);
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, ['Add bull']),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'add-ai-bull-cancel',
+      onClick: () => overlay.remove(),
+    }, ['Cancel']),
+  ]));
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  // Focus the name input so the farmer can start typing immediately.
+  setTimeout(() => nameInput.focus(), 0);
+}
+
 function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previousGroupId, statusEl) {
   clear(statusEl);
   const data = {
@@ -1383,6 +1637,17 @@ function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previ
     classId: inputs.classId.value || null,
     birthDate: inputs.birthDate.value || null,
     notes: inputs.notes.value.trim() || null,
+    // OI-0099 Class A: damId + weaned + weanedDate.
+    damId: inputs.damId?.value || null,
+    weaned: inputs.weaned ? inputs.weaned.checked : null,
+    weanedDate: inputs.weaned && inputs.weaned.checked
+      ? (inputs.weanedDate?.value || null)
+      : null,
+    // OI-0099 Class B sire picker: mutual exclusivity via shim getters on inputs.
+    sireAnimalId: inputs.sireAnimalId?.value || null,
+    sireAiBullId: inputs.sireAiBullId?.value || null,
+    // OI-0099 Class B confirmedBred: new column migration 026.
+    confirmedBred: inputs.confirmedBred ? inputs.confirmedBred.checked : false,
   };
   const newGroupId = inputs.groupId.value || null;
   const todayStr = new Date().toISOString().slice(0, 10);

@@ -80,7 +80,10 @@ Rules:
 2. **Reject-on-narrow** (same as the existing detail.js guard): if the new datetime is LATER than the current earliest and any child window *not* in the earliest set opens between the current earliest and the new datetime, reject with "Cannot move event start to {newDate}. {name} opened on {date}, which is before the new start date. Edit that record first." (Identical UX to the existing detail.js reject.)
 3. **If no conflict:** update every window in the earliest set to `(newDate, newTime)`. All updates go through the normal `update(...)` path so subscribers fire, Supabase sync queues, observations stay consistent.
 4. **Moving start EARLIER**: the current earliest windows move to the new earlier date. No other window is earlier, so the derived minimum naturally reflects the change. No other windows need touching.
-5. **Open design question — tied earliest set behavior on LATER moves:** if three windows are tied at the current earliest and the user moves start later, this spec's recommendation is to move **all three** to the new datetime (matches the farmer's mental model: "move the start of the event"). Alternative: move only the first-inserted ("primary") window, leave the others, which breaks the farmer's mental model because the derived start will snap back to whichever tied window didn't move. **Recommend (a) with an on-save confirmation when more than one window will move** ("Moving event start will also update 2 other paddock windows opened at the same time. Continue?"). Tim to confirm before implementation.
+5. **Tied earliest set behavior on LATER moves (confirmed by Tim 2026-04-18 — option (a)):** if multiple child windows share the current minimum opening datetime and the user moves event start later, `setEventStart` updates **all tied windows** to the new datetime. When more than one window will move, show an on-save confirmation dialog first:
+   > Moving event start to {newDate} {newTime} will also update {N} other window(s) that opened at the same time ({comma-separated window names}). Continue?
+   > [Cancel]   [Continue]
+   If the user cancels, abort the save — do not update any window. If confirmed, update all tied windows in a single batch so subscribers fire once. Rationale: moving only the first-inserted "primary" window leaves the other tied windows opening before the new event start, re-creating the exact floor-violation class of bug that OI-0115 + this spec are closing out.
 
 ### Guard recomputation — `edit-paddock-window.js` + `edit-group-window.js`
 
@@ -227,16 +230,9 @@ Known consumer surfaces (non-exhaustive — confirm with grep before implementin
 - `V2_APP_ARCHITECTURE.md` — new section on the derived-with-write-through pattern (Cowork owns)
 - `V2_MIGRATION_PLAN.md` — note under §5.3a about the derivation invariant (Cowork owns)
 
-## Open design question for Tim to confirm before implementation
+## Design decisions confirmed
 
-**Tied-earliest behavior on moving event start LATER:** if multiple child windows share the current minimum opening datetime, and the user moves event start later, does `setEventStart` update (a) all tied windows, or (b) only the first-inserted "primary" window?
-
-Spec recommends (a) with a confirmation dialog when more than one window will move:
-
-> Moving event start to Apr 18 1:30 PM will also update 2 other paddock windows that opened at the same time (G1, G3). Continue?
-> [Cancel]   [Continue]
-
-Option (b) is simpler but produces surprising behavior: the user moves the date, the derived start snaps back to whichever tied window they didn't move. Tim to confirm (a) is correct before implementation.
+**Tied-earliest behavior on moving event start LATER (confirmed 2026-04-18):** option **(a)** — `setEventStart` updates **all tied windows**, with an on-save confirmation dialog when more than one window will move. See Design → Write path → Rules → item 5 for the full rule, copy, and behavior. No open design questions remain; proceed with implementation.
 
 ## Acceptance criteria
 
@@ -246,7 +242,7 @@ Option (b) is simpler but produces surprising behavior: the user moves the date,
 4. **All read sites of `event.dateIn` / `event.timeIn` converted to `getEventStart`** — grep contract `grep -rn "\.dateIn" src/ --include='*.js'` returns zero matches (except inside the `getEventStart` helper itself and test fixtures).
 5. **Hero-line inputs write through** — unit test: edit the hero date input → assert earliest child window's `date_opened` updates, `events` row is unchanged (and has no such column anyway). Edit hero time input → same for `time_opened`.
 6. **Guards recomputed** — `edit-paddock-window.js` + `edit-group-window.js` guards use the sibling-floor helper. Unit test: editing the earliest window earlier is allowed (no floor below it except itself); editing the earliest later past a sibling is rejected.
-7. **Tied-earliest write behavior matches Tim's confirmed design** (see open question above) — unit test covers whichever option Tim picks.
+7. **Tied-earliest write behavior matches confirmed option (a)** — unit tests cover: (i) single-tie move-later updates the one earliest window; (ii) multi-tie move-later shows confirmation dialog and, on confirm, updates all tied windows atomically; (iii) multi-tie move-later cancelled at confirmation writes zero windows; (iv) tied set spanning both paddock + group windows is handled together.
 8. **CP-55 export omits the dropped columns** — unit test: serialize an event → no `date_in` / `time_in` keys.
 9. **CP-56 import migrates pre-v28 backups** — unit test: feed a v27 backup with a drifted `event.date_in`, assert import logs the drift, discards the column, post-import `getEventStart` returns the child-window value.
 10. **E2E test** — per CLAUDE.md §"E2E Testing — Verify Supabase, Not Just UI": user edits hero time input → query Supabase `event_paddock_windows` → assert earliest row's `time_opened` updated; query Supabase `events` → assert no `date_in` / `time_in` columns exist.
@@ -295,8 +291,9 @@ getEventStart(eventId). Grep contract added to Architecture Audit.
 
 Write sites: Event Detail hero-line date + time inputs now write
 through to the earliest child window via setEventStart(). Reject-on-
-narrow semantics preserved. Tied-earliest behavior: [option (a) or (b)
-per Tim's decision] with confirmation dialog.
+narrow semantics preserved. Tied-earliest behavior on move-later:
+all tied windows move together, with an on-save confirmation dialog
+when more than one window will change.
 
 Guards: edit-paddock-window.js + edit-group-window.js use sibling-floor
 recomputation instead of reading the dropped column. The guard that

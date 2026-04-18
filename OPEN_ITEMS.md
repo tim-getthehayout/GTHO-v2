@@ -315,9 +315,9 @@ Default to Option A unless Tim signals this OI is more time-sensitive than GH-12
 
 ### OI-0099 — Edit Animal silent-drop inputs (damId, sireTag, weaned, confirmedBred) — two classes of fix
 **Added:** 2026-04-18 | **Area:** v2-build / animals / data integrity / schema | **Priority:** P1 (silent data loss on every Edit Animal save; spans both pure wiring bugs and "UI field without Supabase column" traps)
-**Checkpoint:** after OI-0096 ships (do not bundle — OI-0099 has design-required components and a potential schema migration)
+**Checkpoint:** OI-0096 shipped 2026-04-18; this OI is now unblocked. Tim chose to bundle Class A + Class B into a single spec (no gaps) rather than ship Class A first and leave Class B fields misleadingly live.
 
-**Status:** open — **partially implementable; two sub-items require Tim's design decision before implementation.** See Class B below.
+**Status:** open — **design locked 2026-04-18; ready for implementation.** Class A + Class B ship together as one spec. See "Locked design decisions (2026-04-18)" below.
 
 **What's wrong:** The Edit Animal dialog (`src/features/animals/index.js`) captures four inputs that `saveAnimal` (lines 1377–1419) silently drops. Every time a farmer edits an animal and changes any of these four fields, nothing is saved. No warning, no error, no visual feedback — the next render re-reads the unchanged value from the store and the farmer sees their edit "disappear."
 
@@ -347,7 +347,45 @@ Discovered during OI-0096 dependency review (see Change Log 2026-04-18). OI-0096
    - **Option B5 — derive from `animal_calving_records`.** If v2's intent was that confirmed-bred status is implicit (a calving record exists or is expected), then the checkbox UI is redundant with the calving history section right above it. Remove the checkbox. But this loses the "confirmed bred *before* calving" state — a cow can be confirmed pregnant months before calving, and the farmer may want to capture that.
    - **Option B6 — new `animal_breeding_status` table.** Richer data model capturing breeding events (palpation date, method, outcome). More than a single boolean, supports repro history. Larger scope. Probably overkill for this OI; if desired, split into its own feature OI.
 
-**Why this is not just one OI:** Class A is a ~30-minute pure wiring fix. Class B requires Tim's design input and potentially a schema migration with CP-55/CP-56 implications. Shipping Class A first closes two of the four silent-save holes without blocking on design decisions. Class B stays open until design locks.
+**Why this was not originally one OI:** Class A is a ~30-minute pure wiring fix. Class B required Tim's design input and a schema migration with CP-55/CP-56 implications. The original plan was to ship Class A first and defer Class B. On 2026-04-18 Tim chose to bundle — "no gaps" — so Class B doesn't sit with misleadingly-live inputs while design waits.
+
+---
+
+**Locked design decisions (2026-04-18):**
+
+All four inputs ship as one bundle. Design options below are closed.
+
+1. **Class A — damId wiring fix.** Read `inputs.damId.value || null` into the `data` object in `saveAnimal`. No design choice.
+
+2. **Class A — weaned wiring fix.** Read `inputs.weaned?.checked ?? null` into the `data` object. Plus **`weanedDate` behavior** (locked by Tim): auto-stamp `weanedDate = todayStr` when `weaned` flips from false to true. Render an editable date field adjacent to the checkbox so the farmer can back-date (e.g., "weaned two weeks ago"). When `weaned` flips back to false, clear `weanedDate` to `null`. Behavior summary:
+   - Checkbox off → `weaned = false`, `weanedDate = null`, date field hidden or disabled.
+   - Checkbox on → `weaned = true`, `weanedDate` defaults to today, date field visible and editable.
+   - Farmer edits date field while checkbox is on → `weanedDate` takes the edited value.
+
+3. **Class B — sireTag → picker (B1 + inline Add AI bull).** Remove the freeform `<input type="text">`. Replace with a **sire picker** that has three modes:
+   - **Animal in this herd** — select from `animals` filtered to `operationId` and `sex === 'male'` (include archived? Tim's call at implementation — default: active animals only; archived flagged with a muted suffix). Selecting writes `sireAnimalId`. Picker row format: **`{tagNum} — {name}`** (both ear tag and name visible; if either missing, show what's present).
+   - **AI bull from list** — select from `ai_bulls` filtered to `operationId` where `archived = false`. Selecting writes `sireAiBullId`. Picker row format: **`{name}` · `{tag}`** if tag exists, else just `{name}`; if breed set, render as muted trailing text (e.g., `{name} · {tag}  [breed]`).
+   - **Add AI bull (inline)** — action inside the picker opens a tiny sub-dialog capturing `name` (required), `tag` (optional), `breed` (optional). Saving creates a new `ai_bulls` record via `AiBullEntity.create()` + `add('aiBulls', ...)` using the standard 5-param shape, then immediately sets `sireAiBullId = newBull.id` and closes the sub-dialog. Returns farmer to the Edit Animal dialog with the new bull selected. This is the escape hatch for pre-app animals whose sire was never entered, neighbor's bulls, old farm bulls, etc.
+   - Mutual exclusivity: setting a sire via "Animal in this herd" clears `sireAiBullId`, and vice versa. Only one of the two FKs is populated at a time.
+   - No new column on `animals`. No schema change for sire.
+   - **Semantic note (spec should acknowledge):** the `ai_bulls` table will, in practice, also hold historical / external / non-AI bulls that farmers enter inline. The table name is a v1-era artifact; no rename in scope. If Tim later wants to rename or split (e.g., `ai_bulls` → `external_sires`), that's a separate OI.
+
+4. **Class B — confirmedBred → new column (B4).** Add `confirmed_bred boolean NOT NULL DEFAULT false` on `animals`. Entity gains `confirmedBred: { type: 'boolean', sbColumn: 'confirmed_bred' }`. `saveAnimal` reads `inputs.confirmedBred?.checked ?? false`. This is a direct stored state — checkbox on = confirmed, off = not confirmed. No derivation, no breeding-history table (B6 deferred to a future OI if needed).
+
+**Schema change (now definite, was conditional):**
+- New column: `animals.confirmed_bred boolean NOT NULL DEFAULT false`
+- Migration file: `supabase/migrations/NNN_add_confirmed_bred.sql` (next available number)
+- Migration must include `UPDATE operations SET schema_version = N;`
+- `BACKUP_MIGRATIONS` entry: `N-1: (b) => { b.schema_version = N; return b; }` (no-op — the column defaults to false and CP-56 can read old backups missing the column as false)
+- V2_SCHEMA_DESIGN.md §3.2 (`animals` table) updated to include `confirmed_bred`
+- CLAUDE.md Migration Execution Rule applies: write + run + verify + report in commit message
+
+**CP-55 / CP-56 impact (now definite):**
+- CP-55 `animals` shape must include `confirmedBred` serialized as `confirmed_bred`.
+- CP-56 migration chain gains a no-op rule for backups from before this schema version (missing column → treat as `false`).
+- No impact from sireTag decision (reuses existing `sireAnimalId` / `sireAiBullId` columns).
+
+---
 
 **Scope (split by class):**
 
@@ -382,27 +420,34 @@ Discovered during OI-0096 dependency review (see Change Log 2026-04-18). OI-0096
 - `V2_SCHEMA_DESIGN.md §3.2` — schema update if B2 or B4
 - Backup/import migration chain — CP-55/CP-56 update if B2 or B4
 
-**Acceptance criteria (Class A):**
+**Acceptance criteria (bundled Class A + Class B, post design lock):**
 
-- [ ] `inputs.damId.value` is read and persisted by `saveAnimal`
-- [ ] `inputs.weaned.checked` is read and persisted by `saveAnimal`
-- [ ] E2E test: setting dam or weaned via Edit Animal survives a reload
-- [ ] No change to Class B inputs yet (stopgap disabled state if not already decided)
+- [ ] `inputs.damId.value` is read and persisted by `saveAnimal` (Class A)
+- [ ] `inputs.weaned.checked` is read and persisted by `saveAnimal` (Class A)
+- [ ] `weanedDate` auto-stamps to today when `weaned` flips on; date field is editable for back-date; clears when `weaned` flips off (Class A)
+- [ ] `inputs.sireTag` removed from Edit Animal DOM; replaced with sire picker (Animal in herd / AI bull from list / inline Add AI bull)
+- [ ] Sire picker rows for animals render `{tagNum} — {name}`; rows for AI bulls render `{name}` plus `{tag}` when present
+- [ ] Inline "Add AI bull" captures name (required), tag (optional), breed (optional); creates `ai_bulls` record via standard 5-param `add()`; immediately sets `sireAiBullId` and returns farmer to Edit Animal with new bull selected
+- [ ] Sire mutual exclusivity: only one of `sireAnimalId` / `sireAiBullId` is set at a time
+- [ ] `animals.confirmed_bred boolean NOT NULL DEFAULT false` migration written, executed, and verified per CLAUDE.md Migration Execution Rule
+- [ ] Migration bumps `schema_version` (`UPDATE operations SET schema_version = N;`)
+- [ ] `BACKUP_MIGRATIONS` no-op entry added for the new version
+- [ ] `confirmedBred` entity field added (`toSupabaseShape`, `fromSupabaseShape`, `FIELDS` all updated)
+- [ ] `inputs.confirmedBred.checked` read and persisted by `saveAnimal`
+- [ ] V2_SCHEMA_DESIGN.md §3.2 updated to include `confirmed_bred`
+- [ ] CP-55 spec adds `confirmed_bred` to the `animals` export shape
+- [ ] CP-56 spec adds a migration-chain entry (default `false` when column missing from old backups)
+- [ ] Unit tests: Edit Animal dialog test covers all four inputs round-tripping through `saveAnimal` and `update()`
+- [ ] Unit test: shape round-trip test for `animals` entity includes `confirmedBred`
+- [ ] E2E test: Edit Animal → set dam, weaned (+ date), sire (via picker AND via inline Add AI bull), confirmedBred → reload → all five persist correctly
+- [ ] E2E test verifies Supabase (not just localStorage) per CLAUDE.md E2E rule
+- [ ] Param-count check: every store call in `saveAnimal` + the inline Add AI bull path uses correct 5/6/3 params
+- [ ] PROJECT_CHANGELOG.md row added
+- [ ] GitHub issue closed with commit hash
 
-**Acceptance criteria (Class B — pending design):**
+**CP-55/CP-56 impact (definite):** Adds `confirmed_bred` to the `animals` export shape. CP-56 migration-chain entry: backups from before this version treat missing column as `false`. No sireTag-related impact (existing `sireAnimalId` / `sireAiBullId` columns already handled).
 
-- [ ] Tim picks B1 / B2 / B3 for `sireTag`
-- [ ] Tim picks B4 / B5 / B6 for `confirmedBred`
-- [ ] Implementation follows the chosen option(s)
-- [ ] If B2 or B4 (new column): CLAUDE.md Migration Execution Rule applied (Write + Run + Verify), CP-55/CP-56 spec updated, V2_SCHEMA_DESIGN.md updated, `schema_version` ticks, `BACKUP_MIGRATIONS` entry added
-
-**CP-55/CP-56 impact:**
-- Class A: **none** — existing columns, existing backup round-trip.
-- Class B: **yes if B2 or B4** — adds columns to `animals` that must be included in export/import. Would require an addition to the `animals` shape in CP-55 + CP-56 migration-chain entry for old backups missing the column.
-
-**Schema change:**
-- Class A: **none.**
-- Class B: **yes if B2 or B4** — new column(s) on `animals`.
+**Schema change (definite):** One new column — `animals.confirmed_bred boolean NOT NULL DEFAULT false`. No new tables, no new FKs.
 
 **Related:**
 
@@ -2202,6 +2247,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-18 | OI-0099 design lock — Class A + Class B bundled into one spec | With OI-0096 shipped this morning, Tim opted to close OI-0099 end-to-end rather than ship Class A first and leave the Class B inputs misleadingly live ("no gaps"). Locked four decisions: (1) **Class A damId** — read `inputs.damId.value \|\| null` in `saveAnimal`, one-line wiring fix, entity + column already exist; (2) **Class A weaned + weanedDate** — read `inputs.weaned?.checked`, auto-stamp `weanedDate = todayStr` when checkbox flips on, render an editable date field so the farmer can back-date (e.g., "weaned two weeks ago"), clear `weanedDate` when checkbox flips off; (3) **Class B sireTag → picker + inline Add AI bull (B1 refined)** — remove freeform text input; replace with picker offering "Animal in this herd" (writes `sireAnimalId`), "AI bull from list" (writes `sireAiBullId`), and "Add AI bull" (inline creates an `ai_bulls` record and sets `sireAiBullId`). Picker rows render ear tag + name (Tim's note: *"The picker needs to show ear tag and name"*). No new column on `animals`. Handles the "animals that pre-date the app" case (Tim's note) via the inline Add AI bull escape hatch. Semantic tension flagged: `ai_bulls` will in practice hold historical/external non-AI bulls too — acceptable for now, potential rename is a future OI. (4) **Class B confirmedBred → new column (B4)** — add `animals.confirmed_bred boolean NOT NULL DEFAULT false`. Schema migration + execution per CLAUDE.md Migration Execution Rule + `schema_version` bump + `BACKUP_MIGRATIONS` no-op entry + V2_SCHEMA_DESIGN.md §3.2 update + CP-55/CP-56 spec updates (add to `animals` export shape; backup-migration chain entry treats missing column as `false`). Single GitHub issue covers all four inputs. Acceptance criteria collapsed into one 21-item list. Status flipped open → "design locked, ready for implementation." OI-0098 (inline edit/delete of historical weight records) unrelated and stays open DESIGN REQUIRED. |
 | 2026-04-18 | Field-testing roadblocks bundle shipped — OI-0100 / OI-0101 / OI-0103 / OI-0104 / OI-0105 closed | Five-commit bundle per `SESSION_BRIEF_2026-04-18_field-testing-roadblocks.md`. Shipped in dependency order. **OI-0103** (`38925be`, P0) — `src/features/feed/check.js:262` `checkDate:` → `date:` entity-field rename; Save button now persists to `event_feed_checks` instead of silently dropping. Two sibling read sites also fixed. v1-trap class noted in commit. **OI-0101** (`373f276`, P2) — move-wizard Step 3 dateIn/timeIn one-way mirror from dateOut/timeOut; first keystroke on open-side flips the touched flag and stops cascade. **OI-0105** (`8c71cb8`, P2) — sticky search bar on `renderLocationPicker` with case-insensitive filter, clear button, empty-state message, query persisted on `container.dataset` across internal re-renders. Applies to both picker callers. **OI-0100** (`8ff3572`, P1) — GH-12's inline paddock card extracted to a new shared module `src/features/observations/paddock-card.js`; move-wizard Step 3 pre-graze renders the shared card (rating slider, cover % with BRC-1 bale-ring helper, forage condition, bale-ring count, recovery days, notes). Survey sheet NOT migrated in this commit — follow-up PR can adopt the shared module. **OI-0104** (`1a22923`, P1) — 2-way per-line radio (Move / Leave as residual) replaces the per-line checkbox; Feed Transfer section relocated under Close; residual lines stamp real `remainingQuantity` instead of hardcoded 0 and emit `logger.info('residual-capture', ...)` — real fertility-ledger write lands with OI-0092's schema in a follow-up PR. **OI-0102** stays open (DESIGN REQUIRED, not built). Prerequisite for OI-0100 (Phase 0 `maybeSplitForGroup` shared-export) not needed this bundle — that happened in earlier paddock-window commits. 959 tests pass (25 new unit + 3 new e2e specs, two of which verify Supabase rows per CLAUDE.md rule). No schema change, no migration, no `schema_version` bump, no CP-55/CP-56 impact this bundle (OI-0092 carries its own when it ships). |
 | 2026-04-18 | Farm-testing roadblocks captured — OI-0100 through OI-0105 | Tim hit six roadblocks testing v2 against his own farm data. Each captured as a discrete OI so nothing gets lost. **OI-0100** (P1) — pre-graze observations embed the **Survey paddock card** (rating slider, veg height, cover% slider with bale-ring helper, forage condition, recovery window) on the move wizard and event-close flows. Key design note: `event_observations` and `paddock_observations` are different tables on purpose (observation-of-event vs standalone-pasture-survey), but their fields are aligned per OI-0063/migration 022, so the **UI component** reuses cleanly — the submit callback just routes to the right table based on caller. Tim confirmed: *"You mean simply use the survey card on the move wizard, yes that makes sense."* Depends on GH-12 shipping the extractable component (or this OI builds it in the shared location and GH-12 adopts later). **OI-0101** (P2) — move wizard destination `dateIn`/`timeIn` one-way mirror from `dateOut`/`timeOut` with manual-override-respect guard. 10-line change. **OI-0102** (P3, DESIGN REQUIRED, do not build) — explore multi-paddock selection in the pasture picker. Captured stub per Tim's request ("Add OI- to explore"); six design questions enumerated (event model implications, strip-graze relationship, partial-close behavior, picker UX, feed/observation attribution, calc-surface audit). Deferred to a design session. **OI-0103** (P0) — feed check Save button silently fails. Root cause: `src/features/feed/check.js:262` passes `checkDate:` but entity field is `date:` (`src/entities/event-feed-check.js:7`). Entity validate rejects silently; no UI error. One-character fix; e2e test must assert Supabase row exists after save per CLAUDE.md §E2E Testing. Blocks all field testing on feed check path. **OI-0104** (P1) — move wizard feed transfer gets a per-line **2-way radio** (Move to new paddock / Leave as residual) replacing the current single checkbox. Default = Move. Residual path writes to the fertility ledger via **OI-0092**'s schema (sequencing note: if OI-0092 not yet shipped, this OI writes to a placeholder column with a TODO pointer, flips to the real path in OI-0092's PR). Feed transfer section also **relocates** from the bottom of Step 3 to sit between the close section and the open section (correct mental ordering — residual feed is a post-graze observation of the paddock being closed). Close-reading `remainingQuantity` stamps real-remaining-amount on residual lines instead of hardcoded 0. V1 parity for `calcResidualOM` / `feed_residual` NPK source. **OI-0105** (P2) — anchored sticky search bar at the top of `renderLocationPicker`, with case-insensitive filter and auto-collapsing empty sections; applies to every caller (move wizard Step 2, new-event dialog, future callers). **Bundling plan:** OI-0100 / OI-0101 / OI-0103 / OI-0104 / OI-0105 bundled into one Claude Code session brief (5 implementable items). OI-0102 stays open, design-required, not in the brief. CP-55/CP-56 impact: none direct for OI-0100/0101/0103/0105; inherited from OI-0092 for OI-0104. Schema change: none direct (OI-0104 sequences with OI-0092). |
 | 2026-04-18 | OI-0099 captured — Edit Animal silent-drop audit (4 remaining inputs) | After the OI-0095/0096/0097 combined session brief was written, Tim flagged that the four adjacent silently-dropped `saveAnimal` inputs (`damId`, `sireTag`, `weaned`, `confirmedBred`) should be documented before they get lost. **OI-0099 added** (P1, mixed implementability). Investigation split the four into two classes: **Class A (pure silent-save bugs)** — `damId` (entity + `dam_id` column exist, just not read in `saveAnimal`) and `weaned` (entity + `weaned` + `weaned_date` columns exist, checkbox not read). Both are one-line wiring fixes, ship-ready after OI-0096 lands. **Class B (UI field without Supabase column — the v1 trap per CLAUDE.md)** — `sireTag` (freeform text input, no matching entity field; v2 entity uses `sireAnimalId` / `sireAiBullId` FKs instead) and `confirmedBred` (checkbox, no matching entity field at all). Both Class B items require Tim's design decision before implementation. Three options each documented: for `sireTag` — replace with animal/AI-bull picker (B1), add `sire_tag` column (B2), or remove entirely (B3). For `confirmedBred` — add `confirmed_bred` column (B4), derive from calving records (B5), or build full `animal_breeding_status` table (B6). Until design locks, Class B inputs stay in the DOM but should get a `disabled` attribute + stopgap caption so farmers don't think they're working. CP-55/CP-56 impact flagged for Class B if B2/B4 chosen (new columns require backup-migration chain entry). No session brief yet — Class A can ship as a small follow-up once OI-0095/0096/0097 land; Class B needs a design session. |

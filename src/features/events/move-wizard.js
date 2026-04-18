@@ -17,6 +17,7 @@ import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { getFarmSettings, renderPostGrazeFields, renderPreGrazeFields } from './observation-fields.js';
+import { renderPaddockCard } from '../observations/paddock-card.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -383,8 +384,18 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     });
     openSection.appendChild(inputs.timeIn);
 
-    // Pre-graze observation fields on destination section (OI-0041)
-    preGraze = renderPreGrazeFields(farmSettings);
+    // Pre-graze observation fields on destination section (OI-0041, extended to the
+    // shared paddock card per OI-0100).
+    const destLoc = state.locationId ? getById('locations', state.locationId) : null;
+    const paddockAcres = destLoc?.areaHa != null
+      ? convert(destLoc.areaHa, 'area', 'toImperial')
+      : null;
+    preGraze = renderPaddockCard({
+      saveTo: 'event_observations',
+      farmSettings,
+      paddockAcres,
+      initialValues: {},
+    });
     openSection.appendChild(preGraze.container);
 
     panel.appendChild(openSection);

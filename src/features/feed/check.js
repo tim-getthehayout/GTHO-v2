@@ -60,7 +60,7 @@ export function openFeedCheckSheet(evt, operationId) {
   }
 
   // Get last check data
-  const allChecks = getAll('eventFeedChecks').filter(fc => fc.eventId === evt.id).sort((a, b) => (b.checkDate || b.createdAt || '').localeCompare(a.checkDate || a.createdAt || ''));
+  const allChecks = getAll('eventFeedChecks').filter(fc => fc.eventId === evt.id).sort((a, b) => (b.date || b.createdAt || '').localeCompare(a.date || a.createdAt || ''));
   const allCheckItems = getAll('eventFeedCheckItems');
   const lastCheck = allChecks[0];
   const lastCheckItems = lastCheck ? allCheckItems.filter(i => i.feedCheckId === lastCheck.id) : [];
@@ -176,7 +176,7 @@ export function openFeedCheckSheet(evt, operationId) {
     // Last check info
     let infoLine = `Started: ${item.startedUnits.toFixed(1)} ${units}`;
     if (item.lastCheckUnits != null && lastCheck) {
-      const d = new Date(lastCheck.checkDate || lastCheck.createdAt);
+      const d = new Date(lastCheck.date || lastCheck.createdAt);
       const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
       const time = lastCheck.time || d.toTimeString().slice(0, 5);
       infoLine += ` \u00B7 Last check: ${item.lastCheckUnits.toFixed(2)} ${units} (${dayName} ${time})`;
@@ -259,7 +259,10 @@ export function openFeedCheckSheet(evt, operationId) {
     onClick: () => {
       const check = FeedCheckEntity.create({
         operationId, eventId: evt.id,
-        checkDate: dateInput.value, time: timeInput.value || null,
+        // OI-0103: entity FIELDS key is `date` (see src/entities/event-feed-check.js:7).
+        // Previously passed `checkDate:` — silent drop on create(), row persisted with
+        // date=null, Save button appeared to no-op (v1-trap class).
+        date: dateInput.value, time: timeInput.value || null,
       });
       add('eventFeedChecks', check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
 

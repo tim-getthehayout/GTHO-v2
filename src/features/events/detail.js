@@ -304,11 +304,31 @@ function renderSummary(ctx) {
     el('div', { style: { fontSize: '13px', color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } }, [
       'In ',
       (() => {
-        const dateInInput = el('input', { type: 'date', value: event.dateIn || '', style: { fontSize: '13px', padding: '2px 4px', border: '0.5px solid var(--border2)', borderRadius: '4px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', width: '130px' } });
+        // OI-0115: capture the render-time value so phantom `change` events
+        // fired during teardown (e.g. a parallel `renderSummary` triggered by
+        // `notify('eventPaddockWindows')` on sub-move Save, replacing this
+        // input in the DOM while a native date picker is implicitly focused
+        // on iOS Safari) cannot overwrite `event.dateIn` with whatever the
+        // browser's picker had as its default value.
+        const renderedDateIn = event.dateIn || '';
+        const dateInInput = el('input', { type: 'date', value: renderedDateIn, style: { fontSize: '13px', padding: '2px 4px', border: '0.5px solid var(--border2)', borderRadius: '4px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', width: '130px' } });
         dateInInput.addEventListener('change', () => {
+          // Guard 1: the element was torn down by a re-render. Ignore the
+          // phantom change — the new input (with the correct value from the
+          // current store) is now authoritative.
+          if (!dateInInput.isConnected) return;
           const newDate = dateInInput.value;
           if (!newDate) return;
+          // Guard 2: the value hasn't actually changed from the render-time
+          // snapshot. A phantom change with the same value is benign but a
+          // phantom change with a DIFFERENT value (e.g. today's date from a
+          // dismissed native picker) is the OI-0115 corruption vector. Only
+          // proceed when there's a real user-driven edit.
+          if (newDate === renderedDateIn) return;
           const evt = getById('events', ctx.eventId);
+          // Guard 3: the store's current value already matches what the user
+          // typed — a no-op update that only risks re-firing subscribers.
+          if (newDate === evt?.dateIn) return;
           // Reject-on-narrow: check if any child record has date_joined < new date_in
           const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === ctx.eventId);
           const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId);
@@ -1167,6 +1187,10 @@ function renderNotes(ctx) {
     value: event.notes || '',
     placeholder: t('event.notesPlaceholder'),
     onBlur: () => {
+      // OI-0115 belt-and-braces: same teardown-guard pattern as the dateInInput
+      // handler. A parent re-render can remove this textarea while a blur
+      // event is in-flight; write back only if the element is still live.
+      if (!textarea.isConnected) return;
       const newVal = textarea.value;
       if (newVal !== (event.notes || '')) {
         update('events', ctx.eventId, { notes: newVal }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');

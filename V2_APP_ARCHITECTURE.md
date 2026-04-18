@@ -207,6 +207,31 @@ supabase/
 - **Shared sheets live in their domain, not their caller.** Feed delivery is a feed feature — it lives in `feed/delivery.js` even though it's opened from event cards, field mode, and the feed screen. Health recording sheets live in `health/`. The caller imports the sheet's `open` function; the sheet doesn't know who called it.
 - **Feature file size limit: ~500 lines.** If a feature file exceeds 500 lines, split it. This is a guideline, not a hard rule — but if you're past 500 lines and the file contains multiple sheet handlers, it must be split before the next commit.
 
+### 3.1 Entity Contract
+
+Every file in `src/entities/` is the single source of truth for one table and must export exactly five members. Each has a specific contract — violations are a frequent source of silent data-loss bugs.
+
+**`FIELDS`** — metadata map of every persisted field: `{ type, required, sbColumn }`. Used by the store, validators, and tests to introspect the entity. `type` is one of `uuid`, `text`, `integer`, `numeric`, `boolean`, `date`, `timestamptz`, `jsonb`. `sbColumn` is the exact snake_case column name in Supabase.
+
+**`create(data = {})`** — returns a new record with all fields defaulted. Generates `id` via `crypto.randomUUID()` if absent. Stamps `createdAt`/`updatedAt` with `new Date().toISOString()`. Must accept a partial input and fill in every field in `FIELDS`.
+
+**`validate(record)`** — returns `{ valid: boolean, errors: string[] }`. Checks required fields, types, and entity-specific constraints. Must be pure (no side effects, no store reads). Called by the store *before* mutation and *before* sync.
+
+**`toSupabaseShape(record)`** — maps JS camelCase → Supabase snake_case for write. Must emit every field in `FIELDS`. Consumed by the sync adapter when pushing to Supabase.
+
+**`fromSupabaseShape(row)`** — maps Supabase snake_case → JS camelCase for read. Two responsibilities:
+
+1. **Reverse the key mapping.** Every field `toSupabaseShape` emits, `fromSupabaseShape` must read back. Unit tests verify the round trip.
+2. **Coerce PostgREST-stringified numerics.** PostgREST returns PostgreSQL `numeric` and `decimal` columns as **JavaScript strings** (arbitrary-precision safety), not numbers. Every field whose `FIELDS` entry has type `numeric` — and defensively, `integer` — must be coerced:
+
+   ```js
+   someField: row.some_col != null ? Number(row.some_col) : null
+   ```
+
+   Integer columns (`int4`, `int8` under the safe-integer ceiling) normally come back as numbers, but coerce them anyway — it's null-safe and cheap.
+
+   **Skipping this coercion is a silent-corruption bug**, not a cosmetic one. Four harm classes observed in practice: string concatenation (`"0"+"1"+"2"="012"`) in sums; `.toFixed()` `TypeError` at render time; strict `typeof === 'number'` validator silently rejecting re-saved records; lexicographic threshold comparisons rendering the wrong badge color. Reference implementation: `src/entities/event-observation.js`. Every new numeric/integer column requires a round-trip unit test that feeds stringified input through `fromSupabaseShape` (see V2_INFRASTRUCTURE.md §6.1). Origin: OI-0103 → OI-0106 sweep.
+
 ---
 
 ## 4. Store Pattern
@@ -555,6 +580,7 @@ One canonical name per concept. Grep must work. No aliases.
 | 2026-04-18 | OI-0091 event window split | New §4.4: Window-Split on State Change pattern. `event_group_window` is a period of stable state; state changes (cull/move/wean/event-close) close the current window with live values stamped and open a new window. Render and calc paths read through `getLiveWindowHeadCount` / `getLiveWindowAvgWeight` helpers — open windows recompute live, closed windows use stored snapshots. Ships with OI-0073 orphan cleanup (migration 025) as a coordinated P0 package. |
 | 2026-04-18 | OI-0094 state-change entry point completeness | §4.4 expanded with the authoritative 13-entry-point table. Ten additional flows now route through `splitGroupWindow` / `closeGroupWindow` (Edit Group checkboxes, Edit Animal group change, Group Weights, Split Group, calving, §7 Add, §7 Remove, §7 per-row Edit view-only-on-open, Delete window confirm, Event reopen summary). `classifyGwsForReopen` added to reopen-event for keep-closed-vs-reopen partitioning. Ships with OI-0093 (Animals bulk action bar removal) which eliminates one of the originally-eleven entry points. |
 | 2026-04-18 | OI-0095 paddock-window split architecture | New §4.4b: paddock-side analog of the group-window split. Adds `splitPaddockWindow` + `closePaddockWindow` store helpers and `getOpenPwForLocation` calc helper. Every paddock-window state-change entry point routes through the helpers (Advance Strip, edit-paddock-window on open, move-wizard close loop, event-close close loop). `classifyPwsForReopen` added alongside `classifyGwsForReopen` so the reopen summary dialog classifies both sides. Hardcoded `areaPct: 100` literals in dashboard + locations replaced with `getOpenPwForLocation(...)?.areaPct ?? 100`. One-time app-side orphan cleanup (`src/data/one-time-fixes.js`) runs once per device via localStorage flag — no schema change, no CP-55/CP-56 impact. |
+| 2026-04-18 | OI-0106 base-doc reconciliation | New §3.1: Entity Contract. Documents the five required entity exports and, critically, the `fromSupabaseShape` numeric-coercion responsibility — PostgREST returns `numeric`/`decimal` columns as JavaScript strings, which caused silent math corruption, `.toFixed()` TypeErrors, and silent-reject validation bugs. Fix pattern `row.col != null ? Number(row.col) : null` is now mandated at the design-doc level, not only in CLAUDE.md. Reference entity: `event-observation.js`. Pairs with V2_INFRASTRUCTURE.md §6.1 test pattern update. |
 
 ---
 

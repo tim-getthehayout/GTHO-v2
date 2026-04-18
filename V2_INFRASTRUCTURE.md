@@ -306,7 +306,7 @@ Every data change follows this order:
 | What to test | Pattern |
 |-------------|---------|
 | Calculation functions | Test against registerCalc() example values first |
-| Entity shape functions | Round-trip: `fromSupabaseShape(toSupabaseShape(record))` === original |
+| Entity shape functions | Two tests per entity: (a) **local round-trip** — `fromSupabaseShape(toSupabaseShape(record))` === original, verifies key mapping; (b) **PostgREST pull** — feed a row whose `numeric`/`integer` columns are **strings** (simulating the live PostgREST response) through `fromSupabaseShape` and assert each result is `typeof === 'number'` (or `null`). The local round-trip alone does NOT catch stringified-numeric bugs because it routes through local objects that were never PostgREST-serialized. See V2_APP_ARCHITECTURE.md §3.1 for the coercion contract. Origin: OI-0106. |
 | Entity validation | Required fields, type constraints, edge cases |
 | Store getters/actions | Mock storage, verify state changes + notifications |
 | Date utilities | Edge cases (midnight crossing, DST, inclusive vs exact) |
@@ -443,6 +443,7 @@ Every record tagged `source: 'voice'` or `'manual'`. Enables voice-accuracy filt
 | Date | Session | Changes |
 |------|---------|---------|
 | 2026-04-12 | Session 6 — Infrastructure review | §3.1: Added A9/A10 exception references. §3.3: Aligned app_logs to schema (+operation_id nullable, +context jsonb, RLS by user_id). §3.4–3.5: Added A10 refs, dead letter context structure. §4.1–4.2: Aligned submissions to schema, added A25 ref. §5.1: Fixed RLS to use operation_members, added user-scoped example. §8: Added roadmap scope note. |
+| 2026-04-18 | OI-0106 base-doc reconciliation | §6.1: Expanded entity shape-function test pattern from a single local round-trip to two tests: (a) local round-trip for key mapping, (b) PostgREST pull simulation with stringified numerics asserting `typeof === 'number'`. The local round-trip alone does not catch the PostgREST-string class of bugs that drove the OI-0106 sweep. Cross-references V2_APP_ARCHITECTURE.md §3.1. |
 
 ---
 

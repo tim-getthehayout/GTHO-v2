@@ -50,13 +50,17 @@ export function openFeedCheckSheet(evt, operationId) {
     return;
   }
 
-  // Group by batch+location
+  // Group by batch+location. Coerce entry.quantity via Number() defensively —
+  // PostgREST returns numeric columns as strings, and if any fromSupabaseShape
+  // drift leaks a string through mergeRemote, unnumbered concat here would
+  // silently corrupt totals and break the Save flow downstream.
   const groupKey = (e) => `${e.batchId}|${e.locationId}`;
   const groups = {};
   for (const e of entries) {
     const key = groupKey(e);
     if (!groups[key]) groups[key] = { batchId: e.batchId, locationId: e.locationId, totalDelivered: 0 };
-    groups[key].totalDelivered += e.quantity;
+    const qty = Number(e.quantity) || 0;
+    groups[key].totalDelivered += qty;
   }
 
   // Get last check data

@@ -51,7 +51,9 @@ export function fromSupabaseShape(row) {
     feedCheckId: row.feed_check_id,
     batchId: row.batch_id,
     locationId: row.location_id,
-    remainingQuantity: row.remaining_quantity,
+    // PostgREST returns numeric columns as strings (arbitrary-precision);
+    // coerce to Number so downstream math and typeof checks work.
+    remainingQuantity: row.remaining_quantity != null ? Number(row.remaining_quantity) : null,
     createdAt: row.created_at,
   };
 }

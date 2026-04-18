@@ -75,7 +75,9 @@ export function fromSupabaseShape(row) {
     locationId: row.location_id,
     date: row.date,
     time: row.time,
-    quantity: row.quantity,
+    // PostgREST returns numeric columns as strings (arbitrary-precision);
+    // coerce to Number so downstream math and typeof checks work.
+    quantity: row.quantity != null ? Number(row.quantity) : null,
     entryType: row.entry_type || 'delivery',
     destinationType: row.destination_type || null,
     destinationEventId: row.destination_event_id || null,

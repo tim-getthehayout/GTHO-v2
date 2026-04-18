@@ -4,6 +4,180 @@
 
 ---
 
+### OI-0098 — Inline edit/delete of historical weight records in Edit Animal (DESIGN REQUIRED, do not build)
+**Added:** 2026-04-18 | **Area:** v2-build / animals / weight / architecture | **Priority:** P3 (quality-of-life improvement; not blocking any current flow)
+**Checkpoint:** deferred — design session needed before implementation
+
+**Status:** open — **DESIGN REQUIRED, do not build.** Deferred from OI-0096 because editing or deleting a past weight record ripples into the window-split architecture (OI-0091/0094/0095) in ways that need an explicit answer.
+
+**The problem OI-0098 solves:** Edit Animal currently shows a read-only "Weight history" list (lines 1313–1328). Farmers have no in-app way to correct a mis-typed weight or delete a duplicate record. Today's only option is the edit-group-window dialog (SP-10), which only reaches `avgWeightKg` on a closed window, not individual per-animal records.
+
+**Why this is a design problem, not an implementation one:**
+
+If a farmer edits a past weight record (say, changes `weightKg` from 450 to 460 on a record dated 30 days ago), that record may have triggered a `splitGroupWindow` call on a now-closed `event_group_window`. The stamped `avgWeightKg` on those closed window segments was computed from the original value. Editing the source record creates a question: do the stamped snapshots re-compute, or do they stay frozen?
+
+Same shape for delete. Deleting a past weight record removes one sample from the group's average computation. If that sample contributed to a closed window's stamp, the stamp is now stale.
+
+OI-0091 locked in **"stored snapshot for closed windows, live recompute for open windows."** That rule gives us two choices for weight-history edits:
+
+- **A — snapshots stay frozen.** Edit/delete only affects live values on open windows. Closed windows keep their original stamps. Simple, predictable, but a mistyped weight from two events ago stays wrong in historical reports forever.
+- **B — affected closed windows re-stamp.** The helper walks every `event_group_window` that overlaps the record's date, recomputes `avgWeightKg` / `headCount` from current state, rewrites the stamp. More correct, much more complex — and breaks the "closed window = immutable history" invariant we've been leaning on.
+
+Neither choice is obvious. Pick A and it's arguably wrong; pick B and it's a significant architecture amendment.
+
+**Questions to answer before building:**
+
+1. Does edit-a-historical-weight update closed-window stamps (B) or only affect live values (A)?
+2. If A, is there a separate "recompute stamps" action (farmer-initiated, explicit) or does mis-entered historical data just live with its original stamp?
+3. If B, what's the migration/worker story for windows that have been archived or exported via CP-55? Does the re-stamp propagate to already-exported backups? (Answer: no — backups are frozen, but this means the exported backup becomes an inconsistent view.)
+4. Can the farmer delete a record that was the *only* weight sample in a closed window? What happens to the stamp — fall back to `null`? The class default? The prior record?
+5. UX: inline pencil/trash icons on each history row, or a separate edit-weight-record sheet? If inline, how does mobile-first UX handle the actions (swipe? long-press?)?
+6. Should this bundle with a broader "edit any historical record" affordance (health events, observations, feed checks), or stay narrow to weight only?
+
+**Files likely affected (once design locks):**
+
+- `src/features/animals/index.js` — Edit Animal dialog weight-history section grows edit/delete affordances
+- `src/data/store.js` — possibly new helper `reStampClosedWindows(groupId, dateRange)` if design choice is B
+- `src/features/health/weight.js` — Edit Weight Record sheet (new) if that UX is chosen over inline
+- Existing window-split helpers (`splitGroupWindow` / `closeGroupWindow`) may need retro-rewrite counterparts if B
+- E2E coverage: whatever the final UX shape is
+
+**CP-55/CP-56 impact:** potentially yes if design choice is B — any mechanism that rewrites closed-window stamps needs to be reflected in export/import so re-stamped values flow through backups correctly.
+
+**Schema change:** probably none, but can't be ruled out until design locks.
+
+**Related:**
+
+- **OI-0096** — parent OI that deferred this work. OI-0096 replaces the Edit Animal editable `currentWeight` input with a read-only display; historical edit/delete is the follow-up feature.
+- **OI-0091** — defines the "stored snapshot for closed windows" rule that makes this a real design question.
+- **OI-0065** (reweigh flow — DESIGN REQUIRED) — adjacent unresolved weight-UX work; may inform or share the design answer.
+
+---
+
+### OI-0097 — §7 Remove group: remove incorrect `maybeShowEmptyGroupPrompt` call (correction to shipped OI-0090 wiring)
+**Added:** 2026-04-18 | **Area:** v2-build / groups / events | **Priority:** P3 (cosmetic — prompt fires in a misleading context on an edge case only; no data corruption, no silent data loss)
+**Checkpoint:** batches with OI-0095 + OI-0096 into one Claude Code session brief
+
+**Status:** open — small code correction to shipped OI-0090 behavior.
+
+**What's wrong:** OI-0090's session brief (`github/issues/SESSION_BRIEF_2026-04-17_empty-group-archive.md` Phase 3) listed `src/features/events/group-windows.js` §7 Remove group as a `maybeShowEmptyGroupPrompt(groupId)` wiring point. Claude Code shipped the wiring per the brief on 2026-04-18 (see OI-0090 closed status: *"Wired into cull-sheet, Edit Group checkboxes, Split Group, Edit Animal group change, move-wizard (guarded …), §7 Remove group."*). The wiring is wrong: §7 Remove group closes the group's `event_group_window` without touching `animal_group_memberships`, so the group's membership state is unchanged. "Empty" (zero open memberships) is orthogonal to "removed from this event's §7."
+
+Effect:
+
+- **Normal case** — group has open memberships on other contexts → `maybeShowEmptyGroupPrompt` no-ops. No harm.
+- **Edge case** — group happened to have zero open memberships already (e.g., all animals were culled at some earlier point but the group stayed attached to the event's §7) → the prompt fires in a misleading context. The farmer just removed a group from one event; the prompt asks them to Archive / Keep active / Delete the group itself. Unrelated action; confusing UX.
+
+**Fix:**
+
+Remove the `maybeShowEmptyGroupPrompt(groupId)` call from the §7 Remove group handler in `src/features/events/group-windows.js`. The `closeGroupWindow(groupId, eventId, closeDate, closeTime)` call stays — that's OI-0094's entry #7 and is correct. Add a one-line comment noting the scope boundary: *"§7 Remove group doesn't touch memberships — emptiness is checked by membership-mutation flows only (cull, move, split, Edit Group, Edit Animal group change)."*
+
+**Files affected:**
+
+- `src/features/events/group-windows.js` — remove one line; add one clarifying comment
+
+**Acceptance criteria:**
+
+- [ ] `maybeShowEmptyGroupPrompt(groupId)` call removed from §7 Remove group handler
+- [ ] Scope-boundary comment added adjacent to the `closeGroupWindow` call
+- [ ] All existing tests still pass (no dedicated test covered this edge-case firing, so no test rewrites expected)
+- [ ] If any unit test stubbed the prompt call as a positive assertion in §7 Remove group, the stub is removed
+- [ ] Commit message references OI-0090's session brief as the origin of the incorrect wiring
+
+**CP-55/CP-56 impact:** none.
+**Schema change:** none.
+
+**Related:**
+
+- **OI-0090** (closed 2026-04-18) — this is a small code correction to its shipped behavior. Not a regression of OI-0090's intent; just a scope boundary crossed in the brief.
+- **OI-0094** — §7 Remove group is OI-0094's entry #7. `closeGroupWindow` call is correct and stays.
+
+---
+
+### OI-0096 — Weight change entry point completeness (group-side audit follow-up)
+**Added:** 2026-04-18 | **Area:** v2-build / animals / health / events / architecture | **Priority:** P1 (OI-0094's architectural rule is incomplete on two weight paths; daily-resolution calcs like DMI-8 can't correctly back-compute avg weight per day without a split stamp)
+**Checkpoint:** batches with OI-0095 + OI-0097 into one Claude Code session brief
+
+**Status:** open — design complete, session brief pending as part of the three-item bundle.
+
+**What's wrong:** OI-0094's architectural rule is *"every mid-event state change that affects head count or avg weight splits the group's open window."* The group-side audit ran against membership/composition changes. Two weight-specific entry points slipped through the audit because weight is a per-animal attribute, not a membership event. But an individual weight change does shift the group's `avgWeightKg`, and therefore:
+
+- Today's render reads live (correctly) via `getLiveWindowAvgWeight` from OI-0091. So the open dashboard/event-detail surface is not silently wrong — the live-read rule catches it.
+- **Historical daily-resolution calcs** (DMI-8 daily breakdown, EST-1 accuracy comparison, any future per-day report) read `event_group_window.avgWeightKg` from each window segment. Without a split on the reweigh date, the window has one continuous snapshot spanning both the pre-reweigh and post-reweigh period. DMI-8 will use the final stamped value for every day in the window, overstating early-period DMI if the weight went up, understating it if the weight went down.
+- **Inconsistency with the Group Weights bulk sheet.** The bulk path (`src/features/animals/index.js:1116`) correctly calls `maybeSplitForGroup(group.id, dateInput.value)` after the weight updates. The per-animal paths below do not. Same action, different plumbing.
+
+**Two gaps:**
+
+1. **Quick Weight sheet (`src/features/health/weight.js` line 64) — per-animal weight update never calls `splitGroupWindow`.** The Save handler creates a new `animal_weight_record` via `add()`, then closes the sheet. No `maybeSplitForGroup` call, no split. Fix: after the `add()`, call `maybeSplitForGroup(group.id, dateInput.value)` for the animal's current group (no-op if the animal isn't in a group or the group isn't on an open event — `maybeSplitForGroup` already guards).
+
+2. **Edit Animal dialog `currentWeight` input (`src/features/animals/index.js:1217`) — silently dropped in `saveAnimal`.** The dialog captures an editable weight input; `saveAnimal` (lines 1377–1419) never reads `inputs.currentWeight.value`. No weight record is written, no split fires. Pure silent data loss.
+
+   **Resolution (decided 2026-04-18 with Tim):** Replace the editable input with a **read-only current-weight display + ⚖ Weight button** that opens the Quick Weight sheet. The existing "Weight history" section stays (read-only list of prior records). Edit/delete of historical records is **not** in scope — see OI-0098 for that design work.
+
+   This closes the silent-save footgun (no editable field = no value to drop), makes the weight workflow discoverable from inside Edit Animal (button right next to the read-only value), and keeps weight changes routing through the single `maybeSplitForGroup`-aware path in Quick Weight.
+
+**Prerequisite (new — discovered during dependency review 2026-04-18):** `maybeSplitForGroup` is **not** a shared helper today. It is defined locally twice — in `src/features/health/calving.js:19` and `src/features/animals/index.js:31` (duplicate copies of the same function). OI-0094 never promoted it to a shared module. Before wiring the Quick Weight sheet, the session brief must promote `maybeSplitForGroup` to a shared location and update both existing callers to import from there. Recommended location: `src/data/store.js` next to `splitGroupWindow` / `closeGroupWindow` (keeps all window-split plumbing co-located). Alternative: `src/features/events/group-windows.js`.
+
+**Known adjacent issue (flagged out of scope):** `saveAnimal()` silently drops four more inputs captured by the dialog — `inputs.damId` (1230), `inputs.sireTag` (1234), `inputs.weaned` (1261), `inputs.confirmedBred` (1293). Same pattern: dialog captures, save handler ignores. None are weight-related, so they sit outside OI-0096. Flag for a follow-up audit (separate future OI). The fix pattern is the same — tighten the save handler or remove the orphan inputs.
+
+**Scope (the package):**
+
+1. **Prerequisite — promote `maybeSplitForGroup` to a shared module.** Extract the current duplicate definitions (`calving.js:19`, `animals/index.js:31`) into `src/data/store.js` (preferred) or `src/features/events/group-windows.js`. Keep the exact signature (`maybeSplitForGroup(groupId, changeDate)`) and guard behavior (no-op if no open `event_group_window` for that group). Update both existing callers to import instead of redefine. This is the blocking step — everything downstream depends on it.
+
+2. **Quick Weight sheet wiring** — `src/features/health/weight.js`: after the `add('animalWeightRecords', ...)` call on line 64, call `maybeSplitForGroup(groupId, dateInput.value)` where `groupId` is the animal's current group (look up via `animal_group_memberships`; skip if null). Import `maybeSplitForGroup` from the shared location created in step 1.
+
+3. **Edit Animal dialog redesign** — replace the editable `currentWeight` input with a read-only display + ⚖ Weight button:
+   - **Delete** the editable input block (`currentWeightDisplay` and `inputs.currentWeight` at roughly lines 1216–1221). Remove `inputs.currentWeight` from the `inputs` object so it can never be accidentally read by `saveAnimal` in the future.
+   - **Add** a labeled read-only row showing the latest stored weight (read from `latestW?.weightKg`, formatted with unit conversion). Example layout: `Current weight: 487 kg   [⚖ Weight]`. If no weight record exists, display `—`.
+   - **Add** a ⚖ Weight button adjacent to the read-only display. `onClick` closes the Edit Animal dialog and opens the Quick Weight sheet for the current animal (same entry the row's ⚖ button uses). Closing the edit dialog first avoids stacked-sheet issues and means the farmer returns to the Animals screen after logging the weight, not to a stale Edit Animal view.
+   - **Preserve** the existing "Weight history" section (read-only list, lines 1313–1328). No edit/delete controls on history rows — that design lives in OI-0098.
+
+4. **Unit tests:**
+   - `tests/unit/weight-sheet.test.js` (new or extend): saving a weight for an animal in a group on an open event triggers `maybeSplitForGroup` with the sheet's date; saving for an animal with no group is a no-op for the helper.
+   - `tests/unit/animals.test.js` Edit Animal test: assert the editable `currentWeight` input is absent; assert the read-only current-weight display renders the latest stored value (or `—` when no record exists); assert the ⚖ Weight button is present and its click handler opens the Quick Weight sheet for this animal.
+
+5. **E2E addition** (roll into OI-0095's e2e spec, or add a small standalone): open Quick Weight for an animal in a group on an open event → save a new weight → dashboard card + event detail §7 `avgWeightKg` immediately reflects the live value (OI-0091 live-read) → close the event → closed `event_group_window` rows split on the reweigh date with correct stamped values. Second flow: open Edit Animal → tap ⚖ Weight → Edit Animal closes, Quick Weight opens pre-targeted at this animal.
+
+6. **Grep audit:** every `add('animalWeightRecords', ...)` in `src/features/**` must be paired with a `maybeSplitForGroup` call, or be inside a flow that splits via another path (calving splits via the calf's membership addition — document this exception). Current `add()` sites: `src/features/health/weight.js:64`, `src/features/animals/index.js:1112` (bulk, already correct), `src/features/health/calving.js:170` (calf birth weight; implicit via membership add).
+
+**Explicit non-scope:**
+
+- **Inline edit/delete of historical weight records** — deferred to **OI-0098** (needs its own design decision on closed-window snapshot behavior).
+- **Other silent-drop inputs in `saveAnimal`** (`damId`, `sireTag`, `weaned`, `confirmedBred`) — separate follow-up OI.
+- **Reweigh flow redesign** (OI-0065, still DESIGN REQUIRED on UX) — OI-0096 fixes the existing per-animal + bulk paths; does not ship a new reweigh UX.
+- **Historical back-stamping of `avgWeightKg` on already-closed windows** — not worth a migration. SP-10's edit-group-window dialog is the escape hatch for historical correction.
+
+**Files likely affected:**
+
+- `src/data/store.js` (or `src/features/events/group-windows.js`) — add shared `maybeSplitForGroup` export
+- `src/features/health/calving.js` — remove local definition, import from shared location
+- `src/features/animals/index.js` — remove local definition, import from shared; replace editable `currentWeight` input with read-only display + ⚖ button in Edit Animal dialog
+- `src/features/health/weight.js` — one helper call added after `add()`
+- `tests/unit/weight-sheet.test.js` (new) or an existing animals/health test file
+- `tests/unit/animals.test.js` — update Edit Animal test for the new read-only + button layout
+
+**Acceptance criteria:**
+
+- [ ] `maybeSplitForGroup` exported from one shared location; both previous callers import from there; no duplicate definitions remain
+- [ ] Quick Weight sheet Save triggers `maybeSplitForGroup` when the animal is a member of a group on an open event
+- [ ] Edit Animal dialog shows current weight as read-only (not an editable input); adjacent ⚖ Weight button opens Quick Weight for this animal
+- [ ] `inputs.currentWeight` no longer exists in the Edit Animal dialog code path
+- [ ] Unit tests cover the Quick Weight split wiring and the Edit Animal read-only + button layout
+- [ ] Grep audit: every `animal_weight_record` write is paired with a window-split call, or falls under a documented exception (calving)
+- [ ] No regression to Group Weights bulk sheet (already correct; test still passes)
+
+**CP-55/CP-56 impact:** **none.** More `event_group_window` rows over time; existing export/import handles the table.
+
+**Schema change:** **none.**
+
+**Related:**
+
+- **OI-0094** — this is the weight-side completion of the group-state entry-point audit. Same architectural rule, different state dimension.
+- **OI-0065** (reweigh flow — DESIGN REQUIRED) — uses these helpers once spec'd.
+- **OI-0098** (new, DESIGN REQUIRED) — inline edit/delete of historical weight records in Edit Animal. Deferred from OI-0096 because of closed-window snapshot ripple effects.
+- **Potential follow-up OI** — audit the four other silently-dropped `saveAnimal` inputs (`damId`, `sireTag`, `weaned`, `confirmedBred`).
+
+---
+
 ### OI-0095 — Event Paddock Window Split on State Change (architectural fix — paddock analog of OI-0091)
 **Added:** 2026-04-18 | **Area:** v2-build / events / paddocks / calcs / architecture | **Priority:** P0 (strip grazing silently loses per-strip effective-area history; every area-dependent calc on an open strip-grazed paddock is wrong after any `area_pct` edit)
 **Checkpoint:** independent architectural pass; sequence after OI-0091 package + OI-0094 have landed so the group-side contract is stable reference material
@@ -68,7 +242,7 @@ An `event_paddock_window` is a **period of stable placement state** on an event.
 
 10. **Orphan prevention + cleanup (analog of OI-0073):**
     - **Part A (code fix)** — no grep'd orphan source today, but once the helpers exist, add a commit-time assertion (in `splitPaddockWindow` / `closePaddockWindow`): if `dateClosed IS NULL` on the target row doesn't match expectation, log a warn and refuse. Prevents misuse by future flows.
-    - **Part B (data cleanup)** — one-time migration (script, not SQL — runs in app) that walks `event_paddock_windows` where `dateClosed IS NULL` and the parent event has `date_out IS NOT NULL`. Close each orphan with `dateClosed = event.dateOut`. Log every row touched.
+    - **Part B (data cleanup) — locked as app-side one-time script (decided 2026-04-18 with Tim).** Not a SQL migration — no schema change, no `schema_version` bump, no `BACKUP_MIGRATIONS` entry, no CP-55/CP-56 flag. Implementation: add `closePaddockWindowOrphans()` to a new or existing module (e.g., `src/data/one-time-fixes.js`); call it from the app boot sequence in `src/main.js` (or the main entry point) after store initialization, guarded by a `user_preferences.paddock_orphan_cleanup_done` flag (default false). On first run: walk `eventPaddockWindows` where `dateClosed == null` and the parent event has `dateOut != null`; set `dateClosed = event.dateOut` and `timeClosed = event.timeOut` on each; route through `closePaddockWindow` helper so the sync path queues normally; log every row touched via `logger.info('orphan-cleanup', ...)`; flip the flag when the walk finishes. On subsequent runs: flag is set, function short-circuits. Idempotent if the flag is ever reset.
     - **Part C** — note in the OI: after OI-0095 lands, new orphans are architecturally prevented.
 
 11. **Architectural doc update (`V2_APP_ARCHITECTURE.md`)** — extend §4.4 "Window-Split on State Change" with a parallel paddock-side subsection: the principle, the helper contract (`splitPaddockWindow` / `closePaddockWindow` / `getOpenPwForLocation`), the render/calc rule, and the authoritative entry-point table. Adds a paddock-side row to the grep-contract exception list.
@@ -86,16 +260,22 @@ An `event_paddock_window` is a **period of stable placement state** on an event.
 - `src/features/events/submove.js` — Advance Strip refactor to use helper (pure refactor)
 - `src/features/events/edit-paddock-window.js` — `areaPct` and `isStripGraze` edits go through helper on open windows; reopen guard added
 - `src/features/events/move-wizard.js` — close loop converted to `closePaddockWindow`
+- `src/features/events/close.js` — close-event paddock window loop (line 209) converted to `closePaddockWindow` so closing an event stamps snapshot discipline instead of bare `update()`
+- `src/features/events/index.js` — Quick Move new-window `add()` (line 832) stays as-is (new-window opens don't route through the split helper — only mutations on *existing open* windows do); verify the grep contract scope excludes `add()` sites
 - `src/features/events/reopen-event.js` — introduce `classifyPwsForReopen` + summary dialog
 - `src/features/dashboard/index.js` and `src/features/locations/index.js` — replace hard-coded `areaPct: 100` with `getOpenPwForLocation(...)?.areaPct ?? 100`
 - `src/features/events/rotation-calendar/calendar-grid.js`, `past-block.js` — audit; expected to need no changes
 - `src/calcs/feed-forage.js` — audit call sites for open-window reads
+- `src/data/one-time-fixes.js` (new, or extend existing) — `closePaddockWindowOrphans()` app-side cleanup function; invoked once from `src/main.js` boot sequence behind `user_preferences.paddock_orphan_cleanup_done` flag
+- `src/main.js` (or equivalent app entry) — wire the one-time cleanup call after store init, before first render
 - `V2_APP_ARCHITECTURE.md` §4.4 — extend with paddock-side subsection and updated grep-contract exception list
 - `tests/unit/store-paddock-window-split.test.js` (new) — pure helper tests
 - `tests/unit/calcs-window-helpers.test.js` — extend for `getOpenPwForLocation`
 - `tests/unit/edit-paddock-window.test.js` — extend for helper call on open-window edits, reopen overlap guard, closed-window direct-update escape hatch
 - `tests/unit/reopen-event.test.js` — extend with paddock classifier cases
 - `tests/unit/move-wizard.test.js` — extend for close-path helper call
+- `tests/unit/close-event.test.js` — extend for close-path helper call (closes open PWs through `closePaddockWindow`)
+- `tests/unit/orphan-cleanup.test.js` (new) — orphan cleanup closes dangling PWs, sets flag, idempotent on second run
 - `tests/e2e/paddock-window-split.spec.js` (new) — mid-event `areaPct` change on an open PW creates a new window; reopen summary dialog renders; advance-strip unchanged behavior
 
 **Acceptance criteria:**
@@ -114,7 +294,7 @@ An `event_paddock_window` is a **period of stable placement state** on an event.
 - [ ] E2E test: edit an open paddock window's `areaPct` from 100 to 50 → two rows exist, old one closed on today with `areaPct = 100`, new one open with `areaPct = 50`; pasture cover calc for today reads `areaPct = 50`; historical range calc reads both segments
 - [ ] 910+ tests pass; no regressions
 
-**CP-55/CP-56 impact:** **none direct.** Pattern creates more `event_paddock_window` rows over time; existing export/import already handles the table. No new columns, no renames, no removals, no backup-migration chain entry. If the one-time orphan cleanup writes `dateClosed` values on pre-existing rows, those are regular updates that flow through the normal sync path.
+**CP-55/CP-56 impact:** **none.** Pattern creates more `event_paddock_window` rows over time; existing export/import already handles the table. No new columns, no renames, no removals, no backup-migration chain entry. Part B orphan cleanup is an app-side script (no SQL migration, no `schema_version` bump) — it writes `dateClosed` updates that flow through the normal sync path, identical to any other app mutation, so it does not affect export/import shape.
 
 **Schema change:** **none.** Existing columns (`is_strip_graze`, `strip_group_id`, `area_pct` per GH-4) already support the pattern. Multiple rows per `(event_id, location_id)` are already allowed.
 
@@ -1614,6 +1794,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-18 | Dependency review + design-lock for the three-OI bundle (OI-0095 + OI-0096 + OI-0097) | Follow-on to the morning session that drafted OI-0095/0096/0097. Walked the bundle for order-of-operations gaps before writing the combined Claude Code session brief. **Found seven dependencies** worth flagging: (1) `maybeSplitForGroup` is not a shared helper — it's defined locally twice (`src/features/health/calving.js:19` and `src/features/animals/index.js:31`), so OI-0094 never actually promoted it; session brief now includes a **prerequisite step** to extract it to `src/data/store.js`, update both existing callers, and make it importable from the Quick Weight sheet; (2) OI-0095's `Files likely affected` list was missing `src/features/events/close.js:209` (close-event paddock window loop) and `src/features/events/index.js:832` (Quick Move new-window open) — both added with explicit in-scope/carve-out notes; (3) OI-0097 is fully independent of 0095/0096 helpers and can ship in isolation if needed (documented but kept in the bundle); (4) `SESSION_BRIEF_2026-04-17_empty-group-archive.md` on main still contains the broken §7 Remove wiring guidance — plan: annotate it with a correction banner when OI-0097 ships; (5) unit tests that positively asserted `maybeShowEmptyGroupPrompt` on §7 Remove must be removed by OI-0097; (6) OI-0096 Option A vs B needed a call; (7) OI-0095 Part B orphan cleanup needed migration-vs-app-side decision. **Locked decisions (with Tim):** **OI-0095 Part B → app-side one-time script** (no SQL migration, no `schema_version` bump, no CP-55/CP-56 impact). Guarded by `user_preferences.paddock_orphan_cleanup_done` flag, invoked from app boot after store init, routes through the new `closePaddockWindow` helper so sync queues normally. **OI-0096 Edit Animal redesign** — replace the editable `currentWeight` input with a **read-only current-weight display + ⚖ Weight button** that opens the Quick Weight sheet for the animal. Existing "Weight history" read-only list stays. No editable field = no silent-save footgun. **OI-0098 added** (P3, DESIGN REQUIRED, do not build) — inline edit/delete of historical weight records in Edit Animal, deferred from OI-0096. Six open design questions documented, centered on the closed-window snapshot ripple: editing a past weight that triggered a `splitGroupWindow` on a now-closed window raises "do stamps re-compute (B) or stay frozen (A)?" — a real architectural question, not a UI detail. Needs its own design session with Tim before implementation. Files-affected and Acceptance-criteria sections of OI-0095 and OI-0096 updated in lockstep. Next deliverable: combined session brief for OI-0095 + OI-0096 + OI-0097. |
 | 2026-04-18 | Paddock-side window-split architecture (OI-0095 + follow-up batching) | After OI-0094 shipped, Tim asked to walk every event-window trigger systematically (group change, acreage change, weight change, feed) to catch anything the group-side pass missed. Walk surfaced: (1) feed is not a window trigger (time-stamped ledger, correct as-is); (2) weight has two real gaps on the group side — per-animal Quick Weight sheet (`src/features/health/weight.js`) never calls `splitGroupWindow`; Edit Animal `currentWeight` input is created but silently no-ops in `saveAnimal`; (3) §7 Remove group in OI-0090 session brief was incorrectly listed as a `maybeShowEmptyGroupPrompt` wiring point (closes the PW but doesn't touch `animal_group_memberships`); (4) **acreage/area is the biggest architectural miss** — `event_paddock_window` has the row structure for splits (GH-4 added `is_strip_graze`/`strip_group_id`/`area_pct` columns) but no discipline of splitting. `edit-paddock-window.js` mutates `area_pct` in place on open windows, destroying historical effective-area; `submove.js` Advance Strip splits correctly but the pattern is inline, not a reusable helper; `reopen-event.js` blindly reopens closed PWs without a classifier analog to OI-0094's `classifyGwsForReopen`. **OI-0095 added** (P0, architectural fix — paddock analog of OI-0091). Scope: new `splitPaddockWindow` + `closePaddockWindow` store helpers; new `getOpenPwForLocation` calc helper; lift Advance Strip onto the helper; route `edit-paddock-window.js` `areaPct`/`isStripGraze` edits through the helper on open windows; route `move-wizard.js` close loop through `closePaddockWindow`; build `classifyPwsForReopen` + summary dialog on reopen; fix hard-coded `areaPct: 100` reads in `dashboard/index.js` + `locations/index.js`; audit `calcs/feed-forage.js` + rotation-calendar reads; orphan prevention (helper assertions) + one-time cleanup; extend `V2_APP_ARCHITECTURE.md` §4.4 with paddock-side subsection and grep-contract row. No schema change (GH-4 columns already exist). No CP-55/CP-56 impact (more rows over time; existing export/import handles the table). Thin pointer `github/issues/paddock-window-split-architecture.md` written; session brief deferred until the two smaller follow-ups (weight-side OI + §7 Remove group correction) are drafted so they batch into a single Claude Code handoff per Tim's direction: *"lets walk through all event window related items and wrap it all in at the end."* |
 | 2026-04-17 | Group state-change entry-point audit (OI-0094 + OI-0093 — package 2 after OI-0091) | After OI-0091 went to Claude Code, Tim asked for an audit of every place in the app where an animal group can be altered, to catch any entry points OI-0091 missed. Greps across `src/features/animals/index.js`, `src/features/health/calving.js`, `src/features/events/group-windows.js`, `src/features/events/edit-group-window.js`, `src/features/events/reopen-event.js`, and `src/features/field-mode/index.js` turned up eleven entry points that mutate group state but do not call OI-0091's `splitGroupWindow` / `closeGroupWindow` helpers — every one a latent stale-snapshot bug once OI-0091 lands. Also audited feed flows: architecture there is different (no window split needed); all feed paths converge on `feed/delivery.js`. **OI-0094 added** (P0, package 2) — one-pass completeness fix across all eleven entry points. Tim's direction: ship as a separate package rather than widening OI-0091 mid-flight (Claude Code already executing package 1). **§7 per-row Edit sub-decision locked** — Tim, *"those two fields should be view only. That's how they were in v1 as well. System generated."* — `headCount` + `avgWeightKg` fields in `edit-group-window.js` render view-only on open windows (showing live values with "System generated from live memberships" caption), editable on closed windows (historical correction escape hatch). v1 parity + aligns UI with the OI-0091 rule (open = live, closed = snapshot). **OI-0093 added** (P1) — separate UI cleanup: remove green bulk action bar from Animals screen (redundant with per-row Edit + per-group tile actions; confirmed in Tim's screenshot), remove checkbox column, rewrite Edit Animal group dropdown to use v2 design-system picker pattern instead of raw `<select>`. OI-0093 removes entry point #11 from OI-0094's scope entirely. CP-55/CP-56 impact: none (no schema change, reuses OI-0091 helpers). Full spec in OI-0094 body with 11-row entry-point table + locked sub-decision + 7 acceptance criteria; thin pointers `github/issues/group-state-change-entry-point-completeness.md` and `github/issues/animals-bulk-action-bar-removal.md`; session brief `github/issues/SESSION_BRIEF_2026-04-17_group-state-change-completeness.md` with 5-phase implementation order gated on OI-0091 helpers being present. |
 | 2026-04-17 | Event window split architecture (OI-0091 + OI-0073 package + OI-0092 stub + OI-0090 revision) | **OI-0091 added** (P0, architectural fix — silent calc correctness across DMI/NPK/AU-days/animal-days/cost). Tim hit two real-data bugs from his farm notes: (1) dashboard card + event detail §7 both showed 10 head for Shenk Culls after culling 4, while the Animals screen correctly showed 5; (2) after moving the remaining 5 from J2 to D, the group rendered on both locations with 10 head each. Investigation traced root cause to `event_group_window.head_count` + `avg_weight_kg` being captured as snapshots at window creation and never updated on mid-event state changes (cull / move / wean / split). Every calc surface and render surface reads the stale snapshot; the Animals screen only works because it reads memberships directly. Widened scope after Tim's follow-up ("Are calcs using real time or cumulation of stored?") — not just a display bug; DMI / NPK / AU-days / animal-days / cost are all ~50% overstated for his case. Architectural fix: treat `event_group_window` as a period of stable state, split the window on every state change with live values stamped at change date. New store helpers `splitGroupWindow` + `closeGroupWindow`. New calc helpers `getLiveWindowHeadCount` + `getLiveWindowAvgWeight` — open windows recompute live, closed windows read stored snapshot. All calc + render paths rerouted through helpers (grep check). **OI-0073 widened and packaged with OI-0091** — orphaned open windows come from two sources (v1 migration AND fresh v2 flow bugs pre-OI-0091); shipping together so the dashboard can be field-tested. Added Part C (NaN-in-NPK display one-liner). Part B adds migration 025 to close existing orphans. **OI-0090 revised** — Part 1 (automatic event_group_window cleanup via `onLastMembershipClosed` cascade) struck; subsumed by OI-0091's at-the-mutation-site split. SP-11 acceptance criteria updated to reflect new trigger (`maybeShowEmptyGroupPrompt` after OI-0091's window commit). OI-0090 now blocked by OI-0091. **OI-0092 added** (P2 stub, separate track) — v1 parity gap: `calcResidualOM()` + `feed_residual` NPK source exist in v1 but were dropped in v2; flagged explicitly so OI-0091 does NOT touch the `remainingQuantity: 0` line in move-wizard. CP-55/CP-56 impact: none for OI-0091 (no schema change, just more rows); migration 025 bumps schema_version 24 → 25 for OI-0073 cleanup only. Full spec in OI-0091 body with 13 acceptance criteria; thin pointer `github/issues/event-window-split-architecture.md`; session brief `github/issues/SESSION_BRIEF_2026-04-17_event-window-split.md` with 5-phase implementation order (helpers → reroute reads → wire flows → OI-0073 cleanup → doc + tests). UI_SPRINT_SPEC.md § SP-11 Part 1 + Cascade Logic sections struck with crosslinks. |

@@ -839,7 +839,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   // Action buttons
   body.appendChild(el('div', { className: 'grp-actions' }, [
     isOnPasture
-      ? el('button', { className: 'btn btn-teal', 'data-testid': `dashboard-move-btn-${group.id}`, onClick: (e) => { e.stopPropagation(); openMoveWizard(activeEvent, operationId, farmId); } }, ['Move'])
+      ? el('button', { className: 'btn btn-teal', 'data-testid': `dashboard-move-btn-${group.id}`, onClick: (e) => { e.stopPropagation(); openMoveWizard(activeEvent, operationId, farmId, { scopedGroupWindowId: activeGW?.id }); } }, ['Move'])
       : el('button', { className: 'btn btn-teal', 'data-testid': `dashboard-place-btn-${group.id}`, onClick: (e) => { e.stopPropagation(); navigate('#/events'); } }, ['Place']),
     el('button', { className: 'btn btn-outline', onClick: (e) => { e.stopPropagation(); navigate('#/animals'); } }, ['Weights']),
     el('button', { className: 'btn btn-outline', onClick: (e) => { e.stopPropagation(); navigate('#/animals'); } }, ['Edit']),
@@ -1184,7 +1184,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
         ]),
         el('button', {
           className: 'btn btn-teal btn-xs',
-          onClick: () => openMoveWizard(event, operationId, farmId),
+          'data-testid': `dashboard-group-move-btn-${gw.id}`,
+          onClick: () => openMoveWizard(event, operationId, farmId, { scopedGroupWindowId: gw.id }),
         }, [t('dashboard.move')]),
       ]));
     }

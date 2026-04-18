@@ -33,7 +33,7 @@ function ensureSheetDOM() {
   ]));
 }
 
-export function openMoveWizard(sourceEvent, operationId, farmId) {
+export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
   ensureSheetDOM();
   if (!moveWizardSheet) {
     moveWizardSheet = new Sheet('move-wizard-sheet-wrap');
@@ -45,6 +45,13 @@ export function openMoveWizard(sourceEvent, operationId, farmId) {
 
   const unitSys = getUnitSystem();
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  // OI-0066: scoped variant — the wizard moves one group off the source event
+  // instead of the whole event. The source event stays open as long as any
+  // other open group window remains; it only closes when the last group leaves.
+  // Scoped mode also skips feed transfer (feed stays with the source event's
+  // remaining groups).
+  const scopedGroupWindowId = opts.scopedGroupWindowId || null;
 
   // Wizard state
   const state = {
@@ -67,6 +74,9 @@ export function openMoveWizard(sourceEvent, operationId, farmId) {
     // mirror stops. Editing the open values never rewrites close values.
     dateInTouched: false,
     timeInTouched: false,
+    // OI-0066: scoped-move context. When set, close-out limits to this GW;
+    // paddock-window + source-event close run only if the last group is leaving.
+    scopedGroupWindowId,
   };
 
   function render() {
@@ -535,8 +545,14 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
   try {
     // --- CLOSE SOURCE (Steps 1-5 of save sequence) ---
 
+    // OI-0066: scoped moves leave the source event open for remaining groups
+    // and keep their feed on the source event. Full-event moves run the
+    // full close sequence as before.
+    const isScoped = !!state.scopedGroupWindowId;
+
     // Step 1: Create close-reading feed check if feed entries exist
-    const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
+    // Skipped in scoped mode — feed stays with the groups still on the source.
+    const feedEntries = isScoped ? [] : getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
     if (feedEntries.length) {
       const check = FeedCheckEntity.create({
         operationId,
@@ -593,17 +609,13 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       }
     }
 
-    // Step 2: Close all open paddock windows (OI-0095: route through closePaddockWindow)
-    const sourcePWs = getAll('eventPaddockWindows').filter(w => w.eventId === sourceEvent.id && !w.dateClosed);
-    for (const pw of sourcePWs) {
-      closePaddockWindow(pw.locationId, sourceEvent.id, dateOut, timeOut);
-      createObservation(operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
-        postGraze ? postGraze.getValues() : {});
-    }
-
-    // Step 3: Close all open group windows with live values stamped (OI-0091).
-    // Snapshot sourceGWs before closing so we can recreate on the destination with live values.
-    const sourceGWs = getAll('eventGroupWindows').filter(w => w.eventId === sourceEvent.id && !w.dateLeft);
+    // Step 3: Close group windows (OI-0091 — live values stamped).
+    // OI-0066: scoped move closes only the one GW; full event move closes all.
+    // Snapshot before closing so the destination write has live values.
+    const allOpenSourceGWs = getAll('eventGroupWindows').filter(w => w.eventId === sourceEvent.id && !w.dateLeft);
+    const sourceGWs = isScoped
+      ? allOpenSourceGWs.filter(w => w.id === state.scopedGroupWindowId)
+      : allOpenSourceGWs;
     const sourceGroupState = [];
     {
       const memberships = getAll('animalGroupMemberships');
@@ -619,18 +631,36 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       closeGroupWindow(gw.groupId, sourceEvent.id, dateOut, timeOut);
     }
     // OI-0090: if a source group is now empty (e.g., all animals were culled
-    // mid-event), surface the archive prompt. Normally a move leaves memberships
-    // intact so the helper is a no-op.
+    // mid-event), surface the archive prompt.
     const emptiedSourceGroups = sourceGroupState.filter(s => s.headCount < 1).map(s => s.groupId);
     for (const gid of emptiedSourceGroups) maybeShowEmptyGroupPrompt(gid);
 
-    // Step 4: Set source event date_out
-    update('events', sourceEvent.id, {
-      dateOut,
-      timeOut,
-    }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+    // OI-0066: the source event stays open as long as at least one group
+    // window on it is still open. Only close the event and its paddock
+    // windows when the last group leaves.
+    const remainingOpenGWs = allOpenSourceGWs.filter(w => w.id !== state.scopedGroupWindowId || !isScoped)
+      .filter(w => !sourceGWs.some(closed => closed.id === w.id));
+    const lastGroupLeaving = remainingOpenGWs.length === 0;
 
-    // Step 5: Close observations already created in Step 2 loop above
+    if (lastGroupLeaving) {
+      // Step 2: Close all open paddock windows (OI-0095: route through closePaddockWindow).
+      const sourcePWs = getAll('eventPaddockWindows').filter(w => w.eventId === sourceEvent.id && !w.dateClosed);
+      for (const pw of sourcePWs) {
+        closePaddockWindow(pw.locationId, sourceEvent.id, dateOut, timeOut);
+        createObservation(operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
+          postGraze ? postGraze.getValues() : {});
+      }
+
+      // Step 4: Set source event date_out.
+      update('events', sourceEvent.id, {
+        dateOut,
+        timeOut,
+      }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+    }
+    // else (scoped move with groups still remaining): source event stays
+    // open, paddock windows stay open, other groups keep grazing.
+
+    // Step 5: Close observations already created above (when applicable)
 
     // --- CREATE DESTINATION (Steps 6-9) ---
 

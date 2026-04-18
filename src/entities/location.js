@@ -75,6 +75,9 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: areaHectares divides into AUD/stocking-rate calcs — divide-by-string
+  // cascades NaN through every downstream number. capturePercent drives manure
+  // NPK routing; same risk.
   return {
     id: row.id,
     operationId: row.operation_id,
@@ -82,11 +85,11 @@ export function fromSupabaseShape(row) {
     name: row.name,
     type: row.type,
     landUse: row.land_use,
-    areaHectares: row.area_hectares,
+    areaHectares: row.area_hectares != null ? Number(row.area_hectares) : null,
     fieldCode: row.field_code,
     soilType: row.soil_type,
     forageTypeId: row.forage_type_id,
-    capturePercent: row.capture_percent,
+    capturePercent: row.capture_percent != null ? Number(row.capture_percent) : null,
     archived: row.archived,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

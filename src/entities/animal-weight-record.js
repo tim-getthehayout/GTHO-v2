@@ -59,12 +59,14 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: PostgREST returns numeric columns as strings. weightKg feeds
+  // into group-window avgWeightKg rollups and every downstream DMI calc.
   return {
     id:          row.id,
     operationId: row.operation_id,
     animalId:    row.animal_id,
     recordedAt:  row.recorded_at,
-    weightKg:    row.weight_kg,
+    weightKg:    row.weight_kg != null ? Number(row.weight_kg) : null,
     source:      row.source,
     notes:       row.notes,
     createdAt:   row.created_at,

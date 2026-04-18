@@ -80,6 +80,9 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: PostgREST returns numeric/decimal columns as JavaScript strings.
+  // Coerce via Number() so downstream math, typeof checks, and .toFixed() calls
+  // work on pulled records. Null-safe. Pattern: `event-observation.js`.
   return {
     id: row.id,
     operationId: row.operation_id,
@@ -87,12 +90,12 @@ export function fromSupabaseShape(row) {
     name: row.name,
     batchNumber: row.batch_number,
     source: row.source,
-    quantity: row.quantity,
-    remaining: row.remaining,
+    quantity: row.quantity != null ? Number(row.quantity) : null,
+    remaining: row.remaining != null ? Number(row.remaining) : null,
     unit: row.unit,
-    weightPerUnitKg: row.weight_per_unit_kg,
-    dmPct: row.dm_pct,
-    costPerUnit: row.cost_per_unit,
+    weightPerUnitKg: row.weight_per_unit_kg != null ? Number(row.weight_per_unit_kg) : null,
+    dmPct: row.dm_pct != null ? Number(row.dm_pct) : null,
+    costPerUnit: row.cost_per_unit != null ? Number(row.cost_per_unit) : null,
     purchaseDate: row.purchase_date,
     notes: row.notes,
     archived: row.archived,

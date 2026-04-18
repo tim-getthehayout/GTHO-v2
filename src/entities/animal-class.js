@@ -76,19 +76,23 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: animal-class values are DMI-calc core inputs (dmiPct × weight ×
+  // headCount) and NPK excretion rates. Stringified numerics here poison every
+  // downstream feed/nutrient calc.
+  const n = (v) => v != null ? Number(v) : null;
   return {
     id: row.id,
     operationId: row.operation_id,
     name: row.name,
     species: row.species,
     role: row.role,
-    defaultWeightKg: row.default_weight_kg,
-    dmiPct: row.dmi_pct,
-    dmiPctLactating: row.dmi_pct_lactating,
-    excretionNRate: row.excretion_n_rate,
-    excretionPRate: row.excretion_p_rate,
-    excretionKRate: row.excretion_k_rate,
-    weaningAgeDays: row.weaning_age_days,
+    defaultWeightKg: n(row.default_weight_kg),
+    dmiPct: n(row.dmi_pct),
+    dmiPctLactating: n(row.dmi_pct_lactating),
+    excretionNRate: n(row.excretion_n_rate),
+    excretionPRate: n(row.excretion_p_rate),
+    excretionKRate: n(row.excretion_k_rate),
+    weaningAgeDays: n(row.weaning_age_days),
     archived: row.archived,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

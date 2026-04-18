@@ -68,6 +68,9 @@ export function toSupabaseShape(record) {
 }
 
 export function fromSupabaseShape(row) {
+  // OI-0106: coerce PostgREST-stringified numerics. head_count is int4 (usually
+  // already a number) but coerced defensively; avg_weight_kg is numeric and
+  // arrives as a string in practice.
   return {
     id: row.id,
     operationId: row.operation_id,
@@ -77,8 +80,8 @@ export function fromSupabaseShape(row) {
     timeJoined: row.time_joined,
     dateLeft: row.date_left,
     timeLeft: row.time_left,
-    headCount: row.head_count,
-    avgWeightKg: row.avg_weight_kg,
+    headCount: row.head_count != null ? Number(row.head_count) : null,
+    avgWeightKg: row.avg_weight_kg != null ? Number(row.avg_weight_kg) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

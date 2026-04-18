@@ -44,3 +44,7 @@ See SP-11 § CP-55 / CP-56 Impact. `archived_at` serialized; backup-migrations c
 ## Acceptance criteria
 
 See SP-11 § Acceptance Criteria (full list in that section). Note the first item: "OI-0091 shipped first" is a hard prerequisite.
+
+## Session brief
+
+`github/issues/SESSION_BRIEF_2026-04-17_empty-group-archive.md` covers the 5-phase implementation order (migration 024 → entity + store + backup chain → empty-group prompt + flow wiring → management UI → e2e + docs + close). Flags the schema_version conflict from package 1 applying migration 025 before 024 (migration 024 needs a guarded `WHERE schema_version < 24` on Tim's DB).

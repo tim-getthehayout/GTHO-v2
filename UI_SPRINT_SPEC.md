@@ -1174,28 +1174,30 @@ No warning on large deltas. No confirmation on edits that move DMI significantly
 
 ## SP-11: Empty Group Archive Flow
 
-**Status:** Design complete · Ready for Claude Code
+**Status:** Partially revised 2026-04-17 · **Part 1 subsumed by OI-0091 (event window split on state change)** · Parts 2–4 ready for Claude Code after OI-0091 ships
 **Spec file:** `github/issues/empty-group-archive-flow.md` (thin pointer — full spec here)
-**Open item:** OI-0090
-**Related:** OI-0086 (cull dialog — closed), OI-0073 (group placement detection), §3 Group Window Management, §15.2 Group CRUD Sheet
+**Open item:** OI-0090 (blocked by OI-0091)
+**Related:** OI-0091 (window-split architecture — owns the automatic cleanup that was Part 1 here), OI-0086 (cull dialog — closed), OI-0073 (group placement detection — ships in the OI-0091 package), §3 Group Window Management, §15.2 Group CRUD Sheet
+
+> **2026-04-17 revision note:** The original Part 1 ("Automatic event_group_window cleanup" via `store.onLastMembershipClosed(groupId, date)`) has been **struck** below and moved into OI-0091's window-split architecture. Instead of a centralized cascade that fires after membership close, each state-change flow (cull, move, wean, split, manual remove) now calls `store.splitGroupWindow` / `store.closeGroupWindow` at the mutation site with live values stamped at the change date. When the closed window leaves the group with zero open memberships, the flow calls `maybeShowEmptyGroupPrompt(groupId)` — the trigger-point for Parts 2–4 below. Do NOT implement a second `onLastMembershipClosed` cascade; that path is owned by OI-0091.
 
 ### Problem
 
 When the last animal leaves a group — whether by cull, move, or manual removal — three things go wrong today:
 
-1. The group's open `event_group_window` stays open (no `date_left`) because the cascade only fires at the animal-membership level. Event detail shows a "ghost" group with zero head count.
+1. ~~The group's open `event_group_window` stays open (no `date_left`)~~ — **now owned by OI-0091.** Each state-change flow closes the window with live values at the change date as part of the window-split architecture. Remaining here for context: after that close, the window's `head_count` is zero and the `group.archived_at` is still NULL, so the group record stays active and empty unless Parts 2–4 below run.
 2. The group record itself stays active and empty. Nothing surfaces the emptiness to the farmer.
 3. If the farmer manually deletes the empty group from the management UI, historical events display "?" where the group name used to render. This is what Tim hit today with the Culls group.
 
-OI-0086 fixed the animal-level cull (membership closes correctly on cull date). This spec handles the group-level and event-window-level consequences of that close.
+OI-0086 fixed the animal-level cull (membership closes correctly on cull date). OI-0091 closes the event-window correctly. This spec handles the group-level consequence (archive vs delete vs keep) of that cascade landing at zero memberships.
 
-### Scope
+### Scope (revised 2026-04-17)
 
-Four capabilities:
+Three capabilities remain in scope. Part 1 has been moved to OI-0091.
 
-1. **Automatic event_group_window cleanup** — when the last active membership on a group closes, the group's open event window closes on the same date.
+1. ~~**Automatic event_group_window cleanup**~~ — **STRUCK. Owned by OI-0091.** The cull/move/wean/split flows now close/split the window at the mutation site with live values stamped at the change date. No centralized post-close cascade is needed.
 2. **Archive as first-class group state** — upgrade the existing `groups.archived boolean` to `groups.archived_at timestamptz` for richer audit. `NULL` = active, timestamp = archived on that date.
-3. **Empty-group prompt** — after the cascade, the farmer is offered Archive / Keep active / Delete. Delete is only available when the group has never been on an event.
+3. **Empty-group prompt** — after OI-0091's window close commits and the group has zero open memberships, the farmer is offered Archive / Keep active / Delete. Delete is only available when the group has never been on an event.
 4. **Reactivation flow** — archived groups can be surfaced in management UI and reactivated for seasonal reuse (Weaners 2025 → Weaners 2026 on the same group record, preserving history).
 
 ### Schema
@@ -1258,35 +1260,24 @@ Add chain entry for v23 → v24:
 },
 ```
 
-### Cascade Logic (Automatic)
+### ~~Cascade Logic (Automatic)~~ — STRUCK 2026-04-17, moved to OI-0091
 
-**Trigger:** whenever `animal_group_memberships.date_left` is set (via cull, move wizard, manual remove).
-
-**Check:** count memberships where `group_id = X AND date_left IS NULL`.
-
-**If count === 0 (last animal just left):**
-
-1. Find the group's open `event_group_window` — at most one (where `group_id = X AND date_left IS NULL`).
-2. Set `event_group_window.date_left = [membership close date]`, `time_left = null` (unless a time was captured).
-3. Call `queueWrite('event_group_windows', ...)` to sync.
-4. Show toast: *"[Group name] ended on [Event name] as of [YYYY-MM-DD]"*
-5. Open the empty-group prompt (next section).
-
-**Centralize as store helper:**
-
-```js
-// src/data/store.js
-async function onLastMembershipClosed(groupId, closeDate) {
-  // Query memberships, find open event_group_window, close it,
-  // queueWrite, show toast, open prompt
-}
-```
-
-Callers:
-- `src/features/animals/cull-sheet.js` — after the membership close hook from OI-0086.
-- `src/features/events/move-wizard.js` — after the move commits.
-- `src/features/events/group-windows.js` — any manual remove-animal flow.
-- Any future path that closes memberships must also call this helper.
+> **This entire section is struck and moved to OI-0091.** The window-split architecture (see `github/issues/event-window-split-architecture.md` and the full spec in OI-0091) replaces the centralized cascade with an at-the-mutation-site split/close that stamps live values (`head_count`, `avg_weight_kg`) into the closing window.
+>
+> **New trigger point for the empty-group prompt below:** each state-change flow (cull-sheet, move-wizard, wean-wizard, manual-remove) calls `store.splitGroupWindow` or `store.closeGroupWindow` to mutate the window, then — after commit — calls `maybeShowEmptyGroupPrompt(groupId)`. The helper checks "does this group have zero open memberships?" and opens the prompt if so. No `store.onLastMembershipClosed` exists.
+>
+> The ~~strikethrough cascade logic~~ that previously lived here is retained for traceability but should **not** be implemented:
+>
+> ~~**Trigger:** whenever `animal_group_memberships.date_left` is set (via cull, move wizard, manual remove).~~
+> ~~**Check:** count memberships where `group_id = X AND date_left IS NULL`.~~
+> ~~**If count === 0 (last animal just left):**~~
+> ~~1. Find the group's open `event_group_window` — at most one (where `group_id = X AND date_left IS NULL`).~~
+> ~~2. Set `event_group_window.date_left = [membership close date]`, `time_left = null` (unless a time was captured).~~
+> ~~3. Call `queueWrite('event_group_windows', ...)` to sync.~~
+> ~~4. Show toast: *"[Group name] ended on [Event name] as of [YYYY-MM-DD]"*~~
+> ~~5. Open the empty-group prompt (next section).~~
+>
+> ~~**Centralize as store helper `onLastMembershipClosed(groupId, closeDate)` in `src/data/store.js`.** Callers: cull-sheet, move-wizard, group-windows.~~
 
 ### Empty-Group Prompt
 
@@ -1362,10 +1353,7 @@ Per the export/import sync rule:
 - `group.js` round-trip: `fromSupabaseShape(toSupabaseShape(record))` preserves `archivedAt` (Date ↔ ISO string, null stays null).
 - `store.archiveGroup(id)` sets `archivedAt`, queues sync, notifies subscribers.
 - `store.reactivateGroup(id)` clears `archivedAt`, queues sync, notifies subscribers.
-- `store.onLastMembershipClosed(groupId, date)`:
-  - Closes the open `event_group_window` at the given date.
-  - Does NOT close the window if other memberships remain.
-  - Handles "no open window" case gracefully (multi-event scenarios where the group was already removed manually).
+- `maybeShowEmptyGroupPrompt(groupId)` — shows the prompt when group has zero open memberships; no-op otherwise. (Testing that OI-0091's `splitGroupWindow` / `closeGroupWindow` behave correctly lives in OI-0091's test plan, not here.)
 - `backup-migrations.js` v23 → v24 chain:
   - `{archived: true}` → `{archivedAt: [timestamp]}`, `archived` key removed.
   - `{archived: false}` → `{archivedAt: null}`, `archived` key removed.
@@ -1399,13 +1387,15 @@ Per CLAUDE.md §"Migration Execution Rule — Write + Run + Verify":
 
 ### Acceptance Criteria
 
+- [ ] OI-0091 shipped first (window-split architecture) — this is a hard prerequisite
 - [ ] Migration 024 applied and verified (old `archived` dropped, `archived_at` present)
 - [ ] Existing `archived = true` rows carry forward to `archived_at = updated_at`
 - [ ] `src/entities/group.js` updated — `archivedAt` field, round-trip tests pass
 - [ ] `src/data/backup-migrations.js` has v23 → v24 chain entry
-- [ ] `store.onLastMembershipClosed()` exists and is called from cull, move, and manual-remove paths
-- [ ] Toast fires with event name + date when last membership closes
-- [ ] Empty-group prompt opens after the cascade
+- [ ] ~~`store.onLastMembershipClosed()` exists~~ **STRUCK — OI-0091 owns window closure at the mutation site**
+- [ ] `maybeShowEmptyGroupPrompt(groupId)` is called from cull-sheet, move-wizard, wean-wizard (and any future composition-change flow) *after* each flow's OI-0091 window-split commit
+- [ ] Toast from OI-0091's window-close fires with event name + date (OI-0091 acceptance, referenced here)
+- [ ] Empty-group prompt opens when the closing flow leaves the group with zero open memberships
 - [ ] Archive button sets `archivedAt`, group disappears from active pickers
 - [ ] Delete button disabled (with tooltip) when group has event history
 - [ ] Group management UI has "Show archived" toggle and Reactivate action

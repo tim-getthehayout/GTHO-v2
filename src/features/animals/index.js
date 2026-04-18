@@ -1189,15 +1189,34 @@ function openAnimalSheet(existingAnimal, operationId, farmId) {
   renderAnimalGroupPicker();
   inputs.groupId = { get value() { return groupSelection.groupId || ''; } };
 
-  // Weight
+  // Weight — OI-0096: read-only current weight + ⚖ Weight button.
+  // The editable input was silently dropped by saveAnimal (no reader); removing
+  // inputs.currentWeight entirely makes the silent-save regression permanently
+  // impossible. Weight changes flow through Quick Weight (which calls
+  // maybeSplitForGroup after save, closing the group-side OI-0094 gap).
   const weightRecords = getAll('animalWeightRecords');
   const latestW = isEdit ? weightRecords.filter(w => w.animalId === existingAnimal.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0] : null;
-  const currentWeightDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '';
-  inputs.currentWeight = el('input', { type: 'number', step: '1', value: currentWeightDisplay, placeholder: '0' });
-  panel.appendChild(el('div', { className: 'field' }, [
-    el('label', {}, [`Current weight (${unitLabel('weight', unitSys)})`]),
-    inputs.currentWeight,
-  ]));
+  const currentWeightText = latestW?.weightKg
+    ? `${display(latestW.weightKg, 'weight', unitSys, 0)} ${unitLabel('weight', unitSys)}`
+    : '\u2014';
+  const weightRow = el('div', { className: 'field' }, [
+    el('label', {}, ['Current weight']),
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } }, [
+      el('div', {
+        'data-testid': 'edit-animal-current-weight',
+        style: { fontSize: '15px', fontWeight: '500', color: latestW ? 'var(--text)' : 'var(--text2)' },
+      }, [currentWeightText]),
+      isEdit ? el('button', {
+        className: 'btn btn-outline btn-sm',
+        'data-testid': 'edit-animal-weight-btn',
+        onClick: () => {
+          animalSheet.close();
+          openWeightSheet(existingAnimal, operationId);
+        },
+      }, ['\u2696 Weight']) : null,
+    ].filter(Boolean)),
+  ]);
+  panel.appendChild(weightRow);
   panel.appendChild(el('div', { className: 'field' }, [
     el('label', {}, ['Group']),
     groupPicker,

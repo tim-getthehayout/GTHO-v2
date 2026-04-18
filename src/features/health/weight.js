@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { add } from '../../data/store.js';
+import { add, getAll, maybeSplitForGroup } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel, display } from '../../utils/units.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
@@ -62,6 +62,18 @@ export function openWeightSheet(animal, operationId) {
       try {
         const record = WeightRecordEntity.create({ operationId, animalId: animal.id, recordedAt: new Date(dateInput.value + 'T12:00:00Z').toISOString(), weightKg, source: 'manual', notes: noteInput.value.trim() || null });
         add('animalWeightRecords', record, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
+
+        // OI-0096: split the group window(s) the animal belongs to so the event_group_window
+        // stamp reflects the new avg weight on close. No-op if the animal isn't in any group
+        // on an open event (maybeSplitForGroup guards internally). An animal can be in
+        // multiple active groups in edge cases — loop to cover them all.
+        const memberships = getAll('animalGroupMemberships').filter(m =>
+          m.animalId === animal.id && !m.dateLeft,
+        );
+        for (const m of memberships) {
+          maybeSplitForGroup(m.groupId, dateInput.value);
+        }
+
         weightSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
     } }, ['Save weight']),

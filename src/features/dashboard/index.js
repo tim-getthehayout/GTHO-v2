@@ -1130,15 +1130,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     children.push(el('div', { style: { fontSize: '12px', color: 'var(--text3, var(--text2))', marginBottom: 'var(--space-2)' } }, [breakdownParts.join(' \u00B7 ')]));
   }
 
-  // §9: + Add sub-move (if no sub-moves, appears here above sub-paddocks section)
-  if (!hasSubMoves) {
-    children.push(el('div', { style: { marginBottom: 'var(--space-3)' } }, [
-      el('a', {
-        style: { fontSize: '13px', color: 'var(--color-teal-base)', cursor: 'pointer', textDecoration: 'none' },
-        onClick: () => openSubmoveOpenSheet(event, operationId),
-      }, ['+ Add sub-move']),
-    ]));
-  }
+  // §9: standalone "+ Add sub-move" link (OI-0109 removed — Sub-Move button in
+  // the 3-up bottom row below supersedes it for quick-access). The in-section
+  // link inside SUB-PADDOCKS (rendered when sub-moves exist) stays.
 
   // §10: Sub-paddocks section
   if (hasSubMoves) {
@@ -1290,19 +1284,28 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     }
   }
 
-  // §13: Large Feed check button (amber)
-  children.push(el('button', {
-    style: { width: '100%', padding: '12px', fontSize: '14px', fontWeight: '600', borderRadius: '8px', background: '#FDF6EA', border: '1px solid #E5C76B', color: '#8B6914', cursor: 'pointer', marginBottom: '8px' },
-    'data-testid': `dashboard-feed-check-btn-${event.id}`,
-    onClick: () => openFeedCheckSheet(event, operationId),
-  }, [t('event.feedCheck')]));
-
-  // §14: Large Feed button (green) — NEW
-  children.push(el('button', {
-    style: { width: '100%', padding: '12px', fontSize: '14px', fontWeight: '600', borderRadius: '8px', background: 'var(--color-green-base)', border: '1px solid var(--color-green-base)', color: '#fff', cursor: 'pointer' },
-    'data-testid': `dashboard-feed-btn-${event.id}`,
-    onClick: () => openDeliverFeedSheet(event, operationId),
-  }, [t('event.deliverFeed')]));
+  // §13–§14: 3-up bottom-row quick actions (OI-0109). Replaces SP-3 / GH-11's
+  // two full-width stacked buttons (Feed Check / Feed). Sub-Move is promoted
+  // from the buried teal text link to a primary quick-access button. Mirrors
+  // v1's .grp-actions small-button row style.
+  const btnRowStyle = { padding: '10px 8px', fontSize: '13px', fontWeight: '600', borderRadius: '8px', cursor: 'pointer', flex: '1' };
+  children.push(el('div', { style: { display: 'flex', gap: '6px', marginTop: 'var(--space-2)' } }, [
+    el('button', {
+      style: { ...btnRowStyle, background: '#FDF6EA', border: '1px solid #E5C76B', color: '#8B6914' },
+      'data-testid': `dashboard-feed-check-btn-${event.id}`,
+      onClick: () => openFeedCheckSheet(event, operationId),
+    }, [t('event.feedCheck')]),
+    el('button', {
+      style: { ...btnRowStyle, background: 'var(--color-green-base)', border: '1px solid var(--color-green-base)', color: '#fff' },
+      'data-testid': `dashboard-feed-btn-${event.id}`,
+      onClick: () => openDeliverFeedSheet(event, operationId),
+    }, [t('event.deliverFeed')]),
+    el('button', {
+      style: { ...btnRowStyle, background: 'transparent', border: '1px solid var(--color-teal-base)', color: 'var(--color-teal-base)' },
+      'data-testid': `dashboard-submove-btn-${event.id}`,
+      onClick: () => openSubmoveOpenSheet(event, operationId),
+    }, [t('event.subMove')]),
+  ]));
 
   // §15: DMI/NPK summary
   const summaryParts = [];

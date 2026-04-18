@@ -4,6 +4,105 @@
 
 ---
 
+### OI-0099 — Edit Animal silent-drop inputs (damId, sireTag, weaned, confirmedBred) — two classes of fix
+**Added:** 2026-04-18 | **Area:** v2-build / animals / data integrity / schema | **Priority:** P1 (silent data loss on every Edit Animal save; spans both pure wiring bugs and "UI field without Supabase column" traps)
+**Checkpoint:** after OI-0096 ships (do not bundle — OI-0099 has design-required components and a potential schema migration)
+
+**Status:** open — **partially implementable; two sub-items require Tim's design decision before implementation.** See Class B below.
+
+**What's wrong:** The Edit Animal dialog (`src/features/animals/index.js`) captures four inputs that `saveAnimal` (lines 1377–1419) silently drops. Every time a farmer edits an animal and changes any of these four fields, nothing is saved. No warning, no error, no visual feedback — the next render re-reads the unchanged value from the store and the farmer sees their edit "disappear."
+
+Discovered during OI-0096 dependency review (see Change Log 2026-04-18). OI-0096 fixes `currentWeight` via the read-only + ⚖ button redesign; the other four are listed here to prevent loss.
+
+**The four inputs (grouped by fix class):**
+
+**Class A — pure silent-save bugs (entity + schema already correct):**
+
+1. **`inputs.damId`** (line 1230) — `<select>` of female animals for this operation. Entity has `damId: uuid, sbColumn: 'dam_id'`. Supabase column exists. `saveAnimal` just doesn't read `inputs.damId.value` and doesn't include it in the `data` object passed to `update()`. **Fix:** add `damId: inputs.damId.value || null` to the `data` object in `saveAnimal`. One-line fix. Entity and schema already handle it.
+
+2. **`inputs.weaned`** (line 1261) — checkbox. Entity has `weaned: boolean, sbColumn: 'weaned'` and `weanedDate: date, sbColumn: 'weaned_date'`. Supabase columns exist. `saveAnimal` doesn't read the checkbox. **Fix:** add `weaned: inputs.weaned?.checked ?? null` (input is conditional — only rendered in edit mode, so use optional chaining). Consider auto-stamping `weanedDate` to today when the checkbox is toggled from off to on; clear it when toggled back off. That's a design choice Tim may want to weigh in on, but the simple behavior (toggle reflects `weaned`, `weanedDate` stays `null` unless explicitly set elsewhere) is the minimum-viable fix.
+
+**Class B — UI field without Supabase column (schema design gap):**
+
+3. **`inputs.sireTag`** (line 1234) — freeform text input labeled *"Bull tag or name"*. **No matching entity field exists.** v2's `animals` entity has `sireAnimalId: uuid` (FK to another animal) and `sireAiBullId: uuid` (FK to AI bull record), but no freeform text field for sire identity. The UI looks like a v1 holdover where sire was stored as a string; v2 was redesigned to use FK relationships, but the UI was never updated to match.
+
+   **Design decision required before implementation:**
+   - **Option B1 — replace the input with a picker.** Two-choice picker: "Animal in this herd" (select from animals.sex='male') writing to `sireAnimalId`, OR "AI bull" (select from `ai_bulls` table if it exists) writing to `sireAiBullId`. Most semantic, matches v2 entity design. Requires UI redesign of the dam/sire row.
+   - **Option B2 — add `sire_tag text` column to animals table.** Keeps the freeform input, requires schema migration (`ALTER TABLE animals ADD COLUMN sire_tag text`), entity field addition, CP-55/CP-56 spec update, `schema_version` bump, backup-migration chain entry. Matches v1 behavior but adds a field the v2 schema design deliberately avoided.
+   - **Option B3 — remove the input entirely.** Simplest. Farmers set sire via a different flow (calving records have a sire field via `sireAnimalId` / `sireAiBullId` FKs already). Might lose breeding-data capture that's not also captured at calving.
+
+4. **`inputs.confirmedBred`** (line 1293) — checkbox labeled *"Confirmed bred — Pregnancy check / palpation confirmed"*. **No matching entity field exists.** Entity has no `confirmedBred`, `confirmed_bred`, or equivalent column.
+
+   **Design decision required before implementation:**
+   - **Option B4 — add `confirmed_bred boolean` column to animals table.** Schema migration + entity + CP-55/CP-56 spec update + `schema_version` bump + backup-migration chain entry. Simple data model — a direct boolean on the animal.
+   - **Option B5 — derive from `animal_calving_records`.** If v2's intent was that confirmed-bred status is implicit (a calving record exists or is expected), then the checkbox UI is redundant with the calving history section right above it. Remove the checkbox. But this loses the "confirmed bred *before* calving" state — a cow can be confirmed pregnant months before calving, and the farmer may want to capture that.
+   - **Option B6 — new `animal_breeding_status` table.** Richer data model capturing breeding events (palpation date, method, outcome). More than a single boolean, supports repro history. Larger scope. Probably overkill for this OI; if desired, split into its own feature OI.
+
+**Why this is not just one OI:** Class A is a ~30-minute pure wiring fix. Class B requires Tim's design input and potentially a schema migration with CP-55/CP-56 implications. Shipping Class A first closes two of the four silent-save holes without blocking on design decisions. Class B stays open until design locks.
+
+**Scope (split by class):**
+
+**Class A (ready to ship):**
+
+1. `src/features/animals/index.js` `saveAnimal` — add `damId: inputs.damId.value || null` and `weaned: inputs.weaned?.checked ?? null` to the `data` object.
+2. Consider auto-stamping `weanedDate = todayStr` when `weaned` flips from false to true; clear when flipped false. Default to minimum-viable (leave `weanedDate` untouched unless Tim specifies).
+3. Unit test: Edit Animal dialog test asserts that toggling `damId` and `weaned` in the dialog, then saving, results in the correct values in the `update()` call.
+4. E2E: set dam on an animal via Edit Animal → reload → dam is still set. Set weaned via Edit Animal → reload → weaned is still set.
+
+**Class B (DESIGN REQUIRED before implementation):**
+
+5. `sireTag` — design decision Tim picks (B1 / B2 / B3). Until then, the input stays in the DOM but remains non-functional. Consider adding a `disabled` attribute + small *"(not yet saved)"* caption as a stopgap so farmers don't think it's working.
+6. `confirmedBred` — same shape. Until design locks, same stopgap: `disabled` attribute + caption.
+
+**Explicit non-scope:**
+
+- **`name` vs `tagNum` ambiguity in `saveAnimal` line 1382** — `name: inputs.name?.value?.trim?.() || inputs.tagNum.value.trim() || null` is an intentional fallback, not a bug. Out of scope.
+- **`sexState` radio / `classId` dropdown** — already saved correctly. Not in this audit.
+- **OI-0096 `currentWeight` input** — covered in OI-0096; this OI explicitly does not touch the weight path.
+
+**Files likely affected (Class A ship):**
+
+- `src/features/animals/index.js` — two-line addition to `data` object in `saveAnimal`
+- `tests/unit/animals.test.js` — extend Edit Animal test
+
+**Files likely affected (Class B, pending design):**
+
+- `src/features/animals/index.js` — UI changes for sire picker (B1) or input removal (B3/B5)
+- `src/entities/animal.js` — new field if B2 or B4
+- `supabase/migrations/NNN_*.sql` — new columns if B2 or B4
+- `V2_SCHEMA_DESIGN.md §3.2` — schema update if B2 or B4
+- Backup/import migration chain — CP-55/CP-56 update if B2 or B4
+
+**Acceptance criteria (Class A):**
+
+- [ ] `inputs.damId.value` is read and persisted by `saveAnimal`
+- [ ] `inputs.weaned.checked` is read and persisted by `saveAnimal`
+- [ ] E2E test: setting dam or weaned via Edit Animal survives a reload
+- [ ] No change to Class B inputs yet (stopgap disabled state if not already decided)
+
+**Acceptance criteria (Class B — pending design):**
+
+- [ ] Tim picks B1 / B2 / B3 for `sireTag`
+- [ ] Tim picks B4 / B5 / B6 for `confirmedBred`
+- [ ] Implementation follows the chosen option(s)
+- [ ] If B2 or B4 (new column): CLAUDE.md Migration Execution Rule applied (Write + Run + Verify), CP-55/CP-56 spec updated, V2_SCHEMA_DESIGN.md updated, `schema_version` ticks, `BACKUP_MIGRATIONS` entry added
+
+**CP-55/CP-56 impact:**
+- Class A: **none** — existing columns, existing backup round-trip.
+- Class B: **yes if B2 or B4** — adds columns to `animals` that must be included in export/import. Would require an addition to the `animals` shape in CP-55 + CP-56 migration-chain entry for old backups missing the column.
+
+**Schema change:**
+- Class A: **none.**
+- Class B: **yes if B2 or B4** — new column(s) on `animals`.
+
+**Related:**
+
+- **OI-0096** — parent audit that surfaced these. OI-0096 only addresses `currentWeight` via the read-only + ⚖ redesign; OI-0099 captures the other four.
+- **CLAUDE.md "New UI Fields → Supabase Column Rule"** — Class B is exactly the v1 trap this rule was written to prevent. Good reminder that the rule applies to v2 too.
+- **Potential related work** — if B6 is ever chosen, overlaps with v2's breeding/repro capability area (heat records already exist; breeding status does not).
+
+---
+
 ### OI-0098 — Inline edit/delete of historical weight records in Edit Animal (DESIGN REQUIRED, do not build)
 **Added:** 2026-04-18 | **Area:** v2-build / animals / weight / architecture | **Priority:** P3 (quality-of-life improvement; not blocking any current flow)
 **Checkpoint:** deferred — design session needed before implementation
@@ -1794,6 +1893,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-18 | OI-0099 captured — Edit Animal silent-drop audit (4 remaining inputs) | After the OI-0095/0096/0097 combined session brief was written, Tim flagged that the four adjacent silently-dropped `saveAnimal` inputs (`damId`, `sireTag`, `weaned`, `confirmedBred`) should be documented before they get lost. **OI-0099 added** (P1, mixed implementability). Investigation split the four into two classes: **Class A (pure silent-save bugs)** — `damId` (entity + `dam_id` column exist, just not read in `saveAnimal`) and `weaned` (entity + `weaned` + `weaned_date` columns exist, checkbox not read). Both are one-line wiring fixes, ship-ready after OI-0096 lands. **Class B (UI field without Supabase column — the v1 trap per CLAUDE.md)** — `sireTag` (freeform text input, no matching entity field; v2 entity uses `sireAnimalId` / `sireAiBullId` FKs instead) and `confirmedBred` (checkbox, no matching entity field at all). Both Class B items require Tim's design decision before implementation. Three options each documented: for `sireTag` — replace with animal/AI-bull picker (B1), add `sire_tag` column (B2), or remove entirely (B3). For `confirmedBred` — add `confirmed_bred` column (B4), derive from calving records (B5), or build full `animal_breeding_status` table (B6). Until design locks, Class B inputs stay in the DOM but should get a `disabled` attribute + stopgap caption so farmers don't think they're working. CP-55/CP-56 impact flagged for Class B if B2/B4 chosen (new columns require backup-migration chain entry). No session brief yet — Class A can ship as a small follow-up once OI-0095/0096/0097 land; Class B needs a design session. |
 | 2026-04-18 | Dependency review + design-lock for the three-OI bundle (OI-0095 + OI-0096 + OI-0097) | Follow-on to the morning session that drafted OI-0095/0096/0097. Walked the bundle for order-of-operations gaps before writing the combined Claude Code session brief. **Found seven dependencies** worth flagging: (1) `maybeSplitForGroup` is not a shared helper — it's defined locally twice (`src/features/health/calving.js:19` and `src/features/animals/index.js:31`), so OI-0094 never actually promoted it; session brief now includes a **prerequisite step** to extract it to `src/data/store.js`, update both existing callers, and make it importable from the Quick Weight sheet; (2) OI-0095's `Files likely affected` list was missing `src/features/events/close.js:209` (close-event paddock window loop) and `src/features/events/index.js:832` (Quick Move new-window open) — both added with explicit in-scope/carve-out notes; (3) OI-0097 is fully independent of 0095/0096 helpers and can ship in isolation if needed (documented but kept in the bundle); (4) `SESSION_BRIEF_2026-04-17_empty-group-archive.md` on main still contains the broken §7 Remove wiring guidance — plan: annotate it with a correction banner when OI-0097 ships; (5) unit tests that positively asserted `maybeShowEmptyGroupPrompt` on §7 Remove must be removed by OI-0097; (6) OI-0096 Option A vs B needed a call; (7) OI-0095 Part B orphan cleanup needed migration-vs-app-side decision. **Locked decisions (with Tim):** **OI-0095 Part B → app-side one-time script** (no SQL migration, no `schema_version` bump, no CP-55/CP-56 impact). Guarded by `user_preferences.paddock_orphan_cleanup_done` flag, invoked from app boot after store init, routes through the new `closePaddockWindow` helper so sync queues normally. **OI-0096 Edit Animal redesign** — replace the editable `currentWeight` input with a **read-only current-weight display + ⚖ Weight button** that opens the Quick Weight sheet for the animal. Existing "Weight history" read-only list stays. No editable field = no silent-save footgun. **OI-0098 added** (P3, DESIGN REQUIRED, do not build) — inline edit/delete of historical weight records in Edit Animal, deferred from OI-0096. Six open design questions documented, centered on the closed-window snapshot ripple: editing a past weight that triggered a `splitGroupWindow` on a now-closed window raises "do stamps re-compute (B) or stay frozen (A)?" — a real architectural question, not a UI detail. Needs its own design session with Tim before implementation. Files-affected and Acceptance-criteria sections of OI-0095 and OI-0096 updated in lockstep. Next deliverable: combined session brief for OI-0095 + OI-0096 + OI-0097. |
 | 2026-04-18 | Paddock-side window-split architecture (OI-0095 + follow-up batching) | After OI-0094 shipped, Tim asked to walk every event-window trigger systematically (group change, acreage change, weight change, feed) to catch anything the group-side pass missed. Walk surfaced: (1) feed is not a window trigger (time-stamped ledger, correct as-is); (2) weight has two real gaps on the group side — per-animal Quick Weight sheet (`src/features/health/weight.js`) never calls `splitGroupWindow`; Edit Animal `currentWeight` input is created but silently no-ops in `saveAnimal`; (3) §7 Remove group in OI-0090 session brief was incorrectly listed as a `maybeShowEmptyGroupPrompt` wiring point (closes the PW but doesn't touch `animal_group_memberships`); (4) **acreage/area is the biggest architectural miss** — `event_paddock_window` has the row structure for splits (GH-4 added `is_strip_graze`/`strip_group_id`/`area_pct` columns) but no discipline of splitting. `edit-paddock-window.js` mutates `area_pct` in place on open windows, destroying historical effective-area; `submove.js` Advance Strip splits correctly but the pattern is inline, not a reusable helper; `reopen-event.js` blindly reopens closed PWs without a classifier analog to OI-0094's `classifyGwsForReopen`. **OI-0095 added** (P0, architectural fix — paddock analog of OI-0091). Scope: new `splitPaddockWindow` + `closePaddockWindow` store helpers; new `getOpenPwForLocation` calc helper; lift Advance Strip onto the helper; route `edit-paddock-window.js` `areaPct`/`isStripGraze` edits through the helper on open windows; route `move-wizard.js` close loop through `closePaddockWindow`; build `classifyPwsForReopen` + summary dialog on reopen; fix hard-coded `areaPct: 100` reads in `dashboard/index.js` + `locations/index.js`; audit `calcs/feed-forage.js` + rotation-calendar reads; orphan prevention (helper assertions) + one-time cleanup; extend `V2_APP_ARCHITECTURE.md` §4.4 with paddock-side subsection and grep-contract row. No schema change (GH-4 columns already exist). No CP-55/CP-56 impact (more rows over time; existing export/import handles the table). Thin pointer `github/issues/paddock-window-split-architecture.md` written; session brief deferred until the two smaller follow-ups (weight-side OI + §7 Remove group correction) are drafted so they batch into a single Claude Code handoff per Tim's direction: *"lets walk through all event window related items and wrap it all in at the end."* |
 | 2026-04-17 | Group state-change entry-point audit (OI-0094 + OI-0093 — package 2 after OI-0091) | After OI-0091 went to Claude Code, Tim asked for an audit of every place in the app where an animal group can be altered, to catch any entry points OI-0091 missed. Greps across `src/features/animals/index.js`, `src/features/health/calving.js`, `src/features/events/group-windows.js`, `src/features/events/edit-group-window.js`, `src/features/events/reopen-event.js`, and `src/features/field-mode/index.js` turned up eleven entry points that mutate group state but do not call OI-0091's `splitGroupWindow` / `closeGroupWindow` helpers — every one a latent stale-snapshot bug once OI-0091 lands. Also audited feed flows: architecture there is different (no window split needed); all feed paths converge on `feed/delivery.js`. **OI-0094 added** (P0, package 2) — one-pass completeness fix across all eleven entry points. Tim's direction: ship as a separate package rather than widening OI-0091 mid-flight (Claude Code already executing package 1). **§7 per-row Edit sub-decision locked** — Tim, *"those two fields should be view only. That's how they were in v1 as well. System generated."* — `headCount` + `avgWeightKg` fields in `edit-group-window.js` render view-only on open windows (showing live values with "System generated from live memberships" caption), editable on closed windows (historical correction escape hatch). v1 parity + aligns UI with the OI-0091 rule (open = live, closed = snapshot). **OI-0093 added** (P1) — separate UI cleanup: remove green bulk action bar from Animals screen (redundant with per-row Edit + per-group tile actions; confirmed in Tim's screenshot), remove checkbox column, rewrite Edit Animal group dropdown to use v2 design-system picker pattern instead of raw `<select>`. OI-0093 removes entry point #11 from OI-0094's scope entirely. CP-55/CP-56 impact: none (no schema change, reuses OI-0091 helpers). Full spec in OI-0094 body with 11-row entry-point table + locked sub-decision + 7 acceptance criteria; thin pointers `github/issues/group-state-change-entry-point-completeness.md` and `github/issues/animals-bulk-action-bar-removal.md`; session brief `github/issues/SESSION_BRIEF_2026-04-17_group-state-change-completeness.md` with 5-phase implementation order gated on OI-0091 helpers being present. |

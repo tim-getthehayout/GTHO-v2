@@ -121,7 +121,9 @@
       "ready": "Ready",
       "recovering": "Recovering",
       "inUse": "In Use",
-      "confinement": "Confinement"
+      "confinement": "Confinement",
+      "search": "Search paddocks",
+      "noMatches": "No paddocks match your search."
     },
     "paddockWindows": "Paddock Windows",
     "groupWindows": "Group Windows",

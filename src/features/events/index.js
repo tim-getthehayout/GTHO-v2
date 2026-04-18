@@ -641,6 +641,57 @@ function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-u
 export function renderLocationPicker(container, locations, selection) {
   clear(container);
 
+  // OI-0105: persist the search query across re-renders (re-render fires on
+  // selection click). Query is stored on the container's dataset so it survives
+  // the clear() above without leaking across separate picker invocations.
+  const query = container.dataset.locationSearchQuery || '';
+  const queryLc = query.toLowerCase();
+
+  // Sticky search input at the top of the picker.
+  const searchInput = el('input', {
+    type: 'text',
+    className: 'auth-input',
+    placeholder: t('event.locationPicker.search'),
+    value: query,
+    'data-testid': 'location-picker-search',
+    style: { boxSizing: 'border-box' },
+  });
+  const clearBtn = el('button', {
+    type: 'button',
+    'data-testid': 'location-picker-search-clear',
+    style: {
+      position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)',
+      border: 'none', background: 'transparent', color: 'var(--text2)',
+      cursor: query ? 'pointer' : 'default', fontSize: '16px',
+      visibility: query ? 'visible' : 'hidden', padding: '4px',
+    },
+    onClick: () => {
+      container.dataset.locationSearchQuery = '';
+      renderLocationPicker(container, locations, selection);
+    },
+  }, ['\u00D7']);
+  const searchWrap = el('div', {
+    style: {
+      position: 'sticky', top: '0', zIndex: '1', background: 'var(--bg)',
+      padding: 'var(--space-2)', borderBottom: '1px solid var(--border)',
+      marginBottom: 'var(--space-2)',
+    },
+  }, [
+    el('div', { style: { position: 'relative' } }, [searchInput, clearBtn]),
+  ]);
+  searchInput.addEventListener('input', () => {
+    container.dataset.locationSearchQuery = searchInput.value;
+    renderLocationPicker(container, locations, selection);
+    // Preserve focus + caret after re-render.
+    const next = container.querySelector('[data-testid="location-picker-search"]');
+    if (next) {
+      next.focus();
+      const v = next.value;
+      try { next.setSelectionRange(v.length, v.length); } catch { /* date inputs etc. don't support */ }
+    }
+  });
+  container.appendChild(searchWrap);
+
   // Classify locations into sections
   const allPaddockWindows = getAll('eventPaddockWindows');
   const inUseLocationIds = new Set();
@@ -648,11 +699,15 @@ export function renderLocationPicker(container, locations, selection) {
     if (!w.dateClosed) inUseLocationIds.add(w.locationId);
   }
 
+  const matches = locations.filter(loc =>
+    !queryLc || (loc.name || '').toLowerCase().includes(queryLc),
+  );
+
   const ready = [];
   const inUse = [];
   const confinement = [];
 
-  for (const loc of locations) {
+  for (const loc of matches) {
     if (loc.type === 'confinement') {
       confinement.push(loc);
     } else if (inUseLocationIds.has(loc.id)) {
@@ -670,8 +725,10 @@ export function renderLocationPicker(container, locations, selection) {
     { key: 'confinement', label: t('event.locationPicker.confinement'), locs: confinement },
   ];
 
+  let anyRendered = false;
   for (const section of sections) {
     if (!section.locs.length) continue;
+    anyRendered = true;
 
     container.appendChild(el('div', { className: 'loc-picker-section' }, [
       el('div', {
@@ -693,6 +750,13 @@ export function renderLocationPicker(container, locations, selection) {
         ]);
       }),
     ]));
+  }
+
+  if (!anyRendered && queryLc) {
+    container.appendChild(el('div', {
+      'data-testid': 'location-picker-empty',
+      style: { padding: 'var(--space-3)', fontSize: '13px', color: 'var(--text2)', textAlign: 'center' },
+    }, [t('event.locationPicker.noMatches')]));
   }
 }
 

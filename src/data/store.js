@@ -636,6 +636,33 @@ export function splitGroupWindow(groupId, eventId, changeDate, changeTime, newSt
   return { closedId: openGW.id, newId: newGW.id };
 }
 
+/**
+ * OI-0094 helper: if the group is on an open event, split its open window so
+ * calcs pick up the new live head/weight. No-op when the group isn't placed.
+ *
+ * Promoted to shared export 2026-04-18 per OI-0096 prereq — previously defined
+ * locally in calving.js and animals/index.js.
+ *
+ * @param {string} groupId
+ * @param {string} changeDate  ISO date (YYYY-MM-DD)
+ */
+export function maybeSplitForGroup(groupId, changeDate) {
+  if (!groupId || !changeDate) return;
+  const openGW = state.eventGroupWindows.find(w => w.groupId === groupId && !w.dateLeft);
+  if (!openGW) return;
+  const ctx = {
+    memberships: state.animalGroupMemberships,
+    animals: state.animals,
+    animalWeightRecords: state.animalWeightRecords,
+    now: changeDate,
+  };
+  const liveHead = getLiveWindowHeadCount({ ...openGW, dateLeft: null }, ctx);
+  const liveAvg = getLiveWindowAvgWeight({ ...openGW, dateLeft: null }, ctx);
+  splitGroupWindow(groupId, openGW.eventId, changeDate, null, {
+    headCount: liveHead, avgWeightKg: liveAvg,
+  });
+}
+
 // --- OI-0090 / SP-11: Group archive / reactivate ---
 
 /**

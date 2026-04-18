@@ -3,8 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, splitGroupWindow, reactivateGroup } from '../../data/store.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, reactivateGroup } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import * as GroupEntity from '../../entities/group.js';
@@ -22,26 +21,6 @@ import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
 import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
 import { maybeShowEmptyGroupPrompt } from './empty-group-prompt.js';
-
-/**
- * OI-0094 helper: if the group is on an open event, split its window so the
- * event_group_window carries live head/weight for downstream calcs. No-op if
- * the group is not currently placed on any open event.
- */
-function maybeSplitForGroup(groupId, changeDate) {
-  if (!groupId || !changeDate) return;
-  const openGW = getAll('eventGroupWindows').find(w => w.groupId === groupId && !w.dateLeft);
-  if (!openGW) return;
-  const memberships = getAll('animalGroupMemberships');
-  const animals = getAll('animals');
-  const animalWeightRecords = getAll('animalWeightRecords');
-  const ctx = { memberships, animals, animalWeightRecords, now: changeDate };
-  const liveHead = getLiveWindowHeadCount({ ...openGW, dateLeft: null }, ctx);
-  const liveAvg = getLiveWindowAvgWeight({ ...openGW, dateLeft: null }, ctx);
-  splitGroupWindow(groupId, openGW.eventId, changeDate, null, {
-    headCount: liveHead, avgWeightKg: liveAvg,
-  });
-}
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];

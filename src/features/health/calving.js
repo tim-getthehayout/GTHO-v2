@@ -3,33 +3,13 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, splitGroupWindow } from '../../data/store.js';
+import { getAll, getById, add, update, maybeSplitForGroup } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel } from '../../utils/units.js';
 import * as CalvingEntity from '../../entities/animal-calving-record.js';
 import * as AnimalEntity from '../../entities/animal.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
 import * as MembershipEntity from '../../entities/animal-group-membership.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
-
-/**
- * OI-0094 helper: if the group is on an open event, split its open window so
- * calcs pick up the new live head/weight. No-op when the group isn't placed.
- */
-function maybeSplitForGroup(groupId, changeDate) {
-  if (!groupId || !changeDate) return;
-  const openGW = getAll('eventGroupWindows').find(w => w.groupId === groupId && !w.dateLeft);
-  if (!openGW) return;
-  const memberships = getAll('animalGroupMemberships');
-  const animals = getAll('animals');
-  const animalWeightRecords = getAll('animalWeightRecords');
-  const ctx = { memberships, animals, animalWeightRecords, now: changeDate };
-  const liveHead = getLiveWindowHeadCount({ ...openGW, dateLeft: null }, ctx);
-  const liveAvg = getLiveWindowAvgWeight({ ...openGW, dateLeft: null }, ctx);
-  splitGroupWindow(groupId, openGW.eventId, changeDate, null, {
-    headCount: liveHead, avgWeightKg: liveAvg,
-  });
-}
 
 let calvingSheet = null;
 

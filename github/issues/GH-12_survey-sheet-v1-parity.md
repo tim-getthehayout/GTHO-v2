@@ -1,9 +1,9 @@
 # Survey Sheet — v1 Parity Rebuild (SP-9)
 
-**Status:** Spec complete · Ready for Claude Code
+**Status:** Shipped · historical spec (kept for audit)
 **Owner:** Cowork (design) → Claude Code (implementation)
 **Base doc impact:** V2_UX_FLOWS.md §7 (short paragraph) will be replaced by this spec during end-of-sprint reconciliation.
-**Schema impact:** Adds `farm_settings.bale_ring_residue_diameter_ft`. Verifies `event_observations.bale_ring_residue_count` exists (migration 022 adds if missing). **CP-55/CP-56 spec update required.**
+**Schema impact:** Added `farm_settings.bale_ring_residue_diameter_ft` via migration 022. **OI-0111 / migration 027 (2026-04-18) subsequently renamed this column to `bale_ring_residue_diameter_cm` per the metric-internal rule; references below that use `_ft` reflect this spec's state-at-time-of-writing.** Verifies `event_observations.bale_ring_residue_count` exists. **CP-55/CP-56 spec update applied.**
 **Depends on:** OI-0063 (`event_observations` schema alignment — closed 2026-04-15).
 
 ---

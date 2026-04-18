@@ -30,8 +30,8 @@
  * @param {object} [opts.farmSettings]  — farm settings record; used for bale-ring diameter
  *   default + recovery-required badge.
  * @param {number} [opts.paddockAcres]  — optional, enables the BRC-1 auto-fill. When provided
- *   alongside `farmSettings.baleRingResidueDiameterFt`, entering a bale-ring count auto-computes
- *   the forage cover %.
+ *   alongside `farmSettings.baleRingResidueDiameterCm`, entering a bale-ring count auto-computes
+ *   the forage cover %. cm → ft conversion happens inline here; the BRC-1 calc stays imperial-native.
  * @param {object} [opts.initialValues]  — optional record to pre-populate fields (camelCase).
  * @returns {{ container: HTMLElement, getValues: () => object, validate: () => { valid: boolean, errors: string[] }, saveTo: string }}
  */
@@ -113,8 +113,13 @@ export function renderPaddockCard({ saveTo = 'event_observations', farmSettings 
     value: initialValues.baleRingResidueCount ?? '',
     'data-testid': 'paddock-card-bale-ring',
   });
-  const ringDiameter = farmSettings?.baleRingResidueDiameterFt ?? null;
-  const brcAvailable = !!(ringDiameter && paddockAcres && paddockAcres > 0);
+  // OI-0111: farm_settings stores bale-ring diameter in cm (metric-internal).
+  // The BRC-1 calc is imperial-native; convert cm → ft inline at the call site.
+  const ringDiameterCm = farmSettings?.baleRingResidueDiameterCm ?? null;
+  const ringDiameterFt = ringDiameterCm != null
+    ? convert(ringDiameterCm, 'length', 'toImperial') / 12
+    : null;
+  const brcAvailable = !!(ringDiameterFt && paddockAcres && paddockAcres > 0);
   const brcHelperNote = el('div', {
     'data-testid': 'paddock-card-bale-ring-helper',
     style: { fontSize: '11px', color: 'var(--text2)', marginTop: '2px' },
@@ -125,7 +130,7 @@ export function renderPaddockCard({ saveTo = 'event_observations', farmSettings 
       if (isNaN(count) || count < 0) return;
       const brc = getCalcByName('BRC-1');
       if (!brc) return;
-      const out = brc.fn({ ringCount: count, ringDiameterFt: ringDiameter, paddockAcres });
+      const out = brc.fn({ ringCount: count, ringDiameterFt, paddockAcres });
       if (out.computedForageCoverPct != null) {
         coverInput.value = String(out.computedForageCoverPct);
       }

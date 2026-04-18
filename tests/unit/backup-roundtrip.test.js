@@ -138,8 +138,8 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→26 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(12);
+    it('has migration entries for 14→27 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(13);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[15]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[16]).toBe('function');
@@ -152,6 +152,29 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS[23]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[24]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[25]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[26]).toBe('function');
+    });
+
+    it('migration 26 renames bale_ring_residue_diameter_ft → _cm with ft × 30.48 (OI-0111)', () => {
+      const backup = {
+        schema_version: 26,
+        tables: {
+          farm_settings: [
+            { id: 'fs1', bale_ring_residue_diameter_ft: 12 },
+            { id: 'fs2', bale_ring_residue_diameter_ft: null },
+            { id: 'fs3' },
+          ],
+        },
+      };
+      const migrated = BACKUP_MIGRATIONS[26](backup);
+      expect(migrated.schema_version).toBe(27);
+      const rows = migrated.tables.farm_settings;
+      expect(rows[0].bale_ring_residue_diameter_cm).toBeCloseTo(365.76, 2);
+      expect(rows[0].bale_ring_residue_diameter_ft).toBeUndefined();
+      expect(rows[1].bale_ring_residue_diameter_cm).toBeNull();
+      expect(rows[1].bale_ring_residue_diameter_ft).toBeUndefined();
+      // Row with neither key should not gain the cm key.
+      expect(rows[2].bale_ring_residue_diameter_cm).toBeUndefined();
     });
   });
 

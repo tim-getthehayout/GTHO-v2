@@ -3,6 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, update, getSyncAdapter, getOperation, setUnitSystem } from '../../data/store.js';
+import { convert, unitLabel } from '../../utils/units.js';
 import { canExport, exportOperationBackup, downloadBackup } from '../../data/backup-export.js';
 import { validateBackup, getBackupPreview, importOperationBackup } from '../../data/backup-import.js';
 import { pushAllToSupabase } from '../../data/push-all.js';
@@ -94,40 +95,166 @@ function renderUnitSection(rootContainer) {
   ]);
 }
 
+/**
+ * Field descriptor for renderFarmSection (OI-0111).
+ *
+ * Each entry declares how to convert between stored metric and user-facing
+ * display unit on render + save:
+ *   - measureType: null for unitless (%, days, score) OR 'weight' / 'length' for `convert()`
+ *   - inverted: true for price-per-weight ($/kg ↔ $/lb — divide on display, multiply on save)
+ *   - currency: true to compose the label as "label ($/unit)"
+ *   - perDay: true to compose the label as "label (unit/AU/day)"
+ *   - displayUnit: 'ft' forces length → ft instead of inches (bale-ring diameter)
+ *   - unitLabelKey: i18n key for a static unit suffix when measureType is null
+ *   - precision: decimals on display; inferred from spec §Precision if omitted
+ *
+ * Round-trip rule (spec §Precision): `display → save → reload → display`
+ * must return the original input at the field's display precision. Stored
+ * metric is the full JS float — never rounded or truncated on save.
+ */
+const FARM_FIELD_DESCRIPTORS = [
+  { key: 'defaultAuWeightKg',         labelKey: 'settings.auWeight',         measureType: 'weight',  precision: { metric: 1, imperial: 0 } },
+  { key: 'defaultResidualHeightCm',   labelKey: 'settings.residualHeight',   measureType: 'length',  precision: { metric: 1, imperial: 1 } },
+  { key: 'defaultUtilizationPct',     labelKey: 'settings.utilizationPct',   measureType: null,      unitLabelKey: 'unit.pct',  precision: { metric: 0, imperial: 0 } },
+  { key: 'defaultRecoveryMinDays',    labelKey: 'settings.recoveryMinDays',  measureType: null,      unitLabelKey: 'unit.days', precision: { metric: 0, imperial: 0 } },
+  { key: 'defaultRecoveryMaxDays',    labelKey: 'settings.recoveryMaxDays',  measureType: null,      unitLabelKey: 'unit.days', precision: { metric: 0, imperial: 0 } },
+  { key: 'nPricePerKg',               labelKey: 'settings.nPrice',           measureType: 'weight',  inverted: true, currency: true, precision: { metric: 4, imperial: 4 } },
+  { key: 'pPricePerKg',               labelKey: 'settings.pPrice',           measureType: 'weight',  inverted: true, currency: true, precision: { metric: 4, imperial: 4 } },
+  { key: 'kPricePerKg',               labelKey: 'settings.kPrice',           measureType: 'weight',  inverted: true, currency: true, precision: { metric: 4, imperial: 4 } },
+  { key: 'defaultManureRateKgPerDay', labelKey: 'settings.manureRate',       measureType: 'weight',  perDay: true,   precision: { metric: 1, imperial: 0 } },
+  { key: 'feedDayGoal',               labelKey: 'settings.feedDayGoal',      measureType: null,      unitLabelKey: 'unit.days', precision: { metric: 0, imperial: 0 } },
+  { key: 'forageQualityScaleMin',     labelKey: 'settings.forageQualityMin', measureType: null,      unitLabelKey: null, precision: { metric: 0, imperial: 0 } },
+  { key: 'forageQualityScaleMax',     labelKey: 'settings.forageQualityMax', measureType: null,      unitLabelKey: null, precision: { metric: 0, imperial: 0 } },
+  { key: 'baleRingResidueDiameterCm', labelKey: 'settings.baleRingDiameter', measureType: 'length',  displayUnit: 'ft', precision: { metric: 1, imperial: 1 } },
+];
+
+/**
+ * Compose the display label for a field: "Base Label (unit)".
+ * @param {object} f - descriptor entry
+ * @param {'metric'|'imperial'} unitSystem
+ */
+function composeFieldLabel(f, unitSystem) {
+  const base = t(f.labelKey);
+  if (f.measureType === null) {
+    if (!f.unitLabelKey) return base;
+    return `${base} (${t(f.unitLabelKey)})`;
+  }
+  if (f.currency) {
+    // $/kg ↔ $/lb — use the weight unit label.
+    const wu = unitLabel('weight', unitSystem);
+    return `${base} ($/${wu})`;
+  }
+  if (f.perDay) {
+    const wu = unitLabel('weight', unitSystem);
+    return `${base} (${wu}/AU/day)`;
+  }
+  if (f.displayUnit === 'ft') {
+    // Metric side still shows cm; imperial side shows ft.
+    return unitSystem === 'imperial'
+      ? `${base} (${t('unit.ft')})`
+      : `${base} (${unitLabel(f.measureType, unitSystem)})`;
+  }
+  return `${base} (${unitLabel(f.measureType, unitSystem)})`;
+}
+
+/**
+ * Convert stored metric → user-facing display value.
+ * Returns a Number (or null). Rendering code formats to precision.
+ */
+function toDisplayValue(storedValue, f, unitSystem) {
+  if (storedValue == null) return null;
+  if (f.measureType === null) return storedValue;
+  if (unitSystem === 'metric') {
+    if (f.displayUnit === 'ft') {
+      // Stored in cm; display metric still shows cm.
+      return storedValue;
+    }
+    return storedValue;
+  }
+  // imperial
+  if (f.inverted) {
+    // $/kg → $/lb: divide stored by factor so e.g. 1.21 $/kg → ~0.5489 $/lb.
+    // convert() multiplies by factor for toImperial; we invert that by dividing.
+    const factorKgToLbs = convert(1, 'weight', 'toImperial'); // 2.20462
+    return storedValue / factorKgToLbs;
+  }
+  if (f.displayUnit === 'ft') {
+    // cm → in → ft.
+    return convert(storedValue, f.measureType, 'toImperial') / 12;
+  }
+  return convert(storedValue, f.measureType, 'toImperial');
+}
+
+/**
+ * Convert user-facing entered value → stored metric.
+ * Returns a Number (full JS float, no rounding — spec §Precision).
+ */
+function toStoredValue(inputNumber, f, unitSystem) {
+  if (inputNumber == null || isNaN(inputNumber)) return null;
+  if (f.measureType === null) return inputNumber;
+  if (unitSystem === 'metric') return inputNumber;
+  // imperial
+  if (f.inverted) {
+    // $/lb entered → $/kg stored: multiply by factor.
+    const factorKgToLbs = convert(1, 'weight', 'toImperial');
+    return inputNumber * factorKgToLbs;
+  }
+  if (f.displayUnit === 'ft') {
+    // ft entered → in → cm.
+    return convert(inputNumber * 12, f.measureType, 'toMetric');
+  }
+  return convert(inputNumber, f.measureType, 'toMetric');
+}
+
+/**
+ * Format a display value to the field's precision. null → ''.
+ */
+function formatDisplayValue(displayValue, f, unitSystem) {
+  if (displayValue == null) return '';
+  const decimals = f.precision?.[unitSystem] ?? 1;
+  return displayValue.toFixed(decimals);
+}
+
+/**
+ * Derive the `step` attribute for the input from precision.
+ */
+function stepForField(f, unitSystem) {
+  const decimals = f.precision?.[unitSystem] ?? 1;
+  if (decimals <= 0) return '1';
+  return (1 / Math.pow(10, decimals)).toString();
+}
+
+// Exported for unit tests (OI-0111 round-trip suite).
+export const __settingsUnitInternals = {
+  FARM_FIELD_DESCRIPTORS,
+  composeFieldLabel,
+  toDisplayValue,
+  toStoredValue,
+  formatDisplayValue,
+  stepForField,
+};
+
 function renderFarmSection(fs, _rootContainer) {
-  const fields = [
-    { key: 'defaultAuWeightKg', label: t('settings.auWeight') },
-    { key: 'defaultResidualHeightCm', label: t('settings.residualHeight') },
-    { key: 'defaultUtilizationPct', label: t('settings.utilizationPct') },
-    { key: 'defaultRecoveryMinDays', label: t('settings.recoveryMinDays') },
-    { key: 'defaultRecoveryMaxDays', label: t('settings.recoveryMaxDays') },
-    { key: 'nPricePerKg', label: t('settings.nPrice') },
-    { key: 'pPricePerKg', label: t('settings.pPrice') },
-    { key: 'kPricePerKg', label: t('settings.kPrice') },
-    { key: 'defaultManureRateKgPerDay', label: t('settings.manureRate') },
-    { key: 'feedDayGoal', label: t('settings.feedDayGoal') },
-    { key: 'forageQualityScaleMin', label: t('settings.forageQualityMin') },
-    { key: 'forageQualityScaleMax', label: t('settings.forageQualityMax') },
-    { key: 'baleRingResidueDiameterFt', label: 'Bale-ring residue diameter (ft)' },
-  ];
+  const unitSystem = getOperation()?.unitSystem ?? 'imperial';
 
   const inputs = {};
 
-  const fieldEls = fields.map(f => {
+  const fieldEls = FARM_FIELD_DESCRIPTORS.map(f => {
+    const displayVal = toDisplayValue(fs[f.key], f, unitSystem);
     const input = el('input', {
       type: 'number',
       className: 'auth-input settings-input',
-      value: fs[f.key] ?? '',
+      value: formatDisplayValue(displayVal, f, unitSystem),
+      step: stepForField(f, unitSystem),
       'data-testid': `settings-farm-${f.key}`,
     });
     inputs[f.key] = input;
     return el('div', { className: 'settings-field' }, [
-      el('label', { className: 'form-label' }, [f.label]),
+      el('label', { className: 'form-label' }, [composeFieldLabel(f, unitSystem)]),
       input,
     ]);
   });
 
-  // Recovery required toggle
   const recoveryCheckbox = el('input', {
     type: 'checkbox',
     checked: fs.recoveryRequired ? 'checked' : undefined,
@@ -151,9 +278,15 @@ function renderFarmSection(fs, _rootContainer) {
       'data-testid': 'settings-farm-save',
       onClick: () => {
         const changes = {};
-        for (const f of fields) {
-          const val = inputs[f.key].value;
-          changes[f.key] = val === '' ? null : parseFloat(val);
+        for (const f of FARM_FIELD_DESCRIPTORS) {
+          const raw = inputs[f.key].value;
+          if (raw === '') {
+            changes[f.key] = null;
+            continue;
+          }
+          const parsed = parseFloat(raw);
+          // Full JS float preserved — no rounding on save (spec §Precision).
+          changes[f.key] = toStoredValue(parsed, f, unitSystem);
         }
         changes.recoveryRequired = recoveryCheckbox.checked;
         try {

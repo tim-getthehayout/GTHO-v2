@@ -744,7 +744,7 @@ Supabase enforces foreign-key integrity at write time. A wholesale replace that 
 9. `input_product_units`
 10. `treatment_categories`
 11. `dose_units`
-12. `farm_settings`
+12. `farm_settings` — column `bale_ring_residue_diameter_ft` renamed to `bale_ring_residue_diameter_cm` in migration 027 (OI-0111). CP-55/CP-56 handle the rename via `BACKUP_MIGRATIONS[26]` (multiplies `_ft` value × 30.48 when migrating schema_version 26 → 27). No FK ordering change.
 13. `user_preferences`
 14. `locations`
 15. `animals` — **two-pass** because of self-referential `dam_id` / `sire_animal_id`: pass 1 inserts all rows with self-FKs set to `NULL`; pass 2 issues `UPDATE` statements to set `dam_id` and `sire_animal_id`.

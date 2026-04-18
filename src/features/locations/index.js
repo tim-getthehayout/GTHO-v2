@@ -638,9 +638,10 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   const allLocs = getAll('locations').filter(l => !l.archived && l.type === 'land' && l.landUse !== 'crop');
   const locs = isSingle ? allLocs.filter(l => l.id === locationId) : allLocs;
 
-  // Farm settings for bale ring
+  // Farm settings for bale ring (OI-0111: stored in cm, BRC-1 is imperial-native)
   const farmSettings = getAll('farmSettings')[0];
-  const baleRingDiameterFt = farmSettings?.baleRingResidueDiameterFt ?? 12;
+  const baleRingDiameterCm = farmSettings?.baleRingResidueDiameterCm ?? 365.76;
+  const baleRingDiameterFt = convert(baleRingDiameterCm, 'length', 'toImperial') / 12;
 
   // Draft management (bulk mode only)
   let surveyId = null;

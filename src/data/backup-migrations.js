@@ -68,4 +68,23 @@ export const BACKUP_MIGRATIONS = {
   //            (which have no confirmed_bred key on animals rows) resolve correctly when
   //            Supabase re-inserts them — the column default supplies the value.
   25: (b) => { b.schema_version = 26; return b; },
+  // 026 → 027: OI-0111 — rename farm_settings.bale_ring_residue_diameter_ft →
+  //            bale_ring_residue_diameter_cm and convert stored value (ft × 30.48).
+  //            Part of the Settings UI unit-conversion sweep: the column was the
+  //            single farm_settings holdout storing imperial natively; it now
+  //            follows the metric-internal rule.
+  26: (b) => {
+    const rows = (b.tables && b.tables.farm_settings) || [];
+    for (const fs of rows) {
+      if (Object.prototype.hasOwnProperty.call(fs, 'bale_ring_residue_diameter_ft')) {
+        const ft = fs.bale_ring_residue_diameter_ft;
+        fs.bale_ring_residue_diameter_cm = ft != null
+          ? Math.round(Number(ft) * 30.48 * 100) / 100
+          : null;
+        delete fs.bale_ring_residue_diameter_ft;
+      }
+    }
+    b.schema_version = 27;
+    return b;
+  },
 };

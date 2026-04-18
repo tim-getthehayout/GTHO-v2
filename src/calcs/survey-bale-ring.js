@@ -10,7 +10,7 @@ registerCalc({
   source: 'SP-9 bale-ring residue helper',
   inputs: [
     { name: 'ringCount', type: 'integer', unit: 'rings' },
-    { name: 'ringDiameterFt', type: 'number', unit: 'ft', notes: 'Default 12 from farm_settings.bale_ring_residue_diameter_ft' },
+    { name: 'ringDiameterFt', type: 'number', unit: 'ft', notes: 'Default 12 ft (= 365.76 cm). Callers convert farm_settings.bale_ring_residue_diameter_cm → ft inline; BRC-1 stays imperial-native.' },
     { name: 'paddockAcres', type: 'number', unit: 'acres' },
   ],
   output: { type: 'object', shape: '{ ringAreaSqFt, totalAreaSqFt, coverReducedPct, computedForageCoverPct }', unit: 'sq ft / %' },

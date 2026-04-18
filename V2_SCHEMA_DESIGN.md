@@ -148,6 +148,7 @@ This table is a 1:1 child of `farms` (one row per farm, enforced by UNIQUE on fa
 | **Survey scales** | | | *Configurable assessment ranges* |
 | forage_quality_scale_min | numeric | NOT NULL, DEFAULT 1 | Lower bound of forage quality scale (e.g., 1 for default, 0 for RFQ) |
 | forage_quality_scale_max | numeric | NOT NULL, DEFAULT 100 | Upper bound of forage quality scale (e.g., 100 for default, 200+ for RFQ) |
+| bale_ring_residue_diameter_cm | numeric | DEFAULT 365.76 | Bale-ring residue diameter for BRC-1 cover-% auto-fill. Migration 022 added as `_ft`; OI-0111 / migration 027 renamed to `_cm` per the metric-internal rule. Settings UI displays in user's unit system (imperial shows ft, not inches). |
 | | | | |
 | **Thresholds** | | | *Dashboard color coding — green/yellow/red* |
 | threshold_aud_target_pct | numeric | NOT NULL, DEFAULT 80 | AUD usage target (green above this) |
@@ -199,6 +200,7 @@ CREATE TABLE farm_settings (
   -- Survey scales (configurable per-farm)
   forage_quality_scale_min        numeric NOT NULL DEFAULT 1,
   forage_quality_scale_max        numeric NOT NULL DEFAULT 100,
+  bale_ring_residue_diameter_cm   numeric DEFAULT 365.76, -- OI-0111 / migration 027 (renamed from _ft)
 
   -- Thresholds (dashboard color coding)
   threshold_aud_target_pct        numeric NOT NULL DEFAULT 80,
@@ -2531,6 +2533,7 @@ CREATE TABLE release_notes (
 | 2026-04-12 | Session 8 — UX flows review | D1 farm_settings: Added forage_quality_scale_min (default 1), forage_quality_scale_max (default 100) for configurable survey assessment range (A41). |
 | 2026-04-14 | Tier 3 migration testing — OI-0055 | Root-cause fix: added `operation_id uuid NOT NULL FK → operations` to four tables that were missing it: §5.6 event_feed_check_items, §6.2 survey_draft_entries, §7.2 harvest_event_fields, §11.4 todo_assignments. Updated column specs, design decision notes, and CREATE TABLE SQL for all four. Design Principle #8 simplified — no longer has exceptions. Migration 019 adds the column + backfill. |
 | 2026-04-17 | Local-only fields audit — OI-0089 | Retroactive documentation of two tables that existed in live Supabase, entity code, and §5.3a but were missing from this design doc. Added §5.8 `event_observations` (migration 021 + `bale_ring_residue_count` from migration 022, SP-2 event-time pasture observations) and §9.11 `animal_notes` (migration 012 "Domain 9 amendment", OI-0003). Both sections match existing style (column table, design decisions, CREATE TABLE). No schema change — doc catch-up only. Live ground truth: `SCHEMA_DUMP_2026-04-17.md`. |
+| 2026-04-18 | OI-0111 Settings UI unit conversion — farm_settings bale-ring column renamed | Migration 027 renames `farm_settings.bale_ring_residue_diameter_ft` → `bale_ring_residue_diameter_cm`, converts stored values (× 30.48), sets default 365.76, drops the old column. Bumps `schema_version` 26 → 27. The BRC-1 calc in `src/calcs/survey-bale-ring.js` stays imperial-native; callers (paddock-card, surveys) convert cm → ft inline before invoking. This closes the last farm-settings column that stored imperial natively — the whole table now follows the metric-internal / display-converted rule. §1.3 column table + CREATE TABLE SQL updated. |
 
 ---
 

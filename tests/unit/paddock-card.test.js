@@ -77,8 +77,10 @@ describe('renderPaddockCard (OI-0100)', () => {
     expect(v.notes).toBeNull();
   });
 
-  it('bale-ring helper auto-fills coverInput when farmSettings.baleRingResidueDiameterFt + paddockAcres supplied', () => {
-    const farmSettings = { baleRingResidueDiameterFt: 12 };
+  it('bale-ring helper auto-fills coverInput when farmSettings.baleRingResidueDiameterCm + paddockAcres supplied', () => {
+    // OI-0111: farm_settings stores diameter in cm; paddock-card converts cm → ft inline.
+    // 365.76 cm = 12 ft (exact).
+    const farmSettings = { baleRingResidueDiameterCm: 365.76 };
     const card = renderPaddockCard({ farmSettings, paddockAcres: 0.25 });
     document.body.appendChild(card.container);
 
@@ -93,7 +95,7 @@ describe('renderPaddockCard (OI-0100)', () => {
   });
 
   it('bale-ring helper is inactive when diameter missing', () => {
-    const card = renderPaddockCard({ farmSettings: { baleRingResidueDiameterFt: null }, paddockAcres: 0.25 });
+    const card = renderPaddockCard({ farmSettings: { baleRingResidueDiameterCm: null }, paddockAcres: 0.25 });
     document.body.appendChild(card.container);
     const baleRing = card.container.querySelector('[data-testid="paddock-card-bale-ring"]');
     const cover = card.container.querySelector('[data-testid="paddock-card-forage-cover"]');

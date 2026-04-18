@@ -600,7 +600,7 @@ None required — fully spec'd from v1 extraction. Open questions flagged in spe
 **Status:** Spec complete · Ready for Claude Code
 **Spec file:** `github/issues/survey-sheet-v1-parity.md` (full, authoritative)
 **Base doc impact:** V2_UX_FLOWS.md §7 (short paragraph) — will be expanded during end-of-sprint reconciliation.
-**Schema:** Adds `farm_settings.bale_ring_residue_diameter_ft` (migration 022). Verifies `event_observations.bale_ring_residue_count` exists. **CP-55/CP-56 impact flagged** in spec file §10.
+**Schema:** Adds `farm_settings.bale_ring_residue_diameter_cm` (migration 022 added `_ft`; OI-0111 / migration 027 renamed it to `_cm` per the metric-internal rule). Verifies `event_observations.bale_ring_residue_count` exists. **CP-55/CP-56 impact flagged** in spec file §10.
 **Depends on:** OI-0063 (event_observations alignment — closed 2026-04-15); SP-8 (field-mode tile wiring — ready).
 
 ### Goal
@@ -1420,7 +1420,7 @@ When this sprint is complete, do a dedicated session to:
 - [ ] Merge SP-8 field mode into V2_UX_FLOWS.md §16 (replace current field mode spec with v1 parity version; include "exit returns to previous screen" behavior)
 - [ ] Merge SP-9 survey sheet v1 parity into V2_UX_FLOWS.md §7 (expand the current short paragraph into the full spec: three modes, paddock card, bulk chrome, bale-ring helper, draft lifecycle, commit rules, field-mode adaptations). Also: §17 may need a new sub-section documenting the Surveys sub-tab on the Locations screen (draft banner + committed list).
 - [ ] Document the `survey.baleRingCover` calc in V2_CALCULATION_SPEC.md (inputs, output, formula).
-- [ ] Update V2_SCHEMA_DESIGN.md §4 (farm_settings) to include `bale_ring_residue_diameter_ft`; confirm `event_observations.bale_ring_residue_count` is documented.
+- [ ] Update V2_SCHEMA_DESIGN.md §4 (farm_settings) to include `bale_ring_residue_diameter_cm` (renamed from `_ft` in OI-0111 / migration 027); confirm `event_observations.bale_ring_residue_count` is documented.
 - [ ] Update CP-55 / CP-56 spec(s) with new farm_settings column handling and schema_version bump to 22.
 - [ ] **SP-10 reconciliation** — merge into V2_UX_FLOWS.md as new §17.15.1 "Event Data Editing" (gap/overlap resolver, retro-place flow, per-section edit behavior) and into V2_APP_ARCHITECTURE.md as new "Consistency & Rollback" subsection (core principle, snapshot/rollback pattern). Convert SP-10 spec file in `github/issues/` to a thin pointer once integrated.
 - [ ] **SP-10 §8a schema reconciliation** — update V2_SCHEMA_DESIGN.md `event_feed_entries` table to include `entry_type`, `destination_type`, `destination_event_id` columns + check constraints. Update V2_CALCULATION_SPEC.md for DMI-1, DMI-5, NPK-1, NPK-2, cost-per-day to reflect "sum deliveries minus removals." Update CP-55 / CP-56 specs with new columns + schema_version bump. Update V2_MIGRATION_PLAN.md §5.3a ordering note (no change to ordering, just confirm `event_feed_entries` stays in position since the new FK points at the same `events` table it already references).

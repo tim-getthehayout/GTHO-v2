@@ -98,6 +98,12 @@ async function renderMemberList(panel, operationId) {
     const actions = [];
     if (isAdminOrOwner && !isOwner) {
       if (isPending) {
+        // OI-0120: Edit | Copy | Regenerate | Cancel.
+        actions.push(el('button', {
+          className: 'btn btn-outline btn-xs',
+          'data-testid': `member-edit-${member.id}`,
+          onClick: () => showEditForm(member, operationId, panel, { isPending: true }),
+        }, [t('members.edit')]));
         actions.push(el('button', {
           className: 'btn btn-outline btn-xs',
           'data-testid': `member-copy-link-${member.id}`,
@@ -115,7 +121,13 @@ async function renderMemberList(panel, operationId) {
         }, [t('members.cancelInvite')]));
       } else {
         if (!isSelf) {
+          // OI-0120: Role Select | Edit | Remove.
           actions.push(renderRoleSelect(member, operationId, panel));
+          actions.push(el('button', {
+            className: 'btn btn-outline btn-xs',
+            'data-testid': `member-edit-${member.id}`,
+            onClick: () => showEditForm(member, operationId, panel, { isPending: false }),
+          }, [t('members.edit')]));
           actions.push(el('button', {
             className: 'btn btn-red btn-xs',
             'data-testid': `member-remove-${member.id}`,
@@ -274,6 +286,166 @@ async function createInvite(inputs, operationId, panel, statusEl) {
   logger.info('members', 'invite created', { operationId, email, role });
 
   // Re-render member list
+  await renderMemberList(panel, operationId);
+}
+
+// ── Edit form (OI-0120) ─────────────────────────────────────────────
+
+/**
+ * Show the inline edit form beneath a member row. Handles both pending
+ * invites (display_name + email + role) and accepted members
+ * (display_name + email only — role stays on the existing row select).
+ *
+ * @param {object} member
+ * @param {string} operationId
+ * @param {HTMLElement} panel
+ * @param {object} opts
+ * @param {boolean} opts.isPending
+ */
+function showEditForm(member, operationId, panel, opts) {
+  // Toggle: if the form is already open for this member, close it.
+  const existing = panel.querySelector(`[data-testid="member-edit-form-${member.id}"]`);
+  if (existing) { existing.remove(); return; }
+
+  const inputs = {};
+  inputs._role = member.role || 'team_member';
+
+  const children = [
+    el('h3', { style: { marginBottom: 'var(--space-3)' } }, [
+      opts.isPending ? t('members.editPending') : t('members.editTitle'),
+    ]),
+    el('label', { className: 'form-label' }, [t('members.displayName')]),
+    inputs.name = el('input', {
+      type: 'text', className: 'auth-input',
+      value: member.display_name || '',
+      'data-testid': `member-edit-name-${member.id}`,
+    }),
+    el('label', { className: 'form-label' }, [t('members.email')]),
+    inputs.email = el('input', {
+      type: 'email', className: 'auth-input',
+      value: member.email || '',
+      'data-testid': `member-edit-email-${member.id}`,
+    }),
+  ];
+
+  if (opts.isPending) {
+    const roleChildren = [];
+    inputs.roleAdmin = el('button', {
+      className: inputs._role === 'admin' ? 'btn btn-green btn-xs' : 'btn btn-outline btn-xs',
+      'data-testid': `member-edit-role-admin-${member.id}`,
+      onClick: () => {
+        inputs.roleAdmin.className = 'btn btn-green btn-xs';
+        inputs.roleTeam.className = 'btn btn-outline btn-xs';
+        inputs._role = 'admin';
+      },
+    }, [t('members.roleAdmin')]);
+    inputs.roleTeam = el('button', {
+      className: inputs._role === 'team_member' ? 'btn btn-green btn-xs' : 'btn btn-outline btn-xs',
+      'data-testid': `member-edit-role-team-${member.id}`,
+      onClick: () => {
+        inputs.roleTeam.className = 'btn btn-green btn-xs';
+        inputs.roleAdmin.className = 'btn btn-outline btn-xs';
+        inputs._role = 'team_member';
+      },
+    }, [t('members.roleTeamMember')]);
+    roleChildren.push(inputs.roleAdmin, inputs.roleTeam);
+    children.push(
+      el('label', { className: 'form-label' }, [t('members.role')]),
+      el('div', { className: 'btn-row' }, roleChildren),
+    );
+  }
+
+  const statusEl = el('div', {
+    className: 'auth-error',
+    'data-testid': `member-edit-status-${member.id}`,
+  });
+  children.push(statusEl);
+
+  children.push(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-3)' } }, [
+    el('button', {
+      className: 'btn btn-green btn-sm',
+      'data-testid': `member-edit-save-${member.id}`,
+      onClick: () => editMember(member, operationId, panel, inputs, statusEl, opts),
+    }, [t('members.saveChanges')]),
+    el('button', {
+      className: 'btn btn-outline btn-sm',
+      'data-testid': `member-edit-cancel-${member.id}`,
+      onClick: () => form.remove(),
+    }, [t('action.cancel')]),
+  ]));
+
+  const form = el('div', {
+    className: 'card',
+    style: { marginTop: 'var(--space-2)', marginBottom: 'var(--space-3)', padding: 'var(--space-4)' },
+    'data-testid': `member-edit-form-${member.id}`,
+  }, children);
+
+  // Insert directly after the member row.
+  const row = panel.querySelector(`[data-testid="member-row-${member.id}"]`);
+  if (row && row.parentNode) {
+    row.parentNode.insertBefore(form, row.nextSibling);
+  } else {
+    panel.appendChild(form);
+  }
+}
+
+/**
+ * Validate + persist the edit. Client-side email collision check
+ * (no `(operation_id, email)` UNIQUE constraint exists on
+ * `operation_members` — verified via pg_constraint 2026-04-20).
+ */
+async function editMember(member, operationId, panel, inputs, statusEl, opts) {
+  clear(statusEl);
+  const name = inputs.name.value.trim();
+  const email = inputs.email.value.trim();
+
+  if (!name) { statusEl.appendChild(el('span', {}, [t('members.nameRequired')])); return; }
+  if (!email || !email.includes('@')) { statusEl.appendChild(el('span', {}, [t('members.emailInvalid')])); return; }
+
+  if (!supabase) return;
+
+  // Email collision check — only needed when the email changed.
+  if (email !== (member.email || '')) {
+    const { data: existing, error: checkError } = await supabase
+      .from('operation_members')
+      .select('id')
+      .eq('operation_id', operationId)
+      .eq('email', email)
+      .neq('id', member.id);
+    if (checkError) {
+      logger.error('members', 'Failed to check email collision', { error: checkError.message });
+      statusEl.appendChild(el('span', {}, [checkError.message]));
+      return;
+    }
+    if (existing && existing.length > 0) {
+      statusEl.appendChild(el('span', {}, [t('members.emailInUse')]));
+      return;
+    }
+  }
+
+  const updates = {
+    display_name: name,
+    email,
+    updated_at: new Date().toISOString(),
+  };
+  if (opts.isPending) updates.role = inputs._role;
+
+  const { error } = await supabase
+    .from('operation_members')
+    .update(updates)
+    .eq('id', member.id);
+
+  if (error) {
+    logger.error('members', 'Failed to edit member', { error: error.message });
+    // If the DB does acquire a unique constraint in a future migration, its
+    // 23505 error code surfaces here; map to the friendly message.
+    const msg = /duplicate key|unique/i.test(error.message) ? t('members.emailInUse') : error.message;
+    statusEl.appendChild(el('span', {}, [msg]));
+    return;
+  }
+
+  showToast(t('members.changesSaved'));
+  logger.info('members', 'member edited', { operationId, memberId: member.id });
   await renderMemberList(panel, operationId);
 }
 

@@ -3,8 +3,12 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, update, remove, splitPaddockWindow } from '../../data/store.js';
+import { getAll, getById, add, update, remove, splitPaddockWindow } from '../../data/store.js';
+import { convert } from '../../utils/units.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
+import * as PaddockObsEntity from '../../entities/paddock-observation.js';
+import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
+import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getEventStartFloorExcluding } from './event-start.js';
 
 let editPwSheet = null;
@@ -72,6 +76,136 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
     // the prior area is preserved as historical truth.
     panel.appendChild(el('div', { className: 'form-hint', style: { fontSize: '11px', color: 'var(--text2)', marginBottom: 'var(--space-3)' } }, [
       'Saving creates a new window from today forward. The prior area is preserved in the grazing history.',
+    ]));
+  }
+
+  // OI-0118: pre-graze + post-graze observation cards.
+  const farmSettings = getAll('farmSettings')[0] || null;
+  const paddockAcres = loc?.areaHa != null
+    ? convert(loc.areaHa, 'area', 'toImperial')
+    : null;
+
+  // Pre-graze renders on open AND closed windows — historical pre-graze is
+  // only editable here once the window closes (detail.js §5 filters to open).
+  const preGrazeObs = (() => {
+    const allObs = getAll('paddockObservations')
+      .filter(o => o.locationId === pw.locationId && o.type === 'open' && o.source === 'event');
+    return allObs.find(o => o.sourceId === pw.id)
+      || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+      || null;
+  })();
+
+  const preGrazeCard = renderPreGrazeCard({
+    farmSettings,
+    paddockAcres,
+    initialValues: preGrazeObs ? {
+      forageHeightCm: preGrazeObs.forageHeightCm,
+      forageCoverPct: preGrazeObs.forageCoverPct,
+      forageQuality: preGrazeObs.forageQuality,
+      forageCondition: preGrazeObs.forageCondition,
+      baleRingResidueCount: preGrazeObs.baleRingResidueCount,
+      notes: preGrazeObs.notes,
+    } : {},
+  });
+
+  const preGrazeSavedEl = el('span', {
+    style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' },
+  }, [t('settings.saved')]);
+  const preGrazeSaveBtn = el('button', {
+    className: 'btn btn-outline btn-xs',
+    'data-testid': `edit-pw-pregraze-save-${pw.id}`,
+    onClick: () => {
+      const values = preGrazeCard.getValues();
+      if (preGrazeObs) {
+        update('paddockObservations', preGrazeObs.id, values,
+          PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+      } else {
+        const newObs = PaddockObsEntity.create({
+          operationId,
+          locationId: pw.locationId,
+          observedAt: new Date().toISOString(),
+          type: 'open',
+          source: 'event',
+          sourceId: pw.id,
+          ...values,
+        });
+        add('paddockObservations', newObs,
+          PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+      }
+      preGrazeSavedEl.style.opacity = '1';
+      setTimeout(() => { preGrazeSavedEl.style.opacity = '0'; }, 2000);
+    },
+  }, [t('action.save')]);
+
+  panel.appendChild(el('div', {
+    className: 'card',
+    style: { marginTop: 'var(--space-4)', marginBottom: 'var(--space-3)' },
+    'data-testid': `edit-pw-pregraze-${pw.id}`,
+  }, [
+    preGrazeCard.container,
+    el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [
+      preGrazeSaveBtn, preGrazeSavedEl,
+    ]),
+  ]));
+
+  // Post-graze only on closed windows (mirrors detail.js §6).
+  if (isClosed) {
+    const postGrazeObs = (() => {
+      const allObs = getAll('paddockObservations')
+        .filter(o => o.locationId === pw.locationId && o.type === 'close' && o.source === 'event');
+      return allObs.find(o => o.sourceId === pw.id)
+        || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+        || null;
+    })();
+
+    const postGrazeCard = renderPostGrazeCard({
+      farmSettings,
+      initialValues: postGrazeObs ? {
+        residualHeightCm: postGrazeObs.residualHeightCm,
+        recoveryMinDays: postGrazeObs.recoveryMinDays,
+        recoveryMaxDays: postGrazeObs.recoveryMaxDays,
+        notes: postGrazeObs.notes,
+      } : {},
+    });
+
+    const postGrazeSavedEl = el('span', {
+      style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' },
+    }, [t('settings.saved')]);
+    const postGrazeSaveBtn = el('button', {
+      className: 'btn btn-outline btn-xs',
+      'data-testid': `edit-pw-postgraze-save-${pw.id}`,
+      onClick: () => {
+        const values = postGrazeCard.getValues();
+        if (postGrazeObs) {
+          update('paddockObservations', postGrazeObs.id, values,
+            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+        } else {
+          const newObs = PaddockObsEntity.create({
+            operationId,
+            locationId: pw.locationId,
+            observedAt: new Date().toISOString(),
+            type: 'close',
+            source: 'event',
+            sourceId: pw.id,
+            ...values,
+          });
+          add('paddockObservations', newObs,
+            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+        }
+        postGrazeSavedEl.style.opacity = '1';
+        setTimeout(() => { postGrazeSavedEl.style.opacity = '0'; }, 2000);
+      },
+    }, [t('action.save')]);
+
+    panel.appendChild(el('div', {
+      className: 'card',
+      style: { marginBottom: 'var(--space-3)' },
+      'data-testid': `edit-pw-postgraze-${pw.id}`,
+    }, [
+      postGrazeCard.container,
+      el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [
+        postGrazeSaveBtn, postGrazeSavedEl,
+      ]),
     ]));
   }
 

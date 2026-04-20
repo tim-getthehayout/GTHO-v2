@@ -1115,61 +1115,11 @@ CREATE TABLE paddock_observations (
 );
 ```
 
-### 5.8 event_observations
+### 5.8 event_observations — **REMOVED** (OI-0113, migration 029, 2026-04-20)
 
-**New in v2** — added by migration 021 (OI-0063, SP-2). Documented retroactively per OI-0089.
-**Audit refs:** GRZ-01, GRZ-03 (event-time equivalents of §5.7)
+The `event_observations` table was dropped in migration 029 after OI-0112 (2026-04-18) migrated every writer and OI-0119 (2026-04-20) migrated the last reader (DMI-8 chart) to `paddock_observations` (§5.7). Pre-graze and post-graze event observations now live in `paddock_observations` with `source = 'event'` and `type = 'open' | 'close'`; `source_id` references the originating `event_paddock_windows.id`.
 
-Event-time observations captured from inside an active event — either pre-graze (before animals start grazing the window) or post-graze (on close). Scoped to a specific `event_paddock_window` when known, so a multi-paddock event can carry one observation per window per phase. The field set deliberately mirrors §5.7 `paddock_observations` so pre-graze assessments during an event capture the same pasture data that a standalone survey would; post-graze-only fields (residual height, recovery days) live here too.
-
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| id | uuid | PK | |
-| operation_id | uuid | NOT NULL, FK → operations | RLS scope |
-| event_id | uuid | NOT NULL, FK → events | Parent event |
-| paddock_window_id | uuid | NULL, FK → event_paddock_windows | Which window within the event; NULL for event-level observations |
-| observation_phase | text | NULL | `'pre_graze'` or `'post_graze'` |
-| forage_height_cm | numeric(6,2) | NULL | Average forage height |
-| forage_cover_pct | numeric(5,2) | NULL | Percent of paddock with usable forage (0–100) |
-| forage_quality | integer | NULL, CHECK 1–100 | Same 1–100 relative scale as §5.7 |
-| forage_condition | text | NULL | `'dry'`, `'fair'`, `'good'`, `'lush'` |
-| stored_feed_only | boolean | NOT NULL, DEFAULT false | True when the window is bale-fed only (no standing forage consumed); drives feed-check and DMI logic |
-| post_graze_height_cm | numeric(6,2) | NULL | Residual standing height after the window closes |
-| recovery_min_days | integer | NULL | Estimated minimum recovery days (post-graze) |
-| recovery_max_days | integer | NULL | Estimated maximum recovery days (post-graze) |
-| bale_ring_residue_count | integer | NULL | Bale-ring residues counted during the observation (migration 022, SP-9) |
-| notes | text | NULL | |
-| created_at | timestamptz | NOT NULL, DEFAULT now() | |
-| updated_at | timestamptz | NOT NULL, DEFAULT now() | |
-
-**Design decisions:**
-- **Why a second observations table.** §5.7 `paddock_observations` is the canonical ledger keyed on `location_id`. §5.8 is scoped to an event and its windows — it answers "what did this event see?" without requiring a join back through the window to the location. The event-scoped view is what the event detail UI (SP-2) reads; the location ledger is what the rotation calculations read. Both tables are populated together: event open/close triggers a paddock_observation AND an event_observation.
-- **`forage_condition` vocabulary differs from §5.7.** §5.7 uses `poor/fair/good/excellent` (survey vocabulary); §5.8 uses `dry/fair/good/lush` (event-time vocabulary). Different contexts, different assessments — do not conflate the two.
-- **`stored_feed_only` lives here, not on the event.** A multi-paddock event can have some windows that are bale-fed and some that are grazed, so the flag is per-window per-phase, not event-level.
-- **`paddock_window_id` is nullable.** Event-level observations (rare — typically notes that span all windows) use NULL. Per-window observations (the common case) carry the FK.
-- **No CHECK on `observation_phase` values beyond the enum.** Both phases are legal independently; most windows carry one pre_graze + one post_graze row, but a window can have only one phase (e.g., still open).
-
-```sql
-CREATE TABLE event_observations (
-  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  operation_id            uuid NOT NULL REFERENCES operations(id),
-  event_id                uuid NOT NULL REFERENCES events(id),
-  paddock_window_id       uuid REFERENCES event_paddock_windows(id),
-  observation_phase       text CHECK (observation_phase IN ('pre_graze', 'post_graze')),
-  forage_height_cm        numeric(6,2),
-  forage_cover_pct        numeric(5,2),
-  forage_quality          integer CHECK (forage_quality IS NULL OR (forage_quality >= 1 AND forage_quality <= 100)),
-  forage_condition        text CHECK (forage_condition IS NULL OR forage_condition IN ('dry', 'fair', 'good', 'lush')),
-  stored_feed_only        boolean NOT NULL DEFAULT false,
-  post_graze_height_cm    numeric(6,2),
-  recovery_min_days       integer,
-  recovery_max_days       integer,
-  bale_ring_residue_count integer,
-  notes                   text,
-  created_at              timestamptz NOT NULL DEFAULT now(),
-  updated_at              timestamptz NOT NULL DEFAULT now()
-);
-```
+Do not reintroduce an event-scoped observations table. If a future feature needs event-window observations that cannot be expressed in `paddock_observations` with `source = 'event'`, start from a fresh design rather than resurrecting this shape. The pre-OI-0112 table + its design decisions are in git history (last full spec in commit predating the OI-0113 ship; migration files 021 and 022 remain in `supabase/migrations/` for history).
 
 ---
 

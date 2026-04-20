@@ -202,7 +202,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
   - `feedEntries[]` — event_feed_entries for this event (**required**, not optional — drives the stored bucket)
   - `feedChecks[]` — event_feed_checks + event_feed_check_items for this event
   - `paddockWindows[]` — event_paddock_windows for this event (all open windows on `date` contribute to the pasture pool)
-  - `observations[]` — paddock_observations with `type = 'open'` AND `source = 'event'`, preferring `sourceId === pw.id` with fall-through to most-recent (same pattern as capacity line). **NOT `event_observations`** — that table was deprecated by OI-0112 and is being sunset by OI-0113.
+  - `observations[]` — paddock_observations with `type = 'open'` AND `source = 'event'`, preferring `sourceId === pw.id` with fall-through to most-recent (same pattern as capacity line). **NOT `event_observations`** — that table was dropped in migration 029 (OI-0113, 2026-04-20); all event-time observations live in `paddock_observations` with `source = 'event'`.
   - `forageTypes[]` — forage_types (for `dm_kg_per_cm_per_ha`, `utilization_pct`, `residual_height_cm`)
 
 - **Output:** One of five statuses per date:

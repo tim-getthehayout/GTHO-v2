@@ -1257,7 +1257,7 @@ Full-screen view for a single active or closed event. Opens when the user taps *
 **Location section:**
 - Location name (16px, 700 weight) + land use type + "anchor"/"secondary" label
 - Acreage from `locations.areaHa` (converted to display units via `units.js`)
-- Most recent observation: forage height and cover % (from `event_observations` where `eventId` matches, most recent by `observedAt`)
+- Most recent observation: forage height and cover % (from `paddock_observations` where `source = 'event'`, `source_id` matches one of this event's paddock windows, most recent by `observed_at`)
 - "Close paddock" button → calls `openCloseEventSheet(event, operationId)` (only shown for active events)
 
 **Event summary section:**
@@ -1272,7 +1272,7 @@ Full-screen view for a single active or closed event. Opens when the user taps *
 - Pasture DM / Stored feed DM / DMI demand (from calc engine DMI-1, DMI-2)
 
 **Pre-graze observations section:**
-- Displays values captured at event open: `forageHeightCm`, `forageCoverPct` (from `event_observations` with type 'open')
+- Displays values captured at event open: `forageHeightCm`, `forageCoverPct` (from `paddock_observations` with `source = 'event'`, `type = 'open'`, `source_id` matching the event's paddock window)
 - "100% stored feed" checkbox state
 - Read-only display for closed events; editable for active (inline save via store update)
 

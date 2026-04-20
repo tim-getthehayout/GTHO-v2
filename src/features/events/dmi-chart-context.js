@@ -5,7 +5,8 @@
  * batches, paddock windows, paddock_observations, forage types, locations,
  * animal classes. Centralizes:
  *   - The OI-0112 paddock_observations fix (type='open', source='event' —
- *     NOT the dead event_observations collection).
+ *     the prior event_observations collection was dropped in migration 029,
+ *     OI-0113).
  *   - The OI-0075 Bug 3 / OI-0119 areaHectares fallback.
  *   - The OI-0117 derived event.dateIn decoration via getEventStartDate.
  *
@@ -37,9 +38,10 @@ export function buildDmi8ChartContext(eventId) {
   );
   const paddockWindows = getAll('eventPaddockWindows').filter(pw => pw.eventId === eventId);
 
-  // OI-0112/OI-0119: paddock_observations, NOT event_observations. Filter to
-  // open/event-sourced here; DMI-8 picks per-window via locationId + sourceId
-  // fallback.
+  // OI-0112/OI-0119: paddock_observations is the sole observation source.
+  // The prior event_observations table was dropped in migration 029 (OI-0113).
+  // Filter to open/event-sourced here; DMI-8 picks per-window via locationId
+  // + sourceId fallback.
   const observations = getAll('paddockObservations')
     .filter(o => o.type === 'open' && o.source === 'event');
 

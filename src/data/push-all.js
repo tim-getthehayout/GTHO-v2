@@ -29,7 +29,6 @@ import { toSupabaseShape as gwToSb } from '../entities/event-group-window.js';
 import { toSupabaseShape as feToSb } from '../entities/event-feed-entry.js';
 import { toSupabaseShape as fcToSb } from '../entities/event-feed-check.js';
 import { toSupabaseShape as fciToSb } from '../entities/event-feed-check-item.js';
-import { toSupabaseShape as eventObsToSb } from '../entities/event-observation.js';
 import { toSupabaseShape as surveyToSb } from '../entities/survey.js';
 import { toSupabaseShape as draftToSb } from '../entities/survey-draft-entry.js';
 import { toSupabaseShape as obsToSb } from '../entities/paddock-observation.js';
@@ -69,7 +68,6 @@ const TO_SB_MAP = {
   feedTypes: feedTypeToSb, batches: batchToSb, batchAdjustments: batchAdjToSb,
   events: eventToSb, eventPaddockWindows: pwToSb, eventGroupWindows: gwToSb,
   eventFeedEntries: feToSb, eventFeedChecks: fcToSb, eventFeedCheckItems: fciToSb,
-  eventObservations: eventObsToSb,
   surveys: surveyToSb, surveyDraftEntries: draftToSb, paddockObservations: obsToSb,
   harvestEvents: harvestToSb, harvestEventFields: harvestFieldToSb,
   inputProductCategories: prodCatToSb, inputProductUnits: prodUnitToSb,

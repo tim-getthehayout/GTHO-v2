@@ -1108,8 +1108,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   }
 
   // Forage / capacity
-  // OI-0075 Bug 3: pre-OI-0112 this read from event_observations; after OI-0112
-  // migration it must read from paddock_observations (type='open', source='event').
+  // OI-0075 Bug 3: this reads pre-graze from paddock_observations (type='open',
+  // source='event'). The prior event_observations collection was dropped in
+  // migration 029 (OI-0113).
   // Match on the open PW's id; fall back to a same-location lookup for legacy rows.
   const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
   const forageType = loc?.forageTypeId ? getById('forageTypes', loc.forageTypeId) : null;

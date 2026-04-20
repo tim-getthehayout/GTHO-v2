@@ -35,7 +35,6 @@ export const BACKUP_TABLES = {
   // D5
   events:                    { paginate: true },
   event_paddock_windows:     { paginate: true },
-  event_observations:        { paginate: true },
   event_group_windows:       { paginate: true },
   event_feed_entries:        { paginate: true },
   event_feed_checks:         { paginate: true },

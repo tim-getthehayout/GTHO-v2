@@ -101,7 +101,7 @@ export function toSupabaseShape(record) {
 export function fromSupabaseShape(row) {
   // OI-0106: threshold lex-comparison bug ("100" > "50" is false lex) is
   // particularly nasty here — farm-setting values feed every dashboard badge.
-  // All 16 remaining numeric/integer cols coerced; pattern matches event-observation.js.
+  // All 16 remaining numeric/integer cols coerced; pattern matches paddock-observation.js.
   const n = (v) => v != null ? Number(v) : null;
   return {
     id: row.id,

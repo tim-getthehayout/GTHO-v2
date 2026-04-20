@@ -118,4 +118,15 @@ export const BACKUP_MIGRATIONS = {
     b.schema_version = 28;
     return b;
   },
+  // 028 → 029: OI-0113 — drop event_observations table. Zero writers since
+  //            OI-0112 (2026-04-18); zero readers since OI-0119 (2026-04-20).
+  //            Older backups may carry the key with rows (e.g. the single
+  //            pre-OI-0112 orphan observed on Tim's operation 2026-04-18).
+  //            Discard the key — paddock_observations carries the equivalent
+  //            data with source='event', type='open'/'close'.
+  28: (b) => {
+    if (b.tables) delete b.tables.event_observations;
+    b.schema_version = 29;
+    return b;
+  },
 };

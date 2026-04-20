@@ -82,7 +82,7 @@ export function toSupabaseShape(record) {
 export function fromSupabaseShape(row) {
   // OI-0106: PostgREST returns numeric/decimal columns as JavaScript strings.
   // Coerce via Number() so downstream math, typeof checks, and .toFixed() calls
-  // work on pulled records. Null-safe. Pattern: `event-observation.js`.
+  // work on pulled records. Null-safe. Pattern: `paddock-observation.js`.
   return {
     id: row.id,
     operationId: row.operation_id,

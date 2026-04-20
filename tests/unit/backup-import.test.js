@@ -78,19 +78,19 @@ describe('backup-import (CP-56)', () => {
 
   describe('migrateBackupForward — §5.7 step 5', () => {
     it('returns no-op when schema_version matches current', () => {
-      const backup = { ...fixture, schema_version: 28 };
+      const backup = { ...fixture, schema_version: 29 };
       const result = migrateBackupForward(backup);
       expect(result.migrated).toBe(false);
-      expect(result.from).toBe(28);
-      expect(result.to).toBe(28);
+      expect(result.from).toBe(29);
+      expect(result.to).toBe(29);
     });
 
-    it('migrates 14 → 28 through the chain', () => {
+    it('migrates 14 → 29 through the chain', () => {
       const backup = { ...fixture, schema_version: 14 };
       const result = migrateBackupForward(backup);
       expect(result.migrated).toBe(true);
       expect(result.from).toBe(14);
-      expect(result.to).toBe(28);
+      expect(result.to).toBe(29);
     });
 
     it('returns error when migration is missing', () => {
@@ -102,8 +102,8 @@ describe('backup-import (CP-56)', () => {
   });
 
   describe('FK_ORDER — §5.3a ordering', () => {
-    it('has exactly 50 tables', () => {
-      expect(FK_ORDER.length).toBe(50);
+    it('has exactly 49 tables', () => {
+      expect(FK_ORDER.length).toBe(49);
     });
 
     it('matches the export table list', () => {

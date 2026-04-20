@@ -11,7 +11,7 @@
  *
  * Each test feeds a row with **string** values for every numeric/integer
  * column and asserts `typeof` on the resulting record's fields — proving the
- * entity coerces exactly as `event-observation.js` does.
+ * entity coerces exactly as `paddock-observation.js` does.
  */
 import { describe, it, expect } from 'vitest';
 import * as BatchEntity from '../../src/entities/batch.js';

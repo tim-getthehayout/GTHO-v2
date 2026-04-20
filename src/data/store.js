@@ -25,9 +25,7 @@ export const ENTITY_TYPES = [
   // D5: Events
   'events', 'eventPaddockWindows', 'eventGroupWindows', 'eventFeedEntries',
   'eventFeedChecks', 'eventFeedCheckItems',
-  // D5b: Event Observations
-  'eventObservations',
-  // D6: Surveys
+  // D6: Surveys + paddock observations (OI-0113 dropped event_observations)
   'surveys', 'surveyDraftEntries', 'paddockObservations',
   // D7: Harvest
   'harvestEvents', 'harvestEventFields',
@@ -444,7 +442,6 @@ export function captureEventSnapshot(eventId) {
     groupWindows: getAll('eventGroupWindows').filter(gw => gw.eventId === eventId).map(r => ({ ...r })),
     feedEntries: getAll('eventFeedEntries').filter(fe => fe.eventId === eventId).map(r => ({ ...r })),
     feedChecks: getAll('eventFeedChecks').filter(fc => fc.eventId === eventId).map(r => ({ ...r })),
-    observations: getAll('eventObservations').filter(o => o.eventId === eventId).map(r => ({ ...r })),
   };
 }
 
@@ -476,7 +473,6 @@ export function restoreEventSnapshot(snapshot) {
       { key: 'eventGroupWindows', data: snapshot.groupWindows },
       { key: 'eventFeedEntries', data: snapshot.feedEntries },
       { key: 'eventFeedChecks', data: snapshot.feedChecks },
-      { key: 'eventObservations', data: snapshot.observations },
     ];
 
     for (const { key, data } of childTypes) {

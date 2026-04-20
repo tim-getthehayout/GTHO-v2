@@ -11,7 +11,12 @@ import { fromSupabaseShape as locationFromSb } from '../../src/entities/location
 import { fromSupabaseShape as farmSettingFromSb } from '../../src/entities/farm-setting.js';
 import fixture from '../fixtures/backup-v14.json';
 
-const EXPECTED_TABLE_COUNT = 50; // 53 total tables minus 3 excluded (operation_members, app_logs, release_notes)
+// v14 fixture is historical and still carries event_observations: [] — it walks
+// the BACKUP_MIGRATIONS chain and the 28→29 step drops the key (OI-0113).
+const EXPECTED_FIXTURE_TABLE_COUNT = 50;
+// Current export lists 49 tables: 52 total tables (post-OI-0113 drop of
+// event_observations) minus 3 excluded (operation_members, app_logs, release_notes).
+const EXPECTED_EXPORT_TABLE_COUNT = 49;
 
 describe('backup round-trip (CP-55)', () => {
   describe('fixture structure', () => {
@@ -62,14 +67,14 @@ describe('backup round-trip (CP-55)', () => {
   });
 
   describe('table inclusion per §5.3', () => {
-    it(`includes exactly ${EXPECTED_TABLE_COUNT} tables`, () => {
+    it(`includes exactly ${EXPECTED_FIXTURE_TABLE_COUNT} tables (historical v14 count — event_observations dropped post-28→29 migration)`, () => {
       const tableNames = Object.keys(fixture.tables);
-      expect(tableNames.length).toBe(EXPECTED_TABLE_COUNT);
+      expect(tableNames.length).toBe(EXPECTED_FIXTURE_TABLE_COUNT);
     });
 
-    it('backup-export module lists same table count', () => {
+    it(`backup-export module lists ${EXPECTED_EXPORT_TABLE_COUNT} tables`, () => {
       const exportTableNames = getBackupTableNames();
-      expect(exportTableNames.length).toBe(EXPECTED_TABLE_COUNT);
+      expect(exportTableNames.length).toBe(EXPECTED_EXPORT_TABLE_COUNT);
     });
 
     it('fixture contains all tables from the export module', () => {
@@ -138,8 +143,8 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→28 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(14);
+    it('has migration entries for 14→29 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(15);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[15]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[16]).toBe('function');
@@ -154,6 +159,7 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS[25]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[26]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[27]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[28]).toBe('function');
     });
 
     it('migration 26 renames bale_ring_residue_diameter_ft → _cm with ft × 30.48 (OI-0111)', () => {

@@ -18,8 +18,8 @@ describe('store', () => {
   });
 
   describe('ENTITY_TYPES', () => {
-    it('has 53 entity types', () => {
-      expect(ENTITY_TYPES).toHaveLength(53);
+    it('has 52 entity types', () => {
+      expect(ENTITY_TYPES).toHaveLength(52);
     });
   });
 

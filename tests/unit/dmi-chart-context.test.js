@@ -130,4 +130,35 @@ describe('OI-0119 — computeDmi8Days date-routing source-event bridge', () => {
     expect(days[0].date).toBe('2026-04-09');
     expect(days[0].result?.status).toBeDefined();
   });
+
+  it('OI-0122 — pre-start days are blank when sourceEventId is NULL', () => {
+    // Regression guard for the OI-0122 bug: before the fix at move-wizard.js:680,
+    // same-farm rotations were created with sourceEventId = null, defeating the
+    // date-routing bridge. With sourceEventId stripped, pre-start days should
+    // have no result (or an empty/zero-cascade result), proving the bridge was
+    // doing the work the code fix + backfill enables.
+    _reset();
+    localStorage.clear();
+    seed();
+    add('paddockObservations', PaddockObsEntity.create({
+      operationId: OP, locationId: LOC,
+      observedAt: '2026-04-01T08:00:00Z',
+      type: 'open', source: 'event', sourceId: PW_SRC,
+      forageHeightCm: 25, forageCoverPct: 80,
+    }), PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
+    // Mutate the current event so its sourceEventId is null — simulating the
+    // pre-OI-0122 same-farm rotation state.
+    const evtRecord = buildDmi8ChartContext(EVT).event;
+    const evtNoSource = { ...evtRecord, sourceEventId: null };
+    const dmi8 = getCalcByName('DMI-8');
+    const days = computeDmi8Days(evtNoSource, dmi8, { today: '2026-04-11' });
+    expect(days).toHaveLength(3);
+    // Day 2026-04-10 (event's own start) still resolves via EVT's own context.
+    expect(days[1].result?.status).toBeDefined();
+    // Day 2026-04-09 pre-dates EVT and has no source to route to → the bridge
+    // runs EVT's own cascade, but EVT has no paddock window open that day, so
+    // pastureDmi is zero (the "blank bar" symptom).
+    expect(days[0].date).toBe('2026-04-09');
+    expect(days[0].result?.pastureDmiKg ?? 0).toBe(0);
+  });
 });

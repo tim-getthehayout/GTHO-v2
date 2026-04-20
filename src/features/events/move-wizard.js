@@ -670,14 +670,19 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       const timeIn = inputs.timeIn.value || null;
 
       // Step 6: Create new event
-      // Cross-farm move: use destination farm, link back via sourceEventId
+      // OI-0122: sourceEventId is always set on rotations (same-farm AND cross-farm)
+      // so the DMI-8 chart's date-routing bridge (dmi-chart-context.js:140-142)
+      // can reach back to the prior event for days that pre-date the new event's
+      // start. The display-side "← Moved from {farm}" banner at events/index.js:346
+      // already applies a farmId comparison, so same-farm rotations won't trigger
+      // the banner even though sourceEventId is now populated.
       const isCrossFarm = state.destFarmId && state.destFarmId !== farmId;
       // OI-0117: date_in/time_in dropped — start is derived from the first
       // child paddock window (created immediately below with dateOpened/timeOpened).
       const newEvent = EventEntity.create({
         operationId,
         farmId: state.destFarmId || farmId,
-        sourceEventId: isCrossFarm ? sourceEvent.id : null,
+        sourceEventId: sourceEvent.id,
       });
       add('events', newEvent, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
 

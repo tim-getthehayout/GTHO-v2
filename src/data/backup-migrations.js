@@ -129,4 +129,11 @@ export const BACKUP_MIGRATIONS = {
     b.schema_version = 29;
     return b;
   },
+  // 029 → 030: OI-0122 — backfill events.source_event_id for existing
+  //            same-farm rotations. Backup shape unchanged — this is a
+  //            data-only backfill on an already-specced column. Old backups
+  //            that pre-date migration 030 retain whatever source_event_id
+  //            their origin operation had at backup time; no transform
+  //            needed on restore.
+  29: (b) => { b.schema_version = 30; return b; },
 };

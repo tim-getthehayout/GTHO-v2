@@ -179,6 +179,19 @@ expect(data).toHaveLength(1);
 
 **Related memory:** `project_ui_sprint_workflow.md` in user auto-memory mentions the reconciliation pattern; this entry adds the schema-alongside-UI requirement.
 
+### 14. Post-push verification in deploy-gate — "I pushed" must mean "I verified it landed on origin"
+**Plugin:** project-infrastructure
+**Skill:** deploy-gate
+**What:** When any agent (Claude Code, Dispatch, etc.) runs `git push origin <branch>` as part of a handoff, the next step must be a verification read: `git fetch origin <branch>` followed by `git log origin/<branch> -1 --oneline`, and the returned SHA must equal the SHA that was just committed (`git rev-parse HEAD`). If the SHAs don't match, the push silently failed and the agent must surface the failure loudly — not report "done." The deploy-gate checklist already includes a "docs pushed" item; this adds the mandatory read-back that closes the silent-failure class of bug.
+**Why:** Hit at least twice on GTHO-v2. Most recently OI-0118 (2026-04-20): Claude Code committed the edit-paddock-window observation-cards implementation (`eef637e`) and reported "done and pushed," but the push never reached `origin/main`. The deployed GitHub Pages bundle stayed at the pre-implementation build; Tim opened the site, saw no pre-graze card, and we burned a round-trip diagnosing what looked like a rendering bug but turned out to be a missing deploy. The signature is `git status` saying `Your branch is ahead of 'origin/main' by 1 commit`. Push command exit codes aren't a reliable signal — a push can succeed at the local-git level and still not reach GitHub if there's an auth hiccup, a network drop mid-push, or (in Claude Code's case) the push step gets cut off a chained shell command and the agent never sees the error. The only way to catch the failure class is to read back from `origin/<branch>` after fetching. The project memory note `feedback_push_and_prompt.md` ("always provide push + CC prompt") was the interim workaround; this IMPROVEMENT promotes the verification half into the skill as a hard step.
+**How to apply:**
+1. `deploy-gate` SKILL.md — add a new checklist step immediately after any `git push` invocation: "**Verify push landed:** run `git fetch origin <branch> && git log origin/<branch> -1 --oneline` and confirm the returned SHA matches `git rev-parse HEAD` from before the push. If they differ, the push failed silently — retry or surface the error. Do not report the handoff complete until SHAs match."
+2. `deploy-gate` SKILL.md — in the Cowork Delivery Gate section, reframe the existing "docs pushed" checkbox as "docs pushed AND verified on origin" with the same fetch+log-origin read.
+3. When an agent runs deploy-gate at the end of a session and discovers a push didn't land, treat that as a P0-blocker notification to the user — not a quiet retry — because the user is likely about to test on the deployed site and will otherwise waste a round-trip.
+**Where:** deploy-gate SKILL.md (new verification step after every `git push`; update Cowork Delivery Gate wording). Optional follow-on: a `pre-push` git hook that prints the verification command as a reminder — project-specific, not required for the skill rule.
+
+**Related memory:** user auto-memory `feedback_push_and_prompt.md` — captures the "always provide push + CC prompt" expectation. This IMPROVEMENT adds the verification-after-push half of the pattern.
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

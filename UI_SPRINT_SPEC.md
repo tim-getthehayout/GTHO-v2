@@ -14,6 +14,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 
 | Date | Section | What changed |
 |------|---------|-------------|
+| 2026-04-20 | SP-12 | **DMI-8 chart cascade rewrite (OI-0119)** — new sprint section added covering the 3-day chart behavior on dashboard location cards (SP-3 surface) and Event Detail §3 (SP-2 surface). Combined fix for the empty-bars bug + cascade model: five chart statuses (was three — adds `no_animals` and `no_pasture_data`), deficit segment render (red atop stored stack with `+X deficit` sub-label), inline CTA link on `no_pasture_data` bars (→ Edit Paddock Window dialog for missing observation per OI-0118 surface, → Location edit for missing forage type), retroactive actual-conversion of the prior stored interval when a feed check lands, pooled pasture across parallel sub-paddocks, date-routing-only source-event bridge (no state handoff between events), 100% cover default on partial pre-graze with "(Fix)" hint. **New sub-move close flow rule** — when event has any stored-feed deliveries, sub-move Close requires a feed check inline in the Close sheet (strikes a clean actual/estimated boundary; no pasture observation forced — too subjective). Calc spec rewritten inline in V2_CALCULATION_SPEC.md §4.2 (calc spec is authoritative, not sprint-deferred). UX flow updates for V2_UX_FLOWS.md §12, §17.7, §17.15 deferred to reconciliation. Full spec: `github/issues/GH-29_dmi-8-cascade-rewrite.md`. |
 | 2026-04-15 | SP-1 | Fix dashboard action buttons |
 | 2026-04-15 | SP-2 | Event detail view |
 | 2026-04-15 | SP-3 | Dashboard location card enrichment |
@@ -1406,6 +1407,86 @@ Per CLAUDE.md §"Migration Execution Rule — Write + Run + Verify":
 
 ---
 
+## SP-12: DMI-8 Chart Cascade Rewrite
+
+**Status:** Spec complete · Ready for Claude Code
+**Spec file:** `github/issues/GH-29_dmi-8-cascade-rewrite.md` (full implementation spec)
+**Canonical calc spec:** `V2_CALCULATION_SPEC.md §4.2 DMI-8` (rewritten 2026-04-20 with OI-0119 — authoritative)
+**Open item:** OI-0119 (combined fix; supersedes OI-0076 deferral and OI-0069 original spec)
+**Schema:** None. Compute-on-read only. No CP-55/CP-56 impact.
+**Applies to surfaces:** SP-3 (dashboard location card, chart element #11) + SP-2 (Event Detail §3 chart). Shared chart component at `src/ui/dmi-chart.js`.
+
+### Why this section exists
+
+The 3-day DMI chart specced in SP-2 + SP-3 shipped but rendered empty bars on live field-test data (screenshots 2026-04-20: three of three location cards with empty charts on active events with real pre-graze observations and animal placements). Diagnosis surfaced three compounding latent bugs (dead-table observation reads post-OI-0112, actual path requiring two bracketing feed checks, estimated path ignoring feed entries) that needed a combined rewrite rather than three hotfixes. The rewrite introduces a cascade bucket model and two new chart statuses that change the UI contract enough to warrant a dedicated sprint section.
+
+### UI-layer changes (the only new surface area from the farmer's perspective)
+
+**1. Five chart statuses** (was three):
+
+| Status | Bar | Label | CTA |
+|---|---|---|---|
+| `actual` | solid two-stack (green pasture / amber stored) | total, day label | none |
+| `estimated` | striped two-stack (existing diagonal pattern) | total `(est.)`, day label | none |
+| `estimated` with `deficitKg > 0` | striped two-stack + **red segment atop the stored stack** for deficit portion | total `(est.)` with `+X deficit` sub-label, day label | none |
+| `needs_check` | grey short bar (existing), `—` value | "Feed check needed" | none |
+| `no_pasture_data`, reason `'missing_observation'` | grey short bar, `—` value | "Add pre-graze" | inline link → Edit Paddock Window dialog (OI-0118) for the owning window |
+| `no_pasture_data`, reason `'missing_forage_type'` | grey short bar, `—` value | "Set forage type" | inline link → Location edit sheet |
+| `no_animals` | blank space at bar height (no rendered bar), `—` value | day label only | none |
+
+**2. Deficit segment render.** New red segment appears atop the stored (amber) segment when the cascade determines `deficitKg > 0` for that day (both pasture and stored buckets exhausted before demand met). Sub-label shows `+X deficit` below the total.
+
+**3. Legend expansion.** The always-on legend entries (`■ grazing` / `■ stored`) gain a conditional `■ deficit` (red) swatch — rendered **only when at least one bar in the 3-day window has `deficitKg > 0`**.
+
+**4. Partial pre-graze hint.** When a pre-graze observation has `forageHeightCm` but no `forageCoverPct`, the cascade defaults cover to 100% and the chart surfaces a subtle "(assuming 100% cover — Fix)" hint below the chart with a link to edit the observation. Chosen path: best-effort rendering with a fixability CTA, not a fallthrough to `no_pasture_data`.
+
+### Sub-move Close flow rule (new)
+
+When `event.hasStoredFeed` is true (any `event_feed_entries` row exists on the event), the Sub-move Close sheet renders a **required feed-check card inline** and blocks Save until the farmer records remaining stored feed for each batch. This strikes a clean `actual`/`estimated` boundary at the close date — the prior stored interval retroactively flips from `estimated` → `actual`. No pasture observation is forced (pre-graze observations are too subjective to be a useful boundary marker). No stored-feed close prompt (existing Close Event behavior unchanged).
+
+Reasoning (Tim, 2026-04-20): pasture observations are inherently subjective — pre-graze height is already a best guess. Forcing a pasture observation at sub-move close doesn't buy accuracy. Feed checks on stored feed are precise enough to give the cascade a firm anchor.
+
+### Source-event bridge behavior (simplified)
+
+The chart's 3-day window can span into a prior event via `event.sourceEventId`. Previously the design considered stateful carryover at event boundaries (stored carries, pasture resets). **Simplified to date-routing only:** each chart day routes to the event that owned it, and DMI-8 runs against **that event's** self-contained cascade. No state handoff.
+
+Practical consequence: stored bales physically carried from the old paddock to the new paddock do **not** appear on the new event's chart unless the farmer logs them as a delivery on the new event. Matches existing v1 + v2 semantics (deliveries are event-scoped). Captured as a future-work note — if field testing surfaces confusion, a "carry stored from prior event" toggle at event start is a follow-up OI.
+
+### Chart renderer changes (`src/ui/dmi-chart.js`)
+
+- Add branches for `no_animals` (blank at bar height) and `no_pasture_data` (grey + CTA link via new `opts.onNoPastureData(reason, pw)` callback).
+- Add deficit segment within the `estimated`-status branch (red `div` atop the amber stored segment).
+- Legend: conditionally append red deficit swatch only when `days.some(d => d.result.deficitKg > 0)`.
+
+### Component integration (for SP-2 / SP-3 hosts)
+
+Dashboard card (`src/features/dashboard/index.js`) and Event Detail (`src/features/events/detail.js`) both:
+
+- Wire `opts.onNoPastureData(reason, pw)` to open the Edit Paddock Window dialog (OI-0118 surface) for `missing_observation`, or the Location edit sheet for `missing_forage_type`.
+- Wire `opts.onPartialPreGraze(pw)` to open the Edit Paddock Window dialog for the partial-cover "Fix" link.
+- Migrate dead-table reads: `getAll('eventObservations')` → `getAll('paddockObservations')` filtered by `type === 'open'`, `source === 'event'` (OI-0112 canonical pattern).
+- Detail.js only: fix `loc.areaHa` → `loc.areaHectares ?? loc.areaHa` at the two chart-context builders (sibling to OI-0075 Bug 3).
+
+### Base doc impact (reconciliation)
+
+- V2_UX_FLOWS.md §12 Sub-moves — add forced-feed-check rule on sub-move close when stored feed present.
+- V2_UX_FLOWS.md §17.7 Dashboard — chart status enumeration grows from 3 to 5 plus the deficit render.
+- V2_UX_FLOWS.md §17.15 Event Detail — same status enumeration update.
+- V2_CALCULATION_SPEC.md §4.2 — already updated inline with this OI (calc spec is authoritative).
+
+### Linked OPEN_ITEMS
+
+- **OI-0119** — this OI (combined fix spec).
+- **OI-0069** (closed — superseded) — original DMI-8 spec.
+- **OI-0076** (closed — superseded deferral) — "DMI Chart Empty Bars — Deferred."
+- **OI-0075 Bug 3** — precedent for silent field-name drift fix pattern.
+- **OI-0112** — upstream migration that orphaned the chart's observation reads.
+- **OI-0113** — drop `event_observations` table (unblocked once this ships).
+- **OI-0118** — Edit Paddock Window dialog is the target for the `no_pasture_data` CTA link.
+- **OI-0070** — EST-1 accuracy report, unblocked for field testing once DMI-8 produces correct splits.
+
+---
+
 ## Reconciliation Checklist (end of sprint)
 
 When this sprint is complete, do a dedicated session to:
@@ -1425,4 +1506,5 @@ When this sprint is complete, do a dedicated session to:
 - [ ] **SP-10 reconciliation** — merge into V2_UX_FLOWS.md as new §17.15.1 "Event Data Editing" (gap/overlap resolver, retro-place flow, per-section edit behavior) and into V2_APP_ARCHITECTURE.md as new "Consistency & Rollback" subsection (core principle, snapshot/rollback pattern). Convert SP-10 spec file in `github/issues/` to a thin pointer once integrated.
 - [ ] **SP-10 §8a schema reconciliation** — update V2_SCHEMA_DESIGN.md `event_feed_entries` table to include `entry_type`, `destination_type`, `destination_event_id` columns + check constraints. Update V2_CALCULATION_SPEC.md for DMI-1, DMI-5, NPK-1, NPK-2, cost-per-day to reflect "sum deliveries minus removals." Update CP-55 / CP-56 specs with new columns + schema_version bump. Update V2_MIGRATION_PLAN.md §5.3a ordering note (no change to ordering, just confirm `event_feed_entries` stays in position since the new FK points at the same `events` table it already references).
 - [ ] **SP-11 reconciliation** — merge empty-group archive flow into V2_UX_FLOWS.md (new §3.4 "Empty Group Handling" covering cascade + prompt, extend §15.2 Group CRUD Sheet with Show archived / Reactivate). Update V2_SCHEMA_DESIGN.md §3.3 — replace `archived boolean` row with `archived_at timestamptz`. Update V2_MIGRATION_PLAN.md §5.3a if FK ordering needs a note (no new tables/FKs expected). Update CP-55 / CP-56 specs with `archived_at` column handling and v23 → v24 migration chain. Convert `github/issues/empty-group-archive-flow.md` to a thin pointer.
+- [ ] **SP-12 reconciliation (DMI-8 cascade chart, OI-0119)** — merge the SP-12 chart UI behavior into V2_UX_FLOWS.md §17.7 (dashboard card chart element — replace the 3-state enumeration with the 5-state set + deficit render + CTA link semantics) and V2_UX_FLOWS.md §17.15 (Event Detail §3 chart — same status enumeration). Add the forced-feed-check rule on sub-move close (when event has stored-feed deliveries) to V2_UX_FLOWS.md §12 Sub-moves. V2_CALCULATION_SPEC.md §4.2 DMI-8 was already rewritten inline with the OI-0119 commit — verify the UX flow doc references the new status set consistently. Convert `github/issues/GH-29_dmi-8-cascade-rewrite.md` to a thin pointer referencing V2_CALCULATION_SPEC.md §4.2. No schema change; no CP-55/CP-56 update needed (compute-on-read).
 - [ ] Archive this file or mark it as reconciled

@@ -252,6 +252,18 @@ Close the issue in the same session that completes the work — do not leave imp
 
 When a SESSION_BRIEF is provided, look for `## OPEN_ITEMS changes` and apply all entries to `OPEN_ITEMS.md` before starting implementation work.
 
+### OPEN_ITEMS.md Closure Discipline
+
+Three close-out rules keep OPEN_ITEMS.md from drifting stale. All three apply at commit time — not during a later reconciliation sweep.
+
+**1. Piggyback rule — grep for siblings before closing.** When a fix lands that closes an OI, grep OPEN_ITEMS.md for every sibling OI that references the same file path, feature name, or symbol. If the same code change resolves a sibling, flip it to closed in the same commit. One code change often closes multiple OIs — don't assume the headline is the only one.
+
+**2. Orphan-flip belt-and-braces — commits that cite `OI-NNNN` must touch OPEN_ITEMS.md.** Any commit whose message references an OI ID must include a staged edit to `OPEN_ITEMS.md` in the same commit. Grep contract (post-commit check): if `git log -1 --format=%B | grep -E 'OI-[0-9]+'` matches, then `git diff-tree --no-commit-id --name-only -r HEAD | grep OPEN_ITEMS.md` must return a match. If it doesn't, the status line wasn't flipped — amend or follow with a corrective commit in the same session. Prevents the "fixed the code but forgot to flip the status line" class.
+
+**3. Downstream-moot sweep — structural changes retire older OIs.** When a commit drops a table, renames a column, deletes a file, bumps `schema_version`, or adds a `BACKUP_MIGRATIONS` rule, grep `OPEN_ITEMS.md` for the retired symbol (column name, table name, filename, old version number). Flip any now-moot entries to closed with a "made moot by OI-NNNN / migration NNN" note in the same commit. The person shipping the structural change is the only one positioned to know the older OI became moot — a later reconciliation pass can only find it by accident.
+
+**Origin:** 2026-04-20 reconciliation sweep flipped five OIs that had been stale a week or more: OI-0116 (piggyback — rode with OI-0117), OI-0052 (piggyback — rode with main.js auth rewrite), OI-0051 (orphan flip — shipped but never closed), OI-0087 and OI-0088 (downstream-moot — retired by OI-0113 dropping `event_observations` and migration 029 bumping schema_version to 29). Enforcing these three rules at commit time would have caught all five at the moment the fix landed.
+
 ## Build Phases
 
 Implementation follows the checkpoint sequence in V2_BUILD_INDEX.md. Each phase has spec files in `github/issues/` that define exactly what to build.

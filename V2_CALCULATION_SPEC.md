@@ -194,53 +194,94 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Output: grass_dmi_kg per paddock (total DMI for window minus stored feed consumed in that window)
 
 **DMI-8: Daily DMI Breakdown by Date (3-Day Chart)**
-- Computes: For a given event and date, the daily DMI split between pasture and stored feed, or a state indicating the data isn't available yet. Powers the 3-day DMI chart on both the dashboard card (SP-3) and event detail sheet (SP-2).
+- Computes: For a given event and date, the daily DMI allocation across pasture, stored feed, and deficit via a cascade bucket walk, or a status indicating the data isn't available yet. Powers the 3-day DMI chart on both the dashboard card (SP-3) and event detail sheet (SP-2).
 - **Inputs:**
   - `event` — the target event
   - `date` — the date to compute for
   - `groupWindows[]` — active group windows on this event (from store)
-  - `feedEntries[]` — event_feed_entries for this event
+  - `feedEntries[]` — event_feed_entries for this event (**required**, not optional — drives the stored bucket)
   - `feedChecks[]` — event_feed_checks + event_feed_check_items for this event
-  - `paddockWindows[]` — event_paddock_windows (for area, forage type)
-  - `observations[]` — event_observations with `observation_phase = 'pre_graze'` (for height, cover)
+  - `paddockWindows[]` — event_paddock_windows for this event (all open windows on `date` contribute to the pasture pool)
+  - `observations[]` — paddock_observations with `type = 'open'` AND `source = 'event'`, preferring `sourceId === pw.id` with fall-through to most-recent (same pattern as capacity line). **NOT `event_observations`** — that table was deprecated by OI-0112 and is being sunset by OI-0113.
   - `forageTypes[]` — forage_types (for `dm_kg_per_cm_per_ha`, `utilization_pct`, `residual_height_cm`)
-- **Output:** One of three states per date:
-  - `{ status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg }` — feed check covers this date
-  - `{ status: 'estimated', totalDmiKg, storedDmiKg, pastureDmiKg }` — no check, forecasted from declining pasture mass balance
-  - `{ status: 'needs_check' }` — no check, no basis for estimate (grey bar)
 
-- **State determination logic:**
+- **Output:** One of five statuses per date:
+  - `{ status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg }` — feed check anchors the stored leg for this date
+  - `{ status: 'estimated', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg }` — no check, cascade walk from FOR-1-seeded pasture bucket + deliveries-seeded stored bucket
+  - `{ status: 'needs_check' }` — the cascade can't run (e.g. first day of event with no observation yet, or pre-graze observation missing its forage height)
+  - `{ status: 'no_animals' }` — `totalDmiKg <= 0` on this date (zero active groups). Distinct from `needs_check`: no data is missing, there are just no animals to feed.
+  - `{ status: 'no_pasture_data', reason: 'missing_observation' | 'missing_forage_type' }` — pre-graze observation missing on the owning paddock window, OR `location.forageTypeId` is null. Distinct from `needs_check`: this is a user-fixable gap with an inline CTA.
 
-  1. **Compute daily demand:** `totalDmiKg` = DMI-3(event, date) — sum of DMI-2 for each group window active on this date. If groups changed during the 3-day window, demand adjusts per-day.
+- **State determination logic (cascade bucket model):**
 
-  2. **Check for feed check data on this date:** If a feed check exists that brackets this date (check before + check after, or check on this date), use DMI-5 interpolation to get `storedDmiKg`. Then `pastureDmiKg = totalDmiKg - storedDmiKg`. Status = `actual`.
+  **Step 0 — Compute daily demand.** `totalDmiKg` = DMI-3(event, date) — sum of DMI-2 for each group window active on this date. If `totalDmiKg <= 0` → status = `no_animals`, return (no further computation).
 
-  3. **No feed check — try estimate:** If the event has at least one prior day with an actual split AND a pre-graze observation exists with forage height + cover, AND the paddock has a forage type set:
-     - Compute initial pasture DM via FOR-1: `(height - residual) × dmPerUnit × area × (cover / 100) × (utilization / 100)`
-     - Walk forward from event start, subtracting each day's pasture consumption (actual where known, estimated where not)
-     - `remainingPastureDm` = initial - cumulative pasture consumed through yesterday
-     - If `remainingPastureDm >= totalDmiKg` → `pastureDmiKg = totalDmiKg`, `storedDmiKg = 0`
-     - If `0 < remainingPastureDm < totalDmiKg` → `pastureDmiKg = remainingPastureDm`, `storedDmiKg = totalDmiKg - remainingPastureDm`
-     - If `remainingPastureDm <= 0` → `pastureDmiKg = 0`, `storedDmiKg = totalDmiKg`
-     - Status = `estimated`
+  **Step 1 — Gate on pre-graze observation + forage type.**
+  - For each paddock window open on `date`: look up the pre-graze observation on the window's location from `paddock_observations` (filter `type = 'open'`, `source = 'event'`, prefer `sourceId === pw.id`, fall back to most recent).
+  - If ANY open window lacks a pre-graze observation with `forageHeightCm > 0` → status = `no_pasture_data`, reason = `'missing_observation'`.
+  - If ANY open window's location lacks `forageTypeId` → status = `no_pasture_data`, reason = `'missing_forage_type'`.
+  - If observation has `forageHeightCm` but `forageCoverPct` is null → **default cover to 100%** and proceed. Caller surfaces a subtle "(assuming 100% cover — Fix)" hint in the UI.
 
-  4. **No feed check, can't estimate:** First day of event with no check and no prior actual → status = `needs_check`.
+  **Step 2 — Check for feed check on this date.**
+  - If a feed check exists on or bracketing this date, compute `storedDmiKg` via DMI-5 interpolation (bracketed) or single-check projection (deliveries since check minus current remaining, linearly distributed across days since check).
+  - `pastureDmiKg = max(totalDmiKg - storedDmiKg, 0)`; `deficitKg = max(storedDmiKg + pastureDmiKg - totalDmiKg, 0)` handled by clamping — in practice, if `storedDmiKg >= totalDmiKg`, `pastureDmiKg = 0` and any excess is counted as surplus stored (not deficit).
+  - Status = `actual`. Return.
+  - **Retroactive actual-conversion rule:** when a feed check is added, the PRIOR interval's `storedDmiKg` bars flip from `estimated` → `actual` (the interval between this check and the previous check, or the event start if no previous check). The stored leg is re-derived from deliveries within the interval minus the new check's residual. **Pasture bars in that interval stay `estimated`** — pre-graze observations are too subjective to retroactively promote. This is handled naturally by re-running DMI-8 after a check insertion; the calc itself is pure-functional.
 
-- **Source event bridge:** When the event has `source_event_id`, the chart's 3-day window can extend into the source event. For dates before the current event's `dateIn`, query the source event's feed check data and render those bars as `actual`. This gives continuity — the chart isn't empty on day 1 of a move.
+  **Step 3 — Estimated path (cascade walk).** Walk forward from the earliest relevant day (event start OR source event end — see bridge below) through `date`, maintaining two buckets:
 
-- **Forage type missing guard:** If the paddock's location has no forage type set, the estimate path (step 3) cannot run — `dmPerUnit` is undefined. In this case, treat as `needs_check` and render an inline prompt: "Set forage type to enable pasture estimate" with a link to the location edit sheet. On save, the chart re-renders. Matches v1's pattern for the same situation.
+  - **Pasture bucket (`remainingPastureDm`):** seeded from `sum(FOR-1(pw))` across all paddock windows open at walk start. FOR-1 = `(forageHeightCm - residualHeightCm) × dmKgPerCmPerHa × areaHectares × (forageCoverPct / 100) × (utilizationPct / 100)`. Pooled across parallel open sub-paddocks — multiple windows can be open simultaneously.
+    - **Sub-move open** during the walk: add `FOR-1(newWindow)` to the bucket on the sub-move's open date (new pasture becomes available).
+    - **Sub-move close** during the walk: drop the closed window's remaining pasture from the bucket on the close date (animals lose access). Remaining pasture in the closed window is not carried over.
+    - **Per day:** subtract that day's `pastureDmiKg` (computed in step 3c below).
+  - **Stored bucket (`remainingStoredDm`):** seeded from `sum(event_feed_entries.quantity × batch.weightPerUnitKg × batch.dmPct / 100)` up to and including walk start. Subtract residuals recorded by the latest feed check before walk start if any.
+    - **Per delivery** during the walk: add the delivery's DM to the bucket on delivery date.
+    - **Per day:** subtract that day's `storedDmiKg` (computed in step 3c below).
 
-- **Chart rendering spec (presentation layer, not calc):**
-  - 3 bars: today, yesterday, day before (or today + 2 future days — depends on context)
-  - `actual` → solid bar, two-color stack (green = pasture, amber = stored)
-  - `estimated` → striped/hatched bar, same two-color stack, label = "(est.)"
-  - `needs_check` → grey bar, label = "Feed check needed"
-  - Right column: today's total DMI number (large) + "lbs DMI today"
-  - Legend: ■ grazing (green) · ■ stored (amber)
+  **Step 3c — Allocate today's `totalDmiKg` via cascade (preference: pasture → stored → deficit):**
 
-- **Display precision:** All kg values display as whole numbers. When the chart tooltip or label shows estimated days (e.g., "~1.25 days pasture remaining"), use 2 decimal places per FOR-3 display rule.
-- **Composites:** DMI-2 (per-group demand), DMI-3 (event demand), DMI-5 (stored feed interpolation), FOR-1 (standing forage DM)
-- **v2-only:** No v1 equivalent. V1's chart was purely visual with no source split.
+  | Pasture remaining | Stored remaining | `pastureDmiKg` | `storedDmiKg` | `deficitKg` |
+  |---|---|---|---|---|
+  | ≥ demand | any | `totalDmiKg` | `0` | `0` |
+  | `0 < p < demand`, stored ≥ shortfall | `≥ (demand - p)` | `p` | `demand - p` | `0` |
+  | `0 < p < demand`, stored < shortfall | `< (demand - p)` | `p` | stored | `demand - p - stored` |
+  | `≤ 0` | `≥ demand` | `0` | `demand` | `0` |
+  | `≤ 0` | `< demand` | `0` | stored | `demand - stored` |
+
+  Decrement buckets by the allocated amounts. Status = `estimated`.
+
+  **Step 4 — Cascade can't run:** If step 3 is unreachable (e.g. event day 1 with observation present but no prior actual days needed to seed a trailing walk — this is rare; the cascade seeds from FOR-1 and runs forward on day 1 with no prior day required) → status = `needs_check`. This fallback exists for legacy data with partial inputs that don't cleanly fit the cascade (e.g. a mid-event observation was edited after the window opened and the walk's starting state is ambiguous).
+
+- **Source event bridge (date-routing, no state carryover):**
+  - When the chart's 3-day window extends into a date before `event.dateIn` AND `event.sourceEventId` is set, the chart renders that day by running DMI-8 against the **source event's self-contained cascade** — not by handing state across the boundary.
+  - For each date in the 3-day window: `ownerEvent = (date < event.dateIn) ? getById('events', event.sourceEventId) : event`. Run DMI-8 with `ownerEvent` as the target event.
+  - **No stored bucket carryover across events.** If the farmer physically moved bales from the source paddock to the new paddock without logging a delivery on the new event, the new event's cascade starts with `remainingStoredDm = 0` on day 1. This matches existing v2 + v1 semantics (deliveries are event-scoped). If a carried delivery matters, the farmer logs it as a delivery on the new event.
+  - Chained events (event B sources from event A sources from event Z): routing walks the chain per-date (date-range tests for A and Z independently). Uncommon; tested but not optimized.
+
+- **Sub-move interactions with the cascade:**
+  - **Sub-move open** at `openDate`: on the walk, add `FOR-1(newWindow)` to the pasture bucket on `openDate`. If a pre-graze observation exists for the new window, use it; if not, the new window's contribution is 0 (pasture bucket does not grow from an unobserved new window; the `no_pasture_data` gate in step 1 applies event-wide, not per-window, because any open window without an observation invalidates the pooled estimate).
+  - **Sub-move close** at `closeDate`: on the walk, drop the closing window's remaining pasture share from the pasture bucket. Remaining pasture is estimated as `initialPastureDm(closingWindow) - sum(pastureDmiKg attributed to closing window during its open period)`. Since the cascade pools pasture, the attribution uses the window's open-day share of the pool (`initialPastureDm_window / sum(initialPastureDm_open_windows)`). Close drops the attributable remainder.
+  - **New flow rule — forced feed check on sub-move close when stored feed present.** If `event.hasStoredFeed` is true (any `event_feed_entries` row exists on the event), the Sub-move Close sheet renders a required feed-check card inline and blocks Save until the farmer records remaining stored feed. This strikes a clean actual/estimated boundary at the close date — the prior interval's `storedDmiKg` retroactively converts to `actual`. Pasture bars in that interval stay `estimated` per the retroactive rule in step 2. No pasture observation is forced at close (pasture observations are too subjective to usefully mark a boundary). No stored-feed close prompt (existing Close Event behavior unchanged).
+
+- **Render statuses (presentation layer — `src/ui/dmi-chart.js`):**
+
+  | Status | Bar | Label | CTA |
+  |---|---|---|---|
+  | `actual` | solid two-stack (green pasture / amber stored) | total, day label | none |
+  | `estimated` | striped two-stack (green diagonal / amber diagonal) | total `(est.)`, day label | none |
+  | `estimated` with `deficitKg > 0` | striped two-stack + **red segment** atop the stored stack for deficit portion | total `(est.)` with `+X deficit` sub-label, day label | none |
+  | `needs_check` | grey short bar, `—` value | "Feed check needed" | none |
+  | `no_pasture_data`, `missing_observation` | grey short bar, `—` value | "Add pre-graze" | inline link → Edit Paddock Window dialog (OI-0118) |
+  | `no_pasture_data`, `missing_forage_type` | grey short bar, `—` value | "Set forage type" | inline link → Location edit sheet |
+  | `no_animals` | blank space at bar height, `—` value | day label only | none |
+
+  Legend: `■ grazing (green)` · `■ stored (amber)` · add `■ deficit (red)` **only when at least one bar in the 3-day window has `deficitKg > 0`**.
+
+- **Display precision:** All kg values display as whole numbers. When a tooltip shows estimated days remaining (e.g., "~1.25 days pasture remaining"), use 2 decimal places per FOR-3 display rule.
+
+- **Composites:** DMI-2 (per-group demand), DMI-3 (event demand), DMI-5 (stored feed interpolation), FOR-1 (standing forage DM).
+
+- **v2-only:** No v1 equivalent. V1's chart was purely visual with no source split and no deficit representation.
 
 ### 4.3 Forage Domain (6 formulas)
 
@@ -504,6 +545,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-20 | OI-0119 — DMI-8 cascade rewrite | Full rewrite of §4.2 DMI-8. Corrective per CLAUDE.md §"Corrections to Already-Built Code" — original spec (2026-04-16) shipped with three latent bugs surfaced in 2026-04-20 field testing: (1) chart-data builders read the dead `event_observations` collection post-OI-0112 (four call sites), (2) actual path required BOTH bracketing feed checks (silent fallthrough on the common single-check case), (3) estimated path destructured `feedEntries: _feedEntries` and ignored deliveries, deriving `storedDmiKg` as the residual of pasture balance rather than from actual stored feed. New model: **cascade bucket walk** — pasture-first → stored-second → deficit-third allocation per day, with separate buckets for pasture DM (FOR-1-seeded, pooled across parallel open sub-paddocks) and stored DM (deliveries-seeded, re-anchored by feed checks). **Five statuses** (was three): adds `no_animals` (zero demand — legitimately nothing to feed, distinct from missing data) and `no_pasture_data` (missing observation or forage type — distinct from `needs_check`, carries inline CTA link). **Retroactive actual-conversion rule** — feed checks flip the prior interval's `storedDmiKg` bars from `estimated` → `actual`; pasture bars in that interval stay `estimated` (pre-graze observations are too subjective to true up retroactively). **Observation source** — `paddock_observations` (OI-0112 canonical), NOT `event_observations`. **Source-event bridge simplified to date-routing only** — for each chart day, find the event that owned that date and run DMI-8 against THAT event's self-contained cascade; no state handoff between events. Trade-off accepted: stored feed physically carried across event boundaries does not appear on the new event's chart unless logged as a delivery on the new event. **New sub-move close flow rule** — when the event has any stored-feed deliveries, sub-move close requires a feed check inline in the Close sheet (strikes a clean actual/estimated boundary). **Pre-graze partial default** — missing cover defaults to 100% with a "(Fix)" hint. **Parallel sub-paddocks** — pasture pooled across all currently-open paddock windows; sub-move open adds to the pool, sub-move close drops the closing window's attributable remainder. **Deficit render** — new red segment atop the stored stack with `+X deficit` sub-label; legend gains red swatch only when at least one bar has deficit. Sprint reconciliation impact: V2_UX_FLOWS.md §12 (forced feed check on sub-move close), §17.7 + §17.15 (5-status enumeration), UI_SPRINT_SPEC.md SP-3. CP-55/CP-56 impact: **NONE** (compute-on-read; no new columns). Schema change: **NONE**. Formula count unchanged (still 39). Related: OI-0119 (this OI), OI-0069 (closed — original spec), OI-0076 (closed — superseded deferral), OI-0075 Bug 3 (precedent fix pattern for silent field-name drift), OI-0112 (upstream migration that orphaned the read sites), OI-0113 (unblocked once this ships — last `event_observations` reader removed), OI-0118 (Edit Paddock Window dialog target for `no_pasture_data` CTA), OI-0070 (EST-1 unblocked for field testing). |
 | 2026-04-16 | UI sprint — decimal precision | FOR-3 and FOR-4 output changed from integer (`Math.floor`) to 2 decimal places (`Math.round(x * 100) / 100`). Display rule: all estimated/forecasted day values render with 2 decimal places (e.g., `1.25`). Precision notes added to DMI-8 and EST-1 specs. |
 | 2026-04-16 | UI sprint — EST-1 accuracy comparison | Added §4.12 Accuracy Domain with EST-1 (Event Pasture Accuracy). Compares estimated (pre-graze FOR-1 + FOR-3) vs actual (post-graze FOR-1 + mass balance) for closed events. Two surfaces: event close summary card (days accuracy headline) and accuracy trend report. Two-method sanity check (forage measurement vs mass balance). No new data stored — all compute-on-read from existing observations and feed records. Total formulas: 38 → 39. Domains: 11 → 12. |
 | 2026-04-16 | UI sprint — DMI-8 daily breakdown | Added DMI-8 (Daily DMI Breakdown by Date) to the DMI domain. Three-state output (actual/estimated/needs_check) powers the 3-day chart on dashboard card and event detail sheet. Composes DMI-2/DMI-3 (demand), DMI-5 (stored feed interpolation), FOR-1 (standing DM). Declining pasture mass balance for estimates. Source event bridge for continuity across moves. Forage type required with inline prompt fallback. Total formulas: 37 → 38. |

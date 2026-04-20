@@ -5,6 +5,8 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, closePaddockWindow } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
+import * as FeedCheckEntity from '../../entities/event-feed-check.js';
+import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { createObservation, renderLocationPicker } from './index.js';
 import { convert } from '../../utils/units.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
@@ -173,6 +175,53 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   const postGraze = renderPostGrazeCard({ farmSettings: farmSettings2 });
   panel.appendChild(postGraze.container);
 
+  // OI-0119: forced feed-check card when the event has any stored-feed
+  // deliveries. Strikes a clean actual/estimated boundary on sub-move close.
+  const eventFeedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === paddockWindow.eventId);
+  const hasStoredFeed = eventFeedEntries.length > 0;
+  const feedCheckInputs = []; // { batchId, locationId, input, unitLabel }
+  if (hasStoredFeed) {
+    panel.appendChild(el('div', {
+      className: 'close-open-section-title',
+      style: { marginTop: 'var(--space-4)' },
+      'data-testid': 'submove-close-feed-check-title',
+    }, [t('feed.feedCheck')]));
+    panel.appendChild(el('div', { className: 'form-hint', style: { marginBottom: 'var(--space-2)' } }, [
+      'Record remaining stored feed so consumption since the last check is locked in.',
+    ]));
+
+    const groups = {};
+    for (const entry of eventFeedEntries) {
+      const key = `${entry.batchId}|${entry.locationId}`;
+      if (!groups[key]) groups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
+      groups[key].total += (entry.quantity ?? 0);
+    }
+
+    for (const group of Object.values(groups)) {
+      const batch = getById('batches', group.batchId);
+      const groupLoc = getById('locations', group.locationId);
+      const batchName = batch ? batch.name : '?';
+      const groupLocName = groupLoc ? groupLoc.name : '?';
+      const remainingInput = el('input', {
+        type: 'number', className: 'auth-input settings-input',
+        value: '0', placeholder: '0', min: '0',
+        'data-testid': `submove-close-feed-${group.batchId}-${group.locationId}`,
+      });
+      feedCheckInputs.push({ batchId: group.batchId, locationId: group.locationId, input: remainingInput });
+      panel.appendChild(el('div', {
+        className: 'card-inset',
+        style: { marginTop: 'var(--space-2)', padding: 'var(--space-3)' },
+      }, [
+        el('div', { style: { fontWeight: '500', fontSize: '13px' } }, [`${batchName} \u2192 ${groupLocName}`]),
+        el('div', { className: 'form-hint' }, [
+          `${t('feed.feedCheckStarted')}: ${group.total} ${batch?.unit || ''}`,
+        ]),
+        el('label', { className: 'form-label' }, [t('feed.feedCheckRemaining')]),
+        remainingInput,
+      ]));
+    }
+  }
+
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-close-status' });
   panel.appendChild(statusEl);
 
@@ -184,6 +233,19 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
         clear(statusEl);
         const pgv = postGraze.validate();
         if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
+
+        // OI-0119: block Save when stored feed exists and any feed-check input
+        // is blank or negative.
+        if (hasStoredFeed) {
+          for (const item of feedCheckInputs) {
+            const v = item.input.value.trim();
+            if (v === '' || Number.isNaN(Number(v)) || Number(v) < 0) {
+              statusEl.appendChild(el('span', {}, ['Record remaining for every delivered feed before closing.']));
+              return;
+            }
+          }
+        }
+
         try {
           // OI-0095: terminal close — route through closePaddockWindow.
           closePaddockWindow(
@@ -193,6 +255,32 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
             inputs.timeClosed.value || null,
           );
           createObservation(paddockWindow.operationId, paddockWindow.locationId, 'close', paddockWindow.id, new Date().toISOString(), postGraze.getValues());
+
+          // OI-0119: write the feed check + items so DMI-8 converts the prior
+          // interval's storedDmiKg from estimated → actual on re-read.
+          if (hasStoredFeed && feedCheckInputs.length) {
+            const check = FeedCheckEntity.create({
+              operationId: paddockWindow.operationId,
+              eventId: paddockWindow.eventId,
+              date: inputs.dateClosed.value,
+              time: inputs.timeClosed.value || null,
+              isCloseReading: false,
+            });
+            add('eventFeedChecks', check,
+              FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
+            for (const item of feedCheckInputs) {
+              const checkItem = FeedCheckItemEntity.create({
+                operationId: paddockWindow.operationId,
+                feedCheckId: check.id,
+                batchId: item.batchId,
+                locationId: item.locationId,
+                remainingQuantity: Number(item.input.value) || 0,
+              });
+              add('eventFeedCheckItems', checkItem,
+                FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+            }
+          }
+
           submoveCloseSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

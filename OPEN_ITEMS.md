@@ -4,11 +4,83 @@
 
 ---
 
+### OI-0120 — Edit member info (display name, email, role) on pending invites and accepted members
+**Added:** 2026-04-20 | **Area:** v2-build / settings / member-management | **Priority:** P2 (usability gap exposed by CP-66 close-out audit — admins cannot correct typos in pending invites or update a member's display name/email post-acceptance without leaving the app and editing Supabase directly; role edit already works for accepted non-owner members but the pending-invite path has no edit at all)
+**Checkpoint:** Phase 3.5 polish (follow-up to CP-66, ships standalone)
+
+**Status:** open — spec'd, ready for Claude Code. Spec: `github/issues/edit-member-info.md`. No schema change required (uses existing `operation_members.display_name` and `operation_members.email` columns).
+
+**What this closes:** CP-66 (closed 2026-04-20) shipped invite creation, role change for accepted members, member removal, link copy/regenerate, and invite cancel — but did NOT include any edit path for the captured `display_name` / `email` fields after the invite row is created. Two concrete gaps Tim hit in the close-out audit:
+
+1. **Pending invite typos are unfixable.** `createInvite` (member-management.js:235-278) accepts a display name and email, inserts the row, copies the link to clipboard. If the admin typos the email or wants to change the display name before sending the link, the only path is **Cancel invite → start over** (which generates a new token, invalidates the link the admin may have already copied to a draft text/email). On the pending row in the member list, the actions are limited to Copy/Regenerate/Cancel (member-management.js:100-115). No edit.
+
+2. **Accepted member name/email drift.** Once a member accepts the invite, `renderRoleSelect` (member-management.js:282-305) lets an admin/owner change their role between admin and team_member, but there is no UI to update the `display_name` (which Tim's CP-66 spec explicitly notes "pre-populates the member row. Invitee can change later" — but in practice neither the invitee nor the admin has any settings UI to do so) or the `email` (used for the email-based fallback claim in `claim_pending_invite`, so a stale email could break re-invite scenarios).
+
+**Scope (locked with Tim 2026-04-20):**
+
+| Surface | Editable fields | Permission | UX |
+|---------|-----------------|------------|-----|
+| Pending invite row | display_name, email, role | owner + admin (matches existing CP-66 admin-only gate) | Inline expand-in-place form on the row (no separate sheet — matches CP-66 invite creation pattern). New "Edit" button next to Copy/Regenerate/Cancel. Save persists to `operation_members` row, re-renders list. |
+| Accepted member row | display_name, email | owner + admin (matches existing role-change gate; same `!isOwner && !isSelf` exclusion still applies — owners and self cannot be edited by anyone else, matching the existing role-edit guardrail) | Inline expand-in-place form below the row. New "Edit" button next to the existing role select + Remove. Role select stays where it is (no need to duplicate). Save persists, re-renders list. |
+| Self-edit | display_name, email | any role (own row only) | Out of scope for this OI — separate self-profile UI lives in user account settings, not member management. Note for follow-up: if a member needs to change their own display name today, an admin must do it for them. Acceptable interim per Tim. |
+| Owner row edit | (none) | (none) | Owner row has no edit button — same protection as the existing CP-66 owner-row no-actions rule. To change an owner's display name, the owner must use the self-profile path (currently missing — see above note). |
+
+**Why the email field is editable on accepted members (and not just locked at acceptance):** The email column on an accepted member is the lookup key for the email-based fallback claim path (`claim_pending_invite`, member-management.js calls it during sign-in for users with no operation). If a member's primary email changes (job change, domain change, typo discovered post-acceptance), an admin needs a way to update it so future re-invite or recovery flows match. Schema-wise nothing prevents this — the column is just text, no FK.
+
+**Why the role select stays separate (not folded into the edit form):** The existing `renderRoleSelect` (member-management.js:282-305) is a single-tap inline change with an immediate Supabase write — no edit-mode, no Save button. Tim has used this pattern in production. Folding role into a multi-field edit form would slow down the most common admin task (promote a team member to admin). Decision: keep the role select on the row for accepted members; the edit form covers display_name + email only. For pending invites the role edit happens inline because the row has no role select today (only Copy/Regenerate/Cancel) — the edit form is the most natural place to add it.
+
+**Schema impact:** **NONE.** Both `display_name` and `email` columns already exist on `operation_members` (added in CP-66 migration). No new columns. No RLS changes (existing policies already allow admin/owner update on rows in their operation).
+
+**CP-55/CP-56 impact:** **NONE.** No schema change → no export/import shape change. The existing CP-55 export already includes `display_name` and `email`; CP-56 import already round-trips them. This OI just exposes editing; the underlying data flow is unchanged.
+
+**Validation rules (mirror CP-66's createInvite validation, member-management.js:241-242):**
+- Display name: trimmed, non-empty.
+- Email: trimmed, non-empty, contains `@`. Looser validation than full RFC-5322 — matches existing CP-66 invite creation.
+- Optimistic concurrency: not required for this OI. Last-write-wins on a per-field basis is acceptable; the audit trail for who changed what is out of scope (could be added later via `app_logs`).
+
+**Edge cases the spec must address:**
+- What happens if an admin edits an accepted member's email to one that another member is using? → Spec says: surface inline error "Email already in use in this operation" via Supabase unique-constraint check (`operation_members` has `(operation_id, email)` unique constraint; if not, add to migration — but verify first). Action item for Claude Code: confirm whether the unique constraint exists; if not, the spec defaults to client-side check before write.
+- What happens if a pending invite's email is edited and an old draft message has the link? → The link still works (it's keyed off `invite_token`, not email). Edit the email field updates only the display + the email-based fallback path. No invalidation of the link.
+- What happens if an admin edits a pending invite's role from team_member → admin? → No special handling. The change persists. When the invitee accepts, they're admin.
+- Owner row edit attempt: button is not rendered. Defense-in-depth: server-side RLS already prevents non-owners from updating the owner row's role; this OI does not change RLS.
+- Self-edit attempt: button is not rendered for the current user's own row in member management. Self-profile editing is out of scope (see table above).
+
+**Files affected:**
+- `src/features/settings/member-management.js` — add `editMember` function, `showEditForm` inline form, edit button render in both pending and accepted action arrays
+- `src/i18n/i18n.js` (or wherever `t()` strings live) — new strings: `members.edit`, `members.editTitle`, `members.editPending`, `members.saveChanges`, `members.changesSaved`, `members.emailInUse`
+- Tests: `tests/unit/member-management-edit.test.js` — 6 cases (pending happy path, accepted happy path, validation failures for empty name + bad email, owner-row no edit button, self-row no edit button, email collision handling)
+- E2E: `tests/e2e/member-edit.spec.js` — full edit → Supabase round-trip per CLAUDE.md §E2E rule (admin opens member sheet, edits a pending invite's email, verifies `operation_members.email` in Supabase reflects the change)
+
+**Acceptance criteria:**
+- [ ] Edit button renders on pending invite rows for owner/admin (not for team members)
+- [ ] Edit button renders on accepted non-owner non-self rows for owner/admin
+- [ ] Owner row has no edit button (CP-66 owner-row protection extends here)
+- [ ] Self row has no edit button (self-edit is out of scope, see Notes)
+- [ ] Tapping Edit on a pending row reveals inline form: display_name input, email input, role segment control (admin/team_member), Save + Cancel buttons
+- [ ] Tapping Edit on an accepted row reveals inline form: display_name input, email input, Save + Cancel buttons (no role segment — role select stays on the row)
+- [ ] Save validates: display_name trimmed non-empty, email trimmed non-empty contains `@`
+- [ ] Save persists to Supabase via `update`; success toast shows "Changes saved"; member list re-renders with new values
+- [ ] Email collision (another row in same operation has same email) shows inline error "Email already in use in this operation"
+- [ ] Cancel button discards changes and collapses the form
+- [ ] All user-facing strings use `t()`
+- [ ] No `innerHTML` — DOM builder pattern only
+- [ ] Unit tests cover all six cases above
+- [ ] E2E test verifies Supabase row reflects the edit (per CLAUDE.md §E2E)
+
+**Related OIs:** OI-0047 (closed 2026-04-20 — CP-66 ship: this OI is the in-place follow-up that CP-66 explicitly deferred). No other open OIs depend on this one.
+
+**Notes:**
+- This is independently shippable from OI-0119 (DMI-8 cascade) and the rest of the UI sprint. It does not touch any of the dashboard/event-detail surfaces under sprint revision.
+- During UI sprint, the spec file in `github/issues/` is a full spec (not a thin pointer) per CLAUDE.md §"Active Sprint." At sprint reconciliation, the canonical spec text moves into V2_UX_FLOWS.md §20.7 (Member Management) as a new sub-section under §20.3.2 Member List, and the github/issues/ file becomes a pointer.
+- Self-profile editing (a member changing their own display_name and email) is a known gap left open by this OI. Captured here for future tracking but explicitly out of scope for OI-0120 — decision is to scope OI-0120 narrowly to admin-side edit so the immediate CP-66 typo-fix gap is closed without expanding scope into account-settings UX. A separate OI for self-profile editing can be opened later if/when Tim hits the need.
+
+---
+
 ### OI-0119 — DMI-8 chart shows empty bars: dead-table observation reads + actual-path requires two bracketing checks + estimated path ignores feed entries entirely + no cascade model (combined rewrite)
 **Added:** 2026-04-20 | **Area:** v2-build / calcs / dashboard / event-detail / ui | **Priority:** P1 (live field-testing surface — farmer cannot see pasture vs stored split on any current event; chart is the primary data-density carrier on both the dashboard card and event detail; the bug class is the same silent field-name drift that OI-0075 Bug 3 closed on the capacity line)
 **Checkpoint:** UI sprint (combined fix; supersedes OI-0076 deferral and rewrites OI-0069's DMI-8 spec)
 
-**Status:** open — spec'd, ready for Claude Code. Spec: `github/issues/dmi-8-cascade-rewrite.md`. Revised V2_CALCULATION_SPEC.md §4.2 DMI-8 is the canonical spec; the github/issues/ file during UI sprint is a full implementation spec (will be reduced to a thin pointer at sprint reconciliation).
+**Status:** closed — 2026-04-20. Spec: `github/issues/GH-29_dmi-8-cascade-rewrite.md` (GH issue #29). DMI-8 rewritten with the cascade model in `src/calcs/feed-forage.js`; shared chart-context builder extracted to `src/features/events/dmi-chart-context.js` (centralizes the `paddock_observations` migration and the `areaHectares ?? areaHa` fallback, and applies the OI-0117 `getEventStartDate` decoration on `event.dateIn`); `src/features/dashboard/index.js` + `src/features/events/detail.js` chart builders now call the shared helper with date-routing source-event bridge; `src/ui/dmi-chart.js` renders all five statuses including the red deficit segment atop the stored stack, the `no_pasture_data` inline CTA linking to OI-0118's Edit Paddock Window dialog (missing observation) or to the Locations tab (missing forage type), and the "(Fix cover)" hint chip for partial pre-graze; `src/features/events/submove.js` gains the forced feed-check card on close when `event.hasStoredFeed` is true (writes `event_feed_checks` + per-combo `event_feed_check_items` with `isCloseReading=false`). Full unit suite 1135 → 1165 (30 new cases: 11 cascade + 5 context + 6 renderer + 4 submove close + 4 reused existing). Grep contracts: `getAll('eventObservations')` → 0 in `src/features/dashboard` + `src/features/events`; `feedEntries: _feedEntries` → 0; `update('events'` → 0 in `submove.js`. Base doc already up-to-date (Cowork pre-rewrote V2_CALCULATION_SPEC.md §4.2 with the cascade model + five statuses + deficit row). E2E `tests/e2e/dmi-chart.spec.js` covers the Supabase round-trip. No schema change. No CP-55/CP-56 impact.
 
 **What Tim is hitting:** On the dashboard home (location cards G-1/G-3, D, B2/B-1) and on Event Detail's §3 DMI chart, the 3-day stacked bars render empty (`—` values, grey bars, no pasture/stored split) on active events that have real pre-graze observations, real animal placements, and in some cases real feed entries. Two screenshots captured 2026-04-20: three of three location cards with empty charts on events that have been open for 3–5 days. G-1/G-3 partially renders (legacy data path still works on one window), but D and B2 are fully grey.
 
@@ -2883,12 +2955,25 @@ Transfer pair index built before event loop, `source_event_id` resolved via `tra
 ### OI-0047 — Member Management & Invite Flow Missing from V2 UX Specs
 **Added:** 2026-04-14 | **Area:** v2-design | **Priority:** P2
 **Checkpoint:** pre-Phase-3.5
-**Status:** open — spec written, pending approval
+**Status:** closed — 2026-04-20 (close-out audit). Implementation landed in an earlier session without the OI being closed. Everything the CP-66 spec called out is shipped in `src/features/settings/member-management.js` (446 lines — `openMemberManagementSheet`, `renderMemberList`, `showInviteForm`, `createInvite`, `renderRoleSelect`, `removeMember`, `cancelInvite`, `regenerateLink`, `copyInviteLink`, `generateInviteUrl`, `getMemberCount`, `getCurrentUserRole`, `renderMemberSheetMarkup`) and `src/features/auth/invite-claim.js` (142 lines — `#invite={token}` route handler + `claim_invite_by_token` RPC call + `claim_pending_invite` email fallback). All 18 acceptance criteria in `github/issues/CP-66_member-management-invite.md` met. Follow-up work on in-place edits for pending invites and accepted members tracked separately as OI-0120 — those capabilities were out of scope for CP-66.
 
-V2_UX_FLOWS.md §20.1 references "operation members list (admin only; link to member management)" but no §20.3 flow was ever designed. V1 had a working invite system (`sbInviteMember` + OTP email + `claim_pending_invite` RPC). V2's `operation_members` schema (§1.4) supports pending invites but there's no UI flow, no invite mechanism, and no build checkpoint.
+**What shipped:**
+- Member list with owner/admin/team_member ordering + pending invites sorted by `invited_at` ascending
+- Create invite (inline form: display name, email, role segment control; auto-copies link to clipboard on save)
+- Copy link / regenerate link / cancel invite for pending invites
+- Change role (admin ↔ team_member) via inline `<select>` for accepted non-owner members
+- Remove member with `window.confirm` gate for accepted non-owner, non-self members
+- Owner row protected (no action buttons)
+- Team members see read-only member count via `getMemberCount()`; management sheet gated by `isAdminOrOwner` check
+- Router detects `#invite={token}` hash and triggers `claim_invite_by_token` RPC
+- Unauthenticated invitee sees sign-in prompt; authenticated invitee's row is claimed (user_id set, accepted_at set, invite_token nulled)
+- Already-claimed / invalid-token / already-a-member edge cases handled
+- Hash cleared from URL after processing
+- Email-based fallback (`claim_pending_invite`) runs on sign-in when user has no operation (v1 parity)
+- All user-facing strings use `t()`; no `innerHTML` anywhere in the two files
 
-**Spec file:** `github/issues/CP-66_member-management-invite.md`
-**Schema impact:** Adds `invite_token uuid` column to `operation_members`. Impacts CP-55/CP-56.
+**Spec file:** `github/issues/CP-66_member-management-invite.md` (retained as canonical reference; no GH- prefix because the spec was never filed as a GitHub issue for implementation — work shipped directly from Cowork's spec).
+**Schema impact:** Adds `invite_token uuid` column to `operation_members`. CP-55/CP-56 impact handled (pending-row tokens exported, missing-column fallback on old backups).
 **Decisions made:** Shareable link approach (admin copies URL, sends via text/email/etc.). No Supabase email service required. Email-based fallback claim preserved from v1 for belt-and-suspenders.
 
 ---

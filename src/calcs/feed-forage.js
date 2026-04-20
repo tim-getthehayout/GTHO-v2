@@ -531,32 +531,43 @@ registerCalc({
   },
 });
 
-// DMI-8: Daily DMI Breakdown (per-day pasture vs stored)
+// DMI-8: Daily DMI Breakdown (cascade bucket model — OI-0119)
+// Canonical spec: V2_CALCULATION_SPEC.md §4.2 DMI-8.
+//
+// Five statuses: actual, estimated, needs_check, no_animals, no_pasture_data.
+// Cascade allocation per day: pasture → stored → deficit.
+// Source-event bridge is date-routed by the caller (not inside DMI-8).
 registerCalc({
   name: 'DMI-8',
   category: 'dmi',
-  description: 'Per-day DMI breakdown with pasture vs stored split. Three states: actual (from feed checks), estimated (declining pasture mass balance from FOR-1), needs_check.',
-  formula: 'See V2_CALCULATION_SPEC.md § DMI-8',
+  description: 'Per-day DMI breakdown via cascade bucket walk (pasture → stored → deficit). Five statuses: actual | estimated | needs_check | no_animals | no_pasture_data.',
+  formula: 'See V2_CALCULATION_SPEC.md §4.2 DMI-8 for the full cascade model.',
   source: 'V2_CALCULATION_SPEC.md §4.2',
   inputs: [
-    { name: 'event', type: 'object', unit: '{ id, dateIn, dateOut, sourceEventId } — dateIn is the DERIVED event start (getEventStartDate); caller must decorate since events.date_in was dropped in migration 028 (OI-0117)' },
+    { name: 'event', type: 'object', unit: '{ id, dateIn, dateOut, sourceEventId } — dateIn is the DERIVED event start (getEventStartDate); caller decorates since events.date_in was dropped in migration 028 (OI-0117)' },
     { name: 'date', type: 'string', unit: 'YYYY-MM-DD' },
     { name: 'groupWindows', type: 'array', unit: '{ headCount, avgWeightKg, animalClassId, dateJoined, dateLeft }' },
     { name: 'memberships', type: 'array', unit: '{ groupId, animalId, dateJoined, dateLeft }' },
     { name: 'animals', type: 'array', unit: '{ id, animalClassId }' },
     { name: 'animalWeightRecords', type: 'array', unit: '{ animalId, weightKg, date }' },
-    { name: 'feedEntries', type: 'array', unit: '{ quantity, batchId, deliveryDate }' },
-    { name: 'feedChecks', type: 'array', unit: '{ checkDate, id }' },
-    { name: 'feedCheckItems', type: 'array', unit: '{ feedCheckId, remainingQty }' },
-    { name: 'paddockWindows', type: 'array', unit: '{ locationId, dateOpened, dateClosed, areaPct }' },
-    { name: 'observations', type: 'array', unit: '{ observationPhase, forageHeightCm, forageCoverPct }' },
+    { name: 'feedEntries', type: 'array', unit: '{ batchId, locationId, date, quantity }' },
+    { name: 'feedChecks', type: 'array', unit: '{ id, date }' },
+    { name: 'feedCheckItems', type: 'array', unit: '{ feedCheckId, batchId, locationId, remainingQuantity }' },
+    { name: 'batches', type: 'object', unit: '{ [batchId]: { weightPerUnitKg, dmPct } } — for DM conversion of feed entries + check items' },
+    { name: 'paddockWindows', type: 'array', unit: '{ id, eventId, locationId, dateOpened, dateClosed, areaPct }' },
+    { name: 'observations', type: 'array', unit: 'paddock_observations[] (type=open, source=event). Calc picks per-window via locationId + sourceId fallback.' },
     { name: 'forageTypes', type: 'object', unit: '{ [locationId]: { dmKgPerCmPerHa, minResidualHeightCm, utilizationPct } }' },
-    { name: 'locations', type: 'object', unit: '{ [locationId]: { areaHa } }' },
+    { name: 'locations', type: 'object', unit: '{ [locationId]: { areaHa, forageTypeId? } } — areaHa = areaHectares ?? areaHa (caller handles fallback)' },
     { name: 'animalClasses', type: 'object', unit: '{ [classId]: { dmiPct, dmiPctLactating } }' },
   ],
-  output: { type: 'object', shape: '{ status, totalDmiKg?, storedDmiKg?, pastureDmiKg? }', unit: 'kg' },
-  fn({ event, date, groupWindows, memberships, animals, animalWeightRecords, feedEntries: _feedEntries, feedChecks, feedCheckItems, paddockWindows, observations, forageTypes, locations, animalClasses }) {
-    // Helper: compute daily DMI demand for a given date (OI-0091: live recompute for open windows)
+  output: { type: 'object', shape: '{ status, totalDmiKg?, storedDmiKg?, pastureDmiKg?, deficitKg?, reason?, hint? }', unit: 'kg' },
+  fn({ event, date, groupWindows, memberships, animals, animalWeightRecords,
+       feedEntries, feedChecks, feedCheckItems, batches,
+       paddockWindows, observations, forageTypes, locations, animalClasses }) {
+
+    // ---- Helpers -----------------------------------------------------------
+
+    // Daily demand (OI-0091: live recompute for open windows).
     function dailyDemand(dt) {
       let total = 0;
       for (const gw of groupWindows) {
@@ -575,67 +586,282 @@ registerCalc({
       return total;
     }
 
+    // paddock_observations picker — verbatim match to the OI-0107 canonical
+    // pattern used by detail.js §5 and the capacity line.
+    function pickPreGraze(pw) {
+      const candidates = (observations || [])
+        .filter(o => o.locationId === pw.locationId && o.type === 'open' && o.source === 'event');
+      return candidates.find(o => o.sourceId === pw.id)
+        || candidates.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+        || null;
+    }
+
+    // FOR-1: initial standing DM for a window. Returns 0 if inputs missing.
+    // Emits hint='assumed_full_cover' when cover is null but height is present.
+    function for1ForWindow(pw) {
+      const ft = forageTypes?.[pw.locationId];
+      const loc = locations?.[pw.locationId];
+      const obs = pickPreGraze(pw);
+      if (!obs || !obs.forageHeightCm || !ft?.dmKgPerCmPerHa || !loc?.areaHa) {
+        return { dm: 0, hint: null };
+      }
+      const residualCm = ft.minResidualHeightCm ?? 5;
+      const grazable = obs.forageHeightCm - residualCm;
+      if (grazable <= 0) return { dm: 0, hint: null };
+      const coverNull = obs.forageCoverPct == null;
+      const coverPct = coverNull ? 100 : obs.forageCoverPct;
+      const utilization = ft.utilizationPct ?? 100;
+      const effectiveArea = loc.areaHa * ((pw.areaPct ?? 100) / 100);
+      const dm = grazable * effectiveArea * (coverPct / 100) * (utilization / 100) * ft.dmKgPerCmPerHa;
+      return { dm, hint: coverNull ? 'assumed_full_cover' : null };
+    }
+
+    // Convert a feed-entry quantity (batch units) to kg DM.
+    function entryDmKg(entry) {
+      const b = batches?.[entry.batchId];
+      if (!b || !b.weightPerUnitKg || !b.dmPct) return 0;
+      return (entry.quantity ?? 0) * b.weightPerUnitKg * (b.dmPct / 100);
+    }
+
+    // Convert a check item's remaining quantity to kg DM.
+    function itemDmKg(item) {
+      const b = batches?.[item.batchId];
+      if (!b || !b.weightPerUnitKg || !b.dmPct) return 0;
+      return (item.remainingQuantity ?? 0) * b.weightPerUnitKg * (b.dmPct / 100);
+    }
+
+    function sumCheckKg(check) {
+      const items = feedCheckItems.filter(i => i.feedCheckId === check.id);
+      return items.reduce((s, i) => s + itemDmKg(i), 0);
+    }
+
+    function dateAddDays(ymd, n) {
+      const d = new Date(ymd + 'T00:00:00');
+      d.setDate(d.getDate() + n);
+      return d.toISOString().slice(0, 10);
+    }
+
+    function daysBetween(aYmd, bYmd) {
+      return Math.round((new Date(bYmd + 'T00:00:00') - new Date(aYmd + 'T00:00:00')) / 86400000);
+    }
+
+    // Allocate demand across pasture + stored buckets per spec's table.
+    // Mutates the passed bucket refs' .value and returns the day's allocation.
+    function allocateDay(demand, pastureRef, storedRef) {
+      const p = pastureRef.value;
+      const s = storedRef.value;
+      let pasture = 0, stored = 0, deficit = 0;
+      if (p >= demand) {
+        pasture = demand;
+      } else if (p > 0) {
+        pasture = p;
+        const shortfall = demand - pasture;
+        if (s >= shortfall) stored = shortfall;
+        else { stored = Math.max(0, s); deficit = shortfall - stored; }
+      } else {
+        if (s >= demand) stored = demand;
+        else { stored = Math.max(0, s); deficit = demand - stored; }
+      }
+      pastureRef.value = Math.max(0, p - pasture);
+      storedRef.value = Math.max(0, s - stored);
+      return { pasture, stored, deficit };
+    }
+
+    // ---- Step 0 — demand ---------------------------------------------------
+
     const totalDmiKg = dailyDemand(date);
-    if (totalDmiKg <= 0) return { status: 'needs_check' };
+    if (totalDmiKg <= 0) return { status: 'no_animals' };
 
-    // Check if feed checks bracket this date (actual path)
-    const sortedChecks = [...feedChecks].sort((a, b) => (a.checkDate || '').localeCompare(b.checkDate || ''));
-    const prevCheck = sortedChecks.filter(c => c.checkDate <= date).pop();
-    const nextCheck = sortedChecks.find(c => c.checkDate > date);
+    // ---- Step 1 — gate: forage type + pre-graze per open window on target --
 
-    if (prevCheck && nextCheck) {
-      // DMI-5 interpolation: stored consumed per day between checks
-      const prevItems = feedCheckItems.filter(i => i.feedCheckId === prevCheck.id);
-      const nextItems = feedCheckItems.filter(i => i.feedCheckId === nextCheck.id);
-      const prevRemaining = prevItems.reduce((s, i) => s + (i.remainingQty ?? 0), 0);
-      const nextRemaining = nextItems.reduce((s, i) => s + (i.remainingQty ?? 0), 0);
-      const daysBetween = Math.max(1, Math.round((new Date(nextCheck.checkDate) - new Date(prevCheck.checkDate)) / 86400000));
-      const storedDmiKg = Math.max(0, (prevRemaining - nextRemaining) / daysBetween);
-      const pastureDmiKg = Math.max(0, totalDmiKg - storedDmiKg);
-      return { status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg };
+    const eventPws = (paddockWindows || []).filter(pw => pw.eventId === event.id);
+    const openOnTarget = eventPws.filter(pw =>
+      (pw.dateOpened || '9999-12-31') <= date &&
+      (!pw.dateClosed || pw.dateClosed > date),
+    );
+    // No open windows on target date = no pasture to graze; treat as no_animals
+    // rather than no_pasture_data (there's no window to CTA into).
+    if (openOnTarget.length === 0) return { status: 'no_animals' };
+
+    let aggregateHint = null;
+    for (const pw of openOnTarget) {
+      const loc = locations?.[pw.locationId];
+      const ft = forageTypes?.[pw.locationId];
+      if (!loc?.areaHa) {
+        // Location row missing area — treat as missing forage type (user-fixable
+        // in the Location edit sheet alongside forage type).
+        return { status: 'no_pasture_data', reason: 'missing_forage_type', pwId: pw.id, locationId: pw.locationId };
+      }
+      if (!ft?.dmKgPerCmPerHa) {
+        return { status: 'no_pasture_data', reason: 'missing_forage_type', pwId: pw.id, locationId: pw.locationId };
+      }
+      const obs = pickPreGraze(pw);
+      if (!obs || !obs.forageHeightCm || obs.forageHeightCm <= 0) {
+        return { status: 'no_pasture_data', reason: 'missing_observation', pwId: pw.id, locationId: pw.locationId };
+      }
+      if (obs.forageCoverPct == null) aggregateHint = 'assumed_full_cover';
     }
 
-    // Estimated path: need pre-graze observation + forage type + location
-    const preGrazeObs = observations
-      .filter(o => o.observationPhase === 'pre_graze' || !o.observationPhase)
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+    // ---- Cascade walk setup ------------------------------------------------
 
-    const activePw = paddockWindows.find(pw => !pw.dateClosed) || paddockWindows[0];
-    if (!activePw) return { status: 'needs_check' };
-
-    const locId = activePw.locationId;
-    const ft = forageTypes?.[locId];
-    const loc = locations?.[locId];
-
-    if (!preGrazeObs?.forageHeightCm || !ft?.dmKgPerCmPerHa || !loc?.areaHa) {
-      return { status: 'needs_check' };
-    }
-
-    // FOR-1: initial standing DM
-    const residualCm = ft.minResidualHeightCm ?? 5;
-    const grazableHeight = preGrazeObs.forageHeightCm - residualCm;
-    if (grazableHeight <= 0) return { status: 'needs_check' };
-
-    const coverPct = preGrazeObs.forageCoverPct ?? 80;
-    const effectiveArea = (loc.areaHa) * ((activePw.areaPct ?? 100) / 100);
-    let remainingPastureDm = grazableHeight * effectiveArea * (coverPct / 100) * ft.dmKgPerCmPerHa;
-
-    // Walk forward from dateIn to target date, subtracting daily consumption
     const startDate = event.dateIn;
-    const d = new Date(startDate + 'T00:00:00');
-    const targetD = new Date(date + 'T00:00:00');
+    if (!startDate) return { status: 'needs_check' };
 
-    while (d < targetD) {
-      const dayStr = d.toISOString().slice(0, 10);
-      const dayDemand = dailyDemand(dayStr);
-      const pastureUsed = Math.min(dayDemand, Math.max(0, remainingPastureDm));
-      remainingPastureDm -= pastureUsed;
-      d.setDate(d.getDate() + 1);
+    // Sort checks (entity-native: `.date`, not `.checkDate`).
+    const sortedChecks = [...(feedChecks || [])]
+      .filter(c => c.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const prevCheck = sortedChecks.filter(c => c.date <= date).slice(-1)[0] || null;
+
+    // Per-window pasture pools keyed by pwId — each pool tracks its own FOR-1
+    // remainder so sub-move close can drop the closing window's share.
+    const pools = new Map(); // pwId -> { initialDm, remainingDm, hint }
+    function openWindowsByDate(dt) {
+      return eventPws.filter(pw =>
+        (pw.dateOpened || '9999-12-31') <= dt &&
+        (!pw.dateClosed || pw.dateClosed > dt),
+      );
+    }
+    function addWindowPool(pw) {
+      if (pools.has(pw.id)) return;
+      const { dm, hint } = for1ForWindow(pw);
+      pools.set(pw.id, { initialDm: dm, remainingDm: dm, hint });
+    }
+    function dropWindowPool(pwId) {
+      pools.delete(pwId);
+    }
+    function totalPasture() {
+      let s = 0;
+      for (const p of pools.values()) s += p.remainingDm;
+      return s;
+    }
+    function decrementPoolsProportionally(amount) {
+      const total = totalPasture();
+      if (total <= 0 || amount <= 0) return;
+      for (const p of pools.values()) {
+        const share = p.remainingDm / total;
+        p.remainingDm = Math.max(0, p.remainingDm - amount * share);
+      }
     }
 
-    // Target date
-    const pastureDmiKg = Math.min(totalDmiKg, Math.max(0, remainingPastureDm));
-    const storedDmiKg = totalDmiKg - pastureDmiKg;
-    return { status: 'estimated', totalDmiKg, storedDmiKg, pastureDmiKg };
+    // Seed pasture pools at walk start (event dateIn) with FOR-1 for every
+    // window open on that date.
+    for (const pw of openWindowsByDate(startDate)) addWindowPool(pw);
+
+    // Seed stored bucket at walk start. If a check exists on or before
+    // startDate, re-anchor to that check's kg. Otherwise start with deliveries
+    // up to and including startDate.
+    const preStartCheck = sortedChecks.filter(c => c.date <= startDate).slice(-1)[0] || null;
+    let seedStoredKg = 0;
+    let seedFromDate = startDate;
+    if (preStartCheck) {
+      seedStoredKg = sumCheckKg(preStartCheck);
+      seedFromDate = preStartCheck.date;
+      // Deliveries strictly after the check and up to startDate also count.
+      for (const e of (feedEntries || [])) {
+        if (e.date > preStartCheck.date && e.date <= startDate) seedStoredKg += entryDmKg(e);
+      }
+    } else {
+      for (const e of (feedEntries || [])) {
+        if (e.date <= startDate) seedStoredKg += entryDmKg(e);
+      }
+    }
+
+    const pastureRef = { value: totalPasture() };
+    const storedRef = { value: seedStoredKg };
+
+    // ---- Actual path (bracketed) -------------------------------------------
+    // When prev + next checks bracket the date, use DMI-5 linear distribution
+    // across the interval for storedDmiKg. Pasture fills the rest.
+    const nextCheck = sortedChecks.find(c => c.date > date) || null;
+    if (prevCheck && nextCheck) {
+      const prevKg = sumCheckKg(prevCheck);
+      const nextKg = sumCheckKg(nextCheck);
+      let deliveriesBetween = 0;
+      for (const e of (feedEntries || [])) {
+        if (e.date > prevCheck.date && e.date <= nextCheck.date) deliveriesBetween += entryDmKg(e);
+      }
+      const days = Math.max(1, daysBetween(prevCheck.date, nextCheck.date));
+      const storedDmiKg = Math.max(0, (prevKg + deliveriesBetween - nextKg) / days);
+      const pastureDmiKg = Math.max(0, totalDmiKg - storedDmiKg);
+      const out = { status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg: 0 };
+      if (aggregateHint) out.hint = aggregateHint;
+      return out;
+    }
+
+    // ---- Walk forward ------------------------------------------------------
+    // Iterate day-by-day from startDate through date. At each day:
+    //   (1) Sub-move opens on that day → add FOR-1 for new windows.
+    //   (2) Deliveries on that day → add DM to stored bucket.
+    //   (3) If a check lands on this day → re-anchor stored bucket.
+    //   (4) Allocate today's demand via cascade table.
+    //   (5) Sub-move closes on that day → drop the closing pool.
+
+    const outRef = { pasture: 0, stored: 0, deficit: 0 };
+    let cursor = startDate;
+    let guard = 0;
+    while (guard++ < 400) {
+      // (1) Sub-move opens whose dateOpened === cursor (after seed day).
+      if (cursor !== startDate) {
+        for (const pw of eventPws) {
+          if (pw.dateOpened === cursor && !pools.has(pw.id)) addWindowPool(pw);
+        }
+        pastureRef.value = totalPasture();
+      }
+
+      // (2) Deliveries with date === cursor (skip the startDate seed already counted).
+      if (cursor !== startDate && cursor !== seedFromDate) {
+        for (const e of (feedEntries || [])) {
+          if (e.date === cursor) storedRef.value += entryDmKg(e);
+        }
+      }
+
+      // (3) Check on cursor date re-anchors stored bucket (prior walk may have
+      // drifted; the check is ground truth). Ignore pre-start checks already
+      // seeded.
+      const cursorCheck = sortedChecks.find(c => c.date === cursor && (!preStartCheck || c.id !== preStartCheck.id));
+      if (cursorCheck) {
+        storedRef.value = sumCheckKg(cursorCheck);
+      }
+
+      // (4) Allocate.
+      const demand = dailyDemand(cursor);
+      const allocated = allocateDay(demand, pastureRef, storedRef);
+      // Decrement per-window pools proportionally so sub-move close drops the
+      // right remainder.
+      decrementPoolsProportionally(allocated.pasture);
+
+      if (cursor === date) {
+        outRef.pasture = allocated.pasture;
+        outRef.stored = allocated.stored;
+        outRef.deficit = allocated.deficit;
+        break;
+      }
+
+      // (5) Sub-move closes whose dateClosed === cursor: drop their pool
+      // (remaining pasture in the closed window is not carried over).
+      for (const pw of eventPws) {
+        if (pw.dateClosed === cursor && pools.has(pw.id)) dropWindowPool(pw.id);
+      }
+      pastureRef.value = totalPasture();
+
+      cursor = dateAddDays(cursor, 1);
+      if (cursor > date) break; // safety
+    }
+
+    // ---- Emit --------------------------------------------------------------
+
+    // status=actual when a prev check anchor exists for the walk (we're
+    // projecting forward from ground truth); estimated otherwise.
+    const status = prevCheck ? 'actual' : 'estimated';
+    const out = {
+      status,
+      totalDmiKg,
+      storedDmiKg: outRef.stored,
+      pastureDmiKg: outRef.pasture,
+      deficitKg: outRef.deficit,
+    };
+    if (aggregateHint) out.hint = aggregateHint;
+    return out;
   },
 });

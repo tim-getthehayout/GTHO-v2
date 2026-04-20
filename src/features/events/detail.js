@@ -28,6 +28,8 @@ import { reopenEvent } from './reopen-event.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { openEditFeedCheckDialog } from './edit-feed-check.js';
 import { getEventStart, setEventStart } from './event-start.js';
+import { computeDmi8Days } from './dmi-chart-context.js';
+import { navigate } from '../../ui/router.js';
 import {
   renderInlineFeedForm,
   openAddMode as openFeedFormAdd,
@@ -400,142 +402,29 @@ function renderDmiChart(ctx) {
   if (!event) return;
 
   const unitSys = getUnitSystem();
-  const chartData = buildDmi8ChartData(ctx, dmi8, event);
+  // OI-0119: shared chart-context + cascade model. Date-routing source-event
+  // bridge lives inside computeDmi8Days.
+  const chartData = computeDmi8Days(event, dmi8);
 
   if (!chartData.length) return;
 
   const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
     el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, ['DMI \u2014 LAST 3 DAYS']),
-    renderDmiChartComponent(chartData, unitSys),
+    renderDmiChartComponent(chartData, unitSys, {
+      onNoPastureData: (reason, ctxInfo) => {
+        if (!ctxInfo?.pwId) return;
+        const pw = getById('eventPaddockWindows', ctxInfo.pwId);
+        const ownerEvent = pw ? getById('events', pw.eventId) : null;
+        if (reason === 'missing_observation' || reason === 'assumed_full_cover') {
+          if (pw && ownerEvent) openEditPaddockWindowDialog(pw, ownerEvent, ctx.operationId);
+        } else if (reason === 'missing_forage_type') {
+          navigate('#/locations');
+        }
+      },
+    }),
   ]);
 
   el2.appendChild(card);
-}
-
-/** Build the 3-day DMI-8 input array for the chart. */
-function buildDmi8ChartData(ctx, dmi8, event) {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const eventDateInForChart = getEventStart(event.id)?.date || null;
-
-  // Gather event data for DMI-8
-  const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId);
-  const memberships = getAll('animalGroupMemberships');
-  const animals = getAll('animals');
-  const animalWeightRecords = getAll('animalWeightRecords');
-  const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === ctx.eventId);
-  const feedChecks = getAll('eventFeedChecks').filter(fc => fc.eventId === ctx.eventId);
-  const feedCheckItems = getAll('eventFeedCheckItems').filter(fci => {
-    return feedChecks.some(fc => fc.id === fci.feedCheckId);
-  });
-  const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === ctx.eventId);
-  const observations = getAll('eventObservations').filter(o => o.eventId === ctx.eventId);
-
-  // Build forage type and location maps
-  const forageTypes = {};
-  const locations = {};
-  for (const pw of pws) {
-    const loc = getById('locations', pw.locationId);
-    if (loc) {
-      locations[pw.locationId] = { areaHa: loc.areaHa };
-      if (loc.forageTypeId) {
-        const ft = getById('forageTypes', loc.forageTypeId);
-        if (ft) {
-          forageTypes[pw.locationId] = {
-            dmKgPerCmPerHa: ft.dmKgPerCmPerHa,
-            minResidualHeightCm: ft.minResidualHeightCm,
-            utilizationPct: ft.utilizationPct,
-          };
-        }
-      }
-    }
-  }
-
-  // Build animal class map
-  const animalClasses = {};
-  for (const gw of gws) {
-    if (gw.animalClassId) {
-      const cls = getById('animalClasses', gw.animalClassId);
-      if (cls) animalClasses[gw.animalClassId] = { dmiPct: cls.dmiPct, dmiPctLactating: cls.dmiPctLactating };
-    }
-  }
-
-  // Source event bridge data (lazy-loaded if needed)
-  let sourceCtx = null;
-  function getSourceCtx() {
-    if (sourceCtx !== null) return sourceCtx;
-    if (!event.sourceEventId) { sourceCtx = false; return false; }
-    const srcEvt = getById('events', event.sourceEventId);
-    if (!srcEvt) { sourceCtx = false; return false; }
-    const srcGws = getAll('eventGroupWindows').filter(gw => gw.eventId === srcEvt.id);
-    const srcFe = getAll('eventFeedEntries').filter(fe => fe.eventId === srcEvt.id);
-    const srcFc = getAll('eventFeedChecks').filter(fc => fc.eventId === srcEvt.id);
-    const srcFci = getAll('eventFeedCheckItems').filter(fci => srcFc.some(fc => fc.id === fci.feedCheckId));
-    const srcPws = getAll('eventPaddockWindows').filter(pw => pw.eventId === srcEvt.id);
-    const srcObs = getAll('eventObservations').filter(o => o.eventId === srcEvt.id);
-    const srcFt = {}, srcLoc = {};
-    for (const pw of srcPws) {
-      const loc2 = getById('locations', pw.locationId);
-      if (loc2) {
-        srcLoc[pw.locationId] = { areaHa: loc2.areaHa };
-        if (loc2.forageTypeId) {
-          const ft2 = getById('forageTypes', loc2.forageTypeId);
-          if (ft2) srcFt[pw.locationId] = { dmKgPerCmPerHa: ft2.dmKgPerCmPerHa, minResidualHeightCm: ft2.minResidualHeightCm, utilizationPct: ft2.utilizationPct };
-        }
-      }
-    }
-    const srcAc = {};
-    for (const gw of srcGws) {
-      if (gw.animalClassId) {
-        const cls2 = getById('animalClasses', gw.animalClassId);
-        if (cls2) srcAc[gw.animalClassId] = { dmiPct: cls2.dmiPct, dmiPctLactating: cls2.dmiPctLactating };
-      }
-    }
-    // OI-0117: DMI-8 reads `event.dateIn` as a start-of-event cursor. The
-    // column is dropped, so decorate the event with the derived start here.
-    const srcEvtDecorated = { ...srcEvt, dateIn: getEventStart(srcEvt.id)?.date || null };
-    sourceCtx = { event: srcEvtDecorated, gws: srcGws, fe: srcFe, fc: srcFc, fci: srcFci, pws: srcPws, obs: srcObs, ft: srcFt, loc: srcLoc, ac: srcAc };
-    return sourceCtx;
-  }
-
-  // 3 dates: day before yesterday, yesterday, today
-  const days = [];
-  for (let i = 2; i >= 0; i--) {
-    const d = new Date(todayStr + 'T00:00:00');
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
-
-    if (eventDateInForChart && dateStr < eventDateInForChart) {
-      // Source event bridge: use source event data for dates before this event
-      const src = getSourceCtx();
-      if (!src) continue;
-      const dayName = dayNames[d.getDay()];
-      const result = dmi8.fn({
-        event: src.event, date: dateStr, groupWindows: src.gws,
-        memberships, animals, animalWeightRecords,
-        feedEntries: src.fe,
-        feedChecks: src.fc, feedCheckItems: src.fci, paddockWindows: src.pws,
-        observations: src.obs, forageTypes: src.ft, locations: src.loc, animalClasses: src.ac,
-      });
-      days.push({ date: dateStr, label: dayName, result });
-      continue;
-    }
-
-    const dayName = dayNames[d.getDay()];
-    const label = i === 0 ? `${dayName} \u2713` : dayName;
-
-    const result = dmi8.fn({
-      event: { ...event, dateIn: eventDateInForChart }, date: dateStr, groupWindows: gws,
-      memberships, animals, animalWeightRecords,
-      feedEntries, feedChecks,
-      feedCheckItems, paddockWindows: pws, observations, forageTypes,
-      locations, animalClasses,
-    });
-
-    days.push({ date: dateStr, label, result });
-  }
-
-  return days;
 }
 
 // ---------------------------------------------------------------------------

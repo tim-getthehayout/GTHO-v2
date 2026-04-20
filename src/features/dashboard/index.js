@@ -22,6 +22,8 @@ import { openEventDetailSheet } from '../events/detail.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
+import { computeDmi8Days } from '../events/dmi-chart-context.js';
+import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -1333,93 +1335,26 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     ]));
   }
 
-  // §12: DMI 3-day chart
+  // §12: DMI 3-day chart (OI-0119 — cascade model, shared chart-context helper)
   const dmi8 = getCalcByName('DMI-8');
   if (dmi8) {
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const todayStr2 = new Date().toISOString().slice(0, 10);
-    const chartDays = [];
-
-    // Build context for DMI-8
-    const chartGws = gws;
-    const chartFeedChecks = getAll('eventFeedChecks').filter(fc => fc.eventId === event.id);
-    const chartFeedCheckItems = getAll('eventFeedCheckItems').filter(fci => chartFeedChecks.some(fc => fc.id === fci.feedCheckId));
-    const chartPws = allPws;
-    const chartObs = getAll('eventObservations').filter(o => o.eventId === event.id);
-    const chartForageTypes = {};
-    const chartLocations = {};
-    for (const pw of allPws) {
-      const pwLoc = getById('locations', pw.locationId);
-      if (pwLoc) {
-        // DMI-8 expects { areaHa } as its calc contract; read from entity's areaHectares.
-        chartLocations[pw.locationId] = { areaHa: pwLoc.areaHectares ?? pwLoc.areaHa };
-        if (pwLoc.forageTypeId) {
-          const ft = getById('forageTypes', pwLoc.forageTypeId);
-          if (ft) chartForageTypes[pw.locationId] = { dmKgPerCmPerHa: ft.dmKgPerCmPerHa, minResidualHeightCm: ft.minResidualHeightCm, utilizationPct: ft.utilizationPct };
-        }
-      }
-    }
-    const chartAnimalClasses = {};
-    for (const gw of gws) {
-      if (gw.animalClassId) {
-        const cls = getById('animalClasses', gw.animalClassId);
-        if (cls) chartAnimalClasses[gw.animalClassId] = { dmiPct: cls.dmiPct, dmiPctLactating: cls.dmiPctLactating };
-      }
-    }
-
-    // Source event bridge (lazy)
-    let srcCtx = null;
-    function getSrcCtx() {
-      if (srcCtx !== null) return srcCtx;
-      if (!event.sourceEventId) { srcCtx = false; return false; }
-      const srcEvt = getById('events', event.sourceEventId);
-      if (!srcEvt) { srcCtx = false; return false; }
-      const sGws = getAll('eventGroupWindows').filter(gw => gw.eventId === srcEvt.id);
-      const sFe = getAll('eventFeedEntries').filter(fe => fe.eventId === srcEvt.id);
-      const sFc = getAll('eventFeedChecks').filter(fc => fc.eventId === srcEvt.id);
-      const sFci = getAll('eventFeedCheckItems').filter(fci => sFc.some(fc => fc.id === fci.feedCheckId));
-      const sPws = getAll('eventPaddockWindows').filter(pw => pw.eventId === srcEvt.id);
-      const sObs = getAll('eventObservations').filter(o => o.eventId === srcEvt.id);
-      const sFt = {}, sLoc = {}, sAc = {};
-      for (const pw of sPws) {
-        const l = getById('locations', pw.locationId);
-        if (l) { sLoc[pw.locationId] = { areaHa: l.areaHectares ?? l.areaHa }; if (l.forageTypeId) { const f = getById('forageTypes', l.forageTypeId); if (f) sFt[pw.locationId] = { dmKgPerCmPerHa: f.dmKgPerCmPerHa, minResidualHeightCm: f.minResidualHeightCm, utilizationPct: f.utilizationPct }; } }
-      }
-      for (const gw of sGws) { if (gw.animalClassId) { const c = getById('animalClasses', gw.animalClassId); if (c) sAc[gw.animalClassId] = { dmiPct: c.dmiPct, dmiPctLactating: c.dmiPctLactating }; } }
-      // OI-0117: DMI-8 reads `event.dateIn` as a start cursor; decorate with derived start.
-      const srcEvtDecorated = { ...srcEvt, dateIn: getEventStartDate(srcEvt.id) };
-      srcCtx = { event: srcEvtDecorated, gws: sGws, fe: sFe, fc: sFc, fci: sFci, pws: sPws, obs: sObs, ft: sFt, loc: sLoc, ac: sAc };
-      return srcCtx;
-    }
-
-    for (let i = 2; i >= 0; i--) {
-      const d = new Date(todayStr2 + 'T00:00:00');
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().slice(0, 10);
-      if (eventStartDate && dateStr < eventStartDate) {
-        const src = getSrcCtx();
-        if (!src) continue;
-        const dayName = dayNames[d.getDay()];
-        const result = dmi8.fn({ event: src.event, date: dateStr, groupWindows: src.gws, memberships, animals, animalWeightRecords, feedEntries: src.fe, feedChecks: src.fc, feedCheckItems: src.fci, paddockWindows: src.pws, observations: src.obs, forageTypes: src.ft, locations: src.loc, animalClasses: src.ac });
-        chartDays.push({ date: dateStr, label: dayName, result });
-        continue;
-      }
-      const dayName = dayNames[d.getDay()];
-      const label = i === 0 ? `${dayName} \u2713` : dayName;
-      const result = dmi8.fn({
-        event: { ...event, dateIn: eventStartDate }, date: dateStr, groupWindows: chartGws,
-        memberships, animals, animalWeightRecords,
-        feedEntries, feedChecks: chartFeedChecks,
-        feedCheckItems: chartFeedCheckItems, paddockWindows: chartPws, observations: chartObs,
-        forageTypes: chartForageTypes, locations: chartLocations, animalClasses: chartAnimalClasses,
-      });
-      chartDays.push({ date: dateStr, label, result });
-    }
-
+    const chartDays = computeDmi8Days(event, dmi8);
     if (chartDays.length) {
       children.push(el('div', { style: { marginBottom: 'var(--space-3)' } }, [
         el('div', { className: 'sec', style: { marginBottom: 'var(--space-2)' } }, ['DMI \u2014 LAST 3 DAYS']),
-        renderDmiChartComponent(chartDays, unitSys, { compact: true }),
+        renderDmiChartComponent(chartDays, unitSys, {
+          compact: true,
+          onNoPastureData: (reason, ctx) => {
+            if (!ctx?.pwId) return;
+            const pw = getById('eventPaddockWindows', ctx.pwId);
+            const ownerEvent = pw ? getById('events', pw.eventId) : null;
+            if (reason === 'missing_observation' || reason === 'assumed_full_cover') {
+              if (pw && ownerEvent) openEditPaddockWindowDialog(pw, ownerEvent, operationId);
+            } else if (reason === 'missing_forage_type') {
+              navigate('#/locations');
+            }
+          },
+        }),
       ]));
     }
   }

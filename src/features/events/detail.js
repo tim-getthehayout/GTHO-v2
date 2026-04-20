@@ -524,8 +524,10 @@ function renderPreGraze(ctx) {
 
   for (const pw of openPaddockWindows) {
     const loc = getById('locations', pw.locationId);
-    const paddockAcres = loc?.areaHa != null
-      ? convert(loc.areaHa, 'area', 'toImperial')
+    // OI-0124 Phase 1: use OI-0075 fallback — Location entity field is areaHectares.
+    const locHa = loc?.areaHectares ?? loc?.areaHa;
+    const paddockAcres = locHa != null
+      ? convert(locHa, 'area', 'toImperial')
       : null;
 
     // Prefer phase-aware lookup by paddockWindowId; fall back to first open

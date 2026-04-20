@@ -305,8 +305,10 @@ function openDraftEntrySheet(survey, existingEntry, _operationId) {
   const farmSettings = getAll('farmSettings')[0] || null;
   const initialLocationId = fixedLocationId || locationSelect?.value || null;
   const initialLoc = initialLocationId ? getById('locations', initialLocationId) : null;
-  const paddockAcres = initialLoc?.areaHa != null
-    ? convert(initialLoc.areaHa, 'area', 'toImperial')
+  // OI-0124 Phase 1: use OI-0075 fallback — Location entity field is areaHectares.
+  const initialLocHa = initialLoc?.areaHectares ?? initialLoc?.areaHa;
+  const paddockAcres = initialLocHa != null
+    ? convert(initialLocHa, 'area', 'toImperial')
     : null;
   const card = renderSurveyCard({
     farmSettings,

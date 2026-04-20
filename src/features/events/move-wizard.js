@@ -396,9 +396,11 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     openSection.appendChild(inputs.timeIn);
 
     // Pre-graze observation card on destination section (OI-0112 surface #1).
+    // OI-0124 Phase 1: use OI-0075 fallback — Location entity field is areaHectares.
     const destLoc = state.locationId ? getById('locations', state.locationId) : null;
-    const paddockAcres = destLoc?.areaHa != null
-      ? convert(destLoc.areaHa, 'area', 'toImperial')
+    const destLocHa = destLoc?.areaHectares ?? destLoc?.areaHa;
+    const paddockAcres = destLocHa != null
+      ? convert(destLocHa, 'area', 'toImperial')
       : null;
     preGraze = renderPreGrazeCard({ farmSettings, paddockAcres, initialValues: {} });
     openSection.appendChild(preGraze.container);

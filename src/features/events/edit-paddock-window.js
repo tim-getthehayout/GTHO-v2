@@ -80,9 +80,11 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
   }
 
   // OI-0118: pre-graze + post-graze observation cards.
+  // OI-0124 Phase 1: use OI-0075 fallback — Location entity field is areaHectares.
   const farmSettings = getAll('farmSettings')[0] || null;
-  const paddockAcres = loc?.areaHa != null
-    ? convert(loc.areaHa, 'area', 'toImperial')
+  const locHa = loc?.areaHectares ?? loc?.areaHa;
+  const paddockAcres = locHa != null
+    ? convert(locHa, 'area', 'toImperial')
     : null;
 
   // Pre-graze renders on open AND closed windows — historical pre-graze is

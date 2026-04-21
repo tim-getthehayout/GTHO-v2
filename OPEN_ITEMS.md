@@ -4,83 +4,112 @@
 
 ---
 
-### OI-0126 — Pasture Survey card (Field Mode path) uses hand-rolled form instead of unified `renderSurveyCard`: Height/Cover full-width, Bale-Ring Residues on its own row, layout diverges from all other observation surfaces
-**Added:** 2026-04-20 | **Area:** v2-build / observations / ui-consistency / OI-0112 unification gap | **Priority:** P2 (functional — all fields save correctly; cosmetic / layout regression only; but Field Mode → Pasture Survey is Tim's primary entry path, so it's the most visible observation surface in the app and actively undermines the OI-0112 "one card, everywhere" premise)
-**Checkpoint:** standalone spec file, small single-file fix. Path A (minimum-viable layout fix) or Path B (full delegation refactor) — see "Fix" below.
+### OI-0126 — Pasture Survey card (Field Mode path) uses hand-rolled form instead of unified `renderSurveyCard`; full delegation refactor to close the OI-0112 unification gap, adds missing Notes field, puts Recovery min-max above Notes
+**Added:** 2026-04-20 | **Area:** v2-build / observations / ui-consistency / OI-0112 unification gap | **Priority:** P2 (functional — all fields save correctly; primary impact is layout regression + missing Notes UI; Field Mode → Pasture Survey is Tim's primary entry path, the most visible observation surface in the app, and the divergence actively undermines the OI-0112 "one card, everywhere" premise)
+**Checkpoint:** standalone spec-file handoff. Full delegation refactor of `openSurveySheet`'s per-paddock body to call `renderSurveyCard`. Single file change in `locations/index.js` + one unit test.
 
-**Status:** open — **DESIGN DECISION REQUIRED** (Path A vs Path B), do not build yet.
+**Status:** open — **scope locked on Path B (full delegation refactor); ready for Claude Code handoff.** See `session_briefs/SESSION_BRIEF_2026-04-20_oi0126-pasture-survey-refactor.md` for the full implementation spec.
 
-**What Tim hit (2026-04-20):** After OI-0122 shipped and the OI-0124 Phase 1 4-point browser smoke began, Tim reached the Pasture Survey card via Field Mode → Pasture Survey and reported: "All work on move and event details. Surveys do not and they do not have the correct field size. (bale rings is on the next row.) It should conform to the graze pre-graze observations box layout and field sizes."
+**What Tim hit (2026-04-20):** After OI-0122 shipped and the OI-0124 Phase 1 4-point browser smoke began, Tim reached the Pasture Survey card via Field Mode → Pasture Survey and reported: "All work on move and event details. Surveys do not and they do not have the correct field size. (bale rings is on the next row.) It should conform to the graze pre-graze observations box layout and field sizes." A minute later, after Cowork proposed two fix paths: "We already did a design on this when we dealt with the pasture observations. Survey needed its own version as it also includes the min-max data (which only lives on the post graze box in the grazing related observations.) I would like to fix it properly once and for all. So the min-max should be inserted just above notes (and notes should be added to survey as it is not present currently)."
 
-Screenshot shows: Height and Cover fields render inline but at near-full width (not the 88px fixed width used on Move wizard / Event Detail / Sub-Move Open). Bale-Ring Residues is on a separate row below Height + Cover, not inline as the third field in a 3-up top row.
+Screenshot shows: Height and Cover fields render inline but at near-full width (not the 88px fixed width used on Move wizard / Event Detail / Sub-Move Open). Bale-Ring Residues is on a separate row below Height + Cover, not inline as the third field in a 3-up top row. Reference pre-graze screenshot Tim attached shows the correct layout: 3-up top row (Height 88px / Cover 88px / Rings 72px), helper caption below the row, 1–100 Relative Forage Quality slider with gradient track + Poor/Fair/Good/Excellent anchor labels, Forage Condition chips, Notes textarea.
 
 **Root cause:** `openSurveySheet` in `src/features/locations/index.js` was never migrated to the unified `renderSurveyCard` component. OI-0112 unified the observation card across five surfaces (Move wizard, Event Detail, Sub-Move Open, Edit Paddock Window, and the `/surveys` screen's Create sheet), but the Field Mode → Pasture Survey path routes through `openSurveySheet` — a hand-rolled form that predates the unification and was never swapped out.
 
-**Affects both single AND bulk Pasture Survey.** The broken field-rendering block (lines 923-967) lives inside `renderPaddockList()` and is gated by `if (isExpanded || isSingle)` at line 899. That means the same buggy block runs for **both** Field Mode routes: Single Survey (always renders expanded — one paddock) and Bulk Survey Entry (renders expanded per-paddock card when the user taps to expand). The `/surveys` screen's separate Create sheet (`src/features/surveys/index.js:313`) is unaffected — it already delegates to `renderSurveyCard` correctly.
+**Affects both single AND bulk Pasture Survey.** The broken field-rendering block (lines ~899–1001) lives inside `renderPaddockList()` and is gated by `if (isExpanded || isSingle)` at line 899. That means the same buggy block runs for **both** Field Mode routes: Single Survey (always renders expanded — one paddock) and Bulk Survey Entry (renders expanded per-paddock card when the user taps to expand). The `/surveys` screen's separate Create sheet (`src/features/surveys/index.js:313`) is unaffected — it already delegates to `renderSurveyCard` correctly.
 
 Concrete evidence (`src/features/locations/index.js`):
-- Lines **923-938**: Height + Cover rendered in a 2-up flex row, each field `width: 100%` with `flex: 1, minWidth: 120px`. No `.obs-top-row` / `.obs-field` class names.
-- Lines **940-967**: Bale-Ring Residues rendered as a **separate** `div` appended after the Height/Cover row. Structurally on its own row, not inline.
-- Result: zero use of the shared `.obs-top-row { display: flex; flex-wrap: wrap; gap: 16px; }` layout (`src/styles/main.css:1213-1229`) with its hardcoded 88px (height/cover) / 72px (rings) widths.
+- Lines **903–921**: Outer 0–100 "rating" slider + number input + horizontal rating bar sits **above** Height/Cover. Writes to `readings[locId].rating`. This duplicates what `renderSurveyCard`'s internal `renderQualitySlider` does (also 1–100, same gradient, same Poor/Fair/Good/Excellent anchors, same destination column `forage_quality`).
+- Lines **923–938**: Height + Cover rendered in a 2-up flex row, each field `width: 100%` with `flex: 1, minWidth: 120px`. No `.obs-top-row` / `.obs-field` class names.
+- Lines **940–967**: Bale-Ring Residues rendered as a **separate** `div` appended after the Height/Cover row. Structurally on its own row, not inline.
+- Lines **969–984**: Hand-rolled condition chips (Poor/Fair/Good/Exc.) duplicating `renderConditionChips` in `_shared.js:253`.
+- Lines **986–999**: Hand-rolled Recovery min-max duplicating `renderRecoveryWindow` in `_shared.js:307`.
+- **No Notes field rendered anywhere.** Yet `readings[locId].notes` is referenced in `commitSurvey` at line 1034 (`notes: r2.notes`), which simply forwards `undefined` into the entity — a dead path with no UI input.
 
-Meanwhile the unified `renderForageStateRow` in `src/features/observations/_shared.js:167-183` correctly builds all three fields inside one `.obs-top-row` container:
-
-```js
-const topRow = el('div', { className: 'obs-top-row' }, [
-  el('div', { className: 'obs-field' },        [/* height */]),
-  el('div', { className: 'obs-field' },        [/* cover */]),
-  el('div', { className: 'obs-field obs-field-rings' }, [/* rings + preview */]),
-]);
-```
+Meanwhile the unified components already exist and already render in the exact order Tim wants. `renderSurveyCard` (`src/features/observations/survey-card.js:37`) composes: `header → state (height+cover+rings) → quality → condition → recovery → notes` — recovery is already positioned just above notes. `renderForageStateRow` (`_shared.js:167-183`) builds the correct 3-up top row with `.obs-top-row` / `.obs-field` / `.obs-field-rings` + 88/88/72px widths from `main.css:1213-1229`. `renderQualitySlider` (`_shared.js:209-246`) is a 1–100 slider with gradient track + anchor labels — **same scale as the sheet's existing "rating" field** (both persist to `forage_quality`).
 
 And `src/features/surveys/index.js:313` (the newer `/surveys` screen) correctly delegates: `const card = renderSurveyCard({ ... })`. **Only `openSurveySheet` still hand-rolls.**
 
 **Spec violated:** OI-0112 "all pasture-assessment UI uses `renderSurveyCard` / `renderPreGrazeCard` / `renderPostGrazeCard`" — the Field Mode survey sheet was not migrated.
 
-**Fix — two paths, design decision required:**
+**Fix — Path B (full delegation refactor) locked by Tim 2026-04-20:**
 
-**Path A — Minimum-viable layout fix (recommended for this session).** Restructure lines 923-967 in `openSurveySheet` so Height, Cover, and Bale-Ring Residues render inside a single `.obs-top-row` container with `.obs-field` / `.obs-field-rings` class names. Preserves the existing rating slider, condition chips, recovery window, and notes in their current positions. ~30 lines changed, no CSS changes (the shared CSS from OI-0112 already covers `.obs-top-row`). **Sacrifices:** still duplicates layout logic; OI-0112's "one source of truth" premise is not fully restored. If the shared card changes later (e.g., a new field), this sheet won't pick it up.
+Replace the hand-rolled per-paddock body (lines ~900–1001 inside `renderPaddockList`) with a single call to `renderSurveyCard` from `../observations/survey-card.js`. Keep the outer sheet chrome (sheet header, farm/type filter pills, search bar, collapsible card header, survey-date input, Save Draft / Finish & Save buttons). Delete the outer rating slider + rating bar — redundant with the card's internal quality slider.
 
-**Path B — Full delegation refactor (larger, correct, deferred).** Replace lines 923-967 with a call to `renderSurveyCard` from `../observations/survey-card.js`. Keep `openSurveySheet`'s outer chrome (header, filter pills, collapsible card header, draft save). **Complication:** the Survey sheet has a 0–100 rating slider (paddock gut-feel) that does NOT exist in `renderSurveyCard`. `renderSurveyCard` has a 1–5 `forageQuality` slider instead (via `renderQualitySlider`). These are semantically different fields and OI-0112 never reconciled them. Resolving Path B requires a design answer on "which scale wins" (0–100 rating or 1–5 quality), or adding a `hideQualitySlider` prop so the sheet can continue supplying its own rating input. Also need to map `readings.baleRingCount` → `baleRingResidueCount`, `readings.condition` → `forageCondition`, `readings.recoveryMin/Max` → `recoveryMinDays/MaxDays` (field-name drift, easy). **Scope:** single file change in `locations/index.js` + new prop on `renderSurveyCard` + unit-test coverage for both scales.
+**Correcting the earlier rating-scale worry:** there is no scale mismatch. `renderQualitySlider` is **1–100** (`_shared.js:211`: `min: '1', max: '100'`), matching the sheet's 0–100 `readings.rating`. Both persist to `paddock_observations.forage_quality`. No design decision required; no new prop on `renderSurveyCard`; no `hideQualitySlider` flag. (The earlier OI-0126 draft misread `renderQualitySlider` as a 1–5 slider — that was wrong and is corrected here.)
 
-**Recommendation:** ship Path A now (fixes exactly what Tim reported, clears the OI-0124 Phase 1 4-point smoke, ~30 lines, no design unknowns). Open a follow-up OI for Path B that surfaces the 0–100 vs 1–5 rating/quality scale question — that's a bigger design decision and belongs in its own round with its own spec. Keeping them separate also protects OI-0124 Phase 2 / Phase 3 from blocking on a design question unrelated to BRC drift.
+**Data-shape facts that make the refactor clean:**
 
-**Files affected (Path A):**
+- `survey_draft_entries` entity fields (`forageHeightCm`, `forageCoverPct`, `forageQuality`, `forageCondition`, `baleRingResidueCount`, `recoveryMinDays`, `recoveryMaxDays`, `notes`) map 1:1 to `renderSurveyCard.initialValues` and `card.getValues()`. No field-name mapping layer needed.
+- `paddock_observations` uses the same canonical names. `commitSurvey` at line 1027 already constructs observations with those exact names.
+- Only the local in-memory `readings` state uses legacy names (`rating`, `heightCm`, `coverPct`, `condition`, `baleRingCount`, `recoveryMin`, `recoveryMax`, `notes`). Refactor renames them to the canonical names so the mapping disappears.
 
-- `src/features/locations/index.js` — restructure lines 923-967 inside `openSurveySheet`: wrap Height + Cover + Bale-Ring Residues in a single `.obs-top-row` container with `.obs-field` / `.obs-field-rings` class names and matching 88px/72px widths. Keep BRC helper caption logic intact.
-- `tests/unit/` — add a layout assertion that `openSurveySheet`'s rendered panel contains a `.obs-top-row` with three `.obs-field*` children. (Optional but recommended — prevents regression.)
+**Rendering model adjustment required.** `renderPaddockList()` currently re-builds the entire paddock list on expand/collapse (line 892), filter change, or search change. The current code attaches direct `change`/`input` listeners to each input that write into `readings[locId]` synchronously, so state survives re-render. After refactor, state lives inside each `renderSurveyCard` instance's internal inputs. To preserve state across re-renders:
 
-**Files affected (Path B, deferred to follow-up OI):**
+1. Maintain a `cards = new Map<locId, card>` in the `openSurveySheet` closure.
+2. Before every `renderPaddockList()` call (and before `saveDraft()`), iterate `cards` and call `card.getValues()`, writing the result into `readings[locId]`. Then `cards.clear()` and rebuild.
+3. On card construction, store `cards.set(locId, card)`.
+4. Collapse-on-tap and filter changes go through `renderPaddockList()`, so step 2 covers them.
+5. `saveDraft()` writes persisted state into `survey_draft_entries` rows (existing code path — unchanged except for the canonical field names).
 
-- Same as Path A plus:
-- `src/features/observations/survey-card.js` — add `hideQualitySlider` prop (or similar).
-- `src/features/observations/_shared.js` — possibly split `renderForageStateRow` so Path B can reuse just the top-row sub-part while keeping its own rating slider. Or reconcile the rating vs. quality scale with Tim's input.
-- `src/entities/paddock-observation.js` — if scale is reconciled, possibly update validator / field descriptors.
+**Late-bound paddock acres for BRC helper.** `renderSurveyCard` returns `setPaddockAcres(newAcres)` — use it. Each paddock's acres are known at card-creation time (from `loc2.areaHectares ?? loc2.areaHa`, already fixed by OI-0124 Phase 1 for this surface), so pass `paddockAcres` at construction; `setPaddockAcres` is only needed if a location picker appears inside the survey sheet (it doesn't — each card is bound to one paddock from the filtered list).
 
-**CP-55/CP-56 impact:** **none** for Path A (no schema change, no export/import shape change — the columns already exist and already round-trip). Path B may surface the rating-vs-quality scale question, which could affect `paddock_observations.forage_quality` column semantics. Flag at the time Path B is specced, not now.
+**OI-0124 Phase 1 parity.** The current sheet reads `loc2.areaHa` at line 875 and 876 for the card header meta + BRC auto-fill. OI-0124 Phase 1 fixed this same pattern on four other surfaces using `areaHectares ?? areaHa`. **This refactor must apply the same fallback** when computing the acres passed to `renderSurveyCard`: `paddockAcres: (loc2.areaHectares ?? loc2.areaHa) ? convert(loc2.areaHectares ?? loc2.areaHa, 'area', 'toImperial') : null`. Otherwise this session silently re-introduces the OI-0124 bug on the Pasture Survey surface.
 
-**Acceptance criteria (Path A):**
+**Card header completeness badge.** Line 879: `isComplete = r.rating != null && r.heightCm != null && r.coverPct != null && r.condition != null`. Update to: `isComplete = r.forageQuality != null && r.forageHeightCm != null && r.forageCoverPct != null && r.forageCondition != null` after the state rename.
 
-1. Open Field Mode → Pasture Survey (any paddock, single or bulk mode).
-2. The Height, Cover, and Bale-Ring Residues fields render on a single row, matching the pre-graze observation card on Move wizard § Post-Graze and Sub-Move Open.
-3. Height input width is 88px (or equivalent to the pre-graze card). Cover input width is 88px. Bale-Ring Residues input width is 72px.
-4. Typing a bale-ring count still triggers the auto-fill helper caption ("N rings × M sq ft = X sq ft" + "Sets forage cover to P%") and still writes the computed cover into the Cover input. (OI-0124 Phase 1 behavior must be preserved.)
-5. All existing save paths still work — draft save, Finish & Save, per-location commit — no data-shape change to `surveys` / `survey_draft_entries` / `paddock_observations`.
-6. Round-trip: rating, height, cover, condition, bale-ring count, recovery window, notes all still persist and restore correctly.
-7. One new layout unit test in `tests/unit/` asserts the `.obs-top-row` structure (optional, recommended).
+**Survey date stays outside the card** — per-survey-session, not per-paddock.
+
+**Files affected:**
+
+- `src/features/locations/index.js` — inside `openSurveySheet`:
+  - Import `renderSurveyCard` from `../observations/survey-card.js`.
+  - Delete the hand-rolled body (lines ~903–1001): outer rating slider/input/bar, Height+Cover row, Bale-Ring row, Condition chips, Recovery row.
+  - Replace with `const card = renderSurveyCard({ farmSettings, paddockAcres, initialValues: readings[loc2.id] })`.
+  - Rename `readings` fields from legacy names → canonical names (single find-and-replace pass through the function body + `saveDraft` + `commitSurvey`).
+  - Add `cards = new Map()` in the closure; `cards.set(loc2.id, card)` on construction; `cards.get(locId).getValues()` write-back before every `renderPaddockList()` call and before `saveDraft()`.
+  - Update the completeness badge (line 879) to use canonical field names.
+  - Update `loc2.areaHectares ?? loc2.areaHa` for the BRC acres input (OI-0124 Phase 1 parity).
+- `tests/unit/` — add `openSurveySheet`-layout test asserting: `.obs-top-row` structure present, card contains Notes textarea, card contains Recovery min/max positioned directly above the Notes textarea. Round-trip test asserting: draft save preserves `forageHeightCm`, `forageCoverPct`, `forageQuality`, `forageCondition`, `baleRingResidueCount`, `recoveryMinDays`, `recoveryMaxDays`, `notes`.
+
+**Files NOT touched:**
+
+- `src/features/observations/survey-card.js` — already correct; no new prop needed.
+- `src/features/observations/_shared.js` — already correct; no split required.
+- `src/entities/survey-draft-entry.js` + `src/entities/paddock-observation.js` — fields already match.
+- `src/styles/main.css` — `.obs-top-row` / `.obs-field*` classes already exist.
+
+**CP-55/CP-56 impact:** **none.** No schema change; `survey_draft_entries` and `paddock_observations` columns are unchanged. Export/import already round-trips them.
+
+**Acceptance criteria:**
+
+1. Open Field Mode → Pasture Survey in both modes (Single Survey and Bulk Survey Entry).
+2. Each paddock card renders Height, Cover, and Bale-Ring Residues on a single row at widths 88px/88px/72px, matching the pre-graze observation card on Move wizard § Post-Graze, Sub-Move Open, and Event Detail.
+3. Quality slider is the 1–100 gradient slider with Poor/Fair/Good/Excellent anchor labels (no separate horizontal rating bar below — the slider's gradient track IS the visualization).
+4. Forage Condition chips render as `obs-condition-chips` grid (matches other surfaces).
+5. Recovery min–max renders just above Notes.
+6. **Notes textarea is present and editable** (new UI surface — was missing before this OI).
+7. Typing a bale-ring count triggers the auto-fill helper caption ("N rings × M sq ft = X sq ft" + "Sets forage cover to P%") and writes the computed cover into the Cover input. (OI-0124 Phase 1 behavior preserved.)
+8. Expand/collapse a paddock card in bulk mode: partially-entered values survive the re-render (state write-back through `cards.get(locId).getValues()`).
+9. Toggle farm/type filter or type in search box: same — values survive the re-render.
+10. Save Draft persists all eight fields (height, cover, quality, condition, bale rings, recovery min, recovery max, notes) to `survey_draft_entries`. Reopening the draft restores them to their inputs.
+11. Finish & Save creates one `paddock_observations` row per rated paddock with all eight fields; `surveys.status` flips to `committed`; `survey_draft_entries` rows for this survey are deleted.
+12. Unit test suite grows by 2 (or more); all passing.
+13. No change in schema, migration, or backup/restore round-trip.
 
 **Linked OPEN_ITEMS:**
 
 - **OI-0112** (closed) — observation card unification "big-bang". This is the gap that unification missed.
-- **OI-0124 Phase 1** (closed — commit fa04656) — BRC auto-fill fix. Pasture Survey was one of its four surfaces; the auto-fill now works but its layout remained broken (this OI closes the layout gap).
+- **OI-0124 Phase 1** (closed — commit fa04656) — BRC auto-fill fix. Pasture Survey was one of its four surfaces; the auto-fill now works but its layout remained broken (this OI closes the layout gap AND preserves Phase 1 behavior via the `areaHectares ?? areaHa` fallback).
 - **OI-0100** (closed) — "embed Survey paddock card as the pre-graze observation UI on move wizard + event close". OI-0112 followed; neither reached `openSurveySheet` in Locations feature.
-- **OI-0107** (closed) — Event Detail pre-graze: swap inline fields for the shared paddock card. Same pattern as this OI but for a different surface. The Locations `openSurveySheet` path just wasn't on OI-0107's radar.
+- **OI-0107** (closed) — Event Detail pre-graze: swap inline fields for the shared paddock card. Same pattern as this OI but for a different surface.
 
 **Change Log:**
 
 | Date | Session | Change |
 |------|---------|--------|
-| 2026-04-20 | OI-0124 Phase 1 smoke discovery + root-cause trace | Opened. Root cause located at `locations/index.js :: openSurveySheet` lines 923-967. Two fix paths specced (A minimum-viable, B full refactor). Path A recommended for this session; Path B deferred to a follow-up OI that can carry the 0–100 rating vs 1–5 quality scale design decision. |
+| 2026-04-20 | OI-0124 Phase 1 smoke discovery + root-cause trace | Opened. Root cause located at `locations/index.js :: openSurveySheet` lines ~900–1001. Initially specced as Path A (minimum-viable layout fix) vs Path B (full refactor). |
+| 2026-04-20 | Tim locked scope on Path B | "Fix it properly once and for all. Min-max just above notes (and notes should be added to survey)." Earlier quality-scale worry corrected: `renderQualitySlider` is 1–100 (matches sheet's `rating`), no scale mismatch. Full delegation refactor specced. Session brief written at `session_briefs/SESSION_BRIEF_2026-04-20_oi0126-pasture-survey-refactor.md`. |
 
 ---
 

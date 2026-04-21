@@ -20,6 +20,7 @@ import * as AmendmentLocationEntity from '../../entities/amendment-location.js';
 import * as SurveyEntity from '../../entities/survey.js';
 import * as SurveyDraftEntryEntity from '../../entities/survey-draft-entry.js';
 import { openHarvestSheet } from '../harvest/index.js';
+import { renderSurveyCard } from '../observations/survey-card.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -662,42 +663,49 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
     }
   }
 
-  // State
+  // State — OI-0126: fields use canonical entity names so renderSurveyCard
+  // ({initialValues}) and card.getValues() round-trip without a rename shim.
   const readings = {};
-  for (const l of locs) readings[l.id] = { rating: null, heightCm: null, coverPct: null, condition: null, baleRingCount: null, recoveryMin: null, recoveryMax: null, notes: null };
+  for (const l of locs) readings[l.id] = {
+    forageQuality: null, forageHeightCm: null, forageCoverPct: null,
+    forageCondition: null, baleRingResidueCount: null,
+    recoveryMinDays: null, recoveryMaxDays: null, notes: null,
+  };
 
-  // Hydrate from draft entries or committed observations
+  // Hydrate from draft entries or committed observations. Field names on the
+  // source rows (paddock_observations, survey_draft_entries) already match
+  // the readings keys, so a simple spread suffices.
   if (surveyId) {
     if (isBulkEdit) {
-      // Load from paddockObservations linked to this survey
       const obs = getAll('paddockObservations').filter(o => o.sourceId === surveyId);
       for (const o of obs) {
         if (readings[o.locationId]) {
-          const r = readings[o.locationId];
-          r.rating = o.forageQuality;
-          r.heightCm = o.forageHeightCm;
-          r.coverPct = o.forageCoverPct;
-          r.condition = o.forageCondition;
-          r.baleRingCount = o.baleRingResidueCount;
-          r.recoveryMin = o.recoveryMinDays;
-          r.recoveryMax = o.recoveryMaxDays;
-          r.notes = o.notes;
+          Object.assign(readings[o.locationId], {
+            forageQuality: o.forageQuality,
+            forageHeightCm: o.forageHeightCm,
+            forageCoverPct: o.forageCoverPct,
+            forageCondition: o.forageCondition,
+            baleRingResidueCount: o.baleRingResidueCount,
+            recoveryMinDays: o.recoveryMinDays,
+            recoveryMaxDays: o.recoveryMaxDays,
+            notes: o.notes,
+          });
         }
       }
     } else {
-      // Load from draft entries
       const draftEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === surveyId);
       for (const d of draftEntries) {
         if (readings[d.locationId]) {
-          const r = readings[d.locationId];
-          r.rating = d.forageQuality;
-          r.heightCm = d.forageHeightCm;
-          r.coverPct = d.forageCoverPct;
-          r.condition = d.forageCondition;
-          r.baleRingCount = d.baleRingResidueCount;
-          r.recoveryMin = d.recoveryMinDays;
-          r.recoveryMax = d.recoveryMaxDays;
-          r.notes = d.notes;
+          Object.assign(readings[d.locationId], {
+            forageQuality: d.forageQuality,
+            forageHeightCm: d.forageHeightCm,
+            forageCoverPct: d.forageCoverPct,
+            forageCondition: d.forageCondition,
+            baleRingResidueCount: d.baleRingResidueCount,
+            recoveryMinDays: d.recoveryMinDays,
+            recoveryMaxDays: d.recoveryMaxDays,
+            notes: d.notes,
+          });
         }
       }
     }
@@ -712,24 +720,33 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
 
   function saveDraft() {
     if (!surveyId) return;
-    // Remove old draft entries for this survey
+    // OI-0126: flush in-progress card input state back to readings before we
+    // walk the map to write draft entries. Without this, values typed into
+    // the renderSurveyCard inputs that haven't blurred yet are lost.
+    commitReadingsFromCards();
     const oldEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === surveyId);
     for (const d of oldEntries) remove('surveyDraftEntries', d.id, 'survey_draft_entries');
-    // Write new entries
     for (const [locId, r] of Object.entries(readings)) {
-      if (r.rating == null && r.heightCm == null && r.coverPct == null && !r.condition) continue;
+      if (r.forageQuality == null && r.forageHeightCm == null && r.forageCoverPct == null && !r.forageCondition) continue;
       const entry = SurveyDraftEntryEntity.create({
-        operationId, surveyId, locationId: locId,
-        forageQuality: r.rating, forageHeightCm: r.heightCm, forageCoverPct: r.coverPct,
-        forageCondition: r.condition, baleRingResidueCount: r.baleRingCount,
-        recoveryMinDays: r.recoveryMin, recoveryMaxDays: r.recoveryMax, notes: r.notes,
+        operationId, surveyId, locationId: locId, ...r,
       });
       add('surveyDraftEntries', entry, SurveyDraftEntryEntity.validate, SurveyDraftEntryEntity.toSupabaseShape, 'survey_draft_entries');
     }
-    // Update survey date
     const dateVal = panel.querySelector('input[type="date"]')?.value || todayStr;
     update('surveys', surveyId, { surveyDate: dateVal }, SurveyEntity.validate, SurveyEntity.toSupabaseShape, 'surveys');
   }
+
+  // OI-0126: card instances per-location. renderPaddockList() rebuilds these
+  // on every re-render; commitReadingsFromCards() flushes current input state
+  // from each card back into `readings` before the teardown.
+  const cards = new Map();
+  function commitReadingsFromCards() {
+    for (const [locId, card] of cards) {
+      if (readings[locId]) Object.assign(readings[locId], card.getValues());
+    }
+  }
+
   let farmFilter = 'all';
   let typeFilter = 'all';
   let searchQuery2 = '';
@@ -781,8 +798,10 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
     bulkRow1.appendChild(el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
       el('button', { type: 'button', className: 'btn btn-outline btn-sm', onClick: () => { saveDraft(); } }, ['Save Draft']),
       el('button', { type: 'button', className: 'btn btn-green btn-sm', onClick: () => {
-        // Check for unrated paddocks
-        const rated = Object.entries(readings).filter(([_k, r2]) => r2.rating != null);
+        // Check for unrated paddocks. commitReadingsFromCards() pulls current
+        // input state so the "have you rated anything yet?" count is honest.
+        commitReadingsFromCards();
+        const rated = Object.entries(readings).filter(([_k, r2]) => r2.forageQuality != null);
         const total = locs.length;
         if (rated.length < total) {
           // Show confirm bar
@@ -854,14 +873,12 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   const paddockList = el('div');
   scrollBody.appendChild(paddockList);
 
-  function ratingColor(val) {
-    if (val == null) return 'var(--text3)';
-    if (val <= 30) return 'var(--red)';
-    if (val <= 60) return 'var(--amber)';
-    return 'var(--green)';
-  }
-
   function renderPaddockList() {
+    // OI-0126: flush any in-progress card input state back into `readings`
+    // before teardown, then drop the old card handles — they're about to be
+    // garbage-collected along with the paddockList subtree.
+    commitReadingsFromCards();
+    cards.clear();
     clear(paddockList);
     let filtered = [...locs];
     if (!isSingle) {
@@ -873,10 +890,9 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
     for (const loc2 of filtered) {
       const r = readings[loc2.id];
       const areaVal = loc2.areaHa ? convert(loc2.areaHa, 'area', 'toImperial').toFixed(2) : '';
-      const areaAcres = loc2.areaHa ? convert(loc2.areaHa, 'area', 'toImperial') : 0;
       const areaUnit2 = unitSys === 'imperial' ? 'ac' : 'ha';
       const isExpanded = expandedCards.has(loc2.id);
-      const isComplete = r.rating != null && r.heightCm != null && r.coverPct != null && r.condition != null;
+      const isComplete = r.forageQuality != null && r.forageHeightCm != null && r.forageCoverPct != null && r.forageCondition != null;
 
       // Card header (clickable in bulk mode)
       const headerChildren = [
@@ -899,104 +915,24 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
       if (isExpanded || isSingle) {
         const body = el('div', { style: { padding: '12px', background: 'var(--bg2)' } });
 
-        // Rating slider + input
-        const ratingSlider = el('input', { type: 'range', min: '0', max: '100', step: '1', value: r.rating ?? 50, style: { flex: '1', accentColor: ratingColor(r.rating ?? 50), cursor: 'pointer' } });
-        const ratingInput = el('input', { type: 'number', min: '0', max: '100', step: '1', value: r.rating ?? '', placeholder: '0\u2013100', style: { width: '60px', padding: '5px 6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', fontWeight: '600', textAlign: 'center', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' } });
-        const ratingBar = el('div', { style: { height: '6px', borderRadius: '3px', background: 'var(--bg2)', marginTop: '4px', overflow: 'hidden' } }, [
-          el('div', { style: { height: '100%', width: `${r.rating ?? 0}%`, background: ratingColor(r.rating ?? 0), borderRadius: '3px', transition: 'width 0.15s, background 0.15s' } }),
-        ]);
-        function syncRating(val) {
-          const v = parseInt(val, 10);
-          r.rating = isNaN(v) ? null : Math.max(0, Math.min(100, v));
-          ratingSlider.value = r.rating ?? 50;
-          ratingInput.value = r.rating ?? '';
-          ratingSlider.style.accentColor = ratingColor(r.rating);
-          const fill = ratingBar.firstChild;
-          if (fill) { fill.style.width = `${r.rating ?? 0}%`; fill.style.background = ratingColor(r.rating); }
-        }
-        ratingSlider.addEventListener('input', () => { syncRating(ratingSlider.value); triggerDraftSave(); });
-        ratingInput.addEventListener('input', () => { syncRating(ratingInput.value); triggerDraftSave(); });
+        // OI-0124 Phase 1 parity: read areaHectares with areaHa fallback so
+        // the BRC auto-fill restored by fa04656 still works here.
+        const areaHectaresVal = loc2.areaHectares ?? loc2.areaHa ?? null;
+        const paddockAcres = areaHectaresVal
+          ? convert(areaHectaresVal, 'area', 'toImperial')
+          : null;
 
-        body.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [ratingSlider, ratingInput]));
-        body.appendChild(ratingBar);
-
-        // Height + Cover
-        const heightInput = el('input', { type: 'number', min: '0', max: '72', step: '0.5', placeholder: unitSys === 'imperial' ? 'inches' : 'cm', value: r.heightCm != null ? (unitSys === 'imperial' ? convert(r.heightCm, 'length', 'toImperial').toFixed(1) : r.heightCm) : '', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-        heightInput.addEventListener('change', () => { const val = parseFloat(heightInput.value); r.heightCm = !isNaN(val) ? (unitSys === 'imperial' ? convert(val, 'length', 'toMetric') : val) : null; triggerDraftSave(); });
-        const coverInput = el('input', { type: 'number', min: '0', max: '100', step: '1', placeholder: '%', value: r.coverPct ?? '', style: { width: '100%', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-        coverInput.addEventListener('change', () => { r.coverPct = parseInt(coverInput.value, 10) || null; triggerDraftSave(); });
-
-        body.appendChild(el('div', { style: { display: 'flex', gap: '12px', marginTop: '14px', flexWrap: 'wrap' } }, [
-          el('div', { style: { flex: '1', minWidth: '120px' } }, [
-            el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, [`AVG VEG HEIGHT (${unitSys === 'imperial' ? 'in' : 'cm'})`]),
-            heightInput,
-          ]),
-          el('div', { style: { flex: '1', minWidth: '120px' } }, [
-            el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['AVG FORAGE COVER (%)']),
-            coverInput,
-          ]),
-        ]));
-
-        // Bale-ring residue helper (SP-9)
-        const brc1 = getCalcByName('BRC-1');
-        if (brc1) {
-          const baleCaption = el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginTop: '4px' } });
-          const baleInput = el('input', { type: 'number', min: '0', max: '999', placeholder: '0', value: r.baleRingCount ?? '', style: { width: '80px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', textAlign: 'center' } });
-          baleInput.addEventListener('input', () => {
-            const count = parseInt(baleInput.value, 10) || 0;
-            r.baleRingCount = count || null;
-            clear(baleCaption);
-            if (count > 0) {
-              const result = brc1.fn({ ringCount: count, ringDiameterFt: baleRingDiameterFt, paddockAcres: areaAcres });
-              baleCaption.appendChild(el('div', {}, [`${count} rings \u00D7 ${Math.round(result.ringAreaSqFt)} sq ft = ${Math.round(result.totalAreaSqFt).toLocaleString()} sq ft`]));
-              if (result.computedForageCoverPct != null) {
-                baleCaption.appendChild(el('div', {}, [`\u21B3 Sets forage cover to ${result.computedForageCoverPct}% (of ${Math.round(areaAcres * 43560).toLocaleString()} sq ft)`]));
-                r.coverPct = result.computedForageCoverPct;
-                coverInput.value = result.computedForageCoverPct;
-              } else {
-                baleCaption.appendChild(el('div', {}, ['\u21B3 Set paddock acreage to estimate cover.']));
-              }
-            }
-            triggerDraftSave();
-          });
-          body.appendChild(el('div', { style: { marginTop: '12px' } }, [
-            el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['BALE-RING RESIDUES (optional)']),
-            baleInput,
-            baleCaption,
-          ]));
-        }
-
-        // Condition
-        const conditions = ['Poor', 'Fair', 'Good', 'Exc.'];
-        const condMap = { 'Poor': 'poor', 'Fair': 'fair', 'Good': 'good', 'Exc.': 'excellent' };
-        const condRow = el('div', { style: { display: 'flex', gap: '4px' } });
-        function renderCondBtns() {
-          clear(condRow);
-          for (const c of conditions) {
-            const isActive = r.condition === condMap[c];
-            condRow.appendChild(el('button', { type: 'button', style: { flex: '1', padding: '6px 0', fontSize: '12px', borderRadius: '6px', cursor: 'pointer', border: `0.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green-l)' : 'transparent', color: isActive ? 'var(--green-d)' : 'var(--text2)', fontWeight: isActive ? '500' : '400' }, onClick: () => { r.condition = condMap[c]; renderCondBtns(); triggerDraftSave(); } }, [c]));
-          }
-        }
-        renderCondBtns();
-        body.appendChild(el('div', { style: { marginTop: '12px' } }, [
-          el('div', { style: { fontSize: '11px', fontWeight: '600', color: 'var(--text2)', marginBottom: '5px' } }, ['FORAGE CONDITION']),
-          condRow,
-        ]));
-
-        // Recovery window (single mode + bulk expanded)
-        const recMinInput = el('input', { type: 'number', placeholder: '30', min: '1', max: '365', value: r.recoveryMin ?? '', style: { width: '72px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-        recMinInput.addEventListener('change', () => { r.recoveryMin = parseInt(recMinInput.value, 10) || null; triggerDraftSave(); });
-        const recMaxInput = el('input', { type: 'number', placeholder: '60', min: '1', max: '365', value: r.recoveryMax ?? '', style: { width: '72px', padding: '6px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px' } });
-        recMaxInput.addEventListener('change', () => { r.recoveryMax = parseInt(recMaxInput.value, 10) || null; triggerDraftSave(); });
-
-        body.appendChild(el('div', { style: { marginTop: '14px' } }, [
-          el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Recovery window']),
-          el('div', { style: { display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' } }, [
-            el('div', {}, [el('div', { style: { fontSize: '10px', color: 'var(--text2)', marginBottom: '3px' } }, ['MIN days']), recMinInput]),
-            el('span', { style: { fontSize: '16px', color: 'var(--text2)', paddingBottom: '6px' } }, ['\u2013']),
-            el('div', {}, [el('div', { style: { fontSize: '10px', color: 'var(--text2)', marginBottom: '3px' } }, ['MAX days']), recMaxInput]),
-          ]),
-        ]));
+        // OI-0126: delegate the per-paddock observation fields to the
+        // unified card (3-up Height/Cover/Rings top row, 1–100 quality
+        // slider, condition chips, recovery min–max, Notes textarea — same
+        // layout the other four observation surfaces use).
+        const card = renderSurveyCard({
+          farmSettings,
+          paddockAcres,
+          initialValues: readings[loc2.id],
+        });
+        body.appendChild(card.container);
+        cards.set(loc2.id, card);
 
         cardEl.appendChild(body);
       }
@@ -1015,8 +951,14 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   // Commit function (creates paddockObservations, marks survey committed)
   function commitSurvey() {
     clear(statusEl);
+    // OI-0126: flush current card inputs into readings so an unfocused value
+    // doesn't get dropped on commit.
+    commitReadingsFromCards();
     const surveyDate = dateInput.value || todayStr;
-    const rated = Object.entries(readings).filter(([_k, r2]) => r2.rating != null || r2.heightCm != null || r2.coverPct != null || r2.condition != null);
+    const rated = Object.entries(readings).filter(([_k, r2]) =>
+      r2.forageQuality != null || r2.forageHeightCm != null ||
+      r2.forageCoverPct != null || r2.forageCondition != null,
+    );
     if (!rated.length) { statusEl.appendChild(el('span', {}, ['Rate at least one paddock'])); return; }
     try {
       // Bulk-edit: remove prior observations for this survey before re-creating
@@ -1028,10 +970,7 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
         const rec = PaddockObsEntity.create({
           operationId, locationId: locId, observedAt: surveyDate + 'T12:00:00Z',
           type: 'open', source: 'survey', sourceId: surveyId || null,
-          forageQuality: r2.rating, forageHeightCm: r2.heightCm, forageCoverPct: r2.coverPct,
-          forageCondition: r2.condition, baleRingResidueCount: r2.baleRingCount,
-          recoveryMinDays: r2.recoveryMin, recoveryMaxDays: r2.recoveryMax,
-          notes: r2.notes,
+          ...r2,
         });
         add('paddockObservations', rec, PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
       }

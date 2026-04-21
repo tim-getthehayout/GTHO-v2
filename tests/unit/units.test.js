@@ -4,8 +4,8 @@ import { convert, display, unitLabel, MEASURE_TYPES } from '../../src/utils/unit
 
 describe('units', () => {
   describe('MEASURE_TYPES', () => {
-    it('has all 6 measurement types', () => {
-      expect(MEASURE_TYPES).toEqual(['weight', 'area', 'length', 'temperature', 'volume', 'yieldRate']);
+    it('has all 7 measurement types', () => {
+      expect(MEASURE_TYPES).toEqual(['weight', 'area', 'length', 'temperature', 'volume', 'yieldRate', 'dmYieldDensity']);
     });
   });
 
@@ -66,6 +66,23 @@ describe('units', () => {
     });
     it('lbs/acre to kg/ha', () => {
       expect(convert(892.179, 'yieldRate', 'toMetric')).toBeCloseTo(1000, 0);
+    });
+  });
+
+  describe('convert — dmYieldDensity (OI-0125 / SP-13)', () => {
+    it('lbs/in/ac to kg/cm/ha (toMetric) — 300 lbs/in/ac → 132.36 kg/cm/ha', () => {
+      // Reuses the v1-migration constant DM_LBS_IN_AC_TO_KG_CM_HA = 0.4412.
+      expect(convert(300, 'dmYieldDensity', 'toMetric')).toBeCloseTo(300 * 0.4412, 4);
+    });
+    it('kg/cm/ha to lbs/in/ac (toImperial) — round-trip returns original', () => {
+      const imperial = 300;
+      const metric = convert(imperial, 'dmYieldDensity', 'toMetric');
+      const back = convert(metric, 'dmYieldDensity', 'toImperial');
+      expect(back).toBeCloseTo(imperial, 6);
+    });
+    it('unitLabel returns "lbs/in/ac" for imperial, "kg/cm/ha" for metric', () => {
+      expect(unitLabel('dmYieldDensity', 'imperial')).toBe('lbs/in/ac');
+      expect(unitLabel('dmYieldDensity', 'metric')).toBe('kg/cm/ha');
     });
   });
 

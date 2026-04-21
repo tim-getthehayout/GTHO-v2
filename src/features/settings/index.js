@@ -3,7 +3,10 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, update, getSyncAdapter, getOperation, setUnitSystem } from '../../data/store.js';
-import { convert, unitLabel } from '../../utils/units.js';
+import {
+  composeFieldLabel, toDisplayValue, toStoredValue, formatDisplayValue, stepForField,
+} from './unit-descriptor.js';
+import { renderForageTypesSection, renderForageTypeSheetMarkup } from './forage-types-section.js';
 import { canExport, exportOperationBackup, downloadBackup } from '../../data/backup-export.js';
 import { validateBackup, getBackupPreview, importOperationBackup } from '../../data/backup-import.js';
 import { pushAllToSupabase } from '../../data/push-all.js';
@@ -46,6 +49,9 @@ export function renderSettingsScreen(container) {
     renderUnitSection(container),
     renderFarmSection(farmSettings, container),
     renderPrefSection(userPrefs, container),
+    // OI-0125 / SP-13: Forage Types card sits between Farm Settings and Field
+    // Mode (v1 ordering: Farms → Forage Types → Field Mode → Farm Settings).
+    renderForageTypesSection(operationId),
     renderFieldModulesCard(container),
     renderMembersSection(operationId),
     // Health reference tables (CP-32)
@@ -64,6 +70,7 @@ export function renderSettingsScreen(container) {
     ...renderHealthRefSheetMarkups(),
     ...renderAmendmentRefSheetMarkups(),
     renderMemberSheetMarkup(),
+    renderForageTypeSheetMarkup(),
   ]);
 
   container.appendChild(sections);
@@ -128,103 +135,8 @@ const FARM_FIELD_DESCRIPTORS = [
   { key: 'baleRingResidueDiameterCm', labelKey: 'settings.baleRingDiameter', measureType: 'length',  displayUnit: 'ft', precision: { metric: 1, imperial: 1 } },
 ];
 
-/**
- * Compose the display label for a field: "Base Label (unit)".
- * @param {object} f - descriptor entry
- * @param {'metric'|'imperial'} unitSystem
- */
-function composeFieldLabel(f, unitSystem) {
-  const base = t(f.labelKey);
-  if (f.measureType === null) {
-    if (!f.unitLabelKey) return base;
-    return `${base} (${t(f.unitLabelKey)})`;
-  }
-  if (f.currency) {
-    // $/kg ↔ $/lb — use the weight unit label.
-    const wu = unitLabel('weight', unitSystem);
-    return `${base} ($/${wu})`;
-  }
-  if (f.perDay) {
-    const wu = unitLabel('weight', unitSystem);
-    return `${base} (${wu}/AU/day)`;
-  }
-  if (f.displayUnit === 'ft') {
-    // Metric side still shows cm; imperial side shows ft.
-    return unitSystem === 'imperial'
-      ? `${base} (${t('unit.ft')})`
-      : `${base} (${unitLabel(f.measureType, unitSystem)})`;
-  }
-  return `${base} (${unitLabel(f.measureType, unitSystem)})`;
-}
-
-/**
- * Convert stored metric → user-facing display value.
- * Returns a Number (or null). Rendering code formats to precision.
- */
-function toDisplayValue(storedValue, f, unitSystem) {
-  if (storedValue == null) return null;
-  if (f.measureType === null) return storedValue;
-  if (unitSystem === 'metric') {
-    if (f.displayUnit === 'ft') {
-      // Stored in cm; display metric still shows cm.
-      return storedValue;
-    }
-    return storedValue;
-  }
-  // imperial
-  if (f.inverted) {
-    // $/kg → $/lb: divide stored by factor so e.g. 1.21 $/kg → ~0.5489 $/lb.
-    // convert() multiplies by factor for toImperial; we invert that by dividing.
-    const factorKgToLbs = convert(1, 'weight', 'toImperial'); // 2.20462
-    return storedValue / factorKgToLbs;
-  }
-  if (f.displayUnit === 'ft') {
-    // cm → in → ft.
-    return convert(storedValue, f.measureType, 'toImperial') / 12;
-  }
-  return convert(storedValue, f.measureType, 'toImperial');
-}
-
-/**
- * Convert user-facing entered value → stored metric.
- * Returns a Number (full JS float, no rounding — spec §Precision).
- */
-function toStoredValue(inputNumber, f, unitSystem) {
-  if (inputNumber == null || isNaN(inputNumber)) return null;
-  if (f.measureType === null) return inputNumber;
-  if (unitSystem === 'metric') return inputNumber;
-  // imperial
-  if (f.inverted) {
-    // $/lb entered → $/kg stored: multiply by factor.
-    const factorKgToLbs = convert(1, 'weight', 'toImperial');
-    return inputNumber * factorKgToLbs;
-  }
-  if (f.displayUnit === 'ft') {
-    // ft entered → in → cm.
-    return convert(inputNumber * 12, f.measureType, 'toMetric');
-  }
-  return convert(inputNumber, f.measureType, 'toMetric');
-}
-
-/**
- * Format a display value to the field's precision. null → ''.
- */
-function formatDisplayValue(displayValue, f, unitSystem) {
-  if (displayValue == null) return '';
-  const decimals = f.precision?.[unitSystem] ?? 1;
-  return displayValue.toFixed(decimals);
-}
-
-/**
- * Derive the `step` attribute for the input from precision.
- */
-function stepForField(f, unitSystem) {
-  const decimals = f.precision?.[unitSystem] ?? 1;
-  if (decimals <= 0) return '1';
-  return (1 / Math.pow(10, decimals)).toString();
-}
-
-// Exported for unit tests (OI-0111 round-trip suite).
+// Exported for unit tests (OI-0111 round-trip suite). Helpers now live in
+// `./unit-descriptor.js` (extracted for OI-0125 / SP-13 reuse).
 export const __settingsUnitInternals = {
   FARM_FIELD_DESCRIPTORS,
   composeFieldLabel,

@@ -102,7 +102,8 @@
     "gal": "gal",
     "pct": "%",
     "days": "days",
-    "score": "score"
+    "score": "score",
+    "kgPerTDm": "kg/t DM"
   },
   "event": {
     "title": "Events",
@@ -1075,5 +1076,40 @@
     "saveChanges": "Save changes",
     "changesSaved": "Changes saved",
     "emailInUse": "This email is already used by another member"
+  },
+  "forageType": {
+    "section": "Forage Types",
+    "sectionSubtitle": "Reference library for DM% and NPK removal values. Linked to feed types and harvest events.",
+    "add": "+ Add",
+    "edit": "Edit",
+    "delete": "Delete",
+    "editSheetTitle": "Edit Forage Type",
+    "addSheetTitle": "Add Forage Type",
+    "editSheetSubtitle": "NPK values are kg removed per tonne of dry matter harvested.",
+    "name": "Name",
+    "namePlaceholder": "e.g. Orchard Grass",
+    "dmPct": "DM % (dry matter)",
+    "seededBadge": "seeded",
+    "n": "N",
+    "p": "P",
+    "k": "K",
+    "nLabel": "N",
+    "pLabel": "P",
+    "kLabel": "K",
+    "kgPerTDm": "kg/t DM",
+    "dmYieldLabelImperial": "DM per inch per acre",
+    "dmYieldLabelMetric": "DM per cm per ha",
+    "minResidual": "Min residual height",
+    "utilization": "Utilization",
+    "notes": "Notes",
+    "notesPlaceholder": "Source, lab, year…",
+    "emptyState": "No forage types yet. Tap + Add to create one.",
+    "nameRequired": "Name is required",
+    "saved": "Saved",
+    "deleteConfirm": "Delete \"{name}\"? This cannot be undone.",
+    "deleteBlockedTitle": "Cannot delete — in use",
+    "deleteBlocked": "{n} location(s) use this forage type.",
+    "deleteBlockedAction": "View locations",
+    "metaLine": "DM {dm}% · N {n} / P {p} / K {k} kg/t DM"
   }
 }

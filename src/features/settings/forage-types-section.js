@@ -12,34 +12,27 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { getAll, remove, subscribe } from '../../data/store.js';
+import { getAll, remove } from '../../data/store.js';
 import { openForageTypeSheet, renderForageTypeSheetMarkup } from './forage-type-sheet.js';
 
 export { renderForageTypeSheetMarkup };
 
 /**
  * Render the Forage Types card into the settings sections list.
+ * Re-renders itself in place after add/edit/delete via a `rerender` closure
+ * that each row-level action threads through — avoids a long-lived store
+ * subscription that would need a DOM-teardown cleanup.
  * @param {string} operationId
  * @returns {HTMLElement}
  */
 export function renderForageTypesSection(operationId) {
   const card = el('div', { className: 'card settings-card', 'data-testid': 'settings-forage-types' });
-  renderInto(card, operationId);
-
-  // Re-render on store changes so add/edit/delete results flow back instantly.
-  const unsubscribe = subscribe('forageTypes', () => renderInto(card, operationId));
-  // When the settings screen is torn down, the card is removed from the DOM.
-  // Use a MutationObserver on the root body to drop the subscription — avoids
-  // leaking subscribers across screen renders.
-  const bodyObserver = new MutationObserver(() => {
-    if (!card.isConnected) { unsubscribe(); bodyObserver.disconnect(); }
-  });
-  bodyObserver.observe(document.body, { childList: true, subtree: true });
-
+  const rerender = () => renderInto(card, operationId, rerender);
+  rerender();
   return card;
 }
 
-function renderInto(card, operationId) {
+function renderInto(card, operationId, rerender) {
   clear(card);
 
   const header = el('div', {
@@ -49,7 +42,7 @@ function renderInto(card, operationId) {
     el('button', {
       className: 'btn btn-outline btn-sm',
       'data-testid': 'settings-forage-add',
-      onClick: () => openForageTypeSheet(null, operationId),
+      onClick: () => openForageTypeSheet(null, operationId, rerender),
     }, [t('forageType.add')]),
   ]);
   card.appendChild(header);
@@ -70,14 +63,14 @@ function renderInto(card, operationId) {
     ]));
   } else {
     for (const ft of rows) {
-      list.appendChild(renderRow(ft, operationId));
+      list.appendChild(renderRow(ft, operationId, rerender));
     }
   }
 
   card.appendChild(list);
 }
 
-function renderRow(ft, operationId) {
+function renderRow(ft, operationId, rerender) {
   const titleChildren = [
     el('strong', {}, [ft.name || '(unnamed)']),
   ];
@@ -112,12 +105,12 @@ function renderRow(ft, operationId) {
       el('button', {
         className: 'btn btn-outline btn-sm',
         'data-testid': `settings-forage-edit-${ft.id}`,
-        onClick: () => openForageTypeSheet(ft, operationId),
+        onClick: () => openForageTypeSheet(ft, operationId, rerender),
       }, [t('forageType.edit')]),
       el('button', {
         className: 'btn btn-red btn-sm',
         'data-testid': `settings-forage-delete-${ft.id}`,
-        onClick: () => attemptDelete(ft),
+        onClick: () => attemptDelete(ft, rerender),
       }, ['\u00D7']),
     ]),
   ]);
@@ -132,17 +125,16 @@ function formatMetaValue(v) {
 /**
  * Delete-guard: block when any location references the forage type.
  */
-function attemptDelete(ft) {
+function attemptDelete(ft, rerender) {
   const referenced = getAll('locations').filter(l => !l.archived && l.forageTypeId === ft.id);
   if (referenced.length > 0) {
-    // eslint-disable-next-line no-alert
     window.alert(
       `${t('forageType.deleteBlockedTitle')}\n\n${t('forageType.deleteBlocked', { n: referenced.length })}`
     );
     return;
   }
-  // eslint-disable-next-line no-alert
   const ok = window.confirm(t('forageType.deleteConfirm', { name: ft.name || '' }));
   if (!ok) return;
   remove('forageTypes', ft.id, 'forage_types');
+  if (rerender) rerender();
 }

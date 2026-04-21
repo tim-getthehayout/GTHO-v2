@@ -14,6 +14,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 
 | Date | Section | What changed |
 |------|---------|-------------|
+| 2026-04-20 | SP-13 | **Settings > Forage Types access (OI-0125).** V1 had Forage Types editable in Settings (list + add/edit sheet); v2 dropped the UI at rebuild and only seeds nine defaults at onboarding. Tim discovered the gap 2026-04-20 while investigating a separate data issue (residual default showing 1.2 in on move/submove sheets — traced to `farm_settings.default_residual_height_cm = 3.048 cm` in Supabase, aftermath of OI-0111 corruption, not a code bug). Spec ratified: new Settings card between Farms and Field Mode, list rows match screenshot (seeded badge + DM/NPK meta line + Edit/delete controls), Edit sheet reuses `renderFarmSection`'s unit-aware descriptor pattern. **New unit family `dmYieldDensity`** added to `src/utils/units.js` for `lbs/in/ac ↔ kg/cm/ha` display conversion on `dm_kg_per_cm_per_ha`. V1 HTML for the settings panel extracted verbatim (sheet template was unavailable — structured per screenshot + v2 patterns). Full spec: SP-13 below + thin pointer at `github/issues/forage-types-settings-ui.md`. No schema change (all forage_types columns exist). No CP-55/CP-56 impact. |
 | 2026-04-20 | SP-2 | **Edit Paddock Window dialog — pre/post graze observation cards (OI-0118).** `openEditPaddockWindowDialog` (launched from Event Detail §4 Paddocks edit pencil and §12 Sub-move History edit pencil) was missing pre-graze and post-graze cards that every other paddock-window surface renders. Design decision (Option 1): pre-graze card renders on both open AND closed windows so historical pre-graze stays editable after close — detail.js §5 filters to open windows only, so without this the closed-window pre-graze has no UI surface. Post-graze renders only when `pw.dateClosed != null`. Each card gets its own inline Save button matching the §5/§6 pattern; writes to `paddock_observations` with `source: 'event'`, `sourceId: pw.id`. No schema change. No CP-55/CP-56 impact. Shipped: implementation commit `eef637e`. Spec: `github/issues/edit-paddock-window-observation-cards.md`. **Base-doc impact at sprint reconciliation:** V2_UX_FLOWS.md §12 Sub-moves + §17.15 Event Detail should enumerate pre-graze and post-graze as rendered components in the edit-paddock-window dialog (currently not named). |
 | 2026-04-20 | SP-12 | **DMI-8 chart cascade rewrite (OI-0119)** — new sprint section added covering the 3-day chart behavior on dashboard location cards (SP-3 surface) and Event Detail §3 (SP-2 surface). Combined fix for the empty-bars bug + cascade model: five chart statuses (was three — adds `no_animals` and `no_pasture_data`), deficit segment render (red atop stored stack with `+X deficit` sub-label), inline CTA link on `no_pasture_data` bars (→ Edit Paddock Window dialog for missing observation per OI-0118 surface, → Location edit for missing forage type), retroactive actual-conversion of the prior stored interval when a feed check lands, pooled pasture across parallel sub-paddocks, date-routing-only source-event bridge (no state handoff between events), 100% cover default on partial pre-graze with "(Fix)" hint. **New sub-move close flow rule** — when event has any stored-feed deliveries, sub-move Close requires a feed check inline in the Close sheet (strikes a clean actual/estimated boundary; no pasture observation forced — too subjective). Calc spec rewritten inline in V2_CALCULATION_SPEC.md §4.2 (calc spec is authoritative, not sprint-deferred). UX flow updates for V2_UX_FLOWS.md §12, §17.7, §17.15 deferred to reconciliation. Full spec: `github/issues/GH-29_dmi-8-cascade-rewrite.md`. |
 | 2026-04-15 | SP-1 | Fix dashboard action buttons |
@@ -1488,6 +1489,174 @@ Dashboard card (`src/features/dashboard/index.js`) and Event Detail (`src/featur
 
 ---
 
+## SP-13: Settings — Forage Types Access (v1 Parity)
+
+**Status:** Spec complete · Ready for implementation
+**Spec file:** `github/issues/forage-types-settings-ui.md` (thin pointer — full spec lives here)
+**Base doc target at reconciliation:** V2_UX_FLOWS.md §18 Settings (new "Forage Types" subsection). V2_SCHEMA_DESIGN.md §2.2 already covers the `forage_types` columns — no schema change needed.
+**Linked OPEN_ITEMS:** OI-0125.
+
+### Problem
+
+V1 exposed a **Forage Types** section on the Settings screen where the farmer could add, edit, and delete forage entries (Alfalfa Hay, Timothy Hay, Corn Silage, etc.). Each entry carries DM%, NPK removal rates, DM-per-inch-per-acre, and a min residual height — values that drive FOR-1 (standing DM), DMI-8 (cascade chart), harvest NPK math, and the per-location `forageTypeId` link.
+
+V2 ships only the onboarding seed step (`src/features/onboarding/seed-data.js` writes nine default forage rows once) and the **Location detail → forage type picker** (the dropdown that assigns an existing forage type to a paddock). There is **no UI to view, edit, or add forage types after onboarding**. That means:
+
+- A farmer who skipped forage setup during onboarding can never fill in NPK or DM/inch/acre values → FOR-1 falls back to defaults or `null`, DMI-8 goes `no_pasture_data`, harvest NPK is under-counted.
+- A farmer who needs a farm-specific mix (Tim's "DEBL Mixed Pasture") has to live with the placeholder values forever.
+- The `is_seeded` flag exists in the entity but has no surface — no way to distinguish seeded defaults from user-created types.
+
+Tim confirmed 2026-04-20: he opened Settings to check/update forage values and found them missing entirely.
+
+### Where it goes
+
+**Settings screen, between Farms and Field Mode sections.** This matches v1's vertical ordering (Farms → Forage Types → Field Mode → Farm Settings). Place above the Farm Settings card so forage reference data sits next to the farms it attaches to.
+
+### V1 HTML — Settings panel (authoritative, extracted verbatim from v1 `index.html`)
+
+```html
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div class="sec" style="margin:0;">Forage types</div>
+    <button class="btn btn-outline btn-sm" onclick="openEditForageTypeSheet(null)">+ Add</button>
+  </div>
+  <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">
+    Reference library for DM% and NPK removal values. Linked to feed types and harvest events.
+  </div>
+  <div id="forage-type-list"></div>
+</div>
+```
+
+Each row in `#forage-type-list` (per the screenshot — v1 sheet template could not be extracted verbatim; structured per screenshot + v2 DOM builder patterns):
+
+- **Title line:** `<strong>{name}</strong> <span class="obs-badge">seeded</span>` (the "seeded" badge only when `is_seeded = true`)
+- **Meta line:** `DM {dmPct}% · N {n} / P {p} / K {k} kg/t DM` (values render as `?` when null, e.g. `DM ?%`, `N ?`)
+- **Controls:** `Edit` button (pill, opens sheet in edit mode), `×` icon button (delete with confirm)
+
+### Edit sheet — Field spec
+
+The Edit sheet opens from the `+ Add` button (blank mode, `name` required) or any row's `Edit` button (pre-filled from the forage type). Modeled on the v1 screenshot in Tim's message.
+
+Form uses the **same unit-aware descriptor pattern as `renderFarmSection`** (OI-0111 / `FARM_FIELD_DESCRIPTORS`). Do not invent a new conversion path. Reuse `toDisplayValue` / `toStoredValue` / `composeFieldLabel` / `stepForField` from `src/features/settings/index.js` — or, if they need to stay private to the farm section, extract them into a shared `src/features/settings/unit-descriptor.js` util in the same commit and re-import on both sides. Do not duplicate the conversion logic.
+
+| Field (entity) | Label (imperial / metric) | Unit | Descriptor | Precision (imperial / metric) | Notes |
+|---|---|---|---|---|---|
+| `name` | "Name" | — | `{ measureType: null }` | — | Text; required; `placeholder = "e.g. Orchard Grass"`. |
+| `dmPct` | "DM % (dry matter)" | % | `{ measureType: null, unitLabelKey: 'unit.pct' }` | `0` / `0` | 0–100, integer. No conversion. |
+| `nPerTonneDm` | "N (kg/t DM)" | kg/t DM | `{ measureType: null, unitLabelKey: 'forageType.kgPerTDm' }` | `1` / `1` | Metric density — v1 kept kg/t DM for imperial users too. No conversion. |
+| `pPerTonneDm` | "P (kg/t DM)" | kg/t DM | same | `1` / `1` | same |
+| `kPerTonneDm` | "K (kg/t DM)" | kg/t DM | same | `1` / `1` | same |
+| `dmKgPerCmPerHa` | "DM per inch per acre (lbs)" / "DM per cm per ha (kg)" | lbs/in/ac ↔ kg/cm/ha | new `{ measureType: 'dmYieldDensity' }` — see note below | `0` / `1` | Needs a new unit family — NOT in `convert()` today. |
+| `minResidualHeightCm` | "Min residual height (in)" / "Min residual height (cm)" | in ↔ cm | `{ measureType: 'length' }` | `1` / `1` | Standard length conversion via existing `convert(cm, 'length', 'toImperial')`. |
+| `utilizationPct` | "Utilization %" | % | `{ measureType: null, unitLabelKey: 'unit.pct' }` | `0` / `0` | Optional. Seeded defaults: 50–75 depending on species (see `seed-data.js`). |
+| `notes` | "Notes" | — | `{ measureType: null }` | — | Textarea, optional, `placeholder = "Source, lab, year…"`. |
+| `isSeeded` | — | — | — | — | **Not user-editable.** Displayed as a read-only "seeded" badge in the list row. User-created types save with `isSeeded = false`. |
+
+#### New unit family: `dmYieldDensity`
+
+`dm_kg_per_cm_per_ha` is metric-stored but v1 displayed this as `lbs/inch/acre` for imperial users — a different unit family from `length` or `weight`. Add a unit family to `src/utils/units.js`:
+
+- **Factor:** 1 lb/in/acre = `0.8918` kg/cm/ha (derivation: 1 lb = 0.453592 kg; 1 in = 2.54 cm; 1 acre = 0.404686 ha → factor = 0.453592 × 2.54 / 0.404686 ÷ 2.54 = 0.453592 / 0.404686 × (1/2.54 × 2.54) → simplified: `LBS_TO_KG / (INCHES_TO_CM × ACRES_TO_HA)` × `INCHES_TO_CM` = `LBS_TO_KG / ACRES_TO_HA`).
+- Actually: `dm_lbs_per_inch_per_acre × (LBS_TO_KG / INCHES_TO_CM) × (1 / ACRES_TO_HA)` is what the v1 migration uses (`DM_LBS_IN_AC_TO_KG_CM_HA` constant in `v1-migration.js`). Reuse that constant; define the inverse factor for display (`KG_CM_HA_TO_LBS_IN_AC = 1 / DM_LBS_IN_AC_TO_KG_CM_HA`).
+- Extend `convert()` and `unitLabel()` to handle `measureType: 'dmYieldDensity'` → imperial label `"lbs/in/ac"`, metric label `"kg/cm/ha"`.
+
+**Round-trip contract:** entering `300` (imperial) must store the exact same numeric value that the v1 migration would produce for `dmLbsPerInchPerAcre = 300`, and re-reading must display `300` again (at precision 0). Required test case.
+
+### Save / validate
+
+- On save, call through `store.add('forageTypes', record, validateForageType, ftToSb, 'forage_types')` for new or `store.update('forageTypes', id, changes, validateForageType, ftToSb, 'forage_types')` for edit. Both 5-param / 6-param calls per CLAUDE.md quality check #7.
+- `validate()` must require `name` (already does — `src/entities/forage-type.js:43`). Add nothing else; all other fields are nullable per the entity.
+- Seeded rows are editable. Editing a seeded row does NOT change `is_seeded` — the badge stays. (Tim confirmed in SP-9 that seeded defaults are overridable.)
+
+### Delete
+
+- Hard-guard: if **any** `locations` row has `forage_type_id = this.id`, block delete with a confirm dialog listing the affected paddocks and a "View locations" link that navigates to `#/locations`. No cascade, no silent reassignment.
+- If no locations reference it, confirm dialog: `Delete "{name}"? This cannot be undone.` → `store.remove('forageTypes', id, 'forage_types')` (3-param per CLAUDE.md quality check #7).
+- Archive-vs-delete: out of scope for this SP. `forage_types.archived` column exists; leave archive UI for a follow-up. Delete is fine for MVP — Tim's operation has <20 types.
+
+### Field mode / Settings navigation
+
+- The Forage Types card is **desktop + mobile Settings**. No Field Mode entry (matches v1).
+- Settings screen changelog: update `V2_UX_FLOWS.md §18` at reconciliation to include this subsection.
+
+### Empty state
+
+When `getAll('forageTypes').filter(f => !f.archived).length === 0` (fresh user who skipped onboarding seed — possible via v1 import with no forage types, or future feature where onboarding seeding becomes optional):
+
+- Show the section header as normal.
+- Empty list body: `<div class="auth-info">No forage types yet. Tap + Add to create one, or <a href="#/settings?seed=forage">seed defaults</a>.</div>` — "seed defaults" triggers the same nine-row insert that `onboarding/seed-data.js` does. Gate it behind a confirm (`Seed 9 default forage types? You can edit or delete them afterward.`) so a mid-farmer with one custom type doesn't accidentally add nine more.
+
+### i18n keys
+
+Add to `src/i18n/locales/en.json` under a new `forageType` namespace:
+
+- `forageType.section` = "Forage Types"
+- `forageType.sectionSubtitle` = "Reference library for DM% and NPK removal values. Linked to feed types and harvest events."
+- `forageType.add` = "+ Add"
+- `forageType.edit` = "Edit"
+- `forageType.editSheetTitle` = "Edit Forage Type"
+- `forageType.addSheetTitle` = "Add Forage Type"
+- `forageType.editSheetSubtitle` = "NPK values are kg removed per tonne of dry matter harvested."
+- `forageType.name` = "Name"
+- `forageType.namePlaceholder` = "e.g. Orchard Grass"
+- `forageType.seededBadge` = "seeded"
+- `forageType.n` = "N"
+- `forageType.p` = "P"
+- `forageType.k` = "K"
+- `forageType.kgPerTDm` = "kg/t DM"
+- `forageType.dmYieldLabel` = "DM per inch per acre" / "DM per cm per ha" (pass through `composeFieldLabel` with new unit family)
+- `forageType.minResidual` = "Min residual height"
+- `forageType.utilization` = "Utilization"
+- `forageType.notesPlaceholder` = "Source, lab, year…"
+- `forageType.deleteConfirm` = "Delete \"{name}\"? This cannot be undone."
+- `forageType.deleteBlocked` = "Cannot delete — {n} location(s) use this forage type."
+- `forageType.deleteBlockedAction` = "View locations"
+- `forageType.seedDefaults` = "seed defaults"
+- `forageType.seedDefaultsConfirm` = "Seed 9 default forage types? You can edit or delete them afterward."
+- `unit.kgPerTDm` = "kg/t DM" (cross-references `forageType.kgPerTDm`; keep one string in one namespace — pick `forageType` and alias `unit`)
+
+### Schema / CP-55 / CP-56 impact
+
+- **Schema:** no change. All columns exist (migration 001 + 003). Entity fields all present in `src/entities/forage-type.js`.
+- **CP-55 (export):** no change. `forage_types` is already serialized via the existing export pipeline; adding UI does not change the JSON shape.
+- **CP-56 (import):** no change. The new UI writes through the same entity + store path as onboarding's seed step, so the round-trip is already proven.
+- **Unit conversion path:** the **new `dmYieldDensity` unit family** is local to display/save. Stored column unchanged (`dm_kg_per_cm_per_ha`). Export/import serialize the metric value; no backward compatibility concerns.
+
+### Acceptance criteria
+
+- [ ] Settings screen renders a **Forage Types** card between Farms and Field Mode, with `+ Add` button and list of all non-archived forage types for the active operation.
+- [ ] Each list row shows name, "seeded" badge (if applicable), meta line with DM%/N/P/K values, Edit pill, and delete × icon.
+- [ ] `+ Add` and `Edit` open the Edit sheet with all nine fields. Sheet uses the same unit-aware descriptor + round-trip conversion as `renderFarmSection`.
+- [ ] Saving a new forage type inserts via `store.add('forageTypes', …)` and the new row appears in the list with `is_seeded = false`.
+- [ ] Editing a seeded row updates in place, keeps the "seeded" badge, and persists to Supabase.
+- [ ] Deleting a forage type in use by any location blocks the delete with a list of paddocks.
+- [ ] Imperial user entering `3` for Min Residual Height stores `7.62` cm; re-opening the sheet shows `3.0` in. Round-trip test required.
+- [ ] Imperial user entering `300` for DM per inch per acre stores the metric equivalent via `DM_LBS_IN_AC_TO_KG_CM_HA`; re-opening shows `300`. Round-trip test required.
+- [ ] Metric user sees fields labeled `cm`, `kg/cm/ha`, etc., with metric stored values rendered unchanged. Round-trip test required.
+- [ ] `npx vitest run` clean. New tests: `tests/unit/forage-types-settings-ui.test.js` (round-trip for both unit fields, name-required, delete-block), `tests/unit/settings-unit-roundtrip.test.js` extended with `dmYieldDensity` family cases.
+- [ ] e2e smoke: open Settings → add "Test Forage" → verify Supabase `forage_types` row exists with `operation_id = active op`.
+- [ ] i18n: every user-facing string flows through `t()`.
+
+### Files affected
+
+- `src/features/settings/index.js` — add `renderForageTypesSection()` call between Farm and Field Mode sections.
+- `src/features/settings/forage-types-section.js` **(new)** — list rendering + row builder + delete guard.
+- `src/features/settings/forage-type-sheet.js` **(new)** — Edit sheet with unit-aware descriptor, open/save/validate.
+- `src/features/settings/unit-descriptor.js` **(new, or inline)** — extract `toDisplayValue`/`toStoredValue`/`composeFieldLabel`/`stepForField`/`formatDisplayValue` so both farm settings and forage sheet share the exact same conversion path. If extraction is disruptive, keep them in `settings/index.js` and re-export.
+- `src/utils/units.js` — add `dmYieldDensity` unit family with `lbs/in/ac` ↔ `kg/cm/ha` conversion. Reuse `DM_LBS_IN_AC_TO_KG_CM_HA` from `v1-migration.js` or lift the constant into `units.js`.
+- `src/i18n/locales/en.json` — all keys listed above.
+- `tests/unit/forage-types-settings-ui.test.js` **(new)**.
+- `tests/unit/settings-unit-roundtrip.test.js` — extend with `dmYieldDensity` family.
+- `tests/unit/units.test.js` — add cases for `convert(v, 'dmYieldDensity', …)` and `unitLabel('dmYieldDensity', …)`.
+
+### Out of scope (flagged for follow-up, NOT this SP)
+
+- **Archive UI** (`forage_types.archived` column already exists — toggle not wired here).
+- **v1 "Unit label" field** seen in the screenshot (e.g., "kg/t DM"). It was a free-text label in v1 — in v2 the unit is baked into the descriptor labels, so the field is dropped. If Tim wants per-type custom unit labels later, add a new OI.
+- **Forage quality grading** (separate concept living on `paddock_observations.forage_quality`; already covered by SP-9).
+
+---
+
 ## Reconciliation Checklist (end of sprint)
 
 When this sprint is complete, do a dedicated session to:
@@ -1507,5 +1676,6 @@ When this sprint is complete, do a dedicated session to:
 - [ ] **SP-10 reconciliation** — merge into V2_UX_FLOWS.md as new §17.15.1 "Event Data Editing" (gap/overlap resolver, retro-place flow, per-section edit behavior) and into V2_APP_ARCHITECTURE.md as new "Consistency & Rollback" subsection (core principle, snapshot/rollback pattern). Convert SP-10 spec file in `github/issues/` to a thin pointer once integrated.
 - [ ] **SP-10 §8a schema reconciliation** — update V2_SCHEMA_DESIGN.md `event_feed_entries` table to include `entry_type`, `destination_type`, `destination_event_id` columns + check constraints. Update V2_CALCULATION_SPEC.md for DMI-1, DMI-5, NPK-1, NPK-2, cost-per-day to reflect "sum deliveries minus removals." Update CP-55 / CP-56 specs with new columns + schema_version bump. Update V2_MIGRATION_PLAN.md §5.3a ordering note (no change to ordering, just confirm `event_feed_entries` stays in position since the new FK points at the same `events` table it already references).
 - [ ] **SP-11 reconciliation** — merge empty-group archive flow into V2_UX_FLOWS.md (new §3.4 "Empty Group Handling" covering cascade + prompt, extend §15.2 Group CRUD Sheet with Show archived / Reactivate). Update V2_SCHEMA_DESIGN.md §3.3 — replace `archived boolean` row with `archived_at timestamptz`. Update V2_MIGRATION_PLAN.md §5.3a if FK ordering needs a note (no new tables/FKs expected). Update CP-55 / CP-56 specs with `archived_at` column handling and v23 → v24 migration chain. Convert `github/issues/empty-group-archive-flow.md` to a thin pointer.
+- [ ] **SP-13 reconciliation (Settings > Forage Types access, OI-0125)** — merge SP-13 spec into V2_UX_FLOWS.md as a new "Forage Types" subsection under §18 Settings (after Farms, before Field Mode). Document the new `dmYieldDensity` unit family in V2_INFRASTRUCTURE.md §1 (Units) alongside `length`/`weight`/etc. Verify V2_SCHEMA_DESIGN.md §2.2 still accurately describes `forage_types` (no column change expected). Convert `github/issues/forage-types-settings-ui.md` to a thin pointer referencing V2_UX_FLOWS.md §18 "Forage Types" subsection. No CP-55/CP-56 impact — column set unchanged.
 - [ ] **SP-12 reconciliation (DMI-8 cascade chart, OI-0119)** — merge the SP-12 chart UI behavior into V2_UX_FLOWS.md §17.7 (dashboard card chart element — replace the 3-state enumeration with the 5-state set + deficit render + CTA link semantics) and V2_UX_FLOWS.md §17.15 (Event Detail §3 chart — same status enumeration). Add the forced-feed-check rule on sub-move close (when event has stored-feed deliveries) to V2_UX_FLOWS.md §12 Sub-moves. V2_CALCULATION_SPEC.md §4.2 DMI-8 was already rewritten inline with the OI-0119 commit — verify the UX flow doc references the new status set consistently. Convert `github/issues/GH-29_dmi-8-cascade-rewrite.md` to a thin pointer referencing V2_CALCULATION_SPEC.md §4.2. No schema change; no CP-55/CP-56 update needed (compute-on-read).
 - [ ] Archive this file or mark it as reconciled

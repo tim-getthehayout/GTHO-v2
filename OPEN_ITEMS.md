@@ -151,7 +151,7 @@ No change to `renderSurveyCard`, `_shared.js`, or any of the four other call-sit
 **Added:** 2026-04-21 | **Area:** v2-build / calcs / fallback-chain | **Priority:** P1 (silently zeroes DMI / NPK / cost / area-needed for any operation that doesn't keep per-animal weights up to date — Tim's primary model is per-animal weights, but the seed-data effort that just landed exists precisely to be the fallback)
 **Checkpoint:** bundled into the animal-classes-fix-package spec for one-pass resolution
 
-**Status:** closed — 2026-04-21, commit {SHA}
+**Status:** closed — 2026-04-21, commit e58c9f2
 
 **Problem:** `getLiveWindowAvgWeight` (`src/calcs/window-helpers.js:53–85`) builds the live average for an open `event_group_window` from `animalWeightRecords` only. If a live member has no weight record, it is silently dropped from the sum (`if (rec && typeof rec.weightKg === 'number')`). If **no** live member has a weight record, the function returns `gw.avgWeightKg ?? 0` — which on a still-open window with no prior snapshot is `0`. Every downstream calc that reads through this helper (DMI-1/2/3/8, NPK-1, cost rollups, area-needed previews — see the 21 call-sites in `dashboard/index.js`, `events/detail.js`, `events/move-wizard.js`, `events/edit-group-window.js`, `events/group-windows.js`, `events/retro-place.js`, `reports/index.js`, `data/store.js`, `calcs/feed-forage.js`, `animals/cull-sheet.js`) inherits the zero. UI shows "—" or "0", and the user has no signal that the entire calc chain just collapsed.
 
@@ -238,7 +238,7 @@ Plus: how does Reports surface this? A standalone "Weaning" tab listing upcoming
 **Added:** 2026-04-21 | **Area:** v2-build / animals / settings UI / v1-parity | **Priority:** P1 (every existing class is uneditable beyond rename — including OI-0057's data patch, which Tim cannot adjust through the UI after it lands)
 **Checkpoint:** bundled into the animal-classes-fix-package spec for one-pass resolution
 
-**Status:** closed — 2026-04-21, commit {SHA}
+**Status:** closed — 2026-04-21, commit e58c9f2
 
 **Problem:** `openClassEditForm` (`src/features/animals/index.js:887–894`) is literally:
 
@@ -310,7 +310,7 @@ Side-fix while touching the form: the species `<select>` currently uses option t
 **Added:** 2026-04-21 | **Area:** v2-build / seed-data / v1-migration / data-integrity | **Priority:** P1 (every new operation onboarded after this seed-data went in carries the same role inversion; every v1 import carries broken NPK + wrong-target weaning days; downstream weaning calcs that ride on offspring class fail)
 **Checkpoint:** bundled into the animal-classes-fix-package spec for one-pass resolution
 
-**Status:** closed — 2026-04-21, commit {SHA}
+**Status:** closed — 2026-04-21, commit e58c9f2
 
 **Problem A — seed-data role inversion:** `src/features/onboarding/seed-data.js` `ANIMAL_CLASSES_BY_SPECIES` sets `weaningAgeDays` on the dam roles (`cow: 205`, `ewe: 90`, `doe: 90`) and `null` on the offspring roles (`calf`, `lamb`, `kid`). Per Tim's model, weaning age is a property of the **offspring** — the calf is what's being weaned, not the cow. ANI-3 calc (`birth_date + weaning_age_days = target_date`) assumes the field lives on the animal whose `birth_date` is being incremented; that animal is the calf, not its dam. The cow has no `birth_date`-relative event whose interval is "weaning", so storing the value there is semantically and computationally wrong.
 
@@ -3615,7 +3615,7 @@ This is correct for v2's single-user scope. When multi-user operations are added
 **Added:** 2026-04-14 | **Updated:** 2026-04-21 — scope expanded from null-fill to Option B full reset + weaning role flip | **Area:** v2-build / data-patch / animal-classes | **Priority:** P1 (NPK-1 + DMI-1/2/8 + ANI-3 all silently mis-compute against this data; affects every event for every herd in the operation)
 **Checkpoint:** bundled into the animal-classes-fix-package spec — one-time SQL data patch against Tim's Supabase operation, runs in the same Claude Code session that fixes the seed-data and v1-migration pipelines (OI-0127), the Edit Class form (OI-0128), and the calc weight fallback (OI-0130)
 
-**Status:** closed — 2026-04-21, commit {SHA} (migration 031 applied + verified against Tim's op `ef11ee62-b720-4f0c-848a-18e1dd93de30`; schema_version 30 → 31; 10 rows patched)
+**Status:** closed — 2026-04-21, commit e58c9f2 (migration 031 applied + verified against Tim's op `ef11ee62-b720-4f0c-848a-18e1dd93de30`; schema_version 30 → 31; 10 rows patched)
 
 **Problem:** Two layered issues with Tim's existing `animal_classes` rows in Supabase:
 

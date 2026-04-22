@@ -558,14 +558,13 @@ CREATE TABLE animals (
 
 ### 3.3 groups
 
-**Purpose:** Farm-scoped operational label for animals currently moving together. A group is just a name — which animals are in it is derived from the membership ledger. Same farm can have multiple groups (e.g., "Bred Heifers", "Cow Herd", "Cull"). Different farms maintain separate groups.
+**Purpose:** Operation-scoped operational label for animals currently moving together. A group is just a name — which animals are in it is derived from the membership ledger, and which farm it's currently on is derived at read time from the latest open `event_group_window → event.farm_id`. Same operation can have multiple groups (e.g., "Bred Heifers", "Cow Herd", "Cull") and the same name can appear on multiple farms at different times as the group moves.
 **Audit refs:** ANI-04, ANI-05, ANI-06
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | id | uuid | PK | |
 | operation_id | uuid | FK → operations, NOT NULL | RLS |
-| farm_id | uuid | FK → farms, NOT NULL | Groups are farm-scoped (A30) |
 | name | text | NOT NULL | |
 | color | text | | Hex color for UI badges |
 | archived | boolean | DEFAULT false | Soft delete |
@@ -573,14 +572,13 @@ CREATE TABLE animals (
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
 **Design decisions:**
-- **Farm-scoped, not operation-scoped (A30):** Each farm maintains its own groups. "Cull" on Farm 1 is a different group than "Cull" on Farm 2. Moving animals between farms = closing membership in Farm 1's group, opening in Farm 2's group. Moving an entire group between farms = updating farm_id on the group record.
+- **Operation-scoped with derived current farm (OI-0133):** The group record itself has no `farm_id`. The group's current farm is derived at read time by taking the latest open `event_group_window` (one with `date_left IS NULL`, sorted by `date_joined DESC, time_joined DESC`) and reading that window's parent event's `farm_id`. A group with no open window has no current farm — it appears only in "All farms" view. This removes the drift class where a cross-farm move updated the destination event but left `groups.farm_id` pointing at the source farm. Helper: `getGroupCurrentFarm(groupId)` in `src/data/store.js`. Prior design stored `farm_id` on the group and required the move wizard to keep it in sync; migration 032 dropped the column. See CLAUDE.md §"Known Traps" for the grep contracts that prevent re-introduction.
 - **No animalIds[] array:** V1 derived `group.animalIds` from the membership ledger at load time. V2 does the same — the group record never stores a list of animals.
 
 ```sql
 CREATE TABLE groups (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   operation_id  uuid NOT NULL REFERENCES operations(id),
-  farm_id       uuid NOT NULL REFERENCES farms(id),
   name          text NOT NULL,
   color         text,
   archived      boolean DEFAULT false,

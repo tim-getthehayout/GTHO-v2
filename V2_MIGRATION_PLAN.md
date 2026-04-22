@@ -748,7 +748,7 @@ Supabase enforces foreign-key integrity at write time. A wholesale replace that 
 13. `user_preferences`
 14. `locations`
 15. `animals` — **two-pass** because of self-referential `dam_id` / `sire_animal_id`: pass 1 inserts all rows with self-FKs set to `NULL`; pass 2 issues `UPDATE` statements to set `dam_id` and `sire_animal_id`.
-16. `groups`
+16. `groups` — FK to `farms` dropped in migration 032 (OI-0133). `groups.farm_id` column removed; the group's current farm is derived at read time from the latest open `event_group_window → event.farm_id`. CP-55/CP-56 handle the drop via `BACKUP_MIGRATIONS[31]` (strips `farm_id` from every groups row when migrating schema_version 31 → 32). Position in this list unchanged — groups still depends on `operations` via `operation_id`; only the `farms` edge is gone.
 17. `batches`
 18. `treatment_types`
 19. `input_products`

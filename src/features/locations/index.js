@@ -942,6 +942,16 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   }
   renderPaddockList();
 
+  // OI-0131: drive autosave via event delegation on the stable paddockList
+  // container. `input` covers every native field inside renderSurveyCard
+  // (quality slider, height, cover, rings, min/max, notes). Condition chips
+  // fire onClick but not `input`, so a guarded click listener picks those up.
+  // The underlying 1s debounce absorbs rapid keystrokes / slider drags.
+  paddockList.addEventListener('input', triggerDraftSave);
+  paddockList.addEventListener('click', (e) => {
+    if (e.target.closest('.obs-condition-chip')) triggerDraftSave();
+  });
+
   const statusEl = el('div', { className: 'auth-error' });
   scrollBody.appendChild(statusEl);
 

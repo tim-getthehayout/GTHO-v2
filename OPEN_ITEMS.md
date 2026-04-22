@@ -4,6 +4,101 @@
 
 ---
 
+### OI-0133 — Drop `groups.farmId` stored column; derive group's current farm from latest open `event_group_window` (OI-0117 class — stored fact drifts from derivable truth on cross-farm move)
+**Added:** 2026-04-22 | **Area:** v2-build / groups / schema / multi-farm / data-integrity | **Priority:** P1 (silent data drift on every cross-farm move; also surfaces today as the "Add group" save failing with `farmId is required` because the Add Group sheet doesn't pass the active farm to `GroupEntity.create()`)
+
+**Checkpoint:** DESIGN LOCKED 2026-04-22 — single spec file covering migration + entity + helper + store rewrite + Add Group UI simplification + CP-55/CP-56 update + grep contract
+
+**Status:** open — DESIGN LOCKED, ready for spec file
+
+**Background:** Tim hit "Validation failed for groups: farmId is required" when adding an animal group. Root cause was narrow — `openGroupSheet` and `openSplitGroupSheet` in `src/features/animals/index.js` declare a `_farmId` parameter (underscore-prefixed = intentionally unused) and `GroupEntity.create({ operationId, name, color })` never passes a `farmId`, so the entity validator rejects every save. Would have failed for every user, single-farm or multi.
+
+The narrow fix (pass `farmId`) reopens an architectural question that should be settled now rather than papered over: **should `groups.farmId` exist as a stored column at all?**
+
+**What the audit turned up:**
+- `animals` — no `farmId`, operation-scoped (correct — animals move freely between farms)
+- `locations.farmId` — stored, correct (locations don't move)
+- `events.farmId` — stored, correct (an event happens at a specific paddock on a specific farm)
+- `groups.farmId` — stored, **drifts**
+
+The drift: `move-wizard.js:682` cross-farm move creates a new event with `farmId = destination farm` and new group windows on the new event, but **never updates `group.farmId`**. So a group named "Mixed Calves" created on Farm 1 and moved to a Farm 2 paddock still has `farmId = Farm 1` stamped on its record. `getVisibleGroups()` (`src/data/store.js:329`) reads `g.farmId` directly to filter the dashboard — Mixed Calves would render on the wrong farm's dashboard after the move.
+
+This is the **OI-0117 class of bug** in a different costume: a stored copy of a fact (`groups.farmId`) that is derivable from child rows at read time (the group's currently-open `event_group_window → event.farmId`). Two stored columns for one derivable fact = silent drift.
+
+**Decision (DESIGN LOCKED):** Drop the `groups.farmId` column. Derive the group's current farm on read from the latest open `event_group_window → event.farmId`. Falls back to "no current placement" for groups that have never been placed. Matches OI-0117 precedent.
+
+**Why Design Y over Design X:**
+- Design X (keep column, sync it in move flows) ships faster but leaves the same "every flow that does X must remember to do Y" invariant trap that bit OI-0094. Another flow forgets, drift returns.
+- Design Y removes the failure mode entirely. The Add Group sheet bug Tim hit dissolves on its own — there is no `farmId` field to pass, no validator to fail, no single-vs-multi-farm UI fork to design.
+
+**Scope of work (single spec file):**
+
+1. **Migration `032_drop_groups_farm_id.sql`** — `ALTER TABLE groups DROP COLUMN farm_id;`. Apply + verify per CLAUDE.md "Migration Execution Rule." Bump `schema_version` to 32 with `UPDATE operations SET schema_version = 32;` at end of migration. (Verified at spec time: latest migration on disk is `031_animal_class_data_patch_op_ef11ee62.sql`, `CURRENT_SCHEMA_VERSION = 31` in `src/data/backup-import.js`. If a newer migration has landed before this ships, bump these numbers in lockstep.)
+
+2. **`BACKUP_MIGRATIONS` entry in `src/data/backup-migrations.js`** — `31: (b) => { for (const g of (b.tables?.groups || [])) delete g.farm_id; b.schema_version = 32; return b; }` — strips the column from imports of older backups (keyed at the source schema_version 31, bumps to the new ceiling 32).
+
+3. **Entity `src/entities/group.js`** — remove `farmId` from `FIELDS`, `create()`, `validate()`, `toSupabaseShape()`, `fromSupabaseShape()`. Round-trip test still passes.
+
+4. **New helper `src/features/animals/group-current-farm.js`** (or co-located in `src/data/store.js` if simpler) — `getGroupCurrentFarm(groupId)` returns the farmId of the event tied to the group's most recent open `event_group_window`. Returns `null` if the group has no open window. Companion `getGroupCurrentFarmId(groupId)` for the common `null`-safe path.
+
+5. **`src/data/store.js:329` `getVisibleGroups()` rewrite** — instead of filtering on `g.farmId`, filter on `getGroupCurrentFarm(g.id) === activeFarmId`. Groups with no open window: include them in "All farms" view (`activeFarmId === null`), exclude from per-farm views (they have no farm context). Add a doc comment explaining the derive-on-read source of truth.
+
+6. **`src/features/animals/index.js` Add Group sheet (`openGroupSheet`)** — remove the unused `_farmId` parameter entirely. Remove all single/multi-farm UI forks (none needed). `GroupEntity.create({ operationId, name, color })` is now valid as-written. **This is the bug fix.**
+
+7. **`src/features/animals/index.js` Split Group sheet (`openSplitGroupSheet`)** — same removal. New group inherits no farmId; gets one when first placed.
+
+8. **Move wizard (`src/features/events/move-wizard.js`)** — no changes required. Group's farm follows the event's farm by derivation. Cross-farm moves "just work."
+
+9. **CP-55/CP-56 spec impact (per CLAUDE.md "Export/Import Spec Sync Rule"):**
+   - CP-55 export: omit `farm_id` from the `groups` table dump.
+   - CP-56 import: when reading a backup with `schema_version < 32`, run the BACKUP_MIGRATIONS rule from step 2 (drops the column from imported group rows).
+   - Spec file must include the impact line.
+
+10. **Grep contract (pre-commit / architectural audit):**
+    - `grep -rn "groups\.farm_id\|group\.farmId\|g\.farmId" src/` — must return 0 matches after the rewrite (any hit indicates someone re-introduced the dead reference).
+    - `grep -rn "farm_id" supabase/migrations/032_*.sql` — must show the DROP COLUMN line (sanity check the migration actually drops the column).
+
+11. **V2_SCHEMA_DESIGN.md update** — Cowork updates §3.3 `groups` to remove the `farm_id` column from the column table and the `CREATE TABLE` block. Adds a design-decision note: *"`groups.farm_id` is derived from the group's most recent open `event_group_window → event.farm_id`. No column stored. See OI-0133."* Cowork-owned, not in this spec file.
+
+12. **V2_MIGRATION_PLAN.md §5.3a** — review FK-dependency order. Dropping `groups.farm_id` removes the `groups → farms` FK, so the FK-ordering table needs the row updated. Cowork-owned.
+
+**Files affected:**
+- `supabase/migrations/032_drop_groups_farm_id.sql` — new
+- `src/data/backup-migrations.js` — +1 entry for v31→v32
+- `src/entities/group.js` — remove farmId field
+- `src/features/animals/index.js` — `openGroupSheet`, `openSplitGroupSheet` simplified
+- `src/data/store.js` — `getVisibleGroups()` rewrite + new `getGroupCurrentFarm()` helper (or new file)
+- `tests/unit/entities/group.test.js` — update round-trip + validate tests
+- `tests/unit/store/get-visible-groups.test.js` — new: cover (a) group with open window on active farm → included, (b) group with open window on other farm → excluded, (c) group with no open window in "All farms" view → included, (d) group with no open window in per-farm view → excluded
+- `V2_SCHEMA_DESIGN.md` §3.3 — Cowork follow-up after Claude Code lands the migration
+- `V2_MIGRATION_PLAN.md` §5.3a — Cowork follow-up
+
+**Acceptance criteria:**
+- [ ] Migration 032 applied + verified per CLAUDE.md rule (column gone from `information_schema.columns`)
+- [ ] BACKUP_MIGRATIONS v31→v32 rule lands and is covered by a unit test (old backup with `farm_id` on groups → import strips it cleanly)
+- [ ] Group entity round-trip test passes without farmId
+- [ ] `getGroupCurrentFarm()` helper covers all four cases (active farm, other farm, no window in all-farms, no window in per-farm)
+- [ ] Add Group sheet: opens, accepts name + color, saves, no farmId field shown anywhere, no validation error
+- [ ] Split Group sheet: same
+- [ ] Cross-farm move: group placed via move wizard appears on the destination farm's dashboard immediately, disappears from the source farm's dashboard
+- [ ] Grep contract returns 0 matches for old farmId references on groups
+- [ ] CP-55 export of a multi-farm operation omits `farm_id` from `groups` rows
+- [ ] CP-56 import of a pre-32 backup applies the v31→v32 migration cleanly
+
+**Why this matters now (priority justification):**
+- Tim is blocked on creating animal groups today (the surface bug)
+- Cross-farm move drift is a P1 silent-data-loss bug for multi-farm users — Mixed Calves render on the wrong dashboard after every move
+- Design Y is a small, well-scoped change. Deferring just means Design X gets shipped under pressure later, with the invariant trap loaded.
+
+**Origin:** Tim, 2026-04-22. Hit "Validation failed for groups: farmId is required" trying to add a "Culls-Open" group. Root-cause investigation surfaced the broader stored-vs-derived drift on cross-farm move; Tim chose Design Y after seeing the trade-off.
+
+**Related:**
+- OI-0117 — same class of bug (stored copy of derivable fact); precedent for the drop-and-derive pattern
+- OI-0094 — "every state change must do X" invariant pattern that Design X would have inherited
+- Move-wizard cross-farm flow at `move-wizard.js:682` — already handles the event side; this OI completes the picture on the group side
+
+---
+
 ### OI-0132 — Dam↔calf lineage and calving records drift: `animals.dam_id` set without a matching `animal_calving_records` row; need bidirectional sync on write + one-time backfill sweep
 **Added:** 2026-04-22 | **Area:** v2-build / animals / calving / data integrity / reports | **Priority:** P1 (blocks culling decisions — Tim is running pregnancy checks now and needs to trace open cows back to the heifer calves they threw last year, but legacy migrated calves have `dam_id` on the calf without a corresponding calving record on the dam, so the dam's "Calving history" card reads empty and a "dams-with-calves" report cannot be built from `animal_calving_records` alone)
 **Checkpoint:** DESIGN LOCKED 2026-04-22 — splits into two spec files (Class A going-forward sync, Class B one-time backfill) + UI_SPRINT_SPEC.md entry for the Dam/Birth-date row layout
@@ -4183,6 +4278,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-04-22 | OI-0133 opened — drop `groups.farmId` stored column, derive on read | Tim hit "Validation failed for groups: farmId is required" trying to add a "Culls-Open" animal group on his single-farm operation. Surface root cause was narrow: `openGroupSheet` and `openSplitGroupSheet` in `src/features/animals/index.js` declare `_farmId` as an unused parameter (underscore-prefixed) and `GroupEntity.create({ operationId, name, color })` never passes `farmId`, so the entity validator rejects every save. Would have failed for every user. Cowork investigated and surfaced an architectural gap behind the surface bug: `groups.farmId` is a stored column that drifts on cross-farm move because `move-wizard.js:682` creates the new event with the destination farm's `farmId` but never updates the group record itself. The drift makes `getVisibleGroups()` (`src/data/store.js:329`) render Mixed-Calves on the source farm's dashboard even after they're physically on the destination farm. Cowork laid out two designs to Tim: (X) keep the column, sync it everywhere — fast but invariant-trap; (Y) drop the column, derive from latest open `event_group_window → event.farmId` — matches OI-0117 precedent, removes the failure mode, dissolves the Add Group bug for free. **Tim chose Y.** Initial framing error corrected mid-session: Cowork claimed `animals.farmId` exists; it doesn't (animals are operation-scoped already, schema is correct, only `groups.farmId` was the drift point). **OI-0133 added** at top of Open with full DESIGN LOCKED scope: migration 030 (DROP COLUMN + schema_version 30), `BACKUP_MIGRATIONS[29]` strip rule, entity field removal, new `getGroupCurrentFarm(groupId)` helper, `getVisibleGroups()` rewrite (open-window-on-active-farm filter; groups with no open window included only in "All farms" view), Add/Split Group sheet simplification (no farmId field, no single-vs-multi-farm UI fork), CP-55 export omits `farm_id` from groups + CP-56 applies the migration on import, two grep contracts (no `g.farmId` reads in src/, DROP COLUMN line in migration 030). Move wizard requires no changes — group's farm follows the event by derivation. **Schema change:** YES (migration 030). **CP-55/CP-56 impact:** YES (column removed + migration rule for old backups). **V2_SCHEMA_DESIGN.md §3.3 + V2_MIGRATION_PLAN.md §5.3a** require Cowork follow-up after Claude Code lands (drop the column row, drop the FK, add design-decision note). **Spec file:** `github/issues/drop-groups-farm-id.md` (full spec; no pre-existing UI sprint dependency). 11 acceptance criteria. **No code change this session — OPEN_ITEMS.md + spec file only.** Related: OI-0117 (precedent — same stored-vs-derivable class for `events.date_in/time_in`), OI-0094 (the invariant-trap pattern Design X would have inherited). |
 | 2026-04-21 | animal-classes-fix-package landed (OI-0057 + OI-0127 + OI-0128 + OI-0130) | Closed all four. Seed-data weaning flipped dam→offspring across 4 species; v1-migration §2.14 reads from seed-data by role (weanTargets shim dropped); Edit Class form rewritten as Add/Edit dual-purpose with 11 fields + canonical species values + OI-0111 imperial weight round-trip; `getLiveWindowAvgWeight` adds class-default fallback tier; animalClasses threaded through 20 call-sites. Migration 031 applied + verified against Tim's op (schema_version 30 → 31). 24 new unit tests (1191 → 1215). OI-0129 stays open as DESIGN REQUIRED. |
 | 2026-04-22 | OI-0132 opened + all design locked + two spec files + SP-14 | Tim asked about how calving records work after noticing calf 2601 shows dam 70 on its detail card but dam 70's Calving history is empty. Investigation confirmed it's expected legacy behavior — `animals.dam_id` (parentage pointer on the calf) and `animal_calving_records` (calving event on the dam side) are stored independently; the v2 Calving sheet creates both atomically but the v1 migration and the Edit Animal dialog only write the former. Tim's real motivation surfaced: he's running open-cow pregnancy checks this week and needs to trace those dams' heifer calves from last year as one input to replacement-heifer culling decisions. With legacy data, `animal_calving_records` is empty for pre-app dams, so a "dams with their calves" report cannot be built from it. **OI-0132 opened** at top of Open with two-class scope: **Class A** — going-forward bidirectional sync on any Edit Animal write path that touches `damId` or `birthDate` (four transitions: A1 create on null→non-null, A2 move on non-null→non-null, A3 delete on non-null→null with confirm dialog, A4 calved_at update on birthDate change; plus a hard gate blocking saves with damId set and birthDate null). **Class B** — one-time Settings > Tools backfill sweep that heals legacy data by creating missing calving records for every calf with damId + birthDate where no matching record exists. **All four design questions locked in-session:** (1) no `source` column on calving records — backfilled indistinguishable from event-captured (Option 1a, no CP-55/CP-56 impact); (2) hard gate on birthDate (inline block, no soft-warn path); (3) backfill lives in Settings > Tools (not dev-only — forward-compatible with future Excel import which will create the same class of data and can reuse the same helper); (4) confirm dialog on A3 only (pure-delete gets a speed bump; A2 move is silent, A4 birthdate change is silent). **Architectural call:** extract Class A logic into a shared helper `src/features/animals/calving-sync.js` so `saveAnimal`, the backfill routine, and future Excel import all call the same logic — `saveAnimal` passes a confirmDeleteHandler for A3; the backfill passes null. **Separately — UI tweak bundled:** Tim asked to move Dam and Birth date to the same line in the Edit Animal dialog (Dam is currently full-width, wasteful; Birth date is far below, disconnected). Added as SP-14 in UI_SPRINT_SPEC.md — two-column flex row (Dam ~55–60%, Birth date ~35–40%) with a dynamic label hint ("optional" grey when Dam = unknown, "required" red when Dam is set). Makes the birthdate-required rule visually obvious at form-fill time instead of save-time surprise. **Two full-spec files written** to `github/issues/`: `dam-calf-bidirectional-sync.md` (Class A, 195 lines — transition logic, helper signature, atomicity rule, 11 acceptance criteria, grep contract) and `backfill-calving-records-from-lineage.md` (Class B, 127 lines — Settings > Tools UI, idempotent batch routine, counter shape, summary panel, 12 acceptance criteria, dependency note on the sibling spec's helper). **Dependency:** Class B depends on Class A's helper landing first; recommend bundling both into one Claude Code session. **Schema change:** NONE. **CP-55/CP-56 impact:** NONE (no column adds under Option 1a). **New files at ship time:** `src/features/animals/calving-sync.js`, `src/features/animals/backfill-calving-records.js`, two new unit test files, two new e2e test files. **Base-doc impact at sprint reconciliation:** V2_UX_FLOWS.md §15 Animals (Edit Animal dialog subsection documenting the shared row + label rule + hard gate + A1–A4 transitions). **Related OIs:** OI-0099 (shipped, wired `saveAnimal` to read `inputs.damId` at all — this spec builds on that). **No code change this session — OPEN_ITEMS.md + UI_SPRINT_SPEC.md + two github/issues files only.** |
 | 2026-04-21 | OI-0131 autosave wire-in | Closed. Event delegation on paddockList drives triggerDraftSave for input + condition-chip click. 4 unit tests added. |

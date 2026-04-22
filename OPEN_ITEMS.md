@@ -8,7 +8,7 @@
 **Added:** 2026-04-21 | **Area:** v2-build / pasture-survey / autosave | **Priority:** P2 (no data loss in the common path — the sheet's `close` wrapper calls `saveDraft()` — but a browser crash, tab kill, or navigation away from the PWA mid-session drops every unsaved reading since the last manual Save Draft; the 1-second debounced autosave the function was designed around never fires)
 **Checkpoint:** single-file fix (`src/features/locations/index.js`) + one unit test
 
-**Status:** closed — 2026-04-21, commit {SHA}
+**Status:** closed — 2026-04-21, commit f94c79e
 
 **Problem:** OI-0126 refactored the bulk Pasture Survey to delegate each paddock's form to the unified `renderSurveyCard`. The card emits native DOM events (`input` from the quality slider, height/cover/rings/min-max/notes inputs; `click` from the condition chips) but does not expose an `onChange` callback. The outer `openSurveySheet` has `triggerDraftSave()` (`src/features/locations/index.js:715–719`, 1-second debounce → `saveDraft()`), but after the OI-0126 refactor removed the hand-rolled per-input wiring, nothing calls it.
 

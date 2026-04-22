@@ -96,7 +96,7 @@ WHERE operation_id = 'ef11ee62-b720-4f0c-848a-18e1dd93de30'
 
 **Checkpoint:** DESIGN LOCKED 2026-04-22 — single spec file covering migration + entity + helper + store rewrite + Add Group UI simplification + CP-55/CP-56 update + grep contract
 
-**Status:** closed — 2026-04-22, commit {SHA} (migration 032 applied + verified: `SELECT column_name FROM information_schema.columns WHERE table_name='groups' AND column_name='farm_id'` returns 0 rows; `operations.schema_version` = 32; 12 new unit tests green; both grep contracts pass)
+**Status:** closed — 2026-04-22, commit cdcdd73 (migration 032 applied + verified: `SELECT column_name FROM information_schema.columns WHERE table_name='groups' AND column_name='farm_id'` returns 0 rows; `operations.schema_version` = 32; 12 new unit tests green; both grep contracts pass)
 
 **Background:** Tim hit "Validation failed for groups: farmId is required" when adding an animal group. Root cause was narrow — `openGroupSheet` and `openSplitGroupSheet` in `src/features/animals/index.js` declare a `_farmId` parameter (underscore-prefixed = intentionally unused) and `GroupEntity.create({ operationId, name, color })` never passes a `farmId`, so the entity validator rejects every save. Would have failed for every user, single-farm or multi.
 

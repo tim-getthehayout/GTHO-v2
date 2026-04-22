@@ -143,8 +143,8 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→31 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(17);
+    it('has migration entries for 14→32 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(18);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[15]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[16]).toBe('function');
@@ -162,6 +162,27 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS[28]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[29]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[30]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[31]).toBe('function');
+    });
+
+    it('OI-0133 — v31→v32 strips farm_id from every groups row + stamps schema_version=32', () => {
+      const rule = BACKUP_MIGRATIONS[31];
+      const backup = {
+        schema_version: 31,
+        tables: {
+          groups: [
+            { id: 'g1', operation_id: 'op1', farm_id: 'f1', name: 'X', color: '#000' },
+            { id: 'g2', operation_id: 'op1', farm_id: 'f2', name: 'Y', color: '#111' },
+          ],
+        },
+      };
+      const out = rule(backup);
+      expect(out.schema_version).toBe(32);
+      for (const g of out.tables.groups) {
+        expect(Object.keys(g)).not.toContain('farm_id');
+      }
+      expect(out.tables.groups).toHaveLength(2); // rows preserved
+      expect(out.tables.groups[0].name).toBe('X');
     });
 
     it('migration 26 renames bale_ring_residue_diameter_ft → _cm with ft × 30.48 (OI-0111)', () => {

@@ -151,7 +151,7 @@ export function renderAnimalsScreen(container) {
           }),
           `Show archived (${archived.length})`,
         ]) : null,
-        el('button', { className: 'btn btn-green btn-xs', onClick: (e) => { e.stopPropagation(); openGroupSheet(null, operationId, farmId); } }, ['+ Add group']),
+        el('button', { className: 'btn btn-green btn-xs', onClick: (e) => { e.stopPropagation(); openGroupSheet(null, operationId); } }, ['+ Add group']),
       ].filter(Boolean)),
     ]);
     groupsCard.appendChild(header);
@@ -212,8 +212,8 @@ export function renderAnimalsScreen(container) {
             ]),
           ].filter(Boolean)),
           el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' }, onClick: (e) => e.stopPropagation() }, [
-            el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupSheet(g, operationId, farmId) }, ['Edit']),
-            isPlaced ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSplitGroupSheet(g, operationId, farmId) }, ['Split']) : null,
+            el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupSheet(g, operationId) }, ['Edit']),
+            isPlaced ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSplitGroupSheet(g, operationId) }, ['Split']) : null,
             el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupWeightsSheet(g, operationId) }, ['Weights']),
             el('button', { style: { border: 'none', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontSize: '18px', padding: '2px 4px' }, onClick: () => { if (confirm(`Delete group "${g.name}"?`)) remove('groups', g.id, 'groups'); } }, ['\u00D7']),
           ].filter(Boolean)),
@@ -441,7 +441,7 @@ function ensureGroupSheetDOM() {
   ]));
 }
 
-function openGroupSheet(existingGroup, operationId, _farmId) {
+function openGroupSheet(existingGroup, operationId) {
   ensureGroupSheetDOM();
   if (!groupSheet) groupSheet = new Sheet('group-sheet-wrap');
   const panel = document.getElementById('group-sheet-panel');
@@ -589,7 +589,7 @@ function openGroupSheet(existingGroup, operationId, _farmId) {
 
 // ─── Split Group Sheet (6B) ─────────────────────────────────────────────
 
-function openSplitGroupSheet(group, operationId, _farmId) {
+function openSplitGroupSheet(group, operationId) {
   const wrapId = 'split-sheet-wrap';
   if (!document.getElementById(wrapId)) {
     document.body.appendChild(el('div', { className: 'sheet-wrap', id: wrapId, style: { zIndex: '210' } }, [

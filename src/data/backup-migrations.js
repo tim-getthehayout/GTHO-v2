@@ -142,4 +142,14 @@ export const BACKUP_MIGRATIONS = {
   //            change. Older backups restore with whatever animal_classes
   //            values they carry — no transform needed.
   30: (b) => { b.schema_version = 31; return b; },
+  // 031 → 032: OI-0133 — `groups.farm_id` dropped in migration 032. Group's
+  //            current farm is derived at read time from the group's most
+  //            recent open event_group_window → event.farm_id. Strip the
+  //            column from groups rows in imports of older backups so
+  //            v31-and-earlier exports still import cleanly under v32.
+  31: (b) => {
+    for (const g of (b.tables?.groups || [])) delete g.farm_id;
+    b.schema_version = 32;
+    return b;
+  },
 };

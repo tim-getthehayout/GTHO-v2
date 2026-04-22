@@ -323,14 +323,43 @@ export function getVisibleLocations() {
 }
 
 /**
- * Get groups filtered by active farm (via group.farmId).
+ * OI-0133: Derive a group's current farm from its most recent open
+ * event_group_window → event.farmId. Returns null if the group has no
+ * open window (newly created, fully archived, or between placements).
+ *
+ * "Most recent open" = window where dateLeft is null/undefined, sorted
+ * by dateJoined DESC then timeJoined DESC; take first. Pure function
+ * over store state — no I/O.
+ *
+ * @param {string} groupId
+ * @returns {string|null} farmId of the owning event, or null
+ */
+export function getGroupCurrentFarm(groupId) {
+  const openWindows = (state.eventGroupWindows || [])
+    .filter(w => w.groupId === groupId && !w.dateLeft);
+  if (!openWindows.length) return null;
+  const latest = openWindows.sort((a, b) => {
+    const dateCmp = (b.dateJoined || '').localeCompare(a.dateJoined || '');
+    if (dateCmp !== 0) return dateCmp;
+    return (b.timeJoined || '').localeCompare(a.timeJoined || '');
+  })[0];
+  const event = (state.events || []).find(e => e.id === latest.eventId);
+  return event?.farmId ?? null;
+}
+
+/**
+ * OI-0133: Filter groups by the active farm. The group's farm is derived
+ * from its most recent open event_group_window via getGroupCurrentFarm.
+ * Groups with no open window have no current farm; they appear in the
+ * "All farms" view (activeFarmId === null) and are excluded from
+ * per-farm views.
  * @returns {Array}
  */
 export function getVisibleGroups() {
   const farmId = getActiveFarmId();
   const all = (state.groups || []).map(r => ({ ...r }));
   if (!farmId) return all;
-  return all.filter(g => g.farmId === farmId);
+  return all.filter(g => getGroupCurrentFarm(g.id) === farmId);
 }
 
 /**

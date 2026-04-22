@@ -244,6 +244,7 @@ function renderSummary(ctx) {
   // Head count and weight from group windows (OI-0091: live recompute for open windows)
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');
+  const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
   const now = event.dateOut || todayStr;
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId && !gw.dateLeft);
@@ -252,7 +253,7 @@ function renderSummary(ctx) {
   let totalWeightKg = 0;
   for (const gw of gws) {
     const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
-    const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
+    const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
     liveByGwId.set(gw.id, { head: liveHead, avg: liveAvg });
     totalHead += liveHead;
     totalWeightKg += liveHead * liveAvg;
@@ -712,6 +713,7 @@ function renderGroups(ctx) {
   const now = event.dateOut || todayStr;
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');
+  const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId && !gw.dateLeft);
 
@@ -727,7 +729,7 @@ function renderGroups(ctx) {
     const grp = getById('groups', gw.groupId);
     const grpName = grp?.name || '?';
     const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
-    const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
+    const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
     const weightDisplay = liveAvg > 0 ? display(liveAvg, 'weight', unitSys, 0) : '\u2014';
     const au = (liveHead * liveAvg) / 453.6;
 
@@ -1010,13 +1012,14 @@ function renderDmiNpk(ctx) {
   const now = event.dateOut || todayStr;
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');
+  const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId && !gw.dateLeft);
   const liveByGwId = new Map();
   for (const gw of gws) {
     liveByGwId.set(gw.id, {
       head: getLiveWindowHeadCount(gw, { memberships, now }),
-      avg: getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now }),
+      avg: getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now }),
     });
   }
   const dmi2 = getCalcByName('DMI-2');

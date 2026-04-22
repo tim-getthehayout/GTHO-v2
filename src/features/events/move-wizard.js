@@ -623,10 +623,11 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     {
       const memberships = getAll('animalGroupMemberships');
       const animals = getAll('animals');
+      const animalClasses = getAll('animalClasses');
       const animalWeightRecords = getAll('animalWeightRecords');
       for (const gw of sourceGWs) {
         const liveHead = getLiveWindowHeadCount(gw, { memberships, now: dateOut });
-        const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now: dateOut });
+        const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: dateOut });
         sourceGroupState.push({ groupId: gw.groupId, operationId: gw.operationId, headCount: liveHead, avgWeightKg: liveAvg });
       }
     }

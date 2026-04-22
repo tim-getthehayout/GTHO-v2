@@ -143,8 +143,8 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→30 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(16);
+    it('has migration entries for 14→31 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(17);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[15]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[16]).toBe('function');
@@ -161,6 +161,7 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS[27]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[28]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[29]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[30]).toBe('function');
     });
 
     it('migration 26 renames bale_ring_residue_diameter_ft → _cm with ft × 30.48 (OI-0111)', () => {

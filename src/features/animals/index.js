@@ -21,6 +21,7 @@ import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
 import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
 import { maybeShowEmptyGroupPrompt } from './empty-group-prompt.js';
+import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -800,7 +801,7 @@ function ensureClassesSheetDOM() {
   ]));
 }
 
-function openClassesManager(operationId) {
+export function openClassesManager(operationId) {
   ensureClassesSheetDOM();
   if (!classSheet) classSheet = new Sheet('manage-classes-wrap');
   const panel = document.getElementById('manage-classes-panel');
@@ -832,7 +833,7 @@ function openClassesManager(operationId) {
           cls.dmiPct ? el('span', { className: 'badge bg' }, [`${cls.dmiPct}% DMI`]) : null,
         ].filter(Boolean)),
         el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
-          el('button', { className: 'btn btn-outline btn-xs', onClick: () => openClassEditForm(cls, operationId, unitSys) }, ['Edit']),
+          el('button', { className: 'btn btn-outline btn-xs', 'data-testid': `class-edit-${cls.id}`, onClick: () => openClassEditForm(cls) }, ['Edit']),
           el('button', { style: { border: 'none', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontSize: '16px' }, onClick: () => { if (confirm(`Delete class "${cls.name}"?`)) { remove('animalClasses', cls.id, 'animal_classes'); renderClassList(); } } }, ['\u00D7']),
         ]),
       ]));
@@ -843,55 +844,190 @@ function openClassesManager(operationId) {
 
   panel.appendChild(el('div', { className: 'div' }));
 
-  // Add form
-  const addFormTitle = el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Add class']);
-  panel.appendChild(addFormTitle);
+  // OI-0128: Shared Add/Edit form — 11 fields, dual-purpose. `editingClassId`
+  // null → Add; set → Edit (species/role locked, Save writes update instead
+  // of add). Species + role are create-only: changing either would cascade
+  // through downstream calcs and memberships.
+  let editingClassId = null;
+
+  const formTitle = el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Add class']);
+  panel.appendChild(formTitle);
+
   const inputs = {};
-  inputs.name = el('input', { type: 'text', placeholder: 'Cow, Heifer, Steer…' });
-  inputs.species = el('select', {}, [
-    el('option', {}, ['Beef cattle']), el('option', {}, ['Dairy cattle']),
-    el('option', {}, ['Sheep']), el('option', {}, ['Goats']), el('option', {}, ['Other']),
+  inputs.name = el('input', { type: 'text', placeholder: 'Cow, Heifer, Steer…', 'data-testid': 'class-form-name' });
+  inputs.species = el('select', { 'data-testid': 'class-form-species' }, [
+    el('option', { value: 'beef_cattle' }, ['Beef cattle']),
+    el('option', { value: 'dairy_cattle' }, ['Dairy cattle']),
+    el('option', { value: 'sheep' }, ['Sheep']),
+    el('option', { value: 'goat' }, ['Goats']),
+    el('option', { value: 'other' }, ['Other']),
   ]);
-  inputs.defaultWeightKg = el('input', { type: 'number', placeholder: '1200', step: '1' });
-  inputs.dmiPct = el('input', { type: 'number', placeholder: '2.5', step: '0.1', min: '0.5', max: '6' });
+  inputs.role = el('select', { 'data-testid': 'class-form-role' });
+  function rebuildRoleOptions(speciesKey, selected) {
+    clear(inputs.role);
+    const rolesForSpecies = ANIMAL_CLASSES_BY_SPECIES[speciesKey]?.map(c => c.role) ?? [];
+    if (rolesForSpecies.length === 0) {
+      inputs.role.appendChild(el('option', { value: '' }, ['—']));
+      return;
+    }
+    for (const r of rolesForSpecies) {
+      const opt = el('option', { value: r }, [r]);
+      if (r === selected) opt.selected = true;
+      inputs.role.appendChild(opt);
+    }
+  }
+  rebuildRoleOptions('beef_cattle');
+  inputs.species.addEventListener('change', () => rebuildRoleOptions(inputs.species.value));
+
+  inputs.defaultWeightKg = el('input', { type: 'number', placeholder: '1200', step: '1', 'data-testid': 'class-form-weight' });
+  inputs.dmiPct = el('input', { type: 'number', placeholder: '2.5', step: '0.1', min: '0.5', max: '6', 'data-testid': 'class-form-dmi-pct' });
+  inputs.dmiPctLactating = el('input', { type: 'number', placeholder: '3.0', step: '0.1', min: '0.5', max: '6', 'data-testid': 'class-form-dmi-lactating' });
+  inputs.excretionNRate = el('input', { type: 'number', placeholder: '0.145', step: '0.001', 'data-testid': 'class-form-excretion-n' });
+  inputs.excretionPRate = el('input', { type: 'number', placeholder: '0.041', step: '0.001', 'data-testid': 'class-form-excretion-p' });
+  inputs.excretionKRate = el('input', { type: 'number', placeholder: '0.136', step: '0.001', 'data-testid': 'class-form-excretion-k' });
+  inputs.weaningAgeDays = el('input', { type: 'number', placeholder: '205', step: '1', min: '0', 'data-testid': 'class-form-weaning' });
+  inputs.archived = el('input', { type: 'checkbox', 'data-testid': 'class-form-archived' });
 
   panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['Class name *']), inputs.name]),
     el('div', { className: 'field' }, [el('label', {}, ['Species']), inputs.species]),
   ]));
   panel.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Role']), inputs.role]),
     el('div', { className: 'field' }, [el('label', {}, [`Default weight (${unitLabel('weight', unitSys)})`]), inputs.defaultWeightKg]),
+  ]));
+  panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['DMI % of body weight']), inputs.dmiPct]),
+    el('div', { className: 'field' }, [el('label', {}, ['DMI % when lactating']), inputs.dmiPctLactating]),
+  ]));
+  panel.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Excretion N (kg / 1000 kg BW / day)']), inputs.excretionNRate]),
+    el('div', { className: 'field' }, [el('label', {}, ['Excretion P (kg / 1000 kg BW / day)']), inputs.excretionPRate]),
+  ]));
+  panel.appendChild(el('div', { className: 'two' }, [
+    el('div', { className: 'field' }, [el('label', {}, ['Excretion K (kg / 1000 kg BW / day)']), inputs.excretionKRate]),
+    el('div', { className: 'field' }, [el('label', {}, ['Weaning age (days)']), inputs.weaningAgeDays]),
+  ]));
+  panel.appendChild(el('div', { className: 'field' }, [
+    el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px' } }, [inputs.archived, ' Archived (hide from pickers; historical rows kept)']),
   ]));
 
   const addStatusEl = el('div', { className: 'auth-error' });
   panel.appendChild(addStatusEl);
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
-      clear(addStatusEl);
-      let defaultWeightKg = parseFloat(inputs.defaultWeightKg.value) || null;
-      if (defaultWeightKg != null && unitSys === 'imperial') defaultWeightKg = convert(defaultWeightKg, 'weight', 'toMetric');
-      try {
-        const record = AnimalClassEntity.create({ operationId, name: inputs.name.value.trim(), species: inputs.species.value, defaultWeightKg, dmiPct: parseFloat(inputs.dmiPct.value) || null });
+
+  const saveBtn = el('button', { className: 'btn btn-green', 'data-testid': 'class-form-save' }, ['Add class']);
+  const cancelEditLink = el('button', {
+    className: 'btn btn-outline btn-sm',
+    'data-testid': 'class-form-cancel-edit',
+    style: { display: 'none' },
+  }, ['Cancel edit']);
+
+  function resetForm() {
+    editingClassId = null;
+    inputs.name.value = '';
+    inputs.species.value = 'beef_cattle';
+    rebuildRoleOptions('beef_cattle');
+    inputs.defaultWeightKg.value = '';
+    inputs.dmiPct.value = '';
+    inputs.dmiPctLactating.value = '';
+    inputs.excretionNRate.value = '';
+    inputs.excretionPRate.value = '';
+    inputs.excretionKRate.value = '';
+    inputs.weaningAgeDays.value = '';
+    inputs.archived.checked = false;
+    inputs.species.disabled = false;
+    inputs.role.disabled = false;
+    formTitle.textContent = 'Add class';
+    saveBtn.textContent = 'Add class';
+    cancelEditLink.style.display = 'none';
+  }
+
+  function populateForm(cls) {
+    inputs.name.value = cls.name ?? '';
+    inputs.species.value = cls.species ?? 'beef_cattle';
+    rebuildRoleOptions(cls.species ?? 'beef_cattle', cls.role);
+    inputs.defaultWeightKg.value = cls.defaultWeightKg != null
+      ? (unitSys === 'imperial'
+          ? convert(cls.defaultWeightKg, 'weight', 'toImperial').toFixed(0)
+          : String(cls.defaultWeightKg))
+      : '';
+    inputs.dmiPct.value = cls.dmiPct ?? '';
+    inputs.dmiPctLactating.value = cls.dmiPctLactating ?? '';
+    inputs.excretionNRate.value = cls.excretionNRate ?? '';
+    inputs.excretionPRate.value = cls.excretionPRate ?? '';
+    inputs.excretionKRate.value = cls.excretionKRate ?? '';
+    inputs.weaningAgeDays.value = cls.weaningAgeDays ?? '';
+    inputs.archived.checked = !!cls.archived;
+  }
+
+  function openClassEditForm(cls) {
+    populateForm(cls);
+    editingClassId = cls.id;
+    inputs.species.disabled = true;
+    inputs.role.disabled = true;
+    formTitle.textContent = `Edit ${cls.name}`;
+    saveBtn.textContent = 'Save changes';
+    cancelEditLink.style.display = '';
+    if (typeof panel.scrollTo === 'function') {
+      panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
+    }
+  }
+
+  saveBtn.addEventListener('click', () => {
+    clear(addStatusEl);
+    let defaultWeightKg = parseFloat(inputs.defaultWeightKg.value);
+    if (!Number.isFinite(defaultWeightKg) || defaultWeightKg < 0) defaultWeightKg = null;
+    if (defaultWeightKg != null && unitSys === 'imperial') {
+      defaultWeightKg = convert(defaultWeightKg, 'weight', 'toMetric');
+    }
+    const numOrNull = (v) => {
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const intOrNull = (v) => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    };
+    const data = {
+      name: inputs.name.value.trim(),
+      species: inputs.species.value,
+      role: inputs.role.value || null,
+      defaultWeightKg,
+      dmiPct: numOrNull(inputs.dmiPct.value),
+      dmiPctLactating: numOrNull(inputs.dmiPctLactating.value),
+      excretionNRate: numOrNull(inputs.excretionNRate.value),
+      excretionPRate: numOrNull(inputs.excretionPRate.value),
+      excretionKRate: numOrNull(inputs.excretionKRate.value),
+      weaningAgeDays: intOrNull(inputs.weaningAgeDays.value),
+      archived: !!inputs.archived.checked,
+    };
+    try {
+      if (editingClassId == null) {
+        const record = AnimalClassEntity.create({ operationId, ...data });
         add('animalClasses', record, AnimalClassEntity.validate, AnimalClassEntity.toSupabaseShape, 'animal_classes');
-        inputs.name.value = ''; inputs.defaultWeightKg.value = ''; inputs.dmiPct.value = '';
-        renderClassList();
-      } catch (err) { addStatusEl.appendChild(el('span', {}, [err.message])); }
-    } }, ['Add class']),
+      } else {
+        // Species + role locked on edit — drop them from the patch.
+        const { species: _s, role: _r, ...patch } = data;
+        update('animalClasses', editingClassId, patch, AnimalClassEntity.validate, AnimalClassEntity.toSupabaseShape, 'animal_classes');
+      }
+      resetForm();
+      renderClassList();
+    } catch (err) {
+      addStatusEl.appendChild(el('span', {}, [err.message]));
+    }
+  });
+
+  cancelEditLink.addEventListener('click', () => { resetForm(); });
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
+    saveBtn,
+    cancelEditLink,
     el('button', { className: 'btn btn-outline', onClick: () => classSheet.close() }, ['Done']),
   ]));
 
   classSheet.open();
 }
 
-function openClassEditForm(cls, _operationId, _unitSys) {
-  // Inline edit — reopen the manager with the class pre-filled
-  // For simplicity, use a prompt-based edit (the full inline edit is complex)
-  const newName = window.prompt('Class name:', cls.name);
-  if (newName !== null && newName.trim()) {
-    update('animalClasses', cls.id, { name: newName.trim() }, AnimalClassEntity.validate, AnimalClassEntity.toSupabaseShape, 'animal_classes');
-  }
-}
 
 // ─── Treatments Manager Sheet ───────────────────────────────────────────
 

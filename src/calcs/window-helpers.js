@@ -50,7 +50,7 @@ export function getOpenPwForLocation(locationId, eventId, paddockWindows) {
   ) || null;
 }
 
-export function getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now }) {
+export function getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now }) {
   if (gw.dateLeft != null) return gw.avgWeightKg ?? 0;
   if (!memberships || !animals || !now) return gw.avgWeightKg ?? 0;
 
@@ -71,6 +71,20 @@ export function getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightR
     }
   }
 
+  // OI-0130: class-default fallback tier. V2_CALCULATION_SPEC.md fallback
+  // chain is live → snapshot → class default → 0; this map covers tier 3.
+  const classDefaultByAnimalId = new Map();
+  if (animalClasses && animals) {
+    const classById = new Map(animalClasses.map(c => [c.id, c]));
+    for (const id of liveAnimalIds) {
+      const a = animals.find(an => an.id === id);
+      const cls = a?.classId ? classById.get(a.classId) : null;
+      if (cls && typeof cls.defaultWeightKg === 'number' && cls.defaultWeightKg > 0) {
+        classDefaultByAnimalId.set(id, cls.defaultWeightKg);
+      }
+    }
+  }
+
   let sum = 0;
   let count = 0;
   for (const id of liveAnimalIds) {
@@ -78,7 +92,12 @@ export function getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightR
     if (rec && typeof rec.weightKg === 'number') {
       sum += rec.weightKg;
       count += 1;
+    } else if (classDefaultByAnimalId.has(id)) {
+      sum += classDefaultByAnimalId.get(id);
+      count += 1;
     }
+    // else: no per-animal weight and no class default — drop from count
+    // rather than pollute the average with a false zero.
   }
   if (count === 0) return gw.avgWeightKg ?? 0;
   return sum / count;

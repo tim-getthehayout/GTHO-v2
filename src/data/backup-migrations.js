@@ -136,4 +136,10 @@ export const BACKUP_MIGRATIONS = {
   //            their origin operation had at backup time; no transform
   //            needed on restore.
   29: (b) => { b.schema_version = 30; return b; },
+  // 030 → 031: OI-0057 one-time animal_classes data patch (operation-scoped
+  //            value reset against Tim's 'Down East Beef and Lamb'). Migration
+  //            031 only UPDATEs existing rows; no schema or column-shape
+  //            change. Older backups restore with whatever animal_classes
+  //            values they carry — no transform needed.
+  30: (b) => { b.schema_version = 31; return b; },
 };

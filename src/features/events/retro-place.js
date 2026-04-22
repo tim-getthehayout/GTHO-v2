@@ -308,10 +308,11 @@ function handleEventPicked(destEvent, panel, ctx, groupName) {
         // (for open sourceWindow this computes live; for closed it returns the stored snapshot).
         const memberships = getAll('animalGroupMemberships');
         const animals = getAll('animals');
+        const animalClasses = getAll('animalClasses');
         const animalWeightRecords = getAll('animalWeightRecords');
         const live = {
           head: getLiveWindowHeadCount(sourceWindow, { memberships, now: gapStart }),
-          avg: getLiveWindowAvgWeight(sourceWindow, { memberships, animals, animalWeightRecords, now: gapStart }),
+          avg: getLiveWindowAvgWeight(sourceWindow, { memberships, animals, animalClasses, animalWeightRecords, now: gapStart }),
         };
         const newDestWindow = GroupWindowEntity.create({
           operationId,

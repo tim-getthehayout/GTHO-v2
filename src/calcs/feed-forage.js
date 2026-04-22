@@ -558,7 +558,7 @@ registerCalc({
     { name: 'observations', type: 'array', unit: 'paddock_observations[] (type=open, source=event). Calc picks per-window via locationId + sourceId fallback.' },
     { name: 'forageTypes', type: 'object', unit: '{ [locationId]: { dmKgPerCmPerHa, minResidualHeightCm, utilizationPct } }' },
     { name: 'locations', type: 'object', unit: '{ [locationId]: { areaHa, forageTypeId? } } — areaHa = areaHectares ?? areaHa (caller handles fallback)' },
-    { name: 'animalClasses', type: 'object', unit: '{ [classId]: { dmiPct, dmiPctLactating } }' },
+    { name: 'animalClasses', type: 'object', unit: '{ [classId]: { id, defaultWeightKg, dmiPct, dmiPctLactating } }' },
   ],
   output: { type: 'object', shape: '{ status, totalDmiKg?, storedDmiKg?, pastureDmiKg?, deficitKg?, reason?, hint? }', unit: 'kg' },
   fn({ event, date, groupWindows, memberships, animals, animalWeightRecords,
@@ -579,7 +579,13 @@ registerCalc({
           ? getLiveWindowHeadCount(gw, { memberships, now: dt })
           : (gw.headCount ?? 0);
         const avg = memberships
-          ? getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now: dt })
+          // OI-0130: animalClasses here is a map keyed by classId; convert
+          // to the { id, defaultWeightKg, ... } array shape the helper expects.
+          ? getLiveWindowAvgWeight(gw, {
+              memberships, animals,
+              animalClasses: animalClasses ? Object.values(animalClasses) : null,
+              animalWeightRecords, now: dt,
+            })
           : (gw.avgWeightKg ?? 0);
         total += head * avg * (pct / 100);
       }

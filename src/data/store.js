@@ -546,6 +546,7 @@ export function closeGroupWindow(groupId, eventId, closeDate, closeTime) {
   const ctx = {
     memberships: state.animalGroupMemberships,
     animals: state.animals,
+    animalClasses: state.animalClasses,
     animalWeightRecords: state.animalWeightRecords,
     now: closeDate,
   };
@@ -599,6 +600,7 @@ export function splitGroupWindow(groupId, eventId, changeDate, changeTime, newSt
   const ctx = {
     memberships: state.animalGroupMemberships,
     animals: state.animals,
+    animalClasses: state.animalClasses,
     animalWeightRecords: state.animalWeightRecords,
     now: changeDate,
   };
@@ -650,6 +652,7 @@ export function maybeSplitForGroup(groupId, changeDate) {
   const ctx = {
     memberships: state.animalGroupMemberships,
     animals: state.animals,
+    animalClasses: state.animalClasses,
     animalWeightRecords: state.animalWeightRecords,
     now: changeDate,
   };

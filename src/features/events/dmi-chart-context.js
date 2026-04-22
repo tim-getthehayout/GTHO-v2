@@ -83,11 +83,19 @@ export function buildDmi8ChartContext(eventId) {
     if (b) batches[fci.batchId] = { weightPerUnitKg: b.weightPerUnitKg, dmPct: b.dmPct };
   }
 
+  // OI-0130: include `id` and `defaultWeightKg` so the map values round-trip
+  // back to an id'd class-row shape at the getLiveWindowAvgWeight call-site
+  // (Object.values(animalClasses) → array of { id, defaultWeightKg, ... }).
   const animalClasses = {};
   for (const gw of groupWindows) {
     if (!gw.animalClassId || animalClasses[gw.animalClassId]) continue;
     const cls = getById('animalClasses', gw.animalClassId);
-    if (cls) animalClasses[gw.animalClassId] = { dmiPct: cls.dmiPct, dmiPctLactating: cls.dmiPctLactating };
+    if (cls) animalClasses[gw.animalClassId] = {
+      id: cls.id,
+      defaultWeightKg: cls.defaultWeightKg,
+      dmiPct: cls.dmiPct,
+      dmiPctLactating: cls.dmiPctLactating,
+    };
   }
 
   return {

@@ -112,10 +112,11 @@ export function confirmCull({ animal, cullDate, cullReason, cullNotes }) {
     const openGWs = getAll('eventGroupWindows').filter(w => w.groupId === groupId && !w.dateLeft);
     const memberships = getAll('animalGroupMemberships');
     const animals = getAll('animals');
+    const animalClasses = getAll('animalClasses');
     const animalWeightRecords = getAll('animalWeightRecords');
     for (const gw of openGWs) {
       const liveHead = getLiveWindowHeadCount({ ...gw, dateLeft: null }, { memberships, now: cullDate });
-      const liveAvg = getLiveWindowAvgWeight({ ...gw, dateLeft: null }, { memberships, animals, animalWeightRecords, now: cullDate });
+      const liveAvg = getLiveWindowAvgWeight({ ...gw, dateLeft: null }, { memberships, animals, animalClasses, animalWeightRecords, now: cullDate });
       splitResults.push(splitGroupWindow(groupId, gw.eventId, cullDate, null, {
         headCount: liveHead,
         avgWeightKg: liveAvg,

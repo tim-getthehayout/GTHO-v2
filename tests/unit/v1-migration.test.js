@@ -616,6 +616,73 @@ describe('v1-migration (CP-57)', () => {
       expect(ac.dmi_pct).toBe(2.5);
       expect(ac.role).toBe('cow');
     });
+
+    // OI-0127: every rate-bearing field pulled from seed-data keyed by role,
+    // weanTargets shim retired, weaning lives on the calf row.
+    it('pulls NPK excretion rates + lactating DMI from seed-data per role', () => {
+      const v1 = makeV1({
+        animalClasses: [
+          { id: 'ac1', name: 'Cow', weight: 1200, dmiPct: 2.5 },
+          { id: 'ac2', name: 'Heifer', weight: 800, dmiPct: 2.5 },
+          { id: 'ac3', name: 'Bull', weight: 1600, dmiPct: 2.0 },
+          { id: 'ac4', name: 'Calf', weight: 250, dmiPct: 3.0 },
+        ],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      const classes = envelope.tables.animal_classes;
+      for (const ac of classes) {
+        expect(ac.excretion_n_rate, `${ac.name} excretion N must be seeded`).toBeCloseTo(0.145, 3);
+        expect(ac.excretion_p_rate, `${ac.name} excretion P must be seeded`).toBeCloseTo(0.041, 3);
+        expect(ac.excretion_k_rate, `${ac.name} excretion K must be seeded`).toBeCloseTo(0.136, 3);
+      }
+      const cow = classes.find(c => c.role === 'cow');
+      expect(cow.dmi_pct_lactating).toBe(3.0);
+      const bull = classes.find(c => c.role === 'bull');
+      expect(bull.dmi_pct_lactating).toBeNull();
+    });
+
+    it('weaning_age_days lives on calf only; cow/heifer/bull/steer carry null', () => {
+      const v1 = makeV1({
+        animalClasses: [
+          { id: 'ac1', name: 'Cow' },
+          { id: 'ac2', name: 'Heifer' },
+          { id: 'ac3', name: 'Bull' },
+          { id: 'ac4', name: 'Steer' },
+          { id: 'ac5', name: 'Calf' },
+        ],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      const byName = Object.fromEntries(envelope.tables.animal_classes.map(c => [c.name, c]));
+      expect(byName.Cow.weaning_age_days).toBeNull();
+      // Heifer name matches inferRole 'cow' fallback → gets cow defaults including null weaning.
+      expect(byName.Heifer.weaning_age_days).toBeNull();
+      expect(byName.Bull.weaning_age_days).toBeNull();
+      expect(byName.Steer.weaning_age_days).toBeNull();
+      expect(byName.Calf.weaning_age_days).toBe(205);
+    });
+
+    it('unrecognized role (yearling) falls back to cow seed row', () => {
+      const v1 = makeV1({
+        animalClasses: [{ id: 'ac1', name: 'Yearling', weight: 700, dmiPct: 2.3 }],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      const ac = envelope.tables.animal_classes[0];
+      // inferRole returns 'yearling'; no beef_cattle seed row exists for that role
+      // → fall back to cow (conservative for NPK, null weaning).
+      expect(ac.role).toBe('yearling');
+      expect(ac.excretion_n_rate).toBeCloseTo(0.145, 3);
+      expect(ac.dmi_pct_lactating).toBe(3.0); // cow-row fallback
+      expect(ac.weaning_age_days).toBeNull(); // cow has null per OI-0127
+    });
+
+    it('v1-provided dmi_pct wins over seed default', () => {
+      const v1 = makeV1({
+        animalClasses: [{ id: 'ac1', name: 'Cow', weight: 1200, dmiPct: 2.8 }],
+      });
+      const { envelope } = transformV1ToV2(v1, baseOpts);
+      const ac = envelope.tables.animal_classes[0];
+      expect(ac.dmi_pct).toBe(2.8); // user data, not seed 2.5
+    });
   });
 
   describe('§2.19 — Manure Batches', () => {

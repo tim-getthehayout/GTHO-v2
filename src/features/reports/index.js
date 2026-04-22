@@ -189,7 +189,7 @@ function renderFeedDmiTab() {
       const dmiPctLactating = cls?.dmiPctLactating ?? dmiPct;
       const now = gw.dateLeft || event.dateOut || todayStr;
       const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
-      const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
+      const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
 
       let groupDmi = 0;
       if (dmi2) {
@@ -269,7 +269,7 @@ function renderNpkTab() {
 
       const now = gw.dateLeft || event.dateOut || todayStr;
       const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
-      const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalWeightRecords, now });
+      const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
       const npkResult = npk1.fn({
         headCount: liveHead,
         avgWeightKg: liveAvg,

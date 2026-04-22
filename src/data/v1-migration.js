@@ -7,6 +7,7 @@
 
 import { logger } from '../utils/logger.js';
 import { CURRENT_SCHEMA_VERSION } from './backup-import.js';
+import { ANIMAL_CLASSES_BY_SPECIES } from '../features/onboarding/seed-data.js';
 
 // ── Constants ────────────────────────────────────────────────────────
 const LBS_TO_KG = 0.453592;
@@ -260,24 +261,34 @@ export function transformV1ToV2(v1, opts) {
   }));
 
   // ── §2.14: Animal Classes ──────────────────────────────────────
-  const weanTargets = settings.weanTargets || { cattle: 205, sheep: 60, goat: 60 };
-  const v2AnimalClasses = ensure('animalClasses').map(ac => ({
-    id: ids.animalClasses.remap(ac.id),
-    operation_id: opId,
-    name: ac.name || 'Unknown',
-    species: 'beef_cattle', // Tim's operation is all beef (§2.14)
-    role: inferRole(ac.name),
-    default_weight_kg: ac.weight != null ? ac.weight * LBS_TO_KG : null,
-    dmi_pct: ac.dmiPct ?? ac.dmi_pct ?? null,
-    dmi_pct_lactating: null, // new in v2 (§2.14)
-    excretion_n_rate: null,  // seed with NRCS defaults post-migration
-    excretion_p_rate: null,
-    excretion_k_rate: null,
-    weaning_age_days: weanTargets.cattle || 205,
-    archived: false,
-    created_at: now,
-    updated_at: now,
-  }));
+  // OI-0127: pull rate-bearing fields from seed-data keyed by inferred role.
+  // Tim's v1 operation is all beef per §2.14. If inferRole returns a role the
+  // beef_cattle seed table doesn't cover (e.g. 'yearling'), fall back to the
+  // cow row — most conservative for NPK estimates, null weaning handled
+  // cleanly by ANI-3. v1 records that already carry real DMI% or default
+  // weight win over the seed value (user data > industry default).
+  const v2AnimalClasses = ensure('animalClasses').map(ac => {
+    const role = inferRole(ac.name);
+    const seedRow = ANIMAL_CLASSES_BY_SPECIES.beef_cattle.find(c => c.role === role)
+      ?? ANIMAL_CLASSES_BY_SPECIES.beef_cattle.find(c => c.role === 'cow');
+    return {
+      id: ids.animalClasses.remap(ac.id),
+      operation_id: opId,
+      name: ac.name || 'Unknown',
+      species: 'beef_cattle',
+      role,
+      default_weight_kg: ac.weight != null ? ac.weight * LBS_TO_KG : seedRow.defaultWeightKg,
+      dmi_pct: ac.dmiPct ?? ac.dmi_pct ?? seedRow.dmiPct,
+      dmi_pct_lactating: seedRow.dmiPctLactating,
+      excretion_n_rate: seedRow.excretionNRate,
+      excretion_p_rate: seedRow.excretionPRate,
+      excretion_k_rate: seedRow.excretionKRate,
+      weaning_age_days: seedRow.weaningAgeDays,
+      archived: false,
+      created_at: now,
+      updated_at: now,
+    };
+  });
 
   // ── §2.15: Animals ─────────────────────────────────────────────
   const v2Animals = ensure('animals').map(a => ({

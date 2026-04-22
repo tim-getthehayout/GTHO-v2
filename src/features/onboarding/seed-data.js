@@ -6,31 +6,36 @@
  * default_weight_kg values are standard industry averages.
  */
 export const ANIMAL_CLASSES_BY_SPECIES = {
+  // OI-0127: weaningAgeDays lives on the offspring role (calf/lamb/kid),
+  // not the dam (cow/ewe/doe). ANI-3's `birth_date + weaning_age_days`
+  // increments the calf's birth date, so the value must ride on the calf's
+  // class. dmiPctLactating stays on the dam roles — lactation is a dam
+  // property, weaning is an offspring property.
   beef_cattle: [
-    { role: 'cow',    name: 'Cow',    defaultWeightKg: 545, dmiPct: 2.5, dmiPctLactating: 3.0, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: 205 },
+    { role: 'cow',    name: 'Cow',    defaultWeightKg: 545, dmiPct: 2.5, dmiPctLactating: 3.0, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'heifer', name: 'Heifer', defaultWeightKg: 363, dmiPct: 2.5, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'bull',   name: 'Bull',   defaultWeightKg: 727, dmiPct: 2.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'steer',  name: 'Steer',  defaultWeightKg: 454, dmiPct: 2.5, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
-    { role: 'calf',   name: 'Calf',   defaultWeightKg: 113, dmiPct: 3.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
+    { role: 'calf',   name: 'Calf',   defaultWeightKg: 113, dmiPct: 3.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: 205 },
   ],
   dairy_cattle: [
-    { role: 'cow',    name: 'Cow',    defaultWeightKg: 680, dmiPct: 3.0, dmiPctLactating: 4.0, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: 60 },
+    { role: 'cow',    name: 'Cow',    defaultWeightKg: 680, dmiPct: 3.0, dmiPctLactating: 4.0, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'heifer', name: 'Heifer', defaultWeightKg: 454, dmiPct: 2.5, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'bull',   name: 'Bull',   defaultWeightKg: 907, dmiPct: 2.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'steer',  name: 'Steer',  defaultWeightKg: 545, dmiPct: 2.5, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
-    { role: 'calf',   name: 'Calf',   defaultWeightKg: 91,  dmiPct: 3.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
+    { role: 'calf',   name: 'Calf',   defaultWeightKg: 91,  dmiPct: 3.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: 60 },
   ],
   sheep: [
-    { role: 'ewe',    name: 'Ewe',    defaultWeightKg: 68,  dmiPct: 3.0, dmiPctLactating: 4.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: 90 },
+    { role: 'ewe',    name: 'Ewe',    defaultWeightKg: 68,  dmiPct: 3.0, dmiPctLactating: 4.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'ram',    name: 'Ram',    defaultWeightKg: 90,  dmiPct: 2.5, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'wether', name: 'Wether', defaultWeightKg: 68,  dmiPct: 2.5, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
-    { role: 'lamb',   name: 'Lamb',   defaultWeightKg: 27,  dmiPct: 4.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
+    { role: 'lamb',   name: 'Lamb',   defaultWeightKg: 27,  dmiPct: 4.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: 90 },
   ],
   goat: [
-    { role: 'doe',    name: 'Doe',    defaultWeightKg: 59,  dmiPct: 3.5, dmiPctLactating: 5.0, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: 90 },
+    { role: 'doe',    name: 'Doe',    defaultWeightKg: 59,  dmiPct: 3.5, dmiPctLactating: 5.0, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'buck',   name: 'Buck',   defaultWeightKg: 77,  dmiPct: 3.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
     { role: 'wether', name: 'Wether', defaultWeightKg: 59,  dmiPct: 3.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
-    { role: 'kid',    name: 'Kid',    defaultWeightKg: 18,  dmiPct: 4.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: null },
+    { role: 'kid',    name: 'Kid',    defaultWeightKg: 18,  dmiPct: 4.0, dmiPctLactating: null, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, weaningAgeDays: 90 },
   ],
 };
 

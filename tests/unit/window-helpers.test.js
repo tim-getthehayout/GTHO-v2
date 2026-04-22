@@ -103,6 +103,81 @@ describe('getLiveWindowAvgWeight', () => {
     const result = getLiveWindowAvgWeight(GW, { memberships, animals, animalWeightRecords, now: '2026-04-10' });
     expect(result).toBe(450);
   });
+
+  // OI-0130: class-default fallback tier (live → snapshot → class default → 0).
+  describe('class-default fallback (OI-0130)', () => {
+    const classedAnimals = [
+      { id: 'a1', classId: 'cow-class' },
+      { id: 'a2', classId: 'cow-class' },
+      { id: 'a3', classId: 'calf-class' },
+    ];
+    const animalClasses = [
+      { id: 'cow-class', defaultWeightKg: 545 },
+      { id: 'calf-class', defaultWeightKg: 113 },
+    ];
+
+    it('per-animal weight record beats class default when both exist', () => {
+      const memberships = [mem('a1'), mem('a2'), mem('a3')];
+      const animalWeightRecords = [
+        { animalId: 'a1', weightKg: 600, date: '2026-04-05' },
+        { animalId: 'a2', weightKg: 580, date: '2026-04-05' },
+        { animalId: 'a3', weightKg: 150, date: '2026-04-05' },
+      ];
+      const result = getLiveWindowAvgWeight(GW, {
+        memberships, animals: classedAnimals, animalClasses, animalWeightRecords, now: '2026-04-10',
+      });
+      expect(result).toBe((600 + 580 + 150) / 3);
+    });
+
+    it('class default fills in when no weight record exists for any animal', () => {
+      const memberships = [mem('a1'), mem('a2'), mem('a3')];
+      const result = getLiveWindowAvgWeight(GW, {
+        memberships, animals: classedAnimals, animalClasses, animalWeightRecords: [], now: '2026-04-10',
+      });
+      expect(result).toBe((545 + 545 + 113) / 3);
+    });
+
+    it('mixed: per-animal record for a1, class default for a2+a3', () => {
+      const memberships = [mem('a1'), mem('a2'), mem('a3')];
+      const animalWeightRecords = [{ animalId: 'a1', weightKg: 600, date: '2026-04-05' }];
+      const result = getLiveWindowAvgWeight(GW, {
+        memberships, animals: classedAnimals, animalClasses, animalWeightRecords, now: '2026-04-10',
+      });
+      expect(result).toBe((600 + 545 + 113) / 3);
+    });
+
+    it('drops animals with no weight record AND no class default from the count (not a false zero)', () => {
+      const memberships = [mem('a1'), mem('a2'), mem('a-orphan')];
+      const animalsWithOrphan = [
+        { id: 'a1', classId: 'cow-class' },
+        { id: 'a2', classId: 'cow-class' },
+        { id: 'a-orphan', classId: null }, // no class
+      ];
+      const result = getLiveWindowAvgWeight(GW, {
+        memberships, animals: animalsWithOrphan, animalClasses, animalWeightRecords: [], now: '2026-04-10',
+      });
+      // a-orphan dropped; result is cow-default average of a1+a2, NOT polluted by a 0.
+      expect(result).toBe(545);
+    });
+
+    it('class-default-only still returns gw.avgWeightKg when no live members', () => {
+      const memberships = []; // no live members
+      const result = getLiveWindowAvgWeight(GW, {
+        memberships, animals: classedAnimals, animalClasses, animalWeightRecords: [], now: '2026-04-10',
+      });
+      expect(result).toBe(450); // falls back to gw.avgWeightKg — existing behavior preserved
+    });
+
+    it('ignores classes whose defaultWeightKg is null / non-positive', () => {
+      const memberships = [mem('a1'), mem('a2')];
+      const classesWithNull = [{ id: 'cow-class', defaultWeightKg: null }];
+      const result = getLiveWindowAvgWeight(GW, {
+        memberships, animals: classedAnimals, animalClasses: classesWithNull, animalWeightRecords: [], now: '2026-04-10',
+      });
+      // Both animals drop from count → falls through to gw.avgWeightKg.
+      expect(result).toBe(450);
+    });
+  });
 });
 
 describe('getOpenPwForLocation', () => {

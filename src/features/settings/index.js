@@ -26,6 +26,7 @@ import {
   renderAmendmentRefSheetMarkups,
 } from '../amendments/reference-tables.js';
 import { renderV1ImportButton } from './v1-import.js';
+import { renderToolsSection } from './tools-section.js';
 import { openMemberManagementSheet, getCurrentUserRole, getMemberCount, renderMemberSheetMarkup } from './member-management.js';
 
 /**
@@ -64,6 +65,8 @@ export function renderSettingsScreen(container) {
     renderProductsSection(operationId),
     renderSpreadersSection(operationId),
     renderProductUnitsSection(),
+    // OI-0132 Class B: Tools section (currently: backfill calving records).
+    renderToolsSection(operationId),
     renderAccountSection(),
     renderSyncSection(),
     // Sheet markups for health reference tables

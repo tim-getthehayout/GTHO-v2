@@ -20,6 +20,7 @@ import { openBreedingSheet, renderBreedingSheetMarkup } from '../health/breeding
 import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
 import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
+import { syncCalvingRecordForAnimal } from './calving-sync.js';
 import { maybeShowEmptyGroupPrompt } from './empty-group-prompt.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
 
@@ -1365,9 +1366,40 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
     el('option', { value: '' }, ['\u2014 unknown \u2014']),
     ...females.map(a => el('option', { value: a.id, selected: existingAnimal?.damId === a.id }, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`])),
   ]);
-  panel.appendChild(el('div', { className: 'field' }, [
-    el('label', {}, ['Dam ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['mother'])]),
-    inputs.damId,
+  // OI-0132 / SP-14: Birth date shares a row with Dam; hint toggles
+  // "optional" (grey) <-> "required" (red) based on Dam selection so the
+  // OI-0132 hard-gate rule is visible at form-fill time.
+  inputs.birthDate = el('input', {
+    type: 'date', value: existingAnimal?.birthDate || '',
+    'data-testid': 'edit-animal-birth-date',
+  });
+  const birthDateHint = el('span', {
+    style: { fontSize: '10px', color: 'var(--text2)' },
+    'data-testid': 'edit-animal-birth-date-hint',
+  }, ['optional']);
+  const birthDateLabel = el('label', {}, ['Birth date ', birthDateHint]);
+  const updateBirthDateHint = () => {
+    if (inputs.damId.value) {
+      birthDateHint.textContent = 'required';
+      birthDateHint.style.color = 'var(--red, #d33)';
+    } else {
+      birthDateHint.textContent = 'optional';
+      birthDateHint.style.color = 'var(--text2)';
+    }
+  };
+  inputs.damId.addEventListener('change', updateBirthDateHint);
+  updateBirthDateHint();
+  panel.appendChild(el('div', {
+    style: { display: 'flex', gap: '12px', alignItems: 'flex-start' },
+  }, [
+    el('div', { className: 'field', style: { flex: '1 1 60%' } }, [
+      el('label', {}, ['Dam ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['mother'])]),
+      inputs.damId,
+    ]),
+    el('div', { className: 'field', style: { flex: '1 1 40%' } }, [
+      birthDateLabel,
+      inputs.birthDate,
+    ]),
   ]));
 
   // Sire picker (OI-0099 Class B B1: three modes — Animal in herd / AI bull / None,
@@ -1534,9 +1566,9 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   inputs.notes = el('input', { type: 'text', value: existingAnimal?.notes || '' });
   panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Notes']), inputs.notes]));
 
-  // Birth date
-  inputs.birthDate = el('input', { type: 'date', value: existingAnimal?.birthDate || '' });
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Birth date ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), inputs.birthDate]));
+  // OI-0132 / SP-14: Birth date now lives in the Dam+Birth-date shared row
+  // above. `inputs.birthDate` was created there; `inputs.name` is still stubbed
+  // here because the Name field was dropped in a prior UI pass.
   inputs.name = { value: existingAnimal?.name || '' };
 
   // ── Weaning toggle (v1 gap fix) ──
@@ -1762,7 +1794,7 @@ function openAddAiBullSubDialog(operationId, onSelected) {
   setTimeout(() => nameInput.focus(), 0);
 }
 
-function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previousGroupId, statusEl) {
+async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previousGroupId, statusEl) {
   clear(statusEl);
   const data = {
     operationId,
@@ -1785,10 +1817,33 @@ function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previ
     // OI-0099 Class B confirmedBred: new column migration 026.
     confirmedBred: inputs.confirmedBred ? inputs.confirmedBred.checked : false,
   };
+
+  // OI-0132 Class A hard gate: damId set without birthDate is an inline error.
+  // Catches both "set dam on calf with no birthDate" and "clear birthDate on
+  // calf with damId" — either leaves a calving record we can't stamp a
+  // calved_at on.
+  if (data.damId && !data.birthDate) {
+    statusEl.appendChild(el('span', {}, [t('animal.birthDateRequiredWhenDamSet')]));
+    return;
+  }
+
+  // OI-0132 Class A atomicity: A3 (damId cleared) requires the confirm dialog
+  // to fire BEFORE the animal update lands. If the farmer cancels, the whole
+  // save is aborted — neither the animal row nor the calving record mutates.
+  if (existingAnimal && existingAnimal.damId && !data.damId) {
+    const dam = getAll('animals').find(a => a.id === existingAnimal.damId);
+    const damName = dam?.tagNum || dam?.name || `A-${existingAnimal.damId.slice(0, 5)}`;
+    const proceed = window.confirm(t('animal.clearDamConfirm', { damName }));
+    if (!proceed) return;
+  }
+
   const newGroupId = inputs.groupId.value || null;
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
     let animalId;
+    const before = existingAnimal
+      ? { damId: existingAnimal.damId || null, birthDate: existingAnimal.birthDate || null, sireAnimalId: existingAnimal.sireAnimalId || null }
+      : { damId: null, birthDate: null, sireAnimalId: null };
     if (existingAnimal) {
       update('animals', existingAnimal.id, data, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
       animalId = existingAnimal.id;
@@ -1797,6 +1852,22 @@ function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previ
       add('animals', record, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
       animalId = record.id;
     }
+
+    // OI-0132 Class A: mirror the damId / birthDate transition onto
+    // animal_calving_records. Confirm dialog is bypassed (null handler) because
+    // A3's gate already fired above — if we reached here the user confirmed.
+    await syncCalvingRecordForAnimal({
+      before,
+      after: {
+        id: animalId,
+        damId: data.damId,
+        birthDate: data.birthDate,
+        sireAnimalId: data.sireAnimalId,
+      },
+      operationId,
+      confirmDeleteHandler: () => true,
+    });
+
     if (newGroupId !== previousGroupId) {
       if (previousGroupId) {
         const mems = getAll('animalGroupMemberships');

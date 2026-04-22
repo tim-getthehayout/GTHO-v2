@@ -9,6 +9,8 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { _reset, add, getAll, getById, setSyncAdapter } from '../../src/data/store.js';
+import { setLocale } from '../../src/i18n/i18n.js';
+import enLocale from '../../src/i18n/locales/en.json';
 import { openAnimalSheet } from '../../src/features/animals/index.js';
 import * as OperationEntity from '../../src/entities/operation.js';
 import * as FarmEntity from '../../src/entities/farm.js';
@@ -47,6 +49,7 @@ describe('Edit Animal dialog → saveAnimal round-trips the four inputs (OI-0099
   beforeEach(() => {
     _reset();
     document.body.innerHTML = '';
+    setLocale('en', enLocale);
     queuedWrites = [];
     setSyncAdapter({
       push: (table, row, op) => queuedWrites.push({ table, row, op }),
@@ -68,9 +71,11 @@ describe('Edit Animal dialog → saveAnimal round-trips the four inputs (OI-0099
     const panel = document.getElementById('ae-sheet-panel');
     expect(panel).toBeTruthy();
 
-    // Dam — select Bessie.
+    // Dam — select Bessie. OI-0132 hard gate requires birthDate whenever damId is set.
     const damSelect = panel.querySelector('[data-testid="edit-animal-dam-select"]');
     damSelect.value = DAM_ID;
+    const birthDateInput = panel.querySelector('[data-testid="edit-animal-birth-date"]');
+    birthDateInput.value = '2025-03-15';
 
     // Sire — switch to "Animal in herd" mode and tap Bully.
     panel.querySelector('[data-testid="sire-mode-animal"]').click();

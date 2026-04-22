@@ -338,6 +338,8 @@
   },
   "animal": {
     "title": "Animals",
+    "birthDateRequiredWhenDamSet": "Birth date is required when a dam is set.",
+    "clearDamConfirm": "This will remove the calving record from {damName}. Continue?",
     "groups": "Groups",
     "classes": "Classes",
     "addGroup": "Add Group",
@@ -1113,5 +1115,23 @@
     "deleteBlocked": "{n} location(s) use this forage type.",
     "deleteBlockedAction": "View locations",
     "metaLine": "DM {dm}% · N {n} / P {p} / K {k} kg/t DM"
+  },
+  "tools": {
+    "title": "Tools",
+    "backfillCalving": {
+      "title": "Backfill calving records from lineage",
+      "description": "Creates calving records for calves that have a dam set but no matching record. Safe to re-run.",
+      "run": "Run backfill",
+      "running": "Running…",
+      "runAgain": "Run again",
+      "summary": {
+        "created": "Created: {N} calving records",
+        "skippedNoBirthDate": "Skipped (no birth date): {N} calves",
+        "skippedDamMissing": "Skipped (dam not in system): {N} calves",
+        "skippedAlreadyExists": "Skipped (already linked): {N} calves",
+        "skippedError": "Errors: {N} calves (see logs)",
+        "empty": "No calves needed backfilling."
+      }
+    }
   }
 }

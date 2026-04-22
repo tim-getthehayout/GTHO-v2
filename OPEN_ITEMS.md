@@ -4,6 +4,280 @@
 
 ---
 
+### OI-0131 — Pasture Survey bulk-draft autosave is dead: `triggerDraftSave` is defined but never called after OI-0126; typed values only persist on "Save Draft" click or sheet close
+**Added:** 2026-04-21 | **Area:** v2-build / pasture-survey / autosave | **Priority:** P2 (no data loss in the common path — the sheet's `close` wrapper calls `saveDraft()` — but a browser crash, tab kill, or navigation away from the PWA mid-session drops every unsaved reading since the last manual Save Draft; the 1-second debounced autosave the function was designed around never fires)
+**Checkpoint:** single-file fix (`src/features/locations/index.js`) + one unit test
+
+**Status:** open
+
+**Problem:** OI-0126 refactored the bulk Pasture Survey to delegate each paddock's form to the unified `renderSurveyCard`. The card emits native DOM events (`input` from the quality slider, height/cover/rings/min-max/notes inputs; `click` from the condition chips) but does not expose an `onChange` callback. The outer `openSurveySheet` has `triggerDraftSave()` (`src/features/locations/index.js:715–719`, 1-second debounce → `saveDraft()`), but after the OI-0126 refactor removed the hand-rolled per-input wiring, nothing calls it.
+
+Grep contract: `grep -n "triggerDraftSave" src/features/locations/index.js` returns exactly one match — the function definition at line 715. Zero call-sites.
+
+Consequences:
+1. **Draft data loss window.** Typed values only reach Supabase when the user hits "Save Draft" manually or closes the sheet (the `surveySheet.close` wrapper at line 1012 calls `saveDraft` as a safety net). A browser crash, OS kill of the PWA, or the iOS Safari "Done" gesture that backgrounds the page mid-survey loses everything since the last manual save.
+2. **Stale completeness checkmark.** Each card header shows a green `✓` when its four required fields are filled (`src/features/locations/index.js:895, 901`). Because nothing re-renders the header on input, the checkmark only appears after the user expands/collapses the card or interacts with another paddock.
+3. **Dead code.** `triggerDraftSave` and its `draftTimer` debounce plumbing look live from a code review. A future reader will wonder why they exist if nothing calls them.
+
+**Spec violated:** OI-0126 session brief §4 State preservation — "Autosave during typing (1s debounce on `triggerDraftSave`)." Spec intent preserved `triggerDraftSave` precisely so the debounced autosave would continue to work after the delegation refactor; the refactor dropped the call-sites and the brief didn't call the gap out explicitly.
+
+**Fix — event delegation (not onChange):** The unified `renderSurveyCard` is shared across five observation surfaces (move wizard open, event detail pre-graze, sub-move pre-graze, single-pasture survey, bulk survey). Adding an `onChange` prop means threading it through six files (`survey-card.js` + the five callers) and through every sub-renderer in `_shared.js` that can fire. Event delegation using native DOM bubbling gives the same signal with three lines touching one file:
+
+```js
+// After `renderPaddockList()` at line ~943, attach once to the stable paddockList
+// container (its contents are cleared/re-rendered, but the element itself is not
+// recreated — safe to attach once):
+paddockList.addEventListener('input', triggerDraftSave);
+paddockList.addEventListener('click', (e) => {
+  if (e.target.closest('.obs-condition-chip')) triggerDraftSave();
+});
+```
+
+`input` bubbles from the quality slider, height, cover, rings, min/max, and notes — covering every non-chip field. The `click` guard on `.obs-condition-chip` keeps header expand/collapse clicks from scheduling no-op saves; chips are the only interactive element that doesn't fire `input`. The 1-second debounce inside `triggerDraftSave` absorbs any over-firing from rapid keystrokes or slider drags.
+
+No change to `renderSurveyCard`, `_shared.js`, or any of the four other call-sites. No stale-read risk — `saveDraft()` already calls `commitReadingsFromCards()` at line 726, so the debounced save pulls live input values off the card instances before writing.
+
+**Files affected:**
+
+- `src/features/locations/index.js` — two `addEventListener` calls after the initial `renderPaddockList()` invocation at line 943 (and re-attach is unnecessary because `paddockList` is not recreated — only its contents are cleared)
+- `tests/unit/pasture-survey-autosave.test.js` — new test: open bulk survey sheet with two paddocks, dispatch an `input` event on the quality slider, advance fake timers by 1500ms, assert `surveyDraftEntries` has one row with the expected `forageQuality`; separately, dispatch a `click` on a condition chip and assert the debounced save fires
+
+**Not in scope (explicitly deferred):**
+
+- **Live-refreshing the completeness checkmark on typed input.** Currently the `✓` lags until expand/collapse. Fixing it requires either a scoped header re-render per-card or subscribing each header to its card's value stream. Small visual polish, no data risk, out of scope for this autosave fix.
+- **Adding `onChange` to `renderSurveyCard`.** Considered and rejected — event delegation gives the same signal with one-fifth the surface area and zero shared-component changes. If a future consumer needs parsed values on-change (e.g., live validation before save), revisit the prop then.
+
+**CP-55/CP-56 impact:** **none.** No schema change. Autosave writes to the existing `survey_draft_entries` table the same way a manual Save Draft does.
+
+**Linked OPEN_ITEMS:**
+
+- **OI-0126** (closed — 2026-04-20, commit 2d1bc70) — the delegation refactor that introduced this gap; spec called for autosave preservation but didn't enumerate the wiring step, so the call-sites got dropped along with the old hand-rolled inputs
+
+**Change Log:**
+
+| Date | Session | Change |
+|------|---------|--------|
+| 2026-04-21 | Pasture survey autosave follow-up to OI-0126 | Opened. Discovered during post-ship gap analysis of OI-0126 — `triggerDraftSave` defined, zero call-sites. Scope locked on event delegation (not onChange) to keep the blast radius inside one file. |
+
+---
+
+### OI-0130 — Calc weight resolution skips class.defaultWeightKg fallback — `getLiveWindowAvgWeight` returns 0 (silently zeroing every downstream calc) when an open window has live animals but no per-animal weight records
+**Added:** 2026-04-21 | **Area:** v2-build / calcs / fallback-chain | **Priority:** P1 (silently zeroes DMI / NPK / cost / area-needed for any operation that doesn't keep per-animal weights up to date — Tim's primary model is per-animal weights, but the seed-data effort that just landed exists precisely to be the fallback)
+**Checkpoint:** bundled into the animal-classes-fix-package spec for one-pass resolution
+
+**Status:** open
+
+**Problem:** `getLiveWindowAvgWeight` (`src/calcs/window-helpers.js:53–85`) builds the live average for an open `event_group_window` from `animalWeightRecords` only. If a live member has no weight record, it is silently dropped from the sum (`if (rec && typeof rec.weightKg === 'number')`). If **no** live member has a weight record, the function returns `gw.avgWeightKg ?? 0` — which on a still-open window with no prior snapshot is `0`. Every downstream calc that reads through this helper (DMI-1/2/3/8, NPK-1, cost rollups, area-needed previews — see the 21 call-sites in `dashboard/index.js`, `events/detail.js`, `events/move-wizard.js`, `events/edit-group-window.js`, `events/group-windows.js`, `events/retro-place.js`, `reports/index.js`, `data/store.js`, `calcs/feed-forage.js`, `animals/cull-sheet.js`) inherits the zero. UI shows "—" or "0", and the user has no signal that the entire calc chain just collapsed.
+
+The system already carries the right fallback value in two places — `animal_classes.default_weight_kg` (per-class NRCS default, populated for every class via OI-0057's data patch) and the entity's display-only consumers in `features/animals/index.js:176` and `features/events/index.js:805` already use `latestW?.weightKg ?? cls?.defaultWeightKg ?? 0` — so the calc path is the one tier of the fallback chain that doesn't honour the design.
+
+**Spec violated:** Decision A14 ("animal_classes carries the rate fallbacks") + the documented fallback chain in V2_CALCULATION_SPEC.md (live → snapshot → class default → 0). The current implementation skips the third tier entirely.
+
+**Fix:** Extend the helper's threaded context with `animalClasses`. Inside the live-average loop, if `weightsByAnimal.get(id)` returns nothing, look up `animals.find(a => a.id === id).classId` → `animalClasses.find(c => c.id === classId).defaultWeightKg`. If that resolves to a positive number, count it toward the average like any per-animal weight; if neither resolves, only then drop the animal from the count. Return path stays unchanged when zero animals contribute (still `gw.avgWeightKg ?? 0`), but with the class-default tier in the chain that branch now only fires when a window genuinely has no live members.
+
+Update every call-site to thread `animalClasses` into the context object. The shape is uniform across all 21 sites — `getAll('animalClasses')` once at the top of the calling function, dropped into the ctx alongside `memberships`/`animals`/`animalWeightRecords`. `data/store.js` constructs a single `ctx` shared across three call-sites — only one new key needed there.
+
+**Files affected:**
+
+- `src/calcs/window-helpers.js` — add `animalClasses` to destructured context, build a `classDefaultByAnimalId` Map for O(1) lookups inside the loop, prefer per-animal weight then fall back to class default
+- 11 call-site files (above) — thread `animalClasses` into the context object passed to the helper
+- `tests/unit/window-helpers.test.js` — add round-trip tests: (a) live weight beats class default, (b) class default fills in for an animal with no weight record, (c) mixed (some live, some default) averages correctly, (d) all-default works, (e) no-class-no-weight animal is dropped from count (not counted as 0kg)
+
+**CP-55/CP-56 impact:** **none.** No schema change. The fallback consumes existing columns (`animals.class_id`, `animal_classes.default_weight_kg`).
+
+**Linked OPEN_ITEMS:**
+
+- **OI-0057** (this session — full reset of class rate-bearing fields from seed-data) — populates `default_weight_kg` for Tim's existing classes; this OI is the calc-side consumer of those values
+- **OI-0127** (this session — seed-data weaning role flip + v1-migration rewrite) — ensures every class created by either onboarding seeding or v1 migration ships with a non-null `default_weight_kg` so the new fallback tier always has something to read
+
+**Change Log:**
+
+| Date | Session | Change |
+|------|---------|--------|
+| 2026-04-21 | Animal-class data integrity sweep | Opened. Discovered while tracing OI-0057's expansion: the class default exists for display fallback but never gets consulted by the calc engine. Bundled into the animal-classes-fix-package spec for one-pass resolution. |
+
+---
+
+### OI-0129 — Weaning pipeline never wired end-to-end — dashboard nudge reads non-existent `group.weaningTargetDays`, ANI-3 calc has no feature-code consumer, no Reports Weaning tab; **DESIGN REQUIRED**, do not build
+**Added:** 2026-04-21 | **Area:** v2-build / weaning / dashboard / reports / DESIGN REQUIRED | **Priority:** P2 (silent dead feature — looks built from a code review, never fires for a user; weaning is a primary management decision Tim wants to surface)
+**Checkpoint:** **NOT bundled into the animal-classes-fix-package** — needs design pass first
+
+**Status:** open — DESIGN REQUIRED, do not build
+
+**Problem:** Three broken or missing legs of one user-facing feature:
+
+1. **Dashboard weaning nudge is a dead read.** `renderWeaningNudge` (`src/features/dashboard/index.js:1484–1533`) loops every group and reads `group.weaningTargetDays`. That column does not exist on the `groups` entity (`src/entities/group.js`) and is not in any migration. The lookup always returns `undefined`, the nudge always short-circuits, the user has never seen it. The role filter `['calf', 'lamb', 'kid', 'young'].includes(role)` is correct (offspring roles per the seed-data flip in OI-0127); it's the date math that has nothing to read.
+2. **ANI-3 calc is registered with no feature-code consumer.** `src/calcs/core.js:109–126` defines `target_date = birth_date + weaning_age_days` and registers it. No file in `src/features/` invokes it. Pure formula, no UI surface.
+3. **No Reports Weaning tab.** v1 surfaced an upcoming-weanings list under Reports. v2 has no equivalent screen.
+
+**Why this is design-required, not a code fix:** OI-0127 moves `weaningAgeDays` from the dam roles (cow/ewe/doe) onto the offspring roles (calf/lamb/kid). After that lands, every calf carries its species' weaning interval via its class. The pipeline question is **which entity owns the "weaning-due" computation, and where does it surface**:
+
+- **Option A (per-animal, derived on read):** Compute `target_date = animal.birth_date + animal.class.weaning_age_days` for each calf. Dashboard nudge filters animals where `target_date - today` falls in a window (e.g., 14 days out → 30 days past due). Pro: matches Tim's stated model (track per animal). Con: dashboard now scans all animals, not just groups — N is ~10× larger but still small.
+- **Option B (group-scoped roll-up):** Add `weaning_target_date` (or `weaning_target_days_offset`) to `groups`. Computed by the same per-animal math at group-formation time, stored as a single date on the group. Dashboard reads what it already tries to read (just under a real column name). Pro: O(groups) scan, matches existing nudge architecture. Con: stored-vs-derived drift class — the same pattern that bit OI-0117. Probably wrong call.
+- **Option C (a third "weaning event" entity):** Each calving creates a forward-dated weaning task. Surfaces as both dashboard nudge and a Reports tab. Pro: ties weaning into the events model and into todos. Con: net-new table, larger scope.
+
+Plus: how does Reports surface this? A standalone "Weaning" tab listing upcoming + overdue, or an integrated sub-section of an existing Animals report? V1 had a standalone tab — confirm v2 should mirror.
+
+**Files in question:**
+
+- `src/features/dashboard/index.js:1484–1533` — `renderWeaningNudge`, currently inert
+- `src/calcs/core.js:109–126` — ANI-3, currently unused
+- `src/features/reports/index.js` — no Weaning tab exists
+- `src/entities/group.js` — would change shape under Option B (and only Option B)
+- `src/features/animals/cull-sheet.js` / similar — if weaning records are entered manually by the user, that flow exists somewhere; locate before designing
+
+**Acceptance criteria for this OI to move out of DESIGN REQUIRED:**
+
+1. Tim picks Option A / B / C (or a hybrid) for the data model
+2. Tim picks Reports placement (standalone tab vs integrated)
+3. Tim picks dashboard nudge thresholds (how many days out triggers it, when does it stop showing)
+4. CP-55/CP-56 impact assessed once the model is chosen (Option A and C add tables/fields; Option B mutates `groups`)
+5. Spec file written to `github/issues/` for Claude Code handoff
+
+**Linked OPEN_ITEMS:**
+
+- **OI-0127** (this session — seed-data weaning role flip) — prerequisite. Without the role flip, a calf has `weaning_age_days = null` and any per-animal weaning math returns nothing
+- **OI-0057** (this session — full class rate reset) — companion to OI-0127
+
+**Change Log:**
+
+| Date | Session | Change |
+|------|---------|--------|
+| 2026-04-21 | Animal-class data integrity sweep | Opened. Discovered while tracing how the seed-data weaning role inversion was reaching downstream code: it isn't, because the downstream code is broken. Marked DESIGN REQUIRED — explicitly NOT bundled into the same Claude Code package as OI-0057/0127/0128/0130. |
+
+---
+
+### OI-0128 — Edit Class form is `window.prompt('Class name:', cls.name)` — single-field regression vs v1, blocks editing default weight, DMI%, lactating DMI%, excretion N/P/K, weaning age, archived
+**Added:** 2026-04-21 | **Area:** v2-build / animals / settings UI / v1-parity | **Priority:** P1 (every existing class is uneditable beyond rename — including OI-0057's data patch, which Tim cannot adjust through the UI after it lands)
+**Checkpoint:** bundled into the animal-classes-fix-package spec for one-pass resolution
+
+**Status:** open
+
+**Problem:** `openClassEditForm` (`src/features/animals/index.js:887–894`) is literally:
+
+```js
+function openClassEditForm(cls, _operationId, _unitSys) {
+  const newName = window.prompt('Class name:', cls.name);
+  if (newName !== null && newName.trim()) {
+    update('animalClasses', cls.id, { name: newName.trim() }, AnimalClassEntity.validate, AnimalClassEntity.toSupabaseShape, 'animal_classes');
+  }
+}
+```
+
+Comment in the source file admits: "For simplicity, use a prompt-based edit (the full inline edit is complex)". The class entity carries 11 user-editable fields (`name`, `species`, `role`, `defaultWeightKg`, `dmiPct`, `dmiPctLactating`, `excretionNRate`, `excretionPRate`, `excretionKRate`, `weaningAgeDays`, `archived`); `window.prompt` exposes one of them. v1 surfaced the full editor: clicking Edit on a class repopulated the Add form at the bottom of the manage sheet with every field pre-filled, so the user could adjust any value and Save.
+
+This regression interacts directly with OI-0057: that OI's data patch sets industry-standard NRCS defaults across every class, but if the user later wants to override any of those values for their own herd (a custom-bred cow with non-standard DMI%, a heritage breed with different excretion behavior, an archived class to hide from the picker), the UI gives them no path.
+
+**Spec violated:** v1 parity + Tim's standing directive ("specs in base docs, full repopulate behavior — Edit click repopulates Add form").
+
+**Fix:** Replace `openClassEditForm` with a "repopulate the Add form" flow matching v1:
+
+1. The existing Add form (`renderManageAnimalClassesSheet`, lines ~847–882) becomes the dual-purpose Add/Edit form.
+2. Hold an `editingClassId` ref in the closure (default `null`).
+3. When Edit is clicked on a class row, set `editingClassId = cls.id`, write every field's current value into the form inputs (units-converted on render — `defaultWeightKg` cm/kg → user's selected unit per `FARM_FIELD_DESCRIPTORS` pattern from OI-0111), change the Save button label from "Add class" to "Save changes", and scroll the form into view.
+4. Save button branches on `editingClassId`: if null, `add(...)`; if set, `update('animalClasses', editingClassId, changes, validate, toSupabaseShape, 'animal_classes')`. After save, clear `editingClassId`, restore "Add class" label, blank the form.
+5. A "Cancel edit" link appears next to the Save button only when `editingClassId !== null`.
+6. **Species and role become locked on edit** (read-only display only; not editable). They are foreign-key-shaped: `species` drives which roles are valid, `role` drives every downstream weaning/lactation calc. Changing them after creation cascades. If Tim wants to change either, the right path is delete + re-add — that intent is rare enough not to warrant inline editing.
+
+**Form fields that must appear (extends the current 4-field form to 11):**
+
+| Field | Input type | Unit conversion | Notes |
+|---|---|---|---|
+| Name | text | — | required |
+| Species | select | — | locked on edit; create-only |
+| Role | select | — | options vary by species (dropdown depends on species pick); locked on edit |
+| Default weight | number | cm/kg ↔ user unit (per OI-0111 descriptor pattern) | label suffix `(${unitLabel('weight', unitSys)})` |
+| DMI % of body weight | number | none | step 0.1, range 0.5–6 |
+| DMI % when lactating | number | none | step 0.1, range 0.5–6; null-allowed (only relevant for dam roles) |
+| Excretion N rate | number | none | unit "kg / 1000kg BW / day"; step 0.001 |
+| Excretion P rate | number | none | same units |
+| Excretion K rate | number | none | same units |
+| Weaning age | number | days (no conversion) | step 1; null-allowed (only relevant for offspring roles per OI-0127) |
+| Archived | checkbox | — | when true the class doesn't appear in animal-add pickers but is preserved for historical animals |
+
+Side-fix while touching the form: the species `<select>` currently uses option text as the value (`el('option', {}, ['Beef cattle'])` → `inputs.species.value === 'Beef cattle'`), which fails the entity's `VALID_SPECIES` check (`['beef_cattle','dairy_cattle','sheep','goat','other']`). Add explicit `value` attributes (`{ value: 'beef_cattle' }`, etc.) so create+edit both write canonical species codes. This is a latent bug in the existing add path — not opening a separate OI for it because we're rewriting the form anyway.
+
+**Files affected:**
+
+- `src/features/animals/index.js` — rewrite `renderManageAnimalClassesSheet` Add form to be Add/Edit dual-purpose; delete `openClassEditForm`; wire Edit button to set `editingClassId` + repopulate; per-OI-0111 unit conversion on default weight; species/role lock semantics
+- `tests/unit/animal-class-edit-form.test.js` (new) — round-trip: load a class with all 11 fields, edit weight + DMI lactating + weaning age, save, reload — values persist; species/role inputs are disabled on edit; weight round-trips through imperial display correctly
+
+**CP-55/CP-56 impact:** **none.** No schema change. Existing columns get a UI surface that was missing.
+
+**Linked OPEN_ITEMS:**
+
+- **OI-0057** (this session — class data patch) — Tim adjusts post-patch values via this form
+- **OI-0127** (this session — weaning role flip) — the form's weaning input is meaningful only for offspring roles; the role field becomes the gate
+- **OI-0111** (closed — Settings UI unit conversion) — reuse the `FARM_FIELD_DESCRIPTORS` pattern for default weight
+
+**Change Log:**
+
+| Date | Session | Change |
+|------|---------|--------|
+| 2026-04-21 | Animal-class data integrity sweep | Opened. Discovered when Tim asked whether the seed-data fix would propagate via UI edit — it can't, the form is `window.prompt`. Bundled into the animal-classes-fix-package spec for one-pass resolution. |
+
+---
+
+### OI-0127 — Seed-data weaning role inversion + v1-migration §2.14 ignores seed-data — both pipelines (onboarding + v1 import) ship classes with `weaning_age_days` on dam roles instead of offspring roles, and the v1 transform leaves NPK rates null
+**Added:** 2026-04-21 | **Area:** v2-build / seed-data / v1-migration / data-integrity | **Priority:** P1 (every new operation onboarded after this seed-data went in carries the same role inversion; every v1 import carries broken NPK + wrong-target weaning days; downstream weaning calcs that ride on offspring class fail)
+**Checkpoint:** bundled into the animal-classes-fix-package spec for one-pass resolution
+
+**Status:** open
+
+**Problem A — seed-data role inversion:** `src/features/onboarding/seed-data.js` `ANIMAL_CLASSES_BY_SPECIES` sets `weaningAgeDays` on the dam roles (`cow: 205`, `ewe: 90`, `doe: 90`) and `null` on the offspring roles (`calf`, `lamb`, `kid`). Per Tim's model, weaning age is a property of the **offspring** — the calf is what's being weaned, not the cow. ANI-3 calc (`birth_date + weaning_age_days = target_date`) assumes the field lives on the animal whose `birth_date` is being incremented; that animal is the calf, not its dam. The cow has no `birth_date`-relative event whose interval is "weaning", so storing the value there is semantically and computationally wrong.
+
+This is the root reason OI-0129's dashboard nudge (`renderWeaningNudge` filtering for `['calf','lamb','kid','young']`) returns empty even where calves exist: the calves' classes carry `weaning_age_days = null`.
+
+**Problem B — v1 migration ignores seed-data altogether:** `src/data/v1-migration.js` §2.14 (lines 262–280) sets `excretion_n_rate / p / k` and `dmi_pct_lactating` to `null` (TODO comment: "seed with NRCS defaults post-migration"), and assigns `weaning_age_days = weanTargets.cattle || 205` to every class regardless of role. After import, every class is missing NPK rates (NPK-1 returns 0), and every class — including bulls and steers that have nothing to do with weaning — carries `205`.
+
+Both pipelines diverge from `seed-data.js`, and `seed-data.js` itself has the role inversion. Fixing one without the other leaves the other path broken.
+
+**Spec violated:** Decision A14 (animal_classes carries the rate fallbacks — implicitly, on the right roles) + the documented Three-Tier Config Fallback (Decision A17): field → type → global. The "type" tier is animal_class; the role inversion misfiles which type holds which value.
+
+**Fix:**
+
+**A. seed-data.js — flip weaning age from dam to offspring across all four species:**
+
+| Species | Move FROM (set to null) | Move TO (set to value) |
+|---|---|---|
+| beef_cattle | `cow: weaningAgeDays: 205` → `null` | `calf: weaningAgeDays: null` → `205` |
+| dairy_cattle | `cow: weaningAgeDays: 60` → `null` | `calf: weaningAgeDays: null` → `60` |
+| sheep | `ewe: weaningAgeDays: 90` → `null` | `lamb: weaningAgeDays: null` → `90` |
+| goat | `doe: weaningAgeDays: 90` → `null` | `kid: weaningAgeDays: null` → `90` |
+
+Also keep `dmiPctLactating` on the dam roles only (current values are correct: cow/ewe/doe carry it; offspring + neutered/male roles carry `null`). The dam-vs-offspring split is: lactation is a dam property, weaning is an offspring property.
+
+**B. v1-migration.js §2.14 — pull from seed-data by role, not from `null` + a flat 205:**
+
+Import `ANIMAL_CLASSES_BY_SPECIES` from `src/features/onboarding/seed-data.js`. For each v1 class, after `inferRole(ac.name)` resolves, look up `ANIMAL_CLASSES_BY_SPECIES.beef_cattle.find(c => c.role === role)` (Tim's operation is all beef per existing comment). For every rate-bearing field — `excretion_n_rate`, `excretion_p_rate`, `excretion_k_rate`, `dmi_pct_lactating`, `weaning_age_days` — use the seed-data value for that role. Keep `dmi_pct` and `default_weight_kg` from the v1 import where present (user has put real data there); use the seed-data value as a fallback if the v1 record lacks it.
+
+Drop the `weanTargets` shim entirely — it was a v1-era global that got smeared across every class. The role-keyed lookup replaces it cleanly.
+
+If `inferRole()` returns an unrecognized role, fall back to the cow defaults for excretion (most conservative for NPK estimates) and `null` for weaning_age_days (the ANI-3 calc handles null cleanly — no false targets).
+
+**Files affected:**
+
+- `src/features/onboarding/seed-data.js` — eight value swaps (one per species per dam-offspring pair, four species × two roles each)
+- `src/data/v1-migration.js` — §2.14 transform: import seed-data, map by role, drop `weanTargets`
+- `tests/unit/seed-data.test.js` — assert weaning age lives on offspring roles, lactation on dam roles
+- `tests/unit/v1-migration.test.js` — import sample with cow + heifer + calf + bull, assert each class gets correct seed-data values for its role
+
+**CP-55/CP-56 impact:** **none.** No schema or column-shape change — only value corrections in two seed sources. Existing operations' classes are not retroactively modified by this change (Tim's existing operation is corrected separately by OI-0057's data patch).
+
+**Linked OPEN_ITEMS:**
+
+- **OI-0057** (this session — full class rate reset for Tim's operation) — handles the data already-in-the-database; this OI handles the pipelines that produce future data
+- **OI-0129** (this session — wire weaning pipeline) — depends on this OI landing first, otherwise the role filter has nothing to find
+- **OI-0130** (this session — class-default weight fallback) — depends on `default_weight_kg` being non-null for every class, which both seed-data and the corrected v1-migration ensure
+
+**Change Log:**
+
+| Date | Session | Change |
+|------|---------|--------|
+| 2026-04-21 | Animal-class data integrity sweep | Opened. Discovered while expanding OI-0057 from null-fill to Option B full reset: the seed-data file Tim is patching from carries the same role inversion as the v1 transform, so fixing the database without fixing the seed source means the next onboard re-introduces the bug. Bundled into the animal-classes-fix-package spec for one-pass resolution. |
+
+---
+
 ### OI-0126 — Pasture Survey card (Field Mode path) uses hand-rolled form instead of unified `renderSurveyCard`; full delegation refactor to close the OI-0112 unification gap, adds missing Notes field, puts Recovery min-max above Notes
 **Added:** 2026-04-20 | **Area:** v2-build / observations / ui-consistency / OI-0112 unification gap | **Priority:** P2 (functional — all fields save correctly; primary impact is layout regression + missing Notes UI; Field Mode → Pasture Survey is Tim's primary entry path, the most visible observation surface in the app, and the divergence actively undermines the OI-0112 "one card, everywhere" premise)
 **Checkpoint:** standalone spec-file handoff. Full delegation refactor of `openSurveySheet`'s per-paddock body to call `renderSurveyCard`. Single file change in `locations/index.js` + one unit test.
@@ -3248,26 +3522,55 @@ This is correct for v2's single-user scope. When multi-user operations are added
 
 ---
 
-### OI-0057 — v1 Migration Transform Leaves animal_classes Excretion Rates Null
-**Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P2
-**Checkpoint:** CP-57
-**Status:** open
+### OI-0057 — Tim's Operation animal_classes Have Null Excretion + Wrong Weaning + Inconsistent Defaults — Full Option B Reset From Seed-Data
+**Added:** 2026-04-14 | **Updated:** 2026-04-21 — scope expanded from null-fill to Option B full reset + weaning role flip | **Area:** v2-build / data-patch / animal-classes | **Priority:** P1 (NPK-1 + DMI-1/2/8 + ANI-3 all silently mis-compute against this data; affects every event for every herd in the operation)
+**Checkpoint:** bundled into the animal-classes-fix-package spec — one-time SQL data patch against Tim's Supabase operation, runs in the same Claude Code session that fixes the seed-data and v1-migration pipelines (OI-0127), the Edit Class form (OI-0128), and the calc weight fallback (OI-0130)
 
-**Problem:** `v1-migration.js` §2.14 maps v1 animal classes to v2 format but leaves `excretion_n_rate`, `excretion_p_rate`, `excretion_k_rate` as `null` and `dmi_pct_lactating` as `null` (lines 273-274, comment: "seed with NRCS defaults post-migration"). When the import replaces the v2 onboarding defaults (which have full NRCS values from `seed-data.js`) with the v1-migrated classes, all NPK calculations break — they depend on non-null excretion rates.
+**Status:** open — ready to close on commit of the data-patch SQL + verification query
 
-**Fix:** In the v1 transform, populate NRCS defaults from `seed-data.js` `ANIMAL_CLASSES_BY_SPECIES.beef_cattle` based on the `role` value returned by `inferRole()`. The role-to-defaults lookup:
+**Problem:** Two layered issues with Tim's existing `animal_classes` rows in Supabase:
 
-| role | excretion_n | excretion_p | excretion_k | dmi_pct_lactating |
-|------|------------|------------|------------|-------------------|
-| cow | 0.145 | 0.041 | 0.136 | 3.0 |
-| heifer | 0.145 | 0.041 | 0.136 | null |
-| bull | 0.145 | 0.041 | 0.136 | null |
-| steer | 0.145 | 0.041 | 0.136 | null |
-| calf | 0.145 | 0.041 | 0.136 | null |
+**1. The original null-rates problem (logged 2026-04-14):** `v1-migration.js` §2.14 (lines 262–280) leaves `excretion_n_rate`, `excretion_p_rate`, `excretion_k_rate`, and `dmi_pct_lactating` as `null` after import. NPK-1 (`bwFactor × excretionNRate`) returns `NaN` or `0` against null rates; harvest NPK rolls under-count; nutrient mass-balance reports show empty bars; daily DMI for lactating cows is off by ~20%.
 
-If `inferRole()` returns an unrecognized role, use the cow defaults as fallback (most conservative for NPK).
+**2. The expanded-scope problem (surfaced 2026-04-21):** Even where rates are non-null, the v1-migrated values for `default_weight_kg`, `dmi_pct`, and `weaning_age_days` diverge from current NRCS standards (`src/features/onboarding/seed-data.js` `ANIMAL_CLASSES_BY_SPECIES`). And `weanTargets.cattle || 205` was applied to **every** class regardless of role — so bulls, steers, and heifers all carry `weaning_age_days = 205`, which is wrong for any role except calf (and per OI-0127's role flip, calf is exactly where the value should live).
 
-**Note:** The excretion rates happen to be the same across all beef cattle roles (0.145/0.041/0.136 per NRCS standard). The key difference is `dmi_pct_lactating` — only cows get 3.0, all others null.
+Tim's call after seeing the options: **Option B — full reset of all rate-bearing fields from seed-data, keyed by role, keeping his custom class names.**
+
+**Fix:** One-shot SQL patch against Tim's operation, scoped to `operation_id = <Tim's op>`. For every class row, identify the role (already correctly inferred at v1 import time via `inferRole(name)`), then overwrite `default_weight_kg`, `dmi_pct`, `dmi_pct_lactating`, `excretion_n_rate`, `excretion_p_rate`, `excretion_k_rate`, `weaning_age_days` with the seed-data value for that `(species, role)` pair. **Do not touch** `name`, `species`, `id`, `operation_id`, `archived`, `created_at`, or any other column — Tim's custom names stay intact.
+
+The role-keyed seed-data table for **beef_cattle** (Tim's operation):
+
+| role | default_weight_kg | dmi_pct | dmi_pct_lactating | excretion_n_rate | excretion_p_rate | excretion_k_rate | weaning_age_days |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| cow    | 545 | 2.5 | 3.0  | 0.145 | 0.041 | 0.136 | **null** (per OI-0127 — moves to calf) |
+| heifer | 363 | 2.5 | null | 0.145 | 0.041 | 0.136 | null |
+| bull   | 727 | 2.0 | null | 0.145 | 0.041 | 0.136 | null |
+| steer  | 454 | 2.5 | null | 0.145 | 0.041 | 0.136 | null |
+| calf   | 113 | 3.0 | null | 0.145 | 0.041 | 0.136 | **205** (per OI-0127 — moves from cow) |
+
+**Critical:** the `weaning_age_days` column lands per the OI-0127 role flip — on calf, not on cow. Without that flip, this OI re-introduces the existing-data bug into the patch. OI-0127 must land in the same commit so the seed-data the patch reads from is correct. The package spec orders the work that way.
+
+**Acceptance criteria:**
+
+1. SQL patch executed against Tim's operation in Supabase via MCP
+2. Verify query: `SELECT name, role, default_weight_kg, dmi_pct, dmi_pct_lactating, excretion_n_rate, excretion_p_rate, excretion_k_rate, weaning_age_days FROM animal_classes WHERE operation_id = '<tim>' ORDER BY role;` returns one row per class with values matching the table above
+3. Open the app, view Animals → Manage Classes — every class shows non-null defaults; cow shows DMI lactating 3.0; calf shows weaning 205; bull/steer/heifer show weaning null (per OI-0128's expanded Edit form, which lands in the same package)
+4. Run any DMI calc for a herd containing a calf — ANI-3 returns a wean target date; pre-OI-0127 it returned null
+
+**CP-55/CP-56 impact:** **none.** No schema change, no new column, no shape change — only value updates to existing rows. Backup round-trips them as-is.
+
+**Linked OPEN_ITEMS:**
+
+- **OI-0127** (this session — seed-data + v1-migration fix) — must land before this OI's data patch reads from the corrected seed-data
+- **OI-0128** (this session — Edit Class form) — Tim's path to adjust any of these patched values post-landing
+- **OI-0130** (this session — class-default weight fallback in calcs) — `default_weight_kg` populated by this patch is what the new calc fallback tier consults
+
+**Change Log:**
+
+| Date | Session | Change |
+|------|---------|--------|
+| 2026-04-14 | OI-0057 logged during CP-57 sweep | Originally scoped narrowly: fill null excretion rates with NRCS defaults. |
+| 2026-04-21 | Animal-class data integrity sweep | Scope expanded after Tim's "We should populate all of the classes with seed data from industry standard" + Option B confirmation. From "fill nulls only" to "full reset of all rate-bearing fields from seed-data, keyed by role". Bundled into the animal-classes-fix-package spec along with OI-0127 (pipeline fix), OI-0128 (Edit form), OI-0130 (calc fallback). |
 
 ---
 
@@ -3858,4 +4161,5 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 | 2026-04-14 | OI-0056 added — REFERENCE_TABLES blocking import delete | After OI-0055 fix landed, import hit new crash: `forage_types_operation_id_fkey` FK violation when deleting `operations`. Root cause: `REFERENCE_TABLES` set included 5 per-operation tables (`forage_types`, `animal_classes`, `treatment_categories`, `treatment_types`, `input_product_categories`) — `deleteTableRows()` skips them, so their rows block the `operations` delete. Fix: remove these 5 from REFERENCE_TABLES (they're per-operation seed data with `operation_id` FK), keep only `dose_units` and `input_product_units` (truly global, no `operation_id`, per DP#8 exemption). Session brief written for Claude Code. |
 | 2026-04-14 | OI-0055 added — import delete crash on join tables | v1 import (CP-57) crashed on `todo_assignments` delete: `column operation_id does not exist`. Root cause: four child/junction tables (`todo_assignments`, `event_feed_check_items`, `harvest_event_fields`, `survey_draft_entries`) were designed without direct `operation_id`, violating Design Principle #8. Fix: migration 019 adds `operation_id uuid NOT NULL FK → operations` to all four tables, enforcing uniform `WHERE operation_id = $1` with no exceptions. Design docs updated: V2_SCHEMA_DESIGN.md (DP#8 + all 4 table specs), V2_APP_ARCHITECTURE.md (§5.5 backup architecture), V2_MIGRATION_PLAN.md (§5.7 steps 6 & 8). Session brief written for Claude Code. |
 | 2026-04-13 | CP-57 pre-work — per-gap reconciliation OIs logged | Added **OI-0023** through **OI-0034** (12 items) covering every §1–§2 gap between V2_MIGRATION_PLAN.md and current schema/design. Split by concern: OI-0023 (events.source_event_id default), OI-0024 (strip graze defaults on paddock windows), OI-0025 (animal_notes routing — design required), OI-0026 (operations.schema_version stamp), OI-0027 (user_preferences.active_farm_id default), OI-0028 (npk_price_history transform — design required), OI-0029 (animal_classes rename/splits verification), OI-0030 (v1 export JSON shape — spec update), OI-0031 (CP-57 tool UX — design required), OI-0032 (reuse of CP-56 import pipeline — design required), OI-0033 (§2.23 parity check as formal AC), OI-0034 (§2.7 unparseable-dose audit surface — design required). Status tags distinguish SPEC UPDATE REQUIRED (obvious one-liners) from DESIGN REQUIRED (needs Tim's decision). To be walked through one at a time; each closure updates V2_MIGRATION_PLAN.md inline. CP-57 spec file in `github/issues/` written after all 12 close. |
+| 2026-04-21 | Animal-class data integrity sweep — OI-0057 expanded + OI-0127/0128/0129/0130 added; package spec written | Sweep triggered by Tim asking about OI-0057 ("does the app populate excretion rates on a new operation — can I just patch my table and close this?"). Investigation revealed four layered problems: (1) OI-0057 is bigger than null-fill — the v1 transform also smears `weaning_age_days = 205` across every role and loses current NRCS defaults for weight + DMI% (scope expanded to Option B full reset). (2) **OI-0127 opened** — `seed-data.js` itself carries a weaning role inversion (value sits on dam roles cow/ewe/doe instead of offspring roles calf/lamb/kid), AND `v1-migration.js` §2.14 ignores seed-data entirely (nulls + flat 205). Both pipelines must be fixed together, otherwise the next onboard re-introduces the inverted role. (3) **OI-0128 opened** — `openClassEditForm` is literally `window.prompt('Class name:', cls.name)`; 10 of 11 editable fields have no UI path. Needs full Add-form repopulate matching v1, with species + role locked on edit, weight unit conversion per OI-0111 descriptor pattern, side-fix for species select option values (currently "Beef cattle" instead of canonical `beef_cattle`). (4) **OI-0129 opened — DESIGN REQUIRED, not built this session** — `renderWeaningNudge` in dashboard reads non-existent `group.weaningTargetDays` (dead feature), ANI-3 calc has no feature consumer, no Reports Weaning tab; Tim flagged: "lets do some design on that one" before building. Three options A/B/C surfaced in the OI, plus Reports placement + nudge-threshold questions. (5) **OI-0130 opened** — `getLiveWindowAvgWeight` has no class-default weight fallback, so calcs return 0 when open windows have live animals but no per-animal weight records. Fixes the calc-side tier of the Decision A14 / A17 three-tier fallback chain that was never wired. 21 call-sites thread the new `animalClasses` context. **Package spec** written at `github/issues/animal-classes-fix-package.md` covering OI-0057 + OI-0127 + OI-0128 + OI-0130 for one-pass resolution by Claude Code — explicit order of operations (seed-data → v1-migration → SQL patch → Edit form → calc fallback → tests), SQL migration with Tim's operation_id substitution block, full grep contracts, acceptance criteria, commit-message format. OI-0129 explicitly excluded from the package. **CP-55/CP-56 impact: none** for the entire package (value corrections + missing UI + calc fallback consuming existing columns). |
 

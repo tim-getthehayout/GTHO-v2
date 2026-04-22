@@ -14,6 +14,7 @@ Working design doc for the current round of UI improvements. Accumulates all des
 
 | Date | Section | What changed |
 |------|---------|-------------|
+| 2026-04-22 | SP-14 | **Edit Animal — Dam + Birth date shared row (OI-0132).** New sprint section added. Today Dam (~line 1232) and Birth date (~line 1402) are two separate full-width rows far apart. SP-14 collapses them into a shared two-column flex row (Dam ~55–60%, Birth date ~35–40%) with a dynamic label hint: "optional" (grey) when Dam = unknown, "required" (red) when Dam is set. Supports the OI-0132 Class A hard gate by making the birthdate-required-when-dam-set rule visually obvious at form-fill time instead of surprising the farmer with a save-time error. Full spec (data-logic) lives at `github/issues/dam-calf-bidirectional-sync.md`; SP-14 covers only the layout/UI side. No schema change. No CP-55/CP-56 impact. Base-doc reconciliation target: V2_UX_FLOWS.md §15 Animals (Edit Animal dialog subsection). |
 | 2026-04-20 | SP-13 | **Settings > Forage Types access (OI-0125).** V1 had Forage Types editable in Settings (list + add/edit sheet); v2 dropped the UI at rebuild and only seeds nine defaults at onboarding. Tim discovered the gap 2026-04-20 while investigating a separate data issue (residual default showing 1.2 in on move/submove sheets — traced to `farm_settings.default_residual_height_cm = 3.048 cm` in Supabase, aftermath of OI-0111 corruption, not a code bug). Spec ratified: new Settings card between Farms and Field Mode, list rows match screenshot (seeded badge + DM/NPK meta line + Edit/delete controls), Edit sheet reuses `renderFarmSection`'s unit-aware descriptor pattern. **New unit family `dmYieldDensity`** added to `src/utils/units.js` for `lbs/in/ac ↔ kg/cm/ha` display conversion on `dm_kg_per_cm_per_ha`. V1 HTML for the settings panel extracted verbatim (sheet template was unavailable — structured per screenshot + v2 patterns). Full spec: SP-13 below + thin pointer at `github/issues/forage-types-settings-ui.md`. No schema change (all forage_types columns exist). No CP-55/CP-56 impact. |
 | 2026-04-20 | SP-2 | **Edit Paddock Window dialog — pre/post graze observation cards (OI-0118).** `openEditPaddockWindowDialog` (launched from Event Detail §4 Paddocks edit pencil and §12 Sub-move History edit pencil) was missing pre-graze and post-graze cards that every other paddock-window surface renders. Design decision (Option 1): pre-graze card renders on both open AND closed windows so historical pre-graze stays editable after close — detail.js §5 filters to open windows only, so without this the closed-window pre-graze has no UI surface. Post-graze renders only when `pw.dateClosed != null`. Each card gets its own inline Save button matching the §5/§6 pattern; writes to `paddock_observations` with `source: 'event'`, `sourceId: pw.id`. No schema change. No CP-55/CP-56 impact. Shipped: implementation commit `eef637e`. Spec: `github/issues/edit-paddock-window-observation-cards.md`. **Base-doc impact at sprint reconciliation:** V2_UX_FLOWS.md §12 Sub-moves + §17.15 Event Detail should enumerate pre-graze and post-graze as rendered components in the edit-paddock-window dialog (currently not named). |
 | 2026-04-20 | SP-12 | **DMI-8 chart cascade rewrite (OI-0119)** — new sprint section added covering the 3-day chart behavior on dashboard location cards (SP-3 surface) and Event Detail §3 (SP-2 surface). Combined fix for the empty-bars bug + cascade model: five chart statuses (was three — adds `no_animals` and `no_pasture_data`), deficit segment render (red atop stored stack with `+X deficit` sub-label), inline CTA link on `no_pasture_data` bars (→ Edit Paddock Window dialog for missing observation per OI-0118 surface, → Location edit for missing forage type), retroactive actual-conversion of the prior stored interval when a feed check lands, pooled pasture across parallel sub-paddocks, date-routing-only source-event bridge (no state handoff between events), 100% cover default on partial pre-graze with "(Fix)" hint. **New sub-move close flow rule** — when event has any stored-feed deliveries, sub-move Close requires a feed check inline in the Close sheet (strikes a clean actual/estimated boundary; no pasture observation forced — too subjective). Calc spec rewritten inline in V2_CALCULATION_SPEC.md §4.2 (calc spec is authoritative, not sprint-deferred). UX flow updates for V2_UX_FLOWS.md §12, §17.7, §17.15 deferred to reconciliation. Full spec: `github/issues/GH-29_dmi-8-cascade-rewrite.md`. |
@@ -1657,6 +1658,113 @@ Add to `src/i18n/locales/en.json` under a new `forageType` namespace:
 
 ---
 
+## SP-14: Edit Animal — Dam + Birth Date Shared Row
+
+**Status:** Spec complete · Ready for implementation
+**Spec file:** `github/issues/dam-calf-bidirectional-sync.md` (data-logic side) — SP-14 covers only the Edit Animal dialog layout change.
+**Base doc target at reconciliation:** V2_UX_FLOWS.md §15 Animals (Edit Animal dialog subsection) — document the two-column row and the birth-date label rule.
+**Linked OPEN_ITEMS:** OI-0132.
+
+### Problem
+
+Today the Edit Animal dialog (`src/features/animals/index.js`) renders Dam and Birth date as two separate full-width rows, far apart from each other:
+
+- **Dam** is rendered at line ~1232, full width of the dialog.
+- **Birth date** is rendered at line ~1402, after Notes, also full width, labeled "optional."
+
+Two issues:
+
+1. **Full-width Dam select wastes horizontal space.** It's a short dropdown of tag numbers. Full dialog width is unnecessary and pushes the whole form taller.
+2. **The "birthdate required when dam is set" rule** (established by OI-0132 Class A) is invisible in this layout — the two fields are in different visual regions, so the farmer has no cue that they belong together. Users will hit the hard-gate error on save and have to scroll back up to fix it.
+
+Putting them on a shared row with the label rule flipping dynamically makes the rule self-evident at form-fill time instead of error-surface time.
+
+### Where it goes
+
+Inside the existing Edit Animal panel. The new two-column row replaces the current Dam row at line ~1232 and removes the separate Birth date row at line ~1402.
+
+### Layout
+
+```
+┌────────────────────────────────────┬──────────────────────┐
+│ Dam  [mother]                       │ Birth date  [optional] │
+│ [— unknown —            ▼]          │ [2025-03-15]           │
+└────────────────────────────────────┴──────────────────────┘
+```
+
+Width split: Dam ≈ 55–60%, Birth date ≈ 35–40%. Implement as a flex row:
+
+```js
+panel.appendChild(el('div', { style: { display: 'flex', gap: '12px', alignItems: 'flex-start' } }, [
+  el('div', { className: 'field', style: { flex: '1 1 60%' } }, [
+    el('label', {}, [
+      'Dam ',
+      el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['mother']),
+    ]),
+    inputs.damId,
+  ]),
+  el('div', { className: 'field', style: { flex: '1 1 40%' } }, [
+    birthDateLabel,  // dynamic — see below
+    inputs.birthDate,
+  ]),
+]));
+```
+
+### Dynamic birth-date label
+
+The label hint toggles between "optional" and "required" based on Dam selection:
+
+- Dam = "— unknown —" → label reads `Birth date` with the hint `optional` (grey, 10px — matches the current style).
+- Dam = any selected animal → label reads `Birth date` with the hint `required` (red, 10px).
+
+Wire with a `change` handler on `inputs.damId`:
+
+```js
+const birthDateHint = el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional']);
+const birthDateLabel = el('label', {}, ['Birth date ', birthDateHint]);
+
+// After both inputs are defined:
+const updateBirthDateHint = () => {
+  if (inputs.damId.value) {
+    birthDateHint.textContent = 'required';
+    birthDateHint.style.color = 'var(--red, #d33)';
+  } else {
+    birthDateHint.textContent = 'optional';
+    birthDateHint.style.color = 'var(--text2)';
+  }
+};
+inputs.damId.addEventListener('change', updateBirthDateHint);
+updateBirthDateHint();  // initial render
+```
+
+Use the same red token used elsewhere in the design system for error/required hints. If none exists, `var(--red)` with a hex fallback is fine per the snippet above. Check `V2_DESIGN_SYSTEM.md` for the token name.
+
+### Inline error on save
+
+When the hard gate trips (Dam set but Birth date blank), render the error inline **below the Birth date field** (not at the top of the dialog). The error message is the same as the data-logic spec's: "Birth date is required when a dam is set." Keep it terse — short form field, short error.
+
+### Remove the old Birth date row
+
+The separate `panel.appendChild` for Birth date at line ~1402 is removed. `inputs.birthDate` moves into the shared row. All downstream uses (`inputs.birthDate.value` in `saveAnimal`) are unchanged — the input reference is the same, only its DOM position moves.
+
+### What does NOT change
+
+- Dam select's content (unknown + list of females) is unchanged.
+- Birth date input type (`type="date"`) and value binding are unchanged.
+- `saveAnimal` reads `inputs.birthDate.value` and `inputs.damId.value` as it does today. Only the hard-gate check is new (and lives in the data-logic spec, not this one).
+
+### Acceptance Criteria
+
+- [ ] Edit Animal dialog opens with Dam select and Birth date input on the same visual row.
+- [ ] Dam column is ~55–60% width; Birth date column is ~35–40% width.
+- [ ] Birth date hint text reads "optional" (grey) when Dam = unknown.
+- [ ] Birth date hint text reads "required" (red) when Dam = any selected animal.
+- [ ] Changing the Dam selection live-updates the hint without needing a re-render.
+- [ ] Initial render of an existing calf with a dam already set shows "required" immediately.
+- [ ] Data still saves correctly — `inputs.birthDate.value` still feeds `saveAnimal`.
+- [ ] On mobile viewport (≤ 400px wide), the two columns still render side-by-side (the row is short enough content-wise); if they wrap, both take full width and stack — acceptable fallback.
+- [ ] Unit test on the hint toggle: render Edit Animal for an unknown-dam calf → assert hint is "optional" → fire `change` on Dam select → assert hint flips to "required."
+
 ## Reconciliation Checklist (end of sprint)
 
 When this sprint is complete, do a dedicated session to:
@@ -1678,4 +1786,5 @@ When this sprint is complete, do a dedicated session to:
 - [ ] **SP-11 reconciliation** — merge empty-group archive flow into V2_UX_FLOWS.md (new §3.4 "Empty Group Handling" covering cascade + prompt, extend §15.2 Group CRUD Sheet with Show archived / Reactivate). Update V2_SCHEMA_DESIGN.md §3.3 — replace `archived boolean` row with `archived_at timestamptz`. Update V2_MIGRATION_PLAN.md §5.3a if FK ordering needs a note (no new tables/FKs expected). Update CP-55 / CP-56 specs with `archived_at` column handling and v23 → v24 migration chain. Convert `github/issues/empty-group-archive-flow.md` to a thin pointer.
 - [ ] **SP-13 reconciliation (Settings > Forage Types access, OI-0125)** — merge SP-13 spec into V2_UX_FLOWS.md as a new "Forage Types" subsection under §18 Settings (after Farms, before Field Mode). Document the new `dmYieldDensity` unit family in V2_INFRASTRUCTURE.md §1 (Units) alongside `length`/`weight`/etc. Verify V2_SCHEMA_DESIGN.md §2.2 still accurately describes `forage_types` (no column change expected). Convert `github/issues/forage-types-settings-ui.md` to a thin pointer referencing V2_UX_FLOWS.md §18 "Forage Types" subsection. No CP-55/CP-56 impact — column set unchanged.
 - [ ] **SP-12 reconciliation (DMI-8 cascade chart, OI-0119)** — merge the SP-12 chart UI behavior into V2_UX_FLOWS.md §17.7 (dashboard card chart element — replace the 3-state enumeration with the 5-state set + deficit render + CTA link semantics) and V2_UX_FLOWS.md §17.15 (Event Detail §3 chart — same status enumeration). Add the forced-feed-check rule on sub-move close (when event has stored-feed deliveries) to V2_UX_FLOWS.md §12 Sub-moves. V2_CALCULATION_SPEC.md §4.2 DMI-8 was already rewritten inline with the OI-0119 commit — verify the UX flow doc references the new status set consistently. Convert `github/issues/GH-29_dmi-8-cascade-rewrite.md` to a thin pointer referencing V2_CALCULATION_SPEC.md §4.2. No schema change; no CP-55/CP-56 update needed (compute-on-read).
+- [ ] **SP-14 reconciliation (Edit Animal Dam + Birth date row, OI-0132)** — merge the two-column layout spec + dynamic label rule into V2_UX_FLOWS.md §15 Animals (Edit Animal dialog subsection — document the shared row, the label toggle behavior, and the cross-reference to the bidirectional-sync data rule that the layout supports). Once OI-0132 Class A ships, convert `github/issues/dam-calf-bidirectional-sync.md` to a thin pointer referencing V2_UX_FLOWS.md §15 + the helper file `src/features/animals/calving-sync.js`. No schema change; no CP-55/CP-56 impact.
 - [ ] Archive this file or mark it as reconciled

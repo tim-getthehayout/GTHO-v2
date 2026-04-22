@@ -11,6 +11,7 @@ import { createObservation, renderLocationPicker } from './index.js';
 import { convert } from '../../utils/units.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
+import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 
 // ---------------------------------------------------------------------------
 // Sub-move open sheet (CP-18)
@@ -190,11 +191,20 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
       'Record remaining stored feed so consumption since the last check is locked in.',
     ]));
 
+    // OI-0135: display hint reads live-remaining (most-recent feed check per
+    // batch × location) so the "Delivered: N" line lines up with the value the
+    // farmer is about to confirm, not the original delivery total.
+    const liveRemaining = getLiveRemainingForMove(paddockWindow.eventId);
     const groups = {};
     for (const entry of eventFeedEntries) {
       const key = `${entry.batchId}|${entry.locationId}`;
-      if (!groups[key]) groups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
-      groups[key].total += (entry.quantity ?? 0);
+      if (!groups[key]) {
+        groups[key] = {
+          batchId: entry.batchId,
+          locationId: entry.locationId,
+          total: liveRemaining[key] ?? 0,
+        };
+      }
     }
 
     for (const group of Object.values(groups)) {

@@ -183,6 +183,8 @@
     "feedTransferMoveLabel": "Move to new paddock",
     "feedTransferResidualLabel": "Leave as residual",
     "feedTransferResidualCaption": "Records to fertility ledger",
+    "feedTransferResidualAmountLabel": "Amount remaining at {loc}",
+    "feedTransferResidualAmountBlocked": "Record remaining for every residual-left feed before saving.",
     "feedTransferNone": "No feed to transfer.",
     "noActiveEvents": "No active events to join.",
     "closeEvent": "Close Event",

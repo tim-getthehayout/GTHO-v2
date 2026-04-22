@@ -19,6 +19,7 @@ import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getEventStartDate } from './event-start.js';
+import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -418,12 +419,22 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
       el('div', { className: 'close-open-section-title' }, [t('event.feedTransfer')]),
     ]);
 
-    // Group feed entries by batch × location
+    // OI-0135: group labels read live-remaining (most-recent feed-check item per
+    // batch × location, falling back to delivery total). Replaces the prior
+    // sum-of-delivery-quantities figure, which ignored consumption recorded
+    // after delivery and silently inflated both the residual close-reading
+    // stamp and the destination delivery row.
+    const liveRemaining = getLiveRemainingForMove(sourceEvent.id);
     const feedGroups = {};
     for (const entry of feedEntries) {
       const key = `${entry.batchId}|${entry.locationId}`;
-      if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
-      feedGroups[key].total += entry.quantity;
+      if (!feedGroups[key]) {
+        feedGroups[key] = {
+          batchId: entry.batchId,
+          locationId: entry.locationId,
+          total: liveRemaining[key] ?? 0,
+        };
+      }
     }
 
     for (const [key, group] of Object.entries(feedGroups)) {
@@ -433,12 +444,22 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
       const locName = loc ? loc.name : '?';
       const unit = batch?.unit || '';
       const safeKey = key.replace('|', '-');
+      // OI-0136: the required residual-qty input is constructed here so the
+      // Save handler can read `toggle.residualInput.value` at validation time.
+      // The wrapper toggles alongside the radio selection so neither label
+      // nor input is visible when Move is the active choice.
+      const residualInput = el('input', {
+        type: 'number', className: 'auth-input settings-input',
+        value: String(group.total), min: '0', step: 'any',
+        'data-testid': `move-wizard-residual-input-${safeKey}`,
+      });
       const toggle = {
         key,
         batchId: group.batchId,
         locationId: group.locationId,
         total: group.total,
         choice: 'move',  // default
+        residualInput,
       };
       const radioName = `move-wizard-transfer-${safeKey}`;
       const moveRadio = el('input', {
@@ -450,8 +471,26 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
         type: 'radio', name: radioName, value: 'residual',
         'data-testid': `move-wizard-transfer-residual-${safeKey}`,
       });
-      moveRadio.addEventListener('change', () => { if (moveRadio.checked) toggle.choice = 'move'; });
-      residualRadio.addEventListener('change', () => { if (residualRadio.checked) toggle.choice = 'residual'; });
+      const residualInputWrap = el('div', {
+        style: { paddingLeft: '24px', marginTop: 'var(--space-2)', display: 'none' },
+      }, [
+        el('label', { className: 'form-label', style: { fontSize: '12px' } }, [
+          `${t('event.feedTransferResidualAmountLabel', { loc: locName })}${unit ? ` (${unit})` : ''}`,
+        ]),
+        residualInput,
+      ]);
+      moveRadio.addEventListener('change', () => {
+        if (moveRadio.checked) {
+          toggle.choice = 'move';
+          residualInputWrap.style.display = 'none';
+        }
+      });
+      residualRadio.addEventListener('change', () => {
+        if (residualRadio.checked) {
+          toggle.choice = 'residual';
+          residualInputWrap.style.display = '';
+        }
+      });
       transferToggles.push(toggle);
 
       feedSection.appendChild(el('div', {
@@ -481,6 +520,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
             el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('event.feedTransferResidualCaption')]),
           ]),
         ]),
+        residualInputWrap,
       ]));
     }
   }
@@ -545,6 +585,19 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     return;
   }
 
+  // OI-0136: block Save when any Residual line's input is blank, non-numeric,
+  // or negative. Parity with OI-0119 sub-move close.
+  if (transferToggles && transferToggles.length) {
+    for (const toggle of transferToggles) {
+      if (toggle.choice !== 'residual') continue;
+      const v = toggle.residualInput ? toggle.residualInput.value.trim() : '';
+      if (v === '' || Number.isNaN(Number(v)) || Number(v) < 0) {
+        statusEl.appendChild(el('span', {}, [t('event.feedTransferResidualAmountBlocked')]));
+        return;
+      }
+    }
+  }
+
   try {
     // --- CLOSE SOURCE (Steps 1-5 of save sequence) ---
 
@@ -567,25 +620,41 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       add('eventFeedChecks', check, FeedCheckEntity.validate,
         FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
 
-      // OI-0104: per-line close-reading remainingQuantity is driven by the farmer's
-      // Move/Residual choice captured in transferToggles. Move lines stamp 0 (all
-      // transferred to new paddock); Residual lines stamp the live remaining
-      // amount so the fertility ledger can pick it up downstream.
+      // OI-0104 + OI-0135 + OI-0136: per-line close-reading remainingQuantity
+      // comes from the farmer's Move/Residual choice captured in transferToggles.
+      // Move lines stamp 0 (all transferred to new paddock); Residual lines
+      // stamp the farmer-confirmed value from the forced input (defaults to
+      // live-remaining from OI-0135's helper).
       //
       // Fall-back for groups with no matching toggle (should not happen since
       // transferToggles is built from the same feedGroups earlier in the render
       // pass): treat as Move, remainingQuantity = 0.
       const toggleByKey = new Map((transferToggles || []).map(tog => [tog.key, tog]));
+      const liveRemainingWrite = getLiveRemainingForMove(sourceEvent.id);
       const feedGroups = {};
       for (const entry of feedEntries) {
         const key = `${entry.batchId}|${entry.locationId}`;
-        if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
-        feedGroups[key].total += entry.quantity;
+        if (!feedGroups[key]) {
+          feedGroups[key] = {
+            batchId: entry.batchId,
+            locationId: entry.locationId,
+            total: liveRemainingWrite[key] ?? 0,
+          };
+        }
       }
       for (const [groupKey, group] of Object.entries(feedGroups)) {
         const toggle = toggleByKey.get(groupKey);
         const choice = toggle?.choice || 'move';
-        const remaining = choice === 'residual' ? group.total : 0;
+        let remaining = 0;
+        if (choice === 'residual') {
+          // OI-0136: farmer-entered value from the forced input wins; the
+          // live-remaining default is only a seed. Validation on Save already
+          // rejected blank/negative/non-numeric, so a numeric coercion here
+          // is safe.
+          remaining = toggle?.residualInput
+            ? Number(toggle.residualInput.value)
+            : group.total;
+        }
         const checkItem = FeedCheckItemEntity.create({
           operationId,
           feedCheckId: check.id,

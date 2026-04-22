@@ -7,7 +7,7 @@
 ### OI-0135 — Move-wizard transfer/residual quantity uses original delivery total, ignoring prior feed-check live-remaining — destination event over-inflated, close-reading on source stamped wrong
 **Added:** 2026-04-22 | **Area:** v2-build / events / move-wizard / feed / dmi-8 | **Priority:** P0 (live field data corruption — Tim's G-1 → E-3 → F-1 chain is the reproducer; every rotation move carrying stored feed is affected; DMI-8 cascade reads the wrong feed state downstream)
 
-**Status:** shipped — 2026-04-22, bundled with OI-0136 (see commit below). `getLiveRemainingForMove(eventId)` helper lives in `src/calcs/feed-state.js`; move-wizard Step 3 render + Step 1 close-reading write + submove close display hint all read it. Live-data repair SQL executed via Supabase MCP — `event_feed_entries.id=68c65baf` qty 1→0.5; `event_feed_check_items.id=6f8eff49` remaining 1→0.5; both verified. F-1 manual delivery `bd5204a0` left as-is per Tim's confirmation (fresh bale).
+**Status:** shipped — 2026-04-22, commit `4e6a4be` (bundled with OI-0136). `getLiveRemainingForMove(eventId)` helper lives in `src/calcs/feed-state.js`; move-wizard Step 3 render + Step 1 close-reading write + submove close display hint all read it. Live-data repair SQL executed via Supabase MCP — `event_feed_entries.id=68c65baf` qty 1→0.5; `event_feed_check_items.id=6f8eff49` remaining 1→0.5; both verified. F-1 manual delivery `bd5204a0` left as-is per Tim's confirmation (fresh bale).
 
 **What's wrong (reproducer from live data, 2026-04-20 through 2026-04-21):**
 
@@ -155,7 +155,7 @@ WHERE feed_check_id = '2aa102b9-871e-4a92-9359-fd5e08e98a80';
 ### OI-0136 — Move-wizard "Leave as residual" should force a remaining-quantity input, parity with OI-0119 sub-move close — no silent auto-stamp
 **Added:** 2026-04-22 | **Area:** v2-build / events / move-wizard / feed / ux | **Priority:** P1 (second half of OI-0104's deferred "inline number input per line" follow-up; pairs with OI-0135 — without the verify step, the live-remaining is still a black-box figure the farmer hasn't eyeballed against the physical paddock)
 
-**Status:** shipped — 2026-04-22, bundled with OI-0135 (see commit below). Conditional required input per batch × location renders under the Residual radio with `data-testid="move-wizard-residual-input-{batchId}-{locationId}"`, prefilled with OI-0135's live-remaining. Save blocked on blank / non-numeric / negative via `t('event.feedTransferResidualAmountBlocked')`. Entered value overrides the prefilled default on the close-reading stamp.
+**Status:** shipped — 2026-04-22, commit `4e6a4be` (bundled with OI-0135). Conditional required input per batch × location renders under the Residual radio with `data-testid="move-wizard-residual-input-{batchId}-{locationId}"`, prefilled with OI-0135's live-remaining. Save blocked on blank / non-numeric / negative via `t('event.feedTransferResidualAmountBlocked')`. Entered value overrides the prefilled default on the close-reading stamp.
 
 **What's wrong:**
 

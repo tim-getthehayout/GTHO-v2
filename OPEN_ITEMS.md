@@ -4,6 +4,93 @@
 
 ---
 
+### OI-0134 — Six animal_classes rows misfiled as `role='cow'` by v1 `inferRole()` — took beef-cow defaults during OI-0057 migration 031; corrected directly via Supabase MCP this session
+**Added:** 2026-04-22 | **Closed:** 2026-04-22 (same session, direct SQL via Supabase MCP) | **Area:** v2-build / data-patch / operation-ef11ee62 / post-OI-0057 cleanup | **Priority:** P1 (six of ten class rows carried wrong species / role / weight / DMI-lactating on Tim's live operation after migration 031 landed; NPK and DMI calcs touching any of these classes were wrong at "whole class vs whole wrong class" scale)
+
+**Status:** **closed — 2026-04-22, direct-SQL cleanup via Supabase MCP** (no repo commit — operation-scoped data correction, not a schema or code change; full audit trail in this entry)
+
+**Problem surfaced by OI-0057 verification query:** After Claude Code shipped migration 031 (the OI-0057 data patch keyed by role), Cowork pulled the post-state for audit and found six rows that had taken cow defaults but weren't cows. The chain:
+
+- v1 is beef-only by design; `v1-migration.js` hard-sets `species='beef_cattle'` for every class.
+- v1's `inferRole(name)` knows beef role names (cow/bull/steer/calf) and falls back to `'cow'` for anything it doesn't recognize.
+- Tim's v1 operation ("Down East Beef and Lamb") actually included sheep + goat classes, and a distinct "Heifer" class. All six fell into the inferRole fallback.
+- Migration 031 patched classes by `WHERE role = 'cow'`, so all six took the cow-seed-data payload (545 kg / 2.5 / 3.0 lact / 0.145 NPK / null weaning).
+
+Six misfiled rows observed post-031 on operation `ef11ee62-b720-4f0c-848a-18e1dd93de30`:
+
+| Name | Was (wrong) | Should be |
+|---|---|---|
+| Ewe | `species=beef_cattle`, `role=cow`, 545 kg | sheep / ewe / 68 kg / 3.0 DMI / 4.5 lact / weaning null |
+| Ram | `species=beef_cattle`, `role=cow`, 545 kg | sheep / ram / 90 kg / 2.5 DMI / null / weaning null |
+| Lamb | `species=beef_cattle`, `role=cow`, 545 kg | sheep / lamb / 27 kg / 4.0 DMI / null / weaning 90 |
+| Doe | `species=beef_cattle`, `role=cow`, 545 kg | goat / doe / 59 kg / 3.5 DMI / 5.0 lact / weaning null |
+| Buck | `species=beef_cattle`, `role=cow`, 545 kg | goat / buck / 77 kg / 3.0 DMI / null / weaning null |
+| Heifer | `species=beef_cattle`, `role=cow`, 545 kg | beef_cattle / heifer / 363 kg / 2.5 DMI / null / weaning null |
+
+**FK-safety check:** before touching any row, queried `animals.class_id` against each misfiled class id. The five sheep/goat rows had **zero** linked animals (safe to DELETE + INSERT with fresh UUIDs). The Heifer row had **two** linked animals (required UPDATE to preserve `id` so the animal links stayed intact).
+
+**Fix executed (2026-04-22, direct SQL via Supabase MCP on project `sxkmultsfsmfcijvsauf`):**
+
+```sql
+-- (1) Sheep + goat: DELETE then INSERT with fresh UUIDs (zero animals linked).
+BEGIN;
+
+DELETE FROM animal_classes
+WHERE operation_id = 'ef11ee62-b720-4f0c-848a-18e1dd93de30'
+  AND id IN (
+    'ec0bec29-c7ad-4af4-84e0-2bc1dad0a354', -- Buck
+    '1c422803-6a57-4a83-b804-7d3e2713fb6e', -- Doe
+    '5b5db2bd-9fe6-4f44-bd4e-423ab18e0254', -- Ewe
+    '7f400774-dce0-40aa-af98-f0d94e659c76', -- Lamb
+    'c2bb7be5-c1c0-42e2-82c8-fa90a8fbf8a7'  -- Ram
+  );
+
+INSERT INTO animal_classes (
+  id, operation_id, name, species, role,
+  default_weight_kg, dmi_pct, dmi_pct_lactating,
+  excretion_n_rate, excretion_p_rate, excretion_k_rate,
+  weaning_age_days, archived, created_at, updated_at
+) VALUES
+  (gen_random_uuid(), 'ef11ee62-b720-4f0c-848a-18e1dd93de30', 'Ewe',  'sheep', 'ewe',  68, 3.0, 4.5,  0.145, 0.041, 0.136, NULL, false, now(), now()),
+  (gen_random_uuid(), 'ef11ee62-b720-4f0c-848a-18e1dd93de30', 'Ram',  'sheep', 'ram',  90, 2.5, NULL, 0.145, 0.041, 0.136, NULL, false, now(), now()),
+  (gen_random_uuid(), 'ef11ee62-b720-4f0c-848a-18e1dd93de30', 'Lamb', 'sheep', 'lamb', 27, 4.0, NULL, 0.145, 0.041, 0.136, 90,   false, now(), now()),
+  (gen_random_uuid(), 'ef11ee62-b720-4f0c-848a-18e1dd93de30', 'Doe',  'goat',  'doe',  59, 3.5, 5.0,  0.145, 0.041, 0.136, NULL, false, now(), now()),
+  (gen_random_uuid(), 'ef11ee62-b720-4f0c-848a-18e1dd93de30', 'Buck', 'goat',  'buck', 77, 3.0, NULL, 0.145, 0.041, 0.136, NULL, false, now(), now());
+
+COMMIT;
+
+-- (2) Heifer: UPDATE in place (preserves id — 2 animals FK-linked).
+UPDATE animal_classes
+SET role = 'heifer',
+    default_weight_kg = 363,
+    dmi_pct_lactating = NULL,
+    updated_at = now()
+WHERE operation_id = 'ef11ee62-b720-4f0c-848a-18e1dd93de30'
+  AND id = 'c88578ff-0b9c-4f63-807e-38b26008907d'
+  AND role = 'cow'; -- idempotent guard
+```
+
+**Verification (post-fix):** `SELECT name, species, role, default_weight_kg, dmi_pct, dmi_pct_lactating, excretion_n_rate, excretion_p_rate, excretion_k_rate, weaning_age_days FROM animal_classes WHERE operation_id = 'ef11ee62-b720-4f0c-848a-18e1dd93de30' ORDER BY species, role, name;` — returned 10 rows, every row matches seed-data for its (species, role) pair. Calf and Lamb carry `weaning_age_days` (205 and 90 respectively); all other roles carry null. DMI lactating populated only on dam roles (Cow 3.0, Doe 5.0, Ewe 4.5). Heifer now carries `role='heifer'` and 363 kg. Two animals previously linked to the Heifer class remain linked post-UPDATE.
+
+**Why direct SQL and not a migration file:** Operation-scoped data correction that only applies to Tim's operation. Doesn't belong in the migration chain (nothing for other environments to replay), doesn't change schema, doesn't change column shape. Migration 031 was a one-off that got a migration number for audit; this follow-up correction lives in this OI with the exact SQL + operation ID + row IDs + date for the same audit purpose.
+
+**Root-cause follow-up (not this session):** v1-migration.js's `inferRole()` silently widens any unrecognized name to `role='cow'` and `species='beef_cattle'` is hard-set on every row. Fine for a beef-only operation, but a latent bug for multi-species operations doing a fresh v1→v2 migration. OI-0127 already landed the corrected v1-migration transform that reads seed-data by role, but it still trusts `inferRole()` + `species='beef_cattle'` as inputs. A future v1 importer targeting a multi-species v1 operation should surface unrecognized roles as an audit warning rather than silently collapsing. **Not opening an OI for this yet** — Tim's data is clean, and the only known v1 operation migrated to date was this one. If another multi-species v1 operation ever wants to migrate, this is where to start.
+
+**CP-55/CP-56 impact:** **none.** Six row-value corrections — five insert-with-new-id (old IDs won't reappear in any future backup of Tim's operation, which is the authoritative state now), one in-place UPDATE. Backup round-trips the new values.
+
+**Linked OPEN_ITEMS:**
+
+- **OI-0057** (closed 2026-04-21 — commit e58c9f2 via Claude Code) — this OI is the post-landing cleanup. Migration 031's role-keyed WHERE clause was correct per spec, but the six rows it patched by mistake were downstream of an older v1-migration.js bug. Cleaned up here rather than re-running a migration.
+- **OI-0127** (closed 2026-04-21 — commit e58c9f2) — the seed-data and v1-migration.js source-of-truth is fixed going forward; this OI only addresses already-landed rows that predate the code fix.
+
+**Change Log:**
+
+| Date | Session | Change |
+|------|---------|--------|
+| 2026-04-22 | Post-OI-0057 audit sweep | Opened + closed same session. Verification query after migration 031 landed surfaced six rows with beef-cow defaults that shouldn't have them: five sheep/goat rows (Ewe/Ram/Lamb/Buck/Doe — v1 `inferRole()` fallback to `'cow'` combined with v1-migration's hard-set `species='beef_cattle'`) and one Heifer (same fallback — v1 doesn't know the 'heifer' role). FK-safety check via Supabase MCP: five sheep/goat rows had zero animal links (safe to DELETE + INSERT), Heifer had two (required UPDATE to preserve id). Fix executed directly via Supabase MCP (project `sxkmultsfsmfcijvsauf`). Verification query confirms all 10 rows on operation `ef11ee62-b720-4f0c-848a-18e1dd93de30` correctly filed per seed-data. **No repo code change** — operation-scoped data correction only. Full SQL + audit trail in this OI entry. |
+
+---
+
 ### OI-0133 — Drop `groups.farmId` stored column; derive group's current farm from latest open `event_group_window` (OI-0117 class — stored fact drifts from derivable truth on cross-farm move)
 **Added:** 2026-04-22 | **Area:** v2-build / groups / schema / multi-farm / data-integrity | **Priority:** P1 (silent data drift on every cross-farm move; also surfaces today as the "Add group" save failing with `farmId is required` because the Add Group sheet doesn't pass the active farm to `GroupEntity.create()`)
 
@@ -4351,4 +4438,5 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 | 2026-04-14 | OI-0055 added — import delete crash on join tables | v1 import (CP-57) crashed on `todo_assignments` delete: `column operation_id does not exist`. Root cause: four child/junction tables (`todo_assignments`, `event_feed_check_items`, `harvest_event_fields`, `survey_draft_entries`) were designed without direct `operation_id`, violating Design Principle #8. Fix: migration 019 adds `operation_id uuid NOT NULL FK → operations` to all four tables, enforcing uniform `WHERE operation_id = $1` with no exceptions. Design docs updated: V2_SCHEMA_DESIGN.md (DP#8 + all 4 table specs), V2_APP_ARCHITECTURE.md (§5.5 backup architecture), V2_MIGRATION_PLAN.md (§5.7 steps 6 & 8). Session brief written for Claude Code. |
 | 2026-04-13 | CP-57 pre-work — per-gap reconciliation OIs logged | Added **OI-0023** through **OI-0034** (12 items) covering every §1–§2 gap between V2_MIGRATION_PLAN.md and current schema/design. Split by concern: OI-0023 (events.source_event_id default), OI-0024 (strip graze defaults on paddock windows), OI-0025 (animal_notes routing — design required), OI-0026 (operations.schema_version stamp), OI-0027 (user_preferences.active_farm_id default), OI-0028 (npk_price_history transform — design required), OI-0029 (animal_classes rename/splits verification), OI-0030 (v1 export JSON shape — spec update), OI-0031 (CP-57 tool UX — design required), OI-0032 (reuse of CP-56 import pipeline — design required), OI-0033 (§2.23 parity check as formal AC), OI-0034 (§2.7 unparseable-dose audit surface — design required). Status tags distinguish SPEC UPDATE REQUIRED (obvious one-liners) from DESIGN REQUIRED (needs Tim's decision). To be walked through one at a time; each closure updates V2_MIGRATION_PLAN.md inline. CP-57 spec file in `github/issues/` written after all 12 close. |
 | 2026-04-21 | Animal-class data integrity sweep — OI-0057 expanded + OI-0127/0128/0129/0130 added; package spec written | Sweep triggered by Tim asking about OI-0057 ("does the app populate excretion rates on a new operation — can I just patch my table and close this?"). Investigation revealed four layered problems: (1) OI-0057 is bigger than null-fill — the v1 transform also smears `weaning_age_days = 205` across every role and loses current NRCS defaults for weight + DMI% (scope expanded to Option B full reset). (2) **OI-0127 opened** — `seed-data.js` itself carries a weaning role inversion (value sits on dam roles cow/ewe/doe instead of offspring roles calf/lamb/kid), AND `v1-migration.js` §2.14 ignores seed-data entirely (nulls + flat 205). Both pipelines must be fixed together, otherwise the next onboard re-introduces the inverted role. (3) **OI-0128 opened** — `openClassEditForm` is literally `window.prompt('Class name:', cls.name)`; 10 of 11 editable fields have no UI path. Needs full Add-form repopulate matching v1, with species + role locked on edit, weight unit conversion per OI-0111 descriptor pattern, side-fix for species select option values (currently "Beef cattle" instead of canonical `beef_cattle`). (4) **OI-0129 opened — DESIGN REQUIRED, not built this session** — `renderWeaningNudge` in dashboard reads non-existent `group.weaningTargetDays` (dead feature), ANI-3 calc has no feature consumer, no Reports Weaning tab; Tim flagged: "lets do some design on that one" before building. Three options A/B/C surfaced in the OI, plus Reports placement + nudge-threshold questions. (5) **OI-0130 opened** — `getLiveWindowAvgWeight` has no class-default weight fallback, so calcs return 0 when open windows have live animals but no per-animal weight records. Fixes the calc-side tier of the Decision A14 / A17 three-tier fallback chain that was never wired. 21 call-sites thread the new `animalClasses` context. **Package spec** written at `github/issues/animal-classes-fix-package.md` covering OI-0057 + OI-0127 + OI-0128 + OI-0130 for one-pass resolution by Claude Code — explicit order of operations (seed-data → v1-migration → SQL patch → Edit form → calc fallback → tests), SQL migration with Tim's operation_id substitution block, full grep contracts, acceptance criteria, commit-message format. OI-0129 explicitly excluded from the package. **CP-55/CP-56 impact: none** for the entire package (value corrections + missing UI + calc fallback consuming existing columns). |
+| 2026-04-22 | OI-0134 opened + closed same session — six misfiled animal_classes rows corrected via direct Supabase MCP | Post-ship verification of the animal-classes-fix-package (commit e58c9f2) surfaced that five class rows on Tim's live operation `ef11ee62-b720-4f0c-848a-18e1dd93de30` (Ewe/Ram/Lamb/Doe/Buck) were tagged `species='beef_cattle' role='cow'` and had taken beef-cow defaults (545kg, DMI 2.5, lactating 3.0) when OI-0057 migration 031's `WHERE role='cow'` patched them wholesale. Root cause: v1 `inferRole(name)` only recognizes bovine role names and silently collapses unknown names to `'cow'`; v1-migration.js §2.14 then hard-sets `species='beef_cattle'` on every class; OI-0057 migration 031 took the whole false-cow cohort in scope. Tim authorized direct-SQL cleanup: for the 5 sheep/goat rows (zero FK-linked animals) used `DELETE` + `INSERT` with `gen_random_uuid()` to restore correct species/role/NRCS defaults from seed-data.js. During verification a 6th misfiled row surfaced — Heifer had also taken the same collapse — but with 2 animals FK-linked, requiring an `UPDATE` in place (preserving `id`, idempotent guard `AND role='cow'`) rather than delete+re-insert. Final state on ef11ee62: 10 correctly filed rows (5 beef, 3 sheep, 2 goat) all matching seed-data NRCS values. No migration file written — operation-scoped data correction, not schema change, should not replay across environments. Full SQL audit trail embedded in OI-0134. **CP-55/CP-56 impact:** none (row corrections on an existing operation's seed data; no schema change, no shape change). | Sweep triggered by Tim asking about OI-0057 ("does the app populate excretion rates on a new operation — can I just patch my table and close this?"). Investigation revealed four layered problems: (1) OI-0057 is bigger than null-fill — the v1 transform also smears `weaning_age_days = 205` across every role and loses current NRCS defaults for weight + DMI% (scope expanded to Option B full reset). (2) **OI-0127 opened** — `seed-data.js` itself carries a weaning role inversion (value sits on dam roles cow/ewe/doe instead of offspring roles calf/lamb/kid), AND `v1-migration.js` §2.14 ignores seed-data entirely (nulls + flat 205). Both pipelines must be fixed together, otherwise the next onboard re-introduces the inverted role. (3) **OI-0128 opened** — `openClassEditForm` is literally `window.prompt('Class name:', cls.name)`; 10 of 11 editable fields have no UI path. Needs full Add-form repopulate matching v1, with species + role locked on edit, weight unit conversion per OI-0111 descriptor pattern, side-fix for species select option values (currently "Beef cattle" instead of canonical `beef_cattle`). (4) **OI-0129 opened — DESIGN REQUIRED, not built this session** — `renderWeaningNudge` in dashboard reads non-existent `group.weaningTargetDays` (dead feature), ANI-3 calc has no feature consumer, no Reports Weaning tab; Tim flagged: "lets do some design on that one" before building. Three options A/B/C surfaced in the OI, plus Reports placement + nudge-threshold questions. (5) **OI-0130 opened** — `getLiveWindowAvgWeight` has no class-default weight fallback, so calcs return 0 when open windows have live animals but no per-animal weight records. Fixes the calc-side tier of the Decision A14 / A17 three-tier fallback chain that was never wired. 21 call-sites thread the new `animalClasses` context. **Package spec** written at `github/issues/animal-classes-fix-package.md` covering OI-0057 + OI-0127 + OI-0128 + OI-0130 for one-pass resolution by Claude Code — explicit order of operations (seed-data → v1-migration → SQL patch → Edit form → calc fallback → tests), SQL migration with Tim's operation_id substitution block, full grep contracts, acceptance criteria, commit-message format. OI-0129 explicitly excluded from the package. **CP-55/CP-56 impact: none** for the entire package (value corrections + missing UI + calc fallback consuming existing columns). |
 

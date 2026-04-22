@@ -4,6 +4,226 @@
 
 ---
 
+### OI-0135 — Move-wizard transfer/residual quantity uses original delivery total, ignoring prior feed-check live-remaining — destination event over-inflated, close-reading on source stamped wrong
+**Added:** 2026-04-22 | **Area:** v2-build / events / move-wizard / feed / dmi-8 | **Priority:** P0 (live field data corruption — Tim's G-1 → E-3 → F-1 chain is the reproducer; every rotation move carrying stored feed is affected; DMI-8 cascade reads the wrong feed state downstream)
+
+**Status:** open — ready for implementation
+
+**What's wrong (reproducer from live data, 2026-04-20 through 2026-04-21):**
+
+Oak Field Barn bale at G-1 (event `da54838f`, 4/18–4/20):
+- 4/18 13:15 feed check — 0.75 bale remaining
+- 4/20 14:52 feed check — 0.5 bale remaining
+- 4/20 18:59 sub-move-close forced feed check (OI-0119) — 0.5 bale remaining
+- 4/20 19:01 move-wizard close-reading (Move choice) — **0 bale remaining** ← *auto-stamped, ignored the 0.5*
+- 4/20 19:01 delivery row created on E-3 event — **1 bale** ← *auto-stamped original delivery qty, not the 0.5 that actually travelled*
+
+The move-wizard should have transferred **0.5 bale** to E-3 and left 0 at G-1. Instead, it transferred **1 bale** (the original delivery size) to E-3, inflating the destination event's feed by 0.5. DMI-8 now reads E-3 as having 1 bale when it physically had 0.5.
+
+**Root cause (code):** `src/features/events/move-wizard.js` builds `feedGroups[key].total` by summing `event_feed_entries.quantity` for each batch × location on the source event — i.e., the original delivery size, **not** the live-remaining. Two sites use this wrong value:
+
+```js
+// Lines 579-584 — in executeMoveWizard's Step 1 close-reading block
+for (const entry of feedEntries) {
+  const key = `${entry.batchId}|${entry.locationId}`;
+  if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
+  feedGroups[key].total += entry.quantity;   // <-- sum of original delivery quantities
+}
+for (const [groupKey, group] of Object.entries(feedGroups)) {
+  const toggle = toggleByKey.get(groupKey);
+  const choice = toggle?.choice || 'move';
+  const remaining = choice === 'residual' ? group.total : 0;   // <-- wrong value when residual
+  // ... creates feed_check_item with remainingQuantity = remaining
+}
+
+// Line 744 — Step 8 feed transfer (destination delivery row)
+quantity: toggle.total,   // <-- wrong value when move
+```
+
+`toggle.total` (built earlier in Step 3 render at lines 421-427) is the same sum-of-deliveries figure. Both the residual-close-reading stamp and the destination delivery row are computed from original delivery totals.
+
+**Correct value:** the **live-remaining** for each batch × location at the moment of the move — i.e., the most recent `event_feed_check_items.remaining_quantity` for that (batch, location) on this event, falling back to `sum(deliveries) − sum(consumption-derived-from-checks)` if no check exists yet, falling back to `sum(deliveries)` only if no check has ever been recorded.
+
+**Fix (scope locked):**
+
+Introduce a `getLiveRemainingForMove(eventId)` helper that returns `{ [batchId|locationId]: liveRemainingQty }`. Use it everywhere `group.total` is read in the move context:
+
+```js
+// New helper in src/features/events/move-wizard.js (or src/calcs/feed-state.js)
+function getLiveRemainingForMove(eventId) {
+  const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === eventId);
+  const allChecks = getAll('eventFeedChecks')
+    .filter(fc => fc.eventId === eventId)
+    .sort((a, b) => {
+      const ad = `${a.date}T${a.time || '00:00'}`;
+      const bd = `${b.date}T${b.time || '00:00'}`;
+      return bd.localeCompare(ad); // most recent first
+    });
+  const checkItems = getAll('eventFeedCheckItems');
+
+  const result = {};
+  // Seed with delivery totals per batch × location.
+  for (const e of feedEntries) {
+    const key = `${e.batchId}|${e.locationId}`;
+    result[key] = (result[key] ?? 0) + (Number(e.quantity) ?? 0);
+  }
+  // Overwrite with the most recent check's remaining when one exists for the (batch, location).
+  const seen = new Set();
+  for (const fc of allChecks) {
+    const items = checkItems.filter(ci => ci.feedCheckId === fc.id);
+    for (const ci of items) {
+      const key = `${ci.batchId}|${ci.locationId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result[key] = Number(ci.remainingQuantity) ?? 0;
+    }
+  }
+  return result;
+}
+```
+
+Then in `executeMoveWizard`:
+- Replace `feedGroups[key].total += entry.quantity` loop with a single call to `getLiveRemainingForMove(sourceEvent.id)` and use the returned value as the per-line `total`.
+- The Step 3 render's `transferToggles[].total` (lines 421-455) must use the same live-remaining figure, so the label on the radio ("remaining: N unit") shows the correct value the farmer is deciding about.
+- `toggle.total` feeds both the residual-close-reading stamp (line 588) and the destination delivery qty (line 744) — both pick up the fix automatically once the source changes.
+
+**Edge cases:**
+- No prior feed check on this event → fall back to `sum(deliveries)` (original behavior). Acceptable because no consumption has been recorded, so delivery total is the best live-remaining estimate available.
+- Most recent check says remaining = 0 → transfer qty = 0 for that line. The radio still shows so the farmer sees "0 unit remaining" and can consciously choose Move-of-nothing or Residual-of-nothing (both effectively no-ops on data but still worth showing so the farmer understands why there's nothing to carry forward).
+- Check exists for some lines but not others → fall back per-line (each batch × location independently resolved).
+- Feed entries inherited from a prior event via move-wizard Step 8 (lines 731-750) are themselves `event_feed_entries` rows on the current event — the helper treats them identically to fresh deliveries, which is correct.
+
+**Downstream data repair (live operation only, not a migration):**
+
+The G→E→F chain already landed wrong data. Repair via direct SQL in the same session as the code fix:
+
+```sql
+-- Correct E-3 event's inherited delivery from 1 bale to 0.5 bale (live-remaining at G-1 close).
+UPDATE event_feed_entries
+SET quantity = 0.5
+WHERE id = '68c65baf-592e-4305-9d08-087624c97870';
+
+-- Correct the close-reading on E-3 (fa16a58d) from remaining=1 to remaining=0.5
+-- (was stamped by move-wizard yesterday with the inflated figure).
+UPDATE event_feed_check_items
+SET remaining_quantity = 0.5
+WHERE feed_check_id = '2aa102b9-871e-4a92-9359-fd5e08e98a80';
+
+-- Tim's manually-added fresh delivery on F-1 (bd5204a0) is a separate physical bale
+-- — leave as is. (Tim to confirm this is correct interpretation.)
+```
+
+**Open question — F-1 manual delivery (created 2026-04-21 19:40, id `bd5204a0-209b-406d-9224-27c07ce78191`, 1 bale Oak Field Barn, source_event_id=NULL):** was this a fresh delivery, or was it Tim compensating for the missing "Move" option in the E→F move (he actually wanted "move" but hit "residual" so no feed carried forward, then manually added a delivery on F-1 to represent the carried bale)? If the latter, the F-1 row is really a continuation of the E-3 bale and should have `source_event_id = fa16a58d-5384…` and `quantity = 0.5` (or whatever remained at E-3 after the cows' 24h stay). Tim to confirm before any fix to this row.
+
+**Files affected:**
+- `src/features/events/move-wizard.js` — add `getLiveRemainingForMove` (or extract to `src/calcs/feed-state.js`); wire into Step 3 render (lines 421-455) and Step 1 / Step 8 write paths (lines 579-612, 731-750)
+- `src/calcs/feed-state.js` (new, optional) — if helper is extracted for reuse
+- `tests/unit/move-wizard.test.js` — new cases:
+  - Move wizard with prior feed check transfers live-remaining, not delivery total (Move choice writes `quantity = liveRemaining` to destination; Residual choice writes `remainingQuantity = liveRemaining` to close-reading)
+  - No prior check → falls back to delivery total
+  - Multi-check history → uses most recent per (batch, location)
+  - Mixed: some lines with checks, some without
+- `tests/unit/feed-state.test.js` (new, if extracted) — unit coverage for the helper
+- `tests/e2e/move-wizard-live-remaining.spec.js` (new) — deliver 1 bale, record 0.5-remaining check, execute move with residual + Supabase round-trip asserting 0.5 remaining stamped, not 1
+
+**Acceptance criteria:**
+- [ ] Move-wizard Step 3 label reads "remaining: N unit" where N is the live-remaining (most recent check) when a check exists, delivery total when no check exists
+- [ ] Move choice writes `event_feed_entries.quantity = liveRemaining` on destination (not delivery total)
+- [ ] Residual choice writes `event_feed_check_items.remaining_quantity = liveRemaining` on close-reading (not delivery total)
+- [ ] Zero-remaining edge case: radio still renders, choice is no-op on data
+- [ ] No prior check: falls back to delivery total (preserves current behavior for events with no checks)
+- [ ] Unit tests cover all four resolution cases (no check / single check / multiple checks / mixed-per-line)
+- [ ] E2E test verifies Supabase round-trip with live-remaining values
+- [ ] Live data repair SQL executed and verified: E-3's `event_feed_entries` qty = 0.5 and E-3's close-reading item remaining = 0.5
+
+**CP-55/CP-56 impact:** **None.** No schema change, no new column, no JSONB shape change. CP-55 already serializes `event_feed_entries.quantity` and `event_feed_check_items.remaining_quantity`; this OI only changes what values get written to those columns at move time.
+
+**Schema change:** None.
+
+**Related OIs:**
+- **OI-0104** (closed 2026-04-18) — shipped the 2-way Move/Residual radio + residual capture. The amount-handling was specced as "use delivery total" with a deferred note: *"Future tightening (allow the farmer to correct the remaining with an inline number input on each line before committing) is a later follow-up."* OI-0135 is half of that follow-up (use live-remaining automatically); OI-0136 is the other half (let the farmer correct it).
+- **OI-0136** (open, sibling) — force a remaining-qty input in the move-wizard, parity with OI-0119 sub-move close. Pairs with OI-0135: once the live-remaining is the default value shown, the input becomes a confirm-or-correct step rather than a blind entry.
+- **OI-0119** (closed 2026-04-20) — DMI-8 cascade rewrite + sub-move close forced feed check. Sub-move close already does the right thing (forced input, no residual concept). The move-wizard is the asymmetric surface.
+- **OI-0123** (open) — sub-move close forced feed-check card framing. UX layer on OI-0119; not related to OI-0135 but lives in the adjacent code.
+
+**Notes:**
+- The G→E move on 4/20 was Tim's field-test of the Move choice; the E→F move on 4/21 was his field-test of the Residual choice. Both landed wrong data via the same root cause (delivery total instead of live-remaining). Fixing the helper corrects both paths simultaneously.
+- Sub-move close (OI-0119) computes `group.total` identically (`submove.js` lines 193-198) but uses it only as a **display hint** (`${t('feed.feedCheckStarted')}: ${group.total}`) before the user types the actual remaining into a required input. So sub-move close happens to dodge this bug even though it uses the same wrong expression. Still, `submove.js:193-198` should be updated in this OI's scope to display live-remaining instead of delivery total, so the hint lines up with the value the farmer is about to confirm.
+
+---
+
+### OI-0136 — Move-wizard "Leave as residual" should force a remaining-quantity input, parity with OI-0119 sub-move close — no silent auto-stamp
+**Added:** 2026-04-22 | **Area:** v2-build / events / move-wizard / feed / ux | **Priority:** P1 (second half of OI-0104's deferred "inline number input per line" follow-up; pairs with OI-0135 — without the verify step, the live-remaining is still a black-box figure the farmer hasn't eyeballed against the physical paddock)
+
+**Status:** open — ready for implementation
+
+**What's wrong:**
+
+Full-event move via move-wizard has a 2-way radio (Move / Residual) but **no amount input** — whichever choice the farmer picks, the system writes the computed figure silently. OI-0135 corrects what figure gets used (live-remaining, not delivery total); OI-0136 adds the verify step so the farmer walks the paddock, reads the actual amount left, and types it in.
+
+Sub-move close (OI-0119, submove.js:178-223) forces this input for every batch × location whenever the parent event has stored feed, with Save blocked until every input has a valid non-negative number. Full-event move should behave the same way when the Residual choice is selected.
+
+**Design:**
+
+In the move-wizard's Step 3 Feed Transfer section (`move-wizard.js:411-498`), when a batch × location line's choice is **Residual**, render a required remaining-qty input underneath the radio pair, pre-filled with the live-remaining from OI-0135's helper. When the choice is **Move**, no input (current behavior stands — full remaining moves forward).
+
+```
+Oak Field Barn → G-1 — remaining: 0.5 bale
+  ( ) Move to new paddock       (default)
+  (•) Leave as residual
+      Amount remaining at G-1: [ 0.5 ] bale   ← new, prefilled, required-if-residual
+```
+
+Save blocked when any Residual line's input is blank, non-numeric, or negative. Error copy matches OI-0119 pattern: "Record remaining for every residual-left feed before saving."
+
+**Input wiring:**
+- Input renders/shows only when the line's choice === 'residual' (toggled live when the radio flips)
+- Default value = live-remaining from OI-0135 helper (same value shown in the "remaining: N unit" label)
+- Validation: `value !== '' && !isNaN(Number(value)) && Number(value) >= 0`
+- On Save, if any residual line's input fails validation, prepend error to `statusEl` and return before any write
+- The entered value overrides the default on both sides: `event_feed_check_items.remaining_quantity = Number(input.value)` for the close-reading stamp, and the destination delivery row (if any — but residual lines don't create a destination delivery, so this is moot for the residual branch)
+
+**UX considerations:**
+- The Move choice does NOT get an input — for Move, 100% of remaining travels forward. If the farmer wants to split (some move, some residual, some consumed), that's the OI-0104-deferred "split per line" feature and is out of scope here.
+- The input label should reflect the location being left residual (source location for the line, which may differ from the event's anchor paddock if the line came from a strip-grazing setup): `Amount remaining at ${locName}: [ ___ ] ${unit}`
+- The input appears in-line with the radio card, not as a separate section — one card per (batch, location) line, containing both the radio pair and the conditional input
+
+**Files affected:**
+- `src/features/events/move-wizard.js` — Step 3 render (lines 411-498): add conditional input per line; save handler (lines 526-546): validate all residual lines before any write; Step 1 write path (lines 588-612): use `Number(input.value)` for `remainingQuantity` on residual lines instead of the computed default
+- `src/i18n/locales/en.json` — new keys: `event.feedTransferResidualAmountLabel` ("Amount remaining at {loc}"), `event.feedTransferResidualAmountBlocked` ("Record remaining for every residual-left feed before saving.")
+- `tests/unit/move-wizard.test.js` — new cases:
+  - Residual line with blank input blocks Save
+  - Residual line with negative input blocks Save
+  - Residual line with valid input writes the entered value (not the computed default)
+  - Move line has no input (no regression on current behavior)
+  - Mixed: one Move line, one Residual line with entered value → both behave correctly
+- `tests/e2e/move-wizard-residual-input.spec.js` (new) — full path: move with residual, enter a correction, assert Supabase round-trip matches the entered value
+
+**Acceptance criteria:**
+- [ ] Residual radio selection reveals a required remaining-qty input, prefilled with OI-0135's live-remaining
+- [ ] Save blocked with a clear error when any residual line's input is blank / non-numeric / negative
+- [ ] On successful Save, `event_feed_check_items.remaining_quantity` = entered value (not the prefilled default, if the farmer corrected it)
+- [ ] Move radio selection has no input, no regression on Move-path behavior
+- [ ] Switching from Move → Residual reveals the input with the default prefilled; switching back hides it and reverts to no-entry
+- [ ] Unit tests cover all four validation outcomes (blank / negative / valid / Move-no-input)
+- [ ] E2E test verifies Supabase round-trip with corrected value
+
+**CP-55/CP-56 impact:** **None.** Same columns being written (`event_feed_check_items.remaining_quantity`). No schema change.
+
+**Schema change:** None.
+
+**Related OIs:**
+- **OI-0135** (open, sibling) — live-remaining helper. OI-0136 depends on OI-0135's helper for the default input value. Ship together or OI-0135 first, then OI-0136.
+- **OI-0104** (closed 2026-04-18) — explicitly deferred this input: *"Future tightening (allow the farmer to correct the remaining with an inline number input on each line before committing) is a later follow-up — not this OI."* OI-0136 is that follow-up.
+- **OI-0119** (closed 2026-04-20) — sub-move close forced feed-check. OI-0136 mirrors this pattern for the move-wizard residual path.
+- **OI-0123** (open) — sub-move close card framing. Not directly related but lives in the same mental model; worth making sure the move-wizard's new input doesn't repeat whatever UX confusion OI-0123 is tracking on the sub-move surface.
+
+**Notes:**
+- No corresponding input for the Move choice because Move transfers 100% of live-remaining forward. If a farmer needs to say "some moved, some was consumed after the last check," the current UI can't express that — it's the "per-line split" feature deferred in OI-0104 and out of scope for OI-0136. Good enough for v1 field-testing.
+- OI-0119 uses `data-testid` pattern `submove-close-feed-{batchId}-{locationId}` for the input — OI-0136 should use a parallel pattern `move-wizard-residual-input-{batchId}-{locationId}` so e2e tests can target both surfaces identically.
+
+---
+
 ### OI-0134 — Six animal_classes rows misfiled as `role='cow'` by v1 `inferRole()` — took beef-cow defaults during OI-0057 migration 031; corrected directly via Supabase MCP this session
 **Added:** 2026-04-22 | **Closed:** 2026-04-22 (same session, direct SQL via Supabase MCP) | **Area:** v2-build / data-patch / operation-ef11ee62 / post-OI-0057 cleanup | **Priority:** P1 (six of ten class rows carried wrong species / role / weight / DMI-lactating on Tim's live operation after migration 031 landed; NPK and DMI calcs touching any of these classes were wrong at "whole class vs whole wrong class" scale)
 
@@ -4447,5 +4667,6 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 | 2026-04-14 | OI-0055 added — import delete crash on join tables | v1 import (CP-57) crashed on `todo_assignments` delete: `column operation_id does not exist`. Root cause: four child/junction tables (`todo_assignments`, `event_feed_check_items`, `harvest_event_fields`, `survey_draft_entries`) were designed without direct `operation_id`, violating Design Principle #8. Fix: migration 019 adds `operation_id uuid NOT NULL FK → operations` to all four tables, enforcing uniform `WHERE operation_id = $1` with no exceptions. Design docs updated: V2_SCHEMA_DESIGN.md (DP#8 + all 4 table specs), V2_APP_ARCHITECTURE.md (§5.5 backup architecture), V2_MIGRATION_PLAN.md (§5.7 steps 6 & 8). Session brief written for Claude Code. |
 | 2026-04-13 | CP-57 pre-work — per-gap reconciliation OIs logged | Added **OI-0023** through **OI-0034** (12 items) covering every §1–§2 gap between V2_MIGRATION_PLAN.md and current schema/design. Split by concern: OI-0023 (events.source_event_id default), OI-0024 (strip graze defaults on paddock windows), OI-0025 (animal_notes routing — design required), OI-0026 (operations.schema_version stamp), OI-0027 (user_preferences.active_farm_id default), OI-0028 (npk_price_history transform — design required), OI-0029 (animal_classes rename/splits verification), OI-0030 (v1 export JSON shape — spec update), OI-0031 (CP-57 tool UX — design required), OI-0032 (reuse of CP-56 import pipeline — design required), OI-0033 (§2.23 parity check as formal AC), OI-0034 (§2.7 unparseable-dose audit surface — design required). Status tags distinguish SPEC UPDATE REQUIRED (obvious one-liners) from DESIGN REQUIRED (needs Tim's decision). To be walked through one at a time; each closure updates V2_MIGRATION_PLAN.md inline. CP-57 spec file in `github/issues/` written after all 12 close. |
 | 2026-04-21 | Animal-class data integrity sweep — OI-0057 expanded + OI-0127/0128/0129/0130 added; package spec written | Sweep triggered by Tim asking about OI-0057 ("does the app populate excretion rates on a new operation — can I just patch my table and close this?"). Investigation revealed four layered problems: (1) OI-0057 is bigger than null-fill — the v1 transform also smears `weaning_age_days = 205` across every role and loses current NRCS defaults for weight + DMI% (scope expanded to Option B full reset). (2) **OI-0127 opened** — `seed-data.js` itself carries a weaning role inversion (value sits on dam roles cow/ewe/doe instead of offspring roles calf/lamb/kid), AND `v1-migration.js` §2.14 ignores seed-data entirely (nulls + flat 205). Both pipelines must be fixed together, otherwise the next onboard re-introduces the inverted role. (3) **OI-0128 opened** — `openClassEditForm` is literally `window.prompt('Class name:', cls.name)`; 10 of 11 editable fields have no UI path. Needs full Add-form repopulate matching v1, with species + role locked on edit, weight unit conversion per OI-0111 descriptor pattern, side-fix for species select option values (currently "Beef cattle" instead of canonical `beef_cattle`). (4) **OI-0129 opened — DESIGN REQUIRED, not built this session** — `renderWeaningNudge` in dashboard reads non-existent `group.weaningTargetDays` (dead feature), ANI-3 calc has no feature consumer, no Reports Weaning tab; Tim flagged: "lets do some design on that one" before building. Three options A/B/C surfaced in the OI, plus Reports placement + nudge-threshold questions. (5) **OI-0130 opened** — `getLiveWindowAvgWeight` has no class-default weight fallback, so calcs return 0 when open windows have live animals but no per-animal weight records. Fixes the calc-side tier of the Decision A14 / A17 three-tier fallback chain that was never wired. 21 call-sites thread the new `animalClasses` context. **Package spec** written at `github/issues/animal-classes-fix-package.md` covering OI-0057 + OI-0127 + OI-0128 + OI-0130 for one-pass resolution by Claude Code — explicit order of operations (seed-data → v1-migration → SQL patch → Edit form → calc fallback → tests), SQL migration with Tim's operation_id substitution block, full grep contracts, acceptance criteria, commit-message format. OI-0129 explicitly excluded from the package. **CP-55/CP-56 impact: none** for the entire package (value corrections + missing UI + calc fallback consuming existing columns). |
+| 2026-04-22 | OI-0135 + OI-0136 opened — move-wizard feed-transfer bugs surfaced from Tim's 4/20 G→E→F chain | Tim asked why the 4/21 E→F move didn't ask for a feed check. Supabase investigation of the chain (`fa16a58d` E-3 event + `da54838f` G-1/G-3 parent + `38cb666e` F-1 destination, plus 8 feed checks spanning 4/18–4/21) surfaced two defects in the move-wizard that are independent of each other: (1) **OI-0135** — the transfer/residual quantity is computed as `sum(event_feed_entries.quantity)` on the source event, i.e., **original delivery total**, not live-remaining. Tim's G-1 had four feed checks showing 0.75 → 0.5 → 0.5 remaining; the 4/20 move ignored them all and transferred 1 bale to E-3 (should have been 0.5). The close-reading at G-1 was stamped `remaining=0` regardless (move-path default), compounding the drift. Fix: introduce `getLiveRemainingForMove(eventId)` helper that resolves most-recent-check → delivery-sum fallback per batch×location, feed both Step 3 render label and Step 1/Step 8 writes. (2) **OI-0136** — the move-wizard "Leave as residual" branch silently auto-stamps without a verify prompt, asymmetric with OI-0119 sub-move close which forces a required input. Pairs with OI-0135: once live-remaining is the default shown, the input becomes a confirm-or-correct step rather than a blind entry. Sub-move close path verified during the same investigation — `hasStoredFeed` check filters by event (not location), forces input on any event with stored feed regardless of anchor paddock, blocks Save until every input is valid non-negative. No residual-move concept on sub-move. Sub-move behavior matches Tim's requirement; no change needed there. Spec files written: `github/issues/move-wizard-live-remaining.md` (OI-0135) + `github/issues/move-wizard-residual-input.md` (OI-0136), both as thin pointers to the OPEN_ITEMS.md entries. Session brief `session_briefs/SESSION_BRIEF_2026-04-22_oi0135-0136-move-wizard-feed.md` with implementation order, live-data repair SQL, open question on F-1 manual delivery (is it a fresh bale or a compensation for the broken Move option?). **CP-55/CP-56 impact:** none for either OI — no schema change, only value-computation changes on existing columns. P0/P1 — blocks continued field testing because every stored-feed move produces corrupt downstream data. |
 | 2026-04-22 | OI-0134 opened + closed same session — six misfiled animal_classes rows corrected via direct Supabase MCP | Post-ship verification of the animal-classes-fix-package (commit e58c9f2) surfaced that five class rows on Tim's live operation `ef11ee62-b720-4f0c-848a-18e1dd93de30` (Ewe/Ram/Lamb/Doe/Buck) were tagged `species='beef_cattle' role='cow'` and had taken beef-cow defaults (545kg, DMI 2.5, lactating 3.0) when OI-0057 migration 031's `WHERE role='cow'` patched them wholesale. Root cause: v1 `inferRole(name)` only recognizes bovine role names and silently collapses unknown names to `'cow'`; v1-migration.js §2.14 then hard-sets `species='beef_cattle'` on every class; OI-0057 migration 031 took the whole false-cow cohort in scope. Tim authorized direct-SQL cleanup: for the 5 sheep/goat rows (zero FK-linked animals) used `DELETE` + `INSERT` with `gen_random_uuid()` to restore correct species/role/NRCS defaults from seed-data.js. During verification a 6th misfiled row surfaced — Heifer had also taken the same collapse — but with 2 animals FK-linked, requiring an `UPDATE` in place (preserving `id`, idempotent guard `AND role='cow'`) rather than delete+re-insert. Final state on ef11ee62: 10 correctly filed rows (5 beef, 3 sheep, 2 goat) all matching seed-data NRCS values. No migration file written — operation-scoped data correction, not schema change, should not replay across environments. Full SQL audit trail embedded in OI-0134. **CP-55/CP-56 impact:** none (row corrections on an existing operation's seed data; no schema change, no shape change). | Sweep triggered by Tim asking about OI-0057 ("does the app populate excretion rates on a new operation — can I just patch my table and close this?"). Investigation revealed four layered problems: (1) OI-0057 is bigger than null-fill — the v1 transform also smears `weaning_age_days = 205` across every role and loses current NRCS defaults for weight + DMI% (scope expanded to Option B full reset). (2) **OI-0127 opened** — `seed-data.js` itself carries a weaning role inversion (value sits on dam roles cow/ewe/doe instead of offspring roles calf/lamb/kid), AND `v1-migration.js` §2.14 ignores seed-data entirely (nulls + flat 205). Both pipelines must be fixed together, otherwise the next onboard re-introduces the inverted role. (3) **OI-0128 opened** — `openClassEditForm` is literally `window.prompt('Class name:', cls.name)`; 10 of 11 editable fields have no UI path. Needs full Add-form repopulate matching v1, with species + role locked on edit, weight unit conversion per OI-0111 descriptor pattern, side-fix for species select option values (currently "Beef cattle" instead of canonical `beef_cattle`). (4) **OI-0129 opened — DESIGN REQUIRED, not built this session** — `renderWeaningNudge` in dashboard reads non-existent `group.weaningTargetDays` (dead feature), ANI-3 calc has no feature consumer, no Reports Weaning tab; Tim flagged: "lets do some design on that one" before building. Three options A/B/C surfaced in the OI, plus Reports placement + nudge-threshold questions. (5) **OI-0130 opened** — `getLiveWindowAvgWeight` has no class-default weight fallback, so calcs return 0 when open windows have live animals but no per-animal weight records. Fixes the calc-side tier of the Decision A14 / A17 three-tier fallback chain that was never wired. 21 call-sites thread the new `animalClasses` context. **Package spec** written at `github/issues/animal-classes-fix-package.md` covering OI-0057 + OI-0127 + OI-0128 + OI-0130 for one-pass resolution by Claude Code — explicit order of operations (seed-data → v1-migration → SQL patch → Edit form → calc fallback → tests), SQL migration with Tim's operation_id substitution block, full grep contracts, acceptance criteria, commit-message format. OI-0129 explicitly excluded from the package. **CP-55/CP-56 impact: none** for the entire package (value corrections + missing UI + calc fallback consuming existing columns). |
 

@@ -1660,8 +1660,8 @@ Add to `src/i18n/locales/en.json` under a new `forageType` namespace:
 
 ## SP-14: Edit Animal — Dam + Birth Date Shared Row
 
-**Status:** Spec complete · Ready for implementation
-**Spec file:** `github/issues/dam-calf-bidirectional-sync.md` (data-logic side) — SP-14 covers only the Edit Animal dialog layout change.
+**Status:** Shipped 2026-04-22 · commit `e9b40eb` (bundled with OI-0132 Class A + Class B)
+**Spec file:** `github/issues/GH-34_dam-calf-bidirectional-sync.md` (data-logic side) — SP-14 covered only the Edit Animal dialog layout change.
 **Base doc target at reconciliation:** V2_UX_FLOWS.md §15 Animals (Edit Animal dialog subsection) — document the two-column row and the birth-date label rule.
 **Linked OPEN_ITEMS:** OI-0132.
 

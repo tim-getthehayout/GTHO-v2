@@ -111,3 +111,92 @@ describe('getLiveRemainingForMove (OI-0135)', () => {
     expect(result[`${BATCH_A}|${LOC_A}`]).toBe(10);
   });
 });
+
+describe('getLiveRemainingForMove (OI-0139 — post-check deliveries)', () => {
+  beforeEach(() => {
+    _reset();
+    localStorage.clear();
+  });
+
+  // Case 1: lifetime seed unchanged when no check exists. Belt-and-braces with
+  // OI-0135's "no prior check" path, restated under OI-0139's invariant.
+  it('case 1 — one delivery, no prior check → lifetime seed', () => {
+    addDelivery({ batchId: BATCH_A, locationId: LOC_A, quantity: 1, date: '2026-04-16' });
+    const result = getLiveRemainingForMove(EVT);
+    expect(result[`${BATCH_A}|${LOC_A}`]).toBe(1);
+  });
+
+  // Case 2: OI-0135 path — single check, no post-check delivery → check value wins.
+  it('case 2 — one delivery + one check after, no post-check delivery → check value', () => {
+    addDelivery({ batchId: BATCH_A, locationId: LOC_A, quantity: 1, date: '2026-04-16' });
+    addCheck({
+      date: '2026-04-20', time: '15:00',
+      items: [{ batchId: BATCH_A, locationId: LOC_A, remainingQuantity: 0.5 }],
+    });
+    const result = getLiveRemainingForMove(EVT);
+    expect(result[`${BATCH_A}|${LOC_A}`]).toBe(0.5);
+  });
+
+  // Case 3: the live Pasture D reproducer. Check at 0 followed by a delivery
+  // → live = 0 + 1 = 1.
+  it('case 3 — Pasture D: 0-remaining check + post-check delivery → check + delivery', () => {
+    addCheck({
+      date: '2026-04-28', time: '13:51',
+      items: [{ batchId: BATCH_A, locationId: LOC_A, remainingQuantity: 0 }],
+    });
+    addDelivery({ batchId: BATCH_A, locationId: LOC_A, quantity: 1, date: '2026-04-29' });
+    const result = getLiveRemainingForMove(EVT);
+    expect(result[`${BATCH_A}|${LOC_A}`]).toBe(1);
+  });
+
+  // Case 4: only deliveries strictly after the *latest* check are added.
+  // Earlier deliveries that fell between checks are already captured by the
+  // latest check's reading.
+  it('case 4 — two checks + deliveries between and after → only post-latest-check delivery counts', () => {
+    addCheck({
+      date: '2026-04-16', time: '13:19',
+      items: [{ batchId: BATCH_A, locationId: LOC_A, remainingQuantity: 0.85 }],
+    });
+    addDelivery({ batchId: BATCH_A, locationId: LOC_A, quantity: 1, date: '2026-04-20' });
+    addCheck({
+      date: '2026-04-28', time: '13:51',
+      items: [{ batchId: BATCH_A, locationId: LOC_A, remainingQuantity: 0 }],
+    });
+    addDelivery({ batchId: BATCH_A, locationId: LOC_A, quantity: 1, date: '2026-04-29' });
+    const result = getLiveRemainingForMove(EVT);
+    expect(result[`${BATCH_A}|${LOC_A}`]).toBe(1);
+  });
+
+  // Case 5: strict-`>` rule. A delivery saved at the exact same (date, time)
+  // as the latest check is treated as captured BY the check, not in addition
+  // to it. Prevents double-count when farmer takes a check + drops a bale in
+  // the same minute.
+  it('case 5 — same-instant delivery is NOT added on top of the check (strict-> rule)', () => {
+    addCheck({
+      date: '2026-04-28', time: '13:51',
+      items: [{ batchId: BATCH_A, locationId: LOC_A, remainingQuantity: 0.5 }],
+    });
+    add('eventFeedEntries', FeedEntryEntity.create({
+      operationId: OP, eventId: EVT, batchId: BATCH_A, locationId: LOC_A,
+      date: '2026-04-28', time: '13:51', quantity: 1,
+    }), FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+    const result = getLiveRemainingForMove(EVT);
+    expect(result[`${BATCH_A}|${LOC_A}`]).toBe(0.5);
+  });
+
+  // Case 6: time:null on a delivery coerces to 00:00 for the timestamp
+  // comparison, so a date strictly after the check's date clears strict-`>`.
+  // Mirrors v1-migration deliveries which leave time null.
+  it('case 6 — time:null delivery dated after the check is included', () => {
+    addCheck({
+      date: '2026-04-28', time: '13:51',
+      items: [{ batchId: BATCH_A, locationId: LOC_A, remainingQuantity: 0.3 }],
+    });
+    add('eventFeedEntries', FeedEntryEntity.create({
+      operationId: OP, eventId: EVT, batchId: BATCH_A, locationId: LOC_A,
+      date: '2026-04-29', time: null, quantity: 1,
+    }), FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+    const result = getLiveRemainingForMove(EVT);
+    expect(result[`${BATCH_A}|${LOC_A}`]).toBe(1.3);
+  });
+});

@@ -8,6 +8,7 @@ import { getFieldMode } from '../../utils/preferences.js';
 import { navigate } from '../../ui/router.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
+import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 
 let feedCheckSheet = null;
 
@@ -75,6 +76,14 @@ export function openFeedCheckSheet(evt, operationId) {
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === evt.id && !gw.dateLeft);
   const groupNames = gws.map(gw => { const g = getById('groups', gw.groupId); return g?.name || ''; }).filter(Boolean).join(', ');
 
+  // OI-0139: prefill consumes the shared `getLiveRemainingForMove` helper so
+  // post-check deliveries land on top of the latest check's reading. Single
+  // source of truth across the feed-check sheet, move-wizard Step 3, and the
+  // sub-move close hint — duplicating the formula here is what shipped the bug.
+  // `lastCheckUnits` stays for the "Last check: X (Day HH:MM)" info-line below
+  // (reports the prior reading, not the prefill).
+  const liveRemaining = getLiveRemainingForMove(evt.id);
+
   // Build item state array
   const items = Object.entries(groups).map(([key, group]) => {
     const batch = getById('batches', group.batchId);
@@ -84,7 +93,7 @@ export function openFeedCheckSheet(evt, operationId) {
     const startedUnits = group.totalDelivered;
     const lastItem = lastCheckItems.find(i => i.batchId === group.batchId && i.locationId === group.locationId);
     const lastCheckUnits = lastItem ? lastItem.remainingQuantity : null;
-    const remaining = lastCheckUnits != null ? lastCheckUnits : startedUnits;
+    const remaining = liveRemaining[key] ?? startedUnits;
     return {
       key, batchId: group.batchId, locationId: group.locationId,
       feedName, startedUnits, lastCheckUnits, remaining,

@@ -92,4 +92,34 @@ describe('Quick Weight sheet → maybeSplitForGroup integration (OI-0096)', () =
     }
     expect(getAll('eventGroupWindows').length).toBe(before);
   });
+
+  // OI-0137: Quick Weight sheet save handler MUST pass today's date to maybeSplitForGroup,
+  // never the user-supplied dateInput.value. The handler's pattern is mirrored here so a
+  // future regression that re-introduces dateInput.value-as-changeDate fails this guard.
+  it('today-pinning — backdated weigh date never reaches the open window\'s dateLeft', () => {
+    seedEvent(EVENT_ID);
+    seedGroup(GROUP_ID);
+    seedAnimal(ANIMAL_ID);
+    seedMembership('m1', { animalId: ANIMAL_ID, groupId: GROUP_ID, dateJoined: '2026-04-21' });
+    seedOpenGw('gw1', { groupId: GROUP_ID, eventId: EVENT_ID, dateJoined: '2026-04-21' });
+
+    // Mirror weight.js Save: the historical weigh date stays on the entity row (not modeled
+    // here); today's date is what flows to maybeSplitForGroup.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const mems = getAll('animalGroupMemberships').filter(m =>
+      m.animalId === ANIMAL_ID && !m.dateLeft);
+    for (const m of mems) {
+      maybeSplitForGroup(m.groupId, todayStr);
+    }
+
+    const windows = getAll('eventGroupWindows').filter(w => w.groupId === GROUP_ID);
+    const closed = windows.find(w => w.dateLeft);
+    expect(closed).toBeDefined();
+    // The window's dateLeft is today, never the backdated weigh-date a user might supply.
+    expect(closed.dateLeft).toBe(todayStr);
+    // Validator guard would reject any future regression that backdates.
+    const open = windows.find(w => !w.dateLeft);
+    expect(open).toBeDefined();
+    expect(open.dateJoined).toBe(todayStr);
+  });
 });

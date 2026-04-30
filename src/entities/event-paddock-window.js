@@ -42,6 +42,10 @@ export function validate(record) {
   if (!record.eventId) errors.push('eventId is required');
   if (!record.locationId) errors.push('locationId is required');
   if (!record.dateOpened) errors.push('dateOpened is required');
+  // OI-0137: parity with event_group_window — dateClosed must never precede dateOpened.
+  if (record.dateClosed && record.dateOpened && record.dateClosed < record.dateOpened) {
+    errors.push('dateClosed must be on or after dateOpened');
+  }
   return { valid: errors.length === 0, errors };
 }
 

@@ -38,6 +38,11 @@ export function validate(record) {
   if (!record.eventId) errors.push('eventId is required');
   if (!record.groupId) errors.push('groupId is required');
   if (!record.dateJoined) errors.push('dateJoined is required');
+  // OI-0137: dateLeft must never precede dateJoined. Lex compare on YYYY-MM-DD
+  // ISO strings is chronological. Same-day open-and-close is legal.
+  if (record.dateLeft && record.dateJoined && record.dateLeft < record.dateJoined) {
+    errors.push('dateLeft must be on or after dateJoined');
+  }
   // OI-0091: closed windows may legitimately stamp headCount = 0 at close date
   // when the group emptied out. Open windows should still be >= 1.
   const hcMin = record.dateLeft ? 0 : 1;

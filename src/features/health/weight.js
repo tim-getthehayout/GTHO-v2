@@ -67,11 +67,14 @@ export function openWeightSheet(animal, operationId) {
         // stamp reflects the new avg weight on close. No-op if the animal isn't in any group
         // on an open event (maybeSplitForGroup guards internally). An animal can be in
         // multiple active groups in edge cases — loop to cover them all.
+        // OI-0137: pass today's date, never the (possibly backdated) weigh date — a backdated
+        // changeDate would close the still-open window with date_left < date_joined.
+        const todayStr = new Date().toISOString().slice(0, 10);
         const memberships = getAll('animalGroupMemberships').filter(m =>
           m.animalId === animal.id && !m.dateLeft,
         );
         for (const m of memberships) {
-          maybeSplitForGroup(m.groupId, dateInput.value);
+          maybeSplitForGroup(m.groupId, todayStr);
         }
 
         weightSheet.close();

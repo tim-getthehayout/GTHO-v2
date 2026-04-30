@@ -29,6 +29,17 @@ describe('entity: event-paddock-window', () => {
     it('fails when required fields missing', () => {
       expect(validate(create()).valid).toBe(false);
     });
+    // OI-0137 — parity guard with event_group_window so backdated paddock closes can't slip through.
+    it('fails when dateClosed is before dateOpened', () => {
+      const r = create({ operationId: OP_ID, eventId: EVT_ID, locationId: LOC_ID, dateOpened: '2026-04-21', dateClosed: '2025-08-30', areaPct: 50, isStripGraze: true });
+      const result = validate(r);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('dateClosed must be on or after dateOpened');
+    });
+    it('passes when dateClosed equals dateOpened (same-day open-and-close is legal)', () => {
+      const r = create({ operationId: OP_ID, eventId: EVT_ID, locationId: LOC_ID, dateOpened: '2026-04-21', dateClosed: '2026-04-21', areaPct: 50, isStripGraze: true });
+      expect(validate(r)).toEqual({ valid: true, errors: [] });
+    });
   });
 
   describe('shape round-trip', () => {

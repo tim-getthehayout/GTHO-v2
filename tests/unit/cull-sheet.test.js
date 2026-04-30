@@ -9,6 +9,7 @@ import {
 import { _reset, add, getById, getAll, setSyncAdapter } from '../../src/data/store.js';
 import * as AnimalEntity from '../../src/entities/animal.js';
 import * as MembershipEntity from '../../src/entities/animal-group-membership.js';
+import * as GroupWindowEntity from '../../src/entities/event-group-window.js';
 
 const OP = '00000000-0000-0000-0000-0000000000aa';
 const ANIMAL_ID = '00000000-0000-0000-0000-0000000000bb';
@@ -162,6 +163,58 @@ describe('cull-sheet: confirmCull', () => {
 
     expect(getById('animals', ANIMAL_ID).cullDate).toBe('2026-04-01');
     expect(getById('animalGroupMemberships', 'mem-a').dateLeft).toBe('2026-04-01');
+  });
+
+  // OI-0137: a backdated cull must NOT close the group's open event_group_window
+  // with date_left = backdated. The historical date stays on the membership row;
+  // the window split uses today.
+  it('backdated cull does not stamp the open event_group_window with the backdated date', () => {
+    const EVT_ID = '00000000-0000-0000-0000-0000000000d1';
+    const SECOND_ANIMAL = '00000000-0000-0000-0000-0000000000e1';
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    // Two animals in GROUP_A, both with open memberships.
+    const culled = mkAnimal();
+    const remaining = AnimalEntity.create({
+      id: SECOND_ANIMAL, operationId: OP, sex: 'female',
+      tagNum: '204', name: 'A-0043', active: true,
+    });
+    add('animals', culled, AnimalEntity.validate);
+    add('animals', remaining, AnimalEntity.validate);
+
+    const memCulled = mkMembership('mem-culled', GROUP_A);
+    const memRemaining = MembershipEntity.create({
+      id: 'mem-remaining', operationId: OP, animalId: SECOND_ANIMAL, groupId: GROUP_A,
+      dateJoined: '2026-01-01',
+    });
+    add('animalGroupMemberships', memCulled, MembershipEntity.validate);
+    add('animalGroupMemberships', memRemaining, MembershipEntity.validate);
+
+    // Open event_group_window for GROUP_A joined "today" — mirrors live data shape.
+    const openGW = GroupWindowEntity.create({
+      id: 'gw-open', operationId: OP, eventId: EVT_ID, groupId: GROUP_A,
+      dateJoined: todayStr, headCount: 2, avgWeightKg: 450,
+    });
+    add('eventGroupWindows', openGW, GroupWindowEntity.validate);
+
+    // Cull the first animal with a date 8 months in the past.
+    confirmCull({ animal: culled, cullDate: '2025-08-30', cullReason: 'Sold', cullNotes: null });
+
+    // Historical date must stay on the membership entity row.
+    expect(getById('animalGroupMemberships', 'mem-culled').dateLeft).toBe('2025-08-30');
+
+    // The original open window must NOT be stamped with the backdated date.
+    // (splitGroupWindow may close it with today and open a successor — that's fine.)
+    const originalGW = getById('eventGroupWindows', 'gw-open');
+    expect(originalGW.dateLeft).not.toBe('2025-08-30');
+
+    // After the split the group still has exactly one open window (location not lost).
+    const openWindowsAfter = getAll('eventGroupWindows').filter(w => w.groupId === GROUP_A && !w.dateLeft);
+    expect(openWindowsAfter).toHaveLength(1);
+
+    // The new open window reflects the post-cull live count of 1 remaining animal.
+    expect(openWindowsAfter[0].headCount).toBe(1);
+    expect(openWindowsAfter[0].dateJoined).toBe(todayStr);
   });
 });
 

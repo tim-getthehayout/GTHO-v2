@@ -29,6 +29,17 @@ describe('entity: event-group-window', () => {
     it('fails when required fields missing', () => {
       expect(validate(create()).valid).toBe(false);
     });
+    // OI-0137 — guard against backdated entries closing the open window with date_left < date_joined.
+    it('fails when dateLeft is before dateJoined', () => {
+      const r = create({ operationId: OP_ID, eventId: EVT_ID, groupId: GRP_ID, dateJoined: '2026-04-21', dateLeft: '2025-08-30', headCount: 0, avgWeightKg: 450 });
+      const result = validate(r);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('dateLeft must be on or after dateJoined');
+    });
+    it('passes when dateLeft equals dateJoined (same-day open-and-close is legal)', () => {
+      const r = create({ operationId: OP_ID, eventId: EVT_ID, groupId: GRP_ID, dateJoined: '2026-04-21', dateLeft: '2026-04-21', headCount: 0, avgWeightKg: 450 });
+      expect(validate(r)).toEqual({ valid: true, errors: [] });
+    });
   });
 
   describe('shape round-trip', () => {

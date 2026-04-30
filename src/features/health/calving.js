@@ -162,7 +162,10 @@ export function openCalvingSheet(dam, operationId) {
                 MembershipEntity.toSupabaseShape, 'animal_group_memberships');
 
               // OI-0094 entry #5: split the group's open event window so calcs reflect the new calf.
-              maybeSplitForGroup(calfGroupSelect.value, dateInput.value);
+              // OI-0137: changeDate must be today, never the (possibly backdated) calving date —
+              // a backdated date makes maybeSplitForGroup compute 0 head against the still-open
+              // window and silently delegate to closeGroupWindow with date_left < date_joined.
+              maybeSplitForGroup(calfGroupSelect.value, new Date().toISOString().slice(0, 10));
             }
           }
 

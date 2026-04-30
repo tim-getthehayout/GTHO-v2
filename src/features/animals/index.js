@@ -779,8 +779,11 @@ function openSplitGroupSheet(group, operationId) {
         }
         // OI-0094 entry #2: split source group's open window. Target usually new so no-op;
         // maybeSplitForGroup is a safe guard when target is an existing placed group.
-        maybeSplitForGroup(group.id, date);
-        maybeSplitForGroup(targetGroupId, date);
+        // OI-0137: changeDate must be today, never the user-supplied (possibly backdated) date —
+        // backdating would silently close the still-open window with date_left < date_joined.
+        // The historical date stays on the membership writes above.
+        maybeSplitForGroup(group.id, todayStr);
+        maybeSplitForGroup(targetGroupId, todayStr);
         // OI-0090: source may be empty after split; prompt archive flow.
         maybeShowEmptyGroupPrompt(group.id);
         splitSheet.close();
@@ -1229,7 +1232,8 @@ function openGroupWeightsSheet(group, operationId) {
         anyChange = true;
       }
       // OI-0094 entry #4: head count unchanged but avg weight shifts → split the group's open window.
-      if (anyChange) maybeSplitForGroup(group.id, dateInput.value);
+      // OI-0137: changeDate is today, never the user-supplied (possibly backdated) weigh date.
+      if (anyChange) maybeSplitForGroup(group.id, new Date().toISOString().slice(0, 10));
       wtSheet.close();
     } }, ['Commit all changes']),
     el('button', { className: 'btn btn-outline', onClick: () => wtSheet.close() }, ['Cancel']),

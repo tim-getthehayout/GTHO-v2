@@ -152,4 +152,9 @@ export const BACKUP_MIGRATIONS = {
     b.schema_version = 32;
     return b;
   },
+  // 032 → 033: OI-0138 — `operation_members.is_dev` column added (boolean,
+  //            default false). Older backups don't carry the field; the column
+  //            default applies on insert, so no transform is needed beyond the
+  //            version stamp.
+  32: (b) => { b.schema_version = 33; return b; },
 };

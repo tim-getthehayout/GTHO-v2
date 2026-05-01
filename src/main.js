@@ -37,6 +37,7 @@ import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { renderDevHome } from './features/dev-mode/index.js';
 import { renderEventAudit } from './features/dev-mode/audit.js';
 import { renderLogsViewer } from './features/dev-mode/logs.js';
+import { renderSchemaReadout } from './features/dev-mode/schema.js';
 import { getFieldMode, setFieldMode, migrateUnitSystemFromLocalStorage } from './utils/preferences.js';
 
 // Register all calculations on import (CP-45/46/47, CP-54)
@@ -282,6 +283,7 @@ async function showApp(app) {
   route('#/dev', requireDev(renderDevHome));
   route('#/dev/audit', requireDev(renderEventAudit));
   route('#/dev/logs', requireDev(renderLogsViewer));
+  route('#/dev/schema', requireDev(renderSchemaReadout));
 
   // Init router — renders the current hash route
   initRouter(content);

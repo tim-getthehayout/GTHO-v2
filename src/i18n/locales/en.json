@@ -149,7 +149,16 @@
     "logsSearchPlaceholder": "Search message + context…",
     "logsExportCsv": "Export CSV",
     "logsNoSupabase": "Supabase client not configured.",
-    "logsFetchFailed": "Failed to fetch app_logs."
+    "logsFetchFailed": "Failed to fetch app_logs.",
+    "schemaTitle": "Schema readout",
+    "schemaInSync": "All in sync",
+    "schemaDrift": "Drift detected",
+    "schemaLive": "Live schema_version",
+    "schemaLiveSource": "operations.schema_version (store)",
+    "schemaBackupMax": "Max BACKUP_MIGRATIONS key",
+    "schemaBackupSource": "src/data/backup-migrations.js",
+    "schemaFileMax": "Max migration file",
+    "schemaFileSource": "supabase/migrations/*.sql"
   },
   "event": {
     "title": "Events",

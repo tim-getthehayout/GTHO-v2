@@ -89,7 +89,11 @@ export function openFeedCheckSheet(evt, operationId) {
     const batch = getById('batches', group.batchId);
     const ftList = getAll('feedTypes');
     const ft = batch?.feedTypeId ? ftList.find(f => f.id === batch.feedTypeId) : null;
-    const feedName = ft ? `${ft.name} (${unitLabel(batch?.unit)})` : (batch?.name || '?') + ` (${unitLabel(batch?.unit)})`;
+    // OI-0140: append `→ {locationName}` so multi-paddock events disambiguate the
+    // consolidated `(batch, location)` group at a glance.
+    const groupLoc = group.locationId ? getById('locations', group.locationId) : null;
+    const groupLocName = groupLoc?.name || '?';
+    const feedName = (ft ? `${ft.name} (${unitLabel(batch?.unit)})` : (batch?.name || '?') + ` (${unitLabel(batch?.unit)})`) + ` → ${groupLocName}`;
     const startedUnits = group.totalDelivered;
     const lastItem = lastCheckItems.find(i => i.batchId === group.batchId && i.locationId === group.locationId);
     const lastCheckUnits = lastItem ? lastItem.remainingQuantity : null;

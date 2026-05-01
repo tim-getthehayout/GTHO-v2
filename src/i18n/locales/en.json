@@ -508,6 +508,7 @@
     "deliverFeedTitle": "Deliver Feed",
     "selectBatch": "Select Batch",
     "selectPaddock": "Select Paddock",
+    "deliverTo": "Delivering to",
     "deliveryQty": "Quantity",
     "deliveryDate": "Date",
     "deliveryTime": "Time",

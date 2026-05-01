@@ -42,11 +42,20 @@ export function openDeliverFeedSheet(evt, operationId) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const nowTime = new Date().toTimeString().slice(0, 5);
 
-  // Location context
-  const primaryPw = activePWs[0];
-  const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
-  const locName = loc?.name || '?';
-  const locationId = primaryPw?.locationId || null;
+  // OI-0140: paddock disambiguation. localStorage insertion order isn't deterministic,
+  // so the pre-fix shortcut (indexing the unsorted array at zero) was effectively
+  // arbitrary on multi-window events (strip-graze).
+  // Sort most-recently-opened first; default the picker to the top option; let the user
+  // override via a <select> when there's >1 open paddock window. The save loop below
+  // reads `selectedLocationId` (mutable closure) at write time, not the seed value.
+  const sortedActivePWs = [...activePWs].sort((a, b) => {
+    const aStamp = `${a.dateOpened || ''}T${a.timeOpened || '00:00'}`;
+    const bStamp = `${b.dateOpened || ''}T${b.timeOpened || '00:00'}`;
+    return bStamp.localeCompare(aStamp);
+  });
+  let selectedLocationId = sortedActivePWs[0]?.locationId || null;
+  const initialLoc = selectedLocationId ? getById('locations', selectedLocationId) : null;
+  const locName = initialLoc?.name || '?';
 
   // Groups + day count
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === evt.id && !gw.dateLeft);
@@ -197,10 +206,40 @@ export function openDeliverFeedSheet(evt, operationId) {
   // --- Header ---
   panel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, [
     el('div', {}, [
-      el('div', { style: { fontSize: '16px', fontWeight: '600' } }, [`${locName} \u2014 ${t('feed.logFeeding')}`]),
+      el('div', { style: { fontSize: '16px', fontWeight: '600' } }, [t('feed.logFeeding')]),
       el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [`${groupNames} \u00B7 Day ${dayCount}`]),
     ]),
   ]));
+
+  // OI-0140: chip text reflects whatever the picker currently points at; on
+  // single-window events it's static (no picker rendered), on multi-window
+  // events it tracks the <select>'s value via updateChip().
+  const chipText = el('span', { 'data-testid': 'feed-delivery-location-chip', style: { fontWeight: '500' } }, ['']);
+  function updateChip() {
+    const loc = selectedLocationId ? getById('locations', selectedLocationId) : null;
+    chipText.textContent = `→ ${loc?.name || '?'}`;
+  }
+  updateChip();
+
+  const chipRow = el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, [chipText]);
+  if (sortedActivePWs.length > 1) {
+    const paddockSelect = el('select', {
+      'data-testid': 'feed-delivery-paddock-picker',
+      style: { padding: '6px 8px', border: '0.5px solid var(--border2)', borderRadius: '6px', background: 'var(--bg)', fontSize: '13px', fontFamily: 'inherit', color: 'var(--text)' },
+    });
+    for (const pw of sortedActivePWs) {
+      const loc = getById('locations', pw.locationId);
+      paddockSelect.appendChild(el('option', { value: pw.locationId }, [loc?.name || '?']));
+    }
+    paddockSelect.value = selectedLocationId;
+    paddockSelect.addEventListener('change', () => {
+      selectedLocationId = paddockSelect.value;
+      updateChip();
+    });
+    chipRow.appendChild(el('label', { style: { fontSize: '12px', color: 'var(--text2)', marginLeft: 'auto' } }, [t('feed.deliverTo')]));
+    chipRow.appendChild(paddockSelect);
+  }
+  panel.appendChild(chipRow);
 
   // Date/time row
   const dateInput = el('input', { type: 'date', value: todayStr });
@@ -245,7 +284,7 @@ export function openDeliverFeedSheet(evt, operationId) {
           for (const line of linesToSave) {
             const entry = FeedEntryEntity.create({
               operationId, eventId: evt.id,
-              batchId: line.batchId, locationId,
+              batchId: line.batchId, locationId: selectedLocationId,
               date: dateInput.value, time: timeInput.value || null,
               quantity: line.qty,
             });

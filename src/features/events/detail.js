@@ -848,7 +848,11 @@ function renderFeedEntries(ctx) {
       const batch = batchMap.get(fe.batchId);
       const feedName = batch?.name || '?';
       const unit = batch?.unit || '';
-      const desc = `${fe.quantity ?? 0} ${unit} ${feedName}`.trim();
+      // OI-0140: surface which paddock window each entry was attributed to.
+      // Mirrors the existing arrow format used on the Feed Checks rows below.
+      const feLoc = fe.locationId ? getById('locations', fe.locationId) : null;
+      const feLocName = feLoc?.name || '?';
+      const desc = `${fe.quantity ?? 0} ${unit} ${feedName} → ${feLocName}`.trim();
       const cost = (fe.quantity || 0) * (batch?.costPerUnit ?? 0);
 
       // OI-0108: formula produces dry matter DELIVERED (DM), not DMI (per-head intake).

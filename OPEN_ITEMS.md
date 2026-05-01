@@ -4,6 +4,297 @@
 
 ---
 
+### OI-0143 — Pre-positioned feed at paddocks with no active event — new `staged_feed_entries` entity (Option 2 framework) so farmers can stage hay before cattle arrive, with hand-off rule converting staged → event-linked when the destination paddock opens an event
+**Added:** 2026-05-01 | **Area:** v2-build / feed / schema / ux / data-model | **Priority:** P2 (real-world farmer workflow that the current event-centric model can't represent — Tim has bumped up against this himself; not blocking field testing of the v2 cutover but a meaningful capability gap when farmers pre-position winter hay, drop bales along future rotation paths, or stage feed before cattle arrive in a paddock) | **Status:** open — **DESIGN LOCKED on framework** (Option 2 — new `staged_feed_entries` entity); **DESIGN REQUIRED on workflow details** (entry point, hand-off semantics, partial-consumption rules, multi-event matching). Sub-questions enumerated below for Tim to walk through before a Claude Code spec is written.
+
+**Origin (2026-05-01 design conversation, Tim + Cowork):** While locking OI-0140 Q2, Tim asked the deeper question: *"If delivered where no animals are grazing, how does it get connected to an event once they are grazing in that paddock? Is that possible?"* Cowork laid out three architectural options:
+
+1. Allow `event_feed_entries.event_id` to be nullable + add backfill rule on event open
+2. New entity `staged_feed_entries` keyed only on `(batch_id, location_id, date, time, quantity)` — no `event_id`. Hand-off rule converts staged rows → event-linked rows when an event opens at that location
+3. "Phantom" location-only event holding pre-positioned hay until a real event arrives, then merging
+
+**Tim's call: Option 2 is the right framework.** Cleanest separation between "feed staged at a place" and "feed delivered to an active event." Schema change required (new table) but the existing `event_feed_entries` table doesn't grow nullable columns and DMI calcs don't need to handle `event_id IS NULL`. The hand-off becomes an explicit, traceable transition rather than an implicit nullable-field interpretation.
+
+**Why this matters in the field:** Tim's specific scenario is winter pre-positioning — drop hay in the pasture in fall before snow makes access difficult, cattle arrive weeks later. Other farmer workflows the current model also can't represent: dropping bales along a future rotation path so the cattle find them as they move; staging feed at remote paddocks during a single trip to amortize transport; feeding a paddock that is being temporarily un-grazed (recovery / observation). All are "feed at a location, not yet attached to a grazing event."
+
+**Framework — Option 2 mechanic (DESIGN LOCKED):**
+
+A new entity `staged_feed_entries` parallel to `event_feed_entries` but with no `event_id`:
+
+```
+staged_feed_entries
+  id              uuid (pk)
+  operation_id    uuid (fk → operations)
+  batch_id        uuid (fk → batches)
+  location_id     uuid (fk → locations)
+  date            date
+  time            text (HH:MM, optional)
+  quantity        numeric
+  notes           text (optional)
+  created_at      timestamptz
+  updated_at      timestamptz
+```
+
+When an event opens (or is already open) at the destination location, a hand-off step converts qualifying staged rows into `event_feed_entries` rows attached to that event.
+
+**Sub-questions to resolve before Claude Code spec is written (DESIGN REQUIRED):**
+
+- **SQ1 — Entry point for staging.** Where in the UI does a farmer stage feed? Three candidates: (a) location detail page → new "Stage feed" action; (b) batches/inventory screen → "Drop at location" action picking a destination; (c) a new "Inventory" tab/route. Cowork's lean: **(a)** — location detail is where the farmer thinks "this paddock"; matches the spatial mental model. (b) is also valid for "I'm planning a feed-out trip from inventory." Both could ship; pick one for v1.
+- **SQ2 — Hand-off trigger.** When does a staged row convert to an event-linked row? Three candidates: (i) **automatic on event open** at the same location — every staged row at that location flips immediately when an `event_paddock_window` opens; (ii) **manual via prompt** — when an event opens, app shows a "Stage X bales of {batch} at this paddock — attach to this event?" confirmation; (iii) **on first feed check** — staged rows attach when the farmer takes a feed check on the new event. Cowork's lean: **(i) automatic, with a per-event audit trail** showing which entries were originally staged. Manual prompts add friction; first-check trigger lags reality. Tim's call.
+- **SQ3 — Partial consumption between staging and event open.** A bale staged at G-1 might lose to weather, vermin, or be partially eaten by trespass cattle before the planned event opens. The staged row says "1.0 bale on date X"; reality on event-open day is "0.6 bale." Three handlings: (α) hand-off uses staged quantity as-is (`quantity = 1.0`), farmer takes a feed check at event open to record actual remaining; (β) hand-off prompts for current quantity at hand-off time and uses that; (γ) hand-off creates *both* the entry (1.0) and a forced first feed check (0.6) so the math reflects reality. Cowork's lean: **(α)** — keep the staged delivery as a faithful record of what was placed; the next feed check (which OI-0119 already forces on sub-move close, and the OI-0139 prefill consolidates on) captures actual remaining. Lowest friction, highest data fidelity. Tim's call.
+- **SQ4 — Multi-event matching.** Two open events both grazing locations under the same paddock window? (Strip grazing across multiple groups, or sequential events that share a sub-paddock briefly.) When a staged row is at location L and two events both have open windows at L, which event does the row attach to? Cowork's lean: **the most-recently-opened `event_paddock_window` at that location** — same recency rule as OI-0140's picker default. Edge case is rare in practice but the rule should be deterministic. Tim's call.
+- **SQ5 — Staging visibility on location detail.** A paddock with staged feed but no active event — should the location card render a "X bales staged" chip / row? Cowork's lean: **yes** — make it visible at-a-glance that there's hay sitting at a location even when no cattle are there. Otherwise the staged feed becomes "out of sight, out of mind" and farmers can lose track. Tim's call.
+- **SQ6 — Edit / delete staged rows before hand-off.** Can a farmer edit a staged row before any event handles it (correct quantity, change location, delete entirely)? Cowork's lean: **yes — full CRUD on staged rows before hand-off; once handed off to an event, the row is an `event_feed_entries` row and follows that table's edit/delete rules.** Tim's call.
+
+**Schema change:** **YES** — new table. Migration adds `staged_feed_entries` plus FKs to `operations`, `batches`, `locations`. RLS policies parallel to `event_feed_entries` (operation member access). Schema version bump.
+
+**CP-55/CP-56 impact:** **YES** — new table = new entry in `BACKUP_TABLES`, new position in `FK_ORDER` (after `batches` and `locations`, before any consumers; staged rows hand off to `event_feed_entries` so they sit before that in dependency order). New `BACKUP_MIGRATIONS[N]` entry to no-op the version bump for old backups (staged_feed_entries simply doesn't exist in pre-migration backups; restore should default to empty array, not error). Round-trip test required.
+
+**Calc / DMI impact:** Staged rows are NOT consumed by any calc until they hand off to an event. Pre-event staged inventory shows on the location card / inventory screen but doesn't enter `feed-forage.js` or `getLiveRemainingForMove` until it's handed off. Once handed off, the new `event_feed_entries` row participates in the existing cascade unchanged.
+
+**Files (anticipated, will be locked in spec after sub-questions resolve):**
+
+- `supabase/migrations/NNN_staged_feed_entries.sql` — new table + RLS + indexes
+- `src/entities/staged-feed-entry.js` — new entity file
+- `src/data/store.js` — add entityType + collection accessor; consume in `getVisibleX` patterns where appropriate
+- `src/data/sync-registry.js` + `src/data/push-all.js` — register new entity
+- `src/data/backup-export.js` `BACKUP_TABLES` — add table
+- `src/data/backup-import.js` `FK_ORDER` — add position; bump `CURRENT_SCHEMA_VERSION`
+- `src/data/backup-migrations.js` — `BACKUP_MIGRATIONS[N]` no-op
+- `src/features/locations/...` (or wherever SQ1 lands) — new "Stage feed" entry point
+- `src/features/feed/staging-handoff.js` — new helper for the hand-off rule
+- Hooks into `src/features/events/event-start.js` (or wherever paddock windows open) — trigger hand-off per SQ2
+- `src/i18n/locales/en.json` — staging-related keys
+- New unit tests (entity round-trip, hand-off rule, edge cases) + e2e (Supabase round-trip per CLAUDE.md §"E2E Testing — Verify Supabase, Not Just UI")
+
+**Acceptance criteria (high-level — locked in detail when SQ1–SQ6 resolve):**
+
+- [ ] Migration NNN ships, applied + verified against Supabase per CLAUDE.md §"Migration Execution Rule — Write + Run + Verify"
+- [ ] `staged_feed_entries` entity round-trips (toSupabaseShape ↔ fromSupabaseShape) with full FIELDS coverage
+- [ ] Numeric coercion on `quantity` per CLAUDE.md §"Known Traps" (PostgREST string-numeric)
+- [ ] CRUD on staged rows works (per SQ6 lean)
+- [ ] Hand-off rule fires per SQ2; staged rows transition cleanly to `event_feed_entries`; original staged row is deleted (or marked handed-off — sub-decision per SQ2 detail)
+- [ ] Multi-event matching deterministic per SQ4
+- [ ] Location card shows staged inventory per SQ5
+- [ ] CP-55/CP-56 round-trip clean (existing backups → restore → re-export → diff: no drift)
+- [ ] Tim's pre-positioning workflow verified end-to-end (stage hay at G-1 today, open an event at G-1 next week, staged row converts to event-linked row, feed check at event-open captures actual remaining)
+
+**Architectural notes:**
+
+- Same drift-class avoidance as OI-0117 / OI-0133 — by separating "staged" from "event-linked" into distinct tables rather than overloading `event_feed_entries.event_id` with nullable semantics, we avoid creating a stored-vs-derived ambiguity. The hand-off is an explicit, atomic, auditable transition.
+- The hand-off rule has the same temporal-ordering concerns as OI-0139 (strict-`>` on timestamps). When a staged row dated 2026-04-15 hands off to an event opened 2026-05-01, the resulting `event_feed_entries` row keeps `date = 2026-04-15` (faithful to physical reality). The first feed check on the new event correctly treats this as a pre-check delivery.
+- **PLUGIN IMPROVEMENT candidate:** event-centric data models often need a "no-event-yet" staging surface for assets that exist before the event. A pattern of "staged_X paired with event_X tables, with explicit hand-off helpers" might generalize to other domains (staged observations, staged amendments). Worth flagging once OI-0143 ships.
+
+**Spec file:** `github/issues/OI-0143_pre-positioned-feed.md` — DESIGN REQUIRED placeholder. Full implementation spec written after Tim resolves SQ1–SQ6.
+
+**Related:**
+- **OI-0140** (open, locked 2026-05-01) — feed delivery picker for active events. Sister OI: OI-0140 fixes routing within an event; OI-0143 adds the "no event yet" surface. Both ship cleanly without dependency.
+- **OI-0138** (open, DESIGN REQUIRED) — Dev Mode Event Audit view. Once OI-0143 ships, the Event Audit view should also surface "originally staged" provenance on `event_feed_entries` rows that came in via hand-off.
+
+---
+
+### OI-0142 — Calc registry: introduce per-calc `explain()` for centralized input resolution; graduate audit-code resolvers (OI-0138 MVP) to single source of truth
+**Added:** 2026-05-01 | **Area:** v2-build / calcs / architecture / refactor | **Priority:** P3 (architectural cleanup, not user-blocking; deferred until pattern-pressure or scale forces it; recorded so the direction isn't lost when OI-0138 ships)
+
+**Status:** open — DEFERRED, no design session scheduled. Recorded as the eventual end-state for OI-0138's calc-card resolver pattern. Do not build until: (a) OI-0138 ships and we've collected feedback on which calcs the audit surfaces; (b) the audit-code resolver count grows past ~10 and duplication starts hurting; or (c) another use case emerges that benefits from per-calc input-resolution-with-source (e.g., an in-spec "explain this number" affordance on user-facing surfaces, a debug-mode tooltip on dashboard cards, etc.).
+
+**Why this is deferred (not done up front):**
+
+OI-0138's MVP locks Option 1 (sidecar audit-code resolvers in `src/features/dev-mode/audit-resolvers.js`) over this option for one reason: cost. Adding `explain()` to each calc would touch all ~35 registered calcs, move resolver logic from feature code into calc files, change the pure-function invariant the calc layer is built around (calcs would have to import store helpers), double the calc test surface, and introduce drift risk between `fn()` and `explain()`. That's not "Dev Mode work" — it's a calc-architecture refactor that Dev Mode happens to benefit from. Buying it just for Dev Mode is too much code touch for the leverage. See OI-0138's Q6 lock for the full cost breakdown.
+
+**What this OI captures (for the future):**
+
+When the time comes, the refactor looks like:
+
+1. Each `src/calcs/*.js` calc gets a sibling `explain(context)` function that resolves inputs from the store, runs the existing `fn()`, and returns `{ inputs: [{ name, value, source }], output }`.
+2. `registerCalc()` accepts a new `explain` field; the registry exposes it via `getCalcByName(name).explain`.
+3. The audit-code resolver in `src/features/dev-mode/audit-resolvers.js` becomes a thin dispatcher that calls `calc.explain(context)` instead of doing per-calc work.
+4. New round-trip test per calc: `expect(fn(explain(ctx).inputs)).toBe(explain(ctx).output)` — guards against drift between the two paths.
+5. Feature code that currently resolves inputs inline (e.g. the dashboard's DMI-2 prep loop) consolidates to call `calc.explain(ctx)` and discard the trace, eliminating duplicate resolution logic. Optional second-pass cleanup.
+
+**Pre-conditions before opening a design session on this OI:**
+
+- OI-0138 MVP shipped and in use for at least one full sprint of field testing.
+- ≥10 audit-code resolvers in `src/features/dev-mode/audit-resolvers.js`, OR a second consumer of resolver-with-source has emerged.
+- Time available for a 35-file refactor plus its expanded test surface.
+
+**CP-55/CP-56 impact:** **none** — `explain()` is computed-on-read, no schema change, no state shape change.
+
+**Reference points:**
+
+- `src/utils/calc-registry.js` — registry definition; `registerCalc()` would gain an `explain` field.
+- `src/calcs/feed-forage.js`, `src/calcs/feed-state.js`, `src/calcs/capacity.js`, `src/calcs/core.js`, `src/calcs/advanced.js`, `src/calcs/window-helpers.js`, `src/calcs/survey-bale-ring.js` — every file gets touched.
+- `src/features/dev-mode/audit-resolvers.js` (created by OI-0138) — graduates from sidecar to thin dispatcher.
+
+---
+
+### OI-0141 — Desktop / long-lived browser tabs go stale silently — `pullAllRemote()` only runs on app boot and `window.online`, never on tab focus or on a timer; sync indicator reads "green" while remote state is hours-to-days behind
+**Added:** 2026-05-01 | **Area:** v2-build / sync / multi-device | **Priority:** P1 (silent multi-device drift — any farmer with the app open on a laptop and a phone will hit this; the laptop will silently miss every write made on the phone, with no visual cue that anything is wrong; today Tim's desktop was missing 1 feed entry + 1 feed check that mobile correctly showed and Supabase correctly stored, while both clients displayed a green "Synced" dot) | **Status:** open — DESIGN LOCKED on Phase 1 (visibility-change pull + honest indicator); Phase 2 (realtime subscriptions) deferred
+
+**Reproducer (live, 2026-05-01):** Tim has the app open on desktop and on iPhone. Today on iPhone he saved a new feed entry (Apr 30 14:30 / G-2 / 1.0 bale, `f6916c6a`) and yesterday saved a feed check (Apr 30 08:23 / G-3 / 0.55 remaining, `3313f3c3`). Both wrote successfully to Supabase. Mobile renders both correctly. Desktop shows neither — only the older Apr 29 entry. Both clients display a green "Synced" sync dot in the header.
+
+**Root cause:** Two intertwined gaps in the sync architecture:
+
+1. **`pullAllRemote()` is called only twice** in the entire app lifecycle (`src/main.js:208,212`):
+   - On app boot, after the initial `syncAdapter.flush()`.
+   - On `window.online` event (when network returns from an offline state).
+   There is no pull on tab focus / `document.visibilitychange`, no periodic pull on a timer, and no Supabase realtime subscription. A tab opened yesterday and never closed will hold a localStorage snapshot from yesterday's boot, plus any local writes made from that tab — and will never see writes made from any other device.
+
+2. **The sync indicator reflects only the *outgoing* push queue.** `src/ui/header.js:398-402`:
+   ```js
+   status = adapter ? adapter.getStatus() : 'offline';
+   const dotClass = { idle: 'sync-ok', syncing: 'sync-pending', error: 'sync-err', offline: 'sync-off' }[status];
+   const label = { idle: 'Synced', syncing: 'Syncing...', error: 'Sync error', offline: 'Offline' };
+   ```
+   `getStatus()` returns `idle` when nothing is pending to *push*. Says nothing about whether incoming state has ever been pulled — let alone how stale that pull is. So a tab with no local writes shows "green / Synced" forever even if it has been frozen on stale data for days.
+
+The two together produce silent drift indistinguishable from a working app: green dot, no errors, no warning, just incorrect data on screen.
+
+**Why this didn't surface earlier:** Field testing has been mostly mobile-driven, and mobile tabs get killed by iOS aggressively (every app-switch effectively boots the app, which fires the boot pull). Desktop tabs are durable — Tim's stayed open across at least two days. The drift class is invisible to single-device testing, and the two devices need to be making writes asymmetrically (device A writes, device B reads). Same diagnostic blind-spot family as OI-0050 (UI-only e2e missed onboarding sync) and the OI-0103/OI-0106 numeric-coercion sweep.
+
+**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code):**
+
+1. **Pull on visibility change.** In `src/main.js`, after the existing `online` listener is registered, add:
+   ```js
+   document.addEventListener('visibilitychange', async () => {
+     if (document.visibilityState !== 'visible') return;
+     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+     await syncAdapter.flush();
+     await pullAllRemote();
+   });
+   ```
+   Fires when a tab is brought to foreground (re-focused, returned to from another tab/app, brought back from minimized). Most "I left the app open and came back to it" cases fire this. Cheapest fix that covers ~90% of the silent-drift surface area.
+2. **Honest sync indicator** — make "green" mean "fully synced, including incoming." Two changes in `src/ui/header.js`:
+   - Track the last successful `pullAllRemote()` completion timestamp on a module-level variable (or on the sync adapter). `pull-remote.js` exports a `getLastPulledAt()` helper.
+   - In `renderDesktopSyncStrip()` (line ~398), append the pulled-at timestamp to the label when status is `idle`: `Synced · last refresh 14:32` (already partially shows current local time when idle, change that to last-pull time). On mobile (`renderHeaderSyncBadge` near line 267), tooltip-only — no extra text in the dot UI.
+   - If `Date.now() - lastPulledAt > STALE_THRESHOLD_MS` (15 minutes for Phase 1), flip the dot from `sync-ok` to a new `sync-stale` class (amber, not red — the data isn't wrong, just old) and label "Stale · refresh now." Tap → triggers `pullAllRemote()` directly.
+3. **Manual refresh affordance** — wherever the sync dot/strip is, tapping it currently navigates to Settings. Replace that with `await pullAllRemote()` + a brief "Refreshing…" → "Refreshed at HH:MM" status. Settings page already has a "Force resync" button (per OI-0138's anticipated Dev Mode shelf list); the header is the right surface for the no-friction case.
+
+**Fix — Phase 2 (DEFERRED, separate OI when ready):**
+
+Realtime: add Supabase `postgres_changes` subscriptions on the user's tables so writes from one device push to another in seconds, not minutes. Higher-fidelity than visibility-pull but adds connection-management complexity (channel teardown on logout / org switch, reconnection on flaky networks, fallback when subscriptions error, per-table channel limits). Defer until Phase 1 ships and we see whether visibility-pull + manual-refresh adequately covers the multi-device cases farmers actually hit.
+
+**Acceptance criteria — Phase 1:**
+
+- [ ] `document.visibilitychange` listener registered exactly once at app boot; fires `flush() + pullAllRemote()` only when `visibilityState === 'visible'` and `navigator.onLine !== false`.
+- [ ] On switch from desktop tab → other tab → back to desktop tab, the listener fires and any new Supabase rows from other devices appear in the UI within ~1 second of foregrounding.
+- [ ] Sync indicator displays last-pull timestamp when idle.
+- [ ] Sync indicator flips to `sync-stale` (amber) when last pull is older than 15 min; flips back to `sync-ok` (green) immediately on the next successful pull.
+- [ ] Tapping the sync dot/strip triggers a manual pull and updates the timestamp; navigates to Settings only on long-press or via the existing Settings menu (or — simplest — drop the navigate-to-Settings-on-tap behavior entirely; Settings is reachable from the nav).
+- [ ] Manual repro: open the app on two browsers; in browser A make a write; switch to browser B's tab → assert the write appears within 1 second. Add this as a Playwright e2e if feasible (multi-context test).
+- [ ] Tim's specific case (Apr 30 feed entry + feed check missing on desktop today) is recoverable by switching to and from the desktop tab.
+
+**Files to edit (Phase 1):**
+
+- `src/main.js` — register `visibilitychange` listener; pass `pullAllRemote` and `syncAdapter.flush` references
+- `src/data/pull-remote.js` — export `getLastPulledAt()` helper; record timestamp on successful pull
+- `src/ui/header.js` — both `renderHeaderSyncBadge` and `renderDesktopSyncStrip` consume the new state; add `sync-stale` style; switch onClick from `navigate('#/settings')` to `triggerManualPull()`
+- `src/styles/*` — add `.sync-stale` class (amber, parity with `--amber` token)
+- `src/i18n/locales/en.json` — `sync.lastRefreshAt`, `sync.stale`, `sync.refreshing`, `sync.refreshed` keys
+- `tests/unit/sync-indicator.test.js` — new: cover `sync-ok` / `sync-stale` / `sync-syncing` / `sync-err` / `sync-off` rendering, lastPulledAt formatting, threshold flip
+- `tests/e2e/multi-tab-pull-on-visibility.spec.js` — new (if Playwright multi-context supports it cleanly): 2-context write-from-A / read-on-B-after-foreground assertion
+
+**Schema change:** **NONE** — pull plumbing is purely client-side; Supabase tables and migrations are unchanged.
+
+**CP-55/CP-56 impact:** **NONE** — no backup-format change.
+
+**Architectural notes:**
+
+- Same drift family as OI-0050 (silent sync gap invisible to UI-only testing) and OI-0117/OI-0133/OI-0139 (derived value or duplicated state drifts from ground truth). Distinct surface — the gap is between *Supabase ground truth* and *client localStorage*, where the prior bug classes were between *one stored field* and *another derivable field*.
+- The "honest sync indicator" change is a small but important UX truthfulness fix. Once the indicator's promise matches reality, future drift bugs become visible at-a-glance instead of requiring Supabase queries to detect.
+- **PLUGIN IMPROVEMENT candidate (separate from OI body):** the assumption "green sync dot = fully synced" was both natural and silently wrong. Plugins that ship local-first sync architectures should default to indicators that report *both directions* of sync freshness, not just outgoing-queue state. Worth flagging in the next IMPROVEMENTS.md sweep.
+
+**Spec file:** `github/issues/OI-0141_desktop-pull-on-visibility.md` — Phase 1 spec ready for Claude Code handoff.
+
+**Related:**
+- **OI-0050** (closed) — UI-only sync verification gap, same diagnostic blind-spot family
+- **OI-0138** (open, DESIGN REQUIRED) — Dev Mode shelf includes a "Force-resync" tool; that surface is the heavy-hammer manual pull. This OI's manual-refresh tap is the lightweight everyday path; both can coexist.
+
+---
+
+### OI-0140 — Feed delivery sheet auto-assigns `location_id = activePWs[0].locationId` with no UI to choose; on multi-open-window events the assignment is essentially arbitrary and silently misroutes deliveries to the wrong paddock
+**Added:** 2026-05-01 | **Area:** v2-build / feed / ui / data-integrity | **Priority:** P0 (live field-data corruption — Tim's G-event hit this today: a bale physically placed at G-1 was silently recorded at G-3 because G-3 happened to be `activePWs[0]` in the unsorted localStorage array; same code path silently misrouted a separate event's bale on Apr 30; healed via direct SQL this session, root cause still unfixed) | **Status:** open — DESIGN LOCKED, ready for Claude Code. Tim confirmed 2026-05-01: **Q1 = single picker** (one `<select>` for the whole sheet; per-line picker deferred unless field testing surfaces need); **Q2 = no further filter beyond `activePWs`** — picker shows all open paddock windows for *this* event, sorted most-recently-opened first. (Tim's deeper question about pre-positioning feed at paddocks with no active event was correctly identified as a separate capability gap and is filed as **OI-0143**.)
+
+**Reproducer (live, 2026-05-01):** Tim's event `fb407a55-aa0e-4cbb-b906-af6964a0addc` has three open paddock windows simultaneously (G-1, G-2, G-3 — strip-grazing pattern). On Apr 29 14:00 he physically delivered 0.68 bale to G-1; on Apr 30 14:30 he delivered 1.0 bale to G-2. The first delivery silently recorded as **G-3** (entry `b9f9add7`); the second correctly recorded as G-2 (entry `f6916c6a`). Both used the same code path. The difference: localStorage insertion order of the three open paddock windows shifted between sessions, so `activePWs[0]` was G-3 on Apr 29 and G-2 on Apr 30. The user has no UI to pick the paddock and no header label showing which paddock the system silently chose. Result: feed-check sheet shows two split lines (one per location) when Tim's mental model was one consolidated feeder; DMI math attributes consumption to the wrong paddock; future analytics misallocate cost and stored-feed credit per pasture.
+
+**Root cause — `src/features/feed/delivery.js:41-49`:**
+
+```js
+const activePWs = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
+// …
+const primaryPw = activePWs[0];                          // ← arbitrary on multi-window events
+const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
+const locName = loc?.name || '?';                        // displayed only on the empty-batches fallback header (line 59), NOT on the main flow
+const locationId = primaryPw?.locationId || null;        // applied to every feed line saved in this sheet (line 248)
+```
+
+`getAll()` returns localStorage insertion order, not date or any deterministic key. On a single-window event (`activePWs.length === 1`) `[0]` is fine. On multi-window events the assignment is effectively random per session.
+
+**Live-data heal (executed via Supabase MCP this session, with Tim's approval):**
+
+```sql
+UPDATE event_feed_entries SET location_id = '710ddb23-…' (G-1) WHERE id = 'b9f9add7-…';
+UPDATE event_feed_check_items SET location_id = '710ddb23-…' (G-1) WHERE id = '10ab2005-…';
+-- (Apr 30 date-shift on the entry was applied then reverted per Tim's call — historical Apr 29 14:00 timestamp restored.)
+```
+
+Verified post-state: entry now `2026-04-29 14:00 / G-1 / 0.68 bale`; check item now `Apr 30 08:23 / G-1 / 0.55 remaining`. The Apr 30 14:30 G-2 entry is correct and untouched. **No further data heal required.**
+
+**Fix — Phase 1 (DESIGN LOCKED — sub-questions below for Tim to confirm before Claude Code):**
+
+1. **Add a paddock picker to the delivery sheet header**, rendered conditionally:
+   - `activePWs.length === 1` → no picker; auto-use the single window (current behavior, preserved). Show the location name as a context chip/header so the user sees where it's going.
+   - `activePWs.length > 1` → render a `<select>` (or pill-row) labeled "Delivering to" with one option per open paddock window. Default-selected: the **most-recently-opened** window (by `date_opened` then `time_opened` descending). Rationale: best proxy for "where the cattle currently are." Same default works for both same-day strip moves (most-recent = current strip) and overnight cases (most-recent = where they grazed last).
+2. **Show the picked location prominently in the sheet** so the user can never not-see-it. A header chip (`G - 1` with the leaf glyph) below "Add Feeding" that updates when the picker changes.
+3. **Show the location chip on every §8 Feed Entries row** in event detail. Currently rows render `Apr 30, 26 · 0.68 bale Oak Field Barn`; change to `Apr 30, 26 · 0.68 bale Oak Field Barn → G-1`. Mobile + desktop. Quietly fixes the existing data confusion class — Tim couldn't see which paddock his historical entries were tied to without opening Supabase, which is what trapped him today.
+4. **Same chip on the feed-check sheet line headers** (per consolidated `(batch, location)` group). Currently each line reads `Round bale - Grass (bales)` with no paddock disambiguation; add `→ G-1` / `→ G-2` so the multi-line case is self-explanatory.
+5. **Same chip on Feed Checks rows in event detail** (already partially there per the screenshot — the "Apr 30, 26 · Oak Field Barn → G - 3 · 0.55 bale" row uses the arrow format). Audit for any feed-related list view that doesn't show paddock and add it.
+
+**Sub-questions resolved 2026-05-01:**
+
+- **Q1 → single picker.** One `<select>` at the top of the delivery sheet. All feed lines saved in this sheet use the same `location_id`. Per-line picker (one trip dropping bales at multiple paddocks) deferred — if field testing surfaces it as friction, file a Phase 2 OI then.
+- **Q2 → no further filter.** Picker shows every paddock window where `event_id === evt.id && date_closed IS NULL`. No additional filter for group-window co-location or "is anyone currently grazing here." The bug we're fixing was the system guessing; the fix should let the farmer pick. Pre-positioning feed at paddocks with no active event is filed as **OI-0143** (separate capability — different data model).
+
+
+
+**Acceptance criteria — Phase 1:**
+
+- [ ] On a single-open-window event, delivery sheet renders no picker and displays the auto-selected location as a header chip; feed entry row's `location_id` matches the only open window's location (no behavior regression).
+- [ ] On a multi-open-window event, delivery sheet renders a picker with one option per open paddock window, sorted most-recently-opened first; default selection is the top option.
+- [ ] Changing the picker updates the header chip immediately; feed entries saved use the picker's selected `location_id`, not `activePWs[0]`.
+- [ ] Every §8 Feed Entries row in event detail (mobile + desktop) renders a `→ {locationName}` chip after the existing label.
+- [ ] Every line in the feed-check sheet renders a `→ {locationName}` chip in the line header.
+- [ ] The Feed Checks list rows in event detail already use the `→` arrow format (per Tim's screenshot); audit + confirm no regression.
+- [ ] Manual verification: Tim opens his G-event delivery sheet, sees three options (G-1, G-2, G-3), picks G-1, saves; the row appears in §8 with `→ G-1`; the feed-check sheet groups it under the G-1 line.
+
+**Files to edit (Phase 1):**
+
+- `src/features/feed/delivery.js` — replace `activePWs[0]` with picker state; render `<select>` when `activePWs.length > 1`; pass selected `locationId` into every `FeedEntryEntity.create` in the save loop
+- `src/features/events/detail.js` — append `→ {locationName}` chip to every Feed Entries row's label (the §8 render path)
+- `src/features/feed/check.js` — append `→ {locationName}` chip to each line's header (where `feedName` is currently rendered as `${ft.name} (${unitLabel(batch?.unit)})`)
+- `src/i18n/locales/en.json` — `feed.deliverTo` (picker label), `feed.atLocation` (chip prefix arrow `→` is glyph-only, no string)
+- `tests/unit/features/feed/delivery-picker.test.js` — new: single-window (no picker), multi-window (picker rendered, default = most-recent, save uses selected ID)
+- `tests/unit/features/feed/feed-entries-row-display.test.js` — new: row renders `→ G-1` chip
+- `tests/e2e/feed-delivery-multi-paddock.spec.js` — new: scaffold a strip-grazing event with 3 open windows, deliver via picker, query Supabase to verify `location_id` matches the picked paddock (per CLAUDE.md §"E2E Testing — Verify Supabase, Not Just UI")
+
+**Schema change:** **NONE** — `event_feed_entries.location_id` already exists and is correctly typed; the bug is purely in client-side selection at write time. No migration.
+
+**CP-55/CP-56 impact:** **NONE** — no shape change.
+
+**Architectural notes:**
+
+- Adjacent class to OI-0124 (location field-name drift across observation surfaces) — both surface the broader category of "feed/observation features need explicit paddock context plumbed through, not implicit `[0]` defaults."
+- The sub-question Q2 above (filter open-but-inactive paddock windows from the picker) is the kind of "show all and let the user pick" vs. "filter to current grazing context" call that's worth Tim's input rather than Cowork's guess. The bug we're fixing is exactly the kind of guess we shouldn't make.
+- **PLUGIN IMPROVEMENT candidate:** any auto-selection from a multi-element collection where `[0]` is "fine for one element, arbitrary for many" is a latent bug class. A pre-commit grep for `\.filter\([^)]+\)\[0\]` (or similar) on entity collections would catch this pattern. Worth flagging in the next IMPROVEMENTS.md sweep.
+
+**Spec file:** `github/issues/OI-0140_feed-delivery-paddock-picker.md` — Phase 1 spec ready for Claude Code handoff (after Tim confirms Q1 + Q2).
+
+**Related:**
+- **OI-0139** (closed 2026-04-30) — feed-check prefill consolidation rule; the current OI exposes the *upstream* problem (some feed deliveries shouldn't have been split across locations in the first place)
+- **OI-0124** (open) — `loc.areaHa` field-name drift across observation surfaces; same class of "feed/observation features need paddock context explicitly threaded"
+
+---
+
 ### OI-0139 — Feed-check sheet prefill ignores deliveries timestamped after the most-recent feed check; same flaw in `getLiveRemainingForMove` — new bales delivered after a "0 remaining" check disappear from the next check's prefill, move-wizard live-remaining, and sub-move-close hint
 **Added:** 2026-04-30 | **Area:** v2-build / feed / bugs | **Priority:** P0 (live field-data confusion — Tim hit this on Pasture D today; the fresh bale delivered 2026-04-29 does not appear in today's feed-check prefill, which still reads 0; this is the same bug class as OI-0117 / OI-0133 — derived-on-read math drifting from ground truth — and it bleeds into every consumer of `getLiveRemainingForMove` (move wizard Step 3 transfer/residual amounts; sub-move close display hint), so any rotation closing on top of a stale "0 remaining" reading silently under-transfers the destination event and over-anchors the source close-reading) | **Status:** closed 2026-04-30 — landed in commit `c06d1bd` (GH-37). `getLiveRemainingForMove` now adds `Σ deliveries strictly > latestCheck (date, time)` on top of the latest check's `remainingQuantity`; `feed/check.js` consumes the helper instead of duplicating the formula (single source of truth across feed-check sheet, move-wizard Step 3, sub-move close hint); 1289/1289 tests passing including +12 new (6 helper cases + 6 sheet-level prefill cases) + 1 new e2e Supabase round-trip; 2 grep contracts pass. CLAUDE.md §"Architecture Audit" §6 extended with "live-remaining consumers" bullet. Pasture D feed-check prefill verified at `1` (was `0`).
 
@@ -100,57 +391,76 @@ Timestamp comparison: use `${date}T${time || '00:00'}` for both sides; treat `ti
 ---
 
 ### OI-0138 — Dev Mode surface: gated in-app tools shelf; first tool is an Event Audit walk-through view that reconciles child records, calc inputs/outputs, DMI bars, and store↔Supabase drift on one page
-**Added:** 2026-04-22 | **Area:** v2-build / dev-tools / testing / diagnostics | **Priority:** P2 (high-leverage testing capability — every silent-drift class from the last month would have been minutes-to-find instead of days with this surface in place; not blocking field testing but compounds across every future bug)
+**Added:** 2026-04-22 | **Area:** v2-build / dev-tools / testing / diagnostics / member-management / supabase-schema | **Priority:** P2 (high-leverage testing capability — every silent-drift class from the last month would have been minutes-to-find instead of days with this surface in place; not blocking field testing but compounds across every future bug)
 
-**Status:** open — DESIGN REQUIRED, do not build. Shape and gating agreed with Tim in the 2026-04-22 design conversation; six open sub-questions below must resolve before a Claude Code spec is written.
+**Status:** open — DESIGN LOCKED 2026-05-01, ready for Claude Code spec write-up. All seven sub-questions resolved (six original + Q3 revised + Q5b cycling addition). MVP scope, gating mechanism, entry points, layout priority, linked-pair activation, calc-card resolver approach, navigation, and member-management UI all decided. Companion **OI-0142** opened for the eventual per-calc `explain()` refactor. CP-55/CP-56 impact updated; see below.
 
-**What we agreed this session (2026-04-22 design conversation, Tim + Cowork):**
+**What we agreed (2026-04-22 design conversation, decisions locked 2026-05-01):**
 
 1. **Dev Mode is an in-app umbrella**, not a separate build and not a separate tool. Turning it on surfaces a shelf of diagnostic tools inside the live app so Tim can inspect real field data on his phone without a second deployment.
-2. **Gate: user-ID allow-list** — option (b) from the three options considered (build flag / user-ID allow-list / open settings toggle). The shelf is only rendered when the logged-in user's ID is in a hardcoded allow-list of operator IDs. Normal users never see it exists. Works on the live deployed site so Tim can audit real events from his phone without a special build.
-3. **Anchor point in code:** `src/features/settings/tools-section.js` — its file header already names "diagnostics" and "repair routines" as future tenants. Dev Mode slots in as a sibling card (or its own section) behind the allow-list check.
+2. **Gate: per-operation `is_dev` flag on `operation_members`** (revised 2026-05-01 from the initial standalone `dev_users`-table proposal). Owners and admins of each operation manage dev access through the existing member-management UI. Per-operation scope is correct — being a dev on one operation does not grant Dev Mode access on another. Bootstrap is a one-line SQL via Supabase MCP to flag the first dev (Tim, on operation `ef11ee62`); after that, the in-app toggle takes over.
+3. **Anchor point in code:** `src/features/settings/tools-section.js` — its file header already names "diagnostics" and "repair routines" as future tenants. Dev Mode slots in as a sibling card (or its own section) gated by the `is_dev` check.
 4. **Principle — do NOT duplicate calc or render logic.** The audit view reuses the live store, the calc registry, the DOM builder, the DMI bar renderer, formatters, and `t()`. If a calc is wrong, the audit view shows exactly what the app shows. Duplicated logic would let the audit view lie.
-5. **First tool: Event Audit walk-through view** (detailed below).
-6. **The shelf is real, not aspirational** — other tools are named now so the architecture accommodates them even if we only build the first.
+5. **MVP first build: three tools.** Event Audit walk-through (headline value), Error log viewer (over `app_logs`), Schema/migration readout. Other four shelf tools deferred to opportunistic OIs.
+6. **The shelf's foundation is real, not aspirational** — the four deferred tools are named so the architecture accommodates them; only their bodies are out of scope for MVP.
 
-**Shelf — named tools (build order not locked; name them so Claude Code designs the surface to host all of them):**
+**Shelf — MVP scope (3 tools) + deferred (4 tools):**
 
-1. **Event Audit walk-through** — FIRST, scope below.
-2. **Error log viewer** — query `app_logs` with filters by severity, category, operation_id, date range; CSV export.
-3. **Sync queue inspector** — pending writes, failed writes with last error + retry count + next retry time.
-4. **Manual calc trigger** — pick a registered calc + an entity ID, run it, see the output and the input trace.
-5. **Store + localStorage snapshot export** — zip the in-memory store + raw localStorage to a download, for bug reports or repro.
-6. **Force-resync** — re-pull remote state from Supabase and overwrite local. Hard escape hatch when store drifts from DB.
-7. **Schema + migration readout** — current `schema_version`, list of `BACKUP_MIGRATIONS` rules, max migration file number on disk, and a flag if the three disagree.
+**MVP — build now:**
 
-**Event Audit view — spec skeleton (layout pending full design):**
+1. **Event Audit walk-through** — see Event Audit view section below.
+2. **Error log viewer** — query `app_logs` with filters by severity, category, operation_id, date range; CSV export. Reads `src/utils/logger.js` infrastructure; replaces "open dev tools console" workflows that don't work on iOS Safari.
+3. **Schema + migration readout** — three numbers shown side-by-side with a red flag if they disagree: `operations.schema_version` (live store), highest `BACKUP_MIGRATIONS` rule key in `src/data/backup-migrations.js`, highest migration file number in `supabase/migrations/`. Catches the OI-0053-class "migration written but not run" bug and the Code Quality Check #6 enforcement gap at first glance.
 
-One scrollable page per event (or per linked event pair), organized as a walk-through so the eye moves through the event the way it actually happened. Six sections, top to bottom:
+**Deferred (open follow-on OIs only when needed):**
 
-1. **Event header strip** — event ID, type, `source_event_id` if any, derived start/end (via `getEventStart` / `getEventStartDate`), farm, operation. Any stored value that disagrees with the derived truth gets a red chip at this level so drift is visible before you scroll.
-2. **Timeline ribbon** — vertical chronological dots for the event lifecycle: paddock opened → group joined → feed delivered → feed check → sub-move → closed. Each dot links to its raw child row below.
-3. **Child record tables** — `event_paddock_windows`, `event_group_windows`, `event_feed_entries`, `event_feed_checks` + `event_feed_check_items`, observations. Each row expandable to show the raw record.
-4. **Calc cards (the hero section)** — one card per registered calc touching this event (DMI-8 per day, days-on-pasture, cost, NPK residual, EST-1 if closed). Each card shows:
+4. Sync queue inspector — pending/failed writes with last error + retry count.
+5. Manual calc trigger — pick a registered calc + an entity, run, see output and input trace.
+6. Store + localStorage snapshot export — zip in-memory store + raw localStorage to a download.
+7. Force-resync — re-pull remote state and overwrite local. Hard escape hatch when store drifts from DB.
+
+**Locked decisions (the seven design questions):**
+
+- **Q1 — MVP scope:** 3-tool MVP (Event Audit + Error log viewer + Schema/migration readout). Four named tools above deferred.
+- **Q2 — Entry points:** `/dev` home route lists the three tools. Plus a contextual "Audit this event" button on event-detail and sub-move-detail when Dev Mode is on, so the user can jump straight from normal app flow into the audit page for that event.
+- **Q3 — Allow-list storage (revised 2026-05-01):** originally locked as a standalone `dev_users` table; revised during the design walk-through to `is_dev boolean not null default false` column on existing `operation_members` table. Reasoning: (a) per-operation scope is correct (dev access shouldn't cross operations); (b) reuses existing granular RLS on `operation_members` from OI-0054 (no new policy work); (c) inherits existing member-management UI patterns; (d) one column on a backed-up table is a simpler migration than a new excluded-from-backup table; (e) directly answers Tim's ask that owners/admins manage the flag from member-management UI rather than direct SQL.
+- **Q4 — Mobile layout:** desktop-first, mobile is a fallback. Linked-pair view uses true side-by-side; calc cards can sit in a 2-column grid; store↔Supabase diff panel can sit alongside the bars rather than below.
+- **Q5 — Linked-pair activation:** auto-detect via `source_event_id`. Audit page opens in single-event mode by default; if the event has a linked source/destination, a small banner near the header reads `Source: G-1 | Destination: F-1` with a button next to each entry to expand into pair view. User picks which boundary to inspect for middle-of-chain events with both.
+- **Q5b — Audit page navigation (added during locking):** audit page has its own header with prev/next arrows and a "Pick event…" search/picker. Prev/next cycles chronologically across all events for the current operation, ordered by `getEventStartDate` ascending. A small filter dropdown in the audit header switches the cycle axis on the fly to "Same group(s) as audited event" or "Same paddock(s) as audited event" without leaving the page.
+- **Q6 — Calc-card input trace:** **Option 1 — audit-code resolvers** for MVP. Sidecar resolver file `src/features/dev-mode/audit-resolvers.js` with one resolver per calc the audit surfaces (~7 resolvers for MVP: DMI-2, DMI-3, DMI-8, FOR-1, days-on-pasture, cost, NPK residual). Each resolver returns `{ inputs: [{ name, value, source }], output }`. Zero touches on existing calc files. **Companion OI-0142** opened for the eventual Option 3 (`explain()` per calc) refactor — that's the architecturally correct end-state but is a 35-file calc refactor, deferred until pattern-pressure forces it.
+
+**Member-management UI scope (Q3 follow-on):**
+
+The existing user-management surface (per OI-0124 for member-row editing) gets one new control on each member row:
+
+- **Toggle:** "Dev Mode access" — checkbox or switch.
+- **Visibility:** rendered only when the viewer is owner or admin of the operation.
+- **Permissions:** owners can grant/revoke for any member including themselves; admins can grant/revoke for any non-owner member; members and viewers cannot toggle (RLS rejects the UPDATE if attempted).
+- **Wire-up:** toggle calls `store.update('operationMembers', memberId, { isDev: !current.isDev }, validate, toSupabase, 'operation_members')` per CLAUDE.md Code Quality Check #7 (6-param `update()`).
+- **Visual cue when on:** member-list row shows a small "DEV" chip next to the role chip.
+- **OI-0124 interaction:** if OI-0124 (display_name/email edit + role-edit-on-pending-invite) ships before OI-0138, the dev toggle slots into the same edit affordance. If OI-0138 ships first, OI-0124 widens its scope to include the same row of controls. Either order works; spec author should grep OI-0124 status before writing the row UI.
+
+**Event Audit view — full layout (locked):**
+
+Seven sections, top to bottom, on one scrollable desktop-first page:
+
+1. **Audit header strip (NEW per Q5b):** event ID + type + farm + operation, plus prev/next arrows, "Pick event…" picker, and the cycle-axis filter dropdown (default: chronological across all events; alternates: by group / by paddock). Sticky at the top during scroll so navigation is always one click away.
+2. **Event header strip:** `source_event_id` if any, derived start/end (via `getEventStart` / `getEventStartDate`), close date if closed. Linked-pair banner here (`Source: ... | Destination: ...` chips with per-side "Audit as pair" buttons). Any stored value that disagrees with the derived truth gets a red chip.
+3. **Timeline ribbon:** vertical chronological dots for the event lifecycle: paddock opened → group joined → feed delivered → feed check → sub-move → closed. Each dot links to its raw child row below.
+4. **Child record tables:** `event_paddock_windows`, `event_group_windows`, `event_feed_entries`, `event_feed_checks` + `event_feed_check_items`, observations. Each row expandable to show the raw record JSON.
+5. **Calc cards (the hero section):** one card per registered calc touching this event. MVP set: DMI-2 (per active group window), DMI-3 (combined per day), DMI-8 (daily breakdown for the chart), FOR-1 (forage gate), days-on-pasture, cost, NPK residual. Each card shows:
    - Calc name + registry ID
-   - Every input value, with the source record and field it was pulled from (e.g. `forageHeightCm: null ← paddock-window-abc.preGrazeObs`)
-   - Gate status if applicable (FOR-1, FOR-2, etc) with the reason it fired
+   - Every input value with the source record and field it was pulled from (e.g. `forageHeightCm: null ← paddock-window-abc.preGrazeObs`) — resolved via the sidecar resolver per Q6
+   - Gate status if applicable (FOR-1 / FOR-2 etc) with the reason it fired
    - Output value
-   - *Purpose:* an eye-level trace of "why is this grey?" / "why is this wrong?" that doesn't require opening the console.
-5. **DMI bar chart** — the real dashboard bar chart for the event's window, rendered from the same component the dashboard uses, so forecast vs. actual is visible alongside the calc cards that produced the forecast. Bars are the reconciliation visual.
-6. **Store ↔ Supabase diff panel** — small panel per entity section that pulls the raw Supabase row and red-highlights any field where the store's value disagrees. Catches the coercion class (OI-0103–OI-0106), the `toSupabaseShape` / `fromSupabaseShape` drift class, and the "migration wasn't run" class (OI-0053) — none of which are visible from the in-app render alone.
+   - 2-column grid on desktop, single column on phone
+   - *Purpose:* an eye-level trace of "why is this grey?" / "why is this wrong?" without opening the console
+6. **DMI bar chart:** the real dashboard renderer for the event's window, so forecast vs. actual is visible alongside the calc cards that produced the forecast. Bars are the reconciliation visual.
+7. **Store ↔ Supabase diff panel:** small panel per entity section that pulls the raw Supabase row and red-highlights any field where the store's value disagrees. Catches the coercion class (OI-0103–OI-0106), the `toSupabaseShape` / `fromSupabaseShape` drift class, and the "migration wasn't run" class (OI-0053). Sits alongside the bars on desktop; below on phone.
 
-**Linked-event-pair mode:** same page rendered twice side-by-side for a source event + its successor (matched via `source_event_id`), with an extra **handoff panel** showing paddock-close vs. paddock-open alignment and group-leave vs. group-join alignment at the boundary. This is where OI-0115 / OI-0137-class drift would show up at a glance.
+**Linked-event-pair mode:** when the user clicks "Audit as pair" on the source or destination chip, the page renders both events side-by-side (true two-column layout on desktop) with an extra **handoff panel** showing paddock-close vs. paddock-open and group-leave vs. group-join alignment at the boundary. Mismatches red-chipped. This is where OI-0115 / OI-0137-class drift would show up at a glance.
 
-**Open sub-questions to resolve before Claude Code spec is written:**
-
-- **Entry points** — dedicated `/dev` home route that lists the shelf? Contextual "Audit this event" button on event detail when Dev Mode is on? Both?
-- **Allow-list storage** — hardcoded constant in source (simpler, no round-trip, needs rebuild to add a device), or Supabase-backed `dev_users` table (flexible, one more query on boot)?
-- **Mobile layout** — desktop-first OK, or does the audit view need to be phone-usable? (Tim said seeing it matters; form factor not pinned. DMI bars + linked-pair side-by-side is tight on phone.)
-- **Linked-pair activation** — auto-detect via `source_event_id` and switch to linked mode automatically? Or require an explicit toggle/picker?
-- **Calc-card input trace** — does the calc registry already expose enough metadata to emit the input-with-source trace, or does each calc need a new `explain()` mode? If the latter, that's a follow-on OI for the calc registry.
-- **Shelf scope for MVP** — which of the seven named tools are "spec now" vs. "add when needed"? Cowork's lean: Event Audit + Error log viewer + Schema readout as MVP; others opportunistic.
-
-**Why this matters (captured for future-me when this OI is read in context):**
+**Why this matters:**
 
 Every silent-drift bug in the last month was invisible to the UI and took hours-to-days to trace because nobody had a single page showing the raw rows + the calc inputs + the calc output + the rendered bars side-by-side. Specifically:
 
@@ -159,21 +469,39 @@ Every silent-drift bug in the last month was invisible to the UI and took hours-
 - OI-0117 / OI-0133 (stored-vs-derived drift) — same class as OI-0115, caught only because Tim happened to look at the right row.
 - OI-0135 (move-wizard used original delivery total instead of live-remaining) — invisible until Tim pulled Supabase rows by hand and compared against feed-check history.
 - OI-0137 (backdated cull silently closed the group's open window) — the linked-pair + group-window views would have shown the impossible `date_left < date_joined` state at first glance.
+- OI-0139 (feed-check prefill ignoring post-check deliveries) — the calc-card input trace would have shown which rows were and weren't being summed.
 
-A Dev Mode shelf gated behind a user-ID allow-list makes this diagnostic page one tap away on the live site, on Tim's phone, without adding risk to the user-facing build.
-
-**Reference points in current code (for the design session):**
+**Reference points in current code:**
 
 - `src/features/settings/tools-section.js` — existing anchor; file header explicitly invites "diagnostics" and "repair routines."
+- `src/features/settings/operation-members/` (or wherever member-management UI lives — spec author confirms path) — host for the Dev Mode access toggle.
+- `src/data/store.js` — `getGroupCurrentFarm`, `getAll`, subscription plumbing. Needs a new helper `isCurrentUserDev(operationId)` that reads `operation_members.is_dev` for the active user × active operation.
+- `src/entities/operation-member.js` — needs `is_dev` added to `FIELDS`, `validate()`, `toSupabaseShape()`, `fromSupabaseShape()`.
 - `src/features/events/event-start.js` — `getEventStart` / `getEventStartDate` for derived event start.
-- `src/data/store.js` — `getGroupCurrentFarm`, `getAll`, subscription plumbing.
-- `src/calcs/*.js` — the registered calcs the cards need to surface. Grep for `registerCalc(` to enumerate.
-- `src/features/dashboard/` — the DMI bar renderer to reuse.
+- `src/calcs/*.js` — registered calcs the audit page surfaces; new `src/features/dev-mode/audit-resolvers.js` builds against them.
+- `src/features/dashboard/` — DMI bar renderer to reuse.
 - `src/utils/logger.js` + `app_logs` table — source for the Error log viewer tool.
+- `src/data/backup-migrations.js` — new no-op rule for the schema bump.
 
-**CP-55/CP-56 impact:** **none** — Dev Mode is a read-only surface over existing state. No new tables, no new columns, no JSONB shape changes, no `schema_version` bump. If any shelf tool later wants to write (e.g. Force-resync writes to the sync queue, or a repair routine writes a correction), that tool's OI must re-evaluate CP-55/CP-56 impact at that time.
+**CP-55/CP-56 impact:** **revised — non-trivial.**
 
-**Next step:** design session to walk through the six sub-questions; then write the Claude Code spec to `github/issues/dev-mode-event-audit.md` (or similar) as a thin pointer to this OI body once the detail is locked.
+- **`operation_members.is_dev` new column.** `operation_members` is already in `BACKUP_TABLES`. CP-55 export adds the field. CP-56 import maps missing field → `false` for pre-bump backups (column default applies on read). Round-trip test required for the new field.
+- **`schema_version` bump** — current → next. Migration file `NNN_dev_mode_is_dev_column.sql` updates `operations` row. `BACKUP_MIGRATIONS[next-1]` no-op rule per Code Quality Check #6.
+- **No new tables.** Standalone `dev_users` table from the original Q3 lock is no longer in scope.
+
+**Migration & verification (per CLAUDE.md Migration Execution Rule):**
+
+1. Write `supabase/migrations/NNN_dev_mode_is_dev_column.sql` — adds `is_dev boolean not null default false` to `operation_members`, bumps `operations.schema_version`.
+2. Execute against Supabase via MCP.
+3. Verify with `SELECT column_name, data_type, column_default FROM information_schema.columns WHERE table_name = 'operation_members' AND column_name = 'is_dev';` and `SELECT schema_version FROM operations LIMIT 1;`.
+4. Bootstrap: one-line SQL `UPDATE operation_members SET is_dev = true WHERE user_id = '<tim-user-id>' AND operation_id = 'ef11ee62-b720-4f0c-848a-18e1dd93de30';`.
+5. Report verification in commit message: "Migration NNN applied and verified; is_dev column live; Tim flagged on operation ef11ee62."
+
+**Companion OIs:**
+
+- **OI-0142** — Calc registry: per-calc `explain()` for centralized input resolution (graduate audit-code resolvers from OI-0138). Deferred until pattern-pressure forces it; opened so the architectural direction is recorded.
+
+**Next step:** Cowork writes the umbrella spec file `github/issues/dev-mode-event-audit.md` covering the 3-tool MVP. Spec is one umbrella file (not three) because the foundation work — gate, route, header chrome, `is_dev` column + entity update, member-management UI toggle — is shared across tools. Implementation order in the spec: (1) migration + bootstrap → (2) entity + store helper → (3) gate check + `/dev` route + shell → (4) member-management UI toggle → (5) Event Audit page → (6) Error log viewer → (7) Schema/migration readout. After spec lands, Claude Code session brief authored separately.
 
 ---
 
@@ -4844,6 +5172,8 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-05-01 | OI-0140 locked (Q1 + Q2 answered) + OI-0143 opened (pre-positioned feed, Option 2 framework) | Continuation of the morning's G-event session. Tim answered OI-0140's two sub-questions: **Q1 = single picker** (one `<select>` for the whole sheet; per-line picker deferred unless field need surfaces); **Q2 = no further filter beyond `activePWs`** — picker shows every paddock window where `event_id === evt.id && date_closed IS NULL`. OI-0140 status flipped from "Two sub-questions flagged" to "DESIGN LOCKED, ready for Claude Code." Spec file `github/issues/OI-0140_feed-delivery-paddock-picker.md` updated to remove the "do not start" hold. **In the same exchange Tim asked the deeper question:** *"If delivered where no animals are grazing, how does it get connected to an event once they are grazing in that paddock? Is that possible?"* Cowork explained the current model is strictly event-centric (`event_feed_entries.event_id` is `NOT NULL`; delivery sheet is reachable only from event detail), so pre-positioning is unrepresentable today. Three architectural options laid out: (1) nullable `event_id` + backfill rule; (2) new `staged_feed_entries` table + explicit hand-off; (3) phantom location-only event. **Tim's call: Option 2.** Cleanest separation, explicit transition, no overloaded nullable semantics. **OI-0143 added** at top of Open with Option 2 DESIGN LOCKED on framework, six sub-questions (SQ1–SQ6) DESIGN REQUIRED before Claude Code spec is written: SQ1 entry-point (location detail vs inventory screen vs new tab), SQ2 hand-off trigger (auto-on-event-open vs manual prompt vs first-feed-check), SQ3 partial consumption between staging and event open (use staged qty vs prompt at hand-off vs forced first feed check), SQ4 multi-event matching rule, SQ5 location-card visibility of staged inventory, SQ6 CRUD on staged rows pre-handoff. Cowork's leans documented for each. **Schema change:** YES (new table, migration NNN, schema_version bump). **CP-55/CP-56 impact:** YES (new BACKUP_TABLES entry, new FK_ORDER position, BACKUP_MIGRATIONS no-op for old backups). **Calc / DMI impact:** none until hand-off (staged rows don't enter feed-forage cascade); after hand-off the resulting `event_feed_entries` row participates unchanged. **Spec file:** `github/issues/OI-0143_pre-positioned-feed.md` (DESIGN REQUIRED placeholder; full implementation spec written when SQ1–SQ6 resolve). **PLUGIN IMPROVEMENT candidate inline:** "staged_X paired with event_X tables + explicit hand-off helper" pattern may generalize to other event-centric domains (staged observations, staged amendments) — flag in next IMPROVEMENTS.md sweep once OI-0143 ships. **No code change this session — OPEN_ITEMS.md edits + 1 spec file update + 1 new spec file only.** Note on numbering: OI-0142 was already claimed earlier today by an unrelated calc-registry-explain entry; this OI is OI-0143. Related: OI-0140 (sister OI — fixes routing within an event; OI-0143 adds the no-event-yet surface), OI-0117 / OI-0133 (drift-class avoidance the Option 2 framework deliberately follows), OI-0119 (forced feed check on event boundaries — the OI-0143 SQ3 leaning on "first check captures actual remaining" reuses that boundary check). |
+| 2026-05-01 | OI-0140 opened + OI-0141 opened + live-data heal on Tim's G-event | Tim reported two issues from this morning's field check on his G-event (`fb407a55-aa0e-4cbb-b906-af6964a0addc`, three open paddock windows G-1/G-2/G-3 simultaneously, strip-grazing pattern): (1) feed-check sheet showing two split lines (one G-3, one G-2) when his mental model was one consolidated feeder; (2) desktop tab missing entries that mobile and Supabase both correctly hold despite both clients showing a green "Synced" indicator. Cowork queried Supabase live (project `sxkmultsfsmfcijvsauf`) and traced both. **Issue 1 → OI-0140:** Tim asked "is there no way to select a paddock when delivering feed?" Confirmed via `src/features/feed/delivery.js:41-49`: code computes `activePWs = getAll('eventPaddockWindows').filter(...).filter(!dateClosed)`, picks `activePWs[0]` from the unsorted localStorage array, applies that single `locationId` to every feed line saved in the sheet — no UI to pick, no header label showing which paddock was silently chosen. On single-window events the auto-pick is fine; on multi-window events the assignment is essentially arbitrary per session because localStorage insertion order shifts. Tim's first bale was physically placed at G-1 but recorded at G-3; second bale correctly at G-2 by chance. **Live-data heal executed via Supabase MCP this session with Tim's approval:** `UPDATE event_feed_entries SET location_id = 'G-1' WHERE id = 'b9f9add7-...'` and matching update on `event_feed_check_items` (`10ab2005-...`). Date column on the entry was briefly shifted Apr 29 → Apr 30 then reverted per Tim's "revert the date" call to keep the entry timestamp before the Apr 30 08:23 check (otherwise the OI-0139 strict-`>` rule would have read the bale as fresh hay on top of the check). Final state: entry `2026-04-29 14:00 / G-1 / 0.68 bale`; check item `Apr 30 08:23 / G-1 / 0.55 remaining`; second entry `Apr 30 14:30 / G-2 / 1.0 bale` untouched. Verified via SELECT round-trip. **OI-0140 added** at top of Open with Phase 1 DESIGN LOCKED scope (paddock picker on multi-window events; default to most-recently-opened; show `→ {locationName}` chip on every Feed Entries row, every feed-check line, every Feed Checks list row) and two sub-questions (Q1 per-line picker vs single picker; Q2 filter open-but-inactive windows from picker) flagged for Tim before Claude Code spec lock. **Spec file:** `github/issues/OI-0140_feed-delivery-paddock-picker.md`. **Issue 2 → OI-0141:** Cowork inspected `src/main.js:208,212` + `src/data/pull-remote.js` + `src/ui/header.js:398-402`. Confirmed `pullAllRemote()` runs only on app boot and `window.online` event — never on tab visibility change, never periodically, no Supabase realtime subscriptions. Confirmed sync indicator reads only `adapter.getStatus()` which reflects only the outgoing push queue (`idle` = "nothing left to push from this device"), reports nothing about pull freshness. Two together = silent multi-device drift indistinguishable from a working app. Tim's desktop was missing 1 entry created today and 1 check created yesterday; both stored correctly in Supabase, both rendered correctly on mobile, both clients showed green dot. **OI-0141 added** at top of Open with Phase 1 DESIGN LOCKED scope: visibility-change listener fires `flush() + pullAllRemote()` when tab returns to visible; honest sync indicator with last-pulled-at timestamp + 15-min stale flip to amber; manual-refresh-on-tap replaces navigate-to-Settings on the dot. Phase 2 (realtime subscriptions) deferred to separate OI when Phase 1 ships. **Spec file:** `github/issues/OI-0141_desktop-pull-on-visibility.md`. **Schema change:** NONE for either. **CP-55/CP-56 impact:** NONE for either. **Two PLUGIN IMPROVEMENT candidates flagged inline:** (1) auto-selection from multi-element collections via `[0]` is a latent bug class — pre-commit grep for `\.filter([^)]+)\[0\]` would catch; (2) "green sync dot = fully synced" is a default-wrong assumption that local-first sync architectures should report both directions of freshness for. Both worth a row in IMPROVEMENTS.md next sweep. **No code change this session — OPEN_ITEMS.md edits + 2 spec files + live-data SQL only.** Related: OI-0139 (just closed — exposed Issue 1 as the upstream "wrong split in the first place" problem), OI-0050 (closed — silent sync gap class). |
 | 2026-04-30 | OI-0139 opened — feed-check sheet prefill ignores deliveries timestamped after the most-recent feed check; same flaw in `getLiveRemainingForMove` | Tim reported on Pasture D today: he took a feed check that recorded 0 remaining, then delivered 1 fresh bale, and the next feed check still prefills "Last check: 0" without the new bale. Cowork queried live Supabase (`sxkmultsfsmfcijvsauf`, event `52bca23d-...`) to confirm the data shape: 2 deliveries (qty 1 each, batch `bef27752`, loc `a334f135`, dated 2026-04-16 and 2026-04-29 15:02), 5 feed-check items on the same pair walking 0.85 → 0.80 → 0.70 → 0.40 → 0 (the last on 2026-04-28 13:51, *before* the 04-29 delivery). Correct prefill today = `0 + 1 = 1 bale`. Traced the bug to two consumers with the same formula flaw: (a) `src/features/feed/check.js:84-87` sets per-line `remaining = lastCheckUnits != null ? lastCheckUnits : startedUnits` — uses the prior check's reading directly without adding post-check deliveries on top; (b) `src/calcs/feed-state.js:34-42` (`getLiveRemainingForMove`, the OI-0135 helper) overrides the seeded delivery sum with the most-recent check's `remainingQuantity`, same flaw. Helper is consumed by move-wizard Step 3 transfer/residual amount and sub-move close display hint, so the drift bleeds into every move that runs after a "0 remaining" check followed by a fresh delivery. Tim asked the right architectural question — "isn't it always calculated vs stored?" — and the answer is yes: nothing in the DB stores live-remaining; the historical check rows are correct observations; the bug is purely formula-side at read time. **No data repair required, no schema change, no CP-55/CP-56 impact.** Same drift class as OI-0117 / OI-0133 (derived value drifts from ground truth at read time), but expressed in feature code rather than schema. Locked fix rule: per `(batchId, locationId)`, live-remaining = `lastCheck.remainingQuantity + Σ deliveries with (date, time) strictly > last check's (date, time)`; fall back to `Σ all deliveries` when no prior check exists. Strict `>` so a same-instant delivery is captured by the check, not double-counted. Fix lifts identical logic into `getLiveRemainingForMove` so both surfaces drift together going forward; the feed-check sheet should ideally consume the helper rather than re-implementing it. **Spec file:** `github/issues/OI-0139_feed-check-prefill-post-delivery.md` — full spec, 5 unit-test cases per consumer + e2e Supabase round-trip per CLAUDE.md §E2E rule. **No code change this session — OPEN_ITEMS.md entry + spec file only.** Related: OI-0135 (closed 2026-04-22, introduced `getLiveRemainingForMove` — fixed half the drift class; this OI completes the fix); OI-0117 / OI-0133 (same drift class, schema-layer cure); OI-0119 (closed 2026-04-20, sub-move close forced feed-check — consumes the helper indirectly via DMI-8 cascade). |
 | 2026-04-22 | OI-0137 opened — backdated cull/calving/weight/split/group-weigh silently closes the group's open event_group_window | Tim reported Cow-Calf Herd was unplaced after OI-0132 shipped; re-placed manually in F-1 but flagged it for investigation. Cowork ruled out OI-0132 (calving-sync only touches `animal_calving_records`) and OI-0133 (derivation is correct — the data was corrupt). Used Supabase MCP against `sxkmultsfsmfcijvsauf` to find the smoking gun: a cull of animal tag #11 with `cullDate=2025-08-30` (backdated 8 months) wrote two rows 14 ms apart — membership close `2025-08-30` (correct) AND window `7733d0f0` close `2025-08-30` (corrupt — window was joined 2026-04-21). Traced root cause to `src/features/animals/cull-sheet.js:118-121` in `confirmCull`: passes `cullDate` as `changeDate` to `splitGroupWindow`. When `cullDate < dateJoined`, `getLiveWindowHeadCount(..., now: cullDate)` returns 0 and `splitGroupWindow` delegates to `closeGroupWindow`, silently stamping the open window closed with an impossible date. Grep sweep found the same bug class in **five code sites** total: `cull-sheet.js:118-121`, `calving.js:165`, `weight.js:74`, `animals/index.js:782-783` (split-group sheet), `animals/index.js:1232` (group-weigh sheet). Two sites already correct (`animals/index.js:573, 1882-1883` pass `todayStr`). Plus one **validator gap**: `event-group-window.validate()` permits `date_left < date_joined` which should never be a valid state. **Tim locked two decisions:** (1) always use "now" for the group-window split changeDate ("retroactively adjusting every past event window is a nightmare and high risk"); (2) DELETE corrupt window `7733d0f0-36ef-434c-b32f-e78315c25688` outright ("history in event windows is intact"). **Backfill confirmed working** — Tim ran it successfully; calving records now populated. **Spec file:** `github/issues/OI-0137_backdated-entry-closes-current-window.md` — five code fixes + two validator guards (event-group-window + event-paddock-window for parity) + live-data DELETE + 4 unit test suites + grep contracts. **Schema change:** NONE. **CP-55/CP-56 impact:** NONE. **OI-0132 / OI-0133 ruled out as cause** — OI-0133 just made the pre-existing data-corruption bug newly visible as "group labeled unplaced" instead of drifting silently via the old stored `groups.farm_id`. **OI-0091 relationship:** OI-0091 landed the "split window on cull" pattern OI-0137 corrects — not a revert, just fixing the date argument that was passed in. **Related:** OI-0115 (phantom-change teardown-guard class — same "save cascade writes corrupt field value" family, different root cause). **No code change this session — OPEN_ITEMS.md + spec file only.** |
 | 2026-04-22 | OI-0132 shipped — dam ↔ calf bidirectional sync + backfill tool + SP-14 | Claude Code shipped the entire OI-0132 bundle in one commit (`e9b40eb`; docs stamp follow-up `a897267`). **Class A — helper `src/features/animals/calving-sync.js`:** `syncCalvingRecordForAnimal({before, after, operationId, confirmDeleteHandler})` with four transitions (A1 create on null→non-null, A2 move-preserves-history on non-null→non-null via UPDATE not DELETE+INSERT, A3 delete on non-null→null with confirm dialog plumbed via handler, A4 calved_at update on birthDate change) plus noop return with `reason` discriminator (`dam-not-found` / `already-exists` / `no-change`). Return shape `{ action, calvingRecordId, aborted, reason }`. **Class A — `saveAnimal` wiring:** now `async`; hard gate rejects save when `damId` set and `birthDate` null (inline error, no soft-warn path); A3 confirm dialog fires BEFORE the `update('animals', …)` call lands so cancel aborts the entire save atomically (animal row not mutated on cancel). **Class B — `src/features/animals/backfill-calving-records.js`:** idempotent batch routine iterates all animals, routes qualifying calves (damId + birthDate + dam exists + no matching record) through `syncCalvingRecordForAnimal` in A1 mode (confirmDeleteHandler = null, never fires). **Class B — Settings > Tools UI at `src/features/settings/tools-section.js`:** new section with Run button + 5-counter summary panel (scanned / created / skipped no-dam / skipped no-birthdate / skipped already-exists). Second run reports 0 created (idempotent). **SP-14 — Edit Animal layout:** Dam and Birth date in a 60/40 flex row; Birth date label hint toggles "optional" (grey) ↔ "required" (red) based on Dam selection — visually reinforces the hard gate at form-fill time. **i18n:** +2 `animal.*` keys (hard-gate error + A3 confirm dialog body), +11 `tools.*` keys (section title, button, panel labels for all 5 counters, empty/running/done states). **Tests:** +29 unit (12 helper transitions incl. atomicity, 9 Edit Animal dialog DOM incl. dynamic hint + hard-gate, 5 backfill counter scenarios, 3 tools UI), +2 e2e with Supabase round-trip assertion per CLAUDE.md §E2E rule. Full suite 1241 → 1270, all green. **GitHub issues:** `github/issues/dam-calf-bidirectional-sync.md` → `GH-34_*.md` (opened + closed on ship); `github/issues/backfill-calving-records-from-lineage.md` → `GH-35_*.md` (opened + closed on ship). **Piggyback sweep:** no sibling OIs retired — OI-0099 already shipped (its `saveAnimal` read of `inputs.damId` was a dependency this bundle built on, not a passenger); OI-0096 is unrelated. **Downstream-moot sweep:** no column/table/file drops in this commit, so nothing to retire. **Schema change:** NONE (Option 1a — no `source` column on `animal_calving_records`). **CP-55/CP-56 impact:** NONE. **Base-doc reconciliation target (pending at sprint end):** V2_UX_FLOWS.md §15 Animals needs an Edit Animal dialog subsection documenting the shared row layout + dynamic label rule + hard gate + A1–A4 transitions + Settings > Tools backfill entry point. SP-14 status flipped in UI_SPRINT_SPEC.md to `Shipped 2026-04-22 · commit e9b40eb (bundled with OI-0132 Class A + Class B)`. OI-0132 status line already flipped to `shipped — 2026-04-22, commit e9b40eb` at the OI entry. |
@@ -4925,4 +5255,5 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 | 2026-04-22 | OI-0135 + OI-0136 opened — move-wizard feed-transfer bugs surfaced from Tim's 4/20 G→E→F chain | Tim asked why the 4/21 E→F move didn't ask for a feed check. Supabase investigation of the chain (`fa16a58d` E-3 event + `da54838f` G-1/G-3 parent + `38cb666e` F-1 destination, plus 8 feed checks spanning 4/18–4/21) surfaced two defects in the move-wizard that are independent of each other: (1) **OI-0135** — the transfer/residual quantity is computed as `sum(event_feed_entries.quantity)` on the source event, i.e., **original delivery total**, not live-remaining. Tim's G-1 had four feed checks showing 0.75 → 0.5 → 0.5 remaining; the 4/20 move ignored them all and transferred 1 bale to E-3 (should have been 0.5). The close-reading at G-1 was stamped `remaining=0` regardless (move-path default), compounding the drift. Fix: introduce `getLiveRemainingForMove(eventId)` helper that resolves most-recent-check → delivery-sum fallback per batch×location, feed both Step 3 render label and Step 1/Step 8 writes. (2) **OI-0136** — the move-wizard "Leave as residual" branch silently auto-stamps without a verify prompt, asymmetric with OI-0119 sub-move close which forces a required input. Pairs with OI-0135: once live-remaining is the default shown, the input becomes a confirm-or-correct step rather than a blind entry. Sub-move close path verified during the same investigation — `hasStoredFeed` check filters by event (not location), forces input on any event with stored feed regardless of anchor paddock, blocks Save until every input is valid non-negative. No residual-move concept on sub-move. Sub-move behavior matches Tim's requirement; no change needed there. Spec files written: `github/issues/move-wizard-live-remaining.md` (OI-0135) + `github/issues/move-wizard-residual-input.md` (OI-0136), both as thin pointers to the OPEN_ITEMS.md entries. Session brief `session_briefs/SESSION_BRIEF_2026-04-22_oi0135-0136-move-wizard-feed.md` with implementation order, live-data repair SQL, open question on F-1 manual delivery (is it a fresh bale or a compensation for the broken Move option?). **CP-55/CP-56 impact:** none for either OI — no schema change, only value-computation changes on existing columns. P0/P1 — blocks continued field testing because every stored-feed move produces corrupt downstream data. |
 | 2026-04-22 | OI-0134 opened + closed same session — six misfiled animal_classes rows corrected via direct Supabase MCP | Post-ship verification of the animal-classes-fix-package (commit e58c9f2) surfaced that five class rows on Tim's live operation `ef11ee62-b720-4f0c-848a-18e1dd93de30` (Ewe/Ram/Lamb/Doe/Buck) were tagged `species='beef_cattle' role='cow'` and had taken beef-cow defaults (545kg, DMI 2.5, lactating 3.0) when OI-0057 migration 031's `WHERE role='cow'` patched them wholesale. Root cause: v1 `inferRole(name)` only recognizes bovine role names and silently collapses unknown names to `'cow'`; v1-migration.js §2.14 then hard-sets `species='beef_cattle'` on every class; OI-0057 migration 031 took the whole false-cow cohort in scope. Tim authorized direct-SQL cleanup: for the 5 sheep/goat rows (zero FK-linked animals) used `DELETE` + `INSERT` with `gen_random_uuid()` to restore correct species/role/NRCS defaults from seed-data.js. During verification a 6th misfiled row surfaced — Heifer had also taken the same collapse — but with 2 animals FK-linked, requiring an `UPDATE` in place (preserving `id`, idempotent guard `AND role='cow'`) rather than delete+re-insert. Final state on ef11ee62: 10 correctly filed rows (5 beef, 3 sheep, 2 goat) all matching seed-data NRCS values. No migration file written — operation-scoped data correction, not schema change, should not replay across environments. Full SQL audit trail embedded in OI-0134. **CP-55/CP-56 impact:** none (row corrections on an existing operation's seed data; no schema change, no shape change). | Sweep triggered by Tim asking about OI-0057 ("does the app populate excretion rates on a new operation — can I just patch my table and close this?"). Investigation revealed four layered problems: (1) OI-0057 is bigger than null-fill — the v1 transform also smears `weaning_age_days = 205` across every role and loses current NRCS defaults for weight + DMI% (scope expanded to Option B full reset). (2) **OI-0127 opened** — `seed-data.js` itself carries a weaning role inversion (value sits on dam roles cow/ewe/doe instead of offspring roles calf/lamb/kid), AND `v1-migration.js` §2.14 ignores seed-data entirely (nulls + flat 205). Both pipelines must be fixed together, otherwise the next onboard re-introduces the inverted role. (3) **OI-0128 opened** — `openClassEditForm` is literally `window.prompt('Class name:', cls.name)`; 10 of 11 editable fields have no UI path. Needs full Add-form repopulate matching v1, with species + role locked on edit, weight unit conversion per OI-0111 descriptor pattern, side-fix for species select option values (currently "Beef cattle" instead of canonical `beef_cattle`). (4) **OI-0129 opened — DESIGN REQUIRED, not built this session** — `renderWeaningNudge` in dashboard reads non-existent `group.weaningTargetDays` (dead feature), ANI-3 calc has no feature consumer, no Reports Weaning tab; Tim flagged: "lets do some design on that one" before building. Three options A/B/C surfaced in the OI, plus Reports placement + nudge-threshold questions. (5) **OI-0130 opened** — `getLiveWindowAvgWeight` has no class-default weight fallback, so calcs return 0 when open windows have live animals but no per-animal weight records. Fixes the calc-side tier of the Decision A14 / A17 three-tier fallback chain that was never wired. 21 call-sites thread the new `animalClasses` context. **Package spec** written at `github/issues/animal-classes-fix-package.md` covering OI-0057 + OI-0127 + OI-0128 + OI-0130 for one-pass resolution by Claude Code — explicit order of operations (seed-data → v1-migration → SQL patch → Edit form → calc fallback → tests), SQL migration with Tim's operation_id substitution block, full grep contracts, acceptance criteria, commit-message format. OI-0129 explicitly excluded from the package. **CP-55/CP-56 impact: none** for the entire package (value corrections + missing UI + calc fallback consuming existing columns). |
 | 2026-04-22 | OI-0138 opened — Dev Mode surface with Event Audit walk-through as first tool | Tim asked for an audit view to diagnose event / feed / DMI issues during field testing, showing event + linked-event structure with child records and calcs inline, and DMI bars for forecast↔actual reconciliation. Design conversation locked the umbrella concept as **Dev Mode**: an in-app tools shelf gated by user-ID allow-list (option b — works on live deployed site on Tim's phone without a second build, invisible to normal users), anchored in the existing `src/features/settings/tools-section.js` which is already architected for diagnostics + repair routines. **Principle: no duplicated calc or render logic** — audit view reuses live store + calc registry + DMI bar renderer so if a calc is wrong, the audit view shows exactly what the app shows. **Shelf named** — 7 tools: (1) Event Audit walk-through [first], (2) Error log viewer over `app_logs`, (3) Sync queue inspector, (4) Manual calc trigger, (5) Store + localStorage snapshot export, (6) Force-resync, (7) Schema + migration readout. **Event Audit page** — 6 sections top-to-bottom: event header strip with stored↔derived drift chips, timeline ribbon, child record tables, calc cards showing every input with source-record-and-field trace + gate status + output, DMI bar chart reusing the dashboard renderer, store↔Supabase diff panel. Linked-pair mode renders two events side-by-side with a handoff panel showing paddock-close↔paddock-open and group-leave↔group-join boundary alignment — where OI-0115 / OI-0137-class drift would show up at a glance. **Status: open — DESIGN REQUIRED, do not build.** Six sub-questions remain before Claude Code spec can be written: entry points (dedicated `/dev` vs. contextual buttons vs. both), allow-list storage (hardcoded constant vs. Supabase `dev_users` table), mobile layout priority, linked-pair activation (auto vs. toggle), whether calc-card input trace needs a new `explain()` mode on each calc or registry already exposes enough metadata, and MVP shelf scope (Cowork lean: Event Audit + Error log viewer + Schema readout). **Why it matters:** every silent-drift class from the last month (OI-0103–OI-0106 coercion, OI-0115 phantom-change, OI-0117/OI-0133 stored↔derived, OI-0135 move-wizard live-remaining, OI-0137 backdated-cull window-close) was invisible to the UI and took hours-to-days to trace — a single-page view showing raw rows + calc inputs + calc output + rendered bars would have collapsed that to minutes. **CP-55/CP-56 impact:** none — read-only surface over existing state, no schema change. Next step: design session on the six sub-questions, then Claude Code spec to `github/issues/` as a thin pointer to this OI body. |
+| 2026-05-01 | OI-0138 design session — all 7 sub-questions locked; OI-0142 opened as companion for `explain()` refactor | Walked through the six sub-questions left open at OI-0138's 2026-04-22 entry, plus a Q5b cycling addition that surfaced mid-session, plus a Q3 revision after Tim flagged that owners/admins should manage dev access via the user-management UI. **Locked decisions:** Q1 — 3-tool MVP (Event Audit walk-through + Error log viewer + Schema/migration readout); other four shelf tools deferred to opportunistic OIs. Q2 — `/dev` home route + contextual "Audit this event" button on event-detail and sub-move-detail when Dev Mode is on. Q3 — **revised mid-session** from standalone `dev_users` table to `is_dev boolean` column on existing `operation_members`; per-operation scope, reuses existing granular RLS from OI-0054, inherits member-management UI patterns; bootstrap is one SQL line for Tim's user × operation `ef11ee62`, after that in-app toggle takes over (visible only to owners/admins). Q4 — desktop-first layout, mobile is a fallback (true side-by-side linked-pair, 2-column calc cards, diff panel alongside bars on desktop). Q5 — auto-detect via `source_event_id` with banner + click-to-expand to pair view (handles middle-of-chain events with both source and destination). Q5b — audit page has its own header with prev/next chronological cycling + Pick-event picker + cycle-axis filter dropdown (across-all-events default, switchable to by-group or by-paddock). Q6 — Option 1 sidecar audit-code resolvers in `src/features/dev-mode/audit-resolvers.js` for MVP (~7 resolvers, zero touches on existing calc files); **OI-0142 opened** as deferred companion for the eventual Option 3 (per-calc `explain()` function) refactor — that's the architecturally correct end-state but requires touching all ~35 calc files and moving resolver logic into the calc layer, which is a refactor in disguise; deferred until pattern-pressure forces it. **CP-55/CP-56 impact (revised):** non-trivial — `operation_members.is_dev` is a new boolean column on an already-backed-up table. CP-55 export adds the field; CP-56 import maps missing field → `false` for pre-bump backups. `schema_version` bumps with no-op `BACKUP_MIGRATIONS` rule per Code Quality Check #6. No new tables (the original Q3 `dev_users` proposal is no longer in scope). **Member-management UI** picks up a "Dev Mode access" toggle per row, visible to owners/admins only; coordinates with OI-0124 (display_name/email + role-edit-on-pending-invite) at spec-write time. **Status flipped:** OI-0138 status changed from "open — DESIGN REQUIRED, do not build" to "open — DESIGN LOCKED 2026-05-01, ready for Claude Code spec write-up." Spec file `github/issues/dev-mode-event-audit.md` to be authored next as one umbrella spec covering the 3-tool MVP (foundation work shared across tools) plus migration + bootstrap + entity update + UI toggle + audit page + log viewer + schema readout, in that implementation order. |
 

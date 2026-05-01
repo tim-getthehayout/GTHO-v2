@@ -137,7 +137,19 @@
     "auditDmiBars": "DMI bars",
     "auditDmiBarsTodo": "DMI bar chart reuses the dashboard renderer — wired in a follow-up commit.",
     "auditStoreDiff": "Store ↔ Supabase diff",
-    "auditStoreDiffTodo": "Live diff vs. Supabase wired in a follow-up commit."
+    "auditStoreDiffTodo": "Live diff vs. Supabase wired in a follow-up commit.",
+    "logsTitle": "Error log",
+    "logsCount": "Showing {count} of {total} rows",
+    "logsEmpty": "No rows match the current filters.",
+    "logsSeverity": "Severity:",
+    "logsSource": "source",
+    "logsSourceAll": "(all)",
+    "logsFrom": "from",
+    "logsTo": "to",
+    "logsSearchPlaceholder": "Search message + context…",
+    "logsExportCsv": "Export CSV",
+    "logsNoSupabase": "Supabase client not configured.",
+    "logsFetchFailed": "Failed to fetch app_logs."
   },
   "event": {
     "title": "Events",

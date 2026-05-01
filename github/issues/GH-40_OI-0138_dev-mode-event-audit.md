@@ -227,25 +227,62 @@ Seven sections, top to bottom (full description in OI-0138 body):
 
 Triggered by clicking "Audit as pair" in the linked banner. Renders two events side-by-side (true two-column on desktop) with a handoff panel between showing paddock-close vs. paddock-open and group-leave vs. group-join alignment. Mismatches red-chipped.
 
-### Calc resolver — sidecar (Q6 = Option 1)
+### Calc resolver — sidecar, registry-driven (Q6 = Option 1, with 2026-05-01 architectural update)
 
-New file: `src/features/dev-mode/audit-resolvers.js`. One resolver per calc the audit surfaces. MVP set: **DMI-2, DMI-3, DMI-8, FOR-1, days-on-pasture, cost, NPK residual.**
+New file: `src/features/dev-mode/audit-resolvers.js`. One resolver per registered calc the audit surfaces.
 
-Resolver signature:
+**Card section is registry-driven, not a hardcoded list.** Phase 5 iterates `getAllCalcs()` and renders a card per calc whose applicability predicate returns true for the audited event:
 
 ```js
-export function resolveDmi2Inputs(eventId, groupWindowId) {
-  // Pull each input from the store/derived helpers.
-  // Return { inputs: [{ name, value, source }], output: <computed> }
-  // `source` is a string like "eventGroupWindows.<id>.head_count (live)"
-  // or "animalClasses.<id>.dmi_pct".
-  // Run the calc with the resolved inputs to produce output.
+import { getAllCalcs, getCalcByName } from '../../utils/calc-registry.js';
+import { resolveCalcForCalcCard, isCalcApplicableToEvent } from './audit-resolvers.js';
+
+function renderCalcCardsSection(eventId) {
+  const event = getById('events', eventId);
+  const cards = [];
+  for (const calc of getAllCalcs()) {
+    if (!isCalcApplicableToEvent(calc, event)) continue;
+    const resolved = resolveCalcForCalcCard(calc.name, { eventId, event });
+    cards.push(renderCalcCard(calc, resolved));
+  }
+  return cards;
 }
 ```
 
-**Important:** resolvers MUST NOT duplicate calc formula logic. They resolve inputs, then call `getCalcByName('DMI-2').fn(inputs)` to produce the output. The audit must show what the calc actually returns, never a re-implementation.
+As more calcs are registered, they automatically appear in the audit — no audit-code change needed.
 
-A single `resolveCalcForCalcCard(calcName, context)` dispatcher in audit-resolvers.js maps calc name → resolver function. New calcs can be added later by extending the dispatch table.
+**At Phase 5 ship time, the calc registry contains 4 of the 7 originally-named MVP calcs** that were listed in OI-0138's design body: DMI-2, DMI-3, DMI-8, FOR-1. The other three from the original list — `days-on-pasture`, cost, NPK residual — live inline in feature code today and are tracked under **OI-0144** (P3) for proper registration. Phase 5 ships with resolvers and applicability predicates for the four that exist; the additional three cards appear automatically once OI-0144 lands.
+
+**Resolver signature** (one per registered calc the audit needs):
+
+```js
+// Per-calc resolver — fetches inputs from the store with source annotations,
+// then calls the actual registered calc fn to produce output.
+export function resolveDmi2Inputs(eventId, groupWindowId) {
+  // Resolve each input from store/derived helpers.
+  // Return { inputs: [{ name, value, source }], output }
+  //   - source: e.g. "eventGroupWindows.<id>.head_count (live)" or "animalClasses.<id>.dmi_pct"
+  //   - output: getCalcByName('DMI-2').fn({ headCount, avgWeightKg, ... })
+  //     — the audit MUST call the registry's fn, never re-implement the formula.
+}
+```
+
+A central `resolveCalcForCalcCard(calcName, context)` dispatcher maps calc name → its sidecar resolver. New calcs added to the registry need a corresponding entry in the dispatcher; until then the card section renders the calc with a "no resolver registered" placeholder rather than crashing.
+
+**Applicability predicate** — `isCalcApplicableToEvent(calc, event)` lives alongside the dispatcher:
+
+```js
+const APPLICABILITY = {
+  'DMI-2': (event) => getOpenGroupWindows(event.id).length > 0,
+  'DMI-3': (event) => getOpenGroupWindows(event.id).length > 0,
+  'DMI-8': () => true,                             // always relevant for the chart
+  'FOR-1': (event) => hasAnyPaddockObservation(event.id),
+  // EVT-1 (days-on-pasture), CST-N (cost), NPK-N (NPK residual)
+  // entries land here when OI-0144 registers the calcs.
+};
+```
+
+**Important:** resolvers MUST NOT duplicate calc formula logic. They resolve inputs from the store, then call `getCalcByName(calcName).fn(inputs)` for the output. The audit must show what the calc actually returns, never a re-implementation. Grep contract enforces this (see Grep contracts section).
 
 ### Acceptance criteria — Phase 5
 
@@ -378,6 +415,6 @@ CP-55 and CP-56 specs (when those exist) should be updated as part of this build
 ## Implementation notes
 
 - **Spec file numbering:** when this issue is filed, rename to `GH-{N}_OI-0138_dev-mode-event-audit.md` per CLAUDE.md spec file handoff rule. `gh issue create --title "OI-0138 — Dev Mode (3-tool MVP)" --body "$(cat github/issues/OI-0138_dev-mode-event-audit.md)" --label "feature,dev-tools,v2-build"`.
-- **Don't widen scope.** If during implementation you find a calc that should be surfaced but isn't in the MVP-7 list, note it in OPEN_ITEMS.md as a follow-on; don't add it to this build.
+- **Don't widen scope.** Calc cards iterate `getAllCalcs()` (registry-driven). Whatever's in the registry at Phase 5 commit time is what surfaces. If you find a formula that should be a registered calc but isn't, note it in OPEN_ITEMS.md as a follow-on (likely under OI-0144's umbrella); do not register new calcs as part of this build.
 - **Don't touch calc files.** Resolvers are sidecar (Q6 lock). Touching calcs is OI-0142 territory.
 - **Member-management UI:** if OI-0124 has shipped, splice into the existing edit affordance. If OI-0124 is still open, write the toggle as a self-contained row control that won't conflict when OI-0124 lands. Spec author greps OI-0124 status before deciding.

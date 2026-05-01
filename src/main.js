@@ -35,6 +35,7 @@ import { renderHarvestScreen } from './features/harvest/index.js';
 import { renderFeedbackScreen } from './features/feedback/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { renderDevHome } from './features/dev-mode/index.js';
+import { renderEventAudit } from './features/dev-mode/audit.js';
 import { getFieldMode, setFieldMode, migrateUnitSystemFromLocalStorage } from './utils/preferences.js';
 
 // Register all calculations on import (CP-45/46/47, CP-54)
@@ -278,6 +279,7 @@ async function showApp(app) {
   // Tool routes (`#/dev/audit`, `#/dev/logs`, `#/dev/schema`) register from
   // their phase modules as they land.
   route('#/dev', requireDev(renderDevHome));
+  route('#/dev/audit', requireDev(renderEventAudit));
 
   // Init router — renders the current hash route
   initRouter(content);

@@ -10,6 +10,8 @@ import { Sheet } from '../../ui/sheet.js';
 import { supabase } from '../../data/supabase-client.js';
 import { getUser } from '../auth/session.js';
 import { logger } from '../../utils/logger.js';
+import { getAll, update } from '../../data/store.js';
+import * as MemberEntity from '../../entities/operation-member.js';
 
 let memberSheet = null;
 
@@ -89,6 +91,14 @@ async function renderMemberList(panel, operationId) {
     badges.push(el('span', { className: `badge badge-${roleBadgeColor(member.role)}` }, [member.role]));
     if (isSelf) badges.push(el('span', { className: 'badge badge-teal' }, [t('members.you')]));
     if (isPending) badges.push(el('span', { className: 'badge badge-amber' }, [t('members.pending')]));
+    // OI-0138: surface Dev Mode access on every member row, regardless of viewer
+    // role. Owners/admins also get the per-row toggle (in actions, below).
+    if (member.is_dev) {
+      badges.push(el('span', {
+        className: 'badge badge-amber',
+        'data-testid': `member-dev-chip-${member.id}`,
+      }, [t('members.devChip')]));
+    }
 
     const nameText = isPending ? (member.email || member.display_name) : (member.display_name || member.email);
     const detailText = isPending
@@ -96,6 +106,54 @@ async function renderMemberList(panel, operationId) {
       : member.email;
 
     const actions = [];
+    // OI-0138: Dev Mode access toggle. Owner can flip anyone (including self);
+    // admin can flip any non-owner (including self if admin); team_member sees
+    // no toggle. Pending invites can also be flagged so the dev access lands
+    // when the invite is accepted.
+    const currentMemberRole = currentMember?.role;
+    const canToggleDev =
+      isAdminOrOwner &&
+      !(currentMemberRole === 'admin' && member.role === 'owner');
+    if (canToggleDev) {
+      const devToggle = el('label', {
+        className: 'member-row-dev-toggle',
+        style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px' },
+      }, [
+        el('input', {
+          type: 'checkbox',
+          'data-testid': `member-dev-toggle-${member.id}`,
+          ...(member.is_dev ? { checked: 'checked' } : {}),
+          onChange: async (e) => {
+            const next = e.target.checked;
+            const prev = member.is_dev;
+            try {
+              const storeMember = getAll('operationMembers').find(m => m.id === member.id);
+              if (storeMember) {
+                update('operationMembers', member.id, { isDev: next },
+                  MemberEntity.validate, MemberEntity.toSupabaseShape, 'operation_members');
+              } else if (supabase) {
+                // Cross-operation / RLS edge case: row not in local store. Fall
+                // back to Supabase-direct write to mirror existing role-change
+                // and remove-member flows.
+                const { error } = await supabase
+                  .from('operation_members')
+                  .update({ is_dev: next, updated_at: new Date().toISOString() })
+                  .eq('id', member.id);
+                if (error) throw error;
+              }
+              member.is_dev = next;
+              showToast(t(next ? 'members.devGranted' : 'members.devRevoked'));
+              await renderMemberList(panel, operationId);
+            } catch (err) {
+              logger.error('members', 'Failed to update dev access', { error: err.message });
+              e.target.checked = prev;
+            }
+          },
+        }),
+        el('span', {}, [t('members.devToggleLabel')]),
+      ]);
+      actions.push(devToggle);
+    }
     if (isAdminOrOwner && !isOwner) {
       if (isPending) {
         // OI-0120: Edit | Copy | Regenerate | Cancel.

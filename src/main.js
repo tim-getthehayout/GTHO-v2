@@ -207,6 +207,12 @@ async function showApp(app) {
       await syncAdapter.flush();
       await pullAllRemote();
     });
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      await syncAdapter.flush();
+      await pullAllRemote();
+    });
     // Initial sync: flush pending queue, then pull remote data
     await syncAdapter.flush();
     await pullAllRemote();

@@ -1011,6 +1011,12 @@
     "allTasks": "All tasks",
     "noOpenTasks": "No open tasks"
   },
+  "sync": {
+    "lastRefreshAt": "Synced · last refresh {time}",
+    "stale": "Stale · refresh now",
+    "refreshing": "Refreshing…",
+    "refreshFailed": "Refresh failed"
+  },
   "error": {
     "generic": "Something went wrong. Please try again."
   },

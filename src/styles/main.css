@@ -306,6 +306,7 @@ body {
 .sync-pending { background: var(--amber); }
 .sync-err { background: var(--red); }
 .sync-off { background: var(--text3); }
+.sync-stale { background: var(--amber); }
 
 /* Screen heading (placeholder screens) */
 .screen-heading {

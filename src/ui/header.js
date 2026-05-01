@@ -11,6 +11,9 @@ import { getUser, logout } from '../features/auth/session.js';
 import { Sheet } from './sheet.js';
 import * as SubmissionEntity from '../entities/submission.js';
 import { getFeedbackBadgeCount } from '../features/feedback/index.js';
+import { pullAllRemote, getLastPulledAt } from '../data/pull-remote.js';
+
+const STALE_THRESHOLD_MS = 15 * 60 * 1000;
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -255,21 +258,57 @@ function closeUserMenu() {
 // Sync indicator
 // ---------------------------------------------------------------------------
 
-function renderSyncIndicator() {
+function formatPullTime(epochMs) {
+  if (!epochMs) return '';
+  return new Date(epochMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function getSyncState() {
   const adapter = getSyncAdapter();
   let status;
   try { status = adapter ? adapter.getStatus() : 'offline'; } catch { status = 'offline'; }
 
-  const dotClass = {
-    idle: 'sync-ok', syncing: 'sync-pending', error: 'sync-err', offline: 'sync-off',
-  }[status] || 'sync-off';
+  if (status !== 'idle') {
+    const dotClass = { syncing: 'sync-pending', error: 'sync-err', offline: 'sync-off' }[status] || 'sync-off';
+    const label = { syncing: 'Syncing...', error: 'Sync error', offline: 'Offline' }[status] || 'Offline';
+    return { status, dotClass, label };
+  }
 
-  return el('button', {
+  const lastPulled = getLastPulledAt();
+  const isStale = !lastPulled || (Date.now() - lastPulled > STALE_THRESHOLD_MS);
+  if (isStale) {
+    return { status: 'idle', dotClass: 'sync-stale', label: t('sync.stale') };
+  }
+  return { status: 'idle', dotClass: 'sync-ok', label: t('sync.lastRefreshAt', { time: formatPullTime(lastPulled) }) };
+}
+
+async function triggerManualPull(container) {
+  const dot = container.querySelector('.sync-dot');
+  const labelEl = container.querySelector('.sync-label');
+  if (dot) { dot.className = 'sync-dot sync-pending'; }
+  if (labelEl) { labelEl.textContent = t('sync.refreshing'); }
+
+  try {
+    await pullAllRemote();
+    const state = getSyncState();
+    if (dot) { dot.className = `sync-dot ${state.dotClass}`; }
+    if (labelEl) { labelEl.textContent = state.label; }
+  } catch {
+    if (dot) { dot.className = 'sync-dot sync-err'; }
+    if (labelEl) { labelEl.textContent = t('sync.refreshFailed'); }
+  }
+}
+
+function renderSyncIndicator() {
+  const state = getSyncState();
+
+  const btn = el('button', {
     className: 'header-sync-btn',
     'data-testid': 'header-sync-status',
-    title: status,
-    onClick: () => navigate('#/settings'),
-  }, [el('span', { className: `sync-dot ${dotClass}` })]);
+    title: state.label,
+    onClick: () => triggerManualPull(btn),
+  }, [el('span', { className: `sync-dot ${state.dotClass}` })]);
+  return btn;
 }
 
 // ---------------------------------------------------------------------------
@@ -395,18 +434,13 @@ function sidebarNavItemBadge(href, label, count, currentHash, testId) {
 }
 
 function renderSyncStrip() {
-  const adapter = getSyncAdapter();
-  let status;
-  try { status = adapter ? adapter.getStatus() : 'offline'; } catch { status = 'offline'; }
-  const dotClass = { idle: 'sync-ok', syncing: 'sync-pending', error: 'sync-err', offline: 'sync-off' }[status] || 'sync-off';
-  const label = { idle: 'Synced', syncing: 'Syncing...', error: 'Sync error', offline: 'Offline' }[status] || 'Offline';
-  const now = new Date();
-  const timeStr = status === 'idle' ? ` ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '';
+  const state = getSyncState();
 
-  return el('div', { className: 'dsk-sync-strip', onClick: () => navigate('#/settings') }, [
-    el('span', { className: `sync-dot ${dotClass}` }),
-    el('span', {}, [`${label}${timeStr}`]),
+  const strip = el('div', { className: 'dsk-sync-strip', 'data-testid': 'dsk-sync-strip', onClick: () => triggerManualPull(strip) }, [
+    el('span', { className: `sync-dot ${state.dotClass}` }),
+    el('span', { className: 'sync-label' }, [state.label]),
   ]);
+  return strip;
 }
 
 function updateBadges() {

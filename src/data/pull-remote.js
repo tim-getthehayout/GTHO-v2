@@ -6,6 +6,18 @@ import { getSyncAdapter, mergeRemote } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
 import { logger } from '../utils/logger.js';
 
+const LAST_PULLED_KEY = 'gtho_last_pulled_at';
+
+/**
+ * @returns {number | null} Epoch ms of the last successful pull, or null.
+ */
+export function getLastPulledAt() {
+  try {
+    const val = localStorage.getItem(LAST_PULLED_KEY);
+    return val ? Number(val) || null : null;
+  } catch { return null; }
+}
+
 /**
  * Pull all tables from Supabase and merge into the local store.
  * Skips tables where the pull fails (logs error, continues).
@@ -33,6 +45,10 @@ export async function pullAllRemote() {
       logger.error('sync', `pullAll failed for ${reg.table}`, { error: err.message });
       errors++;
     }
+  }
+
+  if (pulled > 0 || errors === 0) {
+    try { localStorage.setItem(LAST_PULLED_KEY, String(Date.now())); } catch { /* quota */ }
   }
 
   return { pulled, errors };

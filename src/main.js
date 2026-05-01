@@ -6,7 +6,7 @@ import { closePaddockWindowOrphans } from './data/one-time-fixes.js';
 import { CustomSync } from './data/custom-sync.js';
 import { pullAllRemote } from './data/pull-remote.js';
 import { loadLocale } from './i18n/i18n.js';
-import { route, initRouter } from './ui/router.js';
+import { route, initRouter, requireDev } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
 import { el, clear } from './ui/dom.js';
 import { initSession, onAuthChange } from './features/auth/session.js';
@@ -34,6 +34,7 @@ import { renderNpkPricesScreen } from './features/amendments/npk-prices.js';
 import { renderHarvestScreen } from './features/harvest/index.js';
 import { renderFeedbackScreen } from './features/feedback/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
+import { renderDevHome } from './features/dev-mode/index.js';
 import { getFieldMode, setFieldMode, migrateUnitSystemFromLocalStorage } from './utils/preferences.js';
 
 // Register all calculations on import (CP-45/46/47, CP-54)
@@ -272,6 +273,11 @@ async function showApp(app) {
   route('#/harvest', renderHarvestScreen);
   route('#/feedback', renderFeedbackScreen);
   route('#/feed-quality', renderFeedQualityScreen);
+  // OI-0138: Dev Mode shelf — gated by `requireDev` (silent redirect to `#/`
+  // when current user does not have `is_dev = true` on the active operation).
+  // Tool routes (`#/dev/audit`, `#/dev/logs`, `#/dev/schema`) register from
+  // their phase modules as they land.
+  route('#/dev', requireDev(renderDevHome));
 
   // Init router — renders the current hash route
   initRouter(content);

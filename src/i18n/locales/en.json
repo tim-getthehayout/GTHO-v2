@@ -105,6 +105,19 @@
     "score": "score",
     "kgPerTDm": "kg/t DM"
   },
+  "dev": {
+    "badge": "Dev Mode",
+    "homeTitle": "Dev Mode",
+    "homeSubtitle": "Diagnostic shelf — read-only views over live state. Gated to operation members with Dev Mode access.",
+    "toolEventAuditLabel": "Event Audit",
+    "toolEventAuditDesc": "Walk-through view: event header, child records, calc cards with input traces, DMI bars, store↔Supabase diff.",
+    "toolLogsLabel": "Error log",
+    "toolLogsDesc": "Filter app_logs by severity, category, operation, date range. CSV export.",
+    "toolSchemaLabel": "Schema readout",
+    "toolSchemaDesc": "Live schema_version vs. BACKUP_MIGRATIONS max vs. migration files on disk. Red flag on drift.",
+    "redirecting": "Redirecting…",
+    "notFound": "Not in Dev Mode."
+  },
   "event": {
     "title": "Events",
     "createEvent": "Create Event",

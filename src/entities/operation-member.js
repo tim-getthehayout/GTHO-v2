@@ -11,6 +11,7 @@ export const FIELDS = {
   inviteToken:  { type: 'uuid',        required: false, sbColumn: 'invite_token' },
   invitedAt:    { type: 'timestamptz', required: false, sbColumn: 'invited_at' },
   acceptedAt:   { type: 'timestamptz', required: false, sbColumn: 'accepted_at' },
+  isDev:        { type: 'boolean',     required: false, sbColumn: 'is_dev' },
   createdAt:    { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:    { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -29,6 +30,7 @@ export function create(data = {}) {
     inviteToken: data.inviteToken ?? null,
     invitedAt: data.invitedAt ?? null,
     acceptedAt: data.acceptedAt ?? null,
+    isDev: data.isDev ?? false,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
   };
@@ -46,6 +48,11 @@ export function validate(record) {
   if (record.role && !VALID_ROLES.includes(record.role)) {
     errors.push(`role must be one of: ${VALID_ROLES.join(', ')}`);
   }
+  // OI-0138: isDev flag must be a strict boolean to prevent accidental string
+  // coercion ("true"/"false") from leaking through Supabase round-trips.
+  if (record.isDev !== undefined && typeof record.isDev !== 'boolean') {
+    errors.push('isDev must be a boolean');
+  }
   return { valid: errors.length === 0, errors };
 }
 
@@ -61,6 +68,7 @@ export function toSupabaseShape(record) {
     invite_token: record.inviteToken,
     invited_at: record.invitedAt,
     accepted_at: record.acceptedAt,
+    is_dev: record.isDev ?? false,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -78,6 +86,7 @@ export function fromSupabaseShape(row) {
     inviteToken: row.invite_token,
     invitedAt: row.invited_at,
     acceptedAt: row.accepted_at,
+    isDev: row.is_dev === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -1,6 +1,7 @@
 /** @file Store — single data access point. See V2_APP_ARCHITECTURE.md §4. */
 
 import { saveToStorage, loadFromStorage } from './local-storage.js';
+import { getUser } from '../features/auth/session.js';
 import { validate as validateOperation, toSupabaseShape as operationToSb } from '../entities/operation.js';
 import { validate as validateUserPref, toSupabaseShape as userPrefToSb } from '../entities/user-preference.js';
 import * as GroupWindowEntity from '../entities/event-group-window.js';
@@ -276,6 +277,39 @@ export function setUnitSystem(value) {
 export function getActiveFarmId() {
   const prefs = state.userPreferences[0];
   return prefs?.activeFarmId ?? null;
+}
+
+/**
+ * OI-0138: returns true if the current authenticated user has `is_dev = true`
+ * on their `operation_members` row for the given operation. Gates the entire
+ * Dev Mode shelf in `src/ui/router.js`. Defensive: returns false when user is
+ * unauthenticated, operationId is missing, or the member row isn't loaded yet.
+ * @param {string} operationId
+ * @returns {boolean}
+ */
+export function isCurrentUserDev(operationId) {
+  const userId = getUser()?.id;
+  if (!userId || !operationId) return false;
+  const member = state.operationMembers.find(
+    (m) => m.userId === userId && m.operationId === operationId,
+  );
+  return member?.isDev === true;
+}
+
+/**
+ * OI-0138: returns true if the current authenticated user is owner or admin on
+ * the given operation. Gates the Dev Mode access toggle in member-management
+ * (only owners/admins can grant Dev Mode access to other members).
+ * @param {string} operationId
+ * @returns {boolean}
+ */
+export function isCurrentUserOwnerOrAdmin(operationId) {
+  const userId = getUser()?.id;
+  if (!userId || !operationId) return false;
+  const member = state.operationMembers.find(
+    (m) => m.userId === userId && m.operationId === operationId,
+  );
+  return member?.role === 'owner' || member?.role === 'admin';
 }
 
 /**

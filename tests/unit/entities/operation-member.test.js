@@ -11,7 +11,8 @@ describe('entity: operation-member', () => {
     expect(keys).toContain('displayName');
     expect(keys).toContain('role');
     expect(keys).toContain('inviteToken');
-    expect(keys).toHaveLength(12);
+    expect(keys).toContain('isDev');
+    expect(keys).toHaveLength(13);
   });
 
   it('every FIELDS entry has sbColumn', () => {
@@ -88,6 +89,51 @@ describe('entity: operation-member', () => {
       const roundTripped = fromSupabaseShape(toSupabaseShape(record));
       expect(roundTripped).toEqual(record);
       expect(roundTripped.inviteToken).toBe('990e8400-e29b-41d4-a716-446655440000');
+    });
+  });
+
+  describe('OI-0138: isDev', () => {
+    it('isDev defaults to false on create()', () => {
+      const record = create({ operationId: OP_ID, displayName: 'X', email: 'x@y.com' });
+      expect(record.isDev).toBe(false);
+    });
+
+    it('validate accepts boolean true and false', () => {
+      const t = create({ operationId: OP_ID, displayName: 'X', email: 'x@y.com', isDev: true });
+      expect(validate(t).valid).toBe(true);
+      const f = create({ operationId: OP_ID, displayName: 'X', email: 'x@y.com', isDev: false });
+      expect(validate(f).valid).toBe(true);
+    });
+
+    it('validate rejects non-boolean isDev (string "true")', () => {
+      const record = create({ operationId: OP_ID, displayName: 'X', email: 'x@y.com' });
+      record.isDev = 'true';
+      const result = validate(record);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('isDev must be a boolean');
+    });
+
+    it('toSupabaseShape maps isDev → is_dev', () => {
+      const record = create({ operationId: OP_ID, displayName: 'X', email: 'x@y.com', isDev: true });
+      expect(toSupabaseShape(record).is_dev).toBe(true);
+    });
+
+    it('fromSupabaseShape maps is_dev → isDev (defensive coerce)', () => {
+      const sb = { id: '1', operation_id: OP_ID, user_id: null, display_name: 'X', email: 'x@y.com',
+        phone: null, role: 'team_member', invite_token: null, invited_at: null, accepted_at: null,
+        is_dev: true, created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z' };
+      expect(fromSupabaseShape(sb).isDev).toBe(true);
+      const sbFalse = { ...sb, is_dev: false };
+      expect(fromSupabaseShape(sbFalse).isDev).toBe(false);
+      const sbMissing = { ...sb }; delete sbMissing.is_dev;
+      expect(fromSupabaseShape(sbMissing).isDev).toBe(false);
+    });
+
+    it('round-trips isDev=true', () => {
+      const record = create({ operationId: OP_ID, displayName: 'X', email: 'x@y.com', isDev: true });
+      const roundTripped = fromSupabaseShape(toSupabaseShape(record));
+      expect(roundTripped.isDev).toBe(true);
+      expect(roundTripped).toEqual(record);
     });
   });
 

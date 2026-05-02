@@ -5,7 +5,8 @@ import { el, clear } from './dom.js';
 import { t } from '../i18n/i18n.js';
 import { navigate } from './router.js';
 import { setFieldMode, getFieldMode } from '../utils/preferences.js';
-import { getAll, add, subscribe, getSyncAdapter, getActiveFarmId, setActiveFarm } from '../data/store.js';
+import { getAll, add, subscribe, getSyncAdapter, getActiveFarmId, setActiveFarm, getOperation, isCurrentUserDev } from '../data/store.js';
+import { renderDevModeBadge } from '../features/dev-mode/index.js';
 import { getOpenTodoCount } from '../features/todos/index.js';
 import { getUser, logout } from '../features/auth/session.js';
 import { Sheet } from './sheet.js';
@@ -100,8 +101,13 @@ export function renderHeader(container) {
             }, [farmLabel, ' \u25BE'])
           : el('div', { className: 'header-farm-label', 'data-testid': 'header-farm-label' }, [farmLabel]),
       ]),
-      // Right cluster: sync → build stamp → field mode → user menu
+      // Right cluster: dev chip → sync → build stamp → field mode → user menu.
+      // OI-0146 Doorway B: gated [DEV] chip placed immediately left of the
+      // sync indicator. Reuses renderDevModeBadge() so the styling never drifts
+      // from the Dev Mode page header. 32×32 hit-area button wraps the chip
+      // (chip itself is small; the button gives the tap target).
       el('div', { className: 'header-right' }, [
+        renderDevModeChipDoorway(),
         renderSyncIndicator(),
         el('span', { className: 'header-build-stamp', 'data-testid': 'header-build-stamp' }, [buildVersion]),
         renderFieldModePill(),
@@ -142,6 +148,12 @@ export function renderHeader(container) {
 
   // Update badge on todo changes
   unsubs.push(subscribe('todos', () => updateBadges()));
+  // OI-0146: header re-renders when `is_dev` flips via member-management UI.
+  // The doorway chip's visibility tracks the operation_members row.
+  unsubs.push(subscribe('operationMembers', () => {
+    clear(container);
+    renderHeader(container);
+  }));
 
   // Update field mode pill on route changes
   const pillContainer = header.querySelector('[data-testid="header-field-mode-toggle"]')?.parentElement;
@@ -297,6 +309,40 @@ async function triggerManualPull(container) {
     if (dot) { dot.className = 'sync-dot sync-err'; }
     if (labelEl) { labelEl.textContent = t('sync.refreshFailed'); }
   }
+}
+
+/**
+ * OI-0146 Doorway B — header [DEV] chip. Returns null for non-dev members so
+ * `header-right`'s `.filter(Boolean)` cleanly drops it. Reuses
+ * `renderDevModeBadge()` from `src/features/dev-mode/index.js` for the visual
+ * — single source of truth for the amber chip styling. Wraps in a button with
+ * adequate padding so the tap target is at least 32×32 px even though the
+ * visual chip is smaller.
+ */
+function renderDevModeChipDoorway() {
+  const opId = getOperation()?.id;
+  if (!isCurrentUserDev(opId)) return null;
+  const chip = renderDevModeBadge();
+  // The badge ships with marginLeft: 8px; clear it so the button hit-area
+  // controls spacing inside the header-right cluster.
+  chip.style.marginLeft = '0';
+  return el('button', {
+    className: 'header-dev-mode-chip',
+    'data-testid': 'header-dev-mode-chip',
+    'aria-label': 'Open Dev Mode',
+    style: {
+      minWidth: '32px',
+      minHeight: '32px',
+      padding: '4px 8px',
+      border: 'none',
+      background: 'transparent',
+      cursor: 'pointer',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    onClick: () => navigate('#/dev'),
+  }, [chip]);
 }
 
 function renderSyncIndicator() {

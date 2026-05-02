@@ -79,8 +79,15 @@ function renderAuditHeader(container, event) {
     ]),
   ]));
 
+  // OI-0147 Bug A fix: picker renders in both the event-selected state and the
+  // empty state — only the prev/next buttons stay gated on `event` non-null.
+  // The empty-state copy at `dev.auditPickEvent` refers to "the dropdown
+  // above"; that dropdown must always exist when the operation has any events.
+  // When `events.length === 0` we render a small grey "no events for this
+  // operation yet" note instead of an empty <select>.
+  const navRow = el('div', { style: { display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' } });
+
   if (event) {
-    const navRow = el('div', { style: { display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' } });
     navRow.appendChild(el('button', {
       className: 'btn btn-outline btn-xs',
       'data-testid': 'dev-audit-prev',
@@ -93,22 +100,41 @@ function renderAuditHeader(container, event) {
       disabled: !next,
       onClick: () => next && navigate(`#/dev/audit?id=${next.id}`),
     }, ['next →']));
+  }
 
+  if (events.length > 0) {
     const picker = el('select', {
       'data-testid': 'dev-audit-event-picker',
       style: { fontSize: '11px', padding: '4px 6px', border: '0.5px solid var(--border2)', borderRadius: '4px', background: 'var(--bg)', fontFamily: 'inherit', color: 'var(--text)' },
-      onChange: (e) => navigate(`#/dev/audit?id=${e.target.value}`),
+      onChange: (e) => {
+        if (e.target.value) navigate(`#/dev/audit?id=${e.target.value}`);
+      },
     });
+    if (!event) {
+      picker.appendChild(el('option', {
+        value: '', disabled: 'disabled', selected: 'selected',
+      }, [t('dev.auditPickerPlaceholder')]));
+    }
     for (const evt of events) {
       const start = getEventStartDate(evt.id) || '—';
       picker.appendChild(el('option', {
         value: evt.id,
-        ...(evt.id === event.id ? { selected: 'selected' } : {}),
+        ...(evt.id === event?.id ? { selected: 'selected' } : {}),
       }, [`${start} · ${evt.id.slice(0, 8)}`]));
     }
     navRow.appendChild(picker);
-    strip.appendChild(navRow);
+  } else {
+    navRow.appendChild(el('span', {
+      'data-testid': 'dev-audit-no-events-note',
+      style: { fontSize: '11px', color: 'var(--text2)', fontStyle: 'italic' },
+    }, [t('dev.auditNoEventsForOperation')]));
   }
+
+  // Always attach: in empty-state with events the picker lives here; in
+  // empty-state with no events the "no events" note lives here; in the loaded
+  // state prev/next + picker live here. Skipping the append on empty
+  // event/empty events would orphan the note.
+  strip.appendChild(navRow);
 
   // 3-way unit toggle. ARIA radiogroup; persists via localStorage.
   const currentMode = getAuditUnitMode();

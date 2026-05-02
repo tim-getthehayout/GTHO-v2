@@ -8,13 +8,37 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { backfillCalvingRecords } from '../animals/backfill-calving-records.js';
+import { isCurrentUserDev } from '../../data/store.js';
+import { navigate } from '../../ui/router.js';
 
 export function renderToolsSection(operationId) {
-  const card = el('div', { className: 'card settings-card', 'data-testid': 'settings-tools-section' }, [
+  const children = [
     el('h3', { className: 'settings-section-title' }, [t('tools.title')]),
     renderBackfillCalvingRow(operationId),
+  ];
+  // OI-0146 Doorway A: Dev tools link — only visible to members with
+  // `is_dev = true`. Sits at the bottom of the Tools card so it doesn't push
+  // higher-traffic actions (backfill calving) down the screen.
+  if (isCurrentUserDev(operationId)) {
+    children.push(renderDevToolsLink());
+  }
+  return el('div', { className: 'card settings-card', 'data-testid': 'settings-tools-section' }, children);
+}
+
+function renderDevToolsLink() {
+  const btn = el('button', {
+    className: 'btn btn-outline',
+    'data-testid': 'settings-dev-tools-link',
+    onClick: () => navigate('#/dev'),
+  }, [t('settings.devToolsButtonLabel')]);
+  return el('div', {
+    className: 'tools-row',
+    style: { display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginTop: 'var(--space-3)' },
+  }, [
+    el('div', { style: { fontWeight: '600' } }, [t('settings.devToolsButtonLabel')]),
+    el('div', { className: 'form-hint' }, [t('settings.devToolsHelperText')]),
+    btn,
   ]);
-  return card;
 }
 
 function renderBackfillCalvingRow(operationId) {

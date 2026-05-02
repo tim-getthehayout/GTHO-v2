@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, subscribe, add, update, remove } from '../../data/store.js';
+import { getAll, getById, subscribe, add, update, remove, isCurrentUserDev } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
@@ -210,6 +210,15 @@ function renderHeader(ctx) {
       onClick: () => closeEventDetailSheet(),
     }, ['\u2190']),
     el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+      // OI-0147 Bug B fix: Audit button \u2014 gated to dev members. Leftmost in the
+      // right-side action cluster so the cancel/x stays at the far right.
+      // Neutral outline style (no amber) \u2014 the [DEV MODE] badge on the audit
+      // page itself signals the destination; this button stays unobtrusive.
+      isCurrentUserDev(event.operationId) ? el('button', {
+        className: 'btn btn-outline btn-xs',
+        'data-testid': 'event-detail-audit-button',
+        onClick: () => navigate(`#/dev/audit?id=${event.id}`),
+      }, [t('event.detailAuditButton')]) : null,
       el('span', {
         className: `badge ${isActive ? 'badge-teal' : 'badge-grey'}`,
         'data-testid': 'detail-status-badge',
@@ -219,7 +228,7 @@ function renderHeader(ctx) {
         'data-testid': 'detail-cancel-btn',
         onClick: () => closeEventDetailSheet(),
       }, ['\u2715']),
-    ]),
+    ].filter(Boolean)),
   ]));
 }
 

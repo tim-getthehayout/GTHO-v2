@@ -120,6 +120,8 @@
     "auditTitle": "Event Audit",
     "auditNoEvent": "no event selected",
     "auditPickEvent": "Pick an event from the dropdown above, or open via the Audit button on an event detail page.",
+    "auditPickerPlaceholder": "— select an event —",
+    "auditNoEventsForOperation": "No events for this operation yet.",
     "auditEventHeader": "Event header",
     "auditDerivedStart": "derived start",
     "auditDateOut": "date_out",
@@ -243,6 +245,7 @@
     "title": "Events",
     "createEvent": "Create Event",
     "editEvent": "Edit Event",
+    "detailAuditButton": "Audit",
     "status": {
       "active": "Active",
       "closed": "Closed"
@@ -955,6 +958,8 @@
   },
   "settings": {
     "title": "Settings",
+    "devToolsButtonLabel": "Dev tools",
+    "devToolsHelperText": "Open the diagnostic shelf",
     "farmSettings": "Farm Settings",
     "unitSystem": "Unit System",
     "metric": "Metric",

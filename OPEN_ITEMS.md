@@ -4,179 +4,132 @@
 
 ---
 
-### OI-0145 — Audit page restructure: per-paddock-window blocks (underlying data + scoped calcs) + event-level rollup section; DMI-8 daily breakdown lands inside the new structure
-**Added:** 2026-05-01 (originally narrow DMI-8 scope) | **Widened:** 2026-05-02 | **Area:** v2-build / dev-tools / audit / calcs | **Priority:** P2 (audit page is the diagnosis surface for every calc; until each window's underlying data is visible alongside its scoped calcs, the calc cards are unfalsifiable — DMI-2 shows `headCount=25` without the membership list that derived it, FOR-1 shows `forageHeightCm=8` without the observation row, DMI-8 has no resolver at all. The audit can't do its job.) Bumped from P3 because the structural gap also blocks meaningful use of OI-0138's Phase 5 ship.
+### OI-0147 — Audit empty-state: dropdown gated on `event` non-null so it never renders in empty state; "Audit button on event detail page" copy promises a button that doesn't exist
+**Added:** 2026-05-02 | **Area:** v2-build / dev-tools / audit / event-detail | **Priority:** P3 (audit page is reachable via direct hash entry once the empty-state copy is corrected; today's empty-state UX is broken but workable for a sole dev user. Filed for completeness — affects discoverability for any future dev user toggled on via `is_dev`)
 
-**Status:** closed 2026-05-02 — landed in commit `cca2b21` (GH-41). Section 4 rewritten as per-paddock-window blocks (window header → location → forage type → pre-graze observation → FOR-1 → overlapping group windows with members + animal class + DMI-2 → scoped feed entries → scoped feed check items). Section 4b added (parent feed-check index + batches table + orphan feed entries). Section 5 refactored to event-only rollup calc cards (DMI-3 + DMI-8 today; OI-0144 calcs surface automatically once registered). DMI-8 card lands with chip row + sources roll-up + auto-expand-on-needs_check daily breakdown table. Section 1 gains 3-way unit toggle (Metric / Standard / Hybrid) with radiogroup ARIA + localStorage persistence; new `src/features/dev-mode/audit-units.js` wraps `src/utils/units.js`. Resolver registry grows `scope` per resolver (paddock-window / group-window / event); `input(...)` annotation grows `measureType`. 1378/1378 unit tests passing including +28 new (16 audit-units + 12 audit-restructure). All four grep contracts hold: 0 formula re-impl, 0 raw `.toFixed(N) + ' kg|cm|...'` literals, 15 `formatAuditValue` call sites in dev-mode, 7 `getCalcByName` in resolvers. Production `vite build` clean.
+**Status:** **DESIGN LOCKED** — 2026-05-02 session, ready for Claude Code.
 
-**Origin:**
+**Origin:** Tim landed on `#/dev/audit` (no `?id=...`) and saw the empty-state copy *"Pick an event from the dropdown above, or open via the Audit button on an event detail page."* Neither control was reachable. Diagnosis confirmed two bugs:
 
-- OI-0138 Phase 5 ship-time deferral of DMI-8 (`src/features/dev-mode/audit-resolvers.js:16` — *"DMI-8 is high-fan-out and deferred to a follow-on commit; the audit will surface it automatically once the resolver lands here."*).
-- 2026-05-02 design session (Tim + Cowork): walking DMI-8 rendering options on the existing audit page surfaced a deeper gap — the audit shows scalar inputs to each calc, but not the underlying collections (animal memberships, animal weights, paddock observations, batches, feed mass-balance series) that those scalars derive from. Tim's call: *"We need to represent all data relevant to an event window including groups/animals otherwise the DMI actual has nothing to audit against. Each window should show all the data that underlies the calculations as well as the calculations themselves."* Scope widened from DMI-8 resolver to per-window data presentation + DMI-8 inside it.
+1. **Picker render gated on `event` non-null** — `src/features/dev-mode/audit.js:82` wraps the prev/next buttons + event picker in `if (event) { ... }`. When no event is selected (empty state), the entire `navRow` containing the picker doesn't render. The header strip shows the title + dev badge + "no event" label, but the dropdown that the empty-state copy refers to literally doesn't exist on the page.
+2. **No Audit button on event detail** — grep of `src/features/events` for `audit\|Audit\|#/dev/audit` returns 0 matches. The empty-state copy promises an entry point from event detail that was never wired up. The OI-0138 Phase 5 ship presumably intended this but it didn't land.
 
-**Why widened:**
+**Locked design:**
 
-Today's audit page (post-OI-0138 Phase 5):
+**Bug A fix — picker renders in empty state:**
 
-- Section 4 (child record tables) renders entity-typed JSON dumps — `paddockWindows`, `groupWindows`, `feedEntries`, `feedChecks`, `feedCheckItems`, `observations` each get a `<details>` with the row JSON. Cross-referencing "what data belongs to paddock window G-1" requires reading six dumps and matching by id.
-- Section 5 (calc cards) renders inputs as scalars with source labels, e.g. DMI-2 shows `headCount = 25 ← eventGroupWindows.<id>.headCount (live)`. The label cites where the scalar came from but not the underlying memberships + animals + animalWeightRecords that the live recompute walked.
-- DMI-8 has no card at all yet (the deferred resolver).
+- Move the picker construction outside the `if (event)` block in `renderAuditHeader`. The picker should always render when `events.length > 0`.
+- The prev/next buttons stay gated on `event` non-null (they don't make sense without a current event).
+- Picker option-loop guard: `evt.id === event?.id` instead of `evt.id === event.id` so it doesn't throw when `event` is null.
+- Add a placeholder option as the first child when `event` is null: `<option value="" disabled selected>— select an event —</option>`. Skipping this option means the picker has no visible "starting" label and the user might miss it.
+- When `events.length === 0`, render a small grey note instead of the picker: "No events for this operation yet" — keeps the empty state honest.
+- The unit toggle already renders correctly in both states (it's outside the `if (event)` block); leave it as-is.
 
-Net effect: the audit is mechanically complete (every entity is dumped somewhere; every shipped calc has a card) but not *substantively* complete — you can read DMI-2's `337.5 kg/day` without being able to verify the 25 head, the 540 kg average, or the membership composition that produced them. DMI-8 is even worse: a daily breakdown exists nowhere on the page.
+**Bug B fix — Audit button on event detail header:**
 
-The fix is structural: **fold the underlying data and the calcs that consume it into per-paddock-window blocks**, with a separate event-level section for rollup calcs (DMI-3, DMI-8, days-on-pasture, cost, NPK-residual) and the event-scoped feed records that don't belong to any one paddock.
-
-**Design — locked 2026-05-02:**
-
-The restructured audit page is desktop-only (per the "dev mode is desktop-only" project rule — no phone-layout pass needed). Sections 1, 2, 3, 6, 7 unchanged from OI-0138 Phase 5. **Section 4 is rewritten. Section 5 is refactored to event-level rollup calcs only.**
-
-**Section 4 — Per-paddock-window blocks (NEW shape, replaces today's per-entity JSON dumps):**
-
-One block per `event_paddock_window` for the audited event, sorted by `dateOpened` ascending (closed and open windows interleaved chronologically; status badge on the block header). Each block contains, top to bottom:
-
-1. **Window header** — location name + locationId (8-char slice) · `dateOpened [timeOpened] → dateClosed [timeClosed]` · status badge (`open` green / `closed` grey) · `areaPct` · `sourceEventId` (8-char) when present (sub-move bridge).
-2. **Location facts** — `name`, `areaHectares`, `forageTypeId` (with forage type name resolved).
-3. **Forage type** — `name`, `dmKgPerCmPerHa`, `minResidualHeightCm`, `utilizationPct`. Missing → red.
-4. **Pre-graze observation** — picked via the OI-0107 canonical pattern (`sourceId === pw.id` preferred; else most-recent `type=open / source=event` for `pw.locationId`). Show `forageHeightCm`, `forageCoverPct`, `date`, `createdAt`, observer notes. Missing or no candidate → red.
-5. **FOR-1 calc card** — inline within this block (no longer a separate Section 5 card). Inputs trace + output, same shape as today's resolver returns.
-6. **Group windows overlapping this paddock window** — for each `event_group_window` on the same event whose `[dateJoined, dateLeft || +∞]` intersects `[dateOpened, dateClosed || +∞]`:
-   - **Group window header** — group name + groupId (8-char) · animalClassId (with class name) · `dateJoined [timeJoined] → dateLeft [timeLeft]` · stored `headCount` / `avgWeightKg` · live recompute of head + avg via `getLiveWindowHeadCount` / `getLiveWindowAvgWeight` (with date set to today; show both stored and live values when they differ — diagnostic chip).
-   - **Animal class** — `id`, `name`, `dmiPct`, `dmiPctLactating`, `defaultWeightKg`.
-   - **Animal memberships** — table of every `animal_group_memberships` row in this group, with columns: animal tag/id (8-char), animalClassId, `dateJoined`, `dateLeft`, latest weight (kg) on `pw.dateClosed || today`, weight source (`animalWeightRecords.id` if present, else `animalClasses.<id>.defaultWeightKg` fallback, else `—`). Missing weights → red. The audit reader can sum the latest-weight column and divide by row count to verify the group window's `avgWeightKg`.
-   - **DMI-2 calc card** — inline within this group window sub-block (no longer a separate Section 5 card). Same inputs trace + output as today's resolver returns. The card sits below the membership table so the reader can verify head + avg before reading DMI-2.
-7. **Feed entries delivered to this paddock window** — filter `event_feed_entries` where `eventId === ev.id && locationId === pw.locationId` AND `date` falls in `[dateOpened, dateClosed || +∞]`. Table columns: `date`, `time`, batch name (resolved from `batchId`), `quantity`, batch `weightPerUnitKg`, batch `dmPct`, computed kg DM, `notes`. Sorted by date ascending.
-8. **Feed check items at this paddock window** — filter `event_feed_check_items` where `locationId === pw.locationId` AND parent `event_feed_checks` row has `eventId === ev.id`. Table columns: parent check `date`, `time`, batch name, `remainingQuantity`, computed kg DM, `is_close_reading` flag from parent. Sorted by check date ascending. (Items carry `locationId`; parent checks do not — confirmed via `src/entities/event-feed-check.js` and `src/entities/event-feed-check-item.js`.)
-
-**Section 4b — Event-level feed records (NEW, sits after the paddock-window blocks):**
-
-Records that are event-scoped rather than paddock-window-scoped, plus diagnostic surfaces:
-
-- **Feed checks** — table of every `event_feed_checks` row for the event. Columns: `date`, `time`, `is_close_reading`, item count, sum of remainingQuantity across all items, item-summary line listing the per-`(batchId, locationId)` totals. The full per-item rows live in the per-paddock-window blocks above; this is the parent-row index.
-- **Batches referenced by this event** — table of every `batches` row referenced by any feed entry or check item on the event. Columns: `name`, `weightPerUnitKg`, `dmPct`, `pricePerKg` (when set), `pricePerKgUpdatedAt`. Caller can verify DM% and weight-per-unit drive the cascade math.
-- **Orphan feed entries** — feed entries with `eventId === ev.id` whose `locationId` doesn't match any of this event's paddock windows. Diagnostic — likely zero in healthy data, but a non-empty list flags an OI-0140-class disambiguation regression.
-
-**Section 5 — Event-level rollup calc cards (refactored — no longer carries FOR-1 or DMI-2):**
-
-Cards that compute over the whole event, not a single window. Today: DMI-3 only (DMI-2 moves up into the paddock-window blocks). After OI-0144 lands: days-on-pasture, cost, NPK-residual cards added here. **DMI-8 lives here as well — its design follows.**
-
-**DMI-8 card (the original OI-0145 deliverable):**
-
-Single card. Top to bottom:
-
-1. **Header** — name, description from registry.
-2. **Window line** — `derived start → dateOut · N days` (from `getEventStartDate(eventId)` + `event.dateOut`; "open-ended" when `dateOut` null).
-3. **State chips** — `<span class="badge badge-{green|amber|red}">N <label></span>` for each non-zero status across the per-day walk: `actual` (default text colour), `estimated` (amber), `needs_check` (red), `no_animals` (dimmed), `no_pasture_data` (red). Zero-count statuses don't render — keeps the chip row tight. (`badge-*` utility classes already used by the drift chip in Section 2.)
-4. **Sources roll-up** — DMI-8's inputs are collections, so the inputs trace is a roll-up rather than per-input scalar trace. Lines:
-   - `groupWindows: <N> open` (or `(<n> open of <total>)` if the cascade reads closed windows for historical days)
-   - `feedEntries: <N> deliveries`
-   - `feedChecks: <N> checks` (with item count subtotal)
-   - `paddockWindows: <total> (<closed-count> closed, <open-count> open)`
-   - `forageTypes: resolved (<distinct-loc-count> location)` — red when any open window's location has a missing forage type
-   - `batches: resolved (<N>)` — red when any feed entry or check item's `batchId` doesn't resolve
-5. **Aggregate hints** — when any per-day output emitted `hint: 'assumed_full_cover'`, render small grey line: `hint: assumed_full_cover (≥<N> day)`.
-6. **Disclosure** — `<details>` with summary `Daily breakdown (N days)`. **Auto-expand** when `needs_check > 0` OR `no_pasture_data > 0` (so diagnostic signals surface without a click; reader can collapse).
-7. **Per-day table** inside the disclosure. Columns: `Date | Status | Total kg | Pasture | Stored | Deficit | pwId(s) open | Hint / Reason`. Numeric columns right-aligned, two decimal places (matches DMI-2 formatting). Row colour follows the chip palette. Non-numeric statuses (`needs_check`, `no_animals`, `no_pasture_data`) render `—` in the numeric columns and put `reason` + `pwId` (when present in the calc output) in the Hint/Reason column. The `pwId(s) open` column lists the 8-char id slice of every paddock window open on that date — the reader scrolls up to the matching paddock-window block in Section 4 to substantiate the row.
-
-The resolver calls `getCalcByName('DMI-8').fn(...)` once per day in the event window; the card aggregates outputs into chips + table. **No formula re-implementation** — same grep contract as the existing resolvers.
-
-**Resolver registry — `scope` field added:**
-
-`audit-resolvers.js` grows a per-resolver `scope` field with three values:
-
-- `'paddock-window'` — resolver returns one instance per paddock window; rendered inside that window's Section 4 block. Currently: FOR-1.
-- `'group-window'` — resolver returns one instance per group window; rendered inside that group window's sub-block within its overlapping paddock window's Section 4 block. Currently: DMI-2.
-- `'event'` — resolver returns one or more instances at event scope; rendered in Section 5. Currently: DMI-3, DMI-8 (after this OI ships).
-
-The dispatcher table grows an entry per resolver: `{ fn, scope }`. The rendering loop in `src/features/dev-mode/audit.js` branches on `scope` to decide where to render each instance.
-
-**Unit handling — locked 2026-05-02:**
-
-Audit page gets a 3-way unit-system toggle in the Section 1 sticky header. **Default: Metric** (anchors the diagnostic surface to ground truth on first open; user-selected mode persists across sessions). Toggle is a segmented control with three buttons: `[ Metric | Standard | Hybrid ]` plus a small grey note alongside: *"Display only — store stays metric."*
-
-- **Metric mode** — values render in metric with their metric unit suffix: `540.00 kg`, `18.00 cm`, `2.50 ha`, `337.50 kg DM/day`. Field names that already carry the unit (`avgWeightKg`, `forageHeightCm`) keep their full name as the input label.
-- **Standard mode** — values converted to imperial via `src/utils/units.js`: `1190.49 lb`, `7.09 in`, `6.18 ac`, `744.06 lb DM/day`. The metric-unit suffix in field names is dropped from the input label (e.g., `avgWeightKg` renders as `avg weight = 1190.49 lb`).
-- **Hybrid mode** — primary value in metric (default text colour), imperial annotation in muted grey alongside in parentheses: `540.00 kg (1190.49 lb)`, `337.50 kg DM/day (744.06 lb DM/day)`. Most information per glance at the cost of horizontal density.
-
-**Persistence:** `localStorage['dev-audit-unit-mode']` with values `'metric'` | `'standard'` | `'hybrid'`. Toggle's `onClick` writes the choice and calls `renderEventAudit(container)` to re-render — the existing entry point is idempotent (clear + rebuild), no partial-render path needed.
-
-**Helper module — `src/features/dev-mode/audit-units.js`:**
-
-Thin wrapper over `src/utils/units.js`. Exports:
-
-- `getAuditUnitMode()` — reads from `localStorage`, defaults to `'metric'`.
-- `setAuditUnitMode(mode)` — persists; throws on invalid mode.
-- `formatAuditValue(value, measureType, decimals = 2)` — uses current mode. For `mode === 'metric'`: returns `display(value, measureType, 'metric', decimals)`. For `mode === 'standard'`: returns `display(value, measureType, 'imperial', decimals)`. For `mode === 'hybrid'`: returns `{ primary: display(...metric), secondary: display(...imperial) }` so the renderer can apply distinct CSS to the parenthetical. `measureType === null` or `undefined` → return the raw value with no unit suffix (for unitless inputs like head counts, percentages, day counts).
-
-`measureType` values match the keys in `units.js`'s `CONVERSIONS` map: `'weight'`, `'area'`, `'length'`, `'temperature'`, `'volume'`, `'yieldRate'`, `'dmYieldDensity'`. The DMI calc outputs (kg DM/day, kg DM) use `'weight'` with a manually-appended `' DM/day'` / `' DM'` suffix (since those aren't first-class measure types in `units.js`).
-
-**Resolver input annotations grow a `measureType` field:**
-
-The current `input(name, value, source, missing)` helper in `audit-resolvers.js` becomes `input(name, value, source, measureType = null, missing = false)`. Resolvers tag each annotated input with its measure type so the renderer can route through `formatAuditValue`. Examples:
-
-- DMI-2 `avgWeightKg` input → `input('avgWeightKg', liveAvg, source, 'weight')`
-- DMI-2 `headCount` input → `input('headCount', liveHead, source)` (no measure type — count)
-- DMI-2 `dmiPct` input → `input('dmiPct', dmiPct, source)` (no measure type — percentage)
-- FOR-1 `forageHeightCm` input → `input('forageHeightCm', val, source, 'length')`
-- FOR-1 `areaHectares` input → `input('areaHectares', val, source, 'area')`
-- FOR-1 `dmKgPerCmPerHa` input → `input('dmKgPerCmPerHa', val, source, 'dmYieldDensity')`
-
-**What converts vs stays as-is, regardless of mode:**
-
-- **Converts** when mode is non-Metric: any value annotated with a `measureType`, plus calc outputs (DMI-* kg/day, FOR-1 kg DM, DMI-8 daily totals/pasture/stored/deficit), plus per-day breakdown table numeric columns.
-- **Stays as-is regardless of mode:** IDs (uuid slices), dates, timestamps, time strings, head counts, day counts, delivery counts, percentages (`dmiPct`, `dmPct`, `forageCoverPct`, `utilizationPct`, `areaPct`), status labels (`actual`, `estimated`, `needs_check`, `no_animals`, `no_pasture_data`), hint codes (`assumed_full_cover`), reason codes (`missing_observation`, `missing_forage_type`), source path labels (`← eventGroupWindows.<id>.headCount` — these cite *data shape*, not display), and any raw JSON fragments that survive the rewrite (those exist to compare row-by-row against Supabase, which is metric).
-
-**Grep contract:** any render of a unit-bearing field inside `src/features/dev-mode/` must go through `formatAuditValue` (or its hybrid sibling). Direct interpolation of a known measure type's value is a regression. Specifically:
-
-```bash
-# No raw `.toFixed(N) + ' kg'` / `.toFixed(N) + ' cm'` / etc. in dev-mode renderers:
-grep -nE "toFixed\([0-9]+\)\s*\+\s*['\"]\s*(kg|cm|ha|lb|in|ac|°[CF]|L|gal)" src/features/dev-mode/   # 0 matches
-# Every measure-type-tagged input flows through the helper:
-grep -rn "formatAuditValue" src/features/dev-mode/   # ≥1 match per render site
-```
+- Add a small outline button to the event-detail sheet header (`renderHeader` at `src/features/events/detail.js:196`).
+- Gated by `isCurrentUserDev(operationId)` (the same predicate `requireDev` uses on the route, exported from `src/data/store.js:290`).
+- Button copy: `Audit` (translated via `t('event.detailAuditButton')`).
+- `data-testid="event-detail-audit-button"`.
+- `onClick: () => navigate(\`#/dev/audit?id=${event.id}\`)`.
+- Visual style: `btn btn-outline btn-xs`. No special amber styling — the `[DEV]` badge on the audit page itself signals the destination; the source button stays neutral to avoid header clutter.
+- Placement: alongside existing close / edit controls in the sheet header, leftmost in that cluster.
 
 **Acceptance criteria:**
 
-- [ ] `src/features/dev-mode/audit-resolvers.js` extended with: (a) `resolveDmi8Inputs(ctx)` returning the chip + per-day shape described above; (b) `scope` field on every resolver entry (`'paddock-window'` for FOR-1, `'group-window'` for DMI-2, `'event'` for DMI-3 and DMI-8); (c) the line-16 deferral comment removed.
-- [ ] `src/features/dev-mode/audit.js` rewritten: Section 4 renders per-paddock-window blocks per the design above (window header → location → forage type → pre-graze obs → FOR-1 → overlapping group windows with members + animal class + DMI-2 → scoped feed entries → scoped feed check items). Section 4b renders event-level feed records (parent checks index, batches table, orphan feed entries). Section 5 renders event-level rollup calc cards (DMI-3 + DMI-8 today, plus OI-0144 calcs when they land).
-- [ ] Resolvers call `getCalcByName('<NAME>').fn(...)` for every output — no formula re-implementation. Grep contract: `grep -nE "totalDmiKg.*=.*headCount.*avgWeight|standingDm.*=.*forageHeightCm.*-" src/features/dev-mode/` returns 0 matches.
-- [ ] Group-window-to-paddock-window date-overlap logic uses inclusive comparison: `gw.dateJoined <= (pw.dateClosed || '9999-12-31') && (gw.dateLeft || '9999-12-31') >= pw.dateOpened`. Cover the boundary cases in unit tests.
-- [ ] Feed-check items that fall outside any open paddock window's `[dateOpened, dateClosed]` range still render in the matching paddock window's block by `locationId` alone (the paddock window may have been closed by the time the post-graze check landed — that's normal). Same applies to closed-window feed entries.
-- [ ] DMI-8 daily breakdown table auto-expands when `needs_check > 0` OR `no_pasture_data > 0`. Manual collapse persists for the session via `<details open>` toggle.
-- [ ] 3-way unit toggle (`Metric` / `Standard` / `Hybrid`) renders in Section 1 sticky header with `data-testid="dev-audit-unit-toggle"` and `radiogroup` ARIA role. Default Metric on first open; user-selected mode persists via `localStorage['dev-audit-unit-mode']`. Toggle re-renders the page via existing `renderEventAudit(container)`.
-- [ ] New helper at `src/features/dev-mode/audit-units.js` exporting `getAuditUnitMode`, `setAuditUnitMode`, `formatAuditValue` per the design above. Hybrid mode returns `{ primary, secondary }` so renderer can apply muted-grey CSS to the parenthetical.
-- [ ] Resolver `input(...)` helper signature extended with `measureType` parameter; every unit-bearing input annotated (weight / length / area / dmYieldDensity / yieldRate / temperature / volume per `src/utils/units.js`). Unitless inputs (counts, percentages) leave `measureType` null.
-- [ ] Grep contracts hold post-commit: no direct `.toFixed(N) + ' kg|cm|ha|lb|in|ac|°[CF]|L|gal'` literals in `src/features/dev-mode/`; every render site uses `formatAuditValue`.
-- [ ] Unit tests covering: (a) all three modes round-trip a known weight (e.g., 540 kg → `540.00 kg` / `1190.49 lb` / `540.00 kg (1190.49 lb)`); (b) unitless inputs render unchanged across modes; (c) toggle persists across page navigation via localStorage.
-- [ ] Unit tests covering: (a) per-paddock-window block renders the right child rows for a 3-window strip-graze event with mixed memberships and feed deliveries; (b) DMI-8 resolver with a synthetic 7-day window covering all five statuses (actual / estimated / needs_check / no_animals / no_pasture_data); (c) overlap logic boundary cases (group leaves on the same day a paddock window closes, group joins same day a sub-move opens); (d) orphan feed entries surface in Section 4b when locationId doesn't match any paddock window.
-- [ ] E2E or visual verification: open the audit page on Tim's G-event (`fb407a55-aa0e-4cbb-b906-af6964a0addc` — three open paddock windows G-1/G-2/G-3, real strip-graze pattern with feed deliveries and checks); confirm the per-window blocks render the right substantiating data and the DMI-8 card surfaces the daily breakdown.
-- [ ] OPEN_ITEMS.md OI-0145 flipped to closed in the same commit (orphan-flip rule per CLAUDE.md §"OPEN_ITEMS.md Closure Discipline").
-- [ ] Piggyback sweep: `grep -E "audit|resolver|calc card" OPEN_ITEMS.md` for siblings — flip any now-moot entries.
+- [ ] `audit.js` empty state shows the picker (or the "no events" note when none exist), populated with all events for the active operation, with a placeholder first option that prompts selection.
+- [ ] Selecting an event in the picker navigates to `#/dev/audit?id=<uuid>` and triggers the full audit page render.
+- [ ] Event detail sheet header renders an Audit button when `isCurrentUserDev(operationId)` returns true; button does not render for non-dev members.
+- [ ] Audit button onClick navigates to `#/dev/audit?id=<event.id>`; the audit page opens for the right event.
+- [ ] Audit empty-state copy at `dev.auditPickEvent` updated only if needed to match what now actually exists (today's copy is fine once both fixes land).
+- [ ] Unit tests covering: (a) picker renders when `event === null` and `events.length > 0`; (b) "no events" note renders when `events.length === 0`; (c) event-detail Audit button renders only for dev members; (d) Audit button navigation hits the right URL.
+- [ ] Visual verification: open `#/dev/audit` (no id) → see picker → select Tim's G-event → audit renders. Open Tim's G-event detail sheet → see Audit button → tap → audit opens for that event.
+- [ ] OPEN_ITEMS.md OI-0147 flipped to closed in the same commit (orphan-flip rule per CLAUDE.md §"OPEN_ITEMS.md Closure Discipline").
 - [ ] PROJECT_CHANGELOG.md row added.
 - [ ] GitHub issue closed with commit hash.
 
-**Dependencies — none, but coordinate with:**
-
-- **OI-0144** (open, DESIGN REQUIRED) — registers `days-on-pasture`, cost, NPK residual. Their resolvers will land in Section 5 once the calcs are registered. OI-0145 ships with placeholder slots (Section 5 iterates `getAllCalcs()` filtered by `scope === 'event'`); OI-0144 fills them. No ordering constraint.
-- **OI-0142** (open, DESIGN REQUIRED) — per-calc `explain()` refactor. OI-0145's resolver pattern (annotate inputs with source strings) is the ancestor of `explain()`. When OI-0142 lands, the resolvers in `audit-resolvers.js` collapse into per-calc `explain()` methods on the registry. OI-0145 doesn't block OI-0142 and vice versa.
-
 **Reference points:**
 
-- `src/features/dev-mode/audit.js` — current audit page (sections 1–7).
-- `src/features/dev-mode/audit-resolvers.js` — current resolver dispatcher (DMI-2, DMI-3, FOR-1).
-- `src/calcs/feed-forage.js:541` — DMI-8 registration.
-- `src/calcs/window-helpers.js` — `getLiveWindowHeadCount`, `getLiveWindowAvgWeight` (driving the membership-derived numbers shown in group-window sub-blocks).
-- `src/entities/event-feed-entry.js`, `src/entities/event-feed-check.js`, `src/entities/event-feed-check-item.js` — feed-record FIELDS confirming `locationId` lives on entries + items but not on parent checks.
-- `V2_CALCULATION_SPEC.md §4.2 DMI-8` — canonical cascade spec.
-- `OI-0107` (closed) — paddock_observations picker pattern (`sourceId` preferred, else most-recent type=open source=event).
-- `OI-0140` (open) — feed-entry `locationId` disambiguation. Audit's "orphan feed entries" surface in Section 4b is the diagnostic for OI-0140-class regressions.
+- `src/features/dev-mode/audit.js:82` — current `if (event)` gate that hides the picker.
+- `src/features/dev-mode/audit.js:907` — empty-state `dev.auditPickEvent` copy.
+- `src/features/events/detail.js:196` — `renderHeader(ctx)` — where the Audit button lands.
+- `src/data/store.js:290` — `isCurrentUserDev(operationId)` gate.
+- `src/ui/router.js:71` — `requireDev(renderFn)` precedent for the same gate.
 
 **Schema change:** none.
 
-**CP-55/CP-56 impact:** none — pure audit-page enhancement, no schema or state-shape change, no export/import shape change.
+**CP-55/CP-56 impact:** none.
 
-**Spec file:** `github/issues/OI-0145_audit-page-restructure.md` (thin pointer to this body per the "specs in base docs" project rule).
+**Spec file:** `github/issues/OI-0147_audit-empty-state-and-event-detail-button.md`.
 
-**Next step:** ship as a single Claude Code session. The file footprint is `audit.js` (rewrite) + `audit-resolvers.js` (extend) + new unit tests. No schema, no migrations, no entity changes, no other feature code.
+**Related:**
+
+- **OI-0138** (parent — audit page MVP) — the empty-state copy was written aspirationally during Phase 5 but the Audit button wasn't wired up.
+- **OI-0146** (sibling — dev-mode shelf doorway) — both OIs are dev-mode discoverability fixes; can ship together or independently.
+
+---
+
+### OI-0146 — Dev Mode shelf doorway: Settings → "Dev tools" link + small `[DEV]` chip in main header (both gated by `is_dev`); navigates to `#/dev`
+**Added:** 2026-05-02 | **Area:** v2-build / dev-tools / settings / header / nav | **Priority:** P3 (Dev Mode shelf at `#/dev` already exists per OI-0138 with three working tools, but no UI doorway leads there — users must type the hash manually. Affects discoverability for every dev user toggled on via `is_dev`; the sole dev user today is Tim, so not field-blocking, but the gap matters as soon as a second dev gets flagged.)
+
+**Status:** **DESIGN LOCKED** — 2026-05-02 session, both doorways approved by Tim.
+
+**Origin:** Tim asked *"Is there a menu location to access all the dev tool items?"* during the OI-0145 ship debrief. Investigation: `#/dev` exists (`renderDevHome` at `src/features/dev-mode/index.js:42`) and lists all three tools (Event Audit, Logs, Schema) as click-cards; the route is gated by `requireDev`. But grep of the entire codebase shows no UI link to `#/dev` from anywhere — the route is reachable only by typing the hash manually. Tim's call: file both doorway options together rather than picking just one, since they serve different access patterns (Settings is for "I'm hunting for tools," header chip is for "I'm debugging right now and need fast access").
+
+**Locked design:**
+
+**Doorway A — Settings → "Dev tools" link:**
+
+- Lives in the Settings screen (`src/features/settings/index.js` → `renderSettingsScreen`). Best home: the existing Tools section (`src/features/settings/tools-section.js` — `renderToolsSection(operationId)`) which already contains the OI-0132 backfill button.
+- Renders only when `isCurrentUserDev(operationId)` returns true. For non-dev members the link is invisible; for dev members it's a labeled action button.
+- Button copy: `Dev tools` (translated via `t('settings.devToolsButtonLabel')`), with helper text `Open the diagnostic shelf` (translated via `t('settings.devToolsHelperText')`).
+- `data-testid="settings-dev-tools-link"`.
+- `onClick: () => navigate('#/dev')`.
+- Placed at the bottom of the Tools section so it doesn't push the higher-traffic backfill action down.
+
+**Doorway B — Header `[DEV]` chip:**
+
+- Lives in the main app header (`src/ui/header.js` → `renderHeader`).
+- Renders only when `isCurrentUserDev(getOperation()?.id)` returns true. For non-dev members the chip is absent; for dev members it's always visible while logged in.
+- Visual style: small amber chip matching the existing `renderDevModeBadge()` pattern in `src/features/dev-mode/index.js:19` — same colours, same compact size. Reuse that helper directly to avoid drift.
+- Placement: in the header row near the sync indicator. Specific position: right side, immediately to the left of the sync dot/strip (so the "I'm debugging" affordance is adjacent to the sync state affordance, both on the right).
+- `data-testid="header-dev-mode-chip"`.
+- `onClick: () => navigate('#/dev')`.
+- Tap target: minimum 32×32 px hit area even though the visual chip is smaller — wraps the chip in a button with adequate padding.
+
+**Acceptance criteria:**
+
+- [ ] `tools-section.js` renders a "Dev tools" link/button when `isCurrentUserDev(operationId)` returns true; not rendered otherwise.
+- [ ] `header.js` renders a `[DEV]` chip when `isCurrentUserDev(getOperation()?.id)` returns true; not rendered otherwise. Chip position: right side of header, immediately left of the sync indicator.
+- [ ] Both doorways navigate to `#/dev` on click.
+- [ ] Header chip reuses `renderDevModeBadge()` from `src/features/dev-mode/index.js` (no duplicated styling).
+- [ ] Test seam: header re-renders when `is_dev` flips (member-management UI flips the flag → header subscriber re-renders chip visibility). Verify with a unit test that mounts the header, flips `is_dev`, asserts the chip appears.
+- [ ] i18n keys added: `settings.devToolsButtonLabel`, `settings.devToolsHelperText`. All user-facing copy via `t()`.
+- [ ] Unit tests: (a) Settings link renders only when `is_dev`; (b) header chip renders only when `is_dev`; (c) both navigate to `#/dev` on click; (d) chip is keyboard-focusable with adequate hit area.
+- [ ] Visual verification: with `is_dev = true`, the Settings page shows "Dev tools" in the Tools section and the header shows the chip; with `is_dev = false`, neither appears.
+- [ ] OPEN_ITEMS.md OI-0146 flipped to closed in the same commit (orphan-flip rule per CLAUDE.md §"OPEN_ITEMS.md Closure Discipline").
+- [ ] PROJECT_CHANGELOG.md row added.
+- [ ] GitHub issue closed with commit hash.
+
+**Reference points:**
+
+- `src/features/dev-mode/index.js:19` — `renderDevModeBadge()` (reuse for header chip).
+- `src/features/dev-mode/index.js:42` — `renderDevHome()` (the destination).
+- `src/features/settings/tools-section.js:12` — `renderToolsSection(operationId)` (where Doorway A lives).
+- `src/ui/header.js:25` — `renderHeader(container)` (where Doorway B lives).
+- `src/data/store.js:290` — `isCurrentUserDev(operationId)` (gate).
+- `src/ui/router.js:71` — `requireDev(renderFn)` (route-level gate; the UI gate uses the same predicate).
+
+**Schema change:** none.
+
+**CP-55/CP-56 impact:** none.
+
+**Spec file:** `github/issues/OI-0146_dev-mode-doorway.md`.
+
+**Related:**
+
+- **OI-0138** (parent — audit page MVP) — shipped the dev-mode shelf at `#/dev` and the three tools without specifying entry points.
+- **OI-0147** (sibling — audit empty-state + event-detail Audit button) — both are dev-mode discoverability fixes; can ship together or independently.
 
 ---
 
@@ -5225,6 +5178,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 ## Closed
 
+### OI-0145 — Audit page restructure: per-paddock-window blocks + event-level rollup section + 3-way unit toggle; DMI-8 daily breakdown
+**Added:** 2026-05-01 | **Widened:** 2026-05-02 | **Closed:** 2026-05-02 | **Area:** v2-build / dev-tools / audit / calcs
+**Resolution:** Shipped in commits `cca2b21` (feature) + `c6be198` (hash stamp). 28 new tests (16 audit-units + 12 restructure); full suite 1378/1378 green; production vite build clean. **What shipped:** (1) new `src/features/dev-mode/audit-units.js` — 3-mode wrapper over `units.js`; `formatAuditValue()` returns `string` for metric/standard or `{ primary, secondary }` for hybrid. (2) `src/features/dev-mode/audit-resolvers.js` — RESOLVERS table grew `{ fn, scope }`; `input()` grew `measureType`; new `resolveDMI8` walks the event window day-by-day calling `getCalcByName('DMI-8').fn(...)` and aggregates into chips/sources/dailyBreakdown. (3) `src/features/dev-mode/audit.js` — Section 1 sticky header gained 3-way `[ Metric | Standard | Hybrid ]` toggle (radiogroup, persisted via `localStorage['dev-audit-unit-mode']`). Section 4 rewritten as per-paddock-window blocks (location → forage type → observation → FOR-1 → overlapping group windows with members + DMI-2 → scoped feed entries + items). Section 4b renders parent feed-checks index + batches table + orphan feed entries. Section 5 carries event-only rollup cards (DMI-3 + DMI-8). **Grep contracts hold:** 0 formula reimpl, 0 raw unit literals, 15 `formatAuditValue` sites, 7 `getCalcByName` in resolvers. **GitHub issue:** GH-41 filed and closed; spec renamed `github/issues/GH-41_OI-0145_audit-page-restructure.md`. **Schema change:** none. **CP-55/CP-56 impact:** none.
+
+---
+
 ### OI-0035 — Schema Version Bump Convention Not Spec'd
 **Added:** 2026-04-14 | **Closed:** 2026-04-14 | **Area:** v2-design / v2-build
 **Resolution:** Convention defined and codified in two places: (1) **V2_MIGRATION_PLAN.md §5.11a** — new subsection "Schema Version Bump Convention" specifying that every new migration SQL ends with `UPDATE operations SET schema_version = N;` and adds a `BACKUP_MIGRATIONS` entry (no-op is fine: `N-1: (b) => { b.schema_version = N; return b; }`), plus update §5.3/§5.3a if the migration adds a table or FK. (2) **CLAUDE.md Code Quality Check #6** — enforced at commit time, same three requirements. Principle: "always do it, no judgment calls" — removes the need for case-by-case assessment of whether a migration changes backup shape.
@@ -5411,6 +5370,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-05-02 | OI-0145 close-out recovery + audit empty-state diagnosis + OI-0146 / OI-0147 filed | Post-ship reconciliation. Tim shipped OI-0145 (commits `cca2b21` + `c6be198`, 28 new tests, 1378/1378 green) but the close-out edits to `OPEN_ITEMS.md` were missed — OI-0145 was still in the Open section with `DESIGN LOCKED` status and unflipped acceptance-criteria checkboxes. **Recovery:** OI-0145 entry moved from Open → Closed section with shortened Resolution-style entry (commit hashes + what shipped + grep contracts that hold + GH-41 reference); orphan-flip rule satisfied. Tim then asked about a Dev Mode menu entry point — investigation found `#/dev` exists with a renderDevHome shelf listing all three tools (Event Audit, Logs, Schema), but no UI path leads there from the regular app. Filed **OI-0146** with both doorway designs Tim approved: Settings → "Dev tools" link gated by `is_dev`, plus a small `[DEV]` chip in the header gated by `is_dev`. Tim also reported the audit empty state copy ("Pick an event from the dropdown above, or open via the Audit button on an event detail page") references controls that don't exist — investigation confirmed two bugs: (a) `audit.js:82` gates the picker render on `event` being non-null, so the dropdown literally doesn't render in the empty state; (b) grep of `src/features/events` for `audit\|Audit\|#/dev/audit` returns 0 matches — there's no Audit button on event detail pages. Filed **OI-0147** for both fixes (move picker out of `if (event)` block + add gated Audit button to event detail header). **No code change this session — OPEN_ITEMS.md edits + 2 new spec files at `github/issues/OI-0146_dev-mode-doorway.md` and `github/issues/OI-0147_audit-empty-state-and-event-detail-button.md`.** Schema change: NONE. CP-55/CP-56 impact: NONE. **PLUGIN IMPROVEMENT candidate:** orphan-flip rule needs a pre-commit hook (`git log -1 --format=%B \| grep -E 'OI-[0-9]+'` then check `git diff-tree` includes OPEN_ITEMS.md) — the manual rule was followed during design but missed at code-ship time despite being explicit in CLAUDE.md. Worth a row in IMPROVEMENTS.md. Related: OI-0138 (parent — audit page MVP that opened the dev-mode shelf with no doorway), OI-0145 (closed today — audit restructure that exposed the empty-state copy bug). |
 | 2026-05-02 | OI-0145 widened + design locked — audit page restructure (per-paddock-window blocks + event-level rollup) + 3-way unit toggle | Tim and Cowork walked the four DMI-8 rendering options on the existing OI-0138 audit page. Option 2 (summary card with click-to-expand + per-day table) initially looked right; on a desktop deep-dive context Cowork proposed a cleaner real-table layout instead of the phone-friendly monospace rows. **Tim's correction widened the scope:** *"We need to represent all data relevant to an event window including groups/animals otherwise the DMI actual has nothing to audit against. Each window should show all the data that underlies the calculations as well as the calculations themselves."* The gap surfaced: today's audit shows DMI-2's `headCount=25` without the membership list that derived it, FOR-1's `forageHeightCm=8` without the observation row, and DMI-8 has no card at all. The calc cards as drawn are unfalsifiable. **Tim's call:** widen OI-0145 from "DMI-8 resolver" to "audit page restructure." **Locked design:** Section 4 rewritten as per-paddock-window blocks (window facts → location → forage type → pre-graze observation → FOR-1 inline → overlapping group windows with animal memberships + animal class + DMI-2 inline → scoped feed entries → scoped feed check items). New Section 4b for event-level feed records (parent checks index, batches table, orphan feed entries). Section 5 holds event-level rollup calcs only (DMI-3, DMI-8, plus OI-0144 calcs when they land). Resolver registry grows a `scope` field (`'paddock-window'` | `'group-window'` | `'event'`) so the audit page can route each instance to the correct render slot. DMI-8 card design (chip row + sources roll-up + auto-expand-on-needs-check daily-breakdown table with `pwId(s) open` column citing back to the per-window blocks) sits inside the new Section 5. **Unit handling locked in same session:** 3-way segmented toggle in Section 1 sticky header — `[ Metric \| Standard \| Hybrid ]` — with default Metric on first open and `localStorage['dev-audit-unit-mode']` persistence. New helper `src/features/dev-mode/audit-units.js` wraps `src/utils/units.js` exposing `formatAuditValue(value, measureType, decimals)` keyed off the active mode; Hybrid returns `{ primary, secondary }` so the renderer can apply muted-grey CSS to the imperial parenthetical. Resolver `input(...)` helper signature extended with `measureType` parameter so every unit-bearing input gets routed through the helper at render time. Grep contracts added: no raw `.toFixed(N) + ' kg|cm|ha|lb|...'` literals in `src/features/dev-mode/`. Stays-as-is regardless of mode: IDs, dates, head counts, day counts, percentages, status labels, source path labels, raw JSON fragments (which exist to diff against Supabase, which is metric). **Project rule confirmed and saved to plugin memory:** dev-mode surfaces (`#/dev/*`) are desktop-only deep-dive tools; skip the phone-layout pass. **No code change this session — OPEN_ITEMS.md edit + 1 new spec file at `github/issues/OI-0145_audit-page-restructure.md`.** Schema change: NONE. CP-55/CP-56 impact: NONE. **Priority bumped:** P3 → P2 (the structural gap means OI-0138 Phase 5 ships with cards that can't be substantively audited; calling the existing audit "Phase 5 complete" was technically accurate but practically incomplete). Related: OI-0138 (parent — audit page MVP), OI-0144 (sibling — calc registry completion; their resolvers will fill Section 5 slots without OI-0145 needing a re-edit), OI-0142 (sibling — `explain()` refactor; OI-0145's resolver pattern is its ancestor). |
 | 2026-05-01 | OI-0140 locked (Q1 + Q2 answered) + OI-0143 opened (pre-positioned feed, Option 2 framework) | Continuation of the morning's G-event session. Tim answered OI-0140's two sub-questions: **Q1 = single picker** (one `<select>` for the whole sheet; per-line picker deferred unless field need surfaces); **Q2 = no further filter beyond `activePWs`** — picker shows every paddock window where `event_id === evt.id && date_closed IS NULL`. OI-0140 status flipped from "Two sub-questions flagged" to "DESIGN LOCKED, ready for Claude Code." Spec file `github/issues/OI-0140_feed-delivery-paddock-picker.md` updated to remove the "do not start" hold. **In the same exchange Tim asked the deeper question:** *"If delivered where no animals are grazing, how does it get connected to an event once they are grazing in that paddock? Is that possible?"* Cowork explained the current model is strictly event-centric (`event_feed_entries.event_id` is `NOT NULL`; delivery sheet is reachable only from event detail), so pre-positioning is unrepresentable today. Three architectural options laid out: (1) nullable `event_id` + backfill rule; (2) new `staged_feed_entries` table + explicit hand-off; (3) phantom location-only event. **Tim's call: Option 2.** Cleanest separation, explicit transition, no overloaded nullable semantics. **OI-0143 added** at top of Open with Option 2 DESIGN LOCKED on framework, six sub-questions (SQ1–SQ6) DESIGN REQUIRED before Claude Code spec is written: SQ1 entry-point (location detail vs inventory screen vs new tab), SQ2 hand-off trigger (auto-on-event-open vs manual prompt vs first-feed-check), SQ3 partial consumption between staging and event open (use staged qty vs prompt at hand-off vs forced first feed check), SQ4 multi-event matching rule, SQ5 location-card visibility of staged inventory, SQ6 CRUD on staged rows pre-handoff. Cowork's leans documented for each. **Schema change:** YES (new table, migration NNN, schema_version bump). **CP-55/CP-56 impact:** YES (new BACKUP_TABLES entry, new FK_ORDER position, BACKUP_MIGRATIONS no-op for old backups). **Calc / DMI impact:** none until hand-off (staged rows don't enter feed-forage cascade); after hand-off the resulting `event_feed_entries` row participates unchanged. **Spec file:** `github/issues/OI-0143_pre-positioned-feed.md` (DESIGN REQUIRED placeholder; full implementation spec written when SQ1–SQ6 resolve). **PLUGIN IMPROVEMENT candidate inline:** "staged_X paired with event_X tables + explicit hand-off helper" pattern may generalize to other event-centric domains (staged observations, staged amendments) — flag in next IMPROVEMENTS.md sweep once OI-0143 ships. **No code change this session — OPEN_ITEMS.md edits + 1 spec file update + 1 new spec file only.** Note on numbering: OI-0142 was already claimed earlier today by an unrelated calc-registry-explain entry; this OI is OI-0143. Related: OI-0140 (sister OI — fixes routing within an event; OI-0143 adds the no-event-yet surface), OI-0117 / OI-0133 (drift-class avoidance the Option 2 framework deliberately follows), OI-0119 (forced feed check on event boundaries — the OI-0143 SQ3 leaning on "first check captures actual remaining" reuses that boundary check). |
 | 2026-05-01 | OI-0140 opened + OI-0141 opened + live-data heal on Tim's G-event | Tim reported two issues from this morning's field check on his G-event (`fb407a55-aa0e-4cbb-b906-af6964a0addc`, three open paddock windows G-1/G-2/G-3 simultaneously, strip-grazing pattern): (1) feed-check sheet showing two split lines (one G-3, one G-2) when his mental model was one consolidated feeder; (2) desktop tab missing entries that mobile and Supabase both correctly hold despite both clients showing a green "Synced" indicator. Cowork queried Supabase live (project `sxkmultsfsmfcijvsauf`) and traced both. **Issue 1 → OI-0140:** Tim asked "is there no way to select a paddock when delivering feed?" Confirmed via `src/features/feed/delivery.js:41-49`: code computes `activePWs = getAll('eventPaddockWindows').filter(...).filter(!dateClosed)`, picks `activePWs[0]` from the unsorted localStorage array, applies that single `locationId` to every feed line saved in the sheet — no UI to pick, no header label showing which paddock was silently chosen. On single-window events the auto-pick is fine; on multi-window events the assignment is essentially arbitrary per session because localStorage insertion order shifts. Tim's first bale was physically placed at G-1 but recorded at G-3; second bale correctly at G-2 by chance. **Live-data heal executed via Supabase MCP this session with Tim's approval:** `UPDATE event_feed_entries SET location_id = 'G-1' WHERE id = 'b9f9add7-...'` and matching update on `event_feed_check_items` (`10ab2005-...`). Date column on the entry was briefly shifted Apr 29 → Apr 30 then reverted per Tim's "revert the date" call to keep the entry timestamp before the Apr 30 08:23 check (otherwise the OI-0139 strict-`>` rule would have read the bale as fresh hay on top of the check). Final state: entry `2026-04-29 14:00 / G-1 / 0.68 bale`; check item `Apr 30 08:23 / G-1 / 0.55 remaining`; second entry `Apr 30 14:30 / G-2 / 1.0 bale` untouched. Verified via SELECT round-trip. **OI-0140 added** at top of Open with Phase 1 DESIGN LOCKED scope (paddock picker on multi-window events; default to most-recently-opened; show `→ {locationName}` chip on every Feed Entries row, every feed-check line, every Feed Checks list row) and two sub-questions (Q1 per-line picker vs single picker; Q2 filter open-but-inactive windows from picker) flagged for Tim before Claude Code spec lock. **Spec file:** `github/issues/OI-0140_feed-delivery-paddock-picker.md`. **Issue 2 → OI-0141:** Cowork inspected `src/main.js:208,212` + `src/data/pull-remote.js` + `src/ui/header.js:398-402`. Confirmed `pullAllRemote()` runs only on app boot and `window.online` event — never on tab visibility change, never periodically, no Supabase realtime subscriptions. Confirmed sync indicator reads only `adapter.getStatus()` which reflects only the outgoing push queue (`idle` = "nothing left to push from this device"), reports nothing about pull freshness. Two together = silent multi-device drift indistinguishable from a working app. Tim's desktop was missing 1 entry created today and 1 check created yesterday; both stored correctly in Supabase, both rendered correctly on mobile, both clients showed green dot. **OI-0141 added** at top of Open with Phase 1 DESIGN LOCKED scope: visibility-change listener fires `flush() + pullAllRemote()` when tab returns to visible; honest sync indicator with last-pulled-at timestamp + 15-min stale flip to amber; manual-refresh-on-tap replaces navigate-to-Settings on the dot. Phase 2 (realtime subscriptions) deferred to separate OI when Phase 1 ships. **Spec file:** `github/issues/OI-0141_desktop-pull-on-visibility.md`. **Schema change:** NONE for either. **CP-55/CP-56 impact:** NONE for either. **Two PLUGIN IMPROVEMENT candidates flagged inline:** (1) auto-selection from multi-element collections via `[0]` is a latent bug class — pre-commit grep for `\.filter([^)]+)\[0\]` would catch; (2) "green sync dot = fully synced" is a default-wrong assumption that local-first sync architectures should report both directions of freshness for. Both worth a row in IMPROVEMENTS.md next sweep. **No code change this session — OPEN_ITEMS.md edits + 2 spec files + live-data SQL only.** Related: OI-0139 (just closed — exposed Issue 1 as the upstream "wrong split in the first place" problem), OI-0050 (closed — silent sync gap class). |

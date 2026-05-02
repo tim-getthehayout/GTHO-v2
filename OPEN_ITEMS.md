@@ -4,135 +4,6 @@
 
 ---
 
-### OI-0147 — Audit empty-state: dropdown gated on `event` non-null so it never renders in empty state; "Audit button on event detail page" copy promises a button that doesn't exist
-**Added:** 2026-05-02 | **Area:** v2-build / dev-tools / audit / event-detail | **Priority:** P3 (audit page is reachable via direct hash entry once the empty-state copy is corrected; today's empty-state UX is broken but workable for a sole dev user. Filed for completeness — affects discoverability for any future dev user toggled on via `is_dev`)
-
-**Status:** closed 2026-05-02 — landed in commit `01d5a12` (GH-43). Picker now renders in empty state with a `— select an event —` placeholder option (when `events.length > 0`) or a "no events for this operation yet" note (when 0); `evt.id === event?.id` guard added; prev/next stay gated on event non-null. Event-detail sheet header gains a gated `Audit` button (testid `event-detail-audit-button`, leftmost in the right cluster) navigating to `#/dev/audit?id=<event.id>`. New i18n keys `dev.auditPickerPlaceholder`, `dev.auditNoEventsForOperation`, `event.detailAuditButton`. 1392/1392 tests passing including +5 audit empty-state cases + 3 Audit-button gating cases. Build green.
-
-**Origin:** Tim landed on `#/dev/audit` (no `?id=...`) and saw the empty-state copy *"Pick an event from the dropdown above, or open via the Audit button on an event detail page."* Neither control was reachable. Diagnosis confirmed two bugs:
-
-1. **Picker render gated on `event` non-null** — `src/features/dev-mode/audit.js:82` wraps the prev/next buttons + event picker in `if (event) { ... }`. When no event is selected (empty state), the entire `navRow` containing the picker doesn't render. The header strip shows the title + dev badge + "no event" label, but the dropdown that the empty-state copy refers to literally doesn't exist on the page.
-2. **No Audit button on event detail** — grep of `src/features/events` for `audit\|Audit\|#/dev/audit` returns 0 matches. The empty-state copy promises an entry point from event detail that was never wired up. The OI-0138 Phase 5 ship presumably intended this but it didn't land.
-
-**Locked design:**
-
-**Bug A fix — picker renders in empty state:**
-
-- Move the picker construction outside the `if (event)` block in `renderAuditHeader`. The picker should always render when `events.length > 0`.
-- The prev/next buttons stay gated on `event` non-null (they don't make sense without a current event).
-- Picker option-loop guard: `evt.id === event?.id` instead of `evt.id === event.id` so it doesn't throw when `event` is null.
-- Add a placeholder option as the first child when `event` is null: `<option value="" disabled selected>— select an event —</option>`. Skipping this option means the picker has no visible "starting" label and the user might miss it.
-- When `events.length === 0`, render a small grey note instead of the picker: "No events for this operation yet" — keeps the empty state honest.
-- The unit toggle already renders correctly in both states (it's outside the `if (event)` block); leave it as-is.
-
-**Bug B fix — Audit button on event detail header:**
-
-- Add a small outline button to the event-detail sheet header (`renderHeader` at `src/features/events/detail.js:196`).
-- Gated by `isCurrentUserDev(operationId)` (the same predicate `requireDev` uses on the route, exported from `src/data/store.js:290`).
-- Button copy: `Audit` (translated via `t('event.detailAuditButton')`).
-- `data-testid="event-detail-audit-button"`.
-- `onClick: () => navigate(\`#/dev/audit?id=${event.id}\`)`.
-- Visual style: `btn btn-outline btn-xs`. No special amber styling — the `[DEV]` badge on the audit page itself signals the destination; the source button stays neutral to avoid header clutter.
-- Placement: alongside existing close / edit controls in the sheet header, leftmost in that cluster.
-
-**Acceptance criteria:**
-
-- [ ] `audit.js` empty state shows the picker (or the "no events" note when none exist), populated with all events for the active operation, with a placeholder first option that prompts selection.
-- [ ] Selecting an event in the picker navigates to `#/dev/audit?id=<uuid>` and triggers the full audit page render.
-- [ ] Event detail sheet header renders an Audit button when `isCurrentUserDev(operationId)` returns true; button does not render for non-dev members.
-- [ ] Audit button onClick navigates to `#/dev/audit?id=<event.id>`; the audit page opens for the right event.
-- [ ] Audit empty-state copy at `dev.auditPickEvent` updated only if needed to match what now actually exists (today's copy is fine once both fixes land).
-- [ ] Unit tests covering: (a) picker renders when `event === null` and `events.length > 0`; (b) "no events" note renders when `events.length === 0`; (c) event-detail Audit button renders only for dev members; (d) Audit button navigation hits the right URL.
-- [ ] Visual verification: open `#/dev/audit` (no id) → see picker → select Tim's G-event → audit renders. Open Tim's G-event detail sheet → see Audit button → tap → audit opens for that event.
-- [ ] OPEN_ITEMS.md OI-0147 flipped to closed in the same commit (orphan-flip rule per CLAUDE.md §"OPEN_ITEMS.md Closure Discipline").
-- [ ] PROJECT_CHANGELOG.md row added.
-- [ ] GitHub issue closed with commit hash.
-
-**Reference points:**
-
-- `src/features/dev-mode/audit.js:82` — current `if (event)` gate that hides the picker.
-- `src/features/dev-mode/audit.js:907` — empty-state `dev.auditPickEvent` copy.
-- `src/features/events/detail.js:196` — `renderHeader(ctx)` — where the Audit button lands.
-- `src/data/store.js:290` — `isCurrentUserDev(operationId)` gate.
-- `src/ui/router.js:71` — `requireDev(renderFn)` precedent for the same gate.
-
-**Schema change:** none.
-
-**CP-55/CP-56 impact:** none.
-
-**Spec file:** `github/issues/OI-0147_audit-empty-state-and-event-detail-button.md`.
-
-**Related:**
-
-- **OI-0138** (parent — audit page MVP) — the empty-state copy was written aspirationally during Phase 5 but the Audit button wasn't wired up.
-- **OI-0146** (sibling — dev-mode shelf doorway) — both OIs are dev-mode discoverability fixes; can ship together or independently.
-
----
-
-### OI-0146 — Dev Mode shelf doorway: Settings → "Dev tools" link + small `[DEV]` chip in main header (both gated by `is_dev`); navigates to `#/dev`
-**Added:** 2026-05-02 | **Area:** v2-build / dev-tools / settings / header / nav | **Priority:** P3 (Dev Mode shelf at `#/dev` already exists per OI-0138 with three working tools, but no UI doorway leads there — users must type the hash manually. Affects discoverability for every dev user toggled on via `is_dev`; the sole dev user today is Tim, so not field-blocking, but the gap matters as soon as a second dev gets flagged.)
-
-**Status:** closed 2026-05-02 — landed in commit `01d5a12` (GH-42). Doorway A: `src/features/settings/tools-section.js` renders a gated "Dev tools" button (`testid="settings-dev-tools-link"`, helper text "Open the diagnostic shelf") at the bottom of the Tools card when `isCurrentUserDev(operationId)` returns true. Doorway B: `src/ui/header.js` renders a gated `[DEV]` chip immediately left of the sync indicator, reusing `renderDevModeBadge()` from `src/features/dev-mode/index.js` (no styling drift); chip wraps in a 32×32 hit-area button with `testid="header-dev-mode-chip"`. Both navigate to `#/dev` on click. Header subscribes to `operationMembers` so the chip flips visibility live when member-management toggles `is_dev`. New i18n keys `settings.devToolsButtonLabel`, `settings.devToolsHelperText`. 1392/1392 tests passing including +6 doorway gating + navigation cases. Build green.
-
-**Origin:** Tim asked *"Is there a menu location to access all the dev tool items?"* during the OI-0145 ship debrief. Investigation: `#/dev` exists (`renderDevHome` at `src/features/dev-mode/index.js:42`) and lists all three tools (Event Audit, Logs, Schema) as click-cards; the route is gated by `requireDev`. But grep of the entire codebase shows no UI link to `#/dev` from anywhere — the route is reachable only by typing the hash manually. Tim's call: file both doorway options together rather than picking just one, since they serve different access patterns (Settings is for "I'm hunting for tools," header chip is for "I'm debugging right now and need fast access").
-
-**Locked design:**
-
-**Doorway A — Settings → "Dev tools" link:**
-
-- Lives in the Settings screen (`src/features/settings/index.js` → `renderSettingsScreen`). Best home: the existing Tools section (`src/features/settings/tools-section.js` — `renderToolsSection(operationId)`) which already contains the OI-0132 backfill button.
-- Renders only when `isCurrentUserDev(operationId)` returns true. For non-dev members the link is invisible; for dev members it's a labeled action button.
-- Button copy: `Dev tools` (translated via `t('settings.devToolsButtonLabel')`), with helper text `Open the diagnostic shelf` (translated via `t('settings.devToolsHelperText')`).
-- `data-testid="settings-dev-tools-link"`.
-- `onClick: () => navigate('#/dev')`.
-- Placed at the bottom of the Tools section so it doesn't push the higher-traffic backfill action down.
-
-**Doorway B — Header `[DEV]` chip:**
-
-- Lives in the main app header (`src/ui/header.js` → `renderHeader`).
-- Renders only when `isCurrentUserDev(getOperation()?.id)` returns true. For non-dev members the chip is absent; for dev members it's always visible while logged in.
-- Visual style: small amber chip matching the existing `renderDevModeBadge()` pattern in `src/features/dev-mode/index.js:19` — same colours, same compact size. Reuse that helper directly to avoid drift.
-- Placement: in the header row near the sync indicator. Specific position: right side, immediately to the left of the sync dot/strip (so the "I'm debugging" affordance is adjacent to the sync state affordance, both on the right).
-- `data-testid="header-dev-mode-chip"`.
-- `onClick: () => navigate('#/dev')`.
-- Tap target: minimum 32×32 px hit area even though the visual chip is smaller — wraps the chip in a button with adequate padding.
-
-**Acceptance criteria:**
-
-- [ ] `tools-section.js` renders a "Dev tools" link/button when `isCurrentUserDev(operationId)` returns true; not rendered otherwise.
-- [ ] `header.js` renders a `[DEV]` chip when `isCurrentUserDev(getOperation()?.id)` returns true; not rendered otherwise. Chip position: right side of header, immediately left of the sync indicator.
-- [ ] Both doorways navigate to `#/dev` on click.
-- [ ] Header chip reuses `renderDevModeBadge()` from `src/features/dev-mode/index.js` (no duplicated styling).
-- [ ] Test seam: header re-renders when `is_dev` flips (member-management UI flips the flag → header subscriber re-renders chip visibility). Verify with a unit test that mounts the header, flips `is_dev`, asserts the chip appears.
-- [ ] i18n keys added: `settings.devToolsButtonLabel`, `settings.devToolsHelperText`. All user-facing copy via `t()`.
-- [ ] Unit tests: (a) Settings link renders only when `is_dev`; (b) header chip renders only when `is_dev`; (c) both navigate to `#/dev` on click; (d) chip is keyboard-focusable with adequate hit area.
-- [ ] Visual verification: with `is_dev = true`, the Settings page shows "Dev tools" in the Tools section and the header shows the chip; with `is_dev = false`, neither appears.
-- [ ] OPEN_ITEMS.md OI-0146 flipped to closed in the same commit (orphan-flip rule per CLAUDE.md §"OPEN_ITEMS.md Closure Discipline").
-- [ ] PROJECT_CHANGELOG.md row added.
-- [ ] GitHub issue closed with commit hash.
-
-**Reference points:**
-
-- `src/features/dev-mode/index.js:19` — `renderDevModeBadge()` (reuse for header chip).
-- `src/features/dev-mode/index.js:42` — `renderDevHome()` (the destination).
-- `src/features/settings/tools-section.js:12` — `renderToolsSection(operationId)` (where Doorway A lives).
-- `src/ui/header.js:25` — `renderHeader(container)` (where Doorway B lives).
-- `src/data/store.js:290` — `isCurrentUserDev(operationId)` (gate).
-- `src/ui/router.js:71` — `requireDev(renderFn)` (route-level gate; the UI gate uses the same predicate).
-
-**Schema change:** none.
-
-**CP-55/CP-56 impact:** none.
-
-**Spec file:** `github/issues/OI-0146_dev-mode-doorway.md`.
-
-**Related:**
-
-- **OI-0138** (parent — audit page MVP) — shipped the dev-mode shelf at `#/dev` and the three tools without specifying entry points.
-- **OI-0147** (sibling — audit empty-state + event-detail Audit button) — both are dev-mode discoverability fixes; can ship together or independently.
-
----
-
 ### OI-0144 — Calc registry incomplete: register `days-on-pasture`, cost calc(s), and NPK residual so the OI-0138 audit can surface them; principle restated — every formula the app computes must live in the registry
 **Added:** 2026-05-01 | **Area:** v2-build / calcs / registry / dev-tools | **Priority:** P3 (architectural completion; unblocks OI-0138 Phase 5 from showing fewer calc cards than originally intended; does not block field testing or any user-facing flow)
 
@@ -5178,6 +5049,18 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 ## Closed
 
+### OI-0147 — Audit empty-state: picker now renders in empty state with placeholder; gated Audit button added to event-detail header
+**Added:** 2026-05-02 | **Closed:** 2026-05-02 | **Area:** v2-build / dev-tools / audit / event-detail
+**Resolution:** Shipped in commits `01d5a12` (feature) + `e8f9edd` (hash stamp), bundled with OI-0146. **What shipped:** (1) `src/features/dev-mode/audit.js` — picker construction moved outside the `if (event)` block; renders in empty state with `— select an event —` placeholder option (`dev.auditPickerPlaceholder`); `event?.id` optional-chain guard added; "No events for this operation yet" note (`dev.auditNoEventsForOperation`) renders when `events.length === 0`. (2) `src/features/events/detail.js` — `Audit` button (`event.detailAuditButton`) added leftmost in the right-side action cluster of the event-detail sheet header, gated by `isCurrentUserDev(operationId)`, navigates to `#/dev/audit?id=<event.id>`. **Tests:** +5 (empty-state picker render + "no events" note + Audit button gating + navigation URL). **GitHub issue:** GH-43 filed and closed; spec renamed `github/issues/GH-43_OI-0147_audit-empty-state-and-event-detail-button.md`. **Schema change:** none. **CP-55/CP-56 impact:** none.
+
+---
+
+### OI-0146 — Dev Mode shelf doorway: Settings → "Dev tools" link + `[DEV]` chip in main header (both gated by `is_dev`); navigates to `#/dev`
+**Added:** 2026-05-02 | **Closed:** 2026-05-02 | **Area:** v2-build / dev-tools / settings / header / nav
+**Resolution:** Shipped in commits `01d5a12` (feature) + `e8f9edd` (hash stamp), bundled with OI-0147. **What shipped:** (1) Doorway A — `src/features/settings/tools-section.js`: gated "Dev tools" button (`settings.devToolsButtonLabel` / `settings.devToolsHelperText`) at bottom of Tools card, navigates to `#/dev`. (2) Doorway B — `src/ui/header.js`: gated `[DEV]` chip immediately left of the sync indicator, reuses `renderDevModeBadge()` from `src/features/dev-mode/index.js` (no styling drift), wrapped in a 32×32 px hit-area button, header subscribes to `operationMembers` so the chip flips live when `is_dev` toggles via member-management. **Tests:** +9 (doorways + Audit button gating + navigation + live flip on `is_dev` change). Suite total 1378 → 1392, all green. Production build clean. **GitHub issue:** GH-42 filed and closed; spec renamed `github/issues/GH-42_OI-0146_dev-mode-doorway.md`. **Schema change:** none. **CP-55/CP-56 impact:** none.
+
+---
+
 ### OI-0145 — Audit page restructure: per-paddock-window blocks + event-level rollup section + 3-way unit toggle; DMI-8 daily breakdown
 **Added:** 2026-05-01 | **Widened:** 2026-05-02 | **Closed:** 2026-05-02 | **Area:** v2-build / dev-tools / audit / calcs
 **Resolution:** Shipped in commits `cca2b21` (feature) + `c6be198` (hash stamp). 28 new tests (16 audit-units + 12 restructure); full suite 1378/1378 green; production vite build clean. **What shipped:** (1) new `src/features/dev-mode/audit-units.js` — 3-mode wrapper over `units.js`; `formatAuditValue()` returns `string` for metric/standard or `{ primary, secondary }` for hybrid. (2) `src/features/dev-mode/audit-resolvers.js` — RESOLVERS table grew `{ fn, scope }`; `input()` grew `measureType`; new `resolveDMI8` walks the event window day-by-day calling `getCalcByName('DMI-8').fn(...)` and aggregates into chips/sources/dailyBreakdown. (3) `src/features/dev-mode/audit.js` — Section 1 sticky header gained 3-way `[ Metric | Standard | Hybrid ]` toggle (radiogroup, persisted via `localStorage['dev-audit-unit-mode']`). Section 4 rewritten as per-paddock-window blocks (location → forage type → observation → FOR-1 → overlapping group windows with members + DMI-2 → scoped feed entries + items). Section 4b renders parent feed-checks index + batches table + orphan feed entries. Section 5 carries event-only rollup cards (DMI-3 + DMI-8). **Grep contracts hold:** 0 formula reimpl, 0 raw unit literals, 15 `formatAuditValue` sites, 7 `getCalcByName` in resolvers. **GitHub issue:** GH-41 filed and closed; spec renamed `github/issues/GH-41_OI-0145_audit-page-restructure.md`. **Schema change:** none. **CP-55/CP-56 impact:** none.
@@ -5370,6 +5253,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-05-02 | OI-0146 + OI-0147 close-out recovery — same orphan-flip rule failure as OI-0145; rule failed twice in one day, hardening required | Tim shipped OI-0146 + OI-0147 bundled (commits `01d5a12` feature + `e8f9edd` hash stamp; +14 tests; suite 1378 → 1392 green; production build clean; GH-42 + GH-43 filed and closed; specs renamed `GH-42_OI-0146_dev-mode-doorway.md` and `GH-43_OI-0147_audit-empty-state-and-event-detail-button.md`). **Same gap as OI-0145:** Claude Code did NOT include the OPEN_ITEMS.md status flip + entry move in the same commit despite CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2 explicitly requiring it (*"any commit whose message references an OI ID must include a staged edit to OPEN_ITEMS.md in the same commit"*). Both entries were sitting in Open with `DESIGN LOCKED` status and unflipped acceptance-criteria checkboxes when Cowork checked at session-resume time. **Recovery:** both entries moved Open → Closed with shortened Resolution-style entries; piggyback grep ran (no sibling OIs to retire — all dev-mode-doorway / audit-empty-state hits live inside the OI-0146/OI-0147 bodies themselves). **Meta-finding:** the orphan-flip rule has now failed at code-ship time twice in one day (OI-0145 ship → recovered earlier this session; OI-0146 + OI-0147 ship → recovered now). The rule is provably insufficient as a manual-discipline doc; Claude Code follows project rules exhaustively for design-time work but is dropping the OPEN_ITEMS.md flip on every code-ship commit. **PLUGIN IMPROVEMENT — promote to action:** add a `.git/hooks/pre-commit` (or commit-msg) hook that fails the commit when the message contains `OI-[0-9]+` but `git diff --cached --name-only` does NOT include `OPEN_ITEMS.md`. Same predicate already documented in CLAUDE.md as the post-commit grep contract — promote it from documentation to enforcement. Worth a row in IMPROVEMENTS.md AND a small follow-on OI to actually write the hook (likely 10-line shell script). **No code change this session — OPEN_ITEMS.md edits only.** Schema change: NONE. CP-55/CP-56 impact: NONE. Related: OI-0145 (closed earlier today — same recovery pattern), OI-0138 (parent — audit page MVP whose deferrals these OIs cleaned up). |
 | 2026-05-02 | OI-0145 close-out recovery + audit empty-state diagnosis + OI-0146 / OI-0147 filed | Post-ship reconciliation. Tim shipped OI-0145 (commits `cca2b21` + `c6be198`, 28 new tests, 1378/1378 green) but the close-out edits to `OPEN_ITEMS.md` were missed — OI-0145 was still in the Open section with `DESIGN LOCKED` status and unflipped acceptance-criteria checkboxes. **Recovery:** OI-0145 entry moved from Open → Closed section with shortened Resolution-style entry (commit hashes + what shipped + grep contracts that hold + GH-41 reference); orphan-flip rule satisfied. Tim then asked about a Dev Mode menu entry point — investigation found `#/dev` exists with a renderDevHome shelf listing all three tools (Event Audit, Logs, Schema), but no UI path leads there from the regular app. Filed **OI-0146** with both doorway designs Tim approved: Settings → "Dev tools" link gated by `is_dev`, plus a small `[DEV]` chip in the header gated by `is_dev`. Tim also reported the audit empty state copy ("Pick an event from the dropdown above, or open via the Audit button on an event detail page") references controls that don't exist — investigation confirmed two bugs: (a) `audit.js:82` gates the picker render on `event` being non-null, so the dropdown literally doesn't render in the empty state; (b) grep of `src/features/events` for `audit\|Audit\|#/dev/audit` returns 0 matches — there's no Audit button on event detail pages. Filed **OI-0147** for both fixes (move picker out of `if (event)` block + add gated Audit button to event detail header). **No code change this session — OPEN_ITEMS.md edits + 2 new spec files at `github/issues/OI-0146_dev-mode-doorway.md` and `github/issues/OI-0147_audit-empty-state-and-event-detail-button.md`.** Schema change: NONE. CP-55/CP-56 impact: NONE. **PLUGIN IMPROVEMENT candidate:** orphan-flip rule needs a pre-commit hook (`git log -1 --format=%B \| grep -E 'OI-[0-9]+'` then check `git diff-tree` includes OPEN_ITEMS.md) — the manual rule was followed during design but missed at code-ship time despite being explicit in CLAUDE.md. Worth a row in IMPROVEMENTS.md. Related: OI-0138 (parent — audit page MVP that opened the dev-mode shelf with no doorway), OI-0145 (closed today — audit restructure that exposed the empty-state copy bug). |
 | 2026-05-02 | OI-0145 widened + design locked — audit page restructure (per-paddock-window blocks + event-level rollup) + 3-way unit toggle | Tim and Cowork walked the four DMI-8 rendering options on the existing OI-0138 audit page. Option 2 (summary card with click-to-expand + per-day table) initially looked right; on a desktop deep-dive context Cowork proposed a cleaner real-table layout instead of the phone-friendly monospace rows. **Tim's correction widened the scope:** *"We need to represent all data relevant to an event window including groups/animals otherwise the DMI actual has nothing to audit against. Each window should show all the data that underlies the calculations as well as the calculations themselves."* The gap surfaced: today's audit shows DMI-2's `headCount=25` without the membership list that derived it, FOR-1's `forageHeightCm=8` without the observation row, and DMI-8 has no card at all. The calc cards as drawn are unfalsifiable. **Tim's call:** widen OI-0145 from "DMI-8 resolver" to "audit page restructure." **Locked design:** Section 4 rewritten as per-paddock-window blocks (window facts → location → forage type → pre-graze observation → FOR-1 inline → overlapping group windows with animal memberships + animal class + DMI-2 inline → scoped feed entries → scoped feed check items). New Section 4b for event-level feed records (parent checks index, batches table, orphan feed entries). Section 5 holds event-level rollup calcs only (DMI-3, DMI-8, plus OI-0144 calcs when they land). Resolver registry grows a `scope` field (`'paddock-window'` | `'group-window'` | `'event'`) so the audit page can route each instance to the correct render slot. DMI-8 card design (chip row + sources roll-up + auto-expand-on-needs-check daily-breakdown table with `pwId(s) open` column citing back to the per-window blocks) sits inside the new Section 5. **Unit handling locked in same session:** 3-way segmented toggle in Section 1 sticky header — `[ Metric \| Standard \| Hybrid ]` — with default Metric on first open and `localStorage['dev-audit-unit-mode']` persistence. New helper `src/features/dev-mode/audit-units.js` wraps `src/utils/units.js` exposing `formatAuditValue(value, measureType, decimals)` keyed off the active mode; Hybrid returns `{ primary, secondary }` so the renderer can apply muted-grey CSS to the imperial parenthetical. Resolver `input(...)` helper signature extended with `measureType` parameter so every unit-bearing input gets routed through the helper at render time. Grep contracts added: no raw `.toFixed(N) + ' kg|cm|ha|lb|...'` literals in `src/features/dev-mode/`. Stays-as-is regardless of mode: IDs, dates, head counts, day counts, percentages, status labels, source path labels, raw JSON fragments (which exist to diff against Supabase, which is metric). **Project rule confirmed and saved to plugin memory:** dev-mode surfaces (`#/dev/*`) are desktop-only deep-dive tools; skip the phone-layout pass. **No code change this session — OPEN_ITEMS.md edit + 1 new spec file at `github/issues/OI-0145_audit-page-restructure.md`.** Schema change: NONE. CP-55/CP-56 impact: NONE. **Priority bumped:** P3 → P2 (the structural gap means OI-0138 Phase 5 ships with cards that can't be substantively audited; calling the existing audit "Phase 5 complete" was technically accurate but practically incomplete). Related: OI-0138 (parent — audit page MVP), OI-0144 (sibling — calc registry completion; their resolvers will fill Section 5 slots without OI-0145 needing a re-edit), OI-0142 (sibling — `explain()` refactor; OI-0145's resolver pattern is its ancestor). |
 | 2026-05-01 | OI-0140 locked (Q1 + Q2 answered) + OI-0143 opened (pre-positioned feed, Option 2 framework) | Continuation of the morning's G-event session. Tim answered OI-0140's two sub-questions: **Q1 = single picker** (one `<select>` for the whole sheet; per-line picker deferred unless field need surfaces); **Q2 = no further filter beyond `activePWs`** — picker shows every paddock window where `event_id === evt.id && date_closed IS NULL`. OI-0140 status flipped from "Two sub-questions flagged" to "DESIGN LOCKED, ready for Claude Code." Spec file `github/issues/OI-0140_feed-delivery-paddock-picker.md` updated to remove the "do not start" hold. **In the same exchange Tim asked the deeper question:** *"If delivered where no animals are grazing, how does it get connected to an event once they are grazing in that paddock? Is that possible?"* Cowork explained the current model is strictly event-centric (`event_feed_entries.event_id` is `NOT NULL`; delivery sheet is reachable only from event detail), so pre-positioning is unrepresentable today. Three architectural options laid out: (1) nullable `event_id` + backfill rule; (2) new `staged_feed_entries` table + explicit hand-off; (3) phantom location-only event. **Tim's call: Option 2.** Cleanest separation, explicit transition, no overloaded nullable semantics. **OI-0143 added** at top of Open with Option 2 DESIGN LOCKED on framework, six sub-questions (SQ1–SQ6) DESIGN REQUIRED before Claude Code spec is written: SQ1 entry-point (location detail vs inventory screen vs new tab), SQ2 hand-off trigger (auto-on-event-open vs manual prompt vs first-feed-check), SQ3 partial consumption between staging and event open (use staged qty vs prompt at hand-off vs forced first feed check), SQ4 multi-event matching rule, SQ5 location-card visibility of staged inventory, SQ6 CRUD on staged rows pre-handoff. Cowork's leans documented for each. **Schema change:** YES (new table, migration NNN, schema_version bump). **CP-55/CP-56 impact:** YES (new BACKUP_TABLES entry, new FK_ORDER position, BACKUP_MIGRATIONS no-op for old backups). **Calc / DMI impact:** none until hand-off (staged rows don't enter feed-forage cascade); after hand-off the resulting `event_feed_entries` row participates unchanged. **Spec file:** `github/issues/OI-0143_pre-positioned-feed.md` (DESIGN REQUIRED placeholder; full implementation spec written when SQ1–SQ6 resolve). **PLUGIN IMPROVEMENT candidate inline:** "staged_X paired with event_X tables + explicit hand-off helper" pattern may generalize to other event-centric domains (staged observations, staged amendments) — flag in next IMPROVEMENTS.md sweep once OI-0143 ships. **No code change this session — OPEN_ITEMS.md edits + 1 spec file update + 1 new spec file only.** Note on numbering: OI-0142 was already claimed earlier today by an unrelated calc-registry-explain entry; this OI is OI-0143. Related: OI-0140 (sister OI — fixes routing within an event; OI-0143 adds the no-event-yet surface), OI-0117 / OI-0133 (drift-class avoidance the Option 2 framework deliberately follows), OI-0119 (forced feed check on event boundaries — the OI-0143 SQ3 leaning on "first check captures actual remaining" reuses that boundary check). |

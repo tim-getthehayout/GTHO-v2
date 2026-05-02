@@ -47,8 +47,8 @@ beforeEach(() => {
 });
 
 describe('audit-resolvers (OI-0138)', () => {
-  it('exposes resolver names — DMI-2, DMI-3, FOR-1', () => {
-    expect(getResolverNames().sort()).toEqual(['DMI-2', 'DMI-3', 'FOR-1']);
+  it('exposes resolver names — DMI-2, DMI-3, DMI-8, FOR-1', () => {
+    expect(getResolverNames().sort()).toEqual(['DMI-2', 'DMI-3', 'DMI-8', 'FOR-1']);
   });
 
   describe('DMI-2', () => {

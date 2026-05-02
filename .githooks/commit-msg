@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# commit-msg hook — orphan-flip rule enforcement (OI-0148).
+#
+# Predicate: if the commit message references one or more `OI-NNNN` IDs and
+# `OPEN_ITEMS.md` is NOT in the staged diff, abort the commit with exit 1.
+#
+# Spec: CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2.
+# Bypass: `git commit --no-verify` (standard git escape hatch — not defeated).
+#
+# $1 is the path to the file containing the commit message
+# (typically .git/COMMIT_EDITMSG).
+set -euo pipefail
+
+msg_file="${1:-}"
+if [ -z "$msg_file" ] || [ ! -f "$msg_file" ]; then
+  # No message file passed — nothing to check, let git proceed.
+  exit 0
+fi
+
+# Strip git comment lines (anything starting with #) before scanning so an
+# OI reference inside a commented-out template line does not trigger the rule.
+msg_body="$(grep -v '^#' "$msg_file" || true)"
+
+# Collect every distinct OI reference in the message body. `grep -oE` prints
+# one match per line; sort -u dedupes; tr collapses to a comma-separated list
+# for the error message.
+oi_refs="$(printf '%s\n' "$msg_body" | grep -oE 'OI-[0-9]+' | sort -u || true)"
+
+if [ -z "$oi_refs" ]; then
+  # No OI reference — rule does not apply.
+  exit 0
+fi
+
+# Check whether OPEN_ITEMS.md is in the staged diff.
+if git diff --cached --name-only | grep -qx 'OPEN_ITEMS.md'; then
+  exit 0
+fi
+
+# Failure path — name every OI reference the hook found, cite the rule,
+# and surface the standard --no-verify bypass.
+oi_list="$(printf '%s\n' "$oi_refs" | paste -sd ', ' -)"
+
+cat >&2 <<EOF
+ERROR: Commit message references ${oi_list} but OPEN_ITEMS.md is not in the staged diff.
+
+  Per CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2, every commit
+  whose message references an OI must include a staged edit to OPEN_ITEMS.md
+  in the same commit (status flip, entry move to Closed, or otherwise).
+
+  To bypass when an OI is mentioned but not being closed, use:
+    git commit --no-verify
+EOF
+
+exit 1

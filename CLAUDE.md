@@ -32,6 +32,7 @@ The base docs (V2_UX_FLOWS.md §17.7 and §17.15) have already been partially up
 - **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages on every push to main. Site at `https://tim-getthehayout.github.io/GTHO-v2/`
 - Commit after each completed checkpoint or substantive edit
 - **Never use worktree isolation** (`isolation: "worktree"`)
+- After cloning, run `git config core.hooksPath .githooks` once to activate the orphan-flip enforcement hook (OI-0148 — `commit-msg` hook that fails any commit referencing `OI-NNNN` without staging `OPEN_ITEMS.md`; bypass with `--no-verify` when an OI is mentioned but not being closed).
 
 ## Design Docs (read-only for Claude Code)
 

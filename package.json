@@ -7,8 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "npm run test:unit && npm run test:hooks",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "test:hooks": "bash .githooks/test/commit-msg.test.sh",
     "lint": "eslint src/"
   },
   "devDependencies": {

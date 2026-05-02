@@ -4,90 +4,6 @@
 
 ---
 
-### OI-0148 — `commit-msg` git hook to enforce the orphan-flip rule (CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2); promote from documentation to enforcement
-**Added:** 2026-05-02 | **Area:** v2-build / project-infrastructure / git / tooling | **Priority:** P2 (the orphan-flip rule has failed at code-ship time three times in two days — OI-0145, OI-0146, OI-0147, all recovered by Cowork session-resume sweeps. Documentation in CLAUDE.md is provably insufficient; promoting to a hook is the obvious hardening.)
-
-**Status:** **DESIGN LOCKED** — 2026-05-02 session, ready for Claude Code.
-
-**Origin:** OI-0145 shipped 2026-05-02 (commits `cca2b21` + `c6be198`) with no `OPEN_ITEMS.md` flip; recovered by Cowork mid-session. Within the same session, OI-0146 + OI-0147 shipped (commits `01d5a12` + `e8f9edd`) with the same gap; recovered again. CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2 has documented this rule for weeks and includes the post-commit grep contract verbatim — but it's a manual check that no one actually runs. Three failures in two days is sufficient signal: promote the documented predicate to a hook that runs automatically.
-
-**Locked design:**
-
-**Hook type:** `commit-msg` (not `pre-commit`). The pre-commit hook runs before the message exists; commit-msg has access to the message via `$1` (path to `.git/COMMIT_EDITMSG`). Right tool for "predicate involving message content."
-
-**Location:** `.githooks/commit-msg` — version-controlled, in the repo, so every clone gets the hook automatically once activated.
-
-**Activation:** `git config core.hooksPath .githooks` — one-time per clone. No npm dependency, no Husky, no install scripts. Add the activation step to CLAUDE.md's "Git Workflow" section so it's part of every onboarding.
-
-**Predicate:** commit message contains `OI-[0-9]+` AND `git diff --cached --name-only` does NOT include `OPEN_ITEMS.md` → fail with exit 1.
-
-**Error message:** must (a) name the specific OI references the hook found in the commit message, (b) cite CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2, (c) mention `git commit --no-verify` as the escape hatch for the rare unusual case (e.g., a message that mentions an OI as historical context without closing it). Example:
-
-```
-ERROR: Commit message references OI-0148 but OPEN_ITEMS.md is not in the staged diff.
-
-  Per CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2, every commit
-  whose message references an OI must include a staged edit to OPEN_ITEMS.md
-  in the same commit (status flip, entry move to Closed, or otherwise).
-
-  To bypass when an OI is mentioned but not being closed, use:
-    git commit --no-verify
-```
-
-**Behaviour matrix:**
-
-| Commit message has OI-NNNN? | OPEN_ITEMS.md staged? | Hook outcome |
-|---|---|---|
-| Yes | Yes | Pass (exit 0) |
-| Yes | No  | **Fail (exit 1)** with error |
-| No  | Yes | Pass (exit 0) |
-| No  | No  | Pass (exit 0) |
-
-**Bypass:** `git commit --no-verify` — standard git escape hatch, hook does not try to defeat it.
-
-**Edge cases handled:**
-
-- **Amend commits** (`git commit --amend`) re-run the hook with the new message — predicate evaluates correctly.
-- **Merge commits** typically skip the commit-msg hook on most git installs; if they don't, they typically have no OI reference.
-- **Initial / orphan commits** — hook reads from `$1`, not from HEAD, so works fine on first commit.
-- **Multiple OI references in one message** — error message names all of them so the engineer sees which OI was missed.
-
-**Acceptance criteria:**
-
-- [ ] `.githooks/commit-msg` script exists and is executable (`chmod +x`).
-- [ ] Hook fails with exit code 1 when commit message contains `OI-[0-9]+` and `OPEN_ITEMS.md` is not in `git diff --cached --name-only`.
-- [ ] Hook exits 0 when commit message contains `OI-[0-9]+` AND `OPEN_ITEMS.md` IS in the staged diff.
-- [ ] Hook exits 0 when commit message contains no OI reference (regardless of `OPEN_ITEMS.md` state).
-- [ ] Error message names every OI reference found in the commit message.
-- [ ] Error message points to `CLAUDE.md §"OPEN_ITEMS.md Closure Discipline"` rule 2.
-- [ ] Error message mentions `git commit --no-verify` as escape hatch.
-- [ ] `CLAUDE.md` "Git Workflow" section extended with one-line setup: *"After cloning, run `git config core.hooksPath .githooks` once to activate the orphan-flip enforcement hook."*
-- [ ] Test script `.githooks/test/commit-msg.test.sh` covers all four behaviour-matrix cases plus `--no-verify` bypass. Tests run in a temp git repo (created via `mktemp -d` + `git init`) to avoid affecting the real repo's state.
-- [ ] Test script wired into the npm test pipeline as `npm run test:hooks` (or equivalent) so CI catches regressions if the hook ever drifts.
-- [ ] OPEN_ITEMS.md OI-0148 flipped to closed in the same commit — **the hook itself enforces this**, so the first commit that introduces the hook is its own first user. Nice circular validation.
-- [ ] PROJECT_CHANGELOG.md row added.
-- [ ] GitHub issue closed with commit hash.
-
-**Reference points:**
-
-- `CLAUDE.md` → "OPEN_ITEMS.md Closure Discipline" → rule 2 — the predicate this hook enforces.
-- Three recent close-out failures: OI-0145 (closed 2026-05-02 with recovery), OI-0146 (closed 2026-05-02 with recovery), OI-0147 (closed 2026-05-02 with recovery). All three would have been blocked by this hook had it existed.
-
-**Schema change:** none.
-
-**CP-55/CP-56 impact:** none.
-
-**Spec file:** `github/issues/OI-0148_orphan-flip-pre-commit-hook.md`.
-
-**Related:**
-
-- **OI-0145 / OI-0146 / OI-0147** — the three close-out gaps that surfaced the need; recovered by manual OPEN_ITEMS.md surgery in two Cowork sweeps on 2026-05-02.
-- **CLAUDE.md** §"OPEN_ITEMS.md Closure Discipline" rule 2 — already documents the predicate; this OI promotes it to enforcement.
-
-**Note on hook scope:** this OI is intentionally narrow — one hook, one predicate. Other CLAUDE.md grep contracts (OI-0117 `events.date_in` reads, OI-0133 `groups.farm_id` reads, OI-0139 strict-`>` rule, OI-0140 `activePWs[0]` shortcut, OI-0145 raw unit literals, etc.) could also be promoted to hooks but each one is its own scope decision. If patterns of "documentation-only contract failed in practice" stack up further, a follow-on OI can bundle them into a single `pre-commit` script that runs the whole grep contract sweep. Not in scope here.
-
----
-
 ### OI-0144 — Calc registry incomplete: register `days-on-pasture`, cost calc(s), and NPK residual so the OI-0138 audit can surface them; principle restated — every formula the app computes must live in the registry
 **Added:** 2026-05-01 | **Area:** v2-build / calcs / registry / dev-tools | **Priority:** P3 (architectural completion; unblocks OI-0138 Phase 5 from showing fewer calc cards than originally intended; does not block field testing or any user-facing flow)
 
@@ -5132,6 +5048,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0148 — `commit-msg` git hook to enforce the orphan-flip rule (CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2); promoted from documentation to enforcement
+**Added:** 2026-05-02 | **Closed:** 2026-05-02 | **Area:** v2-build / project-infrastructure / git / tooling
+**Resolution:** Shipped per locked design. **What shipped:** (1) `.githooks/commit-msg` — executable bash hook implementing the predicate "commit message matches `OI-[0-9]+` AND `OPEN_ITEMS.md` is not in `git diff --cached --name-only` → exit 1." Strips `#`-comment lines from the message before scanning so a commented OI ref does not trigger; dedupes refs via `sort -u`; error message names every OI ref found, cites `CLAUDE.md §"OPEN_ITEMS.md Closure Discipline"` rule 2, and surfaces the `git commit --no-verify` escape hatch verbatim. (2) `.githooks/test/commit-msg.test.sh` — six-case test suite (four behaviour-matrix cells + `--no-verify` bypass + multi-OI multi-ref naming), each case in its own `mktemp -d` git repo so the real repo's state is never touched. (3) `package.json` — new `test:hooks` script (`bash .githooks/test/commit-msg.test.sh`) and a top-level `test` script that runs `test:unit && test:hooks` so CI catches hook drift. (4) `CLAUDE.md` "Git Workflow" — one-line setup step: "After cloning, run `git config core.hooksPath .githooks` once to activate the orphan-flip enforcement hook." **Activation:** `core.hooksPath .githooks` (no Husky, no npm install, no python pre-commit framework — minimal viable enforcement). **Self-validation:** the commit shipping this hook references OI-0148 in its message and stages OPEN_ITEMS.md (this very flip) — the hook is its own first user and passes. **Live verification before commit:** ran a deliberate fail-case in the real repo (staged a non-OPEN_ITEMS file with a commit message containing "OI-0148"), confirmed the hook exited 1 with the cited error, then reverted the test artifact. Hook test suite: 7 assertions, all pass. Vitest suite still 1392, all green (no app code changed). **Schema change:** none. **CP-55/CP-56 impact:** none. **GitHub issue:** GH-44 filed and closed; spec renamed `github/issues/GH-44_OI-0148_orphan-flip-pre-commit-hook.md`.
+
+---
 
 ### OI-0147 — Audit empty-state: picker now renders in empty state with placeholder; gated Audit button added to event-detail header
 **Added:** 2026-05-02 | **Closed:** 2026-05-02 | **Area:** v2-build / dev-tools / audit / event-detail

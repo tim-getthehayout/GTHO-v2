@@ -4,6 +4,90 @@
 
 ---
 
+### OI-0148 — `commit-msg` git hook to enforce the orphan-flip rule (CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2); promote from documentation to enforcement
+**Added:** 2026-05-02 | **Area:** v2-build / project-infrastructure / git / tooling | **Priority:** P2 (the orphan-flip rule has failed at code-ship time three times in two days — OI-0145, OI-0146, OI-0147, all recovered by Cowork session-resume sweeps. Documentation in CLAUDE.md is provably insufficient; promoting to a hook is the obvious hardening.)
+
+**Status:** **DESIGN LOCKED** — 2026-05-02 session, ready for Claude Code.
+
+**Origin:** OI-0145 shipped 2026-05-02 (commits `cca2b21` + `c6be198`) with no `OPEN_ITEMS.md` flip; recovered by Cowork mid-session. Within the same session, OI-0146 + OI-0147 shipped (commits `01d5a12` + `e8f9edd`) with the same gap; recovered again. CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2 has documented this rule for weeks and includes the post-commit grep contract verbatim — but it's a manual check that no one actually runs. Three failures in two days is sufficient signal: promote the documented predicate to a hook that runs automatically.
+
+**Locked design:**
+
+**Hook type:** `commit-msg` (not `pre-commit`). The pre-commit hook runs before the message exists; commit-msg has access to the message via `$1` (path to `.git/COMMIT_EDITMSG`). Right tool for "predicate involving message content."
+
+**Location:** `.githooks/commit-msg` — version-controlled, in the repo, so every clone gets the hook automatically once activated.
+
+**Activation:** `git config core.hooksPath .githooks` — one-time per clone. No npm dependency, no Husky, no install scripts. Add the activation step to CLAUDE.md's "Git Workflow" section so it's part of every onboarding.
+
+**Predicate:** commit message contains `OI-[0-9]+` AND `git diff --cached --name-only` does NOT include `OPEN_ITEMS.md` → fail with exit 1.
+
+**Error message:** must (a) name the specific OI references the hook found in the commit message, (b) cite CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2, (c) mention `git commit --no-verify` as the escape hatch for the rare unusual case (e.g., a message that mentions an OI as historical context without closing it). Example:
+
+```
+ERROR: Commit message references OI-0148 but OPEN_ITEMS.md is not in the staged diff.
+
+  Per CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2, every commit
+  whose message references an OI must include a staged edit to OPEN_ITEMS.md
+  in the same commit (status flip, entry move to Closed, or otherwise).
+
+  To bypass when an OI is mentioned but not being closed, use:
+    git commit --no-verify
+```
+
+**Behaviour matrix:**
+
+| Commit message has OI-NNNN? | OPEN_ITEMS.md staged? | Hook outcome |
+|---|---|---|
+| Yes | Yes | Pass (exit 0) |
+| Yes | No  | **Fail (exit 1)** with error |
+| No  | Yes | Pass (exit 0) |
+| No  | No  | Pass (exit 0) |
+
+**Bypass:** `git commit --no-verify` — standard git escape hatch, hook does not try to defeat it.
+
+**Edge cases handled:**
+
+- **Amend commits** (`git commit --amend`) re-run the hook with the new message — predicate evaluates correctly.
+- **Merge commits** typically skip the commit-msg hook on most git installs; if they don't, they typically have no OI reference.
+- **Initial / orphan commits** — hook reads from `$1`, not from HEAD, so works fine on first commit.
+- **Multiple OI references in one message** — error message names all of them so the engineer sees which OI was missed.
+
+**Acceptance criteria:**
+
+- [ ] `.githooks/commit-msg` script exists and is executable (`chmod +x`).
+- [ ] Hook fails with exit code 1 when commit message contains `OI-[0-9]+` and `OPEN_ITEMS.md` is not in `git diff --cached --name-only`.
+- [ ] Hook exits 0 when commit message contains `OI-[0-9]+` AND `OPEN_ITEMS.md` IS in the staged diff.
+- [ ] Hook exits 0 when commit message contains no OI reference (regardless of `OPEN_ITEMS.md` state).
+- [ ] Error message names every OI reference found in the commit message.
+- [ ] Error message points to `CLAUDE.md §"OPEN_ITEMS.md Closure Discipline"` rule 2.
+- [ ] Error message mentions `git commit --no-verify` as escape hatch.
+- [ ] `CLAUDE.md` "Git Workflow" section extended with one-line setup: *"After cloning, run `git config core.hooksPath .githooks` once to activate the orphan-flip enforcement hook."*
+- [ ] Test script `.githooks/test/commit-msg.test.sh` covers all four behaviour-matrix cases plus `--no-verify` bypass. Tests run in a temp git repo (created via `mktemp -d` + `git init`) to avoid affecting the real repo's state.
+- [ ] Test script wired into the npm test pipeline as `npm run test:hooks` (or equivalent) so CI catches regressions if the hook ever drifts.
+- [ ] OPEN_ITEMS.md OI-0148 flipped to closed in the same commit — **the hook itself enforces this**, so the first commit that introduces the hook is its own first user. Nice circular validation.
+- [ ] PROJECT_CHANGELOG.md row added.
+- [ ] GitHub issue closed with commit hash.
+
+**Reference points:**
+
+- `CLAUDE.md` → "OPEN_ITEMS.md Closure Discipline" → rule 2 — the predicate this hook enforces.
+- Three recent close-out failures: OI-0145 (closed 2026-05-02 with recovery), OI-0146 (closed 2026-05-02 with recovery), OI-0147 (closed 2026-05-02 with recovery). All three would have been blocked by this hook had it existed.
+
+**Schema change:** none.
+
+**CP-55/CP-56 impact:** none.
+
+**Spec file:** `github/issues/OI-0148_orphan-flip-pre-commit-hook.md`.
+
+**Related:**
+
+- **OI-0145 / OI-0146 / OI-0147** — the three close-out gaps that surfaced the need; recovered by manual OPEN_ITEMS.md surgery in two Cowork sweeps on 2026-05-02.
+- **CLAUDE.md** §"OPEN_ITEMS.md Closure Discipline" rule 2 — already documents the predicate; this OI promotes it to enforcement.
+
+**Note on hook scope:** this OI is intentionally narrow — one hook, one predicate. Other CLAUDE.md grep contracts (OI-0117 `events.date_in` reads, OI-0133 `groups.farm_id` reads, OI-0139 strict-`>` rule, OI-0140 `activePWs[0]` shortcut, OI-0145 raw unit literals, etc.) could also be promoted to hooks but each one is its own scope decision. If patterns of "documentation-only contract failed in practice" stack up further, a follow-on OI can bundle them into a single `pre-commit` script that runs the whole grep contract sweep. Not in scope here.
+
+---
+
 ### OI-0144 — Calc registry incomplete: register `days-on-pasture`, cost calc(s), and NPK residual so the OI-0138 audit can surface them; principle restated — every formula the app computes must live in the registry
 **Added:** 2026-05-01 | **Area:** v2-build / calcs / registry / dev-tools | **Priority:** P3 (architectural completion; unblocks OI-0138 Phase 5 from showing fewer calc cards than originally intended; does not block field testing or any user-facing flow)
 
@@ -5253,6 +5337,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-05-02 | OI-0148 filed — promote orphan-flip rule from documentation to enforcement via `commit-msg` git hook | Per Tim's request after the second close-out recovery this session: file the hardening OI now rather than waiting for the next reconciliation sweep. **Locked design:** `commit-msg` hook (not `pre-commit` — needs access to message content) at `.githooks/commit-msg`, version-controlled, activated per-clone via `git config core.hooksPath .githooks`. Predicate: commit message contains `OI-[0-9]+` AND `git diff --cached --name-only` does NOT include `OPEN_ITEMS.md` → fail with helpful error citing the CLAUDE.md rule and `--no-verify` escape hatch. Behaviour matrix: pass on (no-OI-ref + anything), pass on (OI-ref + OPEN_ITEMS.md staged), fail on (OI-ref + OPEN_ITEMS.md not staged). Test script at `.githooks/test/commit-msg.test.sh` covers all four cases plus `--no-verify` bypass. CLAUDE.md "Git Workflow" section extended with a one-line setup step. `package.json` adds `test:hooks` so CI catches regressions. **Self-validation:** the commit that introduces the hook is its own first user — references OI-0148, so OPEN_ITEMS.md must be staged in the same commit (which it is, because the hook flips OI-0148 to closed). Circular but correct. **Spec file:** `github/issues/OI-0148_orphan-flip-pre-commit-hook.md`. **Schema change:** NONE. **CP-55/CP-56 impact:** NONE. **Scope intentionally narrow** — one hook, one predicate. Other CLAUDE.md grep contracts (OI-0117, OI-0133, OI-0139, OI-0140, OI-0145 unit literals) could also be promoted; if the documentation-only-contract-failed-in-practice pattern stacks up further, a follow-on OI can bundle the whole grep-contract sweep into a single `pre-commit`. Not bundled here. **No code change this session — OPEN_ITEMS.md edits + 1 new spec file.** Related: OI-0145 / OI-0146 / OI-0147 (the three close-out failures that surfaced the need; all closed earlier today via Cowork manual recovery). |
 | 2026-05-02 | OI-0146 + OI-0147 close-out recovery — same orphan-flip rule failure as OI-0145; rule failed twice in one day, hardening required | Tim shipped OI-0146 + OI-0147 bundled (commits `01d5a12` feature + `e8f9edd` hash stamp; +14 tests; suite 1378 → 1392 green; production build clean; GH-42 + GH-43 filed and closed; specs renamed `GH-42_OI-0146_dev-mode-doorway.md` and `GH-43_OI-0147_audit-empty-state-and-event-detail-button.md`). **Same gap as OI-0145:** Claude Code did NOT include the OPEN_ITEMS.md status flip + entry move in the same commit despite CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2 explicitly requiring it (*"any commit whose message references an OI ID must include a staged edit to OPEN_ITEMS.md in the same commit"*). Both entries were sitting in Open with `DESIGN LOCKED` status and unflipped acceptance-criteria checkboxes when Cowork checked at session-resume time. **Recovery:** both entries moved Open → Closed with shortened Resolution-style entries; piggyback grep ran (no sibling OIs to retire — all dev-mode-doorway / audit-empty-state hits live inside the OI-0146/OI-0147 bodies themselves). **Meta-finding:** the orphan-flip rule has now failed at code-ship time twice in one day (OI-0145 ship → recovered earlier this session; OI-0146 + OI-0147 ship → recovered now). The rule is provably insufficient as a manual-discipline doc; Claude Code follows project rules exhaustively for design-time work but is dropping the OPEN_ITEMS.md flip on every code-ship commit. **PLUGIN IMPROVEMENT — promote to action:** add a `.git/hooks/pre-commit` (or commit-msg) hook that fails the commit when the message contains `OI-[0-9]+` but `git diff --cached --name-only` does NOT include `OPEN_ITEMS.md`. Same predicate already documented in CLAUDE.md as the post-commit grep contract — promote it from documentation to enforcement. Worth a row in IMPROVEMENTS.md AND a small follow-on OI to actually write the hook (likely 10-line shell script). **No code change this session — OPEN_ITEMS.md edits only.** Schema change: NONE. CP-55/CP-56 impact: NONE. Related: OI-0145 (closed earlier today — same recovery pattern), OI-0138 (parent — audit page MVP whose deferrals these OIs cleaned up). |
 | 2026-05-02 | OI-0145 close-out recovery + audit empty-state diagnosis + OI-0146 / OI-0147 filed | Post-ship reconciliation. Tim shipped OI-0145 (commits `cca2b21` + `c6be198`, 28 new tests, 1378/1378 green) but the close-out edits to `OPEN_ITEMS.md` were missed — OI-0145 was still in the Open section with `DESIGN LOCKED` status and unflipped acceptance-criteria checkboxes. **Recovery:** OI-0145 entry moved from Open → Closed section with shortened Resolution-style entry (commit hashes + what shipped + grep contracts that hold + GH-41 reference); orphan-flip rule satisfied. Tim then asked about a Dev Mode menu entry point — investigation found `#/dev` exists with a renderDevHome shelf listing all three tools (Event Audit, Logs, Schema), but no UI path leads there from the regular app. Filed **OI-0146** with both doorway designs Tim approved: Settings → "Dev tools" link gated by `is_dev`, plus a small `[DEV]` chip in the header gated by `is_dev`. Tim also reported the audit empty state copy ("Pick an event from the dropdown above, or open via the Audit button on an event detail page") references controls that don't exist — investigation confirmed two bugs: (a) `audit.js:82` gates the picker render on `event` being non-null, so the dropdown literally doesn't render in the empty state; (b) grep of `src/features/events` for `audit\|Audit\|#/dev/audit` returns 0 matches — there's no Audit button on event detail pages. Filed **OI-0147** for both fixes (move picker out of `if (event)` block + add gated Audit button to event detail header). **No code change this session — OPEN_ITEMS.md edits + 2 new spec files at `github/issues/OI-0146_dev-mode-doorway.md` and `github/issues/OI-0147_audit-empty-state-and-event-detail-button.md`.** Schema change: NONE. CP-55/CP-56 impact: NONE. **PLUGIN IMPROVEMENT candidate:** orphan-flip rule needs a pre-commit hook (`git log -1 --format=%B \| grep -E 'OI-[0-9]+'` then check `git diff-tree` includes OPEN_ITEMS.md) — the manual rule was followed during design but missed at code-ship time despite being explicit in CLAUDE.md. Worth a row in IMPROVEMENTS.md. Related: OI-0138 (parent — audit page MVP that opened the dev-mode shelf with no doorway), OI-0145 (closed today — audit restructure that exposed the empty-state copy bug). |
 | 2026-05-02 | OI-0145 widened + design locked — audit page restructure (per-paddock-window blocks + event-level rollup) + 3-way unit toggle | Tim and Cowork walked the four DMI-8 rendering options on the existing OI-0138 audit page. Option 2 (summary card with click-to-expand + per-day table) initially looked right; on a desktop deep-dive context Cowork proposed a cleaner real-table layout instead of the phone-friendly monospace rows. **Tim's correction widened the scope:** *"We need to represent all data relevant to an event window including groups/animals otherwise the DMI actual has nothing to audit against. Each window should show all the data that underlies the calculations as well as the calculations themselves."* The gap surfaced: today's audit shows DMI-2's `headCount=25` without the membership list that derived it, FOR-1's `forageHeightCm=8` without the observation row, and DMI-8 has no card at all. The calc cards as drawn are unfalsifiable. **Tim's call:** widen OI-0145 from "DMI-8 resolver" to "audit page restructure." **Locked design:** Section 4 rewritten as per-paddock-window blocks (window facts → location → forage type → pre-graze observation → FOR-1 inline → overlapping group windows with animal memberships + animal class + DMI-2 inline → scoped feed entries → scoped feed check items). New Section 4b for event-level feed records (parent checks index, batches table, orphan feed entries). Section 5 holds event-level rollup calcs only (DMI-3, DMI-8, plus OI-0144 calcs when they land). Resolver registry grows a `scope` field (`'paddock-window'` | `'group-window'` | `'event'`) so the audit page can route each instance to the correct render slot. DMI-8 card design (chip row + sources roll-up + auto-expand-on-needs-check daily-breakdown table with `pwId(s) open` column citing back to the per-window blocks) sits inside the new Section 5. **Unit handling locked in same session:** 3-way segmented toggle in Section 1 sticky header — `[ Metric \| Standard \| Hybrid ]` — with default Metric on first open and `localStorage['dev-audit-unit-mode']` persistence. New helper `src/features/dev-mode/audit-units.js` wraps `src/utils/units.js` exposing `formatAuditValue(value, measureType, decimals)` keyed off the active mode; Hybrid returns `{ primary, secondary }` so the renderer can apply muted-grey CSS to the imperial parenthetical. Resolver `input(...)` helper signature extended with `measureType` parameter so every unit-bearing input gets routed through the helper at render time. Grep contracts added: no raw `.toFixed(N) + ' kg|cm|ha|lb|...'` literals in `src/features/dev-mode/`. Stays-as-is regardless of mode: IDs, dates, head counts, day counts, percentages, status labels, source path labels, raw JSON fragments (which exist to diff against Supabase, which is metric). **Project rule confirmed and saved to plugin memory:** dev-mode surfaces (`#/dev/*`) are desktop-only deep-dive tools; skip the phone-layout pass. **No code change this session — OPEN_ITEMS.md edit + 1 new spec file at `github/issues/OI-0145_audit-page-restructure.md`.** Schema change: NONE. CP-55/CP-56 impact: NONE. **Priority bumped:** P3 → P2 (the structural gap means OI-0138 Phase 5 ships with cards that can't be substantively audited; calling the existing audit "Phase 5 complete" was technically accurate but practically incomplete). Related: OI-0138 (parent — audit page MVP), OI-0144 (sibling — calc registry completion; their resolvers will fill Section 5 slots without OI-0145 needing a re-edit), OI-0142 (sibling — `explain()` refactor; OI-0145's resolver pattern is its ancestor). |

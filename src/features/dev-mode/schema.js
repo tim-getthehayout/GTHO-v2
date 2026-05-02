@@ -13,7 +13,12 @@ import { getOperation } from '../../data/store.js';
 import { BACKUP_MIGRATIONS } from '../../data/backup-migrations.js';
 import { renderDevModeBadge } from './index.js';
 
-const migrationFiles = import.meta.glob('/supabase/migrations/*.sql', { eager: false });
+// OI-0138 Phase 7 ship-fix: ask Vite to treat the matches as static URL
+// references instead of JS modules. Without `query: '?url'`, rolldown tries
+// to bundle each .sql file as JavaScript and the production build fails on
+// the first SQL comment line (`-- ...`). The schema readout only uses the
+// keys (paths), never the values, so the URL interpretation is fine.
+const migrationFiles = import.meta.glob('/supabase/migrations/*.sql', { query: '?url', import: 'default', eager: false });
 
 /**
  * Pure comparison logic — exported for unit testing. Returns:

@@ -13,17 +13,20 @@ This OI restructures the audit page so each paddock window's underlying data ren
 
 ## What ships
 
-- `src/features/dev-mode/audit.js` — Section 4 rewritten as per-paddock-window blocks. Section 4b added for event-level feed records (parent checks index, batches table, orphan feed entries). Section 5 refactored to event-level rollup calc cards only. Sections 1, 2, 3, 6, 7 unchanged.
-- `src/features/dev-mode/audit-resolvers.js` — `scope` field added to every resolver entry (`'paddock-window'` for FOR-1, `'group-window'` for DMI-2, `'event'` for DMI-3 and the new DMI-8). New `resolveDmi8Inputs(ctx)` matching the chip + per-day shape spec'd in OI-0145. Line-16 deferral comment removed.
-- New unit tests covering per-window block rendering, DMI-8 resolver across all five statuses, group-window-to-paddock-window date-overlap boundary cases, orphan feed entry detection.
-- `src/i18n/locales/en.json` — any new strings introduced by the new block headers / column labels / chip text. All user-facing copy via `t()` per CLAUDE.md.
+- `src/features/dev-mode/audit.js` — Section 1 header gains a 3-way unit toggle (`Metric` / `Standard` / `Hybrid`, default Metric, persisted to `localStorage['dev-audit-unit-mode']`). Section 4 rewritten as per-paddock-window blocks. Section 4b added for event-level feed records (parent checks index, batches table, orphan feed entries). Section 5 refactored to event-level rollup calc cards only. Sections 2, 3, 6, 7 unchanged.
+- `src/features/dev-mode/audit-resolvers.js` — `scope` field added to every resolver entry (`'paddock-window'` for FOR-1, `'group-window'` for DMI-2, `'event'` for DMI-3 and the new DMI-8). `input(...)` helper extended with a `measureType` parameter so unit-bearing inputs route through the new helper at render time. New `resolveDmi8Inputs(ctx)` matching the chip + per-day shape spec'd in OI-0145. Line-16 deferral comment removed.
+- `src/features/dev-mode/audit-units.js` — new helper module wrapping `src/utils/units.js`. Exports `getAuditUnitMode`, `setAuditUnitMode`, `formatAuditValue`. Hybrid mode returns `{ primary, secondary }` so renderer can apply muted-grey CSS to the imperial parenthetical.
+- New unit tests covering per-window block rendering, DMI-8 resolver across all five statuses, group-window-to-paddock-window date-overlap boundary cases, orphan feed entry detection, all three unit modes round-tripping a known weight + unitless inputs unchanged across modes + toggle persistence.
+- `src/i18n/locales/en.json` — new strings for the unit toggle labels, the "Display only — store stays metric" note, plus any block headers / column labels / chip text. All user-facing copy via `t()` per CLAUDE.md.
 
 ## Files (anticipated)
 
-- `src/features/dev-mode/audit.js` — major rewrite (Section 4 + 4b + 5)
-- `src/features/dev-mode/audit-resolvers.js` — extend with `scope` field + DMI-8 resolver
+- `src/features/dev-mode/audit.js` — major rewrite (Section 1 unit toggle + Section 4 + 4b + 5)
+- `src/features/dev-mode/audit-resolvers.js` — extend with `scope` field + `measureType` on `input(...)` + DMI-8 resolver
+- `src/features/dev-mode/audit-units.js` — NEW helper module wrapping `src/utils/units.js`
 - `src/features/dev-mode/__tests__/audit-resolvers.test.js` (or co-located) — new test cases
 - `src/features/dev-mode/__tests__/audit.test.js` (or co-located) — Section 4 block rendering tests
+- `src/features/dev-mode/__tests__/audit-units.test.js` (or co-located) — three-mode round-trip tests
 - `src/i18n/locales/en.json` — new keys
 
 No schema files. No entity files. No other feature code.
@@ -41,8 +44,11 @@ No schema files. No entity files. No other feature code.
 See `OPEN_ITEMS.md` → OI-0145 → "Acceptance criteria" — full list, do not duplicate here. Highlights:
 
 - Resolver `scope` field added; rendering branches by scope.
+- 3-way unit toggle (`Metric` / `Standard` / `Hybrid`) in Section 1 header, default Metric, persisted via `localStorage['dev-audit-unit-mode']`.
+- New `src/features/dev-mode/audit-units.js` helper exporting `getAuditUnitMode`, `setAuditUnitMode`, `formatAuditValue`. Resolver `input(...)` helper grows a `measureType` field so unit-bearing inputs route through the helper at render time.
 - DMI-8 card shows chip row + sources roll-up + auto-expand-on-needs-check daily breakdown table with `pwId(s) open` column citing back to per-window blocks.
 - All resolvers call `getCalcByName('<NAME>').fn(...)` — no formula re-implementation. Grep contract: `grep -nE "totalDmiKg.*=.*headCount.*avgWeight|standingDm.*=.*forageHeightCm.*-" src/features/dev-mode/` returns 0 matches.
+- No raw `.toFixed(N) + ' kg|cm|ha|lb|in|ac|°[CF]|L|gal'` literals in `src/features/dev-mode/`. Every render of a unit-bearing field flows through `formatAuditValue`.
 - Group-window-to-paddock-window date-overlap logic uses inclusive comparison.
 - Orphan feed entries (eventId match but locationId doesn't match any paddock window) surface in Section 4b.
 - Visual verification on Tim's G-event (`fb407a55-aa0e-4cbb-b906-af6964a0addc`).

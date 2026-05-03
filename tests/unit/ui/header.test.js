@@ -169,3 +169,162 @@ describe('OI-0153 — header dev-chip updates in place; <main> sibling preserved
     expect(anchor.contains(chip)).toBe(true);
   });
 });
+
+describe('OI-0154 — sidebar + bottom-nav active-class follows hashchange', () => {
+  it('initial mount at #/: Dashboard sidebar item has the active class', async () => {
+    flagDev(TIM, false);
+    window.location.hash = '#/';
+
+    const { renderHeader } = await import('../../../src/ui/header.js');
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    renderHeader(app);
+
+    const dashboardItem = app.querySelector('[data-testid="nav-dashboard"]');
+    const animalsItem = app.querySelector('[data-testid="nav-animals"]');
+    expect(dashboardItem).toBeTruthy();
+    expect(animalsItem).toBeTruthy();
+    expect(dashboardItem.classList.contains('active')).toBe(true);
+    expect(animalsItem.classList.contains('active')).toBe(false);
+  });
+
+  it('hashchange to #/animals moves the active class from Dashboard to Animals; chrome is not rebuilt', async () => {
+    flagDev(TIM, false);
+    window.location.hash = '#/';
+
+    const { renderHeader } = await import('../../../src/ui/header.js');
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    renderHeader(app);
+
+    // Capture identity of structural elements so we can assert renderHeader
+    // did NOT rebuild them on the hashchange.
+    const originalSidebar = app.querySelector('[data-testid="dsk-sidebar"]');
+    const originalHeader = app.querySelector('[data-testid="app-header"]');
+    const originalBottomNav = app.querySelector('[data-testid="bottom-nav"]');
+    const dashboardItem = app.querySelector('[data-testid="nav-dashboard"]');
+    const animalsItem = app.querySelector('[data-testid="nav-animals"]');
+    expect(dashboardItem.classList.contains('active')).toBe(true);
+
+    // Simulate navigation. Assigning location.hash triggers hashchange in
+    // jsdom for browsers that support it; dispatching the event explicitly
+    // is the deterministic path for the test.
+    window.location.hash = '#/animals';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    expect(dashboardItem.classList.contains('active')).toBe(false);
+    expect(animalsItem.classList.contains('active')).toBe(true);
+
+    // Identity-stable assertions: the chrome stays put. If renderHeader had
+    // been re-invoked the references below would no longer match.
+    expect(app.querySelector('[data-testid="dsk-sidebar"]')).toBe(originalSidebar);
+    expect(app.querySelector('[data-testid="app-header"]')).toBe(originalHeader);
+    expect(app.querySelector('[data-testid="bottom-nav"]')).toBe(originalBottomNav);
+    // The same dashboard / animals nodes are still in the DOM (mutated, not
+    // replaced) — toggle, not rebuild.
+    expect(app.querySelector('[data-testid="nav-dashboard"]')).toBe(dashboardItem);
+    expect(app.querySelector('[data-testid="nav-animals"]')).toBe(animalsItem);
+  });
+
+  it('hashchange across three routes moves the active class correctly each time', async () => {
+    flagDev(TIM, false);
+    window.location.hash = '#/';
+
+    const { renderHeader } = await import('../../../src/ui/header.js');
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    renderHeader(app);
+
+    const navigateTo = (h) => {
+      window.location.hash = h;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    };
+    const isActive = (testid) => {
+      const el = app.querySelector(`[data-testid="${testid}"]`);
+      return el ? el.classList.contains('active') : false;
+    };
+
+    expect(isActive('nav-dashboard')).toBe(true);
+
+    navigateTo('#/animals');
+    expect(isActive('nav-dashboard')).toBe(false);
+    expect(isActive('nav-animals')).toBe(true);
+    expect(isActive('nav-settings')).toBe(false);
+
+    navigateTo('#/settings');
+    expect(isActive('nav-dashboard')).toBe(false);
+    expect(isActive('nav-animals')).toBe(false);
+    expect(isActive('nav-settings')).toBe(true);
+
+    navigateTo('#/');
+    expect(isActive('nav-dashboard')).toBe(true);
+    expect(isActive('nav-settings')).toBe(false);
+  });
+
+  it('bottom-nav items toggle their active class on hashchange (DOM contract; CSS hookup deferred)', async () => {
+    flagDev(TIM, false);
+    window.location.hash = '#/';
+
+    const { renderHeader } = await import('../../../src/ui/header.js');
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    renderHeader(app);
+
+    const home = app.querySelector('[data-testid="bnav-home"]');
+    const animals = app.querySelector('[data-testid="bnav-animals"]');
+    expect(home).toBeTruthy();
+    expect(animals).toBeTruthy();
+    expect(home.classList.contains('active')).toBe(true);
+    expect(animals.classList.contains('active')).toBe(false);
+
+    window.location.hash = '#/animals';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    expect(home.classList.contains('active')).toBe(false);
+    expect(animals.classList.contains('active')).toBe(true);
+  });
+
+  it('every sidebar + bottom-nav item carries data-href equal to its route hash (OI-0154 contract)', async () => {
+    flagDev(TIM, false);
+    window.location.hash = '#/';
+
+    const { renderHeader } = await import('../../../src/ui/header.js');
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    renderHeader(app);
+
+    // Sidebar — covers all 9 main routes the desktop sidebar exposes.
+    const expected = {
+      'nav-dashboard': '#/',
+      'nav-animals': '#/animals',
+      'nav-events': '#/events',
+      'nav-locations': '#/locations',
+      'nav-feed': '#/feed',
+      'nav-todos': '#/todos',
+      'nav-reports': '#/reports',
+      'nav-settings': '#/settings',
+      'nav-feedback': '#/feedback',
+    };
+    for (const [testid, href] of Object.entries(expected)) {
+      const item = app.querySelector(`[data-testid="${testid}"]`);
+      expect(item, `sidebar item ${testid} should be present`).toBeTruthy();
+      expect(item.getAttribute('data-href'), `sidebar item ${testid} should have data-href`).toBe(href);
+    }
+
+    // Bottom nav — covers the 7 mobile-bar routes.
+    const bnav = {
+      'bnav-home': '#/',
+      'bnav-animals': '#/animals',
+      'bnav-todos': '#/todos',
+      'bnav-events': '#/events',
+      'bnav-locations': '#/locations',
+      'bnav-feed': '#/feed',
+      'bnav-settings': '#/settings',
+    };
+    for (const [testid, href] of Object.entries(bnav)) {
+      const item = app.querySelector(`[data-testid="${testid}"]`);
+      expect(item, `bottom-nav item ${testid} should be present`).toBeTruthy();
+      expect(item.getAttribute('data-href'), `bottom-nav item ${testid} should have data-href`).toBe(href);
+    }
+  });
+});

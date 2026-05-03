@@ -4,100 +4,6 @@
 
 ---
 
-### OI-0154 — Sidebar (and mobile bottom nav) active-menu-item state stays stale on navigation; hashchange listener was hidden behind the OI-0153 destructive rebuild
-**Added:** 2026-05-03 | **Area:** v2-build / ui / header / navigation | **Priority:** P3 (visual nit; "Dashboard" stays highlighted regardless of which menu is clicked; navigation still works correctly, content renders correctly, only the active-state styling is wrong). Surfaced as a regression of OI-0153 but is structurally a latent bug all along — masked pre-OI-0153 by the destructive rebuild that recreated the sidebar with the correct active class on every operationMembers notify.
-
-**Status:** open — Phase 1 DESIGN LOCKED, ready for Claude Code handoff. Not a hold; can ship anytime.
-
-**Reproducer (live, 2026-05-03):** Tim post-OI-0153 ship. App boots, dashboard paints, "Dashboard" sidebar item is highlighted (correct). Tim clicks "Animals" — Animals screen renders correctly, but "Dashboard" remains highlighted in the sidebar; "Animals" does not become highlighted. Same on every other navigation (Locations, Feed, Tasks, Reports, Settings). Mobile bottom nav has the equivalent issue if it has an active state class.
-
-**Root cause:**
-
-The sidebar (`renderHeader` desktop branch) and mobile bottom nav (`renderBottomNav`) compute their active-menu-item class **at render time** based on `window.location.hash`. Pre-OI-0153, this class was indirectly refreshed every time the operationMembers subscriber's recursive callback ran:
-
-```js
-// pre-OI-0153 (now removed by OI-0153)
-unsubs.push(subscribe('operationMembers', () => {
-  clear(container);
-  renderHeader(container);   // ← rebuilt sidebar + bottom nav with current hash
-}));
-```
-
-OI-0153 correctly replaced this with a chip-only update, so the rest of the header is no longer rebuilt on operationMembers notify. But the sidebar's active state has *no other update path*. There's an existing hashchange listener for the field-mode pill (`src/ui/header.js:159-168`) but it doesn't touch the sidebar or bottom nav.
-
-**Latency profile pre-OI-0153:** the sidebar would briefly show the wrong active item on navigation, then snap to correct on the next operationMembers notify (boot pull, visibilitychange pull, or any operationMembers mutation). Most users wouldn't notice the half-second mismatch. Post-OI-0153 the snap never happens, so the wrong active item persists forever until cold reload.
-
-**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code):**
-
-Mirror the existing field-mode-pill hashchange pattern in `src/ui/header.js`. Two helpers + one listener:
-
-```js
-function updateActiveSidebarItem(container) {
-  const hash = window.location.hash || '#/';
-  const items = container.querySelectorAll('[data-testid^="dsk-nav-item-"]');
-  for (const item of items) {
-    const itemHash = item.getAttribute('data-href') || '';
-    item.classList.toggle('dsk-nav-item-active', itemHash === hash);
-  }
-}
-
-function updateActiveBottomNavItem(container) {
-  const hash = window.location.hash || '#/';
-  const items = container.querySelectorAll('[data-testid^="bottom-nav-"]');
-  for (const item of items) {
-    const itemHash = item.getAttribute('data-href') || '';
-    item.classList.toggle('bottom-nav-active', itemHash === hash);
-  }
-}
-```
-
-Each sidebar / bottom-nav item builder needs to set a `data-href` attribute equal to the route hash it links to (e.g. `data-href="#/animals"` on the Animals item). Most items already have an `onClick` that calls `navigate('#/animals')` or similar — the `data-href` is the route literal extracted as an attribute so `updateActiveSidebarItem` can compare without needing the build code in scope.
-
-Register the listeners on hashchange:
-
-```js
-window.addEventListener('hashchange', () => {
-  updateActiveSidebarItem(container);
-  updateActiveBottomNavItem(container);
-});
-unsubs.push(() => window.removeEventListener('hashchange', /* same fn */));
-```
-
-The class names `dsk-nav-item-active` and `bottom-nav-active` are guesses based on the codebase's naming conventions; Claude Code should grep for the actual active-state class names in `src/ui/header.js` and `src/styles/*` and use whatever's already there. Don't introduce new class names if existing ones already work.
-
-**Acceptance criteria — Phase 1:**
-
-- [ ] Clicking any sidebar menu item navigates *and* updates the highlighted item to match the destination. Same for mobile bottom nav.
-- [ ] Direct hash navigation (typing `#/animals` in the URL bar, or browser back/forward) updates the sidebar / bottom nav active state without requiring a click on a menu item.
-- [ ] The chip + field-mode pill behaviors from OI-0146 / OI-0153 are intact (no regression on the chip update or the pill swap).
-- [ ] No additional re-render of the header chrome on hashchange — only the active-class toggle. Grep contract: `grep -nE "renderHeader\(" src/ui/header.js` returns only the original public function definition + any internal recursive calls inside the build code, **not** as part of any hashchange / subscribe callback.
-- [ ] One unit test (extending `tests/unit/ui/header.test.js` or a new file): mount the header, simulate a hashchange via `window.dispatchEvent(new HashChangeEvent('hashchange'))`, assert the active class moved from the previous item to the new one.
-
-**Files to edit (Phase 1):**
-
-- `src/ui/header.js` — add `updateActiveSidebarItem` + `updateActiveBottomNavItem` helpers; register on hashchange; ensure each nav-item builder sets a `data-href` attribute.
-- `tests/unit/ui/header.test.js` — extend with the active-class-toggle test.
-
-**Schema change:** NONE.
-
-**CP-55/CP-56 impact:** NONE — pure UI fix in the header.
-
-**Architectural notes:**
-
-- **Same pattern as the existing field-mode pill** — there's no new abstraction here, just consistency. The pill already has a hashchange listener; the sidebar should too.
-- **Why this was latent pre-OI-0153.** The destructive operationMembers rebuild was effectively a "rebuild-the-world on any state change" pattern that masked many small bugs by virtue of always rebuilding everything. OI-0153 collapsed that to a surgical chip swap; the bugs the rebuild was masking now surface. OI-0154 is the first; there may be others as field-testing continues. Worth scanning `src/ui/header.js` once for any other UI state that depends on something that fires *during* `renderHeader` but *not* via a stable update mechanism — file as a sweep OI if more than one thing surfaces.
-- **PLUGIN IMPROVEMENT candidate inline:** "Aggressive 'rebuild-the-world' patterns mask latent bugs in update paths. Refactoring to surgical updates surfaces those bugs as visible regressions even though the surgical path is correct. Budget at least one follow-on for cosmetic / state-sync issues after any rebuild → surgical-update refactor." Worth a row in IMPROVEMENTS.md when this lands.
-
-**Spec file:** Body of this OI is the Phase 1 spec. Thin pointer at `github/issues/OI-0154_sidebar-active-state-on-hashchange.md` to be filed when Claude Code picks this up.
-
-**Related:**
-
-- **OI-0153** (closed earlier today, this session) — the OI whose surgical-update refactor surfaced this latent bug. OI-0154 is the cosmetic follow-on; not blocking on anything.
-- **OI-0146** (closed) — introduced the desktop sidebar + the `[DEV]` chip. OI-0154 stays faithful to OI-0146's design intent.
-- **OI-0149** / **OI-0151** / **OI-0152** (closed) — the upstream ships in the same diagnostic chain.
-
----
-
 ### OI-0150 — Dev Mode hardening sweep — render-yielding in heavy dev-mode screens (audit page + dev/logs viewer) + close the `logger` → `app_logs` pipe so client errors actually land in the table the viewer reads
 **Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0152 ships and field-tests clean** (hold condition shifted OI-0149 → OI-0151 → OI-0152 on 2026-05-03 across the same diagnostic session; OI-0151 alone is not field-test-clean because the live-Set iteration in drainNotifications hit a recursive-resubscribe consumer in `renderHeader` and locked the tab; OI-0152 is the snapshot-before-iterate fix that closes the loop).
 
@@ -5256,6 +5162,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0154 — Sidebar (and mobile bottom nav) active-menu-item state stays stale on navigation; hashchange listener was hidden behind the OI-0153 destructive rebuild (Phase 1)
+**Added:** 2026-05-03 | **Closed:** 2026-05-03 | **Area:** v2-build / ui / header / navigation
+**Resolution:** Phase 1 shipped per locked design — single-file refactor in `src/ui/header.js`, mirroring the existing field-mode-pill hashchange pattern. **Reproducer:** Tim post-OI-0153 ship, app boots, "Dashboard" highlighted (correct); clicking "Animals" navigates correctly but the sidebar's "Dashboard" stays highlighted; same for every other route. Pre-OI-0153 the active class refreshed indirectly via the destructive `operationMembers` rebuild (every notify ran `clear(container); renderHeader(container);` which recomputed `currentHash` against the active item); OI-0153 made that surgical, leaving the active state with no other update path. The hashchange listener already existed for the field-mode pill (`src/ui/header.js:171-172`) but didn't touch the sidebar or bottom nav. **What shipped:** (1) `src/ui/header.js` — `data-href` attribute added to each sidebar nav-item builder (`sidebarNavItem`, `sidebarNavItemBadge`) and each bottom-nav item builder (`renderBottomNav`'s loop). New `updateActiveSidebarItem(container)` and `updateActiveBottomNavItem(container)` helpers query `.dsk-nav-item[data-href]` / `.bnav-item[data-href]` respectively and toggle the `active` class to match the item whose `data-href` equals `window.location.hash || '#/'`. The toggle logic mirrors the build-time computation (`hash === itemHash || (itemHash !== '#/' && hash.startsWith(itemHash))`) so sub-route hashes (`#/animals/some-id`) keep the parent item highlighted. New hashchange listener registered inside `renderHeader`'s build path immediately after the existing field-mode-pill listener; cleanup pushed into `unsubs` for symmetry. `updateActiveItems()` called once at end of `renderHeader` so the initial mount is correct without depending on a hashchange having fired. (2) `tests/unit/ui/header.test.js` — extended with 5 new cases under a new `describe('OI-0154 ...')` block: initial mount at `#/` highlights Dashboard; hashchange to `#/animals` moves the active class without rebuilding the chrome (sidebar / header / bottom-nav element identities stay stable); three-route sweep (`#/` → `#/animals` → `#/settings` → `#/`) keeps the active class correct each time; bottom-nav items toggle their `active` class on hashchange (DOM contract; CSS hookup deferred); every sidebar + bottom-nav item carries `data-href` equal to its route hash (verified across all 9 sidebar + 7 bottom-nav routes). **Tests:** suite total 1414 → 1419 (+5), all green. OI-0146 doorway tests, OI-0153 chip-update tests, OI-0151 / OI-0152 / OI-0149 invariant tests all still green. Hook test suite 7/7. **Both grep contracts hold:** `data-href` in `src/ui/header.js` → 10 matches (≥ 8 required); `renderHeader\(` in `src/ui/header.js` → only the public function definition + doc comments referencing the pre-OI-0153 destructive pattern, **no** call inside any hashchange or subscribe callback. Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 contracts also still hold. **`npm run lint`** 0 errors. **`npm run build`** clean. **Manual UI smoke test on Tim's populated op:** unverified by Claude Code (no real-browser-with-Tim's-data observation possible from this environment); the unit tests prove the contract end-to-end across hashchange events for sidebar + bottom-nav items, but click-based navigation + browser back/forward verification on real data needs a real browser. Bottom-nav active visual styling is deferred — `.bnav-item.active` has no CSS rule today; the DOM contract is in place and a future cosmetic OI can add the visual rule. **Same family as OI-0117 / OI-0133 / OI-0139 / OI-0151 / OI-0152 / OI-0153:** "two things doing one job, drifting" — the active-class state was implicitly bundled with the operationMembers rebuild; collapsed to a stable hashchange-driven update path. **Latent-bug-revealed-by-surgical-refactor doctrine:** OI-0154 is the first follow-on after OI-0153 collapsed the rebuild-the-world pattern to surgical updates. The OPEN_ITEMS body flagged that there may be others as field-testing continues. **GitHub issue:** GH-49 filed and closed; spec at `github/issues/GH-49_OI-0154_sidebar-active-state-on-hashchange.md`. **Schema change:** none. **CP-55/CP-56 impact:** none — pure UI fix.
+
+---
 
 ### OI-0153 — `renderHeader` `operationMembers` subscriber re-renders the entire header recursively (destructive even on single-pass execution); refactor to a stable update-the-chip callback (Phase 1)
 **Added:** 2026-05-03 | **Closed:** 2026-05-03 | **Area:** v2-build / ui / header / dev-mode

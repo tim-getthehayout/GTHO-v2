@@ -170,6 +170,21 @@ export function renderHeader(container) {
   };
   window.addEventListener('hashchange', updatePill);
   unsubs.push(() => window.removeEventListener('hashchange', updatePill));
+
+  // OI-0154: keep the sidebar + bottom-nav active state in sync with the
+  // current hash. Pre-OI-0153 the active class refreshed indirectly via the
+  // destructive operationMembers rebuild; OI-0153 made that surgical, so the
+  // active state now needs its own update path. Mirror the field-mode-pill
+  // pattern above — single hashchange listener, narrow update scope.
+  const updateActiveItems = () => {
+    updateActiveSidebarItem(container);
+    updateActiveBottomNavItem(container);
+  };
+  window.addEventListener('hashchange', updateActiveItems);
+  unsubs.push(() => window.removeEventListener('hashchange', updateActiveItems));
+  // Run once at mount so the initial paint matches the current hash even if
+  // the build path computed it from a stale `currentHash` snapshot.
+  updateActiveItems();
 }
 
 // ---------------------------------------------------------------------------
@@ -381,6 +396,43 @@ function updateDevChip(container) {
   // null + null → no-op; non-dev member, chip never existed.
 }
 
+/**
+ * OI-0154: toggle the `active` class on the sidebar nav-item whose `data-href`
+ * matches the current hash. Mirrors the build-time logic in `sidebarNavItem`
+ * (exact match OR — for non-root hrefs — startsWith for sub-route highlights)
+ * so navigation, browser back/forward, and direct hash typing all keep the
+ * sidebar in sync without rebuilding the chrome.
+ *
+ * @param {HTMLElement} container
+ */
+function updateActiveSidebarItem(container) {
+  const hash = window.location.hash || '#/';
+  const items = container.querySelectorAll('.dsk-nav-item[data-href]');
+  for (const item of items) {
+    const itemHash = item.getAttribute('data-href') || '';
+    const isActive = hash === itemHash || (itemHash !== '#/' && hash.startsWith(itemHash));
+    item.classList.toggle('active', isActive);
+  }
+}
+
+/**
+ * OI-0154: bottom-nav counterpart. Same logic, scoped to `.bnav-item`. The
+ * bottom-nav today has no `.active` CSS rule (per `src/styles/main.css`) so
+ * the toggle is a no-op visually until a future cosmetic OI adds one — but
+ * the DOM contract is in place and the test asserts it.
+ *
+ * @param {HTMLElement} container
+ */
+function updateActiveBottomNavItem(container) {
+  const hash = window.location.hash || '#/';
+  const items = container.querySelectorAll('.bnav-item[data-href]');
+  for (const item of items) {
+    const itemHash = item.getAttribute('data-href') || '';
+    const isActive = hash === itemHash || (itemHash !== '#/' && hash.startsWith(itemHash));
+    item.classList.toggle('active', isActive);
+  }
+}
+
 function renderSyncIndicator() {
   const state = getSyncState();
 
@@ -432,10 +484,13 @@ function renderBottomNav(todoCount) {
 
   const nav = el('nav', { className: 'bottom-nav', 'data-testid': 'bottom-nav' });
   for (const item of items) {
+    // OI-0154: data-href mirrors the route hash so updateActiveBottomNavItem
+    // can toggle the active class on hashchange without rebuilding the bar.
     const btn = el('a', {
       href: item.hash,
       className: 'bnav-item',
       'data-testid': item.testId,
+      'data-href': item.hash,
       onClick: (e) => { e.preventDefault(); navigate(item.hash); },
     }, [
       el('span', { className: 'bnav-label' }, [item.label]),
@@ -495,11 +550,18 @@ function renderFieldModePill() {
 // Sidebar nav helpers (SP-5)
 // ---------------------------------------------------------------------------
 
+// OI-0154: each nav-item carries `data-href` equal to its route hash so the
+// hashchange listener (`updateActiveSidebarItem` / `updateActiveBottomNavItem`)
+// can toggle the `active` class without re-running renderHeader. Pre-OI-0153
+// the active class refreshed indirectly via the destructive operationMembers
+// rebuild; OI-0153 made that surgical, surfacing the latent gap that the
+// active-class state had no other update path.
 function sidebarNavItem(href, label, currentHash, testId) {
   const isActive = currentHash === href || (href !== '#/' && currentHash.startsWith(href));
   return el('button', {
     className: `dsk-nav-item${isActive ? ' active' : ''}`,
     'data-testid': testId,
+    'data-href': href,
     onClick: () => navigate(href),
   }, [label]);
 }
@@ -511,6 +573,7 @@ function sidebarNavItemBadge(href, label, count, currentHash, testId) {
   return el('button', {
     className: `dsk-nav-item${isActive ? ' active' : ''}`,
     'data-testid': testId,
+    'data-href': href,
     onClick: () => navigate(href),
   }, children);
 }

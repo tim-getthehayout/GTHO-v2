@@ -27,6 +27,7 @@ export default [
         history: 'readonly',
         confirm: 'readonly',
         requestAnimationFrame: 'readonly',
+        queueMicrotask: 'readonly',
       },
     },
     rules: {

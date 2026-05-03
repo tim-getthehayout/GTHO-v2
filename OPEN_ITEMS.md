@@ -4,8 +4,181 @@
 
 ---
 
+### OI-0151 — Store notifications have no batch concept — bulk operations (`pullAllRemote`, future CP-56 import, v1 importer) fire one synchronous notify per entity type, dragging every subscribed surface through one full rerender per dirty table; root-cause fix for the dashboard rerender storm OI-0149 paint-first exposed
+**Added:** 2026-05-03 | **Area:** v2-build / store / sync / architecture | **Priority:** **P0 — app currently unusable on populated operations.** Cold load paints the dashboard, then the background `pullAllRemote()` triggers ~6 dashboard rerenders × 5 section renders each in tight succession during the pull's `mergeRemote → notify` cascade, saturating Chrome's main thread until the tab goes blank with locked menus and the browser kills it. **Tim chose the root-cause fix path 2026-05-03** ("I am fine not using the app right now so lets just head for the correct fix") rather than the hot-revert workaround.
+
+**Status:** open — Phase 1 DESIGN LOCKED, ready for Claude Code handoff. Surfaced 2026-05-03 immediately after OI-0149 shipped: paint-first put the dashboard subscribed to 6 entity types in front of the background pull's per-table notify cascade. The OI-0149 design correctly identified that paint-first was the right doctrine; what it missed was that the store's `notify(entityType)` mechanism has no batch concept, so any operation that mutates many entity types in sequence (the pull, but also CP-56 backup restore, the v1 importer, future bulk-archive flows) fires N synchronous notifications and drags every subscribed surface through N full rerenders.
+
+**Reproducer (live, 2026-05-03):** Tim cold-loaded the app post-OI-0149-ship. Dashboard appeared, immediately froze, Chrome eventually killed the tab with menus locked and no reload available. Repeats on every cold load. App unusable from Tim's account until OI-0151 ships.
+
+**Root cause analysis:**
+
+The store's notification system was designed for "one user mutation → one UI update" (`src/data/store.js:430-437`):
+
+```js
+function notify(entityType) {
+  const subs = subscribers[entityType];
+  if (subs) {
+    for (const cb of subs) {
+      cb(getAll(entityType));
+    }
+  }
+}
+```
+
+`mergeRemote()` (line 448) calls `notify(entityType)` synchronously after every merge that produced changes. That works fine for the original use case — a user clicks Save, one entity type changes, one notify fires, one consumer rerenders. It does not work for any operation that mutates many entity types in sequence:
+
+- `_doPullAllRemote()` walks ~50 tables; every table that has rows fires its own notify, with `await adapter.pullAll(...)` separating them so the notifies are interleaved with the pull's network awaits.
+- CP-56 backup restore (designed but not yet shipped) iterates every table in FK-dependency order — same pattern, same cost.
+- The v1 importer at `src/features/settings/v1-import.js` walks many entity types during import — same pattern, same cost.
+- Future bulk operations (bulk archive, multi-event close, batch delete) inherit the same fragility.
+
+Consumers that subscribe to multiple entity types compound the cost. The dashboard registers six subscriptions all pointing at the same `rerender` callback (`src/features/dashboard/index.js:118-123`):
+
+```js
+unsubs.push(subscribe('groups', rerender));
+unsubs.push(subscribe('events', rerender));
+unsubs.push(subscribe('eventPaddockWindows', rerender));
+unsubs.push(subscribe('eventGroupWindows', rerender));
+unsubs.push(subscribe('animalGroupMemberships', rerender));
+unsubs.push(subscribe('eventFeedEntries', rerender));
+```
+
+A pull that merges all six fires `rerender` six times. Each rerender invokes five section renderers (stats / card grid / tasks / survey draft / weaning nudge), each of which iterates entire entity collections (`computeDmi8Days(event)` per event, `getLiveWindowAvgWeight(gw)` per group, `getAll('animalGroupMemberships').filter(...)` per group). On Tim's populated cow-calf operation that's 30 section renders' worth of work crammed between the pull's network awaits, on the foreground thread, with no yielding. Chrome eventually budgets the tab dead.
+
+The mismatch is at the boundary: many fine-grained per-mutation notifications (correct for single mutations) + a coarse-grained consumer (six subscriptions, one shared callback) = N redundant rerenders. Same family as OI-0117 (drop redundant stored fields) and OI-0133 (derive instead of duplicate): collapse two states into one. `notify` was implicitly trying to mean both "single mutation" and "any change in this batch," and the latter case was being approximated by spamming the former.
+
+**OI-0149 verdict:** OI-0149's paint-first doctrine is correct and stays. The missing piece was always the batch mechanism in the store. With OI-0151 in place, paint-first becomes "render once from localStorage, rerender exactly once after the background pull completes" — two paints, no storm.
+
+**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code):**
+
+1. **Add `beginBatch()` / `endBatch()` to `src/data/store.js`.** Counter-based so nested batches don't break (an outer batch must not drain when an inner batch ends).
+   ```js
+   let batchDepth = 0;
+   const dirtyEntities = new Set();
+
+   export function beginBatch() { batchDepth++; }
+
+   export function endBatch() {
+     if (batchDepth === 0) return;            // defensive — caller bug
+     if (--batchDepth > 0) return;            // still nested, defer drain
+     const dirty = [...dirtyEntities];
+     dirtyEntities.clear();
+     drainNotifications(dirty);
+   }
+   ```
+
+2. **Make `notify()` batch-aware AND microtask-coalesce outside batch.** This single change covers both the bulk-operation case (pull, import) and the synchronous-burst case (a single user mutation that touches multiple entity types via cascading store actions):
+   ```js
+   let drainQueued = false;
+
+   function notify(entityType) {
+     dirtyEntities.add(entityType);
+     if (batchDepth > 0) return;              // explicit batch — wait for endBatch
+     if (drainQueued) return;                 // microtask already pending
+     drainQueued = true;
+     queueMicrotask(() => {
+       drainQueued = false;
+       const dirty = [...dirtyEntities];
+       dirtyEntities.clear();
+       drainNotifications(dirty);
+     });
+   }
+
+   function drainNotifications(dirtyTypes) {
+     // Dedupe by callback identity — a callback registered against multiple
+     // dirty entity types fires exactly once per drain round, not once per type.
+     const fired = new Set();
+     for (const e of dirtyTypes) {
+       const subs = subscribers[e];
+       if (!subs) continue;
+       for (const cb of subs) {
+         if (fired.has(cb)) continue;
+         fired.add(cb);
+         try { cb(getAll(e)); } catch (err) {
+           logger.error('store', 'subscriber threw during drain', { entityType: e, error: err.message });
+         }
+       }
+     }
+   }
+   ```
+   Two invariants this establishes: (a) a callback registered against N dirty entity types fires *once* per drain round, regardless of N; (b) multiple synchronous notifies in the same task tick coalesce into one microtask drain.
+
+3. **Wrap `_doPullAllRemote()` in a batch.** Single change in `src/data/pull-remote.js`:
+   ```js
+   async function _doPullAllRemote() {
+     const adapter = getSyncAdapter();
+     if (!adapter) return { pulled: 0, errors: 0 };
+     const online = await adapter.isOnline();
+     if (!online) return { pulled: 0, errors: 0 };
+
+     beginBatch();
+     try {
+       // ... existing for-loop body unchanged ...
+     } finally {
+       endBatch();
+     }
+     // ... existing localStorage timestamp + return unchanged ...
+   }
+   ```
+   The `await`s inside the loop yield to the microtask queue, but `notify()` checks `batchDepth > 0` and adds to the dirty set without queueing a drain. The drain happens exactly once at `endBatch()` after the entire pull resolves.
+
+4. **Backward-compat behavior of `cb(getAll(e))`.** The existing callback contract receives `getAll(entityType)` of the *first* dirty type that triggers each callback in `drainNotifications`. Most callbacks ignore this argument (the dashboard's `rerender` takes no args; subscribers throughout `src/features/*` typically read from the store directly). Callbacks that use the argument continue to work correctly for their primary entity type. If a callback is registered against multiple types and uses the argument meaningfully, the dedup-by-identity rule means the callback gets called with one of the dirty types, not all of them — but that pattern doesn't exist in the codebase today. Confirmed via grep: no subscribe callback in `src/features/*` uses the argument substantively.
+
+**Fix — Phase 2 (deferred, opt-in for other producers when they ship):**
+
+CP-56 backup restore, v1 importer, future bulk-archive flows wrap their multi-mutation operations in `beginBatch() / endBatch()` opportunistically as they ship. Not in OI-0151's scope; the mechanism is there waiting. CP-56's spec impact line gets a one-line addition: "Wrap the FK-ordered restore loop in `beginBatch() / endBatch()`."
+
+**Acceptance criteria — Phase 1:**
+
+- [ ] `beginBatch()` / `endBatch()` exported from `src/data/store.js` with nested-batch counter discipline.
+- [ ] `notify()` adds to `dirtyEntities` and short-circuits when `batchDepth > 0`; outside batch, queues a single microtask drain regardless of how many notifies fire in the same tick.
+- [ ] `drainNotifications` dedupes callbacks by identity — same callback registered against N dirty entity types fires exactly once per drain round.
+- [ ] `_doPullAllRemote()` wrapped in `try { beginBatch(); ... } finally { endBatch(); }`. Verified by a unit test that asserts a pull merging 6 entity types fires the dashboard's `rerender` callback exactly once.
+- [ ] Cold load on Tim's populated cow-calf operation: dashboard paints from localStorage within ~100ms, background pull completes, dashboard rerenders exactly once after the pull settles, no Chrome "Page unresponsive" banner, no blank screen, no tab kill.
+- [ ] All existing 1400 unit tests pass without modification — the existing test bodies don't observe notify timing, only outcomes.
+- [ ] OI-0149's paint-first invariant intact (its `tests/unit/main-boot.test.js` still passes).
+- [ ] OI-0141's freshness invariant intact (visibilitychange-triggered pull still surfaces remote rows; sync indicator still flips green ↔ amber correctly).
+- [ ] Synchronous-burst case covered: a single user mutation that causes 3 notify calls in synchronous succession (e.g., closing an event firing notifies on `events`, `eventPaddockWindows`, `eventGroupWindows`) results in exactly one rerender of any subscribed multi-entity callback. Unit test asserts this with fake timers.
+
+**Files to edit (Phase 1):**
+
+- `src/data/store.js` — add `batchDepth`, `dirtyEntities`, `drainQueued`; export `beginBatch` / `endBatch`; rewrite `notify()` per design above; introduce `drainNotifications(dirtyTypes)` helper.
+- `src/data/pull-remote.js` — wrap the existing for-loop body in `try / finally` with `beginBatch() / endBatch()`. No other change.
+- `tests/unit/store-batch.test.js` (new) — cover: batch dedup-by-callback-identity; nested batch counter; microtask coalescing outside batch; subscriber error inside drain doesn't break sibling callbacks; `endBatch` without matching `beginBatch` is a no-op.
+- `tests/unit/pull-remote.test.js` (extend) — assert that a pull merging multiple entity types fires a registered callback exactly once.
+
+**Grep contracts (lock at design close-out):**
+
+- `grep -nE "export function beginBatch|export function endBatch" src/data/store.js` — must return ≥ 2 matches.
+- `grep -nE "beginBatch\(\)" src/data/pull-remote.js` — must return ≥ 1 match (the wrap in `_doPullAllRemote`).
+- `grep -nE "queueMicrotask\(" src/data/store.js` — must return ≥ 1 match (the coalesced drain outside batch).
+- `grep -nE "if \(fired\.has\(cb\)\) continue;" src/data/store.js` — must return ≥ 1 match (the callback-identity dedup).
+
+**Schema change:** NONE.
+
+**CP-55/CP-56 impact:** NONE for OI-0151's own scope. **Forward-link:** when CP-55/CP-56 import ships, its FK-ordered restore loop should wrap in `beginBatch() / endBatch()` for the same reason `_doPullAllRemote` does. Add a one-line note to the CP-56 spec when it lands. Not in OI-0151's scope to write that spec.
+
+**Architectural notes:**
+
+- **Why this is the root-cause fix and not a workaround.** A consumer-level rAF-debounce in the dashboard would have fixed Tim's specific symptom at the cost of leaving every other subscribed surface (events screen, locations screen, settings, dev/logs, future surfaces) holding the same fragility. Each new consumer would need to remember to debounce. The store is the single producer of notifications and the natural place to fix the producer/consumer mismatch. Same direction as OI-0117 / OI-0133 — fix the producer, not every consumer.
+- **Why microtask coalescing AND explicit batch.** Microtask coalescing alone covers the synchronous-burst case (3 notifies in a row from a cascading mutation). It does *not* cover the async-loop case (the pull's `await adapter.pullAll(...)` between merges yields to the microtask queue, draining the dirty set after each table). Explicit `beginBatch/endBatch` covers the async case. Both are needed; both share the same dirty set and drain logic.
+- **PLUGIN IMPROVEMENT candidate:** "When designing a notification primitive, the producer/consumer cardinality matters. One-mutation/one-update is the trivial case; many-mutation/one-update needs batching at the producer; one-mutation/many-updates needs deduping at the dispatcher. Either gap surfaces as a rerender storm under bulk operations." Worth a row in IMPROVEMENTS.md when OI-0151 lands.
+- **Same diagnostic family:** OI-0050 (UI works, sync silently broken), OI-0103/OI-0106 (UI renders, math silently wrong via type coercion), OI-0117/OI-0133 (UI shows the truth, store has duplicate-and-drifting state) — all "two things that should be one." OI-0151 collapses "per-mutation notify" and "per-batch notify" into one mechanism that handles both correctly.
+
+**Spec file:** Body of this OI is the Phase 1 spec. Thin pointer at `github/issues/OI-0151_store-batch-notifications.md` to be filed when Claude Code picks this up.
+
+**Related:**
+
+- **OI-0149** (closed 2026-05-01, but its paint-first behavior is currently a P0 regression in production until OI-0151 ships) — direct parent. OI-0149's main.js paint-first stays untouched; OI-0151 augments the store layer it sits on top of. After OI-0151 ships, OI-0149's design-doc story is "shipped 2026-05-01, root-cause complement OI-0151 shipped 2026-05-XX."
+- **OI-0150** (open, hold condition shifts) — Dev Mode hardening sweep. Its hold condition was "ship after OI-0149 field-tests clean for one day"; that condition shifts to "ship after OI-0151 field-tests clean for one day," because OI-0149 alone is not field-test-clean. Hold remains in place.
+- **OI-0141** (closed 2026-05-01) — grandparent. OI-0151 protects OI-0141's freshness invariant by absorbing the rerender storm OI-0141's visibilitychange listener can trigger when it kicks off a fresh pull on a populated op.
+- **CP-56** (designed, not shipped) — backup restore. CP-56's FK-ordered restore loop should wrap in `beginBatch() / endBatch()` when it ships. Forward-link, not OI-0151's scope.
+
+---
+
 ### OI-0150 — Dev Mode hardening sweep — render-yielding in heavy dev-mode screens (audit page + dev/logs viewer) + close the `logger` → `app_logs` pipe so client errors actually land in the table the viewer reads
-**Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0149 ships and field-tests clean.**
+**Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0151 ships and field-tests clean** (hold condition shifted from OI-0149 → OI-0151 on 2026-05-03 when paint-first regressed and OI-0151 was filed as the root-cause fix).
 
 **Status:** open — DESIGN LOCKED on the framework, three tracks (A / B / C) each with locked Phase 1 scope. Surfaced 2026-05-03 alongside OI-0149 when Tim's overnight `#/dev/audit` hang and the same-session `#/dev/logs` hang were diagnosed. The OI-0149 root cause (cold-boot pull blocks paint + `visibilitychange` stacks pulls) accounts for the home-page hang and the dev/logs hang on a single-row table; tracks A and B here cover the *latent* render anti-patterns that would still bite once the dataset grows past Phase-3 field-testing volumes, and track C closes the data-path gap that left the dev/logs viewer reading an effectively empty table.
 
@@ -106,7 +279,7 @@
 
 **Spec file:** Body of this OI is the Phase 1 spec for all three tracks. Thin pointer at `github/issues/OI-0150_dev-mode-hardening-sweep.md` to be filed when Claude Code picks this up.
 
-**Hold condition:** **Do not start OI-0150 implementation until OI-0149 has shipped and Tim has run at least one full day of normal app use without a hang.** OI-0149 is the load-bearing fix; OI-0150 is the polish on top. Filing now so the diagnostic captured by this morning's session does not get lost.
+**Hold condition:** **Do not start OI-0150 implementation until OI-0151 has shipped and Tim has run at least one full day of normal app use without a hang.** OI-0149 was the originally-intended load-bearing fix; on 2026-05-03 it shipped and immediately exposed the dashboard rerender storm OI-0151 was filed to address. The hold condition shifted from OI-0149 → OI-0151 in the same session. OI-0150 is the polish on top. Filing now so the diagnostic captured by this morning's session does not get lost.
 
 **Related:**
 
@@ -5379,6 +5552,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-05-03 | OI-0151 filed (P0) — store notifications have no batch concept; root-cause fix for the dashboard rerender storm OI-0149 paint-first exposed; OI-0150 hold condition shifted OI-0149 → OI-0151 | Tim cold-loaded the app post-OI-0149 ship and reported "the app now loads but is frozen on the dashboard. eventually chrome throws a blank screen. Menus locked, no reload available." Diagnosis: OI-0149's paint-first put the dashboard subscribed to 6 entity types in front of the background `pullAllRemote()` cascade. The store's `notify(entityType)` mechanism fires synchronously per `mergeRemote()` call — a single pull walks ~50 tables, fires a notify per table that has rows, and 6 of those entity types are dashboard-subscribed. Result: ~6 dashboard rerenders × 5 section renders each in tight succession during the pull, on Tim's populated cow-calf op that's enough to saturate Chrome's main thread until the tab goes blank with locked menus and the browser kills it. **Tim's framing question — "are we doing anything here that is a workaround to a problem with a root cause that should be addressed differently?"** — answered: yes, a consumer-level rAF-debounce on the dashboard's rerender would have fixed Tim's specific symptom while leaving every other subscribed surface (events screen, locations screen, settings, dev/logs, future bulk operations like CP-56 backup restore and the v1 importer) holding the same fragility. The store is the single producer of notifications and the natural place to fix the producer/consumer mismatch. Same direction as OI-0117 / OI-0133 — fix the producer, not every consumer. **Tim chose root-cause fix over hot-revert** ("I am fine not using the app right now so lets just head for the correct fix"). **Phase 1 DESIGN LOCKED in this session, ready for Claude Code:** (1) `beginBatch()` / `endBatch()` exported from `src/data/store.js` with counter-based nesting discipline so an outer batch doesn't drain when an inner one ends; (2) `notify()` rewritten to add to a module-scoped `dirtyEntities` Set, short-circuit when `batchDepth > 0`, and microtask-coalesce drain calls outside batch (covers the synchronous-burst case where one user mutation cascades into multiple notifies); (3) new `drainNotifications` helper dedupes callbacks by identity — a callback registered against N dirty entity types fires once per drain round, not once per type, so the dashboard's `rerender` callback registered against six entity types fires exactly once after the pull settles; (4) `_doPullAllRemote()` wraps the existing for-loop body in `try { beginBatch(); ... } finally { endBatch(); }` — the `await`s inside yield to the microtask queue but `notify()` checks `batchDepth > 0` and adds to the dirty set without queueing a drain. **Two invariants this establishes:** (a) callback-registered-against-N-types fires once per drain; (b) multiple synchronous notifies in the same task tick coalesce into one microtask drain. **OI-0149 verdict:** paint-first doctrine is correct and stays. The missing piece was always the batch mechanism in the store. With OI-0151 in place: render once from localStorage, rerender exactly once after the background pull completes — two paints, no storm. **Phase 2 deferred** — CP-56 import, v1 importer, future bulk-archive flows wrap their multi-mutation operations in `beginBatch() / endBatch()` opportunistically as they ship; not in OI-0151's scope, mechanism is there waiting. Forward-link added to CP-56 spec impact ("wrap FK-ordered restore loop in begin/end"). **Acceptance criteria** include: cold load on Tim's populated op paints within ~100ms then dashboard rerenders exactly once after pull settles; all 1400 existing unit tests pass without modification (existing tests don't observe notify timing, only outcomes); new `tests/unit/store-batch.test.js` covers batch dedup-by-identity + nested counter + microtask coalescing + subscriber-error-isolation; `tests/unit/pull-remote.test.js` extended to assert single-rerender-per-callback during a multi-table pull; OI-0149 paint-first invariant + OI-0141 freshness invariant both intact. **Grep contracts (lock at close-out):** `export function beginBatch|export function endBatch` ≥ 2 in `src/data/store.js`; `beginBatch\(\)` ≥ 1 in `src/data/pull-remote.js`; `queueMicrotask\(` ≥ 1 in `src/data/store.js`; `if \(fired\.has\(cb\)\) continue;` ≥ 1 in `src/data/store.js`. **Schema change:** NONE. **CP-55/CP-56 impact:** NONE for OI-0151's own scope; **forward-link** added — CP-56 import's restore loop should adopt batch when CP-56 ships. **OI-0150 hold condition shifted:** previously "ship after OI-0149 field-tests clean for one day," now "ship after OI-0151 field-tests clean for one day," because OI-0149 alone is not field-test-clean. OI-0150's body and Resolution-area metadata both updated in this session. **Architectural framing — root-cause vs workaround:** the rAF-debounce on the dashboard would be a per-consumer band-aid; OI-0151 fixes the producer/consumer mismatch at the producer level once, for all current and future bulk-operation producers. Same family as OI-0050 / OI-0103 / OI-0106 / OI-0117 / OI-0133 / OI-0139 — "two things that should be one." `notify` was implicitly trying to mean both "single mutation" and "any change in this batch"; OI-0151 collapses those into one mechanism that handles both correctly. **PLUGIN IMPROVEMENT candidate inline:** "When designing a notification primitive, the producer/consumer cardinality matters. One-mutation/one-update is the trivial case; many-mutation/one-update needs batching at the producer; one-mutation/many-updates needs deduping at the dispatcher. Either gap surfaces as a rerender storm under bulk operations." Worth a row in IMPROVEMENTS.md when OI-0151 lands. **No code change this session — OPEN_ITEMS.md edits only; thin pointer at `github/issues/OI-0151_*.md` to be filed when Claude Code picks this up.** Related: OI-0149 (parent — closed 2026-05-01, currently a P0 regression in production until OI-0151 ships; OI-0151 augments the store layer paint-first sits on top of), OI-0141 (grandparent — closed 2026-05-01, OI-0151 protects its visibilitychange-triggered freshness invariant by absorbing the rerender storm a fresh pull on a populated op can trigger), OI-0150 (open — hold condition shifted in this session), CP-56 (designed, not shipped — forward-link to wrap restore loop in batch). |
 | 2026-05-03 | OI-0150 filed — Dev Mode hardening sweep (audit render-yielding + dev/logs anti-patterns + close the `logger` → `app_logs` pipe); held behind OI-0149 ship | Same diagnostic session as OI-0149 surfaced three latent issues that did not cause Tim's hangs but will bite as Phase-3 field-testing volumes grow. Track A — `src/features/dev-mode/audit.js` builds the entire DOM in one synchronous pass with `O(n²)` `.find()`-inside-`.filter()` patterns and an unbounded DMI-8 daily-breakdown table; Phase 1 yields between top-level sections + caps the breakdown to most-recent 30 days behind a "show all" disclosure + yields between paddock-window blocks. Track B — `src/features/dev-mode/logs.js` has no debounce on its search input (full re-render per keystroke), each row's `<pre>JSON.stringify(...)</pre>` is built upfront whether `<details>` is open or not, and `FETCH_LIMIT = 1000` is fixed; Phase 1 debounces at 250ms + lazy-renders the `<pre>` on first `toggle` + lowers default fetch to 200 with a "Load more" cursor. Track C — `app_logs` Supabase table exists with INSERT policy, the entity is registered, the dev/logs viewer reads from it, and **nothing in the v2 codebase ever inserts**. `logger.error/warn/info` writes to `console.*` and a 200-entry localStorage rolling buffer (`_log_buffer`); the buffer is read in exactly one place (the v1-import "copy error log" clipboard button). The dev/logs viewer was built expecting the pipe to exist on the write side; the pipe does not exist. Tim's user has 1 row in `app_logs` of unknown origin — to be traced as part of Track C close-out. Phase 1 design: new helper `src/data/log-flush.js` batch-inserts buffer entries into `app_logs` with `user_id` / `operation_id` / `session_id` / `app_version` decoration, triggered on `visibilitychange` to hidden + `pagehide` (with `navigator.sendBeacon` when small) + opportunistic piggyback on `pullAllRemote()` completion. Boot-time UUID `gtho_session_id` in `sessionStorage` so all entries from one session group together. **Hold condition:** OI-0150 does not start implementation until OI-0149 has shipped and Tim has run at least one full day of normal app use without a hang — OI-0149 is load-bearing, OI-0150 is polish on top. **Doctrine:** all three tracks are "we built a feature that assumes a quieter layer than reality" — same family as OI-0149's paint-before-pull and OI-0141's honest-sync-indicator. Track C in particular structurally parallels OI-0050: "viewer reads, no writer" is the cousin of "writer writes, no column." **Schema change:** NONE (table + entity already exist; track C adds writes to existing columns). **CP-55/CP-56 impact:** NONE (`app_logs` already excluded from `BACKUP_TABLES`). **PLUGIN IMPROVEMENT candidates flagged inline:** (1) "when building a viewer over a Supabase table, ship the writer in the same OI" — IMPROVEMENTS.md row when OI-0150 lands; (2) default-debounce keystroke-to-render handlers in dev-mode surfaces — possibly a Cowork plugin lint rule. **No code change this session — OPEN_ITEMS.md edits only; thin pointer spec at `github/issues/OI-0150_*.md` to be filed when Claude Code picks this up.** Related: OI-0149 (this session — load-bearing parent), OI-0141 (closed — grandparent, established honest-sync-indicator doctrine that OI-0150-C extends to honest-log-surface), OI-0145 / OI-0138 (open — audit page restructure that OI-0150-A's yielding sits on top of without changing structure), OI-0050 (closed — same viewer-reads-no-writer blind-spot family as OI-0150-C). |
 | 2026-05-03 | OI-0149 filed — cold-boot `pullAllRemote()` blocks paint + visibilitychange handler stacks concurrent pulls; repair pass on the OI-0141 freshness fix | Diagnostic session triggered by Tim leaving the dev/audit page open overnight on his desktop and returning to a non-responsive Chrome tab. Killing the tab and reloading the home page from the GitHub Pages link itself "hung for a looooooong time" before painting; a third hang followed on `#/dev/logs` despite the table holding only one row for Tim's user (confirmed via Tim's manual count). Cowork ruled out the audit page and dev/logs renders as the cause of the home/logs hangs (audit page is inert when not on it; dev/logs has a single row to render). Traced the lockup to the boot/sync layer that runs *under* the routing layer: `showApp()` in `src/main.js` `await`s `flush()` + `pullAllRemote()` *before* registering routes / painting the header — ~50 sequential network round-trips on every cold boot — and the `visibilitychange` listener added by OI-0141 (commit `4f9bfa4`, 2026-05-01) re-runs the same chain on every tab-foreground gesture with no re-entry guard, so sleep/wake / alt-tab can stack pulls behind an in-flight one. **Diagnosis confirmed via `git log` — sub-agent report:** the visibilitychange listener landed in OI-0141; pre-OI-0141 the only triggers were boot + `window.online`. Dev Mode (OI-0138) explicitly ruled out — its four routes are lazy and add nothing to the boot chain. **Tim's framing question — "did this just start happening because of something in the last releases?"** — answered: yes, the hang surfaces because OI-0141 closed the silent-staleness gap, making the always-existed boot-pull cost newly routine. **Fix doctrine locked:** OI-0149 layers the missing guards on top of OI-0141, **not** a revert. OI-0141's freshness invariant stays; OI-0141's visibilitychange listener stays. **Phase 1 DESIGN LOCKED in this session, ready for Claude Code:** (1) restructure `showApp()` so route registration + header render + `initRouter(content)` happen *before* the pull starts, with `flush() + pullAllRemote()` running fire-and-forget after; (2) module-scoped `inFlight` promise in `src/data/pull-remote.js` so concurrent callers await the same pull; (3) no behavior change at the visibilitychange/online layer — dedupe sits at the `pullAllRemote()` layer transparently. **Phase 2 deferred** — switch `pullAll(table)` to incremental `pull(table, since)` keyed off the existing `getLastPulledAt()`. Bigger change with cold-boot fallback + schema-version-bump-resets-pull stories; opens as separate OI when Phase 1 ships and field-tests clean. **Acceptance criteria** include a unit test asserting two concurrent `pullAllRemote()` calls fire only one wave of `adapter.pullAll(...)` requests, an integration test asserting paint-before-pull ordering, and a manual repro (Slow 3G + leave-and-return-to-tab) that doesn't freeze. **Grep contracts (lock at close-out):** `await pullAllRemote()` and `await syncAdapter.flush()` must each return 0 matches in `src/main.js` post-Phase-1; `inFlight` must show ≥ 2 occurrences in `src/data/pull-remote.js` (declaration + reset). **Three latent follow-on issues flagged but explicitly out of scope:** (a) audit page synchronous render scales with operation data and has no yielding (DMI-8 daily breakdown grows by a row per day on long-running events); (b) dev/logs viewer has no debounce on search input, full re-render per filter keystroke, `JSON.stringify` per row regardless of `<details>` state, fixed `FETCH_LIMIT = 1000` with no virtual scroll; (c) `app_logs` table has the entity but no client write path — viewer reads from a table the v2 client never populates (Tim's user has 1 row from an unknown source). All three are filed-but-deferred candidates for a follow-on OI (working title: "render-yielding in heavy dev-mode screens" + "logger-buffer flush to app_logs"). **Schema change:** NONE. **CP-55/CP-56 impact:** NONE. **PLUGIN IMPROVEMENT candidate inline:** "fixing a sync freshness bug almost always has a perceived-performance cost — pair every new pull-trigger with a paint-first / dedupe / incremental-since pattern, or budget the freeze as part of the trigger's design." Worth a row in IMPROVEMENTS.md next sweep. **No code change this session — OPEN_ITEMS.md edit only; thin pointer at `github/issues/OI-0149_*.md` to be filed when Claude Code picks this up.** Related: OI-0141 (parent — closed 2026-05-01, OI-0149 repairs the side-effect without reverting), OI-0050 (closed — same diagnostic blind-spot family), OI-0145 / OI-0138 (open — audit page render anti-patterns are separate latent issue), OI-0103 / OI-0106 (closed — same "fix one bug, surface a cousin" pattern). |
 | 2026-05-02 | OI-0148 filed — promote orphan-flip rule from documentation to enforcement via `commit-msg` git hook | Per Tim's request after the second close-out recovery this session: file the hardening OI now rather than waiting for the next reconciliation sweep. **Locked design:** `commit-msg` hook (not `pre-commit` — needs access to message content) at `.githooks/commit-msg`, version-controlled, activated per-clone via `git config core.hooksPath .githooks`. Predicate: commit message contains `OI-[0-9]+` AND `git diff --cached --name-only` does NOT include `OPEN_ITEMS.md` → fail with helpful error citing the CLAUDE.md rule and `--no-verify` escape hatch. Behaviour matrix: pass on (no-OI-ref + anything), pass on (OI-ref + OPEN_ITEMS.md staged), fail on (OI-ref + OPEN_ITEMS.md not staged). Test script at `.githooks/test/commit-msg.test.sh` covers all four cases plus `--no-verify` bypass. CLAUDE.md "Git Workflow" section extended with a one-line setup step. `package.json` adds `test:hooks` so CI catches regressions. **Self-validation:** the commit that introduces the hook is its own first user — references OI-0148, so OPEN_ITEMS.md must be staged in the same commit (which it is, because the hook flips OI-0148 to closed). Circular but correct. **Spec file:** `github/issues/OI-0148_orphan-flip-pre-commit-hook.md`. **Schema change:** NONE. **CP-55/CP-56 impact:** NONE. **Scope intentionally narrow** — one hook, one predicate. Other CLAUDE.md grep contracts (OI-0117, OI-0133, OI-0139, OI-0140, OI-0145 unit literals) could also be promoted; if the documentation-only-contract-failed-in-practice pattern stacks up further, a follow-on OI can bundle the whole grep-contract sweep into a single `pre-commit`. Not bundled here. **No code change this session — OPEN_ITEMS.md edits + 1 new spec file.** Related: OI-0145 / OI-0146 / OI-0147 (the three close-out failures that surfaced the need; all closed earlier today via Cowork manual recovery). |

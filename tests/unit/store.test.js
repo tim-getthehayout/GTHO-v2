@@ -118,36 +118,44 @@ describe('store', () => {
   });
 
   describe('subscribers', () => {
-    it('subscribe is called on add', () => {
+    // OI-0151: notify is microtask-coalesced outside an explicit batch.
+    // Each test awaits a microtask before asserting on subscriber call counts.
+    it('subscribe is called on add', async () => {
       const cb = vi.fn();
       subscribe('locations', cb);
       add('locations', { id: '1', name: 'Test' }, validateOk);
+      await Promise.resolve();
       expect(cb).toHaveBeenCalledTimes(1);
       expect(cb).toHaveBeenCalledWith([{ id: '1', name: 'Test' }]);
     });
 
-    it('subscribe is called on update', () => {
+    it('subscribe is called on update', async () => {
       add('locations', { id: '1', name: 'Old' }, validateOk);
+      await Promise.resolve();
       const cb = vi.fn();
       subscribe('locations', cb);
       update('locations', '1', { name: 'New' }, validateOk);
+      await Promise.resolve();
       expect(cb).toHaveBeenCalledTimes(1);
     });
 
-    it('subscribe is called on remove', () => {
+    it('subscribe is called on remove', async () => {
       add('locations', { id: '1', name: 'Test' }, validateOk);
+      await Promise.resolve();
       const cb = vi.fn();
       subscribe('locations', cb);
       remove('locations', '1');
+      await Promise.resolve();
       expect(cb).toHaveBeenCalledTimes(1);
       expect(cb).toHaveBeenCalledWith([]);
     });
 
-    it('unsubscribe stops notifications', () => {
+    it('unsubscribe stops notifications', async () => {
       const cb = vi.fn();
       const unsub = subscribe('locations', cb);
       unsub();
       add('locations', { id: '1', name: 'Test' }, validateOk);
+      await Promise.resolve();
       expect(cb).not.toHaveBeenCalled();
     });
   });
@@ -241,19 +249,22 @@ describe('store', () => {
       expect(getById('locations', 'x2').name).toBe('Local Newer');
     });
 
-    it('notifies subscribers on merge', () => {
+    it('notifies subscribers on merge', async () => {
+      // OI-0151: notify drains on the next microtask outside an explicit batch.
       const cb = vi.fn();
       subscribe('locations', cb);
       mergeRemote('locations', [
         { id: 'n1', name: 'New', updatedAt: '2026-04-12T10:00:00Z' },
       ]);
+      await Promise.resolve();
       expect(cb).toHaveBeenCalledTimes(1);
     });
 
-    it('does not notify when nothing changed', () => {
+    it('does not notify when nothing changed', async () => {
       const cb = vi.fn();
       subscribe('locations', cb);
       mergeRemote('locations', []);
+      await Promise.resolve();
       expect(cb).not.toHaveBeenCalled();
     });
   });

@@ -2,7 +2,7 @@
  *  Called on boot (after store init) and on reconnect (after queue flush).
  */
 
-import { getSyncAdapter, mergeRemote } from './store.js';
+import { getSyncAdapter, mergeRemote, beginBatch, endBatch } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
 import { logger } from '../utils/logger.js';
 
@@ -47,18 +47,30 @@ async function _doPullAllRemote() {
   let pulled = 0;
   let errors = 0;
 
-  for (const [entityType, reg] of Object.entries(SYNC_REGISTRY)) {
-    try {
-      const rows = await adapter.pullAll(reg.table);
-      if (rows.length > 0) {
-        const records = rows.map(row => reg.from(row));
-        mergeRemote(entityType, records);
-        pulled += rows.length;
+  // OI-0151: wrap the merge loop in a batch so per-table notify() calls
+  // accumulate into one drain at endBatch() rather than firing N
+  // notifications during the pull. Without this, a populated cold-load
+  // pull triggers ~6 dashboard rerenders × 5 sections each on the
+  // foreground thread between network awaits and saturates Chrome until
+  // the tab is killed. The dirty-set + identity-dedupe drain runs exactly
+  // once after the entire pull resolves.
+  beginBatch();
+  try {
+    for (const [entityType, reg] of Object.entries(SYNC_REGISTRY)) {
+      try {
+        const rows = await adapter.pullAll(reg.table);
+        if (rows.length > 0) {
+          const records = rows.map(row => reg.from(row));
+          mergeRemote(entityType, records);
+          pulled += rows.length;
+        }
+      } catch (err) {
+        logger.error('sync', `pullAll failed for ${reg.table}`, { error: err.message });
+        errors++;
       }
-    } catch (err) {
-      logger.error('sync', `pullAll failed for ${reg.table}`, { error: err.message });
-      errors++;
     }
+  } finally {
+    endBatch();
   }
 
   if (pulled > 0 || errors === 0) {

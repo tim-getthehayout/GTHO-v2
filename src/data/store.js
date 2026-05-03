@@ -423,15 +423,88 @@ export function subscribe(entityType, callback) {
   return () => subscribers[entityType].delete(callback);
 }
 
+// OI-0151: notify batching + microtask coalescing.
+// Two paths feed the same dirty set + drain logic:
+//   1. Explicit batch — `_doPullAllRemote()`, future CP-56 import, future bulk
+//      flows wrap their multi-mutation work in `beginBatch()` / `endBatch()`.
+//      Each `notify()` adds to `dirtyEntities` but does not drain; the drain
+//      runs once at the matching `endBatch()`.
+//   2. Microtask coalescing outside batch — synchronous bursts (e.g. a single
+//      user mutation that cascades into multiple `notify()` calls) collapse
+//      into one drain at the next microtask. Without this, three back-to-back
+//      `notify()`s on the same tick would each iterate subscribers eagerly.
+// Both paths funnel through `drainNotifications()`, which dedupes callbacks
+// by identity so a multi-subscription consumer (the dashboard subscribes the
+// same `rerender` against six entity types) fires exactly once per drain.
+let batchDepth = 0;
+const dirtyEntities = new Set();
+let drainQueued = false;
+
 /**
- * Notify all subscribers for an entity type.
+ * Open a notification batch. Mutations inside the batch accumulate dirty
+ * entity types; the drain runs once at the matching `endBatch()`.
+ * Counter-based — nested batches do not drain on inner `endBatch()`.
+ */
+export function beginBatch() {
+  batchDepth++;
+}
+
+/**
+ * Close a notification batch. When the outermost batch closes, drains all
+ * dirty entity types accumulated since the first `beginBatch()`.
+ * Defensive: an unmatched `endBatch()` is a no-op (does not drain, does not
+ * throw).
+ */
+export function endBatch() {
+  if (batchDepth === 0) return;
+  if (--batchDepth > 0) return;
+  const dirty = [...dirtyEntities];
+  dirtyEntities.clear();
+  drainNotifications(dirty);
+}
+
+/**
+ * Notify subscribers for an entity type. Inside a batch, only marks the
+ * type dirty. Outside a batch, queues a single microtask drain that absorbs
+ * any further synchronous-tick notifications.
  * @param {string} entityType
  */
 function notify(entityType) {
-  const subs = subscribers[entityType];
-  if (subs) {
+  dirtyEntities.add(entityType);
+  if (batchDepth > 0) return;
+  if (drainQueued) return;
+  drainQueued = true;
+  queueMicrotask(() => {
+    drainQueued = false;
+    const dirty = [...dirtyEntities];
+    dirtyEntities.clear();
+    drainNotifications(dirty);
+  });
+}
+
+/**
+ * Fire callbacks for the given dirty entity types. A callback registered
+ * against multiple dirty types fires exactly once per drain (dedup by
+ * callback identity). Subscriber errors are caught + logged so a thrown
+ * subscriber does not break sibling callbacks.
+ * @param {string[]} dirtyTypes
+ */
+function drainNotifications(dirtyTypes) {
+  const fired = new Set();
+  for (const e of dirtyTypes) {
+    const subs = subscribers[e];
+    if (!subs) continue;
     for (const cb of subs) {
-      cb(getAll(entityType));
+      if (fired.has(cb)) continue;
+      fired.add(cb);
+      try {
+        cb(getAll(e));
+      } catch (err) {
+        logger.error('store', 'subscriber threw during drain', {
+          entityType: e,
+          error: err && err.message ? err.message : String(err),
+        });
+      }
     }
   }
 }

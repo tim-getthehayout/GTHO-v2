@@ -76,7 +76,8 @@ describe('integration: store + entity round-trip', () => {
     expect(roundTripped).toEqual(loc);
   });
 
-  it('5. subscriber is notified on add', () => {
+  it('5. subscriber is notified on add', async () => {
+    // OI-0151: notify is microtask-coalesced outside a batch.
     const callback = vi.fn();
     subscribe('locations', callback);
 
@@ -88,6 +89,7 @@ describe('integration: store + entity round-trip', () => {
     });
 
     add('locations', loc, validate);
+    await Promise.resolve();
 
     expect(callback).toHaveBeenCalledTimes(1);
     expect(callback).toHaveBeenCalledWith(expect.arrayContaining([

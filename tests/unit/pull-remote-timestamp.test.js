@@ -11,6 +11,9 @@ const mockAdapter = {
 vi.mock('../../src/data/store.js', () => ({
   getSyncAdapter: () => mockAdapter,
   mergeRemote: vi.fn(),
+  // OI-0151: pull-remote.js wraps the merge loop in beginBatch/endBatch.
+  beginBatch: vi.fn(),
+  endBatch: vi.fn(),
 }));
 
 vi.mock('../../src/data/sync-registry.js', () => ({
@@ -59,6 +62,8 @@ describe('pull-remote timestamp', () => {
     vi.doMock('../../src/data/store.js', () => ({
       getSyncAdapter: () => null,
       mergeRemote: vi.fn(),
+      beginBatch: vi.fn(),
+      endBatch: vi.fn(),
     }));
     const mod = await import('../../src/data/pull-remote.js');
     await mod.pullAllRemote();

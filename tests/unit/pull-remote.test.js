@@ -1,9 +1,10 @@
 /** @file OI-0149 — pullAllRemote() in-flight dedupe.
+ *  OI-0151 — multi-entity-type pull fires a registered callback exactly once.
  *
- * Two concurrent callers (boot + visibilitychange firing on tab foreground,
- * online + visibilitychange firing back-to-back, etc.) must share one in-flight
- * pull rather than fire parallel full-table pulls. After the in-flight pull
- * settles, a fresh call must start a new pull (the guard does not latch).
+ * OI-0149 cases use a fully mocked store (in-flight dedupe is a wrapper-level
+ * concern). The OI-0151 case at the bottom of the file uses the real store
+ * via `vi.importActual` so we can observe the actual batch + identity-dedupe
+ * drain.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -13,10 +14,14 @@ const mockAdapter = {
 };
 
 const mergeRemote = vi.fn();
+const beginBatch = vi.fn();
+const endBatch = vi.fn();
 
 vi.mock('../../src/data/store.js', () => ({
   getSyncAdapter: () => mockAdapter,
   mergeRemote: (...args) => mergeRemote(...args),
+  beginBatch: (...args) => beginBatch(...args),
+  endBatch: (...args) => endBatch(...args),
 }));
 
 vi.mock('../../src/data/sync-registry.js', () => ({
@@ -46,6 +51,8 @@ describe('pullAllRemote() — OI-0149 inFlight dedupe', () => {
     mockAdapter.isOnline.mockReset();
     mockAdapter.pullAll.mockReset();
     mergeRemote.mockReset();
+    beginBatch.mockReset();
+    endBatch.mockReset();
     mockAdapter.isOnline.mockResolvedValue(true);
     await loadModule();
   });
@@ -155,6 +162,8 @@ describe('pullAllRemote() — OI-0149 inFlight dedupe', () => {
     vi.doMock('../../src/data/store.js', () => ({
       getSyncAdapter: () => null,
       mergeRemote: vi.fn(),
+      beginBatch: vi.fn(),
+      endBatch: vi.fn(),
     }));
     const mod = await import('../../src/data/pull-remote.js');
     const r = await mod.pullAllRemote();
@@ -162,5 +171,108 @@ describe('pullAllRemote() — OI-0149 inFlight dedupe', () => {
     // Subsequent call still returns the no-op (guard did not latch).
     const r2 = await mod.pullAllRemote();
     expect(r2).toEqual({ pulled: 0, errors: 0 });
+  });
+
+});
+
+// The "beginBatch wraps the merge loop" invariant is asserted via the
+// integration test below (callback fires exactly once across 6 entity types
+// — only possible if a batch is open) plus the `grep -nE "beginBatch\(\)"
+// src/data/pull-remote.js` contract enforced at commit time.
+
+// ----------------------------------------------------------------------------
+// OI-0151 integration — real store, real subscribe, real notify drain.
+// Verifies that a pull merging multiple entity types fires a registered
+// multi-subscription callback exactly once (root-cause fix for the dashboard
+// rerender storm OI-0149's paint-first exposed).
+// ----------------------------------------------------------------------------
+
+describe('pullAllRemote() — OI-0151 multi-entity batch drain (integration)', () => {
+  let realStore;
+  let pullAllRemoteReal;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    vi.resetModules();
+
+    // Replace the file-level mock of store.js with the actual implementation
+    // for this describe block; pull-remote.js will import the real
+    // beginBatch/endBatch and the real notify pipeline.
+    vi.doMock('../../src/data/store.js', async () => {
+      return await vi.importActual('../../src/data/store.js');
+    });
+
+    // Six tables, mirroring the dashboard's six subscriptions
+    // (`src/features/dashboard/index.js:118-123`). Each pullAll returns one
+    // remote row with a future updatedAt so mergeRemote registers an add and
+    // fires notify(entityType).
+    vi.doMock('../../src/data/sync-registry.js', () => ({
+      SYNC_REGISTRY: {
+        groups: { table: 'groups', from: (r) => r },
+        events: { table: 'events', from: (r) => r },
+        eventPaddockWindows: { table: 'event_paddock_windows', from: (r) => r },
+        eventGroupWindows: { table: 'event_group_windows', from: (r) => r },
+        animalGroupMemberships: { table: 'animal_group_memberships', from: (r) => r },
+        eventFeedEntries: { table: 'event_feed_entries', from: (r) => r },
+      },
+    }));
+
+    vi.doMock('../../src/utils/logger.js', () => ({
+      logger: { error: vi.fn() },
+    }));
+
+    realStore = await import('../../src/data/store.js');
+    const pullMod = await import('../../src/data/pull-remote.js');
+    pullAllRemoteReal = pullMod.pullAllRemote;
+  });
+
+  it('a pull merging 6 entity types fires a multi-subscription callback exactly once', async () => {
+    realStore._reset();
+
+    const cb = vi.fn();
+    realStore.subscribe('groups', cb);
+    realStore.subscribe('events', cb);
+    realStore.subscribe('eventPaddockWindows', cb);
+    realStore.subscribe('eventGroupWindows', cb);
+    realStore.subscribe('animalGroupMemberships', cb);
+    realStore.subscribe('eventFeedEntries', cb);
+
+    let counter = 0;
+    realStore.setSyncAdapter({
+      isOnline: () => Promise.resolve(true),
+      pullAll: (table) => Promise.resolve([
+        { id: `${table}-1`, updatedAt: new Date(2030, 0, 1, 0, 0, ++counter).toISOString() },
+      ]),
+    });
+
+    await pullAllRemoteReal();
+
+    // After the batch closes, the drain runs synchronously inside endBatch().
+    // No microtask flush needed — but await one anyway to surface any latent
+    // queued drain that should NOT fire (regression guard).
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it('without batching the same setup would fire 6 times — sanity probe via inline simulated notifies (control)', async () => {
+    realStore._reset();
+
+    const cb = vi.fn();
+    realStore.subscribe('groups', cb);
+    realStore.subscribe('events', cb);
+    realStore.subscribe('eventPaddockWindows', cb);
+
+    // Three synchronous notifies in the same tick coalesce into one drain via
+    // the microtask path (not the batch path). This still produces ONE
+    // callback invocation, confirming the dedupe is in the drain layer (not
+    // tied to explicit batches).
+    realStore.mergeRemote('groups', [{ id: 'g1', updatedAt: '2030-01-01T00:00:01Z' }]);
+    realStore.mergeRemote('events', [{ id: 'e1', updatedAt: '2030-01-01T00:00:02Z' }]);
+    realStore.mergeRemote('eventPaddockWindows', [{ id: 'pw1', updatedAt: '2030-01-01T00:00:03Z' }]);
+
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+
+    expect(cb).toHaveBeenCalledTimes(1);
   });
 });

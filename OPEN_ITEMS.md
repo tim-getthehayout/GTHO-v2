@@ -4,8 +4,213 @@
 
 ---
 
+### OI-0153 — `renderHeader` `operationMembers` subscriber re-renders the entire header recursively; refactor to a stable update-the-chip callback so the recursive-resubscribe footgun pattern is gone at the consumer layer
+**Added:** 2026-05-03 | **Area:** v2-build / ui / header / dev-mode | **Priority:** P2 (consumer-side defense-in-depth; OI-0152 already neutralizes the bug at the producer layer, but the consumer pattern is still a footgun and the `is_dev` flip should only re-render the chip, not rebuild the entire header). **Hold until OI-0152 ships and field-tests clean.**
+
+**Status:** open — Phase 1 DESIGN LOCKED, ready for Claude Code handoff after OI-0152 ships. Surfaced 2026-05-03 alongside OI-0152 when the Sources-tab pause-and-stack-trace caught the page in `ad.forEach(e => e())` — the minified `unsubs.forEach(fn => fn())` line at the top of `renderHeader`. The recursive-resubscribe pattern at `src/ui/header.js:153-156` was the trigger of the OI-0152 latent loop.
+
+**Reproducer (already fixed at the producer layer by OI-0152):** Boot the app on a populated op; OI-0151's drainNotifications fires the `operationMembers` subscriber; the subscriber calls `renderHeader(container)` which unsubscribes the old callback and registers a new one with a different identity; pre-OI-0152 the live-Set iteration in drainNotifications picks up the new callback as a not-yet-fired entry and fires it; new callback re-renders header, registers another callback, ad infinitum. Tab fully locked.
+
+**Root cause analysis — at the consumer layer:**
+
+`src/ui/header.js:153-156`:
+
+```js
+unsubs.push(subscribe('operationMembers', () => {
+  clear(container);
+  renderHeader(container);
+}));
+```
+
+This is two latent footguns stacked:
+
+1. **Subscribing a callback that calls the function that owns the subscription** is a recursive-resubscribe pattern — every notify removes the old subscription and registers a new one with different identity. The OI-0152 producer-layer fix protects against the *consequences* (live-Set iteration), but the consumer pattern is still strange and easy to misread.
+2. **The `is_dev` flip only needs to repaint the dev-mode chip**, not rebuild the entire header DOM. Per OI-0146's spec, the `[DEV]` chip's visibility tracks the `operation_members.is_dev` row for the current user. Repainting the whole header (sidebar, logo, farm picker, sync indicator, mobile nav) every time *any* `operation_members` row changes is overkill and resets transient header state (open farm picker, focused field-mode toggle) as a side-effect.
+
+**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code after OI-0152 ships):**
+
+1. **Extract a small `renderDevChip()` helper** in `src/ui/header.js` that returns the chip element (or null when the user is not dev). Called once during `renderHeader`'s normal build, and once on each `operationMembers` notify. Idempotent — replaces the existing chip in the DOM rather than rebuilding around it.
+
+2. **Replace the recursive subscription** with a stable one that calls `renderDevChip()` and swaps the existing chip. Sketch:
+
+   ```js
+   function updateDevChip() {
+     const existingChip = container.querySelector('[data-testid="header-dev-chip"]');
+     const newChip = renderDevChip();   // null if user is not dev
+     if (existingChip && newChip) {
+       existingChip.replaceWith(newChip);
+     } else if (existingChip && !newChip) {
+       existingChip.remove();
+     } else if (!existingChip && newChip) {
+       const anchor = container.querySelector('[data-testid="header-dev-chip-anchor"]');
+       anchor?.appendChild(newChip);
+     }
+   }
+
+   unsubs.push(subscribe('operationMembers', updateDevChip));
+   ```
+
+   The callback identity is now stable — `updateDevChip` is the same function reference across all `renderHeader` calls. The unsubscribe-and-resubscribe still happens (because `renderHeader`'s top-line cleanup runs each call), but the *behavior* of the callback is consistent and self-contained: it doesn't tear down the entire header.
+
+3. **The `todos` subscription stays** — `subscribe('todos', () => updateBadges())` is already a stable update-only callback. No change needed.
+
+**Acceptance criteria — Phase 1:**
+
+- [ ] `renderHeader`'s `operationMembers` subscription no longer calls `renderHeader` recursively. Grep contract: `grep -nE "subscribe\('operationMembers'" src/ui/header.js` returns one match, and the callback body does not contain `renderHeader(`.
+- [ ] Toggling `is_dev` on a member from `member-management` updates the `[DEV]` chip in the header within one drain cycle, without rebuilding the rest of the header.
+- [ ] Transient header state (an open farm-picker overlay, a focused field-mode toggle) is preserved across `operationMembers` notifies.
+- [ ] All existing 1409+ unit tests pass; one new test in `tests/unit/ui/header.test.js` (or extending an existing file) asserts that the chip toggles without `renderHeader` being re-invoked.
+
+**Files to edit (Phase 1):**
+
+- `src/ui/header.js` — add `renderDevChip()` and `updateDevChip()` helpers; rewrite the `operationMembers` subscription body; add a `data-testid="header-dev-chip-anchor"` element on the chip's parent so `updateDevChip` knows where to insert when the chip wasn't there before.
+- `tests/unit/ui/header.test.js` (new or extend) — the toggle behavior test.
+
+**Schema change:** NONE.
+
+**CP-55/CP-56 impact:** NONE — pure UI refactor in the header.
+
+**Architectural notes:**
+
+- **Why this still matters after OI-0152.** OI-0152 closes the live-Set-iteration loop at the store layer, so this consumer pattern is no longer load-bearing for the app's stability. But the pattern is still a smell: future consumers that copy it will re-introduce the recursive-resubscribe behavior and (without OI-0152's snapshot guard) the same loop. Better to fix the consumer too so the only example in the codebase of this pattern is gone.
+- **Same family as OI-0117 / OI-0133 / OI-0139:** "two things doing one job, drifting." The header was simultaneously responsible for "rebuild on member changes" (line 153-156) and "rebuild on initial mount" (the rest of `renderHeader`). Collapse into "build on initial mount, update affected DOM on changes."
+- **PLUGIN IMPROVEMENT candidate:** "Subscribe-to-yourself patterns (callback re-invokes the function that registered the subscription) are a footgun even with snapshot-protected drains. Default to stable, narrow callbacks that update affected DOM in place." Worth a row in IMPROVEMENTS.md when this lands.
+
+**Spec file:** Body of this OI is the Phase 1 spec. Thin pointer at `github/issues/OI-0153_header-dev-chip-stable-callback.md` to be filed when Claude Code picks this up.
+
+**Hold condition:** **Do not start OI-0153 until OI-0152 has shipped and Tim has run at least one full day of normal app use without a hang.** OI-0152 is load-bearing; OI-0153 is the consumer-side cleanup on top.
+
+**Related:**
+
+- **OI-0152** (open, this session) — direct parent. Producer-layer snapshot fix that closes the live-Set-iteration loop OI-0153 was the trigger of.
+- **OI-0151** (closed, this session) — grandparent. The microtask-coalesced notify whose drainNotifications surfaced this latent bug.
+- **OI-0146** (closed) — the OI that introduced the `[DEV]` chip and its `operationMembers`-tracking semantics. OI-0153 stays faithful to OI-0146's design intent (chip tracks `is_dev`); only the implementation pattern changes.
+- **OI-0149** (closed) — paint-first regression that put `renderHeader`'s subscription in front of the pull's notify, exposing the latent loop pre-OI-0152.
+
+---
+
+### OI-0152 — `drainNotifications` iterates the live subscribers Set; recursive-resubscribe callbacks (`renderHeader` `operationMembers`) cause an infinite loop because new subscribers added during a callback are visited by the same iteration; snapshot-before-iterate
+**Added:** 2026-05-03 | **Area:** v2-build / store / sync / hotfix | **Priority:** **P0 — app currently locked.** Tim's tab loads, dashboard paints, then `pullAllRemote()`'s end-of-batch drain fires the `operationMembers` subscriber from `renderHeader` which recursively re-renders the header and registers a new subscription, the live-Set iterator picks up the new entry and fires it, infinite. Chrome can't process navigation / hard reload requests because the renderer process is fully saturated. Confirmed via Sources-tab pause-and-stack-trace 2026-05-03.
+
+**Status:** open — Phase 1 DESIGN LOCKED, ready for Claude Code handoff. **Hotfix scope** — the smallest change that unlocks the app.
+
+**Reproducer (live, 2026-05-03):** Tim hard-refreshes the app. Dashboard paints from localStorage. Background `pullAllRemote()` runs, batch ends, drainNotifications fires the `operationMembers` subscriber. Subscriber calls `clear(container); renderHeader(container);`. `renderHeader`'s top-line `unsubs.forEach(fn => fn())` deletes the subscriber from `subscribers['operationMembers']`. `renderHeader` then registers a new subscriber (different identity). drainNotifications' for-of loop, still iterating `subscribers['operationMembers']`, sees the newly-added entry, fires it (different identity → not in `fired`), and the cycle repeats forever. Tab is unresponsive — even hard reload doesn't go through because the renderer process never breaks out of JS. Verified by Sources tab pause: page paused inside the minified `renderHeader` (function `od`) at the `ad.forEach(e => e())` cleanup line.
+
+**Root cause:**
+
+JavaScript `Set` iteration is documented to **visit values added during iteration** ([MDN: Set.prototype.forEach / for…of](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set)). OI-0151's `drainNotifications` iterates the live `subscribers[entityType]` Set:
+
+```js
+function drainNotifications(dirtyTypes) {
+  const fired = new Set();
+  for (const e of dirtyTypes) {
+    const subs = subscribers[e];
+    if (!subs) continue;
+    for (const cb of subs) {       // ← iterating the live Set
+      if (fired.has(cb)) continue;
+      fired.add(cb);
+      try { cb(getAll(e)); } catch (err) { /* logger.error */ }
+    }
+  }
+}
+```
+
+If `cb` modifies `subs` during its execution — by unsubscribing itself and registering a new callback — the iterator visits the new entry. With a recursive-resubscribe consumer like `renderHeader`'s `operationMembers` subscription, every iteration produces a new entry for the iterator to visit, and the loop never terminates.
+
+**The latent bug existed pre-OI-0151 too.** Pre-OI-0151's `notify`:
+
+```js
+function notify(entityType) {
+  const subs = subscribers[entityType];
+  if (subs) {
+    for (const cb of subs) {       // ← same live-Set iteration
+      cb(getAll(entityType));
+    }
+  }
+}
+```
+
+Same iteration pattern, same potential to loop. It never triggered in production because pre-OI-0149 boot order pulled data *before* `renderHeader` subscribed — the operationMembers notify fired into an empty subscriber set, no callbacks ran, no loop. OI-0149's paint-first put the subscription in front of the pull's notify, and OI-0151's batch-end drain put the trigger right where the subscriber was waiting. Two correct individual changes that together exposed a third latent bug.
+
+**OI-0151 verdict:** OI-0151 is correct in spirit. The batch / microtask / dedupe-by-identity logic stays. The single-line miss was iterating the live Set instead of a snapshot.
+
+**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code):**
+
+Snapshot the subscribers list before iterating so new entries added during a callback are queued for the *next* drain, not the current one:
+
+```js
+function drainNotifications(dirtyTypes) {
+  const fired = new Set();
+  for (const e of dirtyTypes) {
+    const subs = subscribers[e];
+    if (!subs) continue;
+    // OI-0152: snapshot before iterating. JS Set iteration visits values
+    // added during iteration; recursive-resubscribe callbacks (e.g. a
+    // subscriber that calls a parent render function which re-registers a
+    // sibling subscription) would otherwise cause an unbounded iteration.
+    // New subscribers registered during a drain are picked up by the next
+    // drain, not the current one.
+    const snapshot = [...subs];
+    for (const cb of snapshot) {
+      if (fired.has(cb)) continue;
+      fired.add(cb);
+      try {
+        cb(getAll(e));
+      } catch (err) {
+        logger.error('store', 'subscriber threw during drain', {
+          entityType: e,
+          error: err && err.message ? err.message : String(err),
+        });
+      }
+    }
+  }
+}
+```
+
+That's the entire fix at the producer layer. ~5 lines including the comment.
+
+**Acceptance criteria — Phase 1:**
+
+- [ ] `drainNotifications` snapshots `subs` to an array before the inner for-of. Grep contract: `grep -nE "const snapshot = \[\.\.\.subs\]" src/data/store.js` returns ≥ 1 match.
+- [ ] Boot on Tim's populated op no longer locks the tab. Hard reload works while the app is open. Console accepts JS input within 1 second of paint.
+- [ ] New unit test: a subscriber that re-subscribes itself during its callback (mimicking `renderHeader`'s `operationMembers` pattern) results in the callback firing **exactly once per drain**, not infinitely. Use `tests/unit/store-batch.test.js` (new test case in the existing file from OI-0151).
+- [ ] All existing 1409 unit tests pass without modification.
+- [ ] OI-0151's invariants intact (batch dedup-by-identity, microtask coalescing, error isolation).
+
+**Files to edit (Phase 1):**
+
+- `src/data/store.js` — single change in `drainNotifications`: `const snapshot = [...subs];` then iterate the snapshot.
+- `tests/unit/store-batch.test.js` (extend) — add the recursive-resubscribe test case.
+
+**Grep contracts (lock at design close-out):**
+
+- `grep -nE "const snapshot = \[\.\.\.subs\]" src/data/store.js` — must return ≥ 1 match.
+- `grep -nE "for \(const cb of subs\)" src/data/store.js` — must return **0 matches**. The live-Set iteration is the bug; if it reappears, the regression is back.
+
+**Schema change:** NONE.
+
+**CP-55/CP-56 impact:** NONE.
+
+**Architectural notes:**
+
+- **Why this is the right producer-layer fix.** Snapshot-before-iterate at the producer protects every consumer from accidental recursive-resubscribe, regardless of whether the consumer pattern itself is changed. Same direction as OI-0151's "fix the producer not every consumer." OI-0153 separately cleans up the consumer-side pattern (`renderHeader`'s recursive call) for defense-in-depth.
+- **Why pre-OI-0151 also had this bug.** The original `notify(entityType)` iterated the live Set the same way. The bug was always there, just dormant because the boot order kept the subscriber set empty when notifies fired. Two correct changes (OI-0149 paint-first + OI-0151 batch drain) shifted the timing such that the subscriber set was populated *and* getting drained from the same code path. Snapshot fix would have prevented this in pre-OI-0151 code too.
+- **Same family as OI-0050 / OI-0103 / OI-0106 / OI-0117 / OI-0133 / OI-0139 / OI-0151:** "two things that should be one." The live-Set iteration was implicitly trying to mean both "fire all current subscribers" and "fire all subscribers including new ones registered mid-drain." Snapshot-before-iterate collapses that into "fire all subscribers as of drain start" — one stable contract.
+- **PLUGIN IMPROVEMENT candidate:** "When iterating a mutable collection from inside callbacks the collection's owner controls, default to snapshotting first. JS Set/Map iteration visits-mid-iteration semantics are easy to forget and easy to reproduce as a footgun." Worth a row in IMPROVEMENTS.md when this lands.
+
+**Spec file:** Body of this OI is the Phase 1 spec. Thin pointer at `github/issues/OI-0152_drain-snapshot-before-iterate.md` to be filed when Claude Code picks this up.
+
+**Related:**
+
+- **OI-0151** (closed, this session) — direct parent. OI-0152 amends OI-0151's drainNotifications without changing its contract; OI-0151's batch / microtask / dedupe-by-identity logic stays intact.
+- **OI-0153** (open, this session) — consumer-side cleanup. The recursive-resubscribe pattern in `renderHeader` is the trigger of OI-0152's loop; OI-0153 refactors it. Held until OI-0152 ships.
+- **OI-0149** (closed) — paint-first regression that put `renderHeader`'s subscription in front of the pull's notify, exposing the latent live-Set-iteration bug. OI-0149's design stays correct; this fix completes its load-bearing assumption.
+- **OI-0146** (closed) — introduced the `[DEV]` chip and the `operationMembers`-tracking subscription pattern in `renderHeader`. OI-0152 is the producer-layer fix; OI-0153 cleans up the consumer-side pattern OI-0146 introduced.
+
+---
+
 ### OI-0150 — Dev Mode hardening sweep — render-yielding in heavy dev-mode screens (audit page + dev/logs viewer) + close the `logger` → `app_logs` pipe so client errors actually land in the table the viewer reads
-**Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0151 ships and field-tests clean** (hold condition shifted from OI-0149 → OI-0151 on 2026-05-03 when paint-first regressed and OI-0151 was filed as the root-cause fix).
+**Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0152 ships and field-tests clean** (hold condition shifted OI-0149 → OI-0151 → OI-0152 on 2026-05-03 across the same diagnostic session; OI-0151 alone is not field-test-clean because the live-Set iteration in drainNotifications hit a recursive-resubscribe consumer in `renderHeader` and locked the tab; OI-0152 is the snapshot-before-iterate fix that closes the loop).
 
 **Status:** open — DESIGN LOCKED on the framework, three tracks (A / B / C) each with locked Phase 1 scope. Surfaced 2026-05-03 alongside OI-0149 when Tim's overnight `#/dev/audit` hang and the same-session `#/dev/logs` hang were diagnosed. The OI-0149 root cause (cold-boot pull blocks paint + `visibilitychange` stacks pulls) accounts for the home-page hang and the dev/logs hang on a single-row table; tracks A and B here cover the *latent* render anti-patterns that would still bite once the dataset grows past Phase-3 field-testing volumes, and track C closes the data-path gap that left the dev/logs viewer reading an effectively empty table.
 
@@ -106,7 +311,7 @@
 
 **Spec file:** Body of this OI is the Phase 1 spec for all three tracks. Thin pointer at `github/issues/OI-0150_dev-mode-hardening-sweep.md` to be filed when Claude Code picks this up.
 
-**Hold condition:** **Do not start OI-0150 implementation until OI-0151 has shipped and Tim has run at least one full day of normal app use without a hang.** OI-0149 was the originally-intended load-bearing fix; on 2026-05-03 it shipped and immediately exposed the dashboard rerender storm OI-0151 was filed to address. The hold condition shifted from OI-0149 → OI-0151 in the same session. OI-0150 is the polish on top. Filing now so the diagnostic captured by this morning's session does not get lost.
+**Hold condition:** **Do not start OI-0150 implementation until OI-0152 has shipped and Tim has run at least one full day of normal app use without a hang.** Hold condition shifted OI-0149 → OI-0151 → OI-0152 across the same 2026-05-03 diagnostic session: OI-0149 (paint-first) shipped and exposed the dashboard rerender storm OI-0151 was filed to address; OI-0151 (batch/microtask coalesce) shipped and exposed the live-Set-iteration loop OI-0152 was filed to address; OI-0152 (snapshot-before-iterate) is the load-bearing fix. OI-0150 is the polish on top of all three. Filing now so the diagnostics captured by this morning's session do not get lost.
 
 **Related:**
 
@@ -5385,6 +5590,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-05-03 | OI-0152 filed (P0) + OI-0153 filed (P2 hold) — drainNotifications iterates the live subscribers Set; recursive-resubscribe consumer (`renderHeader` operationMembers) hits an unbounded iteration when paint-first puts the subscription in front of the pull's batch-end notify; producer-layer snapshot fix (OI-0152) + consumer-layer stable-callback refactor (OI-0153) | Tim cold-loaded post-OI-0151 ship and reported total tab lockup — dashboard paints, then everything locks; hard reload doesn't go through (renderer process never breaks out of JS); even Console JS doesn't return; only closing the tab and reopening recovers. Diagnosis path: ruled out intrinsic render cost (timing showed continuous lockup, not 4-5s freezes that resolve), ruled out empty console (filter-aware), Sources tab pause-and-stack-trace caught the page in `ad.forEach(e => e())` — the minified `unsubs.forEach(fn => fn())` cleanup at the top of `renderHeader`. **Bug:** `src/ui/header.js:153-156` subscribes a callback that calls `renderHeader(container)` recursively. OI-0151's `drainNotifications` iterates the live `subscribers[entityType]` Set (`for (const cb of subs)`); JS Set iteration visits values added during iteration. The recursive callback unsubscribes its old self and registers a new one with different identity, the iterator picks up the new entry as not-in-`fired`, fires it, repeat forever. **Latent pre-OI-0151 too:** original `notify(entityType)` had the same `for (const cb of subs)` pattern; never triggered in production because pre-OI-0149 boot order pulled data *before* `renderHeader` subscribed, so the operationMembers notify fired into an empty subscriber set. OI-0149's paint-first put the subscription in front of the pull, OI-0151's batch-end drain put the trigger right where the subscriber waited — two correct individual changes exposed a third latent bug. **OI-0152 (P0, hotfix scope):** producer-layer snapshot fix in `drainNotifications` — `const snapshot = [...subs]` before the inner for-of so new subscribers registered during a callback are queued for the *next* drain, not picked up by the current one. ~5 lines including comment. Grep contracts: `const snapshot = [\.\.\.subs]` ≥ 1 match in `src/data/store.js`; `for \(const cb of subs\)` 0 matches. New unit test in `tests/unit/store-batch.test.js` covers the recursive-resubscribe case. **OI-0153 (P2, held until OI-0152 ships):** consumer-layer cleanup — extract `renderDevChip()` + `updateDevChip()` helpers in `src/ui/header.js`; replace the recursive `subscribe('operationMembers', () => { clear(container); renderHeader(container); })` with a stable `subscribe('operationMembers', updateDevChip)` that only swaps the chip element. Per OI-0146's design intent the chip's visibility tracks `is_dev`; rebuilding the entire header (sidebar, logo, farm picker, sync indicator, mobile nav) on every operationMembers notify is overkill and resets transient header state (open farm picker, focused field-mode toggle) as a side-effect. The `todos` subscription stays — `subscribe('todos', () => updateBadges())` is already a stable update-only callback. **Doctrine:** OI-0152 is the producer-layer fix that protects every consumer from accidental recursive-resubscribe regardless of whether consumer patterns are changed (same direction as OI-0151's "fix producer not every consumer"). OI-0153 cleans up the specific consumer-side pattern that triggered OI-0152's loop so the only example of recursive-resubscribe in the codebase is gone — defense in depth at both layers. **Same family as OI-0050 / OI-0103 / OI-0106 / OI-0117 / OI-0133 / OI-0139 / OI-0151 — "two things that should be one":** the live-Set iteration implicitly meant both "fire all current subscribers" and "fire all subscribers including new ones registered mid-drain"; snapshot-before-iterate collapses to "fire all subscribers as of drain start" — one stable contract. **OI-0150 hold condition shifted from OI-0151 → OI-0152** (OI-0150 now waits on OI-0152 field-test-clean instead of OI-0151, since OI-0151 alone is not field-test-clean). **OI-0151 verdict:** correct in spirit; batch / microtask / dedupe-by-identity logic stays. The single-line miss was iterating the live Set instead of a snapshot — OI-0152 amends without changing OI-0151's contract. **Schema change:** NONE for either OI. **CP-55/CP-56 impact:** NONE for either OI. **PLUGIN IMPROVEMENT candidates (two) flagged inline:** (1) "When iterating a mutable collection from inside callbacks the collection's owner controls, default to snapshotting first. JS Set/Map iteration visits-mid-iteration semantics are easy to forget and easy to reproduce as a footgun." (2) "Subscribe-to-yourself patterns (callback re-invokes the function that registered the subscription) are a footgun even with snapshot-protected drains. Default to stable, narrow callbacks that update affected DOM in place." Worth two rows in IMPROVEMENTS.md when these land. **No code change this session — OPEN_ITEMS.md edits only; thin pointer specs at `github/issues/OI-0152_*.md` and `github/issues/OI-0153_*.md` to be filed when Claude Code picks each up. OI-0153 hold remains in place until OI-0152 ships and field-tests clean.** Related: OI-0151 (closed earlier today — direct parent of both), OI-0149 (closed — paint-first regression that put the subscription in front of the trigger), OI-0146 (closed — introduced the `[DEV]` chip and the operationMembers-tracking pattern OI-0153 cleans up), OI-0150 (open — hold condition shifted in this session). |
 | 2026-05-03 | OI-0151 filed (P0) — store notifications have no batch concept; root-cause fix for the dashboard rerender storm OI-0149 paint-first exposed; OI-0150 hold condition shifted OI-0149 → OI-0151 | Tim cold-loaded the app post-OI-0149 ship and reported "the app now loads but is frozen on the dashboard. eventually chrome throws a blank screen. Menus locked, no reload available." Diagnosis: OI-0149's paint-first put the dashboard subscribed to 6 entity types in front of the background `pullAllRemote()` cascade. The store's `notify(entityType)` mechanism fires synchronously per `mergeRemote()` call — a single pull walks ~50 tables, fires a notify per table that has rows, and 6 of those entity types are dashboard-subscribed. Result: ~6 dashboard rerenders × 5 section renders each in tight succession during the pull, on Tim's populated cow-calf op that's enough to saturate Chrome's main thread until the tab goes blank with locked menus and the browser kills it. **Tim's framing question — "are we doing anything here that is a workaround to a problem with a root cause that should be addressed differently?"** — answered: yes, a consumer-level rAF-debounce on the dashboard's rerender would have fixed Tim's specific symptom while leaving every other subscribed surface (events screen, locations screen, settings, dev/logs, future bulk operations like CP-56 backup restore and the v1 importer) holding the same fragility. The store is the single producer of notifications and the natural place to fix the producer/consumer mismatch. Same direction as OI-0117 / OI-0133 — fix the producer, not every consumer. **Tim chose root-cause fix over hot-revert** ("I am fine not using the app right now so lets just head for the correct fix"). **Phase 1 DESIGN LOCKED in this session, ready for Claude Code:** (1) `beginBatch()` / `endBatch()` exported from `src/data/store.js` with counter-based nesting discipline so an outer batch doesn't drain when an inner one ends; (2) `notify()` rewritten to add to a module-scoped `dirtyEntities` Set, short-circuit when `batchDepth > 0`, and microtask-coalesce drain calls outside batch (covers the synchronous-burst case where one user mutation cascades into multiple notifies); (3) new `drainNotifications` helper dedupes callbacks by identity — a callback registered against N dirty entity types fires once per drain round, not once per type, so the dashboard's `rerender` callback registered against six entity types fires exactly once after the pull settles; (4) `_doPullAllRemote()` wraps the existing for-loop body in `try { beginBatch(); ... } finally { endBatch(); }` — the `await`s inside yield to the microtask queue but `notify()` checks `batchDepth > 0` and adds to the dirty set without queueing a drain. **Two invariants this establishes:** (a) callback-registered-against-N-types fires once per drain; (b) multiple synchronous notifies in the same task tick coalesce into one microtask drain. **OI-0149 verdict:** paint-first doctrine is correct and stays. The missing piece was always the batch mechanism in the store. With OI-0151 in place: render once from localStorage, rerender exactly once after the background pull completes — two paints, no storm. **Phase 2 deferred** — CP-56 import, v1 importer, future bulk-archive flows wrap their multi-mutation operations in `beginBatch() / endBatch()` opportunistically as they ship; not in OI-0151's scope, mechanism is there waiting. Forward-link added to CP-56 spec impact ("wrap FK-ordered restore loop in begin/end"). **Acceptance criteria** include: cold load on Tim's populated op paints within ~100ms then dashboard rerenders exactly once after pull settles; all 1400 existing unit tests pass without modification (existing tests don't observe notify timing, only outcomes); new `tests/unit/store-batch.test.js` covers batch dedup-by-identity + nested counter + microtask coalescing + subscriber-error-isolation; `tests/unit/pull-remote.test.js` extended to assert single-rerender-per-callback during a multi-table pull; OI-0149 paint-first invariant + OI-0141 freshness invariant both intact. **Grep contracts (lock at close-out):** `export function beginBatch|export function endBatch` ≥ 2 in `src/data/store.js`; `beginBatch\(\)` ≥ 1 in `src/data/pull-remote.js`; `queueMicrotask\(` ≥ 1 in `src/data/store.js`; `if \(fired\.has\(cb\)\) continue;` ≥ 1 in `src/data/store.js`. **Schema change:** NONE. **CP-55/CP-56 impact:** NONE for OI-0151's own scope; **forward-link** added — CP-56 import's restore loop should adopt batch when CP-56 ships. **OI-0150 hold condition shifted:** previously "ship after OI-0149 field-tests clean for one day," now "ship after OI-0151 field-tests clean for one day," because OI-0149 alone is not field-test-clean. OI-0150's body and Resolution-area metadata both updated in this session. **Architectural framing — root-cause vs workaround:** the rAF-debounce on the dashboard would be a per-consumer band-aid; OI-0151 fixes the producer/consumer mismatch at the producer level once, for all current and future bulk-operation producers. Same family as OI-0050 / OI-0103 / OI-0106 / OI-0117 / OI-0133 / OI-0139 — "two things that should be one." `notify` was implicitly trying to mean both "single mutation" and "any change in this batch"; OI-0151 collapses those into one mechanism that handles both correctly. **PLUGIN IMPROVEMENT candidate inline:** "When designing a notification primitive, the producer/consumer cardinality matters. One-mutation/one-update is the trivial case; many-mutation/one-update needs batching at the producer; one-mutation/many-updates needs deduping at the dispatcher. Either gap surfaces as a rerender storm under bulk operations." Worth a row in IMPROVEMENTS.md when OI-0151 lands. **No code change this session — OPEN_ITEMS.md edits only; thin pointer at `github/issues/OI-0151_*.md` to be filed when Claude Code picks this up.** Related: OI-0149 (parent — closed 2026-05-01, currently a P0 regression in production until OI-0151 ships; OI-0151 augments the store layer paint-first sits on top of), OI-0141 (grandparent — closed 2026-05-01, OI-0151 protects its visibilitychange-triggered freshness invariant by absorbing the rerender storm a fresh pull on a populated op can trigger), OI-0150 (open — hold condition shifted in this session), CP-56 (designed, not shipped — forward-link to wrap restore loop in batch). |
 | 2026-05-03 | OI-0150 filed — Dev Mode hardening sweep (audit render-yielding + dev/logs anti-patterns + close the `logger` → `app_logs` pipe); held behind OI-0149 ship | Same diagnostic session as OI-0149 surfaced three latent issues that did not cause Tim's hangs but will bite as Phase-3 field-testing volumes grow. Track A — `src/features/dev-mode/audit.js` builds the entire DOM in one synchronous pass with `O(n²)` `.find()`-inside-`.filter()` patterns and an unbounded DMI-8 daily-breakdown table; Phase 1 yields between top-level sections + caps the breakdown to most-recent 30 days behind a "show all" disclosure + yields between paddock-window blocks. Track B — `src/features/dev-mode/logs.js` has no debounce on its search input (full re-render per keystroke), each row's `<pre>JSON.stringify(...)</pre>` is built upfront whether `<details>` is open or not, and `FETCH_LIMIT = 1000` is fixed; Phase 1 debounces at 250ms + lazy-renders the `<pre>` on first `toggle` + lowers default fetch to 200 with a "Load more" cursor. Track C — `app_logs` Supabase table exists with INSERT policy, the entity is registered, the dev/logs viewer reads from it, and **nothing in the v2 codebase ever inserts**. `logger.error/warn/info` writes to `console.*` and a 200-entry localStorage rolling buffer (`_log_buffer`); the buffer is read in exactly one place (the v1-import "copy error log" clipboard button). The dev/logs viewer was built expecting the pipe to exist on the write side; the pipe does not exist. Tim's user has 1 row in `app_logs` of unknown origin — to be traced as part of Track C close-out. Phase 1 design: new helper `src/data/log-flush.js` batch-inserts buffer entries into `app_logs` with `user_id` / `operation_id` / `session_id` / `app_version` decoration, triggered on `visibilitychange` to hidden + `pagehide` (with `navigator.sendBeacon` when small) + opportunistic piggyback on `pullAllRemote()` completion. Boot-time UUID `gtho_session_id` in `sessionStorage` so all entries from one session group together. **Hold condition:** OI-0150 does not start implementation until OI-0149 has shipped and Tim has run at least one full day of normal app use without a hang — OI-0149 is load-bearing, OI-0150 is polish on top. **Doctrine:** all three tracks are "we built a feature that assumes a quieter layer than reality" — same family as OI-0149's paint-before-pull and OI-0141's honest-sync-indicator. Track C in particular structurally parallels OI-0050: "viewer reads, no writer" is the cousin of "writer writes, no column." **Schema change:** NONE (table + entity already exist; track C adds writes to existing columns). **CP-55/CP-56 impact:** NONE (`app_logs` already excluded from `BACKUP_TABLES`). **PLUGIN IMPROVEMENT candidates flagged inline:** (1) "when building a viewer over a Supabase table, ship the writer in the same OI" — IMPROVEMENTS.md row when OI-0150 lands; (2) default-debounce keystroke-to-render handlers in dev-mode surfaces — possibly a Cowork plugin lint rule. **No code change this session — OPEN_ITEMS.md edits only; thin pointer spec at `github/issues/OI-0150_*.md` to be filed when Claude Code picks this up.** Related: OI-0149 (this session — load-bearing parent), OI-0141 (closed — grandparent, established honest-sync-indicator doctrine that OI-0150-C extends to honest-log-surface), OI-0145 / OI-0138 (open — audit page restructure that OI-0150-A's yielding sits on top of without changing structure), OI-0050 (closed — same viewer-reads-no-writer blind-spot family as OI-0150-C). |
 | 2026-05-03 | OI-0149 filed — cold-boot `pullAllRemote()` blocks paint + visibilitychange handler stacks concurrent pulls; repair pass on the OI-0141 freshness fix | Diagnostic session triggered by Tim leaving the dev/audit page open overnight on his desktop and returning to a non-responsive Chrome tab. Killing the tab and reloading the home page from the GitHub Pages link itself "hung for a looooooong time" before painting; a third hang followed on `#/dev/logs` despite the table holding only one row for Tim's user (confirmed via Tim's manual count). Cowork ruled out the audit page and dev/logs renders as the cause of the home/logs hangs (audit page is inert when not on it; dev/logs has a single row to render). Traced the lockup to the boot/sync layer that runs *under* the routing layer: `showApp()` in `src/main.js` `await`s `flush()` + `pullAllRemote()` *before* registering routes / painting the header — ~50 sequential network round-trips on every cold boot — and the `visibilitychange` listener added by OI-0141 (commit `4f9bfa4`, 2026-05-01) re-runs the same chain on every tab-foreground gesture with no re-entry guard, so sleep/wake / alt-tab can stack pulls behind an in-flight one. **Diagnosis confirmed via `git log` — sub-agent report:** the visibilitychange listener landed in OI-0141; pre-OI-0141 the only triggers were boot + `window.online`. Dev Mode (OI-0138) explicitly ruled out — its four routes are lazy and add nothing to the boot chain. **Tim's framing question — "did this just start happening because of something in the last releases?"** — answered: yes, the hang surfaces because OI-0141 closed the silent-staleness gap, making the always-existed boot-pull cost newly routine. **Fix doctrine locked:** OI-0149 layers the missing guards on top of OI-0141, **not** a revert. OI-0141's freshness invariant stays; OI-0141's visibilitychange listener stays. **Phase 1 DESIGN LOCKED in this session, ready for Claude Code:** (1) restructure `showApp()` so route registration + header render + `initRouter(content)` happen *before* the pull starts, with `flush() + pullAllRemote()` running fire-and-forget after; (2) module-scoped `inFlight` promise in `src/data/pull-remote.js` so concurrent callers await the same pull; (3) no behavior change at the visibilitychange/online layer — dedupe sits at the `pullAllRemote()` layer transparently. **Phase 2 deferred** — switch `pullAll(table)` to incremental `pull(table, since)` keyed off the existing `getLastPulledAt()`. Bigger change with cold-boot fallback + schema-version-bump-resets-pull stories; opens as separate OI when Phase 1 ships and field-tests clean. **Acceptance criteria** include a unit test asserting two concurrent `pullAllRemote()` calls fire only one wave of `adapter.pullAll(...)` requests, an integration test asserting paint-before-pull ordering, and a manual repro (Slow 3G + leave-and-return-to-tab) that doesn't freeze. **Grep contracts (lock at close-out):** `await pullAllRemote()` and `await syncAdapter.flush()` must each return 0 matches in `src/main.js` post-Phase-1; `inFlight` must show ≥ 2 occurrences in `src/data/pull-remote.js` (declaration + reset). **Three latent follow-on issues flagged but explicitly out of scope:** (a) audit page synchronous render scales with operation data and has no yielding (DMI-8 daily breakdown grows by a row per day on long-running events); (b) dev/logs viewer has no debounce on search input, full re-render per filter keystroke, `JSON.stringify` per row regardless of `<details>` state, fixed `FETCH_LIMIT = 1000` with no virtual scroll; (c) `app_logs` table has the entity but no client write path — viewer reads from a table the v2 client never populates (Tim's user has 1 row from an unknown source). All three are filed-but-deferred candidates for a follow-on OI (working title: "render-yielding in heavy dev-mode screens" + "logger-buffer flush to app_logs"). **Schema change:** NONE. **CP-55/CP-56 impact:** NONE. **PLUGIN IMPROVEMENT candidate inline:** "fixing a sync freshness bug almost always has a perceived-performance cost — pair every new pull-trigger with a paint-first / dedupe / incremental-since pattern, or budget the freeze as part of the trigger's design." Worth a row in IMPROVEMENTS.md next sweep. **No code change this session — OPEN_ITEMS.md edit only; thin pointer at `github/issues/OI-0149_*.md` to be filed when Claude Code picks this up.** Related: OI-0141 (parent — closed 2026-05-01, OI-0149 repairs the side-effect without reverting), OI-0050 (closed — same diagnostic blind-spot family), OI-0145 / OI-0138 (open — audit page render anti-patterns are separate latent issue), OI-0103 / OI-0106 (closed — same "fix one bug, surface a cousin" pattern). |

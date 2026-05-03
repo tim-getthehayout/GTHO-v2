@@ -106,8 +106,11 @@ export function renderHeader(container) {
       // sync indicator. Reuses renderDevModeBadge() so the styling never drifts
       // from the Dev Mode page header. 32×32 hit-area button wraps the chip
       // (chip itself is small; the button gives the tap target).
-      el('div', { className: 'header-right' }, [
-        renderDevModeChipDoorway(),
+      // OI-0153: parent carries a stable anchor testid so updateDevChip() can
+      // insert the chip when one wasn't there before (i.e. is_dev flipped from
+      // false → true while the header was already mounted).
+      el('div', { className: 'header-right', 'data-testid': 'header-dev-chip-anchor' }, [
+        renderDevChip(),
         renderSyncIndicator(),
         el('span', { className: 'header-build-stamp', 'data-testid': 'header-build-stamp' }, [buildVersion]),
         renderFieldModePill(),
@@ -148,12 +151,13 @@ export function renderHeader(container) {
 
   // Update badge on todo changes
   unsubs.push(subscribe('todos', () => updateBadges()));
-  // OI-0146: header re-renders when `is_dev` flips via member-management UI.
-  // The doorway chip's visibility tracks the operation_members row.
-  unsubs.push(subscribe('operationMembers', () => {
-    clear(container);
-    renderHeader(container);
-  }));
+  // OI-0153: stable update-only callback. Replaces the prior
+  // `clear(container); renderHeader(container)` pattern that wiped the
+  // <main> content area built by initRouter() (because container = app),
+  // leaving every route blank after the boot pull's notify settled.
+  // updateDevChip mutates only the chip in place; the rest of the header,
+  // including the live <main> sibling under app, stays untouched.
+  unsubs.push(subscribe('operationMembers', () => updateDevChip(container)));
 
   // Update field mode pill on route changes
   const pillContainer = header.querySelector('[data-testid="header-field-mode-toggle"]')?.parentElement;
@@ -312,14 +316,18 @@ async function triggerManualPull(container) {
 }
 
 /**
- * OI-0146 Doorway B — header [DEV] chip. Returns null for non-dev members so
- * `header-right`'s `.filter(Boolean)` cleanly drops it. Reuses
+ * OI-0146 Doorway B — header [DEV] chip element. Returns null for non-dev
+ * members so `header-right`'s `.filter(Boolean)` cleanly drops it. Reuses
  * `renderDevModeBadge()` from `src/features/dev-mode/index.js` for the visual
- * — single source of truth for the amber chip styling. Wraps in a button with
- * adequate padding so the tap target is at least 32×32 px even though the
- * visual chip is smaller.
+ * — single source of truth for the amber chip styling. Wraps in a button
+ * with adequate padding so the tap target is at least 32×32 px even though
+ * the visual chip is smaller.
+ *
+ * OI-0153: extracted to a standalone helper so `updateDevChip()` can build
+ * a fresh chip element on each `operationMembers` notify and swap it in
+ * place — no full header rebuild required.
  */
-function renderDevModeChipDoorway() {
+function renderDevChip() {
   const opId = getOperation()?.id;
   if (!isCurrentUserDev(opId)) return null;
   const chip = renderDevModeBadge();
@@ -343,6 +351,34 @@ function renderDevModeChipDoorway() {
     },
     onClick: () => navigate('#/dev'),
   }, [chip]);
+}
+
+/**
+ * OI-0153: stable update-only callback for the `operationMembers` subscription.
+ * Mutates only the [DEV] chip in place — chip → chip, chip → null, null →
+ * chip — leaving the rest of the header (and the <main> sibling under
+ * `container`) untouched. Replaces the prior recursive
+ * `clear(container); renderHeader(container)` pattern that wiped <main> and
+ * left every route's content blank after the boot pull's notify settled.
+ *
+ * @param {HTMLElement} container - the same container passed to renderHeader
+ *   (typically `#app`). The chip lives inside the header-right cluster
+ *   anchored at `[data-testid="header-dev-chip-anchor"]`.
+ */
+function updateDevChip(container) {
+  const existing = container.querySelector('[data-testid="header-dev-mode-chip"]');
+  const next = renderDevChip();
+  if (existing && next) {
+    existing.replaceWith(next);
+  } else if (existing && !next) {
+    existing.remove();
+  } else if (!existing && next) {
+    const anchor = container.querySelector('[data-testid="header-dev-chip-anchor"]');
+    // Insert at the start of the cluster so the chip stays leftmost
+    // (left of the sync indicator), matching the build-path order.
+    if (anchor) anchor.insertBefore(next, anchor.firstChild);
+  }
+  // null + null → no-op; non-dev member, chip never existed.
 }
 
 function renderSyncIndicator() {

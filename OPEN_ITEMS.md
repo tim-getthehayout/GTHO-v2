@@ -4,93 +4,6 @@
 
 ---
 
-### OI-0153 — `renderHeader` `operationMembers` subscriber re-renders the entire header recursively (destructive even on single-pass execution); refactor to a stable update-the-chip callback
-**Added:** 2026-05-03 | **Area:** v2-build / ui / header / dev-mode | **Priority:** **P0 — load-bearing consumer fix.** OI-0152 stopped the *loop*; the *single-pass destruction* still happens on every `operationMembers` notify. Pages paint, the pull settles a few seconds later, `clear(container); renderHeader(container);` fires once and wipes the `<main>` content area along with everything else under `app`. Menus (in the rebuilt chrome) stay clickable, but new routes render into the detached `<main>` element so all content goes blank. Filed 2026-05-03 morning as P2 (defense-in-depth); promoted to P0 same day after smoke-test against OI-0152 confirmed the consumer-side destruction is independent of the producer-side loop. **Hold lifted.**
-
-**Status:** open — Phase 1 DESIGN LOCKED, ready for Claude Code handoff immediately. Surfaced 2026-05-03 alongside OI-0152 when the Sources-tab pause-and-stack-trace caught the page in `ad.forEach(e => e())` — the minified `unsubs.forEach(fn => fn())` line at the top of `renderHeader`. The recursive-resubscribe pattern at `src/ui/header.js:153-156` was the trigger of the OI-0152 latent loop *and* the single-pass shell-destruction documented in the framing miss below.
-
-**Framing miss (acknowledged):** When OI-0153 was filed earlier today it was scoped as "consumer-side defense-in-depth, OI-0152 already neutralizes the bug." That framing was wrong. OI-0152 closed the live-Set-iteration loop at the producer layer — a callback that ran *infinitely*. But the same callback running *once* still does `clear(app); renderHeader(app)` where `container = app`, which wipes the `<main>` content area built by `initRouter(content)`. The dashboard (and every other route screen) lives inside `<main>`; clearing `<main>`'s parent removes it from the document. New routes still render via `handleRoute`, but the route handler renders into the now-detached `<main>` element, so visible content stays blank. Menus appear to work because they live in the chrome that `renderHeader` rebuilds. OI-0153 is the load-bearing fix, not the polish. Hold lifted on smoke-test confirmation 2026-05-03.
-
-**Reproducer (live, 2026-05-03 post-OI-0152):** Tim hard-loaded the app after OI-0152 deployed (`de05feb`). Dashboard paints, pages are responsive, `Object.keys(localStorage).length` returns immediately in console. A few seconds in (after the background pull settles), the dashboard goes blank — only the chrome remains. Clicking any menu navigates without freezing but the destination screen also stays blank. Identical pattern across all routes. Cause: end-of-batch `drainNotifications` fires the `operationMembers` subscriber once, which runs `clear(app); renderHeader(app);` — destructive even after OI-0152's snapshot prevented the infinite iteration.
-
-**Root cause analysis — at the consumer layer:**
-
-`src/ui/header.js:153-156`:
-
-```js
-unsubs.push(subscribe('operationMembers', () => {
-  clear(container);
-  renderHeader(container);
-}));
-```
-
-This is two latent footguns stacked:
-
-1. **Subscribing a callback that calls the function that owns the subscription** is a recursive-resubscribe pattern — every notify removes the old subscription and registers a new one with different identity. The OI-0152 producer-layer fix protects against the *consequences* (live-Set iteration), but the consumer pattern is still strange and easy to misread.
-2. **The `is_dev` flip only needs to repaint the dev-mode chip**, not rebuild the entire header DOM. Per OI-0146's spec, the `[DEV]` chip's visibility tracks the `operation_members.is_dev` row for the current user. Repainting the whole header (sidebar, logo, farm picker, sync indicator, mobile nav) every time *any* `operation_members` row changes is overkill and resets transient header state (open farm picker, focused field-mode toggle) as a side-effect.
-
-**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code after OI-0152 ships):**
-
-1. **Extract a small `renderDevChip()` helper** in `src/ui/header.js` that returns the chip element (or null when the user is not dev). Called once during `renderHeader`'s normal build, and once on each `operationMembers` notify. Idempotent — replaces the existing chip in the DOM rather than rebuilding around it.
-
-2. **Replace the recursive subscription** with a stable one that calls `renderDevChip()` and swaps the existing chip. Sketch:
-
-   ```js
-   function updateDevChip() {
-     const existingChip = container.querySelector('[data-testid="header-dev-chip"]');
-     const newChip = renderDevChip();   // null if user is not dev
-     if (existingChip && newChip) {
-       existingChip.replaceWith(newChip);
-     } else if (existingChip && !newChip) {
-       existingChip.remove();
-     } else if (!existingChip && newChip) {
-       const anchor = container.querySelector('[data-testid="header-dev-chip-anchor"]');
-       anchor?.appendChild(newChip);
-     }
-   }
-
-   unsubs.push(subscribe('operationMembers', updateDevChip));
-   ```
-
-   The callback identity is now stable — `updateDevChip` is the same function reference across all `renderHeader` calls. The unsubscribe-and-resubscribe still happens (because `renderHeader`'s top-line cleanup runs each call), but the *behavior* of the callback is consistent and self-contained: it doesn't tear down the entire header.
-
-3. **The `todos` subscription stays** — `subscribe('todos', () => updateBadges())` is already a stable update-only callback. No change needed.
-
-**Acceptance criteria — Phase 1:**
-
-- [ ] `renderHeader`'s `operationMembers` subscription no longer calls `renderHeader` recursively. Grep contract: `grep -nE "subscribe\('operationMembers'" src/ui/header.js` returns one match, and the callback body does not contain `renderHeader(`.
-- [ ] Toggling `is_dev` on a member from `member-management` updates the `[DEV]` chip in the header within one drain cycle, without rebuilding the rest of the header.
-- [ ] Transient header state (an open farm-picker overlay, a focused field-mode toggle) is preserved across `operationMembers` notifies.
-- [ ] All existing 1409+ unit tests pass; one new test in `tests/unit/ui/header.test.js` (or extending an existing file) asserts that the chip toggles without `renderHeader` being re-invoked.
-
-**Files to edit (Phase 1):**
-
-- `src/ui/header.js` — add `renderDevChip()` and `updateDevChip()` helpers; rewrite the `operationMembers` subscription body; add a `data-testid="header-dev-chip-anchor"` element on the chip's parent so `updateDevChip` knows where to insert when the chip wasn't there before.
-- `tests/unit/ui/header.test.js` (new or extend) — the toggle behavior test.
-
-**Schema change:** NONE.
-
-**CP-55/CP-56 impact:** NONE — pure UI refactor in the header.
-
-**Architectural notes:**
-
-- **Why this still matters after OI-0152.** OI-0152 closes the live-Set-iteration loop at the store layer, so this consumer pattern is no longer load-bearing for the app's stability. But the pattern is still a smell: future consumers that copy it will re-introduce the recursive-resubscribe behavior and (without OI-0152's snapshot guard) the same loop. Better to fix the consumer too so the only example in the codebase of this pattern is gone.
-- **Same family as OI-0117 / OI-0133 / OI-0139:** "two things doing one job, drifting." The header was simultaneously responsible for "rebuild on member changes" (line 153-156) and "rebuild on initial mount" (the rest of `renderHeader`). Collapse into "build on initial mount, update affected DOM on changes."
-- **PLUGIN IMPROVEMENT candidate:** "Subscribe-to-yourself patterns (callback re-invokes the function that registered the subscription) are a footgun even with snapshot-protected drains. Default to stable, narrow callbacks that update affected DOM in place." Worth a row in IMPROVEMENTS.md when this lands.
-
-**Spec file:** Body of this OI is the Phase 1 spec. Thin pointer at `github/issues/OI-0153_header-dev-chip-stable-callback.md` to be filed when Claude Code picks this up.
-
-**Hold condition:** **Do not start OI-0153 until OI-0152 has shipped and Tim has run at least one full day of normal app use without a hang.** OI-0152 is load-bearing; OI-0153 is the consumer-side cleanup on top.
-
-**Related:**
-
-- **OI-0152** (open, this session) — direct parent. Producer-layer snapshot fix that closes the live-Set-iteration loop OI-0153 was the trigger of.
-- **OI-0151** (closed, this session) — grandparent. The microtask-coalesced notify whose drainNotifications surfaced this latent bug.
-- **OI-0146** (closed) — the OI that introduced the `[DEV]` chip and its `operationMembers`-tracking semantics. OI-0153 stays faithful to OI-0146's design intent (chip tracks `is_dev`); only the implementation pattern changes.
-- **OI-0149** (closed) — paint-first regression that put `renderHeader`'s subscription in front of the pull's notify, exposing the latent loop pre-OI-0152.
-
----
-
 ### OI-0150 — Dev Mode hardening sweep — render-yielding in heavy dev-mode screens (audit page + dev/logs viewer) + close the `logger` → `app_logs` pipe so client errors actually land in the table the viewer reads
 **Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0152 ships and field-tests clean** (hold condition shifted OI-0149 → OI-0151 → OI-0152 on 2026-05-03 across the same diagnostic session; OI-0151 alone is not field-test-clean because the live-Set iteration in drainNotifications hit a recursive-resubscribe consumer in `renderHeader` and locked the tab; OI-0152 is the snapshot-before-iterate fix that closes the loop).
 
@@ -5249,6 +5162,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0153 — `renderHeader` `operationMembers` subscriber re-renders the entire header recursively (destructive even on single-pass execution); refactor to a stable update-the-chip callback (Phase 1)
+**Added:** 2026-05-03 | **Closed:** 2026-05-03 | **Area:** v2-build / ui / header / dev-mode
+**Resolution:** Phase 1 shipped per locked design — consumer-side cleanup that completes OI-0152's producer-layer fix. **Reproducer post-OI-0152:** Tim cold-loaded the deployed `de05feb` build. Dashboard painted, console responsive, hangs gone — but a few seconds in (after the boot pull settled) the dashboard went blank with only the chrome remaining; clicking any menu navigated without freezing but the destination screen also stayed blank across all routes. Cause: end-of-batch `drainNotifications` fired the `operationMembers` subscriber once, which ran `clear(app); renderHeader(app);` — destructive even with OI-0152's snapshot preventing the infinite iteration. The wipe removed the `<main>` content area built by `initRouter(content)`; subsequent `handleRoute` calls rendered into the now-detached `<main>` element, so visible content stayed blank. **What shipped:** (1) `src/ui/header.js` — extracted `renderDevChip()` helper returning the chip `<button>` (or `null` for non-dev members), and added a sibling `updateDevChip(container)` helper handling all four state transitions: chip → chip (`replaceWith`), chip → null (`remove`), null → chip (`insertBefore` at the anchor's first child so the chip stays leftmost), null → null (no-op). The chip's parent (`header-right` cluster) gained a `data-testid="header-dev-chip-anchor"` attribute so `updateDevChip` knows where to insert when the chip wasn't there before. The recursive subscription `subscribe('operationMembers', () => { clear(container); renderHeader(container); })` was replaced with `subscribe('operationMembers', () => updateDevChip(container))` — stable callback identity, narrow scope (mutates only the chip), idempotent. The `todos` subscription (`subscribe('todos', () => updateBadges())`) stays unchanged — it was already a stable update-only callback. **Renamed `renderDevModeChipDoorway()` → `renderDevChip()`** to reflect the new composable role; the existing `data-testid="header-dev-mode-chip"` stays so OI-0146 doorway tests in `tests/unit/dev-mode/dev-mode-doorways.test.js` continue to pass without modification. (2) `tests/unit/ui/header.test.js` — new file with three cases: (a) toggling `is_dev` via `mergeRemote` mutates only the chip; sidebar / header / bottom-nav / chip-anchor identities stay stable across the notify; the simulated `<main>` sibling under `app` is preserved (with text content intact) — the load-bearing assertion that proves the bug is fixed; (b) `false → true` insertion lands the chip inside `header-dev-chip-anchor` and as the leftmost child; (c) initial dev-true render carries the chip-anchor testid on the parent. **Tests:** suite total 1411 → 1414 (+3), all green. OI-0146 doorway tests still pass unchanged. OI-0151 / OI-0152 / OI-0149 invariant tests all still green. Hook test suite 7/7. **Both grep contracts hold:** `subscribe\('operationMembers'` in `src/ui/header.js` → 1 match; `subscribe\('operationMembers'.*renderHeader` in `src/ui/header.js` → 0 matches (the recursive callback body is the bug — its absence is the load-bearing post-condition). **`npm run lint`** 0 errors. **`npm run build`** clean. **Manual UI smoke test on Tim's populated op:** unverified by Claude Code (no real-browser-with-Tim's-data observation possible from this environment); the unit test proves the contract end-to-end (`<main>` survives the notify, sidebar identity stable, chip toggles correctly), but the dashboard-stays-visible-and-routes-render confirmation on real data is what closes the field-test loop and that requires Tim. **Same family as OI-0117 / OI-0133 / OI-0139 / OI-0151 / OI-0152:** "two things doing one job, drifting." The header was simultaneously responsible for "rebuild on member changes" (the recursive callback) and "rebuild on initial mount" (the rest of `renderHeader`); collapsed to "build on initial mount, update affected DOM on changes." **GitHub issue:** GH-48 filed and closed; spec at `github/issues/GH-48_OI-0153_header-dev-chip-stable-callback.md`. **Schema change:** none. **CP-55/CP-56 impact:** none — pure UI refactor.
+
+---
 
 ### OI-0152 — `drainNotifications` iterates the live subscribers Set; recursive-resubscribe causes infinite loop — snapshot-before-iterate (Phase 1 hotfix)
 **Added:** 2026-05-03 | **Closed:** 2026-05-03 | **Area:** v2-build / store / sync / hotfix

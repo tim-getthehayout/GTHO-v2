@@ -4,6 +4,137 @@
 
 ---
 
+### OI-0149 — Cold-boot `pullAllRemote()` blocks paint; `visibilitychange` handler stacks concurrent pulls — repair pass on the OI-0141 freshness fix
+**Added:** 2026-05-03 | **Area:** v2-build / sync / boot path / multi-device | **Priority:** P1 (every cold load and every tab-foreground gesture is exposed; locks Chrome long enough to trigger the "Page unresponsive" banner; observed three times in a single session 2026-05-03 — overnight on `#/dev/audit`, post tab-kill on `#/`, and on navigation to `#/dev/logs` with only one row of data)
+
+**Status:** open — Phase 1 DESIGN LOCKED, ready for Claude Code handoff. Surfaced 2026-05-03 when Tim left the dev/audit page open overnight on his desktop, came back to a non-responsive Chrome tab, and after killing the tab found that loading the home page from the GitHub Pages link itself "hung for a looooooong time" before painting. A second hang followed on `#/dev/logs` (the `app_logs` table has exactly one row for Tim's user, eliminating the screen's render as the cause). Diagnosis traced the lockup to the boot/sync layer that runs *under* the routing layer regardless of which screen the user is on.
+
+**Reproducer (live, 2026-05-03):** Tim's audit page open overnight → Chrome flagged the tab non-responsive. Killed the tab; opened `https://tim-getthehayout.github.io/GTHO-v2/` fresh → home page hung multiple seconds before painting (Tim: "no errors, just a long hang"). Within the same session, navigated to `#/dev/logs` → tab locked again despite the table holding only one row. Common factor: post-laptop-resume cold-boot of the sync chain.
+
+**Root cause:** OI-0141 (closed 2026-05-01, commit `4f9bfa4`) added a `visibilitychange` listener in `src/main.js` that fires `flush() + pullAllRemote()` whenever the tab returns to visible. The freshness fix was correct in spirit and closed the silent-staleness gap OI-0141 was filed for. But the implementation has three structural gaps that turn every focus event and every cold boot into a multi-second freeze:
+
+1. **Cold-boot pull blocks paint.** `showApp()` in `src/main.js:200-289` runs `await syncAdapter.flush()` then `await pullAllRemote()` *before* registering routes, rendering the header, or calling `initRouter(content)`. With ~50 tables in `SYNC_REGISTRY` and full `select *` per table (`pullAll` in `src/data/custom-sync.js:149-157`, no `since` filter), the boot chain is ~50 sequential network round-trips before the user sees anything. The visibility-listener change didn't introduce this latency, but it made it newly *routine* — every laptop wake/alt-tab now repays the full cost.
+
+2. **No re-entry guard on `pullAllRemote()`.** `flush()` has a `_flushing` guard (`src/data/custom-sync.js:259`); `pullAllRemote()` does not. A laptop sleep/wake bounce, two quick alt-tabs, or a `visibilitychange` firing while the boot pull is still draining all kick off parallel full pulls that compete for the same Supabase connection. Each `await` in the inner loop sits behind whatever the other in-flight pulls are doing.
+
+3. **No incremental `since` filter.** `getLastPulledAt()` already exists in `pull-remote.js:14-19`, but `pullAllRemote()` never reads it — every pull is full-table. Phase 2 territory; called out here so it's traceable.
+
+The hang Tim saw is gaps 1 and 2 compounding: post-resume the visibilitychange handler kicked off a pull on top of whatever boot work was already running, and the audit page's heavy synchronous render (latent issue, not OI-0149's scope — see "Related" below) sat as the visible victim. Once the dust cleared, the page worked.
+
+**OI-0141 verdict:** OI-0141 traded a silent-staleness bug for a noisy-hang bug. The fix is to layer the missing guards on top of OI-0141, **not** to revert it. The freshness invariant OI-0141 established stays.
+
+**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code):**
+
+1. **Paint immediately from localStorage; pull in the background.** Restructure `showApp()` so route registration, header render, and `initRouter(content)` happen *before* the pull starts. `initStore()` already populates state from localStorage on line 202, so the dashboard and every other screen has data to render synchronously. Move `await syncAdapter.flush()` and `await pullAllRemote()` into a fire-and-forget block that runs after `initRouter`. The existing `notify(entityType)` cascade in `mergeRemote()` (`src/data/store.js:472`) re-renders subscribed surfaces as remote rows land — no per-screen change required.
+
+   Sketch (replace lines 200-289 of `src/main.js`):
+   ```js
+   async function showApp(app) {
+     initStore();
+     const syncAdapter = new CustomSync();
+     setSyncAdapter(syncAdapter);
+
+     if (typeof window !== 'undefined') {
+       window.addEventListener('online', () => {
+         syncAdapter.flush().then(() => pullAllRemote());
+       });
+       document.addEventListener('visibilitychange', () => {
+         if (document.visibilityState !== 'visible') return;
+         if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+         syncAdapter.flush().then(() => pullAllRemote());
+       });
+     }
+
+     closePaddockWindowOrphans();
+     migrateUnitSystemFromLocalStorage();
+
+     if (needsOnboarding()) { /* unchanged */ }
+
+     const urlParams = new window.URLSearchParams(window.location.search);
+     if (urlParams.has('field')) setFieldMode(true);
+     else if (getFieldMode()) document.body.classList.add('field-mode');
+
+     renderHeader(app);
+     const content = el('main', { className: 'app-content' });
+     app.appendChild(content);
+
+     // Register routes (unchanged).
+     route('#/', renderDashboard);
+     // ... etc
+
+     initRouter(content);   // paints current route from localStorage immediately
+
+     // Background sync — does not block first paint.
+     if (typeof window !== 'undefined') {
+       syncAdapter.flush().then(() => pullAllRemote());
+     }
+   }
+   ```
+
+   Onboarding still gates on its localStorage check before paint — unchanged. The only behavioral difference: first paint shows the local snapshot, then the screen self-updates as remote rows merge in via `notify()`. For Tim's normal use case (single-device cold load) the snapshot is already current and there's no visible re-render. For multi-device scenarios the screen briefly shows stale data, then snaps to fresh — the same UX OI-0141 already established for visibilitychange events.
+
+2. **Re-entry guard on `pullAllRemote()`.** Add a module-scoped in-flight promise to `src/data/pull-remote.js`. Second caller awaits the same promise rather than firing a parallel pull:
+   ```js
+   let inFlight = null;
+
+   export function pullAllRemote() {
+     if (inFlight) return inFlight;
+     inFlight = _doPull().finally(() => { inFlight = null; });
+     return inFlight;
+   }
+   async function _doPull() { /* existing body */ }
+   ```
+   Mirrors the `_flushing` guard already in `CustomSync.flush()` (line 259). Transparent to all callers.
+
+3. **No behavior change at the visibilitychange / online layer.** Both handlers still call `flush().then(pullAllRemote)`. The dedupe lives at the `pullAllRemote()` layer so OI-0141's freshness gesture continues to feel correct.
+
+**Fix — Phase 2 (DEFERRED, separate OI when Phase 1 ships and field-tested):**
+
+Switch `pullAll(table)` to incremental `pull(table, since)` keyed off `getLastPulledAt()`. Cuts the steady-state pull cost from O(rows) to O(deltas). Bigger change — needs a story for the cold-boot case (no `last_pulled_at` yet → fall back to full pull) and reset-on-schema-bump (so a `schema_version` tick re-triggers a full pull to pick up renamed columns / new tables). Out of OI-0149's scope.
+
+**Acceptance criteria — Phase 1:**
+
+- [ ] `showApp()` calls `initRouter(content)` *before* `pullAllRemote()` starts. Verified by either an integration test that orders the calls, or a unit test that asserts `route('#/', renderDashboard)` is registered before any `adapter.pullAll(...)` call resolves.
+- [ ] First paint of the dashboard happens within ~100ms of `boot()` returning, regardless of how many tables `SYNC_REGISTRY` contains and regardless of network latency. Manual reproduction: open the app on a flaky network (Chrome DevTools "Slow 3G") and confirm the header + dashboard render before the network panel shows any `select *` requests completing.
+- [ ] `pullAllRemote()` called twice in quick succession returns the same promise — only one wave of `adapter.pullAll(...)` requests fires. Unit test asserts `mockAdapter.pullAll` call count after two concurrent `pullAllRemote()` invocations resolves to N (not 2N).
+- [ ] Visibilitychange-triggered pull while a boot pull is in flight does not fire a second wave. Unit test simulates the timing.
+- [ ] Tim's overnight repro is mitigated: leave the audit page open, sleep the laptop, wake it → tab does not freeze. (Audit page render speed is a separate latent issue — see Related — but the boot/visibility layer should not be a contributor.)
+- [ ] No regression on OI-0141's invariants: data from another device still appears within ~1 second of foregrounding; sync indicator still flips `sync-ok` ↔ `sync-stale` correctly.
+
+**Files to edit (Phase 1):**
+
+- `src/main.js` — restructure `showApp()` so paint precedes pull; visibilitychange + online handlers no longer `await` the chain at the call site (the dedupe at `pullAllRemote()` absorbs concurrent firings).
+- `src/data/pull-remote.js` — `inFlight` promise dedupe; export remains `pullAllRemote()` with same signature.
+- `tests/unit/pull-remote.test.js` — new or extend: assert the dedupe (two concurrent calls → one inner wave); assert `inFlight` clears after settle; assert `getLastPulledAt()` is updated even when a second concurrent call short-circuits to the in-flight promise.
+- `tests/unit/main-boot.test.js` — new or extend: assert paint-before-pull ordering; assert `route(...)` calls happen before the first `adapter.pullAll(...)` resolves.
+
+**Grep contracts (lock at design close-out):**
+
+- `grep -nE "let inFlight|inFlight = null" src/data/pull-remote.js` — must return ≥ 2 matches (declaration + reset). The dedupe flag is the load-bearing invariant; if it disappears, gap 2 is back.
+- `grep -nE "await pullAllRemote\(\)" src/main.js` — must return 0 matches. `pullAllRemote()` is fire-and-forget from `main.js` post-Phase-1; any `await` there means the paint-blocking pattern came back. (Other callers — Settings "Force resync", header dot tap from OI-0141 — may legitimately `await`. Restrict the contract to `src/main.js`.)
+- `grep -nE "await syncAdapter\.flush\(\)" src/main.js` — must return 0 matches. Same reasoning.
+
+**Schema change:** NONE.
+
+**CP-55/CP-56 impact:** NONE — pure code reorganization in the boot/sync layer; no state shape change, no schema_version bump, no new tables, no entity field changes, no backup-format change.
+
+**Architectural notes:**
+
+- Same family as OI-0050 (silent gap invisible to UI-only testing) and OI-0117 / OI-0133 / OI-0139 (drift between two representations of the same fact). The `inFlight` dedupe and the paint-before-pull split are the boot-layer parallels of those data-layer fixes — collapse two states (in-flight, also-in-flight) and (paint, pulled) into one (one-pull-at-a-time, paint-from-snapshot) so future bugs become visible.
+- The hang surfaces *because* OI-0141 closed the silent-staleness gap. The boot pull has always been ~50 sequential round-trips; pre-OI-0141 it ran once on cold boot, paid the cost, then hid for the lifetime of the tab. Post-OI-0141 every visibility event repays the cost in front of the user.
+- **PLUGIN IMPROVEMENT candidate (separate from OI body):** "Adding a sync trigger almost always has a perceived-performance cost — pair every new pull-trigger with a paint-first / dedupe / incremental-since pattern, or budget the freeze as part of the trigger's design." Worth flagging in the next IMPROVEMENTS.md sweep.
+
+**Spec file:** Body of this OI is the Phase 1 spec. Thin pointer at `github/issues/OI-0149_cold-boot-pull-blocks-paint.md` to be filed when Claude Code picks this up; Tim's project rule has the canonical spec live in OPEN_ITEMS.md, github/issues/ acts as a pointer.
+
+**Related:**
+
+- **OI-0141** (closed 2026-05-01) — direct parent. OI-0149 repairs the side-effect of OI-0141's visibility-listener without touching its freshness invariant. OI-0149 explicitly does *not* revert OI-0141 — the visibilitychange listener stays, the sync indicator stays.
+- **OI-0050** (closed) — same diagnostic blind-spot family (silent sync gap invisible to UI-only testing). The hang surfaces *because* OI-0141 closed the silent-staleness gap; the underlying boot-pull cost was always there but invisible until OI-0141 made it routine.
+- **OI-0145 / OI-0138** (open) — the audit page's synchronous render scales with operation data and has no yielding (`src/features/dev-mode/audit.js` builds the entire DOM in one pass; DMI-8 daily breakdown grows by a row per day on long-running events). Latent cousin, not OI-0149's scope. Worth a follow-on OI: "render-yielding in heavy dev-mode screens" covering the audit page + dev/logs viewer (no debounce on search input, full re-render per filter keystroke, `JSON.stringify` per row regardless of `<details>` state, fixed `FETCH_LIMIT = 1000` with no virtual scroll).
+- **OI-0103 / OI-0106** (closed) — same family of "fix one bug, surface a cousin" sweep. The audit/logs render anti-patterns will likely need their own follow-on once OI-0149 ships.
+
+---
+
 ### OI-0144 — Calc registry incomplete: register `days-on-pasture`, cost calc(s), and NPK residual so the OI-0138 audit can surface them; principle restated — every formula the app computes must live in the registry
 **Added:** 2026-05-01 | **Area:** v2-build / calcs / registry / dev-tools | **Priority:** P3 (architectural completion; unblocks OI-0138 Phase 5 from showing fewer calc cards than originally intended; does not block field testing or any user-facing flow)
 
@@ -5259,6 +5390,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-05-03 | OI-0149 filed — cold-boot `pullAllRemote()` blocks paint + visibilitychange handler stacks concurrent pulls; repair pass on the OI-0141 freshness fix | Diagnostic session triggered by Tim leaving the dev/audit page open overnight on his desktop and returning to a non-responsive Chrome tab. Killing the tab and reloading the home page from the GitHub Pages link itself "hung for a looooooong time" before painting; a third hang followed on `#/dev/logs` despite the table holding only one row for Tim's user (confirmed via Tim's manual count). Cowork ruled out the audit page and dev/logs renders as the cause of the home/logs hangs (audit page is inert when not on it; dev/logs has a single row to render). Traced the lockup to the boot/sync layer that runs *under* the routing layer: `showApp()` in `src/main.js` `await`s `flush()` + `pullAllRemote()` *before* registering routes / painting the header — ~50 sequential network round-trips on every cold boot — and the `visibilitychange` listener added by OI-0141 (commit `4f9bfa4`, 2026-05-01) re-runs the same chain on every tab-foreground gesture with no re-entry guard, so sleep/wake / alt-tab can stack pulls behind an in-flight one. **Diagnosis confirmed via `git log` — sub-agent report:** the visibilitychange listener landed in OI-0141; pre-OI-0141 the only triggers were boot + `window.online`. Dev Mode (OI-0138) explicitly ruled out — its four routes are lazy and add nothing to the boot chain. **Tim's framing question — "did this just start happening because of something in the last releases?"** — answered: yes, the hang surfaces because OI-0141 closed the silent-staleness gap, making the always-existed boot-pull cost newly routine. **Fix doctrine locked:** OI-0149 layers the missing guards on top of OI-0141, **not** a revert. OI-0141's freshness invariant stays; OI-0141's visibilitychange listener stays. **Phase 1 DESIGN LOCKED in this session, ready for Claude Code:** (1) restructure `showApp()` so route registration + header render + `initRouter(content)` happen *before* the pull starts, with `flush() + pullAllRemote()` running fire-and-forget after; (2) module-scoped `inFlight` promise in `src/data/pull-remote.js` so concurrent callers await the same pull; (3) no behavior change at the visibilitychange/online layer — dedupe sits at the `pullAllRemote()` layer transparently. **Phase 2 deferred** — switch `pullAll(table)` to incremental `pull(table, since)` keyed off the existing `getLastPulledAt()`. Bigger change with cold-boot fallback + schema-version-bump-resets-pull stories; opens as separate OI when Phase 1 ships and field-tests clean. **Acceptance criteria** include a unit test asserting two concurrent `pullAllRemote()` calls fire only one wave of `adapter.pullAll(...)` requests, an integration test asserting paint-before-pull ordering, and a manual repro (Slow 3G + leave-and-return-to-tab) that doesn't freeze. **Grep contracts (lock at close-out):** `await pullAllRemote()` and `await syncAdapter.flush()` must each return 0 matches in `src/main.js` post-Phase-1; `inFlight` must show ≥ 2 occurrences in `src/data/pull-remote.js` (declaration + reset). **Three latent follow-on issues flagged but explicitly out of scope:** (a) audit page synchronous render scales with operation data and has no yielding (DMI-8 daily breakdown grows by a row per day on long-running events); (b) dev/logs viewer has no debounce on search input, full re-render per filter keystroke, `JSON.stringify` per row regardless of `<details>` state, fixed `FETCH_LIMIT = 1000` with no virtual scroll; (c) `app_logs` table has the entity but no client write path — viewer reads from a table the v2 client never populates (Tim's user has 1 row from an unknown source). All three are filed-but-deferred candidates for a follow-on OI (working title: "render-yielding in heavy dev-mode screens" + "logger-buffer flush to app_logs"). **Schema change:** NONE. **CP-55/CP-56 impact:** NONE. **PLUGIN IMPROVEMENT candidate inline:** "fixing a sync freshness bug almost always has a perceived-performance cost — pair every new pull-trigger with a paint-first / dedupe / incremental-since pattern, or budget the freeze as part of the trigger's design." Worth a row in IMPROVEMENTS.md next sweep. **No code change this session — OPEN_ITEMS.md edit only; thin pointer at `github/issues/OI-0149_*.md` to be filed when Claude Code picks this up.** Related: OI-0141 (parent — closed 2026-05-01, OI-0149 repairs the side-effect without reverting), OI-0050 (closed — same diagnostic blind-spot family), OI-0145 / OI-0138 (open — audit page render anti-patterns are separate latent issue), OI-0103 / OI-0106 (closed — same "fix one bug, surface a cousin" pattern). |
 | 2026-05-02 | OI-0148 filed — promote orphan-flip rule from documentation to enforcement via `commit-msg` git hook | Per Tim's request after the second close-out recovery this session: file the hardening OI now rather than waiting for the next reconciliation sweep. **Locked design:** `commit-msg` hook (not `pre-commit` — needs access to message content) at `.githooks/commit-msg`, version-controlled, activated per-clone via `git config core.hooksPath .githooks`. Predicate: commit message contains `OI-[0-9]+` AND `git diff --cached --name-only` does NOT include `OPEN_ITEMS.md` → fail with helpful error citing the CLAUDE.md rule and `--no-verify` escape hatch. Behaviour matrix: pass on (no-OI-ref + anything), pass on (OI-ref + OPEN_ITEMS.md staged), fail on (OI-ref + OPEN_ITEMS.md not staged). Test script at `.githooks/test/commit-msg.test.sh` covers all four cases plus `--no-verify` bypass. CLAUDE.md "Git Workflow" section extended with a one-line setup step. `package.json` adds `test:hooks` so CI catches regressions. **Self-validation:** the commit that introduces the hook is its own first user — references OI-0148, so OPEN_ITEMS.md must be staged in the same commit (which it is, because the hook flips OI-0148 to closed). Circular but correct. **Spec file:** `github/issues/OI-0148_orphan-flip-pre-commit-hook.md`. **Schema change:** NONE. **CP-55/CP-56 impact:** NONE. **Scope intentionally narrow** — one hook, one predicate. Other CLAUDE.md grep contracts (OI-0117, OI-0133, OI-0139, OI-0140, OI-0145 unit literals) could also be promoted; if the documentation-only-contract-failed-in-practice pattern stacks up further, a follow-on OI can bundle the whole grep-contract sweep into a single `pre-commit`. Not bundled here. **No code change this session — OPEN_ITEMS.md edits + 1 new spec file.** Related: OI-0145 / OI-0146 / OI-0147 (the three close-out failures that surfaced the need; all closed earlier today via Cowork manual recovery). |
 | 2026-05-02 | OI-0146 + OI-0147 close-out recovery — same orphan-flip rule failure as OI-0145; rule failed twice in one day, hardening required | Tim shipped OI-0146 + OI-0147 bundled (commits `01d5a12` feature + `e8f9edd` hash stamp; +14 tests; suite 1378 → 1392 green; production build clean; GH-42 + GH-43 filed and closed; specs renamed `GH-42_OI-0146_dev-mode-doorway.md` and `GH-43_OI-0147_audit-empty-state-and-event-detail-button.md`). **Same gap as OI-0145:** Claude Code did NOT include the OPEN_ITEMS.md status flip + entry move in the same commit despite CLAUDE.md §"OPEN_ITEMS.md Closure Discipline" rule 2 explicitly requiring it (*"any commit whose message references an OI ID must include a staged edit to OPEN_ITEMS.md in the same commit"*). Both entries were sitting in Open with `DESIGN LOCKED` status and unflipped acceptance-criteria checkboxes when Cowork checked at session-resume time. **Recovery:** both entries moved Open → Closed with shortened Resolution-style entries; piggyback grep ran (no sibling OIs to retire — all dev-mode-doorway / audit-empty-state hits live inside the OI-0146/OI-0147 bodies themselves). **Meta-finding:** the orphan-flip rule has now failed at code-ship time twice in one day (OI-0145 ship → recovered earlier this session; OI-0146 + OI-0147 ship → recovered now). The rule is provably insufficient as a manual-discipline doc; Claude Code follows project rules exhaustively for design-time work but is dropping the OPEN_ITEMS.md flip on every code-ship commit. **PLUGIN IMPROVEMENT — promote to action:** add a `.git/hooks/pre-commit` (or commit-msg) hook that fails the commit when the message contains `OI-[0-9]+` but `git diff --cached --name-only` does NOT include `OPEN_ITEMS.md`. Same predicate already documented in CLAUDE.md as the post-commit grep contract — promote it from documentation to enforcement. Worth a row in IMPROVEMENTS.md AND a small follow-on OI to actually write the hook (likely 10-line shell script). **No code change this session — OPEN_ITEMS.md edits only.** Schema change: NONE. CP-55/CP-56 impact: NONE. Related: OI-0145 (closed earlier today — same recovery pattern), OI-0138 (parent — audit page MVP whose deferrals these OIs cleaned up). |
 | 2026-05-02 | OI-0145 close-out recovery + audit empty-state diagnosis + OI-0146 / OI-0147 filed | Post-ship reconciliation. Tim shipped OI-0145 (commits `cca2b21` + `c6be198`, 28 new tests, 1378/1378 green) but the close-out edits to `OPEN_ITEMS.md` were missed — OI-0145 was still in the Open section with `DESIGN LOCKED` status and unflipped acceptance-criteria checkboxes. **Recovery:** OI-0145 entry moved from Open → Closed section with shortened Resolution-style entry (commit hashes + what shipped + grep contracts that hold + GH-41 reference); orphan-flip rule satisfied. Tim then asked about a Dev Mode menu entry point — investigation found `#/dev` exists with a renderDevHome shelf listing all three tools (Event Audit, Logs, Schema), but no UI path leads there from the regular app. Filed **OI-0146** with both doorway designs Tim approved: Settings → "Dev tools" link gated by `is_dev`, plus a small `[DEV]` chip in the header gated by `is_dev`. Tim also reported the audit empty state copy ("Pick an event from the dropdown above, or open via the Audit button on an event detail page") references controls that don't exist — investigation confirmed two bugs: (a) `audit.js:82` gates the picker render on `event` being non-null, so the dropdown literally doesn't render in the empty state; (b) grep of `src/features/events` for `audit\|Audit\|#/dev/audit` returns 0 matches — there's no Audit button on event detail pages. Filed **OI-0147** for both fixes (move picker out of `if (event)` block + add gated Audit button to event detail header). **No code change this session — OPEN_ITEMS.md edits + 2 new spec files at `github/issues/OI-0146_dev-mode-doorway.md` and `github/issues/OI-0147_audit-empty-state-and-event-detail-button.md`.** Schema change: NONE. CP-55/CP-56 impact: NONE. **PLUGIN IMPROVEMENT candidate:** orphan-flip rule needs a pre-commit hook (`git log -1 --format=%B \| grep -E 'OI-[0-9]+'` then check `git diff-tree` includes OPEN_ITEMS.md) — the manual rule was followed during design but missed at code-ship time despite being explicit in CLAUDE.md. Worth a row in IMPROVEMENTS.md. Related: OI-0138 (parent — audit page MVP that opened the dev-mode shelf with no doorway), OI-0145 (closed today — audit restructure that exposed the empty-state copy bug). |

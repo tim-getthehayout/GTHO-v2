@@ -18,12 +18,26 @@ export function getLastPulledAt() {
   } catch { return null; }
 }
 
+// OI-0149: re-entry guard. A second caller while a pull is in flight (cold
+// boot still draining + visibilitychange firing on tab foreground, two quick
+// alt-tabs, online + visibilitychange firing back-to-back, etc.) shares the
+// same in-flight promise instead of starting a parallel full-table pull.
+// Mirrors the `_flushing` guard in CustomSync.flush() (custom-sync.js:259).
+let inFlight = null;
+
 /**
  * Pull all tables from Supabase and merge into the local store.
  * Skips tables where the pull fails (logs error, continues).
+ * Concurrent callers share a single in-flight pull (OI-0149).
  * @returns {Promise<{ pulled: number, errors: number }>}
  */
-export async function pullAllRemote() {
+export function pullAllRemote() {
+  if (inFlight) return inFlight;
+  inFlight = _doPullAllRemote().finally(() => { inFlight = null; });
+  return inFlight;
+}
+
+async function _doPullAllRemote() {
   const adapter = getSyncAdapter();
   if (!adapter) return { pulled: 0, errors: 0 };
 

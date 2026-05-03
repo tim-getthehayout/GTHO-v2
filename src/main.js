@@ -195,37 +195,29 @@ async function handleInviteClaim(app, token, user) {
 
 /**
  * Show the authenticated app shell.
+ *
+ * OI-0149 boot order: paint from localStorage first, sync in the background.
+ * `initStore()` populates state synchronously from localStorage so every
+ * screen has data to render; routes + header + `initRouter()` run before
+ * any pull starts. `flush() + pullAllRemote()` runs fire-and-forget after
+ * `initRouter()`; the `mergeRemote() → notify()` cascade re-renders the
+ * subscribed surfaces as remote rows land. Online + visibilitychange
+ * handlers do not `await` at the call site — the `inFlight` dedupe in
+ * `pull-remote.js` absorbs concurrent firings.
+ *
  * @param {HTMLElement} app
  */
-async function showApp(app) {
-  // Init store — load from localStorage
+function showApp(app) {
+  // Init store — load from localStorage (synchronous; everything that follows
+  // can render off this snapshot without waiting on the network).
   initStore();
 
   // Wire sync adapter
   const syncAdapter = new CustomSync();
   setSyncAdapter(syncAdapter);
 
-  // Listen for online/offline to flush queue then pull
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', async () => {
-      await syncAdapter.flush();
-      await pullAllRemote();
-    });
-    document.addEventListener('visibilitychange', async () => {
-      if (document.visibilityState !== 'visible') return;
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-      await syncAdapter.flush();
-      await pullAllRemote();
-    });
-    // Initial sync: flush pending queue, then pull remote data
-    await syncAdapter.flush();
-    await pullAllRemote();
-  }
-
   // OI-0095 Part B: one-time app-side paddock-window orphan cleanup.
   // Guarded by a per-device localStorage flag — runs once, no-op thereafter.
-  // Must run after store init + initial pull so the scan sees current data;
-  // the helper writes through the normal store → sync path.
   closePaddockWindowOrphans();
 
   // Migrate legacy unit system from localStorage to operation (A44)
@@ -285,8 +277,27 @@ async function showApp(app) {
   route('#/dev/logs', requireDev(renderLogsViewer));
   route('#/dev/schema', requireDev(renderSchemaReadout));
 
-  // Init router — renders the current hash route
+  // Init router — renders the current hash route from the localStorage
+  // snapshot synchronously. First paint happens here, before any pull starts.
   initRouter(content);
+
+  // Background sync. Fire-and-forget — first paint already happened. The
+  // `inFlight` dedupe in `pull-remote.js` (OI-0149) makes it safe for the
+  // online + visibilitychange handlers below to call this without coordinating
+  // with the boot pull. The `notify()` cascade in `mergeRemote()` re-renders
+  // subscribed surfaces as remote rows land.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+      syncAdapter.flush().then(() => pullAllRemote());
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      syncAdapter.flush().then(() => pullAllRemote());
+    });
+    // Initial sync — does not block first paint.
+    syncAdapter.flush().then(() => pullAllRemote());
+  }
 }
 
 boot();

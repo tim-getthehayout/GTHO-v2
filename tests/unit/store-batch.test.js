@@ -150,4 +150,57 @@ describe('store batch — OI-0151', () => {
 
     expect(cb).toHaveBeenCalledTimes(1);
   });
+
+  // OI-0152: recursive-resubscribe inside a subscriber must NOT cause an
+  // unbounded iteration. The drain snapshots subscribers as of drain-start;
+  // any new entry registered during a callback is captured by the next drain.
+  // Without the snapshot fix this test would loop forever (or trip Vitest's
+  // 5s default test timeout).
+  it('recursive-resubscribe (renderHeader pattern) fires the callback exactly once per drain', async () => {
+    let invocations = 0;
+    let unsub;
+    const recursiveCb = () => {
+      invocations += 1;
+      // Mimic renderHeader: tear down the prior subscription and register a
+      // fresh one against the same entity type. Pre-OI-0152 the live-Set
+      // iterator in drainNotifications would visit the new entry mid-drain,
+      // re-enter the callback, register another, and never terminate.
+      if (unsub) unsub();
+      unsub = subscribe('operationMembers', recursiveCb);
+    };
+    unsub = subscribe('operationMembers', recursiveCb);
+
+    mergeRemote('operationMembers', [rec('m1')]);
+    await flushMicrotasks();
+
+    expect(invocations).toBe(1);
+
+    // Second drain triggered by a fresh mutation must call the (re-registered)
+    // callback exactly once again. Confirms the resubscription landed in the
+    // subscriber set and is observed by the *next* drain, not the current one.
+    mergeRemote('operationMembers', [rec('m2')]);
+    await flushMicrotasks();
+    expect(invocations).toBe(2);
+  }, 2000);
+
+  // Companion case: a subscriber that registers an *additional* (different)
+  // callback against the same entity type during its drain must not have
+  // that new callback fire in the current drain — it lands in the next one.
+  it('subscribers registered mid-drain are deferred to the next drain', async () => {
+    const second = vi.fn();
+    const first = vi.fn(() => {
+      subscribe('events', second);
+    });
+    subscribe('events', first);
+
+    mergeRemote('events', [rec('e1')]);
+    await flushMicrotasks();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(0);
+
+    mergeRemote('events', [rec('e2')]);
+    await flushMicrotasks();
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
 });

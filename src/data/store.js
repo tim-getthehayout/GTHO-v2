@@ -494,7 +494,16 @@ function drainNotifications(dirtyTypes) {
   for (const e of dirtyTypes) {
     const subs = subscribers[e];
     if (!subs) continue;
-    for (const cb of subs) {
+    // OI-0152: snapshot before iterating. JS Set iteration visits values
+    // added during iteration; a recursive-resubscribe callback (e.g. a
+    // subscriber that calls a parent render which unsubscribes itself and
+    // registers a new sibling subscription) would otherwise loop forever
+    // because every new entry added to `subs` mid-drain is picked up by
+    // the same iterator. Subscribers added during the current drain are
+    // captured by the next drain, not this one — that is the load-bearing
+    // contract: "fire all subscribers as of drain start," nothing more.
+    const snapshot = [...subs];
+    for (const cb of snapshot) {
       if (fired.has(cb)) continue;
       fired.add(cb);
       try {

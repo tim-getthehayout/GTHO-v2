@@ -89,126 +89,6 @@ This is two latent footguns stacked:
 
 ---
 
-### OI-0152 — `drainNotifications` iterates the live subscribers Set; recursive-resubscribe callbacks (`renderHeader` `operationMembers`) cause an infinite loop because new subscribers added during a callback are visited by the same iteration; snapshot-before-iterate
-**Added:** 2026-05-03 | **Area:** v2-build / store / sync / hotfix | **Priority:** **P0 — app currently locked.** Tim's tab loads, dashboard paints, then `pullAllRemote()`'s end-of-batch drain fires the `operationMembers` subscriber from `renderHeader` which recursively re-renders the header and registers a new subscription, the live-Set iterator picks up the new entry and fires it, infinite. Chrome can't process navigation / hard reload requests because the renderer process is fully saturated. Confirmed via Sources-tab pause-and-stack-trace 2026-05-03.
-
-**Status:** open — Phase 1 DESIGN LOCKED, ready for Claude Code handoff. **Hotfix scope** — the smallest change that unlocks the app.
-
-**Reproducer (live, 2026-05-03):** Tim hard-refreshes the app. Dashboard paints from localStorage. Background `pullAllRemote()` runs, batch ends, drainNotifications fires the `operationMembers` subscriber. Subscriber calls `clear(container); renderHeader(container);`. `renderHeader`'s top-line `unsubs.forEach(fn => fn())` deletes the subscriber from `subscribers['operationMembers']`. `renderHeader` then registers a new subscriber (different identity). drainNotifications' for-of loop, still iterating `subscribers['operationMembers']`, sees the newly-added entry, fires it (different identity → not in `fired`), and the cycle repeats forever. Tab is unresponsive — even hard reload doesn't go through because the renderer process never breaks out of JS. Verified by Sources tab pause: page paused inside the minified `renderHeader` (function `od`) at the `ad.forEach(e => e())` cleanup line.
-
-**Root cause:**
-
-JavaScript `Set` iteration is documented to **visit values added during iteration** ([MDN: Set.prototype.forEach / for…of](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set)). OI-0151's `drainNotifications` iterates the live `subscribers[entityType]` Set:
-
-```js
-function drainNotifications(dirtyTypes) {
-  const fired = new Set();
-  for (const e of dirtyTypes) {
-    const subs = subscribers[e];
-    if (!subs) continue;
-    for (const cb of subs) {       // ← iterating the live Set
-      if (fired.has(cb)) continue;
-      fired.add(cb);
-      try { cb(getAll(e)); } catch (err) { /* logger.error */ }
-    }
-  }
-}
-```
-
-If `cb` modifies `subs` during its execution — by unsubscribing itself and registering a new callback — the iterator visits the new entry. With a recursive-resubscribe consumer like `renderHeader`'s `operationMembers` subscription, every iteration produces a new entry for the iterator to visit, and the loop never terminates.
-
-**The latent bug existed pre-OI-0151 too.** Pre-OI-0151's `notify`:
-
-```js
-function notify(entityType) {
-  const subs = subscribers[entityType];
-  if (subs) {
-    for (const cb of subs) {       // ← same live-Set iteration
-      cb(getAll(entityType));
-    }
-  }
-}
-```
-
-Same iteration pattern, same potential to loop. It never triggered in production because pre-OI-0149 boot order pulled data *before* `renderHeader` subscribed — the operationMembers notify fired into an empty subscriber set, no callbacks ran, no loop. OI-0149's paint-first put the subscription in front of the pull's notify, and OI-0151's batch-end drain put the trigger right where the subscriber was waiting. Two correct individual changes that together exposed a third latent bug.
-
-**OI-0151 verdict:** OI-0151 is correct in spirit. The batch / microtask / dedupe-by-identity logic stays. The single-line miss was iterating the live Set instead of a snapshot.
-
-**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code):**
-
-Snapshot the subscribers list before iterating so new entries added during a callback are queued for the *next* drain, not the current one:
-
-```js
-function drainNotifications(dirtyTypes) {
-  const fired = new Set();
-  for (const e of dirtyTypes) {
-    const subs = subscribers[e];
-    if (!subs) continue;
-    // OI-0152: snapshot before iterating. JS Set iteration visits values
-    // added during iteration; recursive-resubscribe callbacks (e.g. a
-    // subscriber that calls a parent render function which re-registers a
-    // sibling subscription) would otherwise cause an unbounded iteration.
-    // New subscribers registered during a drain are picked up by the next
-    // drain, not the current one.
-    const snapshot = [...subs];
-    for (const cb of snapshot) {
-      if (fired.has(cb)) continue;
-      fired.add(cb);
-      try {
-        cb(getAll(e));
-      } catch (err) {
-        logger.error('store', 'subscriber threw during drain', {
-          entityType: e,
-          error: err && err.message ? err.message : String(err),
-        });
-      }
-    }
-  }
-}
-```
-
-That's the entire fix at the producer layer. ~5 lines including the comment.
-
-**Acceptance criteria — Phase 1:**
-
-- [ ] `drainNotifications` snapshots `subs` to an array before the inner for-of. Grep contract: `grep -nE "const snapshot = \[\.\.\.subs\]" src/data/store.js` returns ≥ 1 match.
-- [ ] Boot on Tim's populated op no longer locks the tab. Hard reload works while the app is open. Console accepts JS input within 1 second of paint.
-- [ ] New unit test: a subscriber that re-subscribes itself during its callback (mimicking `renderHeader`'s `operationMembers` pattern) results in the callback firing **exactly once per drain**, not infinitely. Use `tests/unit/store-batch.test.js` (new test case in the existing file from OI-0151).
-- [ ] All existing 1409 unit tests pass without modification.
-- [ ] OI-0151's invariants intact (batch dedup-by-identity, microtask coalescing, error isolation).
-
-**Files to edit (Phase 1):**
-
-- `src/data/store.js` — single change in `drainNotifications`: `const snapshot = [...subs];` then iterate the snapshot.
-- `tests/unit/store-batch.test.js` (extend) — add the recursive-resubscribe test case.
-
-**Grep contracts (lock at design close-out):**
-
-- `grep -nE "const snapshot = \[\.\.\.subs\]" src/data/store.js` — must return ≥ 1 match.
-- `grep -nE "for \(const cb of subs\)" src/data/store.js` — must return **0 matches**. The live-Set iteration is the bug; if it reappears, the regression is back.
-
-**Schema change:** NONE.
-
-**CP-55/CP-56 impact:** NONE.
-
-**Architectural notes:**
-
-- **Why this is the right producer-layer fix.** Snapshot-before-iterate at the producer protects every consumer from accidental recursive-resubscribe, regardless of whether the consumer pattern itself is changed. Same direction as OI-0151's "fix the producer not every consumer." OI-0153 separately cleans up the consumer-side pattern (`renderHeader`'s recursive call) for defense-in-depth.
-- **Why pre-OI-0151 also had this bug.** The original `notify(entityType)` iterated the live Set the same way. The bug was always there, just dormant because the boot order kept the subscriber set empty when notifies fired. Two correct changes (OI-0149 paint-first + OI-0151 batch drain) shifted the timing such that the subscriber set was populated *and* getting drained from the same code path. Snapshot fix would have prevented this in pre-OI-0151 code too.
-- **Same family as OI-0050 / OI-0103 / OI-0106 / OI-0117 / OI-0133 / OI-0139 / OI-0151:** "two things that should be one." The live-Set iteration was implicitly trying to mean both "fire all current subscribers" and "fire all subscribers including new ones registered mid-drain." Snapshot-before-iterate collapses that into "fire all subscribers as of drain start" — one stable contract.
-- **PLUGIN IMPROVEMENT candidate:** "When iterating a mutable collection from inside callbacks the collection's owner controls, default to snapshotting first. JS Set/Map iteration visits-mid-iteration semantics are easy to forget and easy to reproduce as a footgun." Worth a row in IMPROVEMENTS.md when this lands.
-
-**Spec file:** Body of this OI is the Phase 1 spec. Thin pointer at `github/issues/OI-0152_drain-snapshot-before-iterate.md` to be filed when Claude Code picks this up.
-
-**Related:**
-
-- **OI-0151** (closed, this session) — direct parent. OI-0152 amends OI-0151's drainNotifications without changing its contract; OI-0151's batch / microtask / dedupe-by-identity logic stays intact.
-- **OI-0153** (open, this session) — consumer-side cleanup. The recursive-resubscribe pattern in `renderHeader` is the trigger of OI-0152's loop; OI-0153 refactors it. Held until OI-0152 ships.
-- **OI-0149** (closed) — paint-first regression that put `renderHeader`'s subscription in front of the pull's notify, exposing the latent live-Set-iteration bug. OI-0149's design stays correct; this fix completes its load-bearing assumption.
-- **OI-0146** (closed) — introduced the `[DEV]` chip and the `operationMembers`-tracking subscription pattern in `renderHeader`. OI-0152 is the producer-layer fix; OI-0153 cleans up the consumer-side pattern OI-0146 introduced.
-
----
-
 ### OI-0150 — Dev Mode hardening sweep — render-yielding in heavy dev-mode screens (audit page + dev/logs viewer) + close the `logger` → `app_logs` pipe so client errors actually land in the table the viewer reads
 **Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0152 ships and field-tests clean** (hold condition shifted OI-0149 → OI-0151 → OI-0152 on 2026-05-03 across the same diagnostic session; OI-0151 alone is not field-test-clean because the live-Set iteration in drainNotifications hit a recursive-resubscribe consumer in `renderHeader` and locked the tab; OI-0152 is the snapshot-before-iterate fix that closes the loop).
 
@@ -5367,6 +5247,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0152 — `drainNotifications` iterates the live subscribers Set; recursive-resubscribe causes infinite loop — snapshot-before-iterate (Phase 1 hotfix)
+**Added:** 2026-05-03 | **Closed:** 2026-05-03 | **Area:** v2-build / store / sync / hotfix
+**Resolution:** Phase 1 hotfix shipped per locked design — single change at the producer layer. **What shipped:** (1) `src/data/store.js` — `drainNotifications` now snapshots `subs` to a stable array (`const snapshot = [...subs];`) before iterating, so subscribers added during a callback land in the *next* drain, not the current one. The inline comment explains JS Set's "visit values added during iteration" semantics and OI-0152's reasoning (recursive-resubscribe consumers like `renderHeader`'s `operationMembers` subscription would otherwise loop forever). The contract sharpens to "fire all subscribers as of drain start" — one stable invariant, no implicit second contract about mid-drain additions. (2) `tests/unit/store-batch.test.js` — extended with two new cases: a recursive-resubscribe pattern (mimicking `renderHeader`'s `operationMembers` unsub-and-re-register-during-callback) fires the callback exactly once per drain; subscribers registered mid-drain are deferred to the next drain. Without the snapshot fix these tests would loop forever (or trip Vitest's default 5s timeout). **The latent bug existed pre-OI-0151 too** — the original `notify()` iterated the live Set the same way; it never triggered because pre-OI-0149 boot order pulled data *before* `renderHeader` subscribed, so the operationMembers notify always fired into an empty set. OI-0149 paint-first put the subscription in front of the pull, OI-0151 batch-end drain put the trigger right where the subscriber was waiting, and OI-0152 was the third latent bug exposed. **Tests:** suite total 1409 → 1411 (+2). All previously-green tests still green; OI-0151's batch / microtask / dedupe-by-identity / error-isolation cases all pass unchanged; OI-0149 `tests/unit/main-boot.test.js` still green. **OI-0148 commit-msg hook** 7/7. **Both grep contracts hold:** `const snapshot = [...subs]` in `store.js` → 1 match; `for (const cb of subs)` in `store.js` → 0 matches (the live-Set iteration is the bug — its absence is the load-bearing post-condition). Prior OI-0148/OI-0149/OI-0151 grep contracts all still hold. **Production `npm run build` + `npm run lint`** both clean (0 lint errors, 63 pre-existing warnings). **Manual UI smoke test on Tim's populated op:** unverified by Claude Code (no real-browser-with-Tim's-data observation possible from this environment); the recursive-resubscribe unit test proves the loop-termination contract end-to-end, but the dashboard-paints-and-stays-responsive verification on real data is what closes the field-test loop and that requires Tim. **OI-0153 stays held** — consumer-side cleanup of `renderHeader`'s recursive-resubscribe pattern is defense-in-depth, not the load-bearing fix; ship after OI-0152 field-tests clean. **GitHub issue:** GH-47 filed and closed; spec at `github/issues/GH-47_OI-0152_drain-snapshot-before-iterate.md`. **Schema change:** none. **CP-55/CP-56 impact:** none.
+
+---
 
 ### OI-0151 — Store notifications have no batch concept — bulk operations fire one synchronous notify per entity type → dashboard rerender storm (Phase 1)
 **Added:** 2026-05-03 | **Closed:** 2026-05-03 | **Area:** v2-build / store / sync / architecture

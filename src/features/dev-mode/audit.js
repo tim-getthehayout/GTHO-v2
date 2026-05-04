@@ -394,8 +394,16 @@ function calcCardWrapper(name, description, testId) {
   return c;
 }
 
-/** Group window sub-block (rendered inside its overlapping paddock window's block). */
-function renderGroupWindowSubBlock(parent, gw, eventId, dmi2InstancesByGwId, isoToday) {
+/** Group window sub-block (rendered inside its overlapping paddock window's block).
+ *
+ * OI-0158: takes the scope-keyed `groupWindowResultsByGwId` Map built once by
+ * the dispatcher in `renderEventAudit`. Each entry is
+ *   `{ name, calcMeta, instance }`
+ * so the inner generic loop can render every group-window-scoped calc card
+ * (DMI-2, NPK-1, ANI-AU, ANI-AUD, plus any future group-window resolver) in
+ * deterministic alphabetical order without the renderer hardcoding calc names.
+ */
+function renderGroupWindowSubBlock(parent, gw, eventId, groupWindowResultsByGwId, isoToday) {
   const group = getById('groups', gw.groupId);
   const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
   const memberships = getAll('animalGroupMemberships').filter(m =>
@@ -507,20 +515,31 @@ function renderGroupWindowSubBlock(parent, gw, eventId, dmi2InstancesByGwId, iso
   }
   sub.appendChild(memTable);
 
-  // DMI-2 calc card for this gw (if resolver returned an instance for it)
-  const dmi2Inst = dmi2InstancesByGwId.get(gw.id);
-  if (dmi2Inst) {
-    const calc = getAllCalcs().find(c => c.name === 'DMI-2');
-    const card = calcCardWrapper('DMI-2', calc?.description || '', `dev-audit-calc-card-DMI-2-${gw.id}`);
-    card.appendChild(renderCalcInstance(dmi2Inst));
+  // OI-0158: group-window-scoped calc cards. Generic loop replaces the
+  // pre-OI-0158 hardcoded DMI-2 render. DMI-2, NPK-1, ANI-AU, ANI-AUD (and
+  // any future group-window resolver) all surface here in alphabetical order
+  // — same code path, no calc name appears in the renderer.
+  const gwResults = groupWindowResultsByGwId.get(gw.id) || [];
+  gwResults.sort((a, b) => a.name.localeCompare(b.name));
+  for (const { name, calcMeta, instance } of gwResults) {
+    const card = calcCardWrapper(name, calcMeta?.description || '', `dev-audit-calc-card-${name}-${gw.id}`);
+    card.appendChild(renderCalcInstance(instance));
     sub.appendChild(card);
   }
 
   parent.appendChild(sub);
 }
 
-/** Section 4 — per-paddock-window blocks. */
-function renderPaddockWindowBlocks(container, event, dmi2Result, for1Result) {
+/** Section 4 — per-paddock-window blocks.
+ *
+ * OI-0158: receives the two scope-keyed Maps built once by the dispatcher in
+ * `renderEventAudit`. Pre-OI-0158 this took raw `dmi2Result` / `for1Result`
+ * and built local Maps; that path discarded every other group-window /
+ * paddock-window resolver result (NPK-1, NPK-3, REC-1, ANI-AU, ANI-AUD,
+ * ANI-ADA — all 6 cards were silently dropped). The Maps are now generic;
+ * any new resolver in those scopes surfaces automatically.
+ */
+function renderPaddockWindowBlocks(container, event, groupWindowResultsByGwId, paddockWindowResultsByPwId) {
   if (!event) return;
   const card = el('div', { className: 'card', 'data-testid': 'dev-audit-paddock-blocks', style: { padding: 'var(--space-3)', marginTop: 'var(--space-3)' } });
   card.appendChild(el('h2', { style: { fontSize: '14px', margin: '0 0 6px 0' } }, [t('dev.auditPaddockWindows')]));
@@ -544,20 +563,8 @@ function renderPaddockWindowBlocks(container, event, dmi2Result, for1Result) {
   const allBatches = getAll('batches');
   const isoToday = new Date().toISOString().slice(0, 10);
 
-  // Index DMI-2 instances by groupWindowId so the group-window sub-block can pluck it.
-  const dmi2InstancesByGwId = new Map();
-  if (dmi2Result?.applicable && dmi2Result.instances) {
-    for (const inst of dmi2Result.instances) {
-      if (inst.groupWindowId) dmi2InstancesByGwId.set(inst.groupWindowId, inst);
-    }
-  }
-  const for1InstancesByPwId = new Map();
-  if (for1Result?.applicable && for1Result.instances) {
-    for (const inst of for1Result.instances) {
-      if (inst.paddockWindowId) for1InstancesByPwId.set(inst.paddockWindowId, inst);
-    }
-  }
-  const for1Calc = getAllCalcs().find(c => c.name === 'FOR-1');
+  // OI-0158: scope-keyed result Maps come from the dispatcher; no local
+  // construction or per-calc-name lookup needed.
 
   for (const pw of paddockWindows) {
     const loc = getById('locations', pw.locationId);
@@ -634,12 +641,16 @@ function renderPaddockWindowBlocks(container, event, dmi2Result, for1Result) {
     }
     block.appendChild(obsCard);
 
-    // 5. FOR-1 calc card
-    const for1Inst = for1InstancesByPwId.get(pw.id);
-    if (for1Inst) {
-      const card2 = calcCardWrapper('FOR-1', for1Calc?.description || '', `dev-audit-calc-card-FOR-1-${pw.id}`);
-      card2.appendChild(renderCalcInstance(for1Inst));
-      block.appendChild(card2);
+    // 5. OI-0158: paddock-window-scoped calc cards. Generic loop replaces
+    // the pre-OI-0158 hardcoded FOR-1 render. FOR-1, NPK-3, REC-1, ANI-ADA
+    // (and any future paddock-window resolver) all surface here in
+    // alphabetical order via the dispatcher-built Map.
+    const pwResults = paddockWindowResultsByPwId.get(pw.id) || [];
+    pwResults.sort((a, b) => a.name.localeCompare(b.name));
+    for (const { name, calcMeta, instance } of pwResults) {
+      const card = calcCardWrapper(name, calcMeta?.description || '', `dev-audit-calc-card-${name}-${pw.id}`);
+      card.appendChild(renderCalcInstance(instance));
+      block.appendChild(card);
     }
 
     // 6. Group windows overlapping this paddock window
@@ -654,7 +665,7 @@ function renderPaddockWindowBlocks(container, event, dmi2Result, for1Result) {
       const gwHeader = el('div', { style: { fontSize: '11px', fontWeight: '500', marginTop: '8px' } }, [`${t('dev.auditOverlappingGroupWindows')} (${overlapping.length})`]);
       block.appendChild(gwHeader);
       for (const gw of overlapping) {
-        renderGroupWindowSubBlock(block, gw, event.id, dmi2InstancesByGwId, isoToday);
+        renderGroupWindowSubBlock(block, gw, event.id, groupWindowResultsByGwId, isoToday);
       }
     }
 
@@ -1008,24 +1019,44 @@ export function renderEventAudit(container) {
     return;
   }
 
-  // Resolver dispatch — collect all results, then partition by scope.
+  // OI-0158: resolver dispatch is registry-driven across all three scopes.
+  // Pre-OI-0158 the renderer captured DMI-2 / FOR-1 by name and discarded
+  // every other group-window / paddock-window result, leaving 6 OI-0157-B2
+  // resolvers (NPK-1, NPK-3, REC-1, ANI-AU, ANI-AUD, ANI-ADA) computed but
+  // unrendered. The two scope-keyed Maps below let the per-window blocks
+  // surface every resolver in their scope, sorted alphabetically by name,
+  // with no calc name appearing in this dispatcher.
   const ctx = { eventId: event.id };
   const allCalcs = getAllCalcs();
   const eventResolverResults = [];
-  let dmi2Result = null;
-  let for1Result = null;
+  const groupWindowResultsByGwId = new Map();   // gwId → Array<{ name, calcMeta, instance }>
+  const paddockWindowResultsByPwId = new Map(); // pwId → Array<{ name, calcMeta, instance }>
   for (const calc of allCalcs) {
     const result = resolveCalcForCalcCard(calc.name, ctx);
     if (!result) continue;
-    if (result.scope === 'event') eventResolverResults.push(result);
-    if (calc.name === 'DMI-2') dmi2Result = result;
-    if (calc.name === 'FOR-1') for1Result = result;
+    if (result.scope === 'event') {
+      eventResolverResults.push(result);
+    } else if (result.scope === 'group-window' && result.applicable) {
+      for (const inst of result.instances) {
+        if (!inst.groupWindowId) continue;
+        const list = groupWindowResultsByGwId.get(inst.groupWindowId) || [];
+        list.push({ name: result.name, calcMeta: calc, instance: inst });
+        groupWindowResultsByGwId.set(inst.groupWindowId, list);
+      }
+    } else if (result.scope === 'paddock-window' && result.applicable) {
+      for (const inst of result.instances) {
+        if (!inst.paddockWindowId) continue;
+        const list = paddockWindowResultsByPwId.get(inst.paddockWindowId) || [];
+        list.push({ name: result.name, calcMeta: calc, instance: inst });
+        paddockWindowResultsByPwId.set(inst.paddockWindowId, list);
+      }
+    }
   }
 
   // Sections 2–7.
   renderEventHeader(wrapper, event);
   renderTimeline(wrapper, event);
-  renderPaddockWindowBlocks(wrapper, event, dmi2Result, for1Result);
+  renderPaddockWindowBlocks(wrapper, event, groupWindowResultsByGwId, paddockWindowResultsByPwId);
   renderEventLevelFeedRecords(wrapper, event);
   renderEventCalcCards(wrapper, event, eventResolverResults);
   renderDmiBars(wrapper, event);

@@ -4,107 +4,6 @@
 
 ---
 
-### OI-0158 — Audit page renderer is only registry-driven for event scope; the 6 non-event-scoped OI-0157-B2 resolvers (NPK-1 / NPK-3 / REC-1 / ANI-AU / ANI-AUD / ANI-ADA) compute results that are discarded — group-window and paddock-window paths still hardcode DMI-2 / FOR-1 by name
-**Added:** 2026-05-04 | **Area:** v2-build / dev-mode / audit | **Priority:** P2 (OI-0157-B2 ships incomplete — Tim sees 3 event-scoped fertility cards in Section 5 but none of the 6 group-window / paddock-window cards he expected). Not a hold; OI-0157-B2 grep contracts and resolver tests still hold.
-
-**Status:** open — DESIGN LOCKED on the dispatch refactor below. Surfaced 2026-05-04 on field-use of the post-OI-0157 audit page. Tim: *"I do not see any AUD info in the events and no fertility information except in the footer."* Diagnosis confirmed via code read.
-
-**Origin:** OI-0157-B2 spec said *"audit page is registry-driven (per OI-0145 architectural update): once a resolver lands, the card surfaces automatically — no `audit.js` changes needed."* That assumption was wrong: only the event-scope path is registry-driven. The renderer in `src/features/dev-mode/audit.js`:
-
-1. **`audit.js:1014–1023`** — the dispatch loop in `renderEventAudit` collects only event-scoped results into `eventResolverResults`, then captures DMI-2 and FOR-1 *by name* (`if (calc.name === 'DMI-2') dmi2Result = result;`) for hand-off to `renderPaddockWindowBlocks`. The other 6 non-event-scoped resolvers compute results that are never threaded through.
-2. **`audit.js:523`** — `renderPaddockWindowBlocks(container, event, dmi2Result, for1Result)` takes exactly two named-resolver arguments. The paddock-window block hardcodes "render FOR-1 if there's an instance" at line 637. The group-window sub-block (called from inside the paddock loop) hardcodes "render DMI-2 if there's an instance" at line 510.
-
-Result: Tim sees NPK-2 + NPK-4 + CST-3 (3 event-scoped) in Section 5 — that's "the footer" — and **zero of NPK-1 / NPK-3 / REC-1 / ANI-AU / ANI-AUD / ANI-ADA** anywhere on the page. The resolvers run, return correct shapes (each with the right `groupWindowId` or `paddockWindowId`), and their output is discarded by the dispatcher.
-
-This is the same diagnostic-blind-spot family as OI-0050 / OI-0150-C: the writer side (resolvers) shipped without the reader side (renderer) being extended to match. OI-0157-B2's resolver tests pass because they call resolvers directly; the renderer integration was never asserted by a test.
-
-**Files:** `src/features/dev-mode/audit.js` (lines 510–520, 547–642, 1014–1028 — three blocks).
-
-**Locked design (single small refactor):**
-
-1. **Replace the named-result capture with two scope-keyed Maps** in `renderEventAudit`:
-   ```js
-   const groupWindowResultsByGwId = new Map(); // gwId -> Array<{ name, calcMeta, instance }>
-   const paddockWindowResultsByPwId = new Map(); // pwId -> Array<{ name, calcMeta, instance }>
-   const eventResolverResults = [];
-   for (const calc of allCalcs) {
-     const result = resolveCalcForCalcCard(calc.name, ctx);
-     if (!result) continue;
-     if (result.scope === 'event') {
-       eventResolverResults.push(result);
-     } else if (result.scope === 'group-window' && result.applicable) {
-       for (const inst of result.instances) {
-         if (!inst.groupWindowId) continue;
-         const list = groupWindowResultsByGwId.get(inst.groupWindowId) || [];
-         list.push({ name: result.name, calcMeta: calc, instance: inst });
-         groupWindowResultsByGwId.set(inst.groupWindowId, list);
-       }
-     } else if (result.scope === 'paddock-window' && result.applicable) {
-       for (const inst of result.instances) {
-         if (!inst.paddockWindowId) continue;
-         const list = paddockWindowResultsByPwId.get(inst.paddockWindowId) || [];
-         list.push({ name: result.name, calcMeta: calc, instance: inst });
-         paddockWindowResultsByPwId.set(inst.paddockWindowId, list);
-       }
-     }
-   }
-   ```
-
-2. **Change `renderPaddockWindowBlocks` signature** to `(container, event, groupWindowResultsByGwId, paddockWindowResultsByPwId)`. Drop the `dmi2Result` / `for1Result` parameters.
-
-3. **In the per-paddock-window block** (around line 637), replace the FOR-1 hardcoded render with a generic loop:
-   ```js
-   const pwResults = paddockWindowResultsByPwId.get(pw.id) || [];
-   pwResults.sort((a, b) => a.name.localeCompare(b.name));
-   for (const { name, calcMeta, instance } of pwResults) {
-     const card = calcCardWrapper(name, calcMeta?.description || '', `dev-audit-calc-card-${name}-${pw.id}`);
-     card.appendChild(renderCalcInstance(instance));
-     block.appendChild(card);
-   }
-   ```
-   FOR-1 now appears inside this loop just like NPK-3, REC-1, ANI-ADA.
-
-4. **In the group-window sub-block** (around line 510), same pattern with `groupWindowResultsByGwId.get(gw.id)`. DMI-2 now appears inside this loop just like NPK-1, ANI-AU, ANI-AUD.
-
-5. **Inapplicable cards.** Skip them at the dispatcher (the spec above filters with `result.applicable`). Inapplicable resolvers don't carry per-window instances — the only place they should surface is Section 5, where existing logic already handles `result.applicable === false` with the muted-italic reason text.
-
-**Acceptance:**
-- [ ] Audit page on a healthy event with a populated cow-calf herd renders all 9 OI-0157-B2 cards: NPK-2 / NPK-4 / CST-3 in Section 5; NPK-1 / ANI-AU / ANI-AUD inside each group-window sub-block (one card per window per calc); NPK-3 / ANI-ADA inside each open paddock-window block; REC-1 inside each closed paddock-window block.
-- [ ] Card order within each window block is deterministic (alphabetical by calc name).
-- [ ] DMI-2 still renders correctly inside group-window sub-blocks (now via the generic loop, not the hardcoded path).
-- [ ] FOR-1 still renders correctly inside paddock-window blocks (now via the generic loop).
-- [ ] Hybrid mode renders metric + parenthetical imperial for every new card the same way DMI-2 / FOR-1 already do.
-- [ ] Existing `tests/unit/dev-mode/audit-*.test.js` suite still passes.
-- [ ] **New integration test** in `tests/unit/dev-mode/audit-render.test.js`: seed an event with one open paddock window + one open group window, register a stub resolver returning `{ scope: 'group-window', applicable: true, instances: [{ groupWindowId, label, inputs, output }] }`, render the audit, assert a calc card with the stub's name renders inside the matching group-window sub-block. Same test pattern for paddock-window scope. This integration coverage is the gap that let OI-0157-B2 ship as half a feature.
-
-**Grep contract (post-fix):**
-```bash
-grep -nE "if \(calc\.name === 'DMI-2'\)|if \(calc\.name === 'FOR-1'\)" src/features/dev-mode/audit.js
-```
-Returns 0 matches.
-
-```bash
-grep -nE "renderPaddockWindowBlocks\(.+dmi2Result|renderPaddockWindowBlocks\(.+for1Result" src/features/dev-mode/audit.js
-```
-Returns 0 matches.
-
-**Spec file:** `github/issues/OI-0158_audit-renderer-registry-driven.md` — single-file scope, one commit, ~50 LOC change + 1 new integration test file.
-
-**Related OIs:**
-- **OI-0157** (closed 2026-05-04 — B2 shipped a8b2711) — direct parent. OI-0158 closes the half-feature gap. Should NOT have been considered done — the resolver tests passed but no renderer integration test asserted that resolver results actually surfaced as DOM cards.
-- **OI-0145** (open) — audit page restructure. OI-0158 is the actual realization of "registry-driven dispatch across all three scopes" that OI-0145's architectural update intended.
-- **OI-0142** (open, deferred) — calc-registry `explain()` method. The dispatch refactor here is independent of OI-0142.
-- **OI-0150-A** (held) — audit-page render-yielding. OI-0158 adds 6× more cards per window block; OI-0150-A becomes more useful after OI-0158 ships. Not a blocker.
-
-**PLUGIN IMPROVEMENT candidate:** "When a feature has a writer-side and a reader-side, ship a writer→reader integration test in the same OI as the writer. Unit-testing the writer in isolation can leave the reader stale and the feature half-shipped." (Same family as OI-0050's "viewer reads, no writer" but flipped — "writer writes, no viewer integration.") Worth a row in IMPROVEMENTS.md when OI-0158 lands.
-
-**Adjacent cleanup flagged (NOT in OI-0158's scope):** The OI-0157 entry body got orphaned in OPEN_ITEMS.md after OI-0157 was closed — Sub-items A/B/C/D content remains in this file at the top (lines 7+ before this OI was added) without its `### OI-0157 —` header. The header was removed when status flipped to closed, but the body content was left behind. Cowork should sweep this in the next reconciliation session — separate concern, not part of OI-0158.
-
-**Change Log:**
-- 2026-05-04 — Cowork filed OI-0158 after Tim reported "no AUD info, fertility only in the footer" on the post-OI-0157 audit page. Root cause confirmed via reading `src/features/dev-mode/audit.js` lines 1014–1023 (event-scope-only dispatch) and lines 510–520, 547–642 (DMI-2 / FOR-1 hardcoded by name in render path). All 9 OI-0157-B2 resolvers ship correctly and pass their unit tests; the renderer is the gap. Locked design: registry-driven dispatch with two scope-keyed Maps (`groupWindowResultsByGwId`, `paddockWindowResultsByPwId`); generic per-window render loops replace the DMI-2 / FOR-1 named hooks. New integration test required so this class of "half-shipped" can't recur.
-
----
-
 **Sub-item A — Group window header weight unit bypass.**
 
 `src/features/dev-mode/audit.js:365–366` builds the stored/live group-window weight strings as raw template literals with hardcoded ` kg` suffix:
@@ -5461,6 +5360,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0158 — Audit page renderer is registry-driven across all three scopes; surfaces the 6 OI-0157-B2 cards that were previously computed-but-discarded
+**Added:** 2026-05-04 | **Closed:** 2026-05-04 | **Area:** v2-build / dev-mode / audit / renderer
+**Resolution:** ~50 LOC change in `src/features/dev-mode/audit.js`, one new integration test file. **What shipped:** (1) `renderEventAudit` dispatch loop replaced the named-result capture (`let dmi2Result = null; let for1Result = null;` + `if (calc.name === 'DMI-2') ... ; if (calc.name === 'FOR-1') ...`) with two scope-keyed Maps — `groupWindowResultsByGwId: Map<gwId, Array<{name, calcMeta, instance}>>` and `paddockWindowResultsByPwId: Map<pwId, Array<{name, calcMeta, instance}>>`. The dispatcher's loop walks every applicable group-window / paddock-window resolver result and indexes each instance by the appropriate window id. (2) `renderPaddockWindowBlocks(container, event, dmi2Result, for1Result)` → `renderPaddockWindowBlocks(container, event, groupWindowResultsByGwId, paddockWindowResultsByPwId)`. The local `dmi2InstancesByGwId` / `for1InstancesByPwId` Map construction (lines 547–559) and the `for1Calc = getAllCalcs().find(c => c.name === 'FOR-1');` lookup are gone — the dispatcher already provides everything. (3) The hardcoded `FOR-1` render block (was lines 637–642) is replaced by a generic loop `for (const { name, calcMeta, instance } of pwResults)` sorted alphabetically by name. The hardcoded `DMI-2` render block in `renderGroupWindowSubBlock` (was lines 510–517) is replaced with the same generic loop pattern over `gwResults`. `renderGroupWindowSubBlock`'s 4th argument renamed from `dmi2InstancesByGwId` to `groupWindowResultsByGwId`. **Six new cards now surface where:** NPK-1 inside each open group-window sub-block (under each paddock window block); ANI-AU inside each open group-window sub-block; ANI-AUD inside each open group-window sub-block; NPK-3 inside each open paddock-window block; ANI-ADA inside each open paddock-window block; REC-1 inside each closed paddock-window block. Three event-scoped cards from OI-0157-B2 (NPK-2, NPK-4, CST-3) already surfaced in Section 5 — that path was already registry-driven and is unchanged. DMI-2 now renders via the same generic loop as NPK-1 / ANI-AU / ANI-AUD; FOR-1 now renders via the same generic loop as NPK-3 / ANI-ADA / REC-1. **Card order within each window block is alphabetical by calc name, deterministic across renders.** **Tests:** new `tests/unit/dev-mode/audit-render.test.js` — three integration cases: (a) a stub `STUB-GW-OI0158` resolver returning `scope: 'group-window'` produces a `data-testid="dev-audit-calc-card-STUB-GW-OI0158-<gwId>"` card inside the matching `dev-audit-group-window-<gwId>` sub-block; (b) same for `STUB-PW-OI0158` paddock-window scope; (c) two stub group-window calcs (`STUB-A`, `STUB-Z`) render in alphabetical order in the DOM regardless of `getAllCalcs()` iteration order. The test stubs `resolveCalcForCalcCard` via `vi.spyOn` so the stubs route through the real renderer end-to-end. This is the integration assertion whose absence let OI-0157-B2 ship as half a feature — the OI-0158 close-out closes that gap. **Suite:** 1466 → 1469 (+3), all green. Existing audit-restructure / audit-empty-state / audit-resolvers tests all still pass (the existing "DMI-2 renders" / "FOR-1 renders" assertions hit the same `dev-audit-calc-card-*` testids; the rename is transparent). Hook suite 7/7. `npm run lint` 0 errors. `npm run build` clean. **All three grep contracts hold:** `if (calc.name === 'DMI-2')|if (calc.name === 'FOR-1')` in `audit.js` → 0 matches; `renderPaddockWindowBlocks(.+dmi2Result|renderPaddockWindowBlocks(.+for1Result` → 0 matches; `dmi2InstancesByGwId|for1InstancesByPwId` → 0 matches. Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0157 grep contracts all still hold. **Manual UI smoke test on Tim's populated op:** unverified by Claude Code; recommend cold-loading the deployed site and opening `#/dev/audit?id=<populated-event>` to confirm the 6 new cards surface in their respective window blocks (NPK-1 / ANI-AU / ANI-AUD per group window; NPK-3 / ANI-ADA per open paddock window; REC-1 per closed paddock window). **Schema impact:** none. **CP-55/CP-56 impact:** none.
+
+---
 
 ### OI-0157 — Event Audit form refinements (4 sub-items: A weight-unit bypass, B1 ANI-AU/AUD/ADA registry, B2 nine new audit resolvers, C dev-mode dashboard event-ID stamp, D audit page event-picker search bar)
 **Added:** 2026-05-04 | **Closed:** 2026-05-04 | **Area:** v2-build / dev-mode / audit / dashboard / calc-registry

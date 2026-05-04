@@ -293,6 +293,96 @@ describe('Section 1 unit toggle (OI-0145)', () => {
   });
 });
 
+// OI-0157-A: group-window header weight routes through formatAuditValue so
+// `stored:` / `live:` lines honor the audit page's metric/standard/hybrid
+// toggle. Pre-OI-0157 these were raw template literals with hardcoded ` kg`
+// suffix that bypassed the toggle entirely.
+describe('Group-window header weight unit toggle (OI-0157-A)', () => {
+  const GW_ID = '00000000-0000-0000-0000-0000000gw157';
+
+  function seedGwForUnitTest() {
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: 'pw-157', operationId: OP, eventId: EVT, locationId: LOC_A,
+      dateOpened: '2026-04-29',
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    seedForageTypeAndLocations();
+    seedClassAndAnimals(0); // class only — no animals so live falls back to stored
+    add('groups', GroupEntity.create({ id: GROUP_A, operationId: OP, name: 'Mixed Calves' }),
+      GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
+    // Tim's repro: 28 head / 253.5300428571427 kg avg, closed window.
+    add('eventGroupWindows', GroupWindowEntity.create({
+      id: GW_ID, operationId: OP, eventId: EVT, groupId: GROUP_A, animalClassId: CLS,
+      dateJoined: '2026-04-24', timeJoined: '11:37', dateLeft: '2026-04-29', timeLeft: '14:00',
+      headCount: 28, avgWeightKg: 253.5300428571427,
+    }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+  }
+
+  function getStoredLineText() {
+    const sub = document.querySelector(`[data-testid="dev-audit-group-window-${GW_ID}"]`);
+    expect(sub).toBeTruthy();
+    // The stored line is the first monospace child whose text starts with "stored: ".
+    const lines = sub.querySelectorAll('div');
+    for (const div of lines) {
+      if (div.textContent.startsWith('stored:')) return div.textContent;
+    }
+    throw new Error('stored: line not found');
+  }
+
+  function getLiveLineText() {
+    const sub = document.querySelector(`[data-testid="dev-audit-group-window-${GW_ID}"]`);
+    const lines = sub.querySelectorAll('div');
+    for (const div of lines) {
+      if (div.textContent.startsWith('live:')) return div.textContent;
+    }
+    throw new Error('live: line not found');
+  }
+
+  it('metric mode: stored line shows kg with 2-decimal rounding (no raw float)', () => {
+    seedGwForUnitTest();
+    renderEventAudit(seedDom());
+    // Default is metric.
+    const stored = getStoredLineText();
+    // 253.5300428571427 → "253.53 kg" via formatAuditValue(value, 'weight', 2).
+    expect(stored).toContain('253.53 kg');
+    // Pre-OI-0157 raw float bug should be gone.
+    expect(stored).not.toContain('253.5300428571427');
+    // Head count renders as plain integer (decimals=0).
+    expect(stored).toContain('28 head');
+  });
+
+  it('standard mode: stored line converts kg to lbs', () => {
+    seedGwForUnitTest();
+    renderEventAudit(seedDom());
+    document.querySelector('[data-testid="dev-audit-unit-standard"]').click();
+    const stored = getStoredLineText();
+    // 253.5300428571427 kg × 2.20462 = 558.95 lbs (toFixed(2)).
+    expect(stored).toContain('lbs');
+    expect(stored).not.toMatch(/\bkg\b/); // bare "kg" should not appear in standard mode
+    expect(stored).toContain('28 head');
+  });
+
+  it('hybrid mode: stored line shows both kg and lbs', () => {
+    seedGwForUnitTest();
+    renderEventAudit(seedDom());
+    document.querySelector('[data-testid="dev-audit-unit-hybrid"]').click();
+    const stored = getStoredLineText();
+    expect(stored).toContain('253.53 kg');
+    expect(stored).toContain('lbs');
+    expect(stored).toContain('28 head');
+  });
+
+  it('live line uses the same unit toggle (parity with stored)', () => {
+    seedGwForUnitTest();
+    renderEventAudit(seedDom());
+    document.querySelector('[data-testid="dev-audit-unit-standard"]').click();
+    const live = getLiveLineText();
+    // Live falls back to stored when no animals are seeded — same kg value.
+    expect(live).toContain('lbs');
+    expect(live).not.toMatch(/\bkg\b/);
+    expect(live).toContain('28 head');
+  });
+});
+
 describe('DMI-8 resolver — 3-day no_animals window (no group windows)', () => {
   it('returns one event-scoped instance with per-day breakdown counting no_animals', () => {
     // Event with paddock windows but no group windows → DMI-8 returns no_animals

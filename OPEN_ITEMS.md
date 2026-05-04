@@ -149,6 +149,7 @@ Each sub-item is independently shippable. Don't bundle A+C+D+B into one commit �
 
 **Change Log:**
 - 2026-05-04 — Cowork drafted OI-0157 with four sub-items (A: weight-unit bypass; B: NPK + fertility + AU/AUD/ADA cards with three new registry entries + nine new resolvers; C: dev-mode card event-ID stamp; D: audit page search bar). Calc scope locked to NPK-1 / NPK-2 / NPK-3 / NPK-4 / CST-3 / REC-1 / ANI-AU / ANI-AUD / ANI-ADA per Tim's "Full set" pick. Spec file `github/issues/OI-0157_audit-form-refinements.md` written same session.
+- 2026-05-04 — **OI-0157-A shipped.** `src/features/dev-mode/audit.js` group-window header `stored:` / `live:` lines now route weight through `formatAuditValue(value, 'weight', 2)` and `renderFormattedValue` instead of raw template literals with hardcoded ` kg` suffix. Head counts use `formatAuditValue(value, null, 0)` so they render as plain integers in all three modes. Drift detection still operates on raw kg numbers. Grep contract `head /.+kg\`` in audit.js → 0 matches. 4 new tests in `tests/unit/dev-mode/audit-restructure.test.js` (metric / standard / hybrid for stored line + live-line parity); suite 1419 → 1423 (+4). Sub-items C / D / B1 / B2 still pending.
 
 ---
 

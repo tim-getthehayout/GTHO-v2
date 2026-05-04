@@ -362,8 +362,8 @@ function renderGroupWindowSubBlock(parent, gw, eventId, dmi2InstancesByGwId, iso
   });
 
   // Header
-  const stored = `stored: ${gw.headCount ?? '—'} head / ${gw.avgWeightKg ?? '—'} kg`;
-  const live = `live: ${liveHead} head / ${typeof liveAvg === 'number' ? liveAvg.toFixed(2) : '—'} kg`;
+  // OI-0157-A: drift comparison still operates on raw kg numbers (not display
+  // strings) so the drift threshold (0.5 kg) stays unit-invariant.
   const drift = gw.headCount !== liveHead || (typeof liveAvg === 'number' && Math.abs(liveAvg - (gw.avgWeightKg || 0)) > 0.5);
   sub.appendChild(el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', marginBottom: '4px' } }, [
     el('strong', { style: { fontSize: '12px' } }, [`${t('dev.auditGroupWindow')}: ${group?.name || gw.groupId.slice(0, 8)}`]),
@@ -374,8 +374,23 @@ function renderGroupWindowSubBlock(parent, gw, eventId, dmi2InstancesByGwId, iso
   sub.appendChild(el('div', { style: { fontSize: '11px', fontFamily: 'monospace', color: 'var(--text2)' } }, [
     `${gw.dateJoined || '—'} ${gw.timeJoined || ''} → ${gw.dateLeft || '—'} ${gw.timeLeft || ''}`.trim(),
   ]));
-  sub.appendChild(el('div', { style: { fontSize: '11px', fontFamily: 'monospace' } }, [stored]));
-  sub.appendChild(el('div', { style: { fontSize: '11px', fontFamily: 'monospace' } }, [live]));
+  // OI-0157-A: route group-window weight through `formatAuditValue` so it
+  // honors the audit page's metric/standard/hybrid toggle. Pre-OI-0157 these
+  // lines were raw template literals with hardcoded ` kg` suffix that
+  // bypassed the toggle entirely. Head counts stay unitless (decimals=0
+  // gives a plain integer like "28" not "28.00").
+  sub.appendChild(el('div', { style: { fontSize: '11px', fontFamily: 'monospace' } }, [
+    el('span', {}, ['stored: ']),
+    el('span', {}, [formatAuditValue(gw.headCount, null, 0)]),
+    el('span', {}, [' head / ']),
+    renderFormattedValue(formatAuditValue(gw.avgWeightKg, 'weight', 2)),
+  ]));
+  sub.appendChild(el('div', { style: { fontSize: '11px', fontFamily: 'monospace' } }, [
+    el('span', {}, ['live: ']),
+    el('span', {}, [formatAuditValue(liveHead, null, 0)]),
+    el('span', {}, [' head / ']),
+    renderFormattedValue(formatAuditValue(typeof liveAvg === 'number' ? liveAvg : null, 'weight', 2)),
+  ]));
 
   // Animal class
   if (cls) {

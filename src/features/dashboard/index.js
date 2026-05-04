@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActiveFarmId } from '../../data/store.js';
+import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActiveFarmId, isCurrentUserDev } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
@@ -920,6 +920,23 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     el('button', { className: 'btn btn-outline', onClick: (e) => { e.stopPropagation(); navigate('#/animals'); } }, ['Edit']),
   ]));
 
+  // OI-0157-C: stamp the active-event UUID under the action row when the
+  // user is_dev. Gated on `activeEvent` non-null — closed groups with no
+  // active event have no UUID to stamp. Same pattern as the open-event card
+  // in `buildLocationCard` for cross-tab audit workflow.
+  if (activeEvent && isCurrentUserDev(operationId)) {
+    body.appendChild(el('div', {
+      'data-testid': `dashboard-dev-event-id-${activeEvent.id}`,
+      style: {
+        fontSize: '10px',
+        fontFamily: 'monospace',
+        color: 'var(--text2)',
+        marginTop: '2px',
+        userSelect: 'text',
+      },
+    }, [activeEvent.id]));
+  }
+
   card.appendChild(body);
   return card;
 }
@@ -1224,6 +1241,24 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       }, [t('dashboard.move')]),
     ]),
   ]));
+
+  // OI-0157-C: stamp the full event UUID under the action row when the user
+  // is_dev so cross-tab audit (dashboard ↔ #/dev/audit?id=…) works in two
+  // clicks instead of three. `userSelect: 'text'` overrides any inherited
+  // user-select: none so double-click selection works for copy.
+  if (isCurrentUserDev(operationId)) {
+    children.push(el('div', {
+      'data-testid': `dashboard-dev-event-id-${event.id}`,
+      style: {
+        fontSize: '10px',
+        fontFamily: 'monospace',
+        color: 'var(--text2)',
+        marginTop: '2px',
+        marginBottom: 'var(--space-2)',
+        userSelect: 'text',
+      },
+    }, [event.id]));
+  }
 
   // §4 + §5: Event type badge + summary line
   children.push(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: 'var(--space-2)' } }, [

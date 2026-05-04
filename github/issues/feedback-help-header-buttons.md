@@ -1,35 +1,22 @@
-# Feedback & Help Buttons in Header (SP-6)
+# Feedback & Help Header Buttons
 
-**Labels:** `ui`, `feature`, `header`
-**Sprint:** UI Improvements (2026-04-17)
-**Full spec:** `UI_SPRINT_SPEC.md` → SP-6
+**Status:** Reconciled into base docs 2026-05-04 (Reconciliation Session C, UX-6).
+**Type:** UI feature
+**Priority:** P2
+**Related OI:** none — fully spec'd
 
-## Summary
+## Authoritative spec
 
-Add a compact sub-row below the existing header row with two right-aligned buttons: "Feedback" and "Get Help". Each opens its own pre-configured sheet (no type toggle like v1). Replaces the v1 floating action button.
+The full design lives in **V2_UX_FLOWS.md §17.2 "Header Bar"** under the "Feedback & Help sub-row" subsection. Read that section before implementing. It covers:
 
-## What to Build
+- Sub-row layout (28px height, right-aligned, 1px `--border` bottom divider, `--bg` background)
+- Button styling (`btn btn-outline btn-xs`, 11px/500, 💬 / 🆘 emoji prefix)
+- Responsive behavior (≥900px desktop / <900px mobile, hidden in Field Mode, fits down to 280px)
+- Feedback sheet (`type='feedback'`, all 7 category pills) vs Get Help sheet (`type='support'`, 4 categories only, always-visible Priority dropdown)
+- Shared structure (auto-filled context tag, auto-filled-but-editable Area dropdown using v2 screen names — `home`→`dashboard`, `events`→`rotation-calendar`, `pastures`→`locations`, `todos` removed for v2 launch)
+- No FAB in v2 — this sub-row replaces it
+- No schema change — both sheets write to the existing `submissions` entity (V2_INFRASTRUCTURE.md §4.2)
 
-1. **Header sub-row** — 28px height, right-aligned, two `btn btn-outline btn-xs` buttons with emoji prefixes. Hidden in Field Mode.
-2. **Feedback sheet** — `type='feedback'` pre-set. Fields: context tag (auto), category pills (all 7), area dropdown (v2 screen names), note textarea. No priority field.
-3. **Get Help sheet** — `type='support'` pre-set. Fields: context tag (auto), category pills (**4 only: Roadblock, Bug, Calculation, Question** — drop UX friction, Missing feature, Idea), area dropdown, priority dropdown (always visible), note textarea.
-4. Both sheets write to the `submissions` entity/table with the correct `type` value.
+## Why this file exists
 
-## Key References
-
-- **SP-6 full spec** (layout, button specs, responsive behavior, v1 HTML reference, CSS): `UI_SPRINT_SPEC.md`
-- **V2_UX_FLOWS.md §17.2** — header bar spec (updated with sub-row reference)
-- **V2_SCHEMA_DESIGN.md §11.2** — `submissions` table (no changes needed)
-- **v1 dialog HTML** extracted in SP-6 — use as parity reference, build with `el()` DOM builder
-
-## Acceptance Criteria
-
-See SP-6 in `UI_SPRINT_SPEC.md` for the full checklist (12 items).
-
-## Schema Impact
-
-None. Uses existing `submissions` table.
-
-## CP-55/CP-56 Impact
-
-None.
+Thin pointer for GitHub issue tracking. The full spec is no longer duplicated here per the project's "Specs in base docs, not spec files" rule.

@@ -359,7 +359,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Output: value in $
 - Same price history lookup as NPK-2.
 
-### 4.6 Feed Residual Domain (5 formulas)
+### 4.6 Feed Residual Domain (5 formulas + 1 helper)
 
 **FED-1: Effective Feed Residual**
 - Computes: Current remaining feed from latest check
@@ -386,6 +386,58 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Computes: NPK composition of remaining manure
 - Inputs: Total NPK, remaining volume ratio
 - Output: { n_kg, p_kg, k_kg }
+
+#### `getLiveRemainingForMove(eventId)` — canonical helper for live remaining feed per (batchId, locationId)
+
+**Lives in:** `src/calcs/feed-state.js`. **Consumed by:** the feed-check sheet (`src/features/feed/check.js`), move-wizard Step 3 (`src/features/events/move-wizard.js`), and the sub-move close hint (`src/features/events/submove.js`).
+
+**Why it's a helper, not a stored column.** Live remaining is derivable from prior `event_feed_checks` plus the deliveries that landed after the most recent check. Storing it on a parent record would silently drift the moment one mutation path forgot to update both — a class of bug we already burned on with `events.date_in/time_in` (OI-0117) and `groups.farm_id` (OI-0133). Per V2_APP_ARCHITECTURE.md §4.6 (Derive on Read, Don't Store), live remaining derives at read time from the rows that are individually authoritative.
+
+**Formula:**
+
+```
+For each (batchId, locationId) on the event:
+  latestCheck = the most recent event_feed_check on (batchId, locationId)
+                ordered by (date, time) descending
+
+  if latestCheck exists:
+    remaining = latestCheck.remainingQuantity
+              + Σ deliveries on (batchId, locationId) with
+                  (delivery.date, delivery.time) STRICTLY > (latestCheck.date, latestCheck.time)
+  else:
+    remaining = Σ all deliveries on (batchId, locationId)
+```
+
+The strict-`>` rule on `(date, time)` is **load-bearing**. If the comparison were `>=`, a same-instant delivery would be double-counted: the check captures the state of the line *including* a delivery logged at the exact same instant (the check is the snapshot of "what's on the paddock right now," and "right now" includes whatever the user just unloaded). Counting that delivery again on top of the check inflates the remaining number by the delivery amount. Strict-`>` says "the check is the floor; only deliveries that landed *after* the check add to it."
+
+**The same-instant edge case** — feed check and feed delivery both timestamped to the same minute, sometimes the same second — is exactly the case the strict-`>` rule was added for. The user's mental model is "I checked the bale ring, then I unloaded a fresh bale, both at 8:00 AM" → the check value already represents what was there *including* the new bale. Strict-`>` honors that.
+
+**Fallback when no prior check exists.** A line that's never been checked falls back to summing all deliveries — there's no consumption signal yet, so net delivered is the best estimate of what's on the paddock. The first feed check the farmer logs will replace this fallback with a measured value.
+
+**Three current consumers — all must import the helper, never re-derive the formula:**
+
+1. **Feed-check sheet (`src/features/feed/check.js`).** Pre-fills the "what's currently there?" input for each line based on the helper's output. The strict-`>` rule means a delivery the farmer just logged (and hasn't yet captured in a feed check) is correctly added to the prior check's remaining when the sheet pre-fills.
+2. **Move-wizard Step 3 (`src/features/events/move-wizard.js`).** When the farmer transfers feed between events as part of a Move/Close, Step 3 shows the source event's per-line live remaining via the helper. This is what the user is actually transferring — not what was delivered, but what's left.
+3. **Sub-move close hint (`src/features/events/submove.js`).** When a sub-move closes a paddock window, the close prompt surfaces the live remaining per line on that paddock via the helper. The hint helps the farmer decide whether to record a forced feed check at the close (per the SP-12 / OI-0119 rule documented in V2_UX_FLOWS.md §17.15.1).
+
+**Adding a fourth consumer.** Any new surface that needs "live remaining per (batchId, locationId)" — a future dashboard feed widget, a report card, a voice-input flow — must `import { getLiveRemainingForMove } from 'src/calcs/feed-state.js'` rather than re-deriving the formula in feature code. Drift between consumers is exactly the failure mode OI-0139 caught (Pasture D's 0-remaining check followed by a fresh bale silently disappeared from the next prefill because two consumers had drifted from each other).
+
+**Grep contract — pre-commit:**
+
+```bash
+grep -nE "lastCheckUnits != null \?" src/features/feed/check.js
+# must return 0 matches — the pre-OI-0139 per-line formula is gone
+
+grep -nE "\.localeCompare\(fcStamp\)|> fcStamp|>= fcStamp" src/calcs/feed-state.js
+# must include at least one strict-> match and zero >= matches
+
+grep -rn "getLiveRemainingForMove" src/
+# every consumer surface that needs live-remaining must show up here
+```
+
+These three contracts also live in CLAUDE.md "Architecture Audit — Before Every Commit" (point 6, OI-0139 block); they are the implementation invariant for the design statement above.
+
+**Origin:** OI-0139 (filed 2026-04-30, shipped same day). The bug it caught: Pasture D had a 0-remaining check, then a fresh bale was delivered, and the next feed check's prefill showed `0` instead of the new bale's amount because the feed-check sheet's local formula and the move-wizard's local formula had drifted from each other across an earlier refactor. Canonicalizing the helper eliminates that class of drift.
 
 ### 4.7 Time Domain (3 formulas)
 
@@ -545,6 +597,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-05-04 | Reconciliation Session C — calc helper catch-up (RECONCILIATION_PLAN_2026-05-03 CALC-1) | New `getLiveRemainingForMove(eventId)` helper documented in §4.6 Feed Residual Domain. Lifts the OI-0139 implementation invariant out of CLAUDE.md grep contracts into the calc spec as the design statement of why the helper exists, what the formula is, the load-bearing strict-`>` rule on `(date, time)` comparisons, the same-instant edge case, and the no-prior-check fallback. Documents the three current consumers (feed-check sheet, move-wizard Step 3, sub-move close hint) and the rule that any fourth consumer must import the helper rather than re-derive the formula. Repeats the three CLAUDE.md grep contracts (no `lastCheckUnits != null ?` per-line formula, strict-`>` only in the helper, every consumer surfaces in `grep -rn "getLiveRemainingForMove"`). Cross-references V2_APP_ARCHITECTURE.md §4.6 (Derive on Read, Don't Store) — this helper is one of the four canonical applications of that doctrine. Section header updated from "(5 formulas)" to "(5 formulas + 1 helper)" so the table-of-contents reflects the addition without inflating the formula count. No code changes — documentation catch-up only. Owner: Cowork. |
 | 2026-04-20 | OI-0119 — DMI-8 cascade rewrite | Full rewrite of §4.2 DMI-8. Corrective per CLAUDE.md §"Corrections to Already-Built Code" — original spec (2026-04-16) shipped with three latent bugs surfaced in 2026-04-20 field testing: (1) chart-data builders read the dead `event_observations` collection post-OI-0112 (four call sites), (2) actual path required BOTH bracketing feed checks (silent fallthrough on the common single-check case), (3) estimated path destructured `feedEntries: _feedEntries` and ignored deliveries, deriving `storedDmiKg` as the residual of pasture balance rather than from actual stored feed. New model: **cascade bucket walk** — pasture-first → stored-second → deficit-third allocation per day, with separate buckets for pasture DM (FOR-1-seeded, pooled across parallel open sub-paddocks) and stored DM (deliveries-seeded, re-anchored by feed checks). **Five statuses** (was three): adds `no_animals` (zero demand — legitimately nothing to feed, distinct from missing data) and `no_pasture_data` (missing observation or forage type — distinct from `needs_check`, carries inline CTA link). **Retroactive actual-conversion rule** — feed checks flip the prior interval's `storedDmiKg` bars from `estimated` → `actual`; pasture bars in that interval stay `estimated` (pre-graze observations are too subjective to true up retroactively). **Observation source** — `paddock_observations` (OI-0112 canonical), NOT `event_observations`. **Source-event bridge simplified to date-routing only** — for each chart day, find the event that owned that date and run DMI-8 against THAT event's self-contained cascade; no state handoff between events. Trade-off accepted: stored feed physically carried across event boundaries does not appear on the new event's chart unless logged as a delivery on the new event. **New sub-move close flow rule** — when the event has any stored-feed deliveries, sub-move close requires a feed check inline in the Close sheet (strikes a clean actual/estimated boundary). **Pre-graze partial default** — missing cover defaults to 100% with a "(Fix)" hint. **Parallel sub-paddocks** — pasture pooled across all currently-open paddock windows; sub-move open adds to the pool, sub-move close drops the closing window's attributable remainder. **Deficit render** — new red segment atop the stored stack with `+X deficit` sub-label; legend gains red swatch only when at least one bar has deficit. Sprint reconciliation impact: V2_UX_FLOWS.md §12 (forced feed check on sub-move close), §17.7 + §17.15 (5-status enumeration), UI_SPRINT_SPEC.md SP-3. CP-55/CP-56 impact: **NONE** (compute-on-read; no new columns). Schema change: **NONE**. Formula count unchanged (still 39). Related: OI-0119 (this OI), OI-0069 (closed — original spec), OI-0076 (closed — superseded deferral), OI-0075 Bug 3 (precedent fix pattern for silent field-name drift), OI-0112 (upstream migration that orphaned the read sites), OI-0113 (unblocked once this ships — last `event_observations` reader removed), OI-0118 (Edit Paddock Window dialog target for `no_pasture_data` CTA), OI-0070 (EST-1 unblocked for field testing). |
 | 2026-04-16 | UI sprint — decimal precision | FOR-3 and FOR-4 output changed from integer (`Math.floor`) to 2 decimal places (`Math.round(x * 100) / 100`). Display rule: all estimated/forecasted day values render with 2 decimal places (e.g., `1.25`). Precision notes added to DMI-8 and EST-1 specs. |
 | 2026-04-16 | UI sprint — EST-1 accuracy comparison | Added §4.12 Accuracy Domain with EST-1 (Event Pasture Accuracy). Compares estimated (pre-graze FOR-1 + FOR-3) vs actual (post-graze FOR-1 + mass balance) for closed events. Two surfaces: event close summary card (days accuracy headline) and accuracy trend report. Two-method sanity check (forage measurement vs mass balance). No new data stored — all compute-on-read from existing observations and feed records. Total formulas: 38 → 39. Domains: 11 → 12. |

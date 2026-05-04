@@ -42,6 +42,34 @@ export function display(value, measureType, decimals) { ... }
 - `units.display()` consults this value on every call — no caching outside the store
 - Storage remains metric (§1.1) — this column only controls the display layer
 
+### 1.4 Unit Families
+
+`convert()` and `unitLabel()` are organized by **unit family** — a named measurement type that bundles a stored metric unit, an imperial display unit, and the bidirectional conversion factor. Feature code passes `measureType` strings (e.g. `'length'`, `'weight'`, `'area'`) to the converter, never raw factors.
+
+| Family | Stored unit (metric) | Imperial display | Conversion factor (metric → imperial) |
+|---|---|---|---|
+| `weight` | kg | lbs | × 2.20462 |
+| `area` | hectares (ha) | acres | × 2.47105 |
+| `length` | cm | inches (in) | × 0.393701 |
+| `temperature` | °C | °F | `(°C × 9/5) + 32` |
+| `volume` | liters | gallons | × 0.264172 |
+| `yieldRate` | kg/ha | lbs/acre | × 0.892179 |
+| `dmYieldDensity` | kg/cm/ha | lbs/in/ac | reuse `DM_LBS_IN_AC_TO_KG_CM_HA` (one constant; see below) |
+
+**`dmYieldDensity` — added 2026-05-04 for SP-13 Forage Types (V2_UX_FLOWS.md §20.8).** Stored as `kg of dry matter per cm of pasture height per hectare`; displayed as `lbs of DM per inch per acre` for imperial users. The forward factor `DM_LBS_IN_AC_TO_KG_CM_HA` already lives in `src/data/v1-migration.js` because the v1 → v2 migration stores in metric. `src/utils/units.js` reuses that one constant rather than redefining it (or lift it into `units.js` and re-export to `v1-migration.js` — pick whichever placement avoids duplication; one canonical constant only). The reverse factor for display is `1 / DM_LBS_IN_AC_TO_KG_CM_HA`.
+
+**Round-trip contract:** entering `300` (imperial) for a forage type's DM yield must store the exact numeric value the v1 migration would produce for `dmLbsPerInchPerAcre = 300`, and re-rendering the field must display `300` again at precision 0. The same round-trip holds for any new family — `convert(toStore(toDisplay(x)))` and `convert(toDisplay(toStore(x)))` must both return `x` to the field's display precision. This is a required test case in `tests/unit/units.test.js` for every family.
+
+**Adding a new family.** When a new measurement type lands in the schema:
+1. Pick metric storage (per §1.1's hard rule).
+2. Decide the imperial display unit and label (`unitLabel('familyName', 'imperial')`).
+3. Add the family to `convert()` and `unitLabel()` in `src/utils/units.js` — one block per family, with a single conversion constant.
+4. Add a row to the table above with stored unit, imperial display, and the constant.
+5. Round-trip test in `tests/unit/units.test.js`.
+6. Wire it into the unit-aware descriptor pattern (`src/features/settings/unit-descriptor.js`) so any input field using the descriptor automatically converts on render and on save without per-feature math.
+
+The descriptor pattern (`{ measureType, unitLabelKey, … }`) is the canonical entry point for unit-aware form fields — Farm Settings, Forage Types, and any future settings card share it. Per V2_UX_FLOWS.md §20.8 (Forage Types), do not duplicate conversion logic in feature code; reuse the descriptor.
+
 ---
 
 ## 2. Internationalization (i18n)
@@ -438,12 +466,44 @@ Every record tagged `source: 'voice'` or `'manual'`. Enables voice-accuracy filt
 
 ---
 
+## 9. Sync Indicator (Honest Push + Pull State)
+
+The sync dot in the header (V2_DESIGN_SYSTEM.md §3.14) and the desktop sidebar's sync strip (V2_UX_FLOWS.md §17.2) report **both push-queue and pull-recency state**. A single "is the queue empty?" boolean is dishonest — it can read green while the local app is showing data that's hours stale because no remote pull ran.
+
+**Two-axis state model:**
+
+- **Push queue.** Read from `getSyncAdapter().getStatus().pendingCount`. Empty = nothing waiting to upload. Non-empty = at least one record queued (failed write, offline interval, or in-flight retry).
+- **Last-pull timestamp.** Read from `getLastPulledAt()` in `src/data/pull-remote.js`. The timestamp is set after every successful `pullAllRemote()` cycle and persisted to localStorage so it survives reload. `null` means no pull has ever completed in this device session.
+
+**Indicator state derivation:**
+
+| Indicator | Push queue | Last pull | Meaning |
+|---|---|---|---|
+| `sync-ok` (green) | Empty | Within 15 min (the stale threshold) | Local state matches remote both ways |
+| `sync-stale` (amber) | Empty | Older than 15 min, or `null` | Nothing pending to upload, but local view may be stale |
+| `sync-pending` (amber) | Non-empty | Any | Push queue has work; not yet known if local view is fresh |
+| `sync-off` (`--text3`) | — | — | Offline (`navigator.onLine === false`) |
+| `sync-err` (red) | — | — | Sync adapter reported an unrecoverable error |
+
+The 15-minute stale threshold is a balance between honesty and noise — short enough to surface a forgotten cold-boot (the user's been on the app for an hour without ever pulling), long enough to avoid amber flicker during normal background pulls. Tunable; lives as a constant in `src/data/pull-remote.js`.
+
+**Tap behavior — `pullAllRemote()`, not navigate-to-Settings.** Tapping the sync dot or the desktop sidebar's sync strip triggers an explicit `pullAllRemote()` call. The previous behavior was `navigate('#/settings')` which sent the user to a screen with no sync controls and effectively asked them to give up on what they'd come for. The honest action when a user taps the sync indicator is *"pull now"* — they're telling the app they don't trust the freshness state. The dot transitions to a brief in-flight animation, the pull runs, and the dot resolves to its post-pull state.
+
+**Visibility-change pull trigger.** On `document.visibilitychange` to `visible` (the user backgrounded the app and came back), the app fires `pullAllRemote()` automatically without waiting for the user to tap. This catches the common case where a tab sat in the background while real-world updates landed elsewhere — by the time the user looks, freshness has already been re-established. The visibility-change handler also re-renders the sync indicator so its post-pull state is correct on the very first paint after the tab regains focus.
+
+**Why this matters.** A single-axis indicator silently lies. The user sees green and assumes "I'm up to date" when in fact the device hasn't pulled in 6 hours and other team members have logged events the user can't see. The two-axis indicator forces the lie to surface: amber says *"queue's empty but I haven't checked the server lately — tap me to refresh."* That's honest and one tap from resolution.
+
+**Origin:** OI-0141 (filed and shipped 2026-05-01). The grep contracts for the dot/strip onClick (`grep "navigate('#/settings')" src/ui/header.js` must return zero) live in CLAUDE.md "Architecture Audit." This subsection is the design statement of why those contracts exist; `getLastPulledAt()` is the canonical reader for pull-recency state and any new sync-indicator surface must consume it rather than only checking the queue.
+
+---
+
 ## Change Log
 
 | Date | Session | Changes |
 |------|---------|---------|
 | 2026-04-12 | Session 6 — Infrastructure review | §3.1: Added A9/A10 exception references. §3.3: Aligned app_logs to schema (+operation_id nullable, +context jsonb, RLS by user_id). §3.4–3.5: Added A10 refs, dead letter context structure. §4.1–4.2: Aligned submissions to schema, added A25 ref. §5.1: Fixed RLS to use operation_members, added user-scoped example. §8: Added roadmap scope note. |
 | 2026-04-18 | OI-0106 base-doc reconciliation | §6.1: Expanded entity shape-function test pattern from a single local round-trip to two tests: (a) local round-trip for key mapping, (b) PostgREST pull simulation with stringified numerics asserting `typeof === 'number'`. The local round-trip alone does not catch the PostgREST-string class of bugs that drove the OI-0106 sweep. Cross-references V2_APP_ARCHITECTURE.md §3.1. |
+| 2026-05-04 | Reconciliation Session C — infra catch-up (RECONCILIATION_PLAN_2026-05-03 INFRA-1, INFRA-2) | Two infrastructure catch-ups. **NEW §1.4 Unit Families (INFRA-1):** documents the named-family pattern that `convert()` and `unitLabel()` already use, with the seven current families in a table including the new **`dmYieldDensity`** family added 2026-05-04 for SP-13 Forage Types (V2_UX_FLOWS.md §20.8) — stored `kg/cm/ha`, displayed `lbs/in/ac`, conversion via the existing `DM_LBS_IN_AC_TO_KG_CM_HA` constant in `src/data/v1-migration.js` (one canonical constant; do not duplicate). Round-trip contract documented (entering `300` imperial must store the v1-migration equivalent and re-render `300`). Six-step "adding a new family" checklist captures the descriptor-pattern wiring so a new measurement type can't ship with feature-code unit math. Cross-reference to `src/features/settings/unit-descriptor.js` as the canonical entry point for unit-aware form fields. **NEW §9 Sync Indicator (INFRA-2):** lifts the OI-0141 "honest sync indicator" pattern from CLAUDE.md grep contracts into the infrastructure doc as the design-level statement. Two-axis state (push queue + last-pull timestamp), 5-state indicator table (`sync-ok` / `sync-stale` / `sync-pending` / `sync-off` / `sync-err`) with the 15-min stale threshold; tap = `pullAllRemote()`, NOT `navigate('#/settings')`; visibility-change auto-pull on `document.visibilitychange → visible` so freshness is re-established before the user even taps; the architectural reason the previous single-axis indicator silently lied. Cross-references the `getLastPulledAt()` canonical reader and the V2_APP_ARCHITECTURE.md §4.6 Derive-on-Read doctrine. No code changes — documentation catch-up only. Owner: Cowork. |
 
 ---
 

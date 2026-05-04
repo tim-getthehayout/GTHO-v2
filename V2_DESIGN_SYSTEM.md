@@ -413,6 +413,23 @@ New pattern — no v1 equivalent. Displays strip grazing state within a paddock 
 
 **Bar dimensions:** Full width of the paddock card body, height ~12px per strip, `--radius-sm` (4px) corners, 2px vertical gap between strips.
 
+### 3.16 Pre-Graze Card (shared paddock observation component)
+
+A reusable observation card rendered on every surface that captures or edits per-paddock pre-graze data: the move wizard Step 3, the sub-move open sheet, the Edit Paddock Window dialog, and the Event Detail §3 Pre-graze section. Consolidating these four surfaces onto a single component (OI-0112, succeeding the original OI-0100 paddock-card concept) means any field added later — bale-ring residue count, forage condition pills, quality slider — appears everywhere at once.
+
+**Module:** `src/features/observations/pre-graze-card.js` exports `renderPreGrazeCard(opts)`. Container className `obs-fields obs-pre-graze-card`, `data-testid="obs-pre-graze-card"`.
+
+**Visible fields** (in order): forage height (number with `cm`/`in` suffix, 1-decimal precision), forage cover % (0–100 integer), forage condition (pill selector — poor / fair / good / excellent), forage quality slider (range from `farm_settings.forage_quality_scale_min/max`), veg height (only when the location's land use shows weed/brush context), bale-ring residue count (only when the bale-ring helper applies — event has at least one stored-hay delivery), pre-graze rating (1–10 slider with mid-point default), and a notes textarea.
+
+**Variants and states.** All four host surfaces render the same field set; the differences are container chrome and save behavior:
+
+- **Inline variant (move wizard Step 3, sub-move open):** card sits inside the host wizard's body as a `card-inset` (§3.1). No card border; `--bg2` background. Auto-save on blur is OFF — values commit when the host wizard's Save action fires.
+- **Sheet variant (Edit Paddock Window dialog, Event Detail §3 inline):** card sits inside its sheet's scroll body. Auto-save on blur is ON — each field commits independently when the user blurs out, matching V2_UX_FLOWS.md §17.15.1's inline-edit pattern. Inline error text renders below the offending field on validation failure.
+
+**Validation guards** (all surfaces): numeric fields reject negative values; `forage_cover_pct` rejects > 100; the quality slider clamps to its configured range. Validation surfaces inline — never blocking modals.
+
+**Origin:** OI-0100 (original paddock-card component, superseded), OI-0112 (current shared `renderPreGrazeCard`), OI-0107 (Event Detail migration), OI-0110 (Sub-move Open migration), OI-0118 (Edit Paddock Window dialog).
+
 ---
 
 ## 4. Screen Inventory (from Live App Audit)
@@ -652,6 +669,7 @@ Used by BCS Recording Sheet (§14.3). Row of numbered chips.
 | 2026-04-13 | Rotation calendar design (CP-54) | §4.3 Events Screen rewritten — the Events screen IS the rotation calendar. Covers header strip (View: toggle + mode indicator pill with multi-group compression rule), toolbar (two lightboxes: Timeline Selection + Dry Matter Forecaster, plus Show Confinement Locations on/off pill), conditional legend (Past always; Future swaps content by mode), 3-column calendar grid (paddock column / timeline / sidebar), past event blocks (multi-group label rule, proportional strip-graze bands, active NOW white ring, linked-paddock dashed outline + dotted connector), future forecast blocks (two view modes), today line with date pill, 1:1 sidebar mirror (40px header + 72px per paddock row + 28px totals footer), list view (v1 GRZ-10 pattern), mobile fallback (no calendar below 900px — GRZ-11 banner + GRZ-10 list). §4.6 Reports Screen: Rotation Calendar tab **removed** — calendar lives only on Events. Tab strip now 6 tabs (Feed & DMI Trends default, NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning). Supports V2_UX_FLOWS.md §19. |
 | 2026-04-13 | CP-54 pre-build reconciliation | §4.6 updated: Calc Reference console renders alongside the 6 report tabs in v2.0 (it was never actually removed from Reports in code, and no Settings home exists yet). Planned destination is Settings → Developer, tracked in OPEN_ITEMS.md as OI-0020 for a future CP. No change to the 6 report-tab set or to §4.3. |
 | 2026-04-13 | Nav label rename: Events → Rotation Calendar | §4.1 mobile nav item list updated to "Rotation Calendar" with a note that the route `#/events` is preserved. §4.3 section header renamed "Events Screen" → "Rotation Calendar Screen" with a mapping note that "Events screen" and "Rotation Calendar screen" refer to the same screen and that route id / testids / internal function names are unchanged. Label-only alignment with Claude Code commit `59833ea`. |
+| 2026-05-04 | Reconciliation Session C — design system catch-up (RECONCILIATION_PLAN_2026-05-03 DS-1) | Added §3.16 "Pre-Graze Card (shared paddock observation component)" — the OI-0112 successor to OI-0100's original paddock-card concept, exported as `renderPreGrazeCard(opts)` from `src/features/observations/pre-graze-card.js`. Documents the four host surfaces (move wizard Step 3, sub-move open, Edit Paddock Window dialog, Event Detail §3 Pre-graze), the shared field set (forage height / cover % / condition pills / quality slider / veg height / bale-ring residue / pre-graze rating / notes), the two variants (inline = card-inset with host-controlled save; sheet = auto-save on blur per V2_UX_FLOWS.md §17.15.1), and validation guards (non-negative numerics, cover ≤ 100, slider clamp). Origin OIs listed: OI-0100 (superseded), OI-0112 (current), OI-0107, OI-0110, OI-0118. No code changes — documentation catch-up only. Owner: Cowork. |
 
 ---
 

@@ -162,6 +162,56 @@ When an animal moves from Group A to Group B mid-event:
 
 This ensures DMI calculations are accurate per window — each window has a fixed head count.
 
+### 3.4 Empty Group Handling (Archive Cascade)
+
+When the last animal leaves a group — by cull, move, wean, split, or manual remove — the group is left with zero open memberships. The window-split architecture (§4.4 in V2_APP_ARCHITECTURE.md) closes the open `event_group_window` at the mutation site with live values stamped at the change date, then each state-change flow calls `maybeShowEmptyGroupPrompt(groupId)`. That helper checks "does this group have zero open memberships?" and, if so, opens the empty-group prompt described below.
+
+There is no centralized "after last membership closes" cascade — the responsibility belongs to each mutation flow (cull-sheet, move-wizard, wean-wizard, split-group, manual remove). Any future composition-change flow must call the helper after its window-split commit. A standalone toast confirms the window close ("[Group name] ended on [Event name] as of [YYYY-MM-DD]") before the prompt opens.
+
+**Three first-class group states.** A group is `active` (has at least one open membership), `empty-but-active` (no open memberships, `archived_at IS NULL`), or `archived` (no open memberships, `archived_at IS NOT NULL`). The state lives on the single `groups.archived_at TIMESTAMPTZ` column shipped in migration 024 — `NULL` = active or empty-but-active, timestamp = archived on that date. The earlier design carried `archived BOOLEAN`; migration 024 dropped the boolean and replaced it with the timestamp form so audit history survives reactivation.
+
+#### Empty-group prompt
+
+Opens automatically right after the window-close toast.
+
+- **Sheet title:** *"[Group name] is empty"*
+- **Body copy:** *"[Group name] has no animals left. What would you like to do?"* followed by short descriptions for each option.
+- **Primary action — Archive (green).** Archived groups stay attached to their historical events so reports stay intact. The user can reactivate the same group record later — useful for seasonal cohorts (Weaners 2025 → Weaners 2026) where keeping one group identity preserves continuity.
+- **Secondary action — Keep active.** Leave the group as-is with no archive timestamp. Use when the farmer expects to add animals back soon.
+- **Destructive action — Delete.** Permanently removes the group row. **Disabled** (with explanatory tooltip) whenever the group has any historical `event_group_window` rows — historical events would render "?" where the group name used to be. The destructive button is enabled only on groups that were never on an event.
+
+Tap-outside, swipe-down, and X-button all dismiss the sheet as "Keep active" — no archive, no delete, no further write. Dismiss is the safest default for an in-the-field accidental tap.
+
+**Archive write:** sets `group.archivedAt = now()` and queues the sync write. Toast: *"[Group name] archived"*. Pickers and dashboard cards filter `archivedAt IS NULL` and stop showing the group on subsequent renders.
+
+**Delete write:** confirmation dialog ("Delete [Group name]? This cannot be undone.") then deletes the group row plus any orphaned `animal_group_memberships`. Only available when the disable guard above passes.
+
+#### Group Management UI (Settings → Groups, or §15.2 Group CRUD Sheet)
+
+Active groups render at the top of the list as today (`archivedAt IS NULL`). A new **"Show archived" toggle** sits at the top of the list. When on, a second section renders below the active list — *"Archived groups"* — listing groups with `archivedAt IS NOT NULL`.
+
+Each archived row shows:
+
+- Group name with its color dot
+- Archive date (formatted in the user's locale)
+- Last known head count (read from the most recent closed `event_group_window` for the group, or "—" if no window history exists)
+- **Reactivate** action — clears `archivedAt` and re-shows the group in active pickers; toast: *"[Group name] reactivated"*
+- **Delete** action — same enable/disable guard as the empty-group prompt's Delete (history-bearing groups can't be deleted)
+
+Renaming an archived group is allowed and useful for seasonal reuse (rename Weaners 2025 → Weaners 2026 before reactivating).
+
+#### Pickers that must filter `archivedAt IS NULL`
+
+Move wizard group picker, event creation group picker, default Group CRUD list, Field Mode group pills, reports that default to "active groups only", and the dashboard groups view. Reports designed to show full history (e.g., a season summary) read all groups regardless of `archivedAt` and label archived ones explicitly.
+
+#### Out of scope for v2 launch
+
+Bulk archive of multiple empty groups (each cascade triggers its own prompt). Scheduled auto-archive (e.g., "archive after 30 days empty"). Forced archive of a non-empty group from the management UI — archiving requires emptiness today, with a follow-up OI tracking the request if it surfaces in field testing.
+
+#### CP-55/CP-56 impact
+
+`groups.archived_at` is serialized as ISO string or null on export. Old backups carrying the pre-migration-024 `archived` boolean run through the v23 → v24 backup-migrations chain entry, which maps `archived: true` to `archivedAt: <timestamp>` and `archived: false` to `archivedAt: null` before the import lands. This catch-up is part of OI-0156 (CP-55/CP-56 sweep for new persisted fields).
+
 ---
 
 ## 4. Feed Delivery
@@ -630,6 +680,12 @@ The primary interface for viewing and managing an individual animal. Combines CR
 | Weaned | toggle | No | With conditional wean date picker |
 | Notes | textarea | No | General notes on this animal |
 
+**Dam + Birth date — shared row layout (SP-14, OI-0132).** Dam and Birth date sit on a single visual row in the Edit Animal panel — Dam at ~55–60% width, Birth date at ~35–40% width — implemented as a flex row directly inside the existing panel scroll. Putting the two fields side-by-side makes the linkage between them self-evident at form-fill time instead of error-surface time, and reclaims the wasted full-width space the standalone Dam dropdown used to occupy. The separate full-width Birth date row that previously rendered after Notes is removed; `inputs.birthDate.value` is preserved unchanged so all downstream `saveAnimal()` reads continue to work.
+
+The Birth date label carries a small grey hint that toggles dynamically with Dam selection. When Dam = "— unknown —" the hint reads `optional` in `--text2`. When Dam = any selected animal the hint flips to `required` in red (`--red`) so the OI-0132 Class A "birthdate required when dam is set" rule reads as a form-level cue rather than an after-save error. The toggle is wired to a `change` listener on the Dam select so it updates live without a re-render. Initial render of an existing calf with a dam already set shows the red `required` hint immediately. On save, if the hard-gate trips (Dam set, Birth date blank), the inline error renders directly below the Birth date field — short field, short error: *"Birth date is required when a dam is set."*
+
+On a narrow mobile viewport (≤ 400px) the two columns may wrap and stack; both take full width in that case as an acceptable fallback. The data-logic side of OI-0132 (bidirectional dam-calf sync helper at `src/features/animals/calving-sync.js`) shipped 2026-04-22 in commit `e9b40eb`; this layout supports the rule the helper enforces.
+
 **Female-only sections (edit mode):**
 
 - **Confirmed bred status** — Toggle + confirmation date. Derived from latest breeding record with `confirmed_date`, but can be manually toggled.
@@ -947,7 +1003,15 @@ The header bar is sticky top on both mobile and desktop. Two clusters: identity 
 | Field mode toggle | — | `btn btn-green btn-xs`. Navigates to `#/field`. Hidden while already in Field Mode. |
 | User menu | `auth.user.email` initials | 28×28 circle button, `--bg2` bg, 1px `--border`, initials in 11px/600 `--text2`. Tap opens user menu popover (§3.6 user menu popover pattern) with user email (read-only) and Log Out action. |
 
-**Feedback & Help sub-row:** A compact 28px row sits below the main header row, right-aligned to match the right cluster. Contains two `btn btn-outline btn-xs` buttons: "💬 Feedback" (opens feedback sheet, `type='feedback'`) and "🆘 Get Help" (opens support sheet, `type='support'`). Hidden in Field Mode. Full spec in UI_SPRINT_SPEC.md SP-6. Replaces v1's floating action button — there is no FAB in v2.
+**Feedback & Help sub-row:** A compact two-button row sits directly below the main header row, replacing v1's floating action button (no FAB in v2). It's a separate visual band so the existing right cluster is unchanged.
+
+The sub-row is 28px tall, right-aligned to match the main right cluster, with 8px gap between the two buttons (same as the main row's right-cluster gap), `0 12px` padding (left auto-margin pushes the buttons right), a 1px `--border` bottom divider that matches the main header's bottom border, and a `--bg` background. The two buttons share `btn btn-outline btn-xs` styling at 11px/500 with `3px 10px` padding and `--radius` (6px) corners. The button labels are "💬 Feedback" and "🆘 Get Help" with the emoji prefix carried verbatim into the rendered string (per v1 styling).
+
+Responsive behavior: visible on both desktop (≥900px, in the main content header above the page area) and mobile (<900px, same position) down to a 280px viewport — the two compact buttons fit any width that the main app supports. The sub-row is **hidden in Field Mode** (matches v1's FAB-hidden-in-field-mode rule).
+
+Each button opens its own pre-configured sheet — no type toggle, no decision step before the user can write. The Feedback button opens a sheet with `type='feedback'`, title "Leave feedback", showing all seven category pills (🚧 Roadblock, Bug, UX friction, Missing feature, Calculation, Idea, Question). The Get Help button opens a sheet with `type='support'`, title "Get help", showing only the four "I have a problem" categories (Roadblock, Bug, Calculation, Question — the suggestion-shaped categories belong only on the Feedback sheet) and an always-visible Priority dropdown (Normal, High = blocking my work, Urgent = data at risk, Low = when you get a chance). Both sheets share the rest of their structure: an auto-filled read-only context tag (current screen + active event info), an auto-filled-but-editable Area dropdown using v2 screen names (`dashboard`, `rotation-calendar`, `animals`, `feed`, `locations`, `harvest`, `field-mode`, `reports`, `settings`, `sync`, `other` — note `home` → `dashboard`, `events` → `rotation-calendar`, `pastures` → `locations`, `todos` removed for v2 launch), a required Note textarea (placeholder copy differs per sheet), and Save / Cancel buttons. Both write to the existing `submissions` entity with the `type` field set automatically based on which button opened the sheet — there are no schema changes (V2_INFRASTRUCTURE.md §4.2 already covers `submissions`).
+
+Unread badge counts on these header buttons are out of scope; the badge surface lives on the desktop Feedback nav item (see §21).
 
 **Switching farms with unsaved work:** When the user selects a different farm in the picker and there's an unsaved survey draft or an open wizard scoped to the current farm, show a confirm dialog: title "Unsaved work on {currentFarmName}", body "You have an unsaved {draftType} — it'll be kept here and you can return to it later.", buttons [Switch anyway] (primary `--green`) · [Cancel] (ghost). Drafts stay scoped to the farm they were started on — no discard from this dialog; discard lives inside the draft itself. See §18 for the full flow.
 
@@ -2056,6 +2120,86 @@ Desktop: all sections rendered as a single scrollable column with section header
 
 **Owner protection:** Owner row has no action buttons. Operation must always have exactly one owner.
 
+### 20.8 Forage Types (Reference Library)
+
+**Where it sits:** Settings screen, between the Farm Settings card and the Field Mode section. Mirrors v1's vertical ordering (Farms → Forage Types → Field Mode → Farm Settings) so a v1 farmer's muscle memory transfers; the card sits next to the farms it attaches to. Visible on both desktop and mobile Settings — there is no Field Mode entry for forage types (matches v1).
+
+**Purpose:** the reference library that drives FOR-1 (standing DM), DMI-8 (cascade chart), harvest NPK math, and the per-location `forageTypeId` link. v2 originally shipped only the onboarding seed step (`src/features/onboarding/seed-data.js` writes nine default rows once) plus the Location detail forage-type picker. This subsection adds the missing surface to view, add, edit, and delete forage types after onboarding — without it, a farmer who skipped or customized the seed step has no way to reach the values driving their pasture math (Tim hit this 2026-04-20).
+
+**Card anatomy:**
+
+- Section header reading "Forage types" with a subtitle: *"Reference library for DM% and NPK removal values. Linked to feed types and harvest events."*
+- Top-right `+ Add` button (`btn btn-outline btn-sm`) opening the Add/Edit sheet in blank mode
+- A list of all non-archived forage types for the active operation
+- Each row shows `<strong>{name}</strong>` followed by a meta line — `DM {dmPct}% · N {n} / P {p} / K {k} kg/t DM` — with `?` rendered for null values (`DM ?%`, `N ?`)
+- **Seeded badge.** Rows with `is_seeded = true` display a small "seeded" badge next to the name. The flag is set by the onboarding seed step and is **not user-editable** — editing a seeded row keeps the badge so the farmer can still see "this came from defaults"; user-created rows save with `isSeeded = false`. The distinction matters when a future migration reseeds defaults, and gives the farmer a quick "did I customize this?" read.
+- Per-row controls: an `Edit` pill (opens the sheet in edit mode, pre-filled) and a delete `×` icon
+
+**Add / Edit sheet fields** (sheet title "Add Forage Type" or "Edit Forage Type"):
+
+| Field | Type | Notes |
+|---|---|---|
+| Name | text | Required. `placeholder = "e.g. Orchard Grass"` |
+| DM % (dry matter) | number, 0–100 | No conversion. Integer. |
+| N (kg/t DM) | number ≥ 0 | Metric density. Kept as kg/t DM for both unit systems (matches v1). |
+| P (kg/t DM) | same | same |
+| K (kg/t DM) | same | same |
+| DM per inch per acre / DM per cm per ha | unit-aware number | Imperial users see `lbs/in/ac`; metric users see `kg/cm/ha`. New `dmYieldDensity` unit family — see V2_INFRASTRUCTURE.md §1.4. |
+| Min residual height (in / cm) | unit-aware number ≥ 0 | Standard `length` family — `convert(cm, 'length', 'toImperial')`. |
+| Utilization % | number, 0–100 | Optional. Seeded defaults are 50–75 by species. |
+| Notes | textarea | Optional. `placeholder = "Source, lab, year…"` |
+
+The sheet uses the same unit-aware descriptor pattern as the Farm Settings card (OI-0111 / `FARM_FIELD_DESCRIPTORS`) — `toDisplayValue` / `toStoredValue` / `composeFieldLabel` / `stepForField` shared via `src/features/settings/unit-descriptor.js` so there's exactly one conversion path. **Round-trip contract:** entering `300` for DM per inch per acre stores the metric equivalent via the `DM_LBS_IN_AC_TO_KG_CM_HA` constant from `v1-migration.js`; re-opening the sheet shows `300` again. The same round-trip holds for `3 in` ↔ `7.62 cm` for Min residual height.
+
+**Save and validate.** Save calls `store.add('forageTypes', record, validateForageType, ftToSb, 'forage_types')` for new rows or `store.update('forageTypes', id, changes, validateForageType, ftToSb, 'forage_types')` for edits — both with the full 5-/6-param signatures per CLAUDE.md quality check #7 (sync params required so localStorage and Supabase stay aligned). `name` is the only required field; everything else is nullable per the entity. Editing a seeded row keeps `is_seeded = true` — the badge stays.
+
+**Delete.** Hard-guarded against in-use forage types: if any `locations` row references the forage type via `forage_type_id`, block deletion with a confirm dialog listing the affected paddocks and a "View locations" link that navigates to `#/locations`. No silent reassignment, no cascade. When no locations reference the row, confirm with *"Delete \"{name}\"? This cannot be undone."* and call `store.remove('forageTypes', id, 'forage_types')` (3-param signature).
+
+**Empty state.** When `getAll('forageTypes').filter(f => !f.archived).length === 0` — possible after a v1 import with no forage types, or if onboarding seeding becomes optional in the future — the list body shows: *"No forage types yet. Tap + Add to create one, or seed defaults."* The "seed defaults" link runs the same nine-row insert as `onboarding/seed-data.js`, gated by a confirm dialog (*"Seed 9 default forage types? You can edit or delete them afterward."*) so a mid-farmer with one custom row doesn't accidentally inflate the list.
+
+**Out of scope for v2 launch:** archive UI (`forage_types.archived` column already exists; toggle deferred to a follow-up — Tim's operation has fewer than 20 types so delete is enough for MVP), per-type custom unit labels (v1 free-text "unit label" field), and forage quality grading (separate concept on `paddock_observations.forage_quality`, owned by SP-9).
+
+**Schema / CP-55 / CP-56 impact:** none. All `forage_types` columns already exist (migrations 001 + 003) and the entity already round-trips. The new `dmYieldDensity` unit family is local to display/save — the stored column (`dm_kg_per_cm_per_ha`) is unchanged.
+
+**Linked OPEN_ITEMS:** OI-0125.
+
+---
+
+## 21. Feedback Screen (Desktop-Only)
+
+**Route:** `#/feedback`. Reached from a `Feedback` nav item that lives only in the desktop sidebar — between Settings and the sync strip — and never in the mobile bottom nav. The same row carries an unread badge with the count of submissions where `status === 'open' OR status === 'resolved'` (red `--red`, 9px white text, same pattern as the Todos badge in §17.2). Submission writes still come from the SP-6 header sub-row, which is available on every viewport; this screen is the management surface, not the capture surface, and management is a desktop-grade task that doesn't belong in the field.
+
+**Reads from:** the `submissions` entity (V2_INFRASTRUCTURE.md §4.2). All mutations route through the store (`store.update('submissions', …)` and `store.remove('submissions', …)`). No new entities, no schema change, no CP-55/CP-56 impact.
+
+**Screen sections, top to bottom (matches v1's order so the muscle memory transfers):**
+
+1. **Confirmation section (banner + cards).** When at least one submission has `status === 'resolved'`, render an amber banner across the top of the page: *"N item(s) resolved — please confirm the fix worked."* Below the banner, render one card per resolved item showing its category pill, area, dev-response excerpt, original note, and two actions: `✓ Confirm fix` (sets `status='closed'`, clears the resolved badge for that row) and `↺ Reopen` (sets `status='open'` and posts a follow-up note). Confirmation is the user's signature that the fix landed for them — it's how a resolved item leaves the active list. If there are no resolved items, this section is hidden entirely.
+
+2. **Stats strip (badge row).** A horizontal row of count badges: open / planned / awaiting-confirmation / closed / support. Each badge tappable to filter the All Submissions list below to that status. The strip uses the §3.3 badge tokens from V2_DESIGN_SYSTEM.md (color-coded per status). The strip is a quick read of "where am I" before the user dives into the list.
+
+3. **Dev session brief card.** Two buttons (`Generate brief` and `Copy brief`) above a monospace code block. The brief is plain text auto-assembled from open + roadblock + bug submissions: title line, date, list of items grouped by category, each item's area, note, and any context tag. `Generate` recomputes; `Copy` copies the rendered text to clipboard. The brief is a hand-off artifact for paste into a session brief or an issue tracker. No persistence of the brief — it's regenerated on demand each time.
+
+4. **All submissions card.** Three filter dropdowns at the top — type (`feedback` / `support` / both), area (matches the Area dropdown values from the SP-6 sheets), and a third combined status/category dropdown that lets the user filter to a specific status (`open`, `planned`, `resolved`, `closed`) or category (`roadblock`, `bug`, `ux`, etc.). Below the filters, a scrollable list of submission rows. Each row shows: created-at date (relative formatting — "today", "2 days ago"), category pill (color-coded per the SP-6 styling), area, type icon (💬 / 🆘), the first ~140 chars of the note with ellipsis, and a row click that opens the **Submission detail sheet** (slide-over from the right on desktop). The detail sheet shows the full submission, lets an admin edit the category / area / status / priority, post a dev response, and resolve, reopen, or delete. The submission detail sheet is the only place an admin can mutate a submission row — the list itself is read-only.
+
+**Layout / desktop nav placement:**
+
+| Property | Value |
+|---|---|
+| Route | `#/feedback` |
+| Sidebar label | `Feedback` (with 💬 icon, matching the SP-6 header button) |
+| Sidebar position | After Settings, before the sync strip at the bottom of the sidebar |
+| Mobile bottom nav | Not shown — the screen is desktop-only |
+| Badge | Red badge with count of `open` + `resolved` items |
+| `data-testid` | `nav-feedback` |
+
+**Resolve / edit sheets behavior.** Resolve and Edit live on the submission detail sheet, not as inline buttons in the list. Resolve writes `status='resolved'` plus the dev response, then surfaces the row in section 1's Confirmation banner the next time the user lands on the screen. Edit changes any of the editable fields (category, area, type, priority, status) and posts a system-generated note recording the change for audit trail.
+
+**No mobile fallback.** A user who lands on `#/feedback` from a mobile viewport sees a centered card: *"Feedback management is desktop-only. Open this screen on a larger device to review and reply."* with a `Back to dashboard` button. Submissions still capture on mobile (header sub-row); only management is desktop-gated.
+
+**Out of scope for v2 launch:** threaded multi-message dev responses (single response field for now), email notifications when an admin posts a response (deferred until commercialization), team-member self-confirmation on submissions another team member filed (the original submitter is the only confirmer for now).
+
+**Linked specs:** SP-6 covers the capture sheets that write into this screen's data. The full v1 HTML/CSS/JS reference lived in `github/issues/feedback-screen-desktop.md` during the sprint and has been retired into the thin-pointer sweep at the end of Session C.
+
 ---
 
 ## Change Log
@@ -2071,6 +2215,7 @@ Desktop: all sections rendered as a single scrollable column with section header
 | 2026-04-13 | Settings screen + unit-system toggle (GH-3 base-doc fill) | Added §20 Settings Screen (7 top-level sections). §20.2 documents the unit-system toggle mechanics: `store.setUnitSystem()` action, sync-failure revert, full list of unit-sensitive fields that re-render on toggle, input-field conversion rules, localStorage → `operations.unit_system` one-time migration on boot, Field Mode inheritance. §20.3 documents Export/Import/Migrate/Resync actions in the Sync & Data section (forward references to V2_MIGRATION_PLAN.md §5). Closes the GH-3 base-doc integration gap identified in the 2026-04-13 reconciliation audit. |
 | 2026-04-13 | Rotation calendar design (CP-54) | Added §19 Rotation Calendar — 9 subsections covering view modes (Estimated Status + DM Forecast), past event blocks (linked, strip-grazed, active, sub-move), future forecast blocks (capacity split, surplus, never-grazed → survey CTA), toolbar lightboxes (Timeline Selection + Dry Matter Forecaster), confinement pill, sidebar mirroring paddock column, empty states, mobile fallback (no calendar below 900px — v1 GRZ-11 banner + GRZ-10 list), List view (v1 GRZ-10 pattern), and **§19.9 Interactions & Deep Linking** (click targets, pan/zoom gestures, keyboard shortcuts, deep-link URL schema, first-load defaults Zoom=Week/Jump=Today, state persistence policy deferred from user_preferences to a follow-up, paddock sort order, accessibility). Calendar lives only on the Events screen — Reports does not mount a second copy. Bundles strip-grazing from OI-0001. |
 | 2026-05-03 | Reconciliation Session B — UX flows P1 catch-up (RECONCILIATION_PLAN_2026-05-03 UX-1, UX-2, UX-3, UX-4) | Four base-doc edits landing in one pass. **§17.7 (UX-1):** stub card body spec replaced with full v1-parity rewrite from UI_SPRINT_SPEC SP-3 — 15-element card anatomy (left green accent bar through DMI/NPK summary), explicit two deliberate v1 deltas (small bottom Feed/Feed-check buttons removed; large green Feed button added under large amber Feed check), header buttons (Edit opens §17.15 sheet, Move all opens move wizard), "What is NOT on this card" callouts for OI-0065 (per-group reweigh moved to Animals area) and OI-0066 (per-group Move on dashboard is event-scoped). **§16 (UX-2):** pre-sprint Field Mode prose replaced with v1-parity rewrite from UI_SPRINT_SPEC SP-8 — 12 subsections covering header pill activation with three-state context-aware behavior (⊞ Field / ← Detail / ⌂ Home), exit-returns-to-previous via sessionStorage, body.field-mode CSS gate (sidebar / bottom nav / SP-6 sub-row / build stamp hidden + desktop grid collapse), 8-module tile grid driven by `FIELD_MODULES` constant with 4-module default, shared event picker sheet (Move / Feed Check / Heat fallback), expandable event cards reusing `buildLocationCard()`, interactive tasks with checkboxes + due-date color coding, 2-step Heat picker (event/group filter pills, search, multi-record), feed-loop behavior on Feed Animals tile, field-mode sheet treatment (no backdrop close, hidden handle, "⌂ Done", full-screen mobile, after-save→#/field), Module Settings card cross-reference to §20. The dark-green field-mode header bar is explicitly deleted. **§17.15 DMI chart (UX-3):** added the 5-state status model (actual / estimated / needs_check / no_animals / no_pasture_data) per UI_SPRINT_SPEC SP-12 / OI-0119 — full status table with bar render, label, and CTA per status; "Feed check needed" hint on `needs_check` for stored-feed events without a strike point; deficit red-segment render and conditional `■ deficit` legend swatch; partial pre-graze "(Fix)" hint; source-event date-routing-only bridge documented; forced feed-check on sub-move close rule referenced. **NEW §17.15.1 (UX-4):** "Event Data Editing" subsection created from UI_SPRINT_SPEC SP-10 — core principle (compute on read for derived; explicit reconciliation for structural), shared gap/overlap routine (3 options each), retro-place atomic two-write flow (no reopen ceremony), §7 Groups Edit dialog (new Edit button between Move and Remove; auto-save on blur; Delete window with guards), §12 Sub-moves Edit dialog (resolves OI-0064 — Reopen folds in; no gap detection; range guards; strip-graze flip), event-level dates (`date_in` direct edit with reject-on-narrow / confirm-on-widen; Event Reopen for `date_out` with three-option group-conflict picker; re-close overlap warning), §8 Feed Entries validation guards, §8a Move Feed Out (new capability — 4-step sheet, two entry points, atomic transaction, DMI / NPK / cost logic block), §9 Feed Checks invariant + Re-snap dialog (Cases A/B/C/D), §3 Pre-graze + §6 Post-graze inline edit + silent cascade, sub-move close forced feed-check rule. Architecture-doc portion (snapshot/rollback pattern in V2_APP_ARCHITECTURE.md) deferred to Session C. No code changed in this session — documentation catch-up only. Owner: Cowork. |
+| 2026-05-04 | Reconciliation Session C — UX flows P2/P3 catch-up (RECONCILIATION_PLAN_2026-05-03 UX-5, UX-6, UX-7, UX-8) | Four base-doc edits landing in one pass, completing the UX-side reconciliation backlog. **NEW §3.4 (UX-5) — Empty Group Handling (Archive Cascade):** absorbs UI_SPRINT_SPEC SP-11 + OI-0090. Documents the post-window-split trigger (`maybeShowEmptyGroupPrompt(groupId)` — no centralized "after last membership closes" cascade; each mutation flow owns its call), three group states (`active` / `empty-but-active` / `archived`) on the `groups.archived_at TIMESTAMPTZ` column shipped in migration 024, the empty-group prompt (Archive primary / Keep active / Delete with hard-disable when group has any historical event_group_window), the Group Management UI ("Show archived" toggle + per-row Reactivate + delete-history guard), the picker filter list (move wizard / event creation / Group CRUD / Field Mode pills / reports / dashboard), and the CP-55/CP-56 OI-0156 catch-up note. **§17.2 (UX-6) — Feedback & Help sub-row:** the brief paragraph that pointed at UI_SPRINT_SPEC SP-6 has been replaced with the full inlined spec — sub-row layout (28px height, 1px `--border` bottom divider, right-aligned, 8px button gap), button styling (`btn btn-outline btn-xs`, 11px/500, 💬 / 🆘 emoji prefix), responsive behavior (≥900px desktop / <900px mobile / hidden in Field Mode, fits down to 280px viewport), Feedback sheet (`type='feedback'`, all 7 category pills) vs Get Help sheet (`type='support'`, 4 categories only, always-visible Priority dropdown), shared structure (auto-filled context tag and Area dropdown using v2 screen names — `home`→`dashboard`, `events`→`rotation-calendar`, `pastures`→`locations`, `todos` removed for v2 launch), and the no-FAB-in-v2 statement. Both sheets write to `submissions` (V2_INFRASTRUCTURE.md §4.2) — no schema change. **NEW §21 (UX-7) — Feedback Screen (Desktop-Only):** absorbs UI_SPRINT_SPEC SP-7. Documents the desktop-sidebar-only nav placement (between Settings and the sync strip; never in mobile bottom nav) with red unread badge for `open` + `resolved` items; four screen sections matching v1's order (Confirmation banner + cards for resolved items awaiting user confirm; Stats strip with status/category badges that filter the list; Dev session brief card with Generate + Copy buttons over a regenerated monospace text block; All Submissions card with type / area / status filters and a row-click submission detail sheet); resolve / edit lives only on the detail sheet (not inline); explicit mobile fallback (centered "desktop-only" card with Back to dashboard); out-of-scope items (threaded responses, email notifications, cross-team-member confirmation). No new entities, no schema, no CP-55/CP-56 impact. **NEW §20.8 (UX-8) — Forage Types (Reference Library):** absorbs UI_SPRINT_SPEC SP-13 + OI-0125. Documents the Settings card placement (between Farm Settings and Field Mode, mirroring v1's vertical order); card anatomy (header + subtitle + `+ Add` button + row list with `<strong>name</strong>` + meta line + "seeded" badge + Edit pill + delete `×`); Add/Edit sheet fields (name required; DM%; N/P/K kg/t DM; **dmYieldDensity** field with imperial `lbs/in/ac` ↔ metric `kg/cm/ha` — see new V2_INFRASTRUCTURE.md §1.4; Min residual height in length family; Utilization %; Notes); shared unit-descriptor pattern with Farm Settings (`src/features/settings/unit-descriptor.js`); store-call signatures with full sync params per CLAUDE.md quality check #7; delete hard-guard against in-use forage types (lists affected paddocks + "View locations" link); empty-state with "seed defaults" link gated by confirm; out-of-scope (archive UI, custom unit labels, forage quality grading); zero schema / CP-55 / CP-56 impact. No code changed in this session — documentation catch-up only. Owner: Cowork. |
 
 ---
 

@@ -24,6 +24,83 @@ import { getCalcByName } from '../../utils/calc-registry.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { buildDmi8ChartContext } from '../events/dmi-chart-context.js';
 import { getEventStartDate } from '../events/event-start.js';
+import { daysBetweenInclusive } from '../../utils/date-utils.js';
+
+// OI-0157-B2 helper: NRC beef-cattle excretion-rate defaults. Used by NPK-1
+// resolver when an animal class doesn't carry its own per-class rates.
+// Values match NPK-1's example block in `src/calcs/core.js`.
+const NRC_DEFAULT_EXCRETION = { n: 0.145, p: 0.041, k: 0.136 };
+
+// OI-0157-B2 helper: pick the NPK price row applicable to an event start.
+// Lookup rule (locked NPK-2 spec, advanced.js:12): latest
+// `npk_price_history.effective_date ≤ event_date` for the farm; falls back
+// to the earliest available row if no history exists before the event date.
+// Returns null when the table has no rows for the farm — caller should
+// gate (`applicable: false, reason: 'Set NPK prices in Settings → NPK
+// Prices to enable.'`).
+function pickNpkPrices(farmId, eventStartDate) {
+  const all = getAll('npkPriceHistory').filter(r => r.farmId === farmId);
+  if (all.length === 0) return null;
+  const prior = all.filter(r => r.effectiveDate && r.effectiveDate <= eventStartDate);
+  if (prior.length > 0) {
+    return prior.slice().sort((a, b) => (b.effectiveDate || '').localeCompare(a.effectiveDate || ''))[0];
+  }
+  return all.slice().sort((a, b) => (a.effectiveDate || '').localeCompare(b.effectiveDate || ''))[0];
+}
+
+// OI-0157-B2 helper: compute per-group-window NPK from the registered
+// NPK-1 calc. Returns `{ instances: [{ gw, nKg, pKg, kKg, missing }] }`
+// where `missing` flags rows that fell back to NRC defaults. Used by both
+// resolveNPK1 (renders the cards) and resolveNPK2 / resolveCST3 / resolveNPK3
+// (consume the totals). Centralized here to avoid drifting four copies of
+// the same per-window walk.
+function computeNpk1PerWindow(ctx) {
+  const calc = getCalcByName('NPK-1');
+  if (!calc) return null;
+  const groupWindows = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId && !gw.dateLeft);
+  if (groupWindows.length === 0) return { calc, groupWindows: [], rows: [] };
+
+  const memberships = getAll('animalGroupMemberships');
+  const animals = getAll('animals');
+  const animalClasses = getAll('animalClasses');
+  const animalWeightRecords = getAll('animalWeightRecords');
+  const today = new Date().toISOString().slice(0, 10);
+  const eventStart = getEventStartDate(ctx.eventId) || today;
+
+  const rows = [];
+  for (const gw of groupWindows) {
+    const cls = gw.animalClassId ? animalClasses.find(c => c.id === gw.animalClassId) : null;
+    const rawHead = getLiveWindowHeadCount(gw, { memberships, now: today });
+    const headCount = rawHead || (gw.headCount ?? 0);
+    const rawAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: today });
+    const avgWeightKg = rawAvg || (gw.avgWeightKg ?? 0);
+    const startDate = gw.dateJoined || eventStart;
+    const days = Math.max(daysBetweenInclusive(startDate, today), 0);
+    const nFromCls = cls?.excretionNRate;
+    const pFromCls = cls?.excretionPRate;
+    const kFromCls = cls?.excretionKRate;
+    const nRate = nFromCls ?? NRC_DEFAULT_EXCRETION.n;
+    const pRate = pFromCls ?? NRC_DEFAULT_EXCRETION.p;
+    const kRate = kFromCls ?? NRC_DEFAULT_EXCRETION.k;
+    let output = { nKg: 0, pKg: 0, kKg: 0 };
+    let gateStatus = 'ok';
+    try {
+      output = calc.fn({
+        headCount, avgWeightKg, days,
+        excretionNRate: nRate, excretionPRate: pRate, excretionKRate: kRate,
+      });
+    } catch (err) {
+      gateStatus = `error: ${err.message}`;
+    }
+    rows.push({
+      gw, cls, headCount, avgWeightKg, days,
+      nRate, pRate, kRate,
+      nFromCls, pFromCls, kFromCls,
+      output, gateStatus,
+    });
+  }
+  return { calc, groupWindows, rows };
+}
 
 /**
  * Helper: build an `{ name, value, source, measureType, missing }` annotation.
@@ -344,12 +421,504 @@ function resolveDMI8(ctx) {
   };
 }
 
+/* ----------------------------------------------------------------------- *
+ * OI-0157-B2 — NPK / fertility / stocking-density resolvers.
+ *
+ * 9 resolvers added: NPK-1 / NPK-2 / NPK-3 / NPK-4 / CST-3 / REC-1 +
+ * ANI-AU / ANI-AUD / ANI-ADA (the three new registrations from B1).
+ * Each follows the DMI-2 / FOR-1 pattern: pull inputs from the store,
+ * annotate via `input(...)`, call `getCalcByName(name).fn(...)`, return
+ * `{ name, applicable, instances|reason }`. Cross-resolver dependencies
+ * (NPK-2 / CST-3 / NPK-3 needing NPK-1 sums; ANI-ADA needing ANI-AUD
+ * sums) re-run the per-window computation locally — same self-contained
+ * pattern as DMI-3.
+ * ----------------------------------------------------------------------- */
+
+/** NPK-1 — per group window. Uses class excretion rates with NRC fallback. */
+function resolveNPK1(ctx) {
+  const data = computeNpk1PerWindow(ctx);
+  if (!data) return null;
+  if (data.groupWindows.length === 0) {
+    return { name: 'NPK-1', applicable: false, reason: 'No open group windows on this event.' };
+  }
+  const instances = [];
+  for (const row of data.rows) {
+    const { gw, cls, headCount, avgWeightKg, days,
+            nRate, pRate, kRate, nFromCls, pFromCls, kFromCls,
+            output, gateStatus } = row;
+    const group = getById('groups', gw.groupId);
+    const inputs = [
+      input('headCount', headCount, `eventGroupWindows.${gw.id}.headCount (live)`),
+      input('avgWeightKg', avgWeightKg, `eventGroupWindows.${gw.id}.avgWeightKg (live)`, 'weight'),
+      input('days', days, `daysBetweenInclusive(${gw.dateJoined || 'eventStart'}, today)`),
+      input('excretionNRate', nRate,
+        nFromCls != null ? `animalClasses.${cls.id}.excretionNRate` : 'fallback (NRC beef defaults)',
+        null, nFromCls == null),
+      input('excretionPRate', pRate,
+        pFromCls != null ? `animalClasses.${cls.id}.excretionPRate` : 'fallback (NRC beef defaults)',
+        null, pFromCls == null),
+      input('excretionKRate', kRate,
+        kFromCls != null ? `animalClasses.${cls.id}.excretionKRate` : 'fallback (NRC beef defaults)',
+        null, kFromCls == null),
+    ];
+    instances.push({
+      label: group?.name ? `Group: ${group.name}` : `Window ${gw.id.slice(0, 8)}`,
+      groupWindowId: gw.id,
+      inputs, output, gateStatus,
+      outputMeasure: null, outputSuffix: ' kg NPK',
+    });
+  }
+  return { name: 'NPK-1', applicable: true, instances };
+}
+
+/** NPK-2 — event scope. Sum of NPK-1 outputs × farm's effective NPK prices. */
+function resolveNPK2(ctx) {
+  const calc = getCalcByName('NPK-2');
+  if (!calc) return null;
+  const event = getById('events', ctx.eventId);
+  if (!event) return { name: 'NPK-2', applicable: false, reason: 'Event not found.' };
+
+  const data = computeNpk1PerWindow(ctx);
+  if (!data || data.groupWindows.length === 0) {
+    return { name: 'NPK-2', applicable: false, reason: 'No open group windows on this event.' };
+  }
+  const eventStart = getEventStartDate(ctx.eventId) || new Date().toISOString().slice(0, 10);
+  const prices = pickNpkPrices(event.farmId, eventStart);
+  if (!prices) {
+    return {
+      name: 'NPK-2',
+      applicable: false,
+      reason: 'Set NPK prices in Settings → NPK Prices to enable.',
+    };
+  }
+
+  const totalN = data.rows.reduce((s, r) => s + (r.output?.nKg || 0), 0);
+  const totalP = data.rows.reduce((s, r) => s + (r.output?.pKg || 0), 0);
+  const totalK = data.rows.reduce((s, r) => s + (r.output?.kKg || 0), 0);
+
+  const inputs = [
+    input('nKg', totalN, `composed: Σ NPK-1[${data.rows.length}].output.nKg`, 'weight'),
+    input('pKg', totalP, `composed: Σ NPK-1[${data.rows.length}].output.pKg`, 'weight'),
+    input('kKg', totalK, `composed: Σ NPK-1[${data.rows.length}].output.kKg`, 'weight'),
+    input('nPricePerKg', prices.nPricePerKg, `npkPriceHistory.${prices.id}.nPricePerKg (effective ${prices.effectiveDate})`),
+    input('pPricePerKg', prices.pPricePerKg, `npkPriceHistory.${prices.id}.pPricePerKg (effective ${prices.effectiveDate})`),
+    input('kPricePerKg', prices.kPricePerKg, `npkPriceHistory.${prices.id}.kPricePerKg (effective ${prices.effectiveDate})`),
+  ];
+  let output = null, gateStatus = 'ok';
+  try {
+    output = calc.fn({
+      nKg: totalN, pKg: totalP, kKg: totalK,
+      nPricePerKg: prices.nPricePerKg ?? 0,
+      pPricePerKg: prices.pPricePerKg ?? 0,
+      kPricePerKg: prices.kPricePerKg ?? 0,
+    });
+  } catch (err) {
+    gateStatus = `error: ${err.message}`;
+  }
+  return {
+    name: 'NPK-2',
+    applicable: true,
+    instances: [{
+      label: 'Event total',
+      inputs, output, gateStatus,
+      outputMeasure: null, outputSuffix: ' $',
+    }],
+  };
+}
+
+/** NPK-3 — paddock-window scope. Area-weighted distribution per open paddock window. */
+function resolveNPK3(ctx) {
+  const calc = getCalcByName('NPK-3');
+  if (!calc) return null;
+  const paddockWindows = getAll('eventPaddockWindows').filter(pw => pw.eventId === ctx.eventId && !pw.dateClosed);
+  if (paddockWindows.length === 0) {
+    return { name: 'NPK-3', applicable: false, reason: 'No open paddock windows on this event.' };
+  }
+  const data = computeNpk1PerWindow(ctx);
+  if (!data || data.groupWindows.length === 0) {
+    return { name: 'NPK-3', applicable: false, reason: 'No open group windows on this event.' };
+  }
+
+  const totalN = data.rows.reduce((s, r) => s + (r.output?.nKg || 0), 0);
+  const totalP = data.rows.reduce((s, r) => s + (r.output?.pKg || 0), 0);
+  const totalK = data.rows.reduce((s, r) => s + (r.output?.kKg || 0), 0);
+
+  // Build the windows-shape NPK-3.fn expects. `durationHours` uses days
+  // since pw open as a coarse proxy (the registered formula is symmetric
+  // in any consistent duration unit).
+  const today = new Date().toISOString().slice(0, 10);
+  const windowsPayload = paddockWindows.map(pw => {
+    const loc = getById('locations', pw.locationId);
+    const days = Math.max(daysBetweenInclusive(pw.dateOpened || today, today), 0);
+    return {
+      pwId: pw.id,
+      durationHours: days * 24,
+      areaHectares: loc?.areaHectares ?? 0,
+      areaPct: pw.areaPct ?? 100,
+    };
+  });
+
+  let outputs = [];
+  let gateStatus = 'ok';
+  try {
+    outputs = calc.fn({
+      windows: windowsPayload.map(({ durationHours, areaHectares, areaPct }) =>
+        ({ durationHours, areaHectares, areaPct })),
+      totalNKg: totalN, totalPKg: totalP, totalKKg: totalK,
+    });
+  } catch (err) {
+    gateStatus = `error: ${err.message}`;
+    outputs = paddockWindows.map(() => ({ nKg: 0, pKg: 0, kKg: 0 }));
+  }
+
+  const instances = paddockWindows.map((pw, i) => {
+    const loc = getById('locations', pw.locationId);
+    const w = windowsPayload[i];
+    const inputs = [
+      input('durationHours', w.durationHours, `eventPaddockWindows.${pw.id}.dateOpened → today × 24`),
+      input('areaHectares', w.areaHectares, loc ? `locations.${loc.id}.areaHectares` : 'no location', 'area', !loc || loc.areaHectares == null),
+      input('areaPct', w.areaPct, `eventPaddockWindows.${pw.id}.areaPct`),
+      input('totalNKg', totalN, `composed: Σ NPK-1[${data.rows.length}].output.nKg`, 'weight'),
+      input('totalPKg', totalP, `composed: Σ NPK-1[${data.rows.length}].output.pKg`, 'weight'),
+      input('totalKKg', totalK, `composed: Σ NPK-1[${data.rows.length}].output.kKg`, 'weight'),
+    ];
+    return {
+      label: loc?.name || `Loc ${pw.locationId.slice(0, 8)}`,
+      paddockWindowId: pw.id,
+      inputs,
+      output: outputs[i],
+      gateStatus,
+      outputMeasure: null, outputSuffix: ' kg NPK',
+    };
+  });
+  return { name: 'NPK-3', applicable: true, instances };
+}
+
+/** NPK-4 — event scope. Sums external amendments applied during the event window. */
+function resolveNPK4(ctx) {
+  const calc = getCalcByName('NPK-4');
+  if (!calc) return null;
+  const event = getById('events', ctx.eventId);
+  if (!event) return { name: 'NPK-4', applicable: false, reason: 'Event not found.' };
+  const eventStart = getEventStartDate(ctx.eventId);
+  if (!eventStart) {
+    return { name: 'NPK-4', applicable: false, reason: 'Event start not derivable.' };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const lastDate = event.dateOut || today;
+  // appliedAt is timestamptz — bound the window inclusive on both ends.
+  const startTs = `${eventStart}T00:00:00Z`;
+  const endTs = `${lastDate}T23:59:59Z`;
+
+  const inWindow = getAll('amendments').filter(a =>
+    a.operationId === event.operationId &&
+    a.appliedAt && a.appliedAt >= startTs && a.appliedAt <= endTs,
+  );
+  if (inWindow.length === 0) {
+    return { name: 'NPK-4', applicable: false, reason: 'No amendments applied during this event window.' };
+  }
+
+  const inputProducts = getAll('inputProducts');
+  let totalN = 0, totalP = 0, totalK = 0;
+  let totalQty = 0;
+  let resolvableCount = 0;
+  for (const am of inWindow) {
+    const product = am.inputProductId ? inputProducts.find(p => p.id === am.inputProductId) : null;
+    const qtyKg = am.totalQty ?? 0;
+    const nPct = product?.nPct ?? 0;
+    const pPct = product?.pPct ?? 0;
+    const kPct = product?.kPct ?? 0;
+    if (product == null && am.manureBatchId == null) continue; // unresolvable
+    try {
+      const r = calc.fn({ qtyKg, nPct, pPct, kPct });
+      totalN += r.nKg; totalP += r.pKg; totalK += r.kKg;
+      totalQty += qtyKg;
+      resolvableCount += 1;
+    } catch { /* skip malformed row */ }
+  }
+  if (resolvableCount === 0) {
+    return {
+      name: 'NPK-4',
+      applicable: false,
+      reason: `${inWindow.length} amendment(s) in window but NPK percentages were not resolvable (no inputProduct rows).`,
+    };
+  }
+
+  const inputs = [
+    input('amendmentCount', resolvableCount, `amendments where appliedAt ∈ [${eventStart}, ${lastDate}]`),
+    input('totalQty', totalQty, 'sum across resolvable amendments', 'weight'),
+  ];
+  return {
+    name: 'NPK-4',
+    applicable: true,
+    instances: [{
+      label: 'Event total (external amendments)',
+      inputs,
+      output: { nKg: totalN, pKg: totalP, kKg: totalK },
+      gateStatus: 'ok',
+      outputMeasure: null, outputSuffix: ' kg NPK',
+    }],
+  };
+}
+
+/** CST-3 — event scope. Same shape as NPK-2 (cost rollup). */
+function resolveCST3(ctx) {
+  const calc = getCalcByName('CST-3');
+  if (!calc) return null;
+  const event = getById('events', ctx.eventId);
+  if (!event) return { name: 'CST-3', applicable: false, reason: 'Event not found.' };
+  const data = computeNpk1PerWindow(ctx);
+  if (!data || data.groupWindows.length === 0) {
+    return { name: 'CST-3', applicable: false, reason: 'No open group windows on this event.' };
+  }
+  const eventStart = getEventStartDate(ctx.eventId) || new Date().toISOString().slice(0, 10);
+  const prices = pickNpkPrices(event.farmId, eventStart);
+  if (!prices) {
+    return {
+      name: 'CST-3',
+      applicable: false,
+      reason: 'Set NPK prices in Settings → NPK Prices to enable.',
+    };
+  }
+  const totalN = data.rows.reduce((s, r) => s + (r.output?.nKg || 0), 0);
+  const totalP = data.rows.reduce((s, r) => s + (r.output?.pKg || 0), 0);
+  const totalK = data.rows.reduce((s, r) => s + (r.output?.kKg || 0), 0);
+  const inputs = [
+    input('nKg', totalN, `composed: Σ NPK-1[${data.rows.length}].output.nKg`, 'weight'),
+    input('pKg', totalP, `composed: Σ NPK-1[${data.rows.length}].output.pKg`, 'weight'),
+    input('kKg', totalK, `composed: Σ NPK-1[${data.rows.length}].output.kKg`, 'weight'),
+    input('nPricePerKg', prices.nPricePerKg, `npkPriceHistory.${prices.id}.nPricePerKg (effective ${prices.effectiveDate})`),
+    input('pPricePerKg', prices.pPricePerKg, `npkPriceHistory.${prices.id}.pPricePerKg (effective ${prices.effectiveDate})`),
+    input('kPricePerKg', prices.kPricePerKg, `npkPriceHistory.${prices.id}.kPricePerKg (effective ${prices.effectiveDate})`),
+  ];
+  let output = null, gateStatus = 'ok';
+  try {
+    output = calc.fn({
+      nKg: totalN, pKg: totalP, kKg: totalK,
+      nPricePerKg: prices.nPricePerKg ?? 0,
+      pPricePerKg: prices.pPricePerKg ?? 0,
+      kPricePerKg: prices.kPricePerKg ?? 0,
+    });
+  } catch (err) {
+    gateStatus = `error: ${err.message}`;
+  }
+  return {
+    name: 'CST-3',
+    applicable: true,
+    instances: [{
+      label: 'Event NPK cost',
+      inputs, output, gateStatus,
+      outputMeasure: null, outputSuffix: ' $',
+    }],
+  };
+}
+
+/** REC-1 — per closed paddock window. Recovery dates from the close observation. */
+function resolveREC1(ctx) {
+  const calc = getCalcByName('REC-1');
+  if (!calc) return null;
+  const closed = getAll('eventPaddockWindows').filter(pw => pw.eventId === ctx.eventId && pw.dateClosed);
+  if (closed.length === 0) {
+    return { name: 'REC-1', applicable: false, reason: 'No closed paddock windows on this event.' };
+  }
+  const observations = getAll('paddockObservations');
+  const event = getById('events', ctx.eventId);
+  const farmSettings = event?.farmId
+    ? getAll('farmSettings').find(fs => fs.farmId === event.farmId)
+    : null;
+
+  const instances = [];
+  for (const pw of closed) {
+    const loc = getById('locations', pw.locationId);
+    if (!loc) continue;
+    // Pick the close observation tied to this pw (sourceId match), else
+    // most-recent type=close / source=event for the location.
+    const candidates = observations.filter(o =>
+      o.locationId === pw.locationId && o.type === 'close' && o.source === 'event');
+    const obs = candidates.find(o => o.sourceId === pw.id)
+      || candidates.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+      || null;
+
+    const minFromObs = obs?.recoveryMinDays;
+    const maxFromObs = obs?.recoveryMaxDays;
+    const minFromFarm = farmSettings?.defaultRecoveryMinDays;
+    const maxFromFarm = farmSettings?.defaultRecoveryMaxDays;
+    const recoveryMinDays = minFromObs ?? minFromFarm ?? null;
+    const recoveryMaxDays = maxFromObs ?? maxFromFarm ?? null;
+    const minMissing = recoveryMinDays == null;
+    const maxMissing = recoveryMaxDays == null;
+    const observedAt = pw.dateClosed;
+
+    const inputs = [
+      input('observedAt', observedAt, `eventPaddockWindows.${pw.id}.dateClosed`),
+      input('recoveryMinDays', recoveryMinDays,
+        minFromObs != null ? `paddockObservations.${obs.id}.recoveryMinDays`
+        : minFromFarm != null ? `farmSettings.${farmSettings.id}.defaultRecoveryMinDays (fallback)`
+        : 'missing — set on observation or farm settings',
+        null, minMissing),
+      input('recoveryMaxDays', recoveryMaxDays,
+        maxFromObs != null ? `paddockObservations.${obs.id}.recoveryMaxDays`
+        : maxFromFarm != null ? `farmSettings.${farmSettings.id}.defaultRecoveryMaxDays (fallback)`
+        : 'missing — set on observation or farm settings',
+        null, maxMissing),
+    ];
+    let output = null, gateStatus = 'ok';
+    if (minMissing || maxMissing) {
+      gateStatus = 'gated: missing inputs';
+    } else {
+      try {
+        output = calc.fn({ observedAt, recoveryMinDays, recoveryMaxDays });
+      } catch (err) {
+        gateStatus = `error: ${err.message}`;
+      }
+    }
+    instances.push({
+      label: loc.name || `Loc ${loc.id.slice(0, 8)}`,
+      paddockWindowId: pw.id,
+      inputs, output, gateStatus,
+      outputMeasure: null, outputSuffix: '',
+    });
+  }
+  return { name: 'REC-1', applicable: true, instances };
+}
+
+/** ANI-AU — per group window. headCount × avgWeightKg / 453.6 → AU. */
+function resolveANIAU(ctx) {
+  const calc = getCalcByName('ANI-AU');
+  if (!calc) return null;
+  const groupWindows = getAll('eventGroupWindows').filter(gw => gw.eventId === ctx.eventId && !gw.dateLeft);
+  if (groupWindows.length === 0) {
+    return { name: 'ANI-AU', applicable: false, reason: 'No open group windows on this event.' };
+  }
+  const memberships = getAll('animalGroupMemberships');
+  const animals = getAll('animals');
+  const animalClasses = getAll('animalClasses');
+  const animalWeightRecords = getAll('animalWeightRecords');
+  const today = new Date().toISOString().slice(0, 10);
+
+  const instances = [];
+  for (const gw of groupWindows) {
+    const group = getById('groups', gw.groupId);
+    const rawHead = getLiveWindowHeadCount(gw, { memberships, now: today });
+    const headCount = rawHead || (gw.headCount ?? 0);
+    const rawAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: today });
+    const avgWeightKg = rawAvg || (gw.avgWeightKg ?? 0);
+    const inputs = [
+      input('headCount', headCount, `eventGroupWindows.${gw.id}.headCount (live)`),
+      input('avgWeightKg', avgWeightKg, `eventGroupWindows.${gw.id}.avgWeightKg (live)`, 'weight'),
+    ];
+    let output = null, gateStatus = 'ok';
+    try {
+      output = calc.fn({ headCount, avgWeightKg });
+    } catch (err) {
+      gateStatus = `error: ${err.message}`;
+    }
+    instances.push({
+      label: group?.name ? `Group: ${group.name}` : `Window ${gw.id.slice(0, 8)}`,
+      groupWindowId: gw.id,
+      inputs, output, gateStatus,
+      outputMeasure: null, outputSuffix: ' AU',
+    });
+  }
+  return { name: 'ANI-AU', applicable: true, instances };
+}
+
+/** ANI-AUD — per group window. au × days → AU-days. */
+function resolveANIAUD(ctx) {
+  const calc = getCalcByName('ANI-AUD');
+  if (!calc) return null;
+  const auResult = resolveANIAU(ctx);
+  if (!auResult || !auResult.applicable) {
+    return { name: 'ANI-AUD', applicable: false, reason: 'No ANI-AU instances available.' };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const eventStart = getEventStartDate(ctx.eventId) || today;
+
+  const instances = [];
+  for (const auInst of auResult.instances) {
+    const gw = getById('eventGroupWindows', auInst.groupWindowId);
+    const startDate = gw?.dateJoined || eventStart;
+    const days = Math.max(daysBetweenInclusive(startDate, today), 0);
+    const au = typeof auInst.output === 'number' ? auInst.output : 0;
+    const inputs = [
+      input('au', au, `composed: ANI-AU instance for groupWindow ${auInst.groupWindowId.slice(0, 8)}`),
+      input('days', days, `daysBetweenInclusive(${startDate}, today)`),
+    ];
+    let output = null, gateStatus = 'ok';
+    try {
+      output = calc.fn({ au, days });
+    } catch (err) {
+      gateStatus = `error: ${err.message}`;
+    }
+    instances.push({
+      label: auInst.label,
+      groupWindowId: auInst.groupWindowId,
+      inputs, output, gateStatus,
+      outputMeasure: null, outputSuffix: ' AU-days',
+    });
+  }
+  return { name: 'ANI-AUD', applicable: true, instances };
+}
+
+/** ANI-ADA — per paddock window. Σ ANI-AUD across overlapping group windows / acres. */
+function resolveANIADA(ctx) {
+  const calc = getCalcByName('ANI-ADA');
+  if (!calc) return null;
+  const paddockWindows = getAll('eventPaddockWindows').filter(pw => pw.eventId === ctx.eventId && !pw.dateClosed);
+  if (paddockWindows.length === 0) {
+    return { name: 'ANI-ADA', applicable: false, reason: 'No open paddock windows on this event.' };
+  }
+  const audResult = resolveANIAUD(ctx);
+  if (!audResult || !audResult.applicable) {
+    return { name: 'ANI-ADA', applicable: false, reason: 'No ANI-AUD instances available.' };
+  }
+  const totalAuds = audResult.instances.reduce(
+    (s, inst) => s + (typeof inst.output === 'number' ? inst.output : 0), 0);
+
+  const instances = [];
+  for (const pw of paddockWindows) {
+    const loc = getById('locations', pw.locationId);
+    const areaHa = (loc?.areaHectares ?? 0) * (pw.areaPct ?? 100) / 100;
+    const areaAcres = areaHa * 2.47105; // hectare → acre conversion before fn().
+    const inputs = [
+      input('auds', totalAuds, `composed: Σ ANI-AUD[${audResult.instances.length}].output across overlapping group windows`),
+      input('areaAcres', areaAcres, loc
+        ? `(locations.${loc.id}.areaHectares × eventPaddockWindows.${pw.id}.areaPct/100) × 2.47105`
+        : `eventPaddockWindows.${pw.id} × 2.47105 (no location)`,
+        null, !loc),
+    ];
+    let output = null, gateStatus = 'ok';
+    try {
+      output = calc.fn({ auds: totalAuds, areaAcres });
+    } catch (err) {
+      gateStatus = `error: ${err.message}`;
+    }
+    instances.push({
+      label: loc?.name || `Loc ${pw.locationId.slice(0, 8)}`,
+      paddockWindowId: pw.id,
+      inputs, output, gateStatus,
+      outputMeasure: null, outputSuffix: ' AU-days/ac',
+    });
+  }
+  return { name: 'ANI-ADA', applicable: true, instances };
+}
+
 /** Dispatcher table — `{ fn, scope }` per resolver. */
 const RESOLVERS = {
   'DMI-2': { fn: resolveDMI2, scope: 'group-window' },
   'DMI-3': { fn: resolveDMI3, scope: 'event' },
   'DMI-8': { fn: resolveDMI8, scope: 'event' },
   'FOR-1': { fn: resolveFOR1, scope: 'paddock-window' },
+  // OI-0157-B2: 9 new resolvers.
+  'NPK-1': { fn: resolveNPK1, scope: 'group-window' },
+  'NPK-2': { fn: resolveNPK2, scope: 'event' },
+  'NPK-3': { fn: resolveNPK3, scope: 'paddock-window' },
+  'NPK-4': { fn: resolveNPK4, scope: 'event' },
+  'CST-3': { fn: resolveCST3, scope: 'event' },
+  'REC-1': { fn: resolveREC1, scope: 'paddock-window' },
+  'ANI-AU': { fn: resolveANIAU, scope: 'group-window' },
+  'ANI-AUD': { fn: resolveANIAUD, scope: 'group-window' },
+  'ANI-ADA': { fn: resolveANIADA, scope: 'paddock-window' },
 };
 
 /**

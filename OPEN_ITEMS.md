@@ -4,15 +4,6 @@
 
 ---
 
-### OI-0157 — Event Audit form refinements (2026-05-04 field-use session) — fix metric-only weight rendering in group-window header, surface NPK + fertility + AU/AUD/ADA calc cards, stamp full event ID on dashboard cards in Dev Mode, and add a search bar next to the audit page's event picker
-**Added:** 2026-05-04 | **Area:** v2-build / dev-mode / audit / dashboard / calc-registry | **Priority:** P2 (audit form is the diagnostic surface — refinements compound; bug A is real data-display drift; B unblocks NPK/fertility diagnostics; C/D speed cross-tab audit workflow). Not a hold; nothing blocked by these.
-
-**Status:** open — DESIGN LOCKED on all four sub-items below. Tim is using `#/dev/audit` actively for cross-checking field data and surfaced these four refinements in one batch on 2026-05-04. Sub-item B is the largest — it adds three new registry entries (AU, AUD, ADA) to close inline-formula drift in `dashboard/index.js` + `events/detail.js` (extension of OI-0144's principle: "every formula the app computes must live in the registry"), plus six new resolvers in `audit-resolvers.js` so the audit page surfaces the full nutrient/fertility/stocking diagnostic set. Sub-items A, C, D are tight UI polish.
-
-**Origin:** 2026-05-04 — Tim opened the audit form on a closed group window (Mixed Calves, gw 2b6a0ea3, 2026-04-24 → 2026-04-29) with Standard units selected and saw `stored: 28 head / 253.5300428571427 kg / live: 28 head / 253.53 kg`. Two display bugs in one line: raw float (no `.toFixed()`) AND hardcoded "kg" suffix bypassing `formatAuditValue`. Surfaced three more refinements in the same session: NPK + fertility calcs aren't surfacing because no resolvers exist (registry has the calcs, audit-resolvers.js dispatch table is incomplete); AU/AUD/ADA aren't even registered (inline `/453.6` in 4 sites); dashboard cards don't show full event IDs which are needed for cross-tab audit (browser split-screen workflow); audit page event picker has no search.
-
----
-
 **Sub-item A — Group window header weight unit bypass.**
 
 `src/features/dev-mode/audit.js:365–366` builds the stored/live group-window weight strings as raw template literals with hardcoded ` kg` suffix:
@@ -5369,6 +5360,35 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0157 — Event Audit form refinements (4 sub-items: A weight-unit bypass, B1 ANI-AU/AUD/ADA registry, B2 nine new audit resolvers, C dev-mode dashboard event-ID stamp, D audit page event-picker search bar)
+**Added:** 2026-05-04 | **Closed:** 2026-05-04 | **Area:** v2-build / dev-mode / audit / dashboard / calc-registry
+**Resolution:** Full sub-item batch shipped per spec, one commit per sub-item in order A → C → D → B1 → B2. All five sub-items independently shippable; orphan-flip rule maintained via per-commit OPEN_ITEMS.md progress notes (final B2 commit flips Open → Closed).
+
+**OI-0157-A — group-window header weight via formatAuditValue.** `src/features/dev-mode/audit.js` `stored:` / `live:` lines route weight through `formatAuditValue(value, 'weight', 2)` + `renderFormattedValue` instead of raw template literals with hardcoded ` kg` suffix. Head counts use `formatAuditValue(value, null, 0)` (plain integers across all three modes). Drift detection still on raw kg numbers. 4 new tests in `tests/unit/dev-mode/audit-restructure.test.js`. Grep contract `head /.+kg\`` → 0 matches.
+
+**OI-0157-C — dashboard event-id stamp.** Open-event card (`buildLocationCard`) and closed-event group card (`renderGroupCard`) stamp the full event UUID below the action-button row when `isCurrentUserDev(operationId)` returns true. Element shape: `<div data-testid="dashboard-dev-event-id-<uuid>">` with monospace 10px muted styling and `userSelect: 'text'` to defeat inherited `user-select: none`. New `isCurrentUserDev` import. New test file `tests/unit/dashboard/dashboard-dev-event-id.test.js` (4 cases).
+
+**OI-0157-D — audit page event-picker search bar.** 200px text input next to the picker; live-filters `<option>` visibility against a precomputed haystack (id + start date + type + farm name + paddock-window location names, joined and lower-cased into a Map). `oninput` updates `style.display`; `onkeydown` Enter navigates if exactly one option visible; query persists in `sessionStorage` (per-tab). Initial filter pass at mount restores state after route round-trip. New i18n key `dev.auditSearchEventsPlaceholder`. Eslint config gains `sessionStorage` global; redundant `/* global sessionStorage */` directive in `src/main.js` removed. 8 new tests in `tests/unit/dev-mode/audit-empty-state.test.js`.
+
+**OI-0157-B1 — register ANI-AU / ANI-AUD / ANI-ADA.** Three new `registerCalc` blocks in `src/calcs/core.js`. Locked input shapes: `ANI-AU({headCount, avgWeightKg})`, `ANI-AUD({au, days})`, `ANI-ADA({auds, areaAcres})`. ANI-ADA returns 0 for areaAcres ≤ 0 (defensive against Infinity). Six inline `/ 453.6` callsites replaced (4 in dashboard/index.js, 2 in events/detail.js); pre-aggregated sites use `avgWeightKg = totalWeightKg / Math.max(totalHead, 1)` back-conversion. 10 new tests in `tests/unit/calcs.test.js` (example fixtures + edge cases + roundtrip). Calcs-count assertion bumped 39 → 42. Five existing test files gain `import '.../src/calcs/core.js';` side-effect imports. Grep contract `grep -rnE "/ ?453\.6" src/features/` → 0 matches.
+
+**OI-0157-B2 — nine new audit resolvers.** `src/features/dev-mode/audit-resolvers.js` `RESOLVERS` table grows 4 → 13. New resolvers: `resolveNPK1` (group-window, NRC fallback when class excretion rates null) / `resolveNPK2` (event, npk-price-history lookup with empty-table gate "Set NPK prices in Settings → NPK Prices to enable.") / `resolveNPK3` (paddock-window, area-weighted distribution) / `resolveNPK4` (event, sums amendments × inputProducts NPK%) / `resolveCST3` (event, same shape as NPK-2) / `resolveREC1` (paddock-window, closed only, recovery dates from close-observation with farm-settings fallback) / `resolveANIAU` (group-window, mirrors DMI-2 iteration) / `resolveANIAUD` (group-window, AU × days via daysBetweenInclusive) / `resolveANIADA` (paddock-window, hectare→acre conversion before fn). Two centralized helpers: `pickNpkPrices(farmId, eventStartDate)` per the locked NPK-2 lookup spec (latest effective_date ≤ event_date, fallback to earliest); `computeNpk1PerWindow(ctx)` re-used by NPK-1 / NPK-2 / NPK-3 / CST-3 (intentional duplication of input-resolution logic — graduates to centralized `explain()` form when OI-0142 lands). Cross-resolver chains: ANI-AUD → ANI-AU; ANI-ADA → ANI-AUD → ANI-AU. **Implementation note:** `eventGroupWindows` entity has no `animalClassId` field today (out of OI-0157 scope), so `gw.animalClassId` is undefined in current data and the per-class excretion-rate path always falls back to NRC defaults — documented in the NPK-1 resolver comments + test. 19 new test cases in `tests/unit/dev-mode/audit-resolvers.test.js` (applicability-true + applicability-false per resolver, plus the dispatcher 13-name assertion). `getResolverNames().sort()` returns 13 entries.
+
+**Test totals:** suite 1419 → 1466 (+47 across all five sub-items). All previously-green tests still pass. Hook test suite 7/7. `npm run lint` 0 errors (with new `sessionStorage` global). `npm run build` clean. Existing OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 grep contracts all still hold.
+
+**Manual UI smoke test on Tim's populated op:** unverified by Claude Code (no real-browser observation possible from this environment); the unit + integration tests prove the contracts end-to-end (weight unit toggle, dev-id stamp gating, search filter, registry-driven AU/AUD/ADA, 13-resolver dispatch). Tim recommended to: cold-load the deployed site, switch the audit page to Standard / Hybrid mode and verify the group-window stored/live lines convert; copy an event UUID from a dashboard card via double-click → Cmd+C → paste into `#/dev/audit?id=`; type a 4-char prefix in the audit search bar to filter the picker; open `#/dev/audit?id=<populated-event>` and confirm 9 new calc cards surface (NPK-1 per group window, NPK-2/CST-3 at event level, NPK-3 per paddock window, NPK-4 if amendments are present, REC-1 per closed paddock window, ANI-AU/AUD per group window, ANI-ADA per paddock window).
+
+**OI-0157 sub-item commits:**
+- OI-0157-A: 6dae92a — group-window header via formatAuditValue
+- OI-0157-C: 7761ce7 — dashboard event-id stamp
+- OI-0157-D: 15bc36a — audit page search bar
+- OI-0157-B1: 7e66f08 — ANI-AU / ANI-AUD / ANI-ADA registry + 6 callsite replacements
+- OI-0157-B2: <this commit> — 9 audit resolvers + RESOLVERS dispatcher 4 → 13
+
+**Schema impact:** none. **CP-55/CP-56 impact:** none — AU/AUD/ADA are derived-on-read; no Supabase column added. **GitHub issue:** GH-issue not filed for this OI (Cowork drafted the spec at `github/issues/OI-0157_audit-form-refinements.md` directly without a GitHub issue prefix; renaming is not in OI-0157's scope per the locked plan).
+
+---
 
 ### OI-0155 — Mobile bottom-nav `.bnav-item.active` rule did not exist; OI-0154 set the class but mobile users saw no visual difference (Phase 1)
 **Added:** 2026-05-03 | **Closed:** 2026-05-04 | **Area:** v2-build / ui / styles / mobile

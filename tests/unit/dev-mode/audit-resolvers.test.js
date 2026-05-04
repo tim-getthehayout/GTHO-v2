@@ -21,8 +21,14 @@ import * as PaddockWindowEntity from '../../../src/entities/event-paddock-window
 import * as GroupWindowEntity from '../../../src/entities/event-group-window.js';
 import * as ForageTypeEntity from '../../../src/entities/forage-type.js';
 import * as ObservationEntity from '../../../src/entities/paddock-observation.js';
+import * as NpkPriceEntity from '../../../src/entities/npk-price-history.js';
+import * as AmendmentEntity from '../../../src/entities/amendment.js';
+import * as InputProductEntity from '../../../src/entities/input-product.js';
+import * as FarmSettingEntity from '../../../src/entities/farm-setting.js';
 
 import '../../../src/calcs/feed-forage.js'; // ensure calcs are registered
+import '../../../src/calcs/core.js'; // OI-0157-B2: NPK-1 + NPK-3 + ANI-AU/AUD/ADA
+import '../../../src/calcs/advanced.js'; // OI-0157-B2: NPK-2 + NPK-4 + CST-3 + REC-1
 import { resolveCalcForCalcCard, getResolverNames } from '../../../src/features/dev-mode/audit-resolvers.js';
 
 const OP = '00000000-0000-0000-0000-0000000000aa';
@@ -47,8 +53,15 @@ beforeEach(() => {
 });
 
 describe('audit-resolvers (OI-0138)', () => {
-  it('exposes resolver names — DMI-2, DMI-3, DMI-8, FOR-1', () => {
-    expect(getResolverNames().sort()).toEqual(['DMI-2', 'DMI-3', 'DMI-8', 'FOR-1']);
+  it('exposes 13 resolver names (OI-0157-B2: +NPK-1/2/3/4 +CST-3 +REC-1 +ANI-AU/AUD/ADA)', () => {
+    expect(getResolverNames().sort()).toEqual([
+      'ANI-ADA', 'ANI-AU', 'ANI-AUD',
+      'CST-3',
+      'DMI-2', 'DMI-3', 'DMI-8',
+      'FOR-1',
+      'NPK-1', 'NPK-2', 'NPK-3', 'NPK-4',
+      'REC-1',
+    ]);
   });
 
   describe('DMI-2', () => {
@@ -178,6 +191,287 @@ describe('audit-resolvers (OI-0138)', () => {
   describe('dispatcher', () => {
     it('returns null for unregistered resolver names', () => {
       expect(resolveCalcForCalcCard('FAKE-CALC', { eventId: EVT })).toBeNull();
+    });
+  });
+});
+
+// OI-0157-B2: applicability-true + applicability-false coverage for each
+// of the 9 new resolvers. Mirrors the DMI-2 / FOR-1 pattern: seed entities,
+// call `resolveCalcForCalcCard(name, { eventId })`, assert applicable +
+// inputs/output OR applicable=false + reason.
+describe('audit-resolvers (OI-0157-B2 — NPK / fertility / stocking)', () => {
+  function seedClassWithExcretionRates() {
+    add('animalClasses', AnimalClassEntity.create({
+      id: CLS, operationId: OP, name: 'Cow', species: 'beef_cattle', role: 'cow',
+      defaultWeightKg: 545, dmiPct: 2.5,
+      excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136,
+    }), AnimalClassEntity.validate, AnimalClassEntity.toSupabaseShape, 'animal_classes');
+  }
+
+  function seedOpenGroupWindow({ id = 'gw-b2', headCount = 50, avgWeightKg = 545, animalClassId = CLS, dateJoined = '2026-04-29' } = {}) {
+    add('groups', GroupEntity.create({ id: GROUP, operationId: OP, name: 'Cow-Calf' }),
+      GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
+    add('eventGroupWindows', GroupWindowEntity.create({
+      id, operationId: OP, eventId: EVT, groupId: GROUP, animalClassId,
+      dateJoined, headCount, avgWeightKg,
+    }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+  }
+
+  function seedOpenPaddockWindow({ id = 'pw-b2', locationId = LOC, areaHectares = 5, areaPct = 100, dateOpened = '2026-04-29' } = {}) {
+    add('locations', LocationEntity.create({
+      id: locationId, operationId: OP, farmId: FARM, name: 'P-B2', areaHectares,
+    }), LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id, operationId: OP, eventId: EVT, locationId, dateOpened, areaPct,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+  }
+
+  function seedClosedPaddockWindow({ id = 'pw-closed', locationId = LOC, dateOpened = '2026-04-20', dateClosed = '2026-04-29' } = {}) {
+    add('locations', LocationEntity.create({
+      id: locationId, operationId: OP, farmId: FARM, name: 'P-closed', areaHectares: 5,
+    }), LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id, operationId: OP, eventId: EVT, locationId, dateOpened, dateClosed, areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+  }
+
+  function seedNpkPrices({ farmId = FARM, effectiveDate = '2026-01-01', n = 1.5, p = 2.2, k = 0.9 } = {}) {
+    add('npkPriceHistory', NpkPriceEntity.create({
+      operationId: OP, farmId, effectiveDate, nPricePerKg: n, pPricePerKg: p, kPricePerKg: k,
+    }), NpkPriceEntity.validate, NpkPriceEntity.toSupabaseShape, 'npk_price_history');
+  }
+
+  describe('NPK-1 (group-window)', () => {
+    it('returns applicable=false when no open group window exists', () => {
+      const out = resolveCalcForCalcCard('NPK-1', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+    });
+
+    it('computes per-window NPK output when an open group window exists', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      const out = resolveCalcForCalcCard('NPK-1', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      expect(out.instances).toHaveLength(1);
+      const inst = out.instances[0];
+      // Output is an object { nKg, pKg, kKg } from the registered NPK-1 calc.
+      expect(inst.output).toHaveProperty('nKg');
+      expect(inst.output.nKg).toBeGreaterThan(0);
+      expect(inst.gateStatus).toBe('ok');
+    });
+
+    it('falls back to NRC defaults and marks inputs missing — eventGroupWindows entity does not carry animalClassId today', () => {
+      // Note: eventGroupWindows entity does NOT carry an animalClassId field
+      // (per OI-0157-B2 implementation note). The resolver looks up
+      // `gw.animalClassId` which is always undefined in current data, so the
+      // class lookup returns null and the resolver falls back to NRC defaults.
+      // When the field is added to the entity (separate OI), this test will
+      // need to assert the no-fallback path.
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      const out = resolveCalcForCalcCard('NPK-1', { eventId: EVT });
+      const inst = out.instances[0];
+      const nRate = inst.inputs.find(i => i.name === 'excretionNRate');
+      expect(nRate.value).toBe(0.145); // NRC default
+      expect(nRate.missing).toBe(true);
+      expect(nRate.source).toMatch(/fallback/);
+    });
+  });
+
+  describe('NPK-2 (event)', () => {
+    it('gates with actionable reason when npk_price_history is empty for the farm', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      // No NPK price rows seeded.
+      const out = resolveCalcForCalcCard('NPK-2', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+      expect(out.reason).toMatch(/Settings → NPK Prices/);
+    });
+
+    it('computes total $ value when prices + group windows exist', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      seedNpkPrices();
+      const out = resolveCalcForCalcCard('NPK-2', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      expect(out.instances).toHaveLength(1);
+      const inst = out.instances[0];
+      expect(typeof inst.output).toBe('number');
+      expect(inst.output).toBeGreaterThan(0);
+      expect(inst.inputs.find(i => i.name === 'nPricePerKg').value).toBe(1.5);
+    });
+  });
+
+  describe('NPK-3 (paddock-window)', () => {
+    it('returns applicable=false when no open paddock window exists', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      const out = resolveCalcForCalcCard('NPK-3', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+    });
+
+    it('distributes total NPK across paddock windows area-weighted', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      seedOpenPaddockWindow();
+      const out = resolveCalcForCalcCard('NPK-3', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      expect(out.instances).toHaveLength(1);
+      const inst = out.instances[0];
+      expect(inst.output).toHaveProperty('nKg');
+      expect(inst.output.nKg).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('NPK-4 (event)', () => {
+    it('returns applicable=false when no amendments in window', () => {
+      // Need at least one paddock window so the event has a derivable start;
+      // otherwise the resolver gates earlier with "Event start not derivable".
+      seedOpenPaddockWindow({ dateOpened: '2026-04-01' });
+      const out = resolveCalcForCalcCard('NPK-4', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+      expect(out.reason).toMatch(/No amendments/);
+    });
+
+    it('sums amendments applied during the event window', () => {
+      const CAT = '00000000-0000-0000-0000-0000000cat01';
+      const PROD = '00000000-0000-0000-0000-0000000pro01';
+      add('inputProducts', InputProductEntity.create({
+        id: PROD, operationId: OP, categoryId: CAT,
+        name: 'Urea', nPct: 46, pPct: 0, kPct: 0,
+      }), InputProductEntity.validate, InputProductEntity.toSupabaseShape, 'input_products');
+      seedOpenPaddockWindow({ dateOpened: '2026-04-01' }); // event start = 2026-04-01
+      add('amendments', AmendmentEntity.create({
+        operationId: OP, appliedAt: '2026-04-15T10:00:00Z',
+        sourceType: 'product', inputProductId: PROD, totalQty: 100,
+      }), AmendmentEntity.validate, AmendmentEntity.toSupabaseShape, 'amendments');
+      const out = resolveCalcForCalcCard('NPK-4', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      const inst = out.instances[0];
+      expect(inst.output.nKg).toBeCloseTo(46, 5); // 100 kg × 46% = 46 kg N
+      expect(inst.inputs.find(i => i.name === 'amendmentCount').value).toBe(1);
+    });
+  });
+
+  describe('CST-3 (event)', () => {
+    it('gates with same actionable reason as NPK-2 when prices are empty', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      const out = resolveCalcForCalcCard('CST-3', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+      expect(out.reason).toMatch(/Settings → NPK Prices/);
+    });
+
+    it('computes the cost rollup when all inputs present', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      seedNpkPrices();
+      const out = resolveCalcForCalcCard('CST-3', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      expect(typeof out.instances[0].output).toBe('number');
+    });
+  });
+
+  describe('REC-1 (paddock-window)', () => {
+    it('returns applicable=false when no closed paddock windows', () => {
+      seedOpenPaddockWindow();
+      const out = resolveCalcForCalcCard('REC-1', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+      expect(out.reason).toMatch(/No closed paddock windows/);
+    });
+
+    it('reads recovery days from the close observation when present', () => {
+      seedClosedPaddockWindow();
+      add('paddockObservations', ObservationEntity.create({
+        operationId: OP, locationId: LOC, type: 'close', source: 'event', sourceId: 'pw-closed',
+        date: '2026-04-29', observedAt: '2026-04-29T12:00:00Z',
+        recoveryMinDays: 21, recoveryMaxDays: 35,
+      }), ObservationEntity.validate, ObservationEntity.toSupabaseShape, 'paddock_observations');
+      const out = resolveCalcForCalcCard('REC-1', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      const inst = out.instances[0];
+      expect(inst.gateStatus).toBe('ok');
+      expect(inst.inputs.find(i => i.name === 'recoveryMinDays').value).toBe(21);
+      expect(inst.output).toHaveProperty('earliestReturn');
+      expect(inst.output).toHaveProperty('windowCloses');
+    });
+
+    it('falls back to farm settings defaults when observation lacks recovery days', () => {
+      add('farmSettings', FarmSettingEntity.create({
+        farmId: FARM, operationId: OP,
+        defaultRecoveryMinDays: 25, defaultRecoveryMaxDays: 40,
+      }), FarmSettingEntity.validate, FarmSettingEntity.toSupabaseShape, 'farm_settings');
+      seedClosedPaddockWindow();
+      const out = resolveCalcForCalcCard('REC-1', { eventId: EVT });
+      const inst = out.instances[0];
+      const minInput = inst.inputs.find(i => i.name === 'recoveryMinDays');
+      expect(minInput.value).toBe(25);
+      expect(minInput.source).toMatch(/farmSettings/);
+    });
+
+    it('gates when both observation and farm settings lack recovery days', () => {
+      seedClosedPaddockWindow();
+      const out = resolveCalcForCalcCard('REC-1', { eventId: EVT });
+      const inst = out.instances[0];
+      expect(inst.gateStatus).toMatch(/gated/);
+      expect(inst.inputs.find(i => i.name === 'recoveryMinDays').missing).toBe(true);
+    });
+  });
+
+  describe('ANI-AU (group-window)', () => {
+    it('returns applicable=false when no open group window exists', () => {
+      const out = resolveCalcForCalcCard('ANI-AU', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+    });
+
+    it('matches the registered ANI-AU formula (50 head × 545 kg / 453.6)', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow({ headCount: 50, avgWeightKg: 545 });
+      const out = resolveCalcForCalcCard('ANI-AU', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      expect(out.instances[0].output).toBeCloseTo(60.075, 3);
+    });
+  });
+
+  describe('ANI-AUD (group-window)', () => {
+    it('returns applicable=false when no open group window exists', () => {
+      const out = resolveCalcForCalcCard('ANI-AUD', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+    });
+
+    it('multiplies AU × days for an open window', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow({ dateJoined: '2026-04-01' });
+      const out = resolveCalcForCalcCard('ANI-AUD', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      const inst = out.instances[0];
+      expect(typeof inst.output).toBe('number');
+      const days = inst.inputs.find(i => i.name === 'days').value;
+      expect(days).toBeGreaterThanOrEqual(1);
+      const au = inst.inputs.find(i => i.name === 'au').value;
+      expect(inst.output).toBeCloseTo(au * days, 6);
+    });
+  });
+
+  describe('ANI-ADA (paddock-window)', () => {
+    it('returns applicable=false when no open paddock window exists', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow();
+      const out = resolveCalcForCalcCard('ANI-ADA', { eventId: EVT });
+      expect(out.applicable).toBe(false);
+    });
+
+    it('divides Σ AU-days by acres (hectare→acre conversion)', () => {
+      seedClassWithExcretionRates();
+      seedOpenGroupWindow({ dateJoined: '2026-04-01' });
+      seedOpenPaddockWindow({ areaHectares: 4, areaPct: 100 });
+      const out = resolveCalcForCalcCard('ANI-ADA', { eventId: EVT });
+      expect(out.applicable).toBe(true);
+      const inst = out.instances[0];
+      expect(typeof inst.output).toBe('number');
+      const acresInput = inst.inputs.find(i => i.name === 'areaAcres');
+      // 4 ha × 1.0 (areaPct=100) × 2.47105 = 9.8842 ac
+      expect(acresInput.value).toBeCloseTo(9.8842, 3);
     });
   });
 });

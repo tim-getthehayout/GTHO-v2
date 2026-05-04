@@ -11,8 +11,8 @@ import { convert } from '../utils/units.js';
 
 const COLOR_PASTURE = '#A5C56B';
 const COLOR_PASTURE_STRIPED = 'repeating-linear-gradient(45deg, #A5C56B, #A5C56B 4px, #C2DB9B 4px, #C2DB9B 8px)';
-const COLOR_STORED = 'var(--color-amber-base)';
-const COLOR_STORED_STRIPED = 'repeating-linear-gradient(45deg, var(--color-amber-base), var(--color-amber-base) 4px, #E5C76B 4px, #E5C76B 8px)';
+const COLOR_STORED = 'var(--color-tan-base)';
+const COLOR_STORED_STRIPED = 'repeating-linear-gradient(45deg, var(--color-tan-base), var(--color-tan-base) 4px, var(--color-tan-light) 4px, var(--color-tan-light) 8px)';
 const COLOR_DEFICIT = '#E05656';
 const COLOR_DEFICIT_STRIPED = 'repeating-linear-gradient(45deg, #E05656, #E05656 4px, #F0A0A0 4px, #F0A0A0 8px)';
 const COLOR_GREY_BAR = 'var(--bg3, #eee)';

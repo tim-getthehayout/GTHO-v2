@@ -826,8 +826,10 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     }
   }
 
-  // AU
-  const auValue = activeGW ? (activeLiveHead * activeLiveAvg) / 453.6 : 0;
+  // AU — OI-0157-B1: route through ANI-AU registry call.
+  const auValue = activeGW
+    ? getCalcByName('ANI-AU').fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg })
+    : 0;
 
   // Build v1-parity card
   const isExpanded = expandedGroups.has(group.id) || isOnPasture;
@@ -1169,14 +1171,20 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     forageHeightDisplay = display(obs.forageHeightCm, 'length', unitSys, 1);
   }
 
-  // Weight + AU
+  // Weight + AU — OI-0157-B1: route through ANI-AU registry call. Math is
+  // preserved via the headCount × (totalWeightKg / max(totalHead, 1))
+  // back-conversion; for totalHead=0 the empty-group result remains 0.
   const totalWeightDisplay = display(totalWeightKg, 'weight', unitSys, 0);
   const wUnit = unitLabel('weight', unitSys);
-  const auValue = totalWeightKg / 453.6;
+  const auValue = getCalcByName('ANI-AU').fn({
+    headCount: totalHead,
+    avgWeightKg: totalWeightKg / Math.max(totalHead, 1),
+  });
 
-  // ADA (animal days per acre)
+  // ADA (animal days per acre) — OI-0157-B1: ANI-AUD + ANI-ADA chain.
   const totalAcres = totalAreaHa > 0 ? convert(totalAreaHa, 'area', 'toImperial') : 0;
-  const adaPerAc = totalAcres > 0 ? (auValue * dayCount / totalAcres) : 0;
+  const aUds = getCalcByName('ANI-AUD').fn({ au: auValue, days: dayCount });
+  const adaPerAc = getCalcByName('ANI-ADA').fn({ auds: aUds, areaAcres: totalAcres });
 
   // NPK
   let npkLine = null;

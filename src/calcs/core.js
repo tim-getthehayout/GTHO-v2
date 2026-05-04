@@ -125,6 +125,77 @@ registerCalc({
   },
 });
 
+// OI-0157-B1: ANI-AU / ANI-AUD / ANI-ADA close inline `/ 453.6` drift in
+// dashboard/index.js (4 sites) + events/detail.js (2 sites). Locked input
+// shape `{ headCount, avgWeightKg }` for ANI-AU mirrors DMI-2 + the existing
+// ANI patterns; pre-aggregated call sites compute
+// `avgWeightKg = totalWeightKg / Math.max(totalHead, 1)` so the math is
+// preserved and the empty-group corner case (totalHead=0) keeps yielding 0.
+
+// ANI-AU: Animal Units
+registerCalc({
+  name: 'ANI-AU',
+  category: 'animal',
+  description: 'Convert head count + average live weight to Animal Units',
+  formula: 'au = (headCount × avgWeightKg) / 453.6',
+  source: '1 AU = 1000 lb base cow = 453.6 kg (USDA NRCS standard)',
+  inputs: [
+    { name: 'headCount', type: 'integer', unit: 'head' },
+    { name: 'avgWeightKg', type: 'number', unit: 'kg' },
+  ],
+  output: { type: 'number', unit: 'AU' },
+  example: {
+    inputs: { headCount: 50, avgWeightKg: 545 },
+    // 50 × 545 / 453.6 = 60.075...
+    output: 60.07495590828924,
+  },
+  fn({ headCount, avgWeightKg }) {
+    return (headCount * avgWeightKg) / 453.6;
+  },
+});
+
+// ANI-AUD: Animal Unit Days
+registerCalc({
+  name: 'ANI-AUD',
+  category: 'animal',
+  description: 'Animal-Unit-Days for a window — AU multiplied by duration in days',
+  formula: 'auds = au × days',
+  source: 'Standard livestock accounting',
+  inputs: [
+    { name: 'au', type: 'number', unit: 'AU' },
+    { name: 'days', type: 'number', unit: 'days' },
+  ],
+  output: { type: 'number', unit: 'AU-days' },
+  example: {
+    inputs: { au: 60, days: 14 },
+    output: 840,
+  },
+  fn({ au, days }) {
+    return au * days;
+  },
+});
+
+// ANI-ADA: Animal-Days per Acre
+registerCalc({
+  name: 'ANI-ADA',
+  category: 'animal',
+  description: 'Stocking density expressed as AU-days per acre',
+  formula: 'adaPerAc = auds / areaAcres',
+  source: 'Standard pasture accounting',
+  inputs: [
+    { name: 'auds', type: 'number', unit: 'AU-days' },
+    { name: 'areaAcres', type: 'number', unit: 'acres' },
+  ],
+  output: { type: 'number', unit: 'AU-days/ac' },
+  example: {
+    inputs: { auds: 840, areaAcres: 20 },
+    output: 42,
+  },
+  fn({ auds, areaAcres }) {
+    return areaAcres > 0 ? auds / areaAcres : 0;
+  },
+});
+
 // TIM-1: Days Between (Inclusive)
 registerCalc({
   name: 'TIM-1',

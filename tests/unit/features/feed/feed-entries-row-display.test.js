@@ -7,6 +7,9 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { _reset, add } from '../../../../src/data/store.js';
 import { setLocale } from '../../../../src/i18n/i18n.js';
 import enLocale from '../../../../src/i18n/locales/en.json';
+// OI-0157-B1: events/detail consumes ANI-AU from the calc registry; ensure
+// core.js side-effect registrations land before any sheet open.
+import '../../../../src/calcs/core.js';
 import { openEventDetailSheet } from '../../../../src/features/events/detail.js';
 import * as OperationEntity from '../../../../src/entities/operation.js';
 import * as FarmEntity from '../../../../src/entities/farm.js';

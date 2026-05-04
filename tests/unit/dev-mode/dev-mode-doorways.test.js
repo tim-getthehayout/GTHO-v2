@@ -22,6 +22,10 @@ vi.mock('../../../src/features/auth/session.js', () => ({
   getUser: vi.fn(),
 }));
 
+// OI-0157-B1: events/detail consumes ANI-AU from the calc registry; ensure
+// core.js side-effect registrations land before any sheet open.
+import '../../../src/calcs/core.js';
+
 import { getUser } from '../../../src/features/auth/session.js';
 
 beforeAll(() => setLocale('en', enLocale));

@@ -29,6 +29,11 @@ vi.mock('../../../src/features/events/submove.js', () => ({
   openSubmoveCloseSheet: vi.fn(),
 }));
 
+// OI-0157-B1: dashboard now consumes ANI-AU / ANI-AUD / ANI-ADA from the
+// calc registry; ensure core.js side-effect registrations land before any
+// `buildLocationCard` call.
+import '../../../src/calcs/core.js';
+
 import { getUser } from '../../../src/features/auth/session.js';
 import { buildLocationCard } from '../../../src/features/dashboard/index.js';
 

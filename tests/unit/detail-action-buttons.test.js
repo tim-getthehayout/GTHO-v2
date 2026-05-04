@@ -16,6 +16,9 @@ import * as FarmSettingEntity from '../../src/entities/farm-setting.js';
 import * as EventEntity from '../../src/entities/event.js';
 import { setLocale } from '../../src/i18n/i18n.js';
 import enLocale from '../../src/i18n/locales/en.json';
+// OI-0157-B1: events/detail now consumes ANI-AU from the calc registry;
+// ensure core.js side-effect registrations land before any sheet open.
+import '../../src/calcs/core.js';
 import { openEventDetailSheet } from '../../src/features/events/detail.js';
 
 const OP = '00000000-0000-0000-0000-0000000000aa';

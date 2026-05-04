@@ -269,8 +269,12 @@ function renderSummary(ctx) {
   }
   const totalWeightDisplay = display(totalWeightKg, 'weight', unitSys, 0);
 
-  // AU calc (simple: 1 AU = 1000 lbs = 453.6 kg)
-  const auValue = totalWeightKg / 453.6;
+  // AU calc — OI-0157-B1: route through ANI-AU registry call. Math
+  // preserved via the headCount / avgWeightKg back-conversion.
+  const auValue = getCalcByName('ANI-AU').fn({
+    headCount: totalHead,
+    avgWeightKg: totalWeightKg / Math.max(totalHead, 1),
+  });
 
   // DMI from DMI-2 (daily target)
   const dmi2 = getCalcByName('DMI-2');
@@ -740,7 +744,8 @@ function renderGroups(ctx) {
     const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
     const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
     const weightDisplay = liveAvg > 0 ? display(liveAvg, 'weight', unitSys, 0) : '\u2014';
-    const au = (liveHead * liveAvg) / 453.6;
+    // OI-0157-B1: route through ANI-AU registry call.
+    const au = getCalcByName('ANI-AU').fn({ headCount: liveHead, avgWeightKg: liveAvg });
 
     const row = el('div', {
       style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' },

@@ -10,9 +10,10 @@ import '../../src/calcs/capacity.js';
 import '../../src/calcs/survey-bale-ring.js';
 
 describe('calculation engine', () => {
-  it('registers 39 formulas', () => {
+  it('registers 42 formulas', () => {
+    // OI-0157-B1: ANI-AU / ANI-AUD / ANI-ADA bumped the count from 39 → 42.
     const calcs = getAllCalcs();
-    expect(calcs.length).toBe(39);
+    expect(calcs.length).toBe(42);
   });
 
   it('has formulas in all expected categories', () => {
@@ -89,6 +90,78 @@ describe('calculation engine', () => {
       expect(result.totalHead).toBe(50);
       // 30×545×0.025 + 20×363×0.025 = 408.75 + 181.5 = 590.25
       expect(result.totalDmiKgPerDay).toBeCloseTo(590.25, 0);
+    });
+  });
+
+  // OI-0157-B1: ANI-AU / ANI-AUD / ANI-ADA close inline `/ 453.6` drift
+  // in dashboard/index.js + events/detail.js. Locked formulas:
+  //   ANI-AU  : (headCount × avgWeightKg) / 453.6
+  //   ANI-AUD : au × days
+  //   ANI-ADA : auds / areaAcres
+  describe('ANI-AU: Animal Units (OI-0157-B1)', () => {
+    it('matches the example fixture (50 head × 545 kg)', () => {
+      const calc = getCalcByName('ANI-AU');
+      const result = calc.fn({ headCount: 50, avgWeightKg: 545 });
+      // 50 × 545 / 453.6 = 60.0749559...
+      expect(result).toBeCloseTo(60.075, 3);
+    });
+
+    it('returns 0 for empty group (headCount=0)', () => {
+      const calc = getCalcByName('ANI-AU');
+      expect(calc.fn({ headCount: 0, avgWeightKg: 500 })).toBe(0);
+    });
+
+    it('returns 0 for zero average weight (defensive)', () => {
+      const calc = getCalcByName('ANI-AU');
+      expect(calc.fn({ headCount: 50, avgWeightKg: 0 })).toBe(0);
+    });
+
+    it('round-trips the call-site math: total weight / 453.6 ≡ ANI-AU back-conversion', () => {
+      const calc = getCalcByName('ANI-AU');
+      // Pre-OI-0157-B1 inline form: totalWeightKg / 453.6
+      // Post-OI-0157-B1 form: ANI-AU.fn({ headCount, avgWeightKg: totalWeightKg / max(headCount, 1) })
+      const totalHead = 30;
+      const totalWeightKg = 16350; // 30 head × 545 kg avg
+      const inline = totalWeightKg / 453.6;
+      const registry = calc.fn({
+        headCount: totalHead,
+        avgWeightKg: totalWeightKg / Math.max(totalHead, 1),
+      });
+      expect(registry).toBeCloseTo(inline, 10);
+    });
+  });
+
+  describe('ANI-AUD: Animal-Unit-Days (OI-0157-B1)', () => {
+    it('matches the example fixture (60 AU × 14 days = 840 AU-days)', () => {
+      const calc = getCalcByName('ANI-AUD');
+      expect(calc.fn({ au: 60, days: 14 })).toBe(840);
+    });
+
+    it('returns 0 for zero days', () => {
+      const calc = getCalcByName('ANI-AUD');
+      expect(calc.fn({ au: 60, days: 0 })).toBe(0);
+    });
+
+    it('returns 0 for zero AU', () => {
+      const calc = getCalcByName('ANI-AUD');
+      expect(calc.fn({ au: 0, days: 14 })).toBe(0);
+    });
+  });
+
+  describe('ANI-ADA: AU-days per Acre (OI-0157-B1)', () => {
+    it('matches the example fixture (840 AU-days / 20 ac = 42)', () => {
+      const calc = getCalcByName('ANI-ADA');
+      expect(calc.fn({ auds: 840, areaAcres: 20 })).toBe(42);
+    });
+
+    it('returns 0 for zero acres (avoids Infinity in display)', () => {
+      const calc = getCalcByName('ANI-ADA');
+      expect(calc.fn({ auds: 840, areaAcres: 0 })).toBe(0);
+    });
+
+    it('returns 0 for zero auds', () => {
+      const calc = getCalcByName('ANI-ADA');
+      expect(calc.fn({ auds: 0, areaAcres: 20 })).toBe(0);
     });
   });
 

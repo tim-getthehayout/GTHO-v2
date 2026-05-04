@@ -281,26 +281,136 @@ The destination feed entry's `source_event_id` points to the source event. This 
 
 ## 7. Survey Workflow
 
-Recording pasture assessments — either bulk (walk the whole farm) or single (one paddock).
+Recording pasture assessments — pasture-walk ratings that drive forage cover %, recovery windows, and the rotation calendar's "ready to graze" signals. The whole experience runs through a single sheet element with three modes plus a field-mode picker; this section is the design source of truth for that sheet (the v1 HTML reference and grep-level implementation notes live in the historical spec at `github/issues/GH-12_survey-sheet-v1-parity.md`, kept as a thin pointer).
 
-### 7.1 Bulk Survey
+### 7.1 Three Modes (one sheet)
 
-- **Trigger:** Home screen nudge ("Time for a pasture walk?") or Locations screen → "Survey" tab → "New bulk survey"
-- **Creates:** Survey with type='bulk', status='draft'
-- **Flow:** Scrollable list of all non-archived locations. Each row has inputs for: forage_height_cm, forage_cover_pct, forage_condition (4-option picker: poor/fair/good/excellent), forage_quality (numeric input within farm-configurable range — see `farm_settings.forage_quality_scale_min/max`, default 1–100), bale_ring_residue_count, recovery_min_days, recovery_max_days, notes
-- **Draft auto-save:** Each entry saved as survey_draft_entry. User can leave and resume.
-- **Commit:** "Finish survey" button. Each draft entry becomes a paddock_observation (source='survey', source_id=survey.id). Survey status → 'committed'. Entries become read-only.
+The same sheet (`survey-sheet`) hosts three modes — `bulk`, `single`, and `bulk-edit` — toggled by a single `setSurveySheetMode(mode, draftDate, pastureName)` call. Switching modes swaps headers, save buttons, discard affordances, and draft-tag visibility on the same DOM container; it never destroys the sheet between modes.
 
-### 7.2 Single-Paddock Survey
+- **Bulk mode** is the "walk the farm" experience. Bulk-mode chrome (filter pills, expand/collapse all, Save Draft, Finish & Save) replaces the classic header. The bottom Save button is hidden — Finish & Save in the chrome is the commit. One paddock card per visible (non-confinement, non-crop) location renders in a scrollable list, all collapsed by default.
+- **Single mode** is "this one paddock." Classic header reads "Survey: {name}" or "Paddock survey." The card is auto-expanded and shows a richer context line (last-grazed and last-rated history). Save button is the bottom one.
+- **Bulk-edit mode** opens an existing committed survey for re-rating. Classic header reads "Edit survey." Save replaces observations in place — it does not append. The recovery section header is hidden because recovery is embedded per card.
 
-- **Trigger:** Location card → "Survey" or Locations screen → individual paddock
-- **Creates:** Survey with type='single', status='draft'
-- **Flow:** Same fields as bulk, but for one location only
-- **Commit:** Same as bulk — creates one paddock_observation
+### 7.2 Entry Points
 
-### 7.3 Design Note
+V1 had nine entry points; v2 keeps eight (the home "Pasture readiness" card is dropped because v2 has no equivalent surface). All eight call into one of three top-level functions — `openBulkSurveySheet()`, `openSurveySheet(pastureId)`, or `openPastureSurveyPickerSheet()` — so the surface area for survey orchestration stays small and grep-friendly.
 
-Surveys don't have a farm_id on the parent record. A bulk survey can span locations across farms. The farm context comes from each location's farm_id.
+| # | Entry point | Mode | Function |
+|---|---|---|---|
+| 1 | Locations screen → `📋 Survey` button | bulk | `openBulkSurveySheet()` |
+| 2 | Locations screen → Surveys sub-tab → `+ New Survey` | bulk | `openBulkSurveySheet()` |
+| 3 | Locations screen → Surveys sub-tab → `Resume` (draft banner) | bulk | `openBulkSurveySheet()` (resumes) |
+| 4 | Locations screen → Surveys sub-tab → `Edit` (committed row) | bulk-edit | `openBulkSurveyEdit(surveyId)` |
+| 5 | Location edit sheet → `+ Add reading` | single | `openSurveySheet(pastureId)` |
+| 6 | Location edit sheet → survey-history row Edit | single (edit existing) | `openSurveySheet(pastureId, surveyId)` |
+| 7 | Field Mode → `📋 Multi-Pasture Survey` tile | bulk | `openBulkSurveySheet()` (via FIELD_MODULES) |
+| 8 | Field Mode → `📋 Pasture Survey` tile | single | `openPastureSurveyPickerSheet()` → picker → `openSurveySheet(pastureId)` |
+
+There is deliberately no "survey just this paddock" button on the dashboard or Locations card. Single-paddock surveys are reached via location edit (5–6) or field-mode picker (8) — paths that match v1 exactly.
+
+### 7.3 Paddock Card
+
+The paddock card is the data-capture unit. It renders the same fields in every mode; only the chrome around it (collapsed-by-default in bulk vs auto-expanded in single, header content, save semantics) differs.
+
+The collapsed bulk header reads `name · acres · Active badge · ✓ Complete badge` on the left and a chevron (rotates 180° on expand) on the right. The Active badge appears when the paddock currently hosts an open event; the Complete badge appears only when `isBulkSurveyCardComplete(paddockId)` is true (see §7.4 for the rule). Clicking the header toggles expand. Single mode skips the collapsed header entirely — there's only one card and it's always expanded — and shows a richer context line above the card body (`Last grazed {date} · {N}d ago` or `Active · Day {N}`, plus `Last rated {N}/10 on {date}` or `Not yet rated`).
+
+The expanded body has six sections, top to bottom:
+
+1. **Forage quality rating** — a 0–100 range slider paired with a number input, with a color bar underneath. Slider and number stay in sync via a single `setSurveyRating(paddockId, name, value)` handler. The bar shifts red → amber → green as the rating climbs.
+2. **Avg veg height (in)** and **Avg forage cover (%)** — two numeric inputs side-by-side. Veg height accepts 0–72 in 0.5 steps; cover accepts 0–100 in 1 steps.
+3. **Bale-ring residues** (new in v2) — see §7.4 for the helper that auto-fills cover %.
+4. **Forage condition** — a 4-button group: Poor / Fair / Good / Exc. (the short label "Exc." stands in for "Excellent" so the row fits on narrow viewports). The selected button takes the green active style; tapping rerenders the group and triggers a draft save.
+5. **Recovery window** — MIN days and MAX days, presented as "days from survey date" with a live date preview under each input (e.g. *Mar 15* under MIN=10 when the survey date is Mar 5). A `↻ {date} – {date}` status line below the inputs shows the resulting next-graze window. Defaults come from the last closed event for the paddock (or the paddock's own `recoveryMinDays` / `MaxDays` if no event history exists), reduced by `daysAlreadyRested` so the displayed window matches what the farmer would actually see if they did nothing else.
+6. **Notes** — free-text textarea. Optional. Bulk-mode cards omit this row to keep cards compact, but draft hydration preserves any prior notes regardless of which mode wrote them.
+
+**Recovery-window date math is inverse on commit.** What the farmer sees during the survey is "days from survey date" — natural for a pasture walk. What the schema stores is "days from the event's `dateOut`" so the value remains meaningful as time passes. On commit, the stored value is `displayedValue + daysAlreadyRested`. This conversion lives in §7.7 alongside the rest of the commit rules.
+
+### 7.4 Bale-Ring Residue Helper (new in v2)
+
+Users coming off bale grazing need a fast way to estimate forage cover %. Counting bale-ring footprints in the paddock and multiplying by ring area gives a defensible cover estimate without tape-measuring. The helper is the only deliberate addition to v1's survey UX.
+
+The input lives between the cover field and the forage-condition buttons in the expanded card body. It's a single number input (placeholder `0`, min 0, max 999) with a live two-line caption underneath: `{count} rings × {ringArea} sq ft = {totalArea} sq ft`, then `↳ Sets forage cover to {100 - coverReducedPct}% (of {paddockArea} sq ft)`. The second line only renders when the paddock has a non-null `acres` value; otherwise the caption reads `↳ Set paddock acreage to estimate cover.` and the count is still stored but no auto-fill happens.
+
+When the user types a count, `forageCoverPct` is auto-set from the registered calc (`survey.baleRingCover`, documented in V2_CALCULATION_SPEC.md §4.9). The user can override the cover field afterwards — the bale-ring count is a hint, not a lock. The hint copy below the input reads *"Count bale-ring residues visible across the paddock."*
+
+The default ring diameter is 12 ft, stored as `farm_settings.bale_ring_residue_diameter_cm` (renamed from the original `_ft` column in OI-0111 / migration 027 per the metric-internal rule) and editable per farm in Settings. The count itself is stored on the observation (`paddock_observations.bale_ring_residue_count` and `event_observations.bale_ring_residue_count`) so the recovery story over time stays visible — a farmer can flip back to a paddock survey from six months ago and see exactly how many ring footprints were counted that day.
+
+The bale-ring count is **not** required for the ✓ Complete badge. The completion rule mirrors v1 strictly: `rating + vegHeight + forageCover + forageCondition + recoveryMin + recoveryMax`. Bale-ring is a helper, not an independent data point. Notes are optional too.
+
+### 7.5 Bulk-Mode Chrome
+
+The bulk-mode header replaces the classic header entirely. It has four (or five, depending on operation shape) rows stacked top-to-bottom:
+
+**Row 1 — actions.** Three clusters: Cancel as a red text button on the left (not an outline button — visually demotes the destructive option to a secondary-text affordance); a center cluster with a DRAFT pill and Expand/Collapse-all toggle; a right cluster with `Save Draft` (outline), `Finish & Save` (green), and a `✕` close button. The `✕` and the backdrop both auto-save the draft on close. Cancel is the only path that explicitly rolls back the session's edits — see §7.7.
+
+**Date row.** Survey date input, narrow (160px max-width). Mirrors `survey-date` and `survey-bulk-date` so editing one updates the other.
+
+**Farm filter pills** — only render when the operation has more than one farm. Pills are amber when active. Selecting a non-`all` farm filters the paddock list to that farm's locations.
+
+**Type filter pills** — Pasture / Mixed-Use / All. Green active state. Crop locations are excluded by default; the type pill set deliberately omits `crop` so a survey doesn't accidentally rate a corn field. Confinement locations are always excluded — they're not pasture and have no rating context.
+
+**Search row.** A single text input that filters the paddock list by name or `fieldCode` (case-insensitive substring). No debounce — each keystroke rerenders the filtered list because the lists are short enough that the cost is negligible.
+
+**Finish-confirm bar** — when the user taps Finish & Save and any visible paddock is unrated, the bulk-action row swaps in a confirm bar with two buttons (`Finish Anyway` teal · `Go Back` outline) and a message reading *"{N} of {M} paddocks have no data — finish anyway?"*. This is in-place, not a modal — the rest of the chrome stays put. Confirming runs the commit; cancelling restores the action row.
+
+### 7.6 Draft Lifecycle
+
+Drafts are immediate-on-localStorage and 1-second-debounced-on-Supabase. Every input change calls `triggerSurveyDraftSave(surveyId)`, which captures the current DOM state into a `{ [paddockId]: { rating, vegHeight, forageCover, forageQuality, notes, recoveryMin, recoveryMax, baleRingResidueCount } }` object, runs it through `store.upsertSurveyDraftEntries(surveyId, state)` for an immediate localStorage write + sync queue insert, then schedules a 1-second debounced `flushSurveyDraftSync(surveyId)` so a fast typist doesn't spam the queue. The draft is also flushed on sheet close.
+
+V2 stores draft state in a child table (`survey_draft_entries`) rather than v1's JSONB blob on the parent survey, but the UX is identical. The Resume action reads the child rows and hydrates the form state at sheet-open.
+
+**Three close semantics** the user can pick from:
+
+- **Backdrop click or `✕` button** — auto-saves the draft, closes the sheet. Next time the user opens a bulk survey, the Surveys sub-tab shows a Resume banner (§7.9).
+- **"Cancel" (red text in the bulk header)** — confirms *"Discard changes from this session?"*; on confirm, restores the snapshot taken at sheet-open and closes the sheet. The draft record itself still exists, but its state mirrors what the farmer saw on entry, not what they edited during this session.
+- **"Discard" (Surveys sub-tab banner)** — full delete: removes the survey row and all child draft entries from both localStorage and Supabase. The draft is gone.
+
+Save Draft (in the bulk chrome) is the explicit "I want to leave this for later but make sure it's safe right now" button — it forces an immediate sync rather than waiting for the debounce, then shows a "Draft saved." toast and leaves the sheet open.
+
+### 7.7 Commit Rules
+
+Finish & Save (bulk) and Save survey (single, bulk-edit) all flow through `commitSurvey(surveyId, date)`. The commit rules are identical across modes — the only thing that differs is what gets written; bulk writes one observation per rated paddock, single writes one observation, bulk-edit replaces existing observations for the same `(sourceId, paddockId)` rather than appending.
+
+The commit must satisfy:
+
+- **At least one rated paddock.** A bulk survey with zero ratings cannot commit; an alert blocks the action and the user returns to the sheet.
+- **One `paddock_observations` row per rated paddock.** `source = 'survey'`, `sourceId = survey.id`, `confidenceRank = 3` (surveys are middle-confidence — below in-event observations, above derived defaults). The bale-ring count is included on the observation when set. The same observation row carries `forageCondition` (the 4-button choice), `forageQuality` (the slider rating), `vegHeight`, `forageCoverPct`, `recoveryMinDays`, `recoveryMaxDays`, and `notes`.
+- **Recovery-window inversion.** For each paddock with a non-null recovery edit, find the last closed event for the paddock and compute `daysAlreadyRested = surveyDate − event.dateOut`. The stored `recoveryMinDays` and `recoveryMaxDays` on the event are then `displayedValue + daysAlreadyRested` so the values remain event-date-relative. If no prior event exists, write directly to the paddock's own `recoveryMinDays` / `recoveryMaxDays`.
+- **Stamp the parent survey.** `surveys.date = surveyDate`, `surveys.status = 'committed'`. Delete the child `survey_draft_entries` rows for this survey — they're no longer needed once observations are written.
+- **Bulk-edit replaces, not appends.** When re-committing a previously committed survey, delete the existing `paddock_observations` rows for `(sourceId = survey.id, pastureId)` before writing the new ones. This is the only place the v1-vs-v2 schema difference matters at the commit layer.
+
+### 7.8 Field Mode Adaptations
+
+The bulk and single survey tiles in field mode (`surveybulk` / `surveysingle` in `FIELD_MODULES`) reuse the same sheet, but the field-mode body class triggers four behavioral changes:
+
+| Element | Field-mode behavior |
+|---|---|
+| Backdrop click | Disabled. Prevents an accidental dismissal while the farmer is bouncing the phone in their pocket. |
+| Sheet handle | `display: none` — the visual swipe-down indicator is hidden so the user knows the sheet won't close that way. |
+| Close button | Text changes from `✕` to `⌂ Done` (Unicode U+2302) — same as the move picker, feed-check picker, and heat picker. |
+| Sheet sizing | Full-screen on mobile (the field-mode-sheet CSS defined in §16). |
+
+Single-paddock surveys in field mode go through a picker first: `openPastureSurveyPickerSheet()` opens a sheet with farm pills (only when >1 farm), type filter pills (All / Pasture / Mixed-Use), a search input, and a sorted list of paddocks (active first, then alphabetical). Each row shows `📋 · name · acres · "active" badge · land-use + farm hint`. Tapping a row closes the picker and calls `openSurveySheet(pastureId)` for that paddock. On close of the survey sheet (or the picker), the field-mode `goHome()` helper returns the user to the field-mode tile grid — the muscle-memory "back to home" pattern that holds across every field-mode flow.
+
+### 7.9 Surveys Sub-Tab on Locations Screen
+
+The Locations screen carries a Surveys sub-tab alongside the location list. Two cards, top to bottom:
+
+**Draft banner** — only renders when there's an in-progress bulk draft (`surveys.status = 'draft'` exists for the active operation). Reads *"📋 Survey in progress · {N} paddocks rated"* with two buttons: `Resume` (green, opens the bulk sheet pre-populated) and `Discard` (red text, confirms then deletes the draft entirely per §7.6's third close semantic).
+
+**Committed list** — chronological (newest first) list of committed surveys for the active operation. Each row shows: date, paddock count rated, "{N} paddocks · ✓ committed", and an `Edit` button that opens bulk-edit mode for that survey. There is no per-paddock drilldown from this list — to see one paddock's history, the user opens the location edit sheet and looks at its survey history (entry point #6 in §7.2).
+
+A `+ New Survey` button at the top of the sub-tab opens a fresh bulk survey (entry point #2). When a draft already exists, the button is disabled with a tooltip reading *"Resume the in-progress draft above first."* — there's at most one draft per operation at a time, matching v1.
+
+### 7.10 Design Notes
+
+Surveys don't have a `farm_id` on the parent record. A bulk survey can span paddocks across farms, and the farm context comes from each paddock's `farmId` at observation-write time. This is intentional — the survey is an event in the user's life ("I walked the farm Tuesday"), not a per-farm artifact.
+
+The completion rule lives in `isBulkSurveyCardComplete(paddockId)` and is the only place that decides whether the ✓ Complete badge appears. Keep it strict and grep-friendly — adding new "required" fields means changing this one function and the farmer's mental model in lockstep, not adding a second list elsewhere.
+
+### 7.11 Schema and Export Impact
+
+All survey columns ship in V2_SCHEMA_DESIGN.md §6 (`paddock_observations`) and §7 (`survey_draft_entries`). Migration 022 added `farm_settings.bale_ring_residue_diameter_ft` (default 12.0) and verified `event_observations.bale_ring_residue_count` exists; OI-0111 / migration 027 then renamed `_ft` to `_cm` per the metric-internal rule. CP-55 / CP-56 carry these fields; old backups predating migration 022 default the diameter to 12 ft on import via the v21 → v22 chain entry in `BACKUP_MIGRATIONS`.
 
 ---
 
@@ -2215,6 +2325,7 @@ The sheet uses the same unit-aware descriptor pattern as the Farm Settings card 
 | 2026-04-13 | Settings screen + unit-system toggle (GH-3 base-doc fill) | Added §20 Settings Screen (7 top-level sections). §20.2 documents the unit-system toggle mechanics: `store.setUnitSystem()` action, sync-failure revert, full list of unit-sensitive fields that re-render on toggle, input-field conversion rules, localStorage → `operations.unit_system` one-time migration on boot, Field Mode inheritance. §20.3 documents Export/Import/Migrate/Resync actions in the Sync & Data section (forward references to V2_MIGRATION_PLAN.md §5). Closes the GH-3 base-doc integration gap identified in the 2026-04-13 reconciliation audit. |
 | 2026-04-13 | Rotation calendar design (CP-54) | Added §19 Rotation Calendar — 9 subsections covering view modes (Estimated Status + DM Forecast), past event blocks (linked, strip-grazed, active, sub-move), future forecast blocks (capacity split, surplus, never-grazed → survey CTA), toolbar lightboxes (Timeline Selection + Dry Matter Forecaster), confinement pill, sidebar mirroring paddock column, empty states, mobile fallback (no calendar below 900px — v1 GRZ-11 banner + GRZ-10 list), List view (v1 GRZ-10 pattern), and **§19.9 Interactions & Deep Linking** (click targets, pan/zoom gestures, keyboard shortcuts, deep-link URL schema, first-load defaults Zoom=Week/Jump=Today, state persistence policy deferred from user_preferences to a follow-up, paddock sort order, accessibility). Calendar lives only on the Events screen — Reports does not mount a second copy. Bundles strip-grazing from OI-0001. |
 | 2026-05-03 | Reconciliation Session B — UX flows P1 catch-up (RECONCILIATION_PLAN_2026-05-03 UX-1, UX-2, UX-3, UX-4) | Four base-doc edits landing in one pass. **§17.7 (UX-1):** stub card body spec replaced with full v1-parity rewrite from UI_SPRINT_SPEC SP-3 — 15-element card anatomy (left green accent bar through DMI/NPK summary), explicit two deliberate v1 deltas (small bottom Feed/Feed-check buttons removed; large green Feed button added under large amber Feed check), header buttons (Edit opens §17.15 sheet, Move all opens move wizard), "What is NOT on this card" callouts for OI-0065 (per-group reweigh moved to Animals area) and OI-0066 (per-group Move on dashboard is event-scoped). **§16 (UX-2):** pre-sprint Field Mode prose replaced with v1-parity rewrite from UI_SPRINT_SPEC SP-8 — 12 subsections covering header pill activation with three-state context-aware behavior (⊞ Field / ← Detail / ⌂ Home), exit-returns-to-previous via sessionStorage, body.field-mode CSS gate (sidebar / bottom nav / SP-6 sub-row / build stamp hidden + desktop grid collapse), 8-module tile grid driven by `FIELD_MODULES` constant with 4-module default, shared event picker sheet (Move / Feed Check / Heat fallback), expandable event cards reusing `buildLocationCard()`, interactive tasks with checkboxes + due-date color coding, 2-step Heat picker (event/group filter pills, search, multi-record), feed-loop behavior on Feed Animals tile, field-mode sheet treatment (no backdrop close, hidden handle, "⌂ Done", full-screen mobile, after-save→#/field), Module Settings card cross-reference to §20. The dark-green field-mode header bar is explicitly deleted. **§17.15 DMI chart (UX-3):** added the 5-state status model (actual / estimated / needs_check / no_animals / no_pasture_data) per UI_SPRINT_SPEC SP-12 / OI-0119 — full status table with bar render, label, and CTA per status; "Feed check needed" hint on `needs_check` for stored-feed events without a strike point; deficit red-segment render and conditional `■ deficit` legend swatch; partial pre-graze "(Fix)" hint; source-event date-routing-only bridge documented; forced feed-check on sub-move close rule referenced. **NEW §17.15.1 (UX-4):** "Event Data Editing" subsection created from UI_SPRINT_SPEC SP-10 — core principle (compute on read for derived; explicit reconciliation for structural), shared gap/overlap routine (3 options each), retro-place atomic two-write flow (no reopen ceremony), §7 Groups Edit dialog (new Edit button between Move and Remove; auto-save on blur; Delete window with guards), §12 Sub-moves Edit dialog (resolves OI-0064 — Reopen folds in; no gap detection; range guards; strip-graze flip), event-level dates (`date_in` direct edit with reject-on-narrow / confirm-on-widen; Event Reopen for `date_out` with three-option group-conflict picker; re-close overlap warning), §8 Feed Entries validation guards, §8a Move Feed Out (new capability — 4-step sheet, two entry points, atomic transaction, DMI / NPK / cost logic block), §9 Feed Checks invariant + Re-snap dialog (Cases A/B/C/D), §3 Pre-graze + §6 Post-graze inline edit + silent cascade, sub-move close forced feed-check rule. Architecture-doc portion (snapshot/rollback pattern in V2_APP_ARCHITECTURE.md) deferred to Session C. No code changed in this session — documentation catch-up only. Owner: Cowork. |
+| 2026-05-04 | Reconciliation Session D — SP-9 Survey Sheet + SP-14 cross-references | The last open item from the retired sprint spec's checklist. **§7 Survey Workflow rewritten end-to-end** from the brief 22-line sketch into 11 subsections covering: §7.1 three modes (one sheet — `bulk` / `single` / `bulk-edit` — toggled by `setSurveySheetMode`); §7.2 the 8-path entry-point matrix (Locations `📋 Survey`, Surveys sub-tab `+ New Survey` / Resume / Edit, Location edit `+ Add reading` / row Edit, Field Mode multi-pasture and single-pasture tiles; v1's home Pasture readiness card explicitly dropped); §7.3 paddock card (collapsed bulk header anatomy, single-mode richer context line, six body sections including the rating slider + number + color bar, recovery window with live date preview, recovery-window date math inverse on commit); §7.4 the **bale-ring residue helper** (the one deliberate v2 addition — input between cover and condition, two-line caption, auto-fill cover %, default 12-ft diameter editable per farm via `farm_settings.bale_ring_residue_diameter_cm`, count stored on observation but not required for the Complete badge); §7.5 bulk-mode chrome (action row with red Cancel + DRAFT pill + Expand/Collapse + Save Draft + Finish & Save + ✕; date row; farm pills only when >1 farm; type pills excluding crop; search; in-place finish-confirm bar); §7.6 draft lifecycle (immediate-on-localStorage + 1-second-debounced Supabase sync; child table `survey_draft_entries`; three close semantics — backdrop/✕ auto-saves, Cancel rolls back session edits, Discard deletes draft entirely); §7.7 commit rules (require ≥1 rated paddock; one observation per rated paddock with `source='survey'`, `sourceId=survey.id`, `confidenceRank=3`; recovery-window inversion on save so stored values are event-date-relative; bulk-edit replaces, doesn't append); §7.8 field-mode adaptations (backdrop disabled, sheet handle hidden, close = `⌂ Done`, full-screen mobile, single survey gated through picker sheet first); **§7.9 Surveys sub-tab on Locations Screen** (draft banner + committed list with Edit; `+ New Survey` disabled when a draft exists); §7.10 design notes (no `farm_id` on parent survey; Complete-badge rule lives in one function); §7.11 schema and export impact (migration 022 + OI-0111 / migration 027 rename to `_cm`). Pairs with V2_CALCULATION_SPEC.md §4.9 for the SUR-2 `survey.baleRingCover` calc spec added in the same session. **`github/issues/GH-12_survey-sheet-v1-parity.md` and `github/issues/GH-34_dam-calf-bidirectional-sync.md` thin-pointer conversions** complete the SP-N spec file sweep. With Session D, the entire UI Sprint reconciliation backlog is closed. No code changes — documentation catch-up only. Owner: Cowork. |
 | 2026-05-04 | Reconciliation Session C — UX flows P2/P3 catch-up (RECONCILIATION_PLAN_2026-05-03 UX-5, UX-6, UX-7, UX-8) | Four base-doc edits landing in one pass, completing the UX-side reconciliation backlog. **NEW §3.4 (UX-5) — Empty Group Handling (Archive Cascade):** absorbs UI_SPRINT_SPEC SP-11 + OI-0090. Documents the post-window-split trigger (`maybeShowEmptyGroupPrompt(groupId)` — no centralized "after last membership closes" cascade; each mutation flow owns its call), three group states (`active` / `empty-but-active` / `archived`) on the `groups.archived_at TIMESTAMPTZ` column shipped in migration 024, the empty-group prompt (Archive primary / Keep active / Delete with hard-disable when group has any historical event_group_window), the Group Management UI ("Show archived" toggle + per-row Reactivate + delete-history guard), the picker filter list (move wizard / event creation / Group CRUD / Field Mode pills / reports / dashboard), and the CP-55/CP-56 OI-0156 catch-up note. **§17.2 (UX-6) — Feedback & Help sub-row:** the brief paragraph that pointed at UI_SPRINT_SPEC SP-6 has been replaced with the full inlined spec — sub-row layout (28px height, 1px `--border` bottom divider, right-aligned, 8px button gap), button styling (`btn btn-outline btn-xs`, 11px/500, 💬 / 🆘 emoji prefix), responsive behavior (≥900px desktop / <900px mobile / hidden in Field Mode, fits down to 280px viewport), Feedback sheet (`type='feedback'`, all 7 category pills) vs Get Help sheet (`type='support'`, 4 categories only, always-visible Priority dropdown), shared structure (auto-filled context tag and Area dropdown using v2 screen names — `home`→`dashboard`, `events`→`rotation-calendar`, `pastures`→`locations`, `todos` removed for v2 launch), and the no-FAB-in-v2 statement. Both sheets write to `submissions` (V2_INFRASTRUCTURE.md §4.2) — no schema change. **NEW §21 (UX-7) — Feedback Screen (Desktop-Only):** absorbs UI_SPRINT_SPEC SP-7. Documents the desktop-sidebar-only nav placement (between Settings and the sync strip; never in mobile bottom nav) with red unread badge for `open` + `resolved` items; four screen sections matching v1's order (Confirmation banner + cards for resolved items awaiting user confirm; Stats strip with status/category badges that filter the list; Dev session brief card with Generate + Copy buttons over a regenerated monospace text block; All Submissions card with type / area / status filters and a row-click submission detail sheet); resolve / edit lives only on the detail sheet (not inline); explicit mobile fallback (centered "desktop-only" card with Back to dashboard); out-of-scope items (threaded responses, email notifications, cross-team-member confirmation). No new entities, no schema, no CP-55/CP-56 impact. **NEW §20.8 (UX-8) — Forage Types (Reference Library):** absorbs UI_SPRINT_SPEC SP-13 + OI-0125. Documents the Settings card placement (between Farm Settings and Field Mode, mirroring v1's vertical order); card anatomy (header + subtitle + `+ Add` button + row list with `<strong>name</strong>` + meta line + "seeded" badge + Edit pill + delete `×`); Add/Edit sheet fields (name required; DM%; N/P/K kg/t DM; **dmYieldDensity** field with imperial `lbs/in/ac` ↔ metric `kg/cm/ha` — see new V2_INFRASTRUCTURE.md §1.4; Min residual height in length family; Utilization %; Notes); shared unit-descriptor pattern with Farm Settings (`src/features/settings/unit-descriptor.js`); store-call signatures with full sync params per CLAUDE.md quality check #7; delete hard-guard against in-use forage types (lists affected paddocks + "View locations" link); empty-state with "seed defaults" link gated by confirm; out-of-scope (archive UI, custom unit labels, forage quality grading); zero schema / CP-55 / CP-56 impact. No code changed in this session — documentation catch-up only. Owner: Cowork. |
 
 ---

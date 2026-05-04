@@ -721,88 +721,136 @@ All CRUD sheets follow the same interaction pattern from V2_APP_ARCHITECTURE.md 
 
 ## 16. Field Mode
 
-A dedicated mobile-optimized UI mode for in-the-paddock work. Strips away navigation chrome and presents the most common field tasks as large, tappable action tiles. Designed for use while walking, wearing gloves, or in bright sunlight.
+A dedicated mobile-optimized UI mode for in-the-paddock work. Strips away navigation chrome and presents the most common field tasks as large, tappable action tiles. Designed for use while walking, wearing gloves, or in bright sunlight. The v2 field mode renders to **v1 parity** — eight configurable modules, user-selectable tile grid, expandable event cards reusing the dashboard location card, interactive tasks, and field-mode-aware sheet behavior.
 
 ### 16.1 Activation
 
-- **Toggle:** "Field" button in the app header (visible on all screens)
-- **Persistence:** Stored in user preferences. Once activated, field mode persists across sessions until toggled off.
-- **URL:** `?field=*` parameter also activates field mode (for bookmarking)
+Field mode is toggled exclusively via the **header pill button** in the app header right-cluster (`data-testid="header-field-mode-toggle"`). The pill is contextual — its label and behavior depend on whether field mode is active and what route the user is on:
 
-### 16.2 Field Mode Home Screen
+| Context | Pill text | Style | Action |
+|---------|-----------|-------|--------|
+| Not in field mode (any screen) | `⊞ Field` | `btn btn-outline btn-xs` (subtle, neutral border) | Enter field mode → `setFieldMode(true)` → save current `window.location.hash` to `sessionStorage` (for exit-returns-to-previous) → `navigate('#/field')` |
+| Field mode, on home (`#/field`) | `← Detail` | `btn btn-green btn-xs` (green, active) | Exit field mode → `setFieldMode(false)` → read saved hash from `sessionStorage` and `navigate(savedHash || '#/')` |
+| Field mode, on any sub-screen | `⌂ Home` | `btn btn-green btn-xs` | Return to field mode home → `navigate('#/field')` (stay in field mode) |
 
-The home screen in field mode replaces the standard dashboard with a task-oriented layout:
+The pill must update its text and handler on every route change — either subscribe the header to hashchange or call `updateFieldModeToggle()` from the router after each navigation. There is **no green field-mode header bar** inside the field mode screen — the v1 parity rebuild deletes the `.field-mode-header` element entirely. Navigation in and out of field mode happens only through the header pill.
 
-**Action Tiles (top section, 2×2 grid):**
+**Persistence:** Field mode state persists in user preferences (the existing `field_mode` flag on `user_preferences`). Once activated, it persists across sessions until toggled off.
 
-| Tile | Opens | Flow |
-|------|-------|------|
-| Feed Animals | Feed Delivery sheet (§4) | Event picker → batch picker → save → return to event picker (§4.2 loop behavior) |
-| Harvest | Harvest Recording sheet (§10) | Location → feed type → quantity → save → return home |
-| Multi-Pasture Survey | Survey workflow (§7.1) | Bulk survey draft → walk paddock-to-paddock → commit → return home |
-| Animals | Animals screen (field mode variant) | Animal list with quick-action bar (§14.10), full-screen sheets |
+**Exit returns to previous screen.** When the user enters field mode from a non-dashboard screen (Animals, Reports, Settings, etc.), exiting field mode returns to that screen, not to the dashboard. The header pill writes `window.location.hash` to `sessionStorage` under a known key on entry; the exit handler reads it back. This matches the farmer's mental model — "I dipped into field mode for a quick log, now drop me back where I was."
 
-**Active Events (middle section):**
+### 16.2 body.field-mode CSS gate
 
-Scrollable list of all active events. Each row shows:
-- Location name(s) from open paddock windows
-- Group name(s) and head count
-- Day count badge
-- Feed status indicator (fed today: green dot, not fed: amber dot)
-- **"Move"** button → Move Wizard (§1)
+Field mode applies a `body.field-mode` class as a CSS-level gate. `setFieldMode(true)` adds it; `setFieldMode(false)` removes it; the app init reads `getFieldMode()` and applies the class on boot. The class hides chrome that doesn't belong in the field:
 
-**Tasks (bottom section):**
+```css
+body.field-mode .desktop-sidebar      { display: none !important; }
+body.field-mode .bottom-nav           { display: none !important; }
+body.field-mode .header-sub-row       { display: none !important; }  /* SP-6 feedback row */
+body.field-mode .header-build-stamp   { display: none !important; }
+body.field-mode .app-layout           { grid-template-columns: 1fr; }  /* desktop grid collapse */
+```
 
-The user's pending tasks from the todo table, filtered to the current user. Each row shows task description, associated animal/group (if any), and due date. Tap opens the task detail. "Add task" button at bottom.
+The header pill's own `.btn` border color is also gated on this class so the pill takes on the green active treatment when field mode is on.
 
-**Note:** Time-sensitive alerts (withdrawal dates ending soon, overdue survey nudges, weaning targets, upcoming calving dates) belong on the **detail home screen** as dashboard widgets — not in field mode. Field mode tasks are the user's explicit todo list, not system-derived alerts.
+### 16.3 Field Mode Home Screen
 
-### 16.3 Field Mode Navigation
+The field mode home replaces the standard dashboard with a task-oriented layout. Top to bottom:
 
-Field mode uses a simplified two-level navigation instead of the standard tab bar:
+1. **Sub-heading** — *"Field mode"* (16px, 600 weight) followed by a hint line: *"Tap to log. Use ← Detail in the header to return to the full app."* Both strings flow through `t()` (`fieldMode.homeTitle` and `fieldMode.homeHint`).
+2. **Tile grid** — dynamic, driven by the `FIELD_MODULES` constant filtered against the user's `field_mode_quick_actions` preference. See §16.4.
+3. **Active events section** — expandable cards, one per active event. See §16.6.
+4. **Tasks section** — interactive todos with checkboxes and due-date color coding. See §16.7.
 
-| Location | Header button | Action |
-|----------|--------------|--------|
-| Field mode home | "← Detail" | Exit field mode, return to standard dashboard |
-| Any sub-screen (Animals, Feed, Survey) | "⌂ Home" | Return to field mode home (stay in field mode) |
+### 16.4 Tile Grid (8 Modules)
 
-**Sheet behavior in field mode:**
-- All sheets expand to full-screen on mobile (no partial-height drawers)
-- "Done" button instead of backdrop close (prevents accidental dismiss while walking)
-- Backdrop tap-to-close disabled
-- After save, return to field mode home (not the originating screen)
+The tile grid is dynamic. v2 ships eight modules, all configurable per-user via Settings (§20.1). The user's enabled set defaults to `['feed', 'harvest', 'surveybulk', 'animals']` when their `field_mode_quick_actions` preference is null.
 
-### 16.4 Record Heat Quick-Access
+| Key | Icon | Label key | Handler behavior |
+|---|---|---|---|
+| `feed` | 🌾 | `fieldMode.feedAnimals` | Opens Quick Feed sheet. After each delivery the sheet returns to the event picker (§4.2 loop), not field mode home. "Done" on the picker returns to `#/field`. |
+| `move` | 🐄 | `fieldMode.moveAnimals` | Filter to events with `dateOut == null`. Zero open events → toast. One → open Move Wizard directly. Multiple → open the shared event picker sheet (§16.5), select event → Move Wizard. |
+| `harvest` | 🚜 | `fieldMode.harvest` | Opens the Harvest sheet directly with `{ fieldMode: true }`. |
+| `feedcheck` | 📋 | `fieldMode.feedCheck` | Filter to events with at least one `event_feed_entries` row. Zero → toast (`fieldMode.noStoredFeed`). One → open Feed Check sheet directly. Multiple → event picker → Feed Check sheet. |
+| `surveybulk` | 📋 | `fieldMode.survey` | Opens the Bulk Survey sheet directly. |
+| `surveysingle` | 📋 | `fieldMode.surveySingle` | Opens the pasture survey picker sheet (`openPastureSurveyPickerSheet`) — a location picker with farm/type/search filters; selecting a location opens the single-paddock survey for that location. Falls back to `navigate('#/surveys')` if the picker doesn't exist. |
+| `animals` | 🐄 | `fieldMode.animals` | `navigate('#/animals')`. |
+| `heat` | 🌡️ | `fieldMode.recordHeat` | Opens the heat picker sheet (`openHeatPickerSheet`) — see §16.8 for the 2-step animal picker flow. |
 
-A dedicated quick-access flow available from the Animals screen in field mode. This supports the common pattern of spotting animals in heat while walking paddocks.
+Tile rendering: a single button per active key, ~88px min height, 32px icon centered above a 13px label. On touch, the tile flashes a green-light background (`var(--green-l)`) and green border for tactile feedback. When the user has all eight modules disabled, the grid renders an empty-state message: *"No modules active — go to Settings to add tiles."*
 
-**Flow:**
+### 16.5 Shared Event Picker Sheet
 
-1. **Animals screen (field mode)** → Animal list with standard quick-action bar
-2. **Any animal's Breeding quick-action** → Opens Heat Recording Sheet (§14.6) with animal picker (Step 1) if needed, or directly to Step 2 if animal is pre-selected
-3. **Alternatively:** Dedicated "Record Heat" action accessible from field mode Animals screen header — opens Heat Recording Sheet at Step 1 (animal picker, female-filtered)
+`openFieldModePickerSheet(type, events, onSelect)` is the shared picker used by Move, Feed Check, and the heat-fallback path when multiple open events exist. The sheet renders a list of event rows; each row shows location name (14px, 600 weight) and group names sub-line (12px, `--text2`). Tapping a row calls `onSelect(event)`, which closes the sheet and dispatches to the handler (open Move Wizard, open Feed Check sheet, etc.). The picker uses field-mode sheet treatment (no backdrop close, hidden handle, "⌂ Done" button). Tapping "⌂ Done" closes the sheet and navigates back to `#/field`.
 
-**Animal picker filter defaults (field mode):**
-- Female only (always on, non-removable in heat context)
-- Class filter available (e.g., show only cows, not heifers)
-- Group filter defaults to groups with active events (animals currently on pasture)
-- Search by tag or name
+### 16.6 Active Events Section — Expandable Cards
 
-**After save:** Return to field mode home.
+Below the tile grid. One row per active event.
 
-### 16.5 Feed Check from Field Mode
+**Collapsed row** — compact: green/grey accent bar · 🌿 location name · acreage · sub-line `{group names} · Day {N}{submove suffix}` · **Move all** button (`btn btn-teal btn-sm`, opens Move Wizard for the event) · expand chevron (`›`).
 
-When "Feed Animals" tile is selected:
-- After completing a feed delivery, the sheet returns to the event picker (§4.2) — not to field mode home
-- "Done" button on the event picker returns to field mode home
-- This supports the morning/evening feeding loop: feed group 1 → feed group 2 → … → Done
+**Expanded state** — replaces the collapsed row with the **full dashboard location card** (§17.7) wrapped in a teal border, with a collapse handle (`⌃`) at the top to dismiss. The expanded card is rendered by importing `buildLocationCard()` from `src/features/dashboard/index.js` — not a lightweight reimplementation. This guarantees the expanded card shows the same DMI chart, feed/cost values, group lines, and sub-paddock structure that the dashboard does.
 
-### 16.6 Design Notes
+Only one event can be expanded at a time; expanding a second collapses the first. Tracked via a module-scope `expandedEventId` variable.
 
-- Field mode is a **UI mode**, not a separate app. The same store, sync, and data layer powers both modes. The difference is navigation structure and sheet presentation.
-- Field mode is primarily a mobile pattern, but works on tablet/desktop with the same tile layout (tiles scale up, sheets remain full-width on mobile, standard width on desktop).
-- All data entered in field mode syncs through the same SyncAdapter (A10) — no special offline handling needed beyond what the standard app provides.
-- V1's field mode handlers (`_fieldModeMoveHandler`, `_fieldModeFeedCheckHandler`, `_fieldModePastureSurveyHandler`, `_fieldModeHeatHandler`) map directly to the four action tiles in v2.
+The `Move all` button on collapsed rows opens the Move Wizard scoped to the event. To prevent accidental taps while scanning the list, any other event-scoped actions (Add sub-move, etc.) live exclusively inside the expanded card body — never on the collapsed row.
+
+### 16.7 Tasks Section — Interactive
+
+Below the active events section. Up to 4 open todos for the current user, plus an **+ Add** action in the section header (opens the todo create sheet).
+
+**Task row:** checkbox (18px, rounded square) · title (13px) · due-date sub-line (11px, color-coded).
+
+**Due-date color coding:**
+- Overdue: `--color-red`, text `Overdue · {date}`
+- Due today: `--color-amber`, text `Due today`
+- Future: `--text3`, text `Due {date}`
+- No due date: no sub-line
+
+Tapping the checkbox marks the todo closed (`status = 'closed'`, `closedAt = now()`) via the store. Tapping the row body opens the todo edit sheet. If the user has more than four open todos, render a **View all** link below the list that navigates to `#/todos`.
+
+**Note:** Time-sensitive system-derived alerts (withdrawal end, overdue survey nudges, weaning targets, upcoming calving) belong on the detail-mode dashboard as widgets — not in field mode. Field mode tasks are the user's explicit todo list only.
+
+### 16.8 Record Heat — 2-Step Animal Picker
+
+The Heat module tile opens a dedicated heat picker sheet — a 2-step flow specific to field mode that replaces the v1 "auto-select first female" shortcut.
+
+**Step 1 — Animal picker.** Filter pills at the top: an **event** pill row (one pill per active event, plus an "all" pill) and a **group** pill row (one pill per group on the active events, plus "all"). A search box matches tag, name, or ear-tag. The list below renders all matching female animals as cards. The picker supports **multi-record** — tapping multiple animals queues each into the heat sheet.
+
+Default filter state on open: event = "all", group = "all", search empty.
+
+**Step 2 — Heat recording.** Standard Heat Recording sheet (§14.6) bound to the selected animal(s). For multi-select, the sheet steps through each animal in turn. After the last save, the picker closes and `navigate('#/field')` returns to the field mode home.
+
+**Sheet treatment:** field-mode rules apply — no backdrop close, sheet handle hidden, close button text "⌂ Done".
+
+### 16.9 Feed Check Loop — Feed Animals Tile
+
+Selecting the Feed Animals tile opens the Quick Feed sheet. After completing a feed delivery, the sheet does not close to field mode home — it returns to the event picker so the farmer can feed the next group. **Done** on the event picker returns to `#/field`. This supports the morning/evening feeding loop: feed group 1 → feed group 2 → … → Done.
+
+The Feed Check save handler also redirects to `#/field` instead of just closing — once the farmer has logged the check, return them to field mode home, not to whatever lower-level screen the sheet was opened from.
+
+### 16.10 Field-Mode Sheet Behavior
+
+Every sheet that opens in field mode applies the following treatment:
+
+- **Full-screen on mobile** — `body.field-mode .sheet-panel { border-radius: 0; max-height: 100vh; }`
+- **Backdrop tap-to-close disabled** — sheet open functions check `getFieldMode()` and skip wiring the backdrop click handler when true.
+- **Sheet handle hidden** — `body.field-mode .sheet-handle { display: none; }`
+- **"⌂ Done" close button** — close buttons relabel from `✕` to `⌂ Done` in field mode.
+- **After save → field mode home** — sheet save handlers check `getFieldMode()` and `navigate('#/field')` instead of the normal close-to-originator behavior. Exception: feed-loop sheets return to the event picker (§16.9).
+
+### 16.11 Module Settings (Settings Screen)
+
+A new card in the Settings preferences section: **Field Mode Modules**. Lists all 8 modules with icon, label, and a v1-style toggle pill (green filled when on, neutral outline when off). Toggling writes the new array to `user_preferences.field_mode_quick_actions` via `store.update()` with full 6-param signature. When the preference is null, the default set is `['feed', 'harvest', 'surveybulk', 'animals']`. Changes take effect immediately — the field mode home re-renders the tile grid against the new preference.
+
+Position the card after the existing "Home view" preference card.
+
+### 16.12 Design Notes
+
+- Field mode is a **UI mode**, not a separate app. Same store, sync, and data layer power both modes. The differences are navigation structure (no nav, header pill only), sheet presentation (full-screen, no backdrop close, "⌂ Done"), and the tile-grid home screen.
+- Field mode is primarily a mobile pattern, but works on tablet/desktop — tiles scale up; sheets stay full-screen on mobile and standard-width on desktop.
+- All data entered in field mode syncs through the same SyncAdapter (A10). No special offline handling.
+- The expanded event card reuses `buildLocationCard()` from the dashboard. Any dashboard card improvements (e.g. SP-3 v1 parity, future enhancements) flow into field mode for free.
 
 ---
 
@@ -1011,28 +1059,77 @@ Rendered top-to-bottom in this order. Each sub-element is conditional:
 
 ### 17.7 Locations View — Location Cards
 
-Alternate card grid when `home_view_mode = 'locations'`. Shows active events grouped by location, plus an unplaced groups section.
+Alternate card grid when `home_view_mode = 'locations'`. Shows active events grouped by location, plus an unplaced groups section. The card renders to **v1 parity** — every farmer migrating from v1 must perceive the v2 dashboard card as the same card, not a new one. Two — and only two — deliberate deltas from v1 are applied (see "Deliberate v1 deltas" below).
 
 **Grid:** Same layout as groups view (single column mobile, `1fr 1fr` desktop, 14px gap).
 
-**Active event cards** — one per active event (location-centric):
-- **Header:** Location name (14px, 600 weight) + type badge (land_use value — using §3.3 chip pattern): pasture → `--green`, mixed-use → `--teal`, confinement → `--amber`, crop → `--purple`
-- **Body:**
-  - Groups present: list of group names with head counts. E.g., "Cows (24 head) · Heifers (12 head)"
-  - Days in: "Day {N}" since event opened
-  - Feed status: "{N} feedings · ${XX.XX} cost"
-  - Sub-paddock status (if strip graze): "Strip {N} of {M}"
-  - Action buttons (all receive the active event object + operationId + farmId from the rendering context):
-    - **Move** — calls `openMoveWizard(event, operationId, farmId)` directly (import from `events/move-wizard.js`). Does NOT navigate to the Events screen.
-    - **Survey** — calls `openCreateSurveySheet(operationId)` (must be exported from `surveys/index.js`; currently not exported — export it). Pre-selects the event's primary location if the survey create sheet supports location context.
-    - **Edit** — navigates to event detail view `#/events/{eventId}` (see §17.12 Event Detail View). Interim behavior until §17.12 is built: calls `openCloseEventSheet(event, operationId)` (import from `events/close.js`).
+#### Active event cards — v1-parity anatomy
 
-**Unplaced groups section** — below active event cards:
-- Section header: "Unplaced groups" (`.sec` label)
-- One row per unplaced group: group name + head count + "Place" button (`btn btn-teal btn-sm`)
-- If no unplaced groups, section is hidden
+One card per active event (location-centric). Top to bottom, every element is required and renders in this order:
 
-**Empty state:** If no active events exist, show: "No active events. Place a group to start grazing." (13px, `--text2`, centered).
+1. **Left green accent bar** — full-height, runs the left edge of the card. Identifies the card visually as a location card and matches v1.
+2. **Header row** — leaf icon (🌿) · location name (14px, 600 weight) · acreage (in user units, e.g. `7.42 ac`). Floating top-right: small **Edit** button (pencil) and small **Move all** button. The Move-all button calls `openMoveWizard(event, operationId, farmId)` for every group on the event.
+3. **Event type badge** — inline with the summary line, using §3.3 chip pattern. Examples: `stored feed & grazing`, `grazing`, `confinement`. Color: pasture/grazing → `--green`, mixed-use → `--teal`, confinement → `--amber`, crop → `--purple`. Stored-feed-and-grazing uses an amber-tinged variant to signal both inputs are active.
+4. **Summary line** — `Day N · In {date} · ${cost}`. `Day N` is the inclusive day count since `event.dateIn`. `In {date}` shows the start date in user locale. Cost is the rolled-up event cost from CST-1 (calc engine).
+5. **Weight line** — `{W} lbs · {AU} AU`. Total live weight (sum of `headCount × avgWeightKg` across active group windows, converted to user units) and total Animal Units.
+6. **Green capacity line** — `Est. capacity: {N} AUDs · ~{M} days remaining (incl. stored feed) · {H}" · ADA est: {X}/ac`. From CAP-1. The `{H}"` is current standing forage height (most recent pre-graze observation, in user units). `ADA` is animal-days-per-acre estimate over the event's projected lifespan.
+7. **Gray breakdown line** — `Pasture: {X} lbs DM · Stored feed: {Y} lbs DM · DMI demand: {Z} lbs/day`. Sources: FOR-1 (standing pasture DM), batch ledger (stored feed DM remaining on this event), DMI-1 (per-day demand based on AU and forage condition).
+8. **`+ Add sub-move` link** — teal text link, opens the sub-move open sheet for this event.
+9. **`SUB-PADDOCKS` section** — only renders when at least one sub-move exists on the event. One row per paddock window: status dot (open = green, closed = grey) · paddock name · acreage · `since {date}` · `active` or `closed` label · **Close** button on active rows (opens the sub-move close sheet, which on stored-feed events forces a feed check inline per §12 — see also §17.15.1).
+10. **`GROUPS` section** — one row per active group window: status dot (group color) · group name · sub-line `{head} head · avg {W} {unit}` · **Move** button (opens move wizard scoped to that group). **No reweigh icon** — per-group reweigh is not on the dashboard card in v2 (see "What is NOT on this card" below).
+11. **`DMI — LAST 3 DAYS` chart** — three bars (today + two days). Today renders solid; future days render striped with a `(est.)` label. Stored-feed segment renders amber at the base of each bar; grazing segment renders green above it. Today's total DMI value renders large on the right of the chart. Always-on legend below: `■ grazing · ■ stored`. The chart obeys the SP-12 / OI-0119 cascade — see §17.15.1 "DMI chart status model" for the five-state status set, deficit segment render, and `(Fix)` CTA links on missing-data bars.
+12. **Large amber `Feed check` button** — full-width, `btn btn-amber`. Opens the feed check sheet for this event.
+13. **Large green `Feed` button** — full-width, `btn btn-green`. **NEW in v2** — opens the deliver-feed sheet for this event. Sits directly below the Feed check button.
+14. **DMI/NPK summary line(s)** — `DMI {N} lbs/day · X% stored · Y% est. pasture` and `NPK: N{n} / P{p} / K{k} lbs · ${value} value`. From DMI-1, NPK-1, NPK-2.
+15. **No small bottom buttons.** v1 had two small `Feed check` and `Feed` text buttons at the very bottom of the card, below the NPK line. Both are removed in v2 — the large amber Feed check (#12) and large green Feed (#13) replace them.
+
+#### Deliberate v1 deltas
+
+Only two changes from v1 are applied. Every other element renders as v1 does.
+
+1. **Removed:** the two small `Feed check` and `Feed` buttons that sat at the very bottom of the v1 card (below the NPK line).
+2. **Added:** the large green `Feed` button (#13), full-width, sitting directly below the existing large amber `Feed check` button (#12).
+
+The `Feed check` and `Feed` actions are accessed exclusively via the two large buttons. The v1 small-button shortcut is dropped — no second entry point.
+
+#### What is NOT on this card
+
+- **Per-group reweigh icon.** v1 showed a small scale icon next to the per-group Move button. v2 does not — reweigh moves to the Animals area. Tracked as **OI-0065** (P3, follow-up).
+- **Per-group "scoped" Move targeting.** The per-group Move button on this card opens the move wizard at the **event** level (it's the same wizard that the Move-all header button opens). True per-group move scoping is tracked as **OI-0066** (P3, follow-up). Behavior on the dashboard card is intentionally event-scoped for now.
+
+#### Header buttons (top-right, floating)
+
+All three buttons receive the active event object plus operationId and farmId from the rendering context.
+
+- **Edit (pencil icon)** — opens the Event Detail sheet (§17.15) via `openEventDetailSheet(event, operationId, farmId)`. The sheet is the v2 equivalent of v1's Edit Event sheet.
+- **Move all** — calls `openMoveWizard(event, operationId, farmId)` directly. Does not navigate to the Events screen.
+
+The `+ Add sub-move` link (#8) and the per-row Close (#9) and Move (#10) buttons follow the same direct-sheet pattern. No card action navigates away from the dashboard route — every interaction opens a sheet on top.
+
+#### Survey entry point
+
+Survey creation lives on the Surveys screen (§7) and on the per-paddock survey CTA inside the Event Detail sheet (§17.15). The dashboard location card does **not** expose a Survey button at the card level — v1 didn't either, and SP-3 explicitly preserves that.
+
+#### Unplaced groups section
+
+Renders below the active event card grid when at least one group has no open `event_group_window`.
+
+- Section header: `Unplaced groups` (`.sec` label).
+- One row per unplaced group: group name + head count + **Place** button (`btn btn-teal btn-sm`) — opens move wizard with the group pre-selected and no source event.
+- Hidden entirely when no unplaced groups exist.
+
+#### Empty state
+
+If no active events exist, the locations view shows: *"No active events. Place a group to start grazing."* (13px, `--text2`, centered).
+
+#### v1-parity reference
+
+The full line-by-line spec, including the v1 HTML/CSS reference extracted verbatim, mockup v3, and acceptance criteria, lives in `github/issues/dashboard-card-enrichment.md` (SP-3 spec file). The spec file is the canonical implementation reference; this section documents the resulting card in flow-doc form.
+
+**Linked OPEN_ITEMS:**
+
+- **OI-0065** — Per-group reweigh moved from dashboard card to Animals area (P3, follow-up).
+- **OI-0066** — Per-group Move on dashboard card is event-scoped, not group-scoped (P3, follow-up).
 
 ### 17.8 Open Tasks Section (Dashboard)
 
@@ -1293,11 +1390,34 @@ Full-screen view for a single active or closed event. Opens when the user taps *
 - **+ Feed check** button → calls `openFeedCheckSheet(event, operationId)`
 
 **DMI chart:**
-- 3-day stacked bar chart (grazing = green, stored feed = amber)
-- Each bar: day label + "✓" if actual observation exists vs "(est.)" if estimated
-- Right side: total DMI today in lbs
-- Uses same rendering pattern as v1's inline DMI chart
-- Data source: daily DMI calculations from calc engine
+
+3-day stacked bar chart shared with the dashboard location card (§17.7 element #11). Both surfaces render through the single component at `src/ui/dmi-chart.js`. The chart obeys the SP-12 / OI-0119 cascade allocation model — see V2_CALCULATION_SPEC.md §4.2 (DMI-8) for the canonical calc spec. Each bar represents one day across a 3-day window (today plus two), with grazing rendered green at the top of the stack and stored feed rendered amber at the base.
+
+The chart now reports five distinct status values per day. The status drives bar appearance, label, and any inline call-to-action. The five-state model replaced the earlier three-state model (actual / estimated / no_data) when SP-12 shipped, because real field-test data surfaced cases where a day had neither pasture data nor animals on the paddock — collapsing those into a single "no data" status hid the difference between *missing observation* (fixable with a CTA) and *no animals here yet* (not actionable, just blank).
+
+| Status | Bar render | Label | CTA |
+|---|---|---|---|
+| `actual` | Solid two-stack (green pasture / amber stored) | Total DMI value · day label · `✓` indicator | None |
+| `estimated` | Striped two-stack (existing diagonal pattern) | Total DMI value with `(est.)` suffix · day label | None |
+| `estimated` with `deficitKg > 0` | Striped two-stack + **red segment atop the stored stack** sized to the deficit portion | Total DMI value `(est.)` with `+X deficit` sub-label · day label | None |
+| `needs_check` | Grey short bar at fixed minimum height · `—` value | "Feed check needed" hint | None — the hint is the prompt; the user opens Feed Check from the card-level button |
+| `no_pasture_data` (`reason: 'missing_observation'`) | Grey short bar · `—` value | "Add pre-graze" | Inline link → opens the Edit Paddock Window dialog (OI-0118) for the owning paddock window |
+| `no_pasture_data` (`reason: 'missing_forage_type'`) | Grey short bar · `—` value | "Set forage type" | Inline link → opens the Location edit sheet for the paddock |
+| `no_animals` | Blank space at bar height (no rendered bar) · `—` value | Day label only | None |
+
+**`needs_check` status — "Feed check needed" hint.** When an event has stored-feed deliveries (any `event_feed_entries` row with `entry_type = 'delivery'` exists) but no recent feed check on a feed line, the cascade returns `needs_check` for the affected days. The chart renders the grey short bar with the inline hint text — the user opens Feed Check from the card-level button, not via a per-bar link. The `needs_check` status replaces the earlier ambiguous "no data" treatment for stored-feed events that lacked a strike point; surfacing it explicitly tells the farmer *what* to do next.
+
+**Deficit segment.** When the cascade exhausts both pasture and stored buckets before meeting demand for the day, `deficitKg > 0` and the bar grows a red segment atop the amber stored stack. The sub-label `+X deficit` renders below the total. This is information-only — the chart doesn't take action on the deficit; it surfaces it so the farmer can react (deliver more feed, move animals, accept the under-feed).
+
+**Legend.** Always-on: `■ grazing · ■ stored`. Conditional: `■ deficit` (red) appears in the legend only when at least one bar in the 3-day window has `deficitKg > 0`. The conditional swatch keeps the legend honest — no permanent "deficit" entry implying every event is in deficit.
+
+**Partial pre-graze hint.** When a pre-graze observation has `forageHeightCm` but no `forageCoverPct`, the cascade defaults cover to 100% and the chart renders the bar normally with a subtle hint below: *"(assuming 100% cover — Fix)"*. Tapping "Fix" opens the Edit Paddock Window dialog for the observation. Best-effort render with a fixability link, not a fallthrough to `no_pasture_data` — preserves the farmer's incomplete data while surfacing the gap.
+
+**Source-event bridge — date-routing only.** When an event was opened via the close-and-move flow, its `source_event_id` links back to the prior event. The 3-day chart window can span across that boundary; each chart day is routed to whichever event owned that calendar day, and DMI-8 runs against **that event's** self-contained cascade. There is no state handoff between events — stored feed physically carried from the old paddock to the new paddock does not appear on the new event's chart unless the farmer logs it as a delivery on the new event. Matches existing v1 + v2 semantics (deliveries are event-scoped).
+
+The chart receives an `opts.onNoPastureData(reason, pw)` callback (wired by Event Detail to open the Edit Paddock Window dialog or Location edit sheet) and an `opts.onPartialPreGraze(pw)` callback for the "Fix" link. Surface integration details live in the SP-12 spec file (`github/issues/GH-29_dmi-8-cascade-rewrite.md`); this section documents the user-facing chart contract.
+
+**Forced feed-check on sub-move close.** When `event.hasStoredFeed` is true (any `event_feed_entries` row exists), the Sub-move Close sheet renders a required feed-check card inline and blocks Save until the farmer records remaining stored feed for each batch. This strikes a clean `actual`/`estimated` boundary at the close date — the prior stored interval retroactively flips from `estimated` to `actual`. No pasture observation is forced (pre-graze observations are too subjective to be a useful boundary marker). Documented in §17.15.1 ("Sub-move Close — forced feed check") and in V2_UX_FLOWS §12.
 
 **DMI breakdown section:**
 - Total DMI per day, % stored vs % pasture
@@ -1338,6 +1458,295 @@ Full-screen view for a single active or closed event. Opens when the user taps *
 - Calc engine: DMI-1, DMI-2, DMI-3, CAP-1, NPK-1, NPK-2, CST-1
 
 **Subscription:** Subscribe to store changes for the event's entity types. Re-render affected sections on change (not full page — surgical updates to keep scroll position).
+
+### 17.15.1 Event Data Editing
+
+Section §17.15 ships the Event Detail sheet — the container and its 13 sections. This subsection defines the **edit behavior** of every field inside that sheet: what happens when the farmer changes a date, a head count, a feed amount, or an observation value, and how the rest of the event's data (and, where applicable, other events) stay consistent.
+
+Field testing was blocked on this work — the product has to answer "what happens if I edit X?" predictably for every X on the event detail, or users create silent inconsistencies that accumulate over time. The full behavior was walked through and ratified across §7 Groups, §12 Sub-moves, event-level dates, §8 Feed Entries, §8a Move Feed Out, §9 Feed Checks, §3 Pre-graze Observations, and §6 Post-graze Observations during the SP-10 ratification (2026-04-17). This subsection is the flow-doc representation of that ratified behavior; the spec file (`github/issues/` SP-10) is the implementation reference.
+
+#### Core principle
+
+Two lines split everything in this subsection.
+
+**Derived values compute on read.** DMI, NPK, cost, days on pasture, forecast end, accuracy stats — none are stored; all are recomputed from their inputs on every read. Any edit to an input automatically produces the correct downstream number on the next render. This is existing v2 architecture (the "Compute on Read" rule in CLAUDE.md and V2_APP_ARCHITECTURE.md) and it's why this subsection doesn't need cascade logic for calculations.
+
+**Structural state requires explicit reconciliation.** Edits that would rewrite a *different* record (a prior event's `date_left`, a sibling paddock window's `date_joined`, a head-count snapshot) never cascade silently. They surface a resolution dialog and the farmer chooses. This applies anywhere a date-bounded record (group window, paddock window, event-level date) is being edited.
+
+#### Shared routine — Gap / Overlap Resolution
+
+Triggered whenever a structural edit (group window, paddock window, event-level date) creates either a **gap** (a time range where a group is unplaced — no open `event_group_window` covers the period) or an **overlap** (a group in two open or closed windows simultaneously, violating "one open window at a time"). The resolution dialog detects which case applies (or both) and offers the options below.
+
+**Gap — three options.**
+
+The first is **leave unplaced** — accept the gap. The prior window's `date_left` stays put; the edited window's new `date_joined` stands. The group is recorded as unplaced for the gap period. A small banner on the dashboard surfaces unresolved unplaced windows.
+
+The second is **extend prior event** — push the prior `event_group_window`'s `date_left` forward to match the new `date_joined`. Continuous history preserved. One write to a different record, explicitly authorized by the farmer in this dialog.
+
+The third is **move to existing event (retro-place)** — the gap is filled by recording the group as having been on a different open event during that span. See "Retro-place flow" below.
+
+**Overlap — three options.**
+
+The first is **trim the conflicting window's start** (default) — push the next window's `date_joined` forward to match the edited window's new `date_left`.
+
+The second is **merge the windows** — if same group + same destination event, collapse into one continuous window.
+
+The third is **reject the edit** — return to the edit dialog with an inline error so the farmer picks new dates that don't overlap.
+
+**Retro-place flow (gap option 3) — atomic two-write, no reopen ceremony.**
+
+Used when the gap is "they were on some other event that was open at the time."
+
+The flow has four user-visible steps. **Destination event picker** — full-screen sheet with one card per candidate event. Each card shows event dates, location(s), groups currently on the event, and head count. Filter: events that **fully contain** the gap (`event.date_in ≤ gap_start` AND `event.date_out ≥ gap_end`). Events that only partially overlap the gap are excluded — partial fits would require a recursive multi-step decision tree that isn't worth the complexity until field testing shows it's needed.
+
+**Paddock picker (within the picked event)** — if the destination has more than one paddock window that overlaps the gap, the farmer picks which one the group was on. Same full-containment check at the paddock level. If exactly one paddock on the destination covers the gap, this step is skipped.
+
+**Conflict check** runs automatically after the picker. If the group already has any `event_group_window` on the destination event whose date range overlaps `[gap_start, gap_end]`, the flow blocks with an error: *"Group X already has a window on Event #N from {dateA} to {dateB}. This contradicts the gap you're trying to fill. Cancel this retro-place and review the existing window."* The premise of retro-place is that the group was unplaced during the gap; a pre-existing overlap violates that premise outright. Better to stop and let the farmer investigate than attempt reconciliation.
+
+**Confirm dialog** previews the writes: *"Place Group X on Event #N, Paddock P, from {gap_start} to {gap_end}. Event #N stays closed with its original end date ({event.date_out}). Group X's join date on the current event changes from {prior} to {new}."* Buttons: Cancel · Confirm.
+
+**On Confirm — atomic two-write transaction:** (a) commit the source event's edited `date_joined` (the change that triggered the gap); (b) insert a new historical `event_group_window` on the destination with `date_joined = gap_start`, `date_left = gap_end`, `head_count` and `avg_weight_kg` copied from the source's edited window. Both writes happen in a single store transaction. If either fails, neither commits. Sync queues both writes together.
+
+**On Cancel** at any step before Confirm, nothing has been written. The source event's edited `date_joined` is still pending in the edit dialog's staged state — the farmer is returned there and can either revert the edit or pick a different gap resolution.
+
+This is safer than the prior reopen-close design — the destination event is never in a half-open on-disk state. There is no undo toast; the retro-place is intentional and visible (the destination event's §7 group list now shows the new historical window). To reverse, the farmer opens the destination event's Edit dialog, finds the retro-placed window in §7, and uses Delete (with confirmation).
+
+The retro-place flow does not collide with **Event Reopen** (described below under event-level dates). Reopen is for "the event wasn't really closed" — it clears `date_out` and re-opens matching child windows. Retro-place is for "the group was on the event during a time we didn't know about" — it leaves `date_out` untouched and inserts a closed historical window. Distinct intents, no shared code.
+
+#### §7 Groups — Group Window Edit Dialog
+
+A new **Edit** button per row on the Groups card (§17.15 §7), between Move and Remove. Opens the Edit Group Window dialog (sheet overlay, reuses `ensureSheetDOM()`).
+
+Edit and Remove are kept distinct because the user's intent matches the tool. Edit is the verb for changing history (can create gaps/overlaps → gap resolver). Remove is the verb for "end this now, they're leaving" (forward-looking only, two-option picker stays as spec'd in §17.15 §7). Erasure of a window — rare, "we recorded this but it never happened" — lives inside the Edit dialog as a Delete window action, not on Remove.
+
+**Dialog fields** (responsive, same layout desktop + mobile):
+
+| Field | Type | Notes |
+|---|---|---|
+| Group name | read-only chip | Group rename lives in Animals/Groups area |
+| `date_joined` | date input | Required. Gap/overlap detection fires on blur. |
+| `time_joined` | time input | Optional. Stored as text per schema. |
+| `date_left` | date input | Shown only if window is closed; editable. Gap/overlap detection fires on blur. |
+| `time_left` | time input | Optional. |
+| `head_count` | number, integer ≥ 1 | Point-in-time snapshot. Editing changes the historical record for this window only; does not propagate to prior/next windows. |
+| `avg_weight_kg` | number ≥ 0 | Displayed in user units via `src/utils/units.js`; stored metric. |
+
+**Save behavior.** Auto-save on blur (same pattern as Notes in §17.15 §11). Brief "Saved" pulse on successful write. For date fields, auto-save triggers gap/overlap detection — if either is detected, the save is held pending until the resolution dialog resolves.
+
+**Delete window action** (bottom of dialog, destructive confirmation). Only available when the window can be safely deleted without orphaning history — the group's prior window can absorb the range, or there is no prior window on this event. Confirmation: *"Delete this window? Group X will no longer appear as having been on Event Y from `{date_joined}` to `{date_left}`. This cannot be undone."* Deleting an active (open) window falls back to the existing Remove flow (Unplace / Move to existing event) since forward placement is still needed.
+
+**Edge cases.** `date_joined` edited before the event's `date_in` rejects with inline error — the group can't join before the event exists. `date_left` edited after the event's `date_out` (when closed) rejects with inline error. `head_count` edited to 0 is treated as Delete window (with confirmation). If the window is the **last open window on the event**, editing `date_left` to a non-null value effectively closes the event — surface this explicitly: *"Closing Group X's window leaves Event Y with no active groups. Close the event as well?"* with Yes (run close flow) / No (leave event open, Group X unplaced).
+
+#### §12 Sub-moves — Paddock Window Edit Dialog
+
+Editing `event_paddock_windows`. Much simpler than Groups because paddock windows don't chain across events and multi-paddock-open-at-once is legal (strip grazing, multi-paddock access). **Gaps between paddock windows aren't an invariant** — they just mean the animals were on whatever other paddock(s) were open during that interval.
+
+**Two surfaces, one dialog.** From the §4 Paddocks card on the Event Detail, every paddock window card (anchor and sub-paddocks) gets an Edit button (`btn btn-ghost btn-xs`) alongside the existing Close. From §12 Sub-move History, each row's existing Edit button opens the same dialog. Both routes call `openPaddockWindowEditDialog(paddockWindow, event, operationId, farmId)`.
+
+**Dialog fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| Paddock name | read-only chip | To change the paddock, delete this window and re-open via sub-move. |
+| `date_joined` | date input | Required. Range-guarded. |
+| `time_joined` | time input | Optional. |
+| `date_left` | date input | Shown only if window is closed. Range-guarded. |
+| `time_left` | time input | Optional. |
+| `area_pct` | number 1–100 | Percent of paddock area used (100 = full paddock; < 100 = strip graze). |
+| `is_strip_graze` | toggle | Editing here flips between full-paddock and strip-graze mode. |
+| `strip_group_id` | picker | Only shown when `is_strip_graze` is true. |
+
+**Save behavior.** Auto-save on blur, "Saved" pulse on success. Same pattern as §7 Groups.
+
+**Range guards (reject on save, inline error):**
+
+- `date_joined` < `event.date_in` rejects: *"A paddock can't be open before the event started. Edit the event start date first, or pick a later join date."*
+- `date_left` > `event.date_out` (when event is closed) rejects: *"A paddock can't stay open after the event closed. Edit the event end date first, or pick an earlier leave date."*
+- `date_left` < `date_joined` rejects: *"Leave date must be after join date."*
+- Same-paddock, same-event, overlapping window already exists rejects: *"This paddock already has a window during that range. Adjust the other window first."*
+
+**Delete window action** (destructive confirmation): *"Delete this paddock window? Animals will no longer be recorded as having been on `{paddock name}` from `{date_joined}` to `{date_left}`. This cannot be undone."* Cannot delete the last open paddock window on an active event (would leave the event with no location). Cannot delete the anchor (the window whose `date_joined` matches `event.date_in`) if it's the only window ever opened — that's effectively deleting the event, which belongs in the Actions footer's Delete.
+
+**Strip-graze flip.** Flipping `is_strip_graze` from true to false clears `strip_group_id` and sets `area_pct = 100`, with a confirm. Flipping false to true requires picking a `strip_group_id`; if no strip groups exist on this event, offer to create one inline.
+
+**Reopen for closed paddock windows.** A closed paddock window's Edit dialog exposes a Reopen action alongside Delete. Reopen clears `date_left` and `time_left` (sets to NULL), restoring the window to active. Confirmation: *"Reopen `{paddock name}` on this event? Animals will be recorded as on this paddock from `{date_joined}` with no end date."* Reopen does not touch sibling windows — the farmer is responsible for closing/adjusting other windows if needed (consistent with the no-cascade principle). This resolves OI-0064: the v1 "Manage" button drops, and reopen folds into the Edit dialog.
+
+There is no retro-place equivalent for paddock windows. Paddock windows belong to their event by definition. To record animals on a paddock in a different event, the farmer adds a paddock window to that other event directly.
+
+#### Event-level dates — `date_in` / `date_out`
+
+The event's overall start and end dates act as bookends. Every paddock record and every group record inside the event must fit within them. Edits that push a bookend across an existing record, or leave a stretch of event-time with no records occupying it, need explicit resolution.
+
+**`date_in` is directly editable** in the Edit Event dialog. Two directions:
+
+**Narrowing** (push start later, e.g. April 5 → April 10). If any paddock or group record has `date_joined < new date_in`, reject with inline error pointing to the offending record. Example: *"The anchor paddock (North Pasture) joined on April 5. It can't remain on the event if the event starts April 10. Edit North Pasture's join date first, or pick an earlier event start date."* The farmer must fix the child record before the event edit saves. No silent data destruction.
+
+**Widening** (push start earlier, e.g. April 5 → April 1). Event's time range widens. No record violates. But any record whose `date_joined` equals the old `date_in` now sits later than the new event start, leaving an empty stretch at the beginning. Confirm dialog names the specific records: *"Extending event start from April 5 to April 1. The following currently join April 5: anchor paddock (North Pasture), group window (Group 1). Extend them to April 1 too?"* with Yes (extend all) / No (leave empty stretch at start).
+
+**`date_out` is NOT directly editable.** Honors the schema rule that `date_out` is set by the close/move sequence, not editable directly. All end-date changes route through **Event Reopen** below.
+
+**Event Reopen (closed events only).** A new user-facing action in the Edit Event dialog footer alongside Delete. Button: `Reopen event` (`btn btn-olive`). Confirmation: *"Reopen `{event name}`? This clears the close date and re-opens the paddock and group records that closed with the event."*
+
+Execution is three coupled writes (atomic from the user's perspective): clear `events.date_out` (and `time_out`); for each paddock record whose `date_left` equals the old `date_out`, clear its `date_left` and `time_left`; same for each group record.
+
+**Invariant check before executing.** If any group record being reopened would create a second open window for the same group elsewhere (that group is currently on a subsequent event), surface a conflict dialog before any writes:
+
+*"Reopening this event would put `{group name}` back on it, but `{group name}` is currently on `{subsequent event name}` (started `{date}`). Pick one:"*
+
+- **(A) Reopen event but leave `{group name}` on subsequent event** — event reopens, paddock records reopen, but this group's window stays closed. Event becomes open-but-without-this-group until the farmer adds them back manually.
+- **(B) Pull `{group name}` back to this event** — closes `{group name}`'s window on the subsequent event at today, reopens their window on this event. If that leaves the subsequent event with no groups, prompt to also close it.
+- **(C) Cancel** — no writes, dialog closes.
+
+If two or more groups trigger the invariant check, the dialog lists all of them and the farmer picks per group.
+
+After reopen succeeds, the farmer is taken back to the Edit Event dialog (now showing the event as active) and can edit `date_in` or child records freely. When ready, they re-close via the Actions footer's `Close & move` or by closing all open windows.
+
+**Re-close overlap warning.** When the farmer re-closes the reopened event at a date later than a subsequent event's `date_in`, the close flow's final confirm surfaces: *"`{subsequent event name}` opened `{date}`, during the period this event is now open. Continue? This is allowed but creates overlapping events in the log."* Continue proceeds; Cancel returns to date input. No cascade to the subsequent event — the farmer handles any corrections there separately. At the records level, group and paddock windows don't overlap (they were moved to the subsequent event and stay there). The overlap is purely at the event-row level — a data peculiarity, not an invariant violation. Worth surfacing as a warning, not worth blocking.
+
+| Edit | Direction | Behavior |
+|---|---|---|
+| `date_in` earlier (widen) | Extends event start backward | Confirm dialog: extend matching child records too, or leave empty stretch |
+| `date_in` later (narrow) | Pushes event start forward | Reject if any child record's `date_joined` < new start; farmer fixes children first |
+| `date_out` (any direction) | Not directly editable | Use Event Reopen → edit → re-close via close flow |
+| Event Reopen | Re-opens closed event | Clears `date_out` + re-opens matching child windows; invariant-checks for group conflicts |
+| Re-close after reopen | Event closed at new date | Warning if new `date_out` is later than a subsequent event's `date_in`; no block |
+
+Event-row-level overlap between two events (both "open" for some period) is allowed — record-level invariants still hold. Empty stretches inside an event after widening without extending children are allowed — surfaces as "event has no occupants for period X" in any future data-quality view. Both edge cases are accepted as "find in testing."
+
+#### §8 Feed Entries
+
+Editing existing feed entry records, plus the new capability to **move feed out** of an active event (to inventory or to another open event — see §8a below).
+
+**Edit dialog validation guards (reject on save, inline error):**
+
+- `entry.date` < `event.date_in` rejects: *"Feed entry date must be on or after the event start date."*
+- `entry.date` > `event.date_out` (when event is closed) rejects: *"Feed entry date must be on or before the event end date."*
+- `entry.date` in the future rejects: *"Feed entry date can't be in the future."*
+- `amount ≤ 0` rejects: *"Quantity must be greater than zero. To remove feed from this event, use the Move feed out action."*
+- `batch_id` changed to a batch with insufficient remaining inventory rejects: *"Selected batch has only X remaining; entry is Y."*
+
+No gap/overlap concept — feed entries are point-in-time deliveries, not lifecycle windows. All DMI/cost/NPK impact cascades through compute-on-read automatically.
+
+**Delete entry.** Confirmation: *"Delete this feed entry? This removes the record of delivering `{amount unit}` of `{feed type}` to `{paddock}` on `{date}`. Cannot be undone."*
+
+**Delete vs Move Out — distinct verbs.** Delete = "this entry should never have existed" (correcting an entry mistake). Move feed out = "this feed was delivered, then pulled back out" (correcting real-world movement after the fact). Keeping them distinct preserves history — Move Out leaves an audit trail of delivery + removal; Delete erases the delivery.
+
+Every delivery row in the §8 list also gets a per-row **Move out** action next to Edit and Delete, opening the §8a Move Feed Out sheet pre-selected to that row's batch × location.
+
+#### §8a Move Feed Out (new capability)
+
+A new capability available on active events (`event.dateOut == null`). The farmer pulls feed back out to inventory or ships it to another open event.
+
+**Two entry points, one sheet.** A `Move feed out` button in the §8 Feed Entries card footer (sits next to the existing `Deliver feed` CTA, visible only on active events) opens the sheet with no row pre-selected. The per-row `Move out` action on each delivery row opens the same sheet with that row's batch × location pre-selected on Step 1. Both call `openMoveFeedOutSheet(event, operationId, farmId, { preselectBatchId, preselectLocationId })`.
+
+**Terminology.** Step 1 aggregates current feed state by **batch × location** (e.g., "Batch #7 Hay on North Pasture"). A **feed line** = one batch × location aggregation row — distinct from "animal group" to avoid collision.
+
+**Four steps in a single sheet.**
+
+**Step 1 — Current feed state.** List one feed line per batch × location for this event. Each line displays `{batchName} → {paddockName}: {currentRemaining} {unit}` where `currentRemaining` = (sum of deliveries on that line) minus (sum of removals on that line) minus (consumption implied by the most recent feed check on that line). If no feed check exists since the last delivery or removal, show `{netDelivered} {unit} (no check)` and fall back to net-delivered as the remaining.
+
+**Step 2 — Strike the line (forced feed check).** For each selected feed line, show an inline `current remaining` input pre-filled with the Step 1 value. The farmer confirms or corrects. **This is staged in sheet state only — no database write happens yet.** The confirmed values travel with the sheet to Step 4; only Step 4 Confirm actually writes them. Copy: *"Confirm what's currently there before moving it. This becomes a feed check on today's date when you confirm the move."* If the farmer hits Cancel at any point before Step 4 Confirm, all staged values are discarded — the sheet closes, no rows are written, the source event is exactly as it was before.
+
+**Step 3 — How much and where.** The farmer specifies `amount to move` per selected feed line (number input, max = Step 2 confirmed remaining, min = 0.1). Unselected lines are ignored. Then picks a **destination** from a single picker with two modes: **back to inventory** (the batch's remaining quantity increases by the moved amount) or **existing open event** (picker lists active events with `!e.dateOut && e.id !== sourceEvent.id`). If the destination event has multiple paddocks, the farmer also picks the destination paddock.
+
+**Step 4 — Confirm.** Preview summary: *"Move 40 lbs Hay from Event {source} → Event {destination} (North Pasture). A feed check will also be recorded on today's date: {line} remaining {X} {unit}."* Cancel · Confirm.
+
+**Writes on Confirm — atomic single transaction.** (a) One `event_feed_checks` row per selected feed line (from the Step 2 staged values), dated today, with the user-confirmed remaining amount. (b) One `event_feed_entries` row on the source event per selected feed line: `entry_type = 'removal'`, `destination_type = 'batch'` or `'event'`, `destination_event_id = {dest.id}` if event destination, `amount` positive (the `entry_type` flag signals direction). (c) If destination is inventory: increment the destination batch's remaining quantity. (d) If destination is event: create a matching inbound `event_feed_entries` row on the destination event with `entry_type = 'delivery'`, `source_event_id = {source.id}`, `amount`, `batch_id`, today's date, and the picked destination paddock as `location_id`. If any write fails, the whole transaction aborts.
+
+**Why a feed check is staged in Step 2.** Without a feed check at the moment of move-out, DMI-5 (feed check interpolation) has no fixed point between "last known remaining" and "current remaining after removal." Step 2's value strikes the line — everything before it counts as consumption at the source; the remaining amount is what gets moved. Staging-not-writing in Step 2 means Cancel leaves the source event pristine.
+
+**Validation guards in the sheet:** move amount > Step 2 confirmed remaining errors inline on Step 3. Destination event + destination paddock not selected disables Confirm. Destination event with the same id as source is filtered out by the picker.
+
+**DMI / NPK / cost logic.** All compute-on-read. For any feed line on an active event, available feed at time `T` is `Σ deliveries(date ≤ T) − Σ removals(date ≤ T)`. Consumption between two checks at `T1` and `T2` is `(remaining(T1) + deliveries(T1 < date ≤ T2) − removals(T1 < date ≤ T2)) − remaining(T2)`. The Step 2 feed check guarantees a recorded remaining at the move-out instant; the next farmer-entered check after move-out compares against `(remaining(moveOut) − movedAmount + any deliveries since)`, giving correct post-move-out consumption. The calc registry change is one line per affected formula (DMI-1, DMI-5, NPK-1, NPK-2, cost-per-day): sum deliveries minus removals.
+
+**Same-day ordering edge case.** If a farmer moves feed out at 9 AM (which writes a feed check at `date = today`) and then enters a genuine feed check also at `date = today` later in the day, the two checks share a date. The store treats the last-written check as authoritative for DMI purposes (latest wins). Documented for field testing — if confusion surfaces, revisit with a time-of-day stamp on feed checks.
+
+**Edge cases.** Event with no feed entries → button disabled with tooltip "No feed to move." Event with feed entries all consumed → button active but Step 1 shows zeros; farmer sees "No remaining feed to move" and cancels. Closed events → button not available; farmer reopens the event first via the event-level Reopen action.
+
+Schema: three columns on `event_feed_entries` — `entry_type` (text enum delivery/removal, default `delivery`), `destination_type` (batch/event, nullable), `destination_event_id` (uuid FK → events ON DELETE SET NULL, nullable). Check constraints enforce the implication structure. CP-55/CP-56 impact tracked under OI-0156. See V2_SCHEMA_DESIGN.md §5.4 for the column spec.
+
+#### §9 Feed Checks
+
+Editing and deleting existing feed check records (`event_feed_checks`), plus back-filling a forgotten check with a past date.
+
+**Edit dialog fields:** `date`, `time` (optional, defaults to noon), `remaining_amount`, optional `notes`. `batch_id` and `location_id` are read-only on edit — changing the feed line a check belongs to isn't an edit, it's delete + re-add.
+
+**Range guard on date.** Before-event-start, after-event-end (closed events), future, and negative remaining all reject with inline errors.
+
+**Invariant check on save.** A feed line is a batch × location within an event. Across all checks on that feed line, consumption between consecutive checks must be ≥ 0:
+
+```
+consumed(Ti → Ti+1) = remaining(Ti)
+                   + Σ deliveries(Ti < date ≤ Ti+1)
+                   − Σ removals(Ti < date ≤ Ti+1)
+                   − remaining(Ti+1)
+                   ≥ 0
+```
+
+A later check reading higher than the prior with no delivery between is impossible — feed appearing from nowhere. When the farmer saves an edit (or back-fills a past-dated check), re-check this invariant across the check's neighbors. Four cases:
+
+**Case A — edit is benign.** All adjacent-interval consumptions still ≥ 0. Save silently, let compute-on-read cascade. DMI-5 recomputes for the intervals on either side. No prompt, no warning.
+
+**Case B — edit breaks a later interval.** A check after the edited one now implies negative consumption. Surface a **Re-snap dialog** before the edit commits: *"This edit makes a later feed check impossible. You're changing the check on `{T date}` from X to Y {unit}. But the check on `{T+k date}` recorded Z {unit} — which would mean feed appeared from nowhere between those dates. To proceed, we'll delete the later check(s) that no longer fit: • `{T+k date} — {Z unit}` • (any others in the same impossible run). After saving, enter a new feed check to re-measure what's actually there now."* Buttons: Cancel edit · Delete later checks and save. On the destructive option, the edit commits in a single transaction with the deletions, and the farmer sees a non-modal toast: *"Enter a new feed check to re-snap the line →"* with a shortcut to the check dialog pre-filled for that feed line.
+
+**Case C — edit breaks an earlier interval.** Less common. Surface: *"This edit is inconsistent with an earlier feed check. … One of the two checks is wrong. Review them and edit the right one."* Only Cancel is offered — no auto-delete of earlier checks. The farmer decides which check to correct.
+
+**Case D — back-fill a past check.** Net-new check dated in the past. Same invariant check against both neighbors. If it violates either side, use Case B or Case C resolution depending on direction.
+
+**Delete a feed check.** Confirmation: *"Delete this feed check? `{batchName}` → `{paddockName}`, `{remaining}` `{unit}` on `{date}`."* No invariant check needed — deleting a check only widens the consumption interval on either side, which never creates an impossibility.
+
+**Move Feed Out interaction.** The Step 2 "strike the line" check that Move Feed Out writes is an ordinary `event_feed_checks` row. It can be edited and deleted like any other check, with the same invariant rules. If a farmer deletes the Step 2 check after a move-out has happened, the removal row stays — DMI for the interval just widens. Acceptable but worth noting in field testing.
+
+**Edge cases.** Check with no prior check on that feed line is benign (no previous interval to validate). Check with no later check is benign. Zero-delta edit (no value change) is a no-op. Two checks on the same date on the same feed line follow latest-wins.
+
+#### §3 Pre-graze Observations
+
+Editing per-paddock pre-graze observation values inline on the Event Detail's §3 card (per OI-0068 — inline fields, not a modal).
+
+**Fields edited inline:** `grass_height_cm`, `forage_cover_pct`, `forage_condition`, `veg_height_cm`, `bale_ring_residue_count` (when the bale-ring helper applies), `pre_graze_rating`, optional notes.
+
+**Behavior.** Auto-save on blur per field. No submit button. If validation rejects, the value reverts with inline error text on the field.
+
+**Field-level validation guards.** Numeric fields < 0 reject. `forage_cover_pct` > 100 rejects. `pre_graze_rating` outside the slider's configured min/max rejects (slider clamps; the guard is belt-and-suspenders against direct keyboard entry). Blank required field shows no error until the farmer commits the event or leaves the screen.
+
+**Cascade is silent, by design.** Pre-graze observation values feed pre-graze DM kg/ha, which feeds DMI targets and the move recommendation. When a farmer edits a value days or weeks after the fact, compute-on-read re-derives those values for the event. No warning on large deltas; no confirmation on edits that move DMI significantly. The farmer is correcting an observation — the downstream math should respond. Any surprise is better addressed by good change-log surfacing in Reports than by gating the edit. Flagged for field testing — if confusion surfaces, revisit with an optional "this edit changed X by Y%, continue?" confirmation.
+
+No gap/overlap concept — pre-graze observations are per-paddock snapshots at event start, not lifecycle windows.
+
+**Delete an observation row.** Confirmation modal. Safe — just widens "no observation on this paddock", which the calc layer handles (falls back to farm default or flags "no data" in Reports).
+
+#### §6 Post-graze Observations
+
+Editing per-paddock post-graze observation values inline on the Event Detail's §6 card. Card always renders (per SP-2 round 2), showing an empty-state hint when no post-graze data has been recorded yet.
+
+**Fields edited inline:** `post_graze_height_cm`, `post_graze_cover_pct`, `post_graze_rating`, `recovery_window_days`, optional notes.
+
+**Behavior.** Auto-save on blur per field. Same pattern as §3.
+
+**Field-level validation guards.** Numeric fields < 0 reject. `post_graze_cover_pct` > 100 rejects. `recovery_window_days` outside 0–365 rejects. Live date preview next to `recovery_window_days` shows `{event.date_out + recovery_window_days}` so the farmer can sanity-check the target re-graze date as they type.
+
+**Cascade is silent, by design.** Post-graze observations feed post-graze DM kg/ha (utilization %) and the recovery window end date (rotation calendar marks the paddock rest-eligible after that date). Edits cascade silently through compute-on-read.
+
+**Recovery window specifically.** When `recovery_window_days` is edited, the paddock's next-eligible-graze date shifts. If a future event is already planned during what becomes the recovery window, the conflict is flagged **at the planning step of that future event**, not on the §6 edit. §6 stays silent — keeps the edit dialog from doing planning-level checks that belong in the planner.
+
+No gap/overlap concept — post-graze observations are per-paddock snapshots at event close.
+
+#### Sub-move Close — forced feed check
+
+When `event.hasStoredFeed` is true (any `event_feed_entries` row with `entry_type = 'delivery'` exists on the event), the Sub-move Close sheet renders a **required feed-check card inline** and blocks Save until the farmer records remaining stored feed for each batch. This strikes a clean `actual` / `estimated` boundary at the close date — the prior stored interval retroactively flips from `estimated` to `actual` in the DMI chart. No pasture observation is forced (pre-graze observations are too subjective to be useful as a boundary marker). No new stored-feed close prompt — existing Close Event behavior is unchanged.
+
+Reasoning (Tim, 2026-04-20): pasture observations are inherently subjective — pre-graze height is already a best guess. Forcing a pasture observation at sub-move close doesn't buy accuracy. Feed checks on stored feed are precise enough to give the cascade a firm anchor.
+
+This rule also applies in §12 Sub-moves (V2_UX_FLOWS §12) and is the reason the DMI chart's `needs_check` status (§17.15 DMI chart) appears for stored-feed events that lack a strike point.
+
+#### Linked OPEN_ITEMS
+
+- **OI-0081** — SP-10 umbrella (ratified 2026-04-17, ready for Claude Code). Covers all seven edit-behavior subsections.
+- **OI-0082** — SP-10 §8a Move Feed Out (new capability). Schema impact tracked separately.
+- **OI-0064** — Manage button dropped from sub-move history; reopen folds into Edit dialog. Folded into §12 above.
+- **OI-0068** — Pre-graze observations: inline fields, not modal. Closed; §3 confirms the pattern.
+- **OI-0119** — DMI-8 cascade rewrite. The forced-feed-check rule on sub-move close ties into the chart's `needs_check` and `actual`/`estimated` status semantics.
+- **OI-0156** — CP-55/CP-56 spec catch-up for §8a's three new persisted columns.
 
 ---
 
@@ -1661,6 +2070,7 @@ Desktop: all sections rendered as a single scrollable column with section header
 | 2026-04-17 | §17.2 Feedback screen nav item | Added "Feedback" to nav items list (desktop sidebar only, not mobile bottom nav). SP-7 spec: desktop-only screen at `#/feedback` with confirmation section, stats, dev brief, filtered list, resolve sheet, edit sheet. Full spec in `github/issues/feedback-screen-desktop.md`. |
 | 2026-04-13 | Settings screen + unit-system toggle (GH-3 base-doc fill) | Added §20 Settings Screen (7 top-level sections). §20.2 documents the unit-system toggle mechanics: `store.setUnitSystem()` action, sync-failure revert, full list of unit-sensitive fields that re-render on toggle, input-field conversion rules, localStorage → `operations.unit_system` one-time migration on boot, Field Mode inheritance. §20.3 documents Export/Import/Migrate/Resync actions in the Sync & Data section (forward references to V2_MIGRATION_PLAN.md §5). Closes the GH-3 base-doc integration gap identified in the 2026-04-13 reconciliation audit. |
 | 2026-04-13 | Rotation calendar design (CP-54) | Added §19 Rotation Calendar — 9 subsections covering view modes (Estimated Status + DM Forecast), past event blocks (linked, strip-grazed, active, sub-move), future forecast blocks (capacity split, surplus, never-grazed → survey CTA), toolbar lightboxes (Timeline Selection + Dry Matter Forecaster), confinement pill, sidebar mirroring paddock column, empty states, mobile fallback (no calendar below 900px — v1 GRZ-11 banner + GRZ-10 list), List view (v1 GRZ-10 pattern), and **§19.9 Interactions & Deep Linking** (click targets, pan/zoom gestures, keyboard shortcuts, deep-link URL schema, first-load defaults Zoom=Week/Jump=Today, state persistence policy deferred from user_preferences to a follow-up, paddock sort order, accessibility). Calendar lives only on the Events screen — Reports does not mount a second copy. Bundles strip-grazing from OI-0001. |
+| 2026-05-03 | Reconciliation Session B — UX flows P1 catch-up (RECONCILIATION_PLAN_2026-05-03 UX-1, UX-2, UX-3, UX-4) | Four base-doc edits landing in one pass. **§17.7 (UX-1):** stub card body spec replaced with full v1-parity rewrite from UI_SPRINT_SPEC SP-3 — 15-element card anatomy (left green accent bar through DMI/NPK summary), explicit two deliberate v1 deltas (small bottom Feed/Feed-check buttons removed; large green Feed button added under large amber Feed check), header buttons (Edit opens §17.15 sheet, Move all opens move wizard), "What is NOT on this card" callouts for OI-0065 (per-group reweigh moved to Animals area) and OI-0066 (per-group Move on dashboard is event-scoped). **§16 (UX-2):** pre-sprint Field Mode prose replaced with v1-parity rewrite from UI_SPRINT_SPEC SP-8 — 12 subsections covering header pill activation with three-state context-aware behavior (⊞ Field / ← Detail / ⌂ Home), exit-returns-to-previous via sessionStorage, body.field-mode CSS gate (sidebar / bottom nav / SP-6 sub-row / build stamp hidden + desktop grid collapse), 8-module tile grid driven by `FIELD_MODULES` constant with 4-module default, shared event picker sheet (Move / Feed Check / Heat fallback), expandable event cards reusing `buildLocationCard()`, interactive tasks with checkboxes + due-date color coding, 2-step Heat picker (event/group filter pills, search, multi-record), feed-loop behavior on Feed Animals tile, field-mode sheet treatment (no backdrop close, hidden handle, "⌂ Done", full-screen mobile, after-save→#/field), Module Settings card cross-reference to §20. The dark-green field-mode header bar is explicitly deleted. **§17.15 DMI chart (UX-3):** added the 5-state status model (actual / estimated / needs_check / no_animals / no_pasture_data) per UI_SPRINT_SPEC SP-12 / OI-0119 — full status table with bar render, label, and CTA per status; "Feed check needed" hint on `needs_check` for stored-feed events without a strike point; deficit red-segment render and conditional `■ deficit` legend swatch; partial pre-graze "(Fix)" hint; source-event date-routing-only bridge documented; forced feed-check on sub-move close rule referenced. **NEW §17.15.1 (UX-4):** "Event Data Editing" subsection created from UI_SPRINT_SPEC SP-10 — core principle (compute on read for derived; explicit reconciliation for structural), shared gap/overlap routine (3 options each), retro-place atomic two-write flow (no reopen ceremony), §7 Groups Edit dialog (new Edit button between Move and Remove; auto-save on blur; Delete window with guards), §12 Sub-moves Edit dialog (resolves OI-0064 — Reopen folds in; no gap detection; range guards; strip-graze flip), event-level dates (`date_in` direct edit with reject-on-narrow / confirm-on-widen; Event Reopen for `date_out` with three-option group-conflict picker; re-close overlap warning), §8 Feed Entries validation guards, §8a Move Feed Out (new capability — 4-step sheet, two entry points, atomic transaction, DMI / NPK / cost logic block), §9 Feed Checks invariant + Re-snap dialog (Cases A/B/C/D), §3 Pre-graze + §6 Post-graze inline edit + silent cascade, sub-move close forced feed-check rule. Architecture-doc portion (snapshot/rollback pattern in V2_APP_ARCHITECTURE.md) deferred to Session C. No code changed in this session — documentation catch-up only. Owner: Cowork. |
 
 ---
 

@@ -4,6 +4,70 @@
 
 ---
 
+### OI-0159 — DMI bar `stored` segment uses `--color-amber-base` (#BA7517) and reads visually identical to deficit red (#E05656); switch to new `--color-tan-base` (#C9A875) per V1 parity and the existing V2_CALCULATION_SPEC §4.4 "tan segment label" intent
+**Added:** 2026-05-04 | **Area:** v2-build / dashboard / event-detail / dmi-chart / design-system | **Priority:** P2 (visual regression — bar still readable but stored / deficit segments are not visually distinct at a glance; flagged live by Tim while reviewing the dashboard DMI card)
+
+**Status:** open — ready to build, no DESIGN REQUIRED. All decisions locked: tan hex `#C9A875`, scope is the two `COLOR_STORED*` constants in `src/ui/dmi-chart.js` plus a new `--color-tan-*` token block in `main.css`.
+
+**The drift.** `src/ui/dmi-chart.js` lines 14–15 set:
+```js
+const COLOR_STORED = 'var(--color-amber-base)';
+const COLOR_STORED_STRIPED = 'repeating-linear-gradient(45deg, var(--color-amber-base), var(--color-amber-base) 4px, #E5C76B 4px, #E5C76B 8px)';
+```
+`--color-amber-base` resolves to `#BA7517` — a deep brownish-orange that sits in the same perceptual ramp as deficit red `#E05656`. On the stacked DMI bar the stored segment and the deficit segment blend visually, defeating the chart's primary read ("how much of demand is pasture vs. stored vs. unmet?"). V1 used a tan for stored feed; v2's `V2_CALCULATION_SPEC.md` already documented the intent (line 519 — "rendered in tan segment label"), but the chart implementation had drifted to amber.
+
+**Why amber happened.** The v2 design system had a single "warm" color family (Amber) at chart-implementation time and the stored segment got pointed at it. Tan was never tokenized — until this OI.
+
+**The fix.** Three small edits, no migration, no test rewrite. Two of them — the design-system token rows and the UX-flows prose — landed in this same Cowork session; the remaining two (the CSS token + the chart constants) are Claude Code's commit.
+
+1. **Design system (Cowork — landed 2026-05-04):** `V2_DESIGN_SYSTEM.md` §1.1 grew a Tan row (`base #C9A875`, `dark #8C7444`, `light #F2E8D2`) plus a "Tan vs. Amber — why both exist" paragraph; §5.4 token CSS list grew the three `--color-tan-*` lines. `V2_UX_FLOWS.md` §17.15 DMI chart prose + status table flipped "amber stored" → "tan stored".
+
+2. **CSS token (Claude Code):** `src/styles/main.css` adds three lines next to the existing `--color-amber-*` block:
+   ```css
+   --color-tan-base: #C9A875;
+   --color-tan-dark: #8C7444;
+   --color-tan-light: #F2E8D2;
+   ```
+
+3. **DMI chart (Claude Code):** `src/ui/dmi-chart.js` lines 14–15 swap the constants:
+   ```js
+   const COLOR_STORED = 'var(--color-tan-base)';
+   const COLOR_STORED_STRIPED = 'repeating-linear-gradient(45deg, var(--color-tan-base), var(--color-tan-base) 4px, var(--color-tan-light) 4px, var(--color-tan-light) 8px)';
+   ```
+   The striped variant's secondary color also moves off the manually-picked amber-yellow `#E5C76B` onto `--color-tan-light` so the diagonal pattern stays inside one tonal family.
+
+**Acceptance:**
+- [ ] DMI bar stored segment renders `#C9A875` in the DOM (computed style on the inner stored-segment div).
+- [ ] DMI bar stored-striped variant uses `#C9A875` + `#F2E8D2` in the gradient — no more amber-yellow `#E5C76B`.
+- [ ] Legend swatch for "stored" matches the bar color (already wired through `COLOR_STORED`).
+- [ ] On a deficit day, the three segments (green pasture / tan stored / red deficit) are clearly distinct from top to bottom.
+- [ ] Existing `tests/unit/dmi-chart-context.test.js` and `tests/e2e/dmi-chart.spec.js` still green; no contract change.
+- [ ] Grep contracts hold post-commit:
+  - `grep -n "var(--color-amber-base)" src/ui/dmi-chart.js` — must return 0 matches.
+  - `grep -n "#E5C76B" src/ui/dmi-chart.js` — must return 0 matches.
+  - `grep -n "color-tan-base" src/styles/main.css` — must return ≥ 1 match.
+
+**Files (Claude Code commit):**
+- `src/styles/main.css` — add three `--color-tan-*` lines
+- `src/ui/dmi-chart.js` lines 14–15 — swap two constants
+
+**Doc files (Cowork — already updated this session):**
+- `V2_DESIGN_SYSTEM.md` §1.1, §5.4
+- `V2_UX_FLOWS.md` §17.15
+
+**Spec file:** `github/issues/OI-0159_dmi-bar-tan-stored-segment.md` (thin pointer to this OI body + V2_DESIGN_SYSTEM.md §1.1).
+
+**CP-55 / CP-56 spec impact:** None — purely a presentation-layer color change; no schema, no persisted state.
+
+**Schema impact:** None.
+
+**Origin:** 2026-05-04 — Tim flagged the regression while reviewing the dashboard DMI card on a live event ("stored feed and deficit are too close in color and hard to see"). Stored and deficit segments looked nearly identical at a glance; inspection traced the stored color to `--color-amber-base` (#BA7517), which sits perceptually adjacent to deficit red (#E05656). V1 used tan; V2_CALCULATION_SPEC.md line 519 already documented "tan" as the intended treatment — the chart implementation had drifted.
+
+**Change Log:**
+- 2026-05-04 — Cowork drafted OI-0159; updated V2_DESIGN_SYSTEM.md §1.1 (added Tan row + Tan-vs-Amber rationale paragraph) and §5.4 (added `--color-tan-*` token block); updated V2_UX_FLOWS.md §17.15 (DMI chart prose + status table flipped "amber stored" → "tan stored"). Spec file `github/issues/OI-0159_dmi-bar-tan-stored-segment.md` written same session.
+
+---
+
 **Sub-item A — Group window header weight unit bypass.**
 
 `src/features/dev-mode/audit.js:365–366` builds the stored/live group-window weight strings as raw template literals with hardcoded ` kg` suffix:

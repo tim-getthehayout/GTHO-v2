@@ -16,12 +16,15 @@ Six semantic color families. Each has a base, dark (-d), and light (-l) variant.
 |--------|------|-----------|------------|-------|
 | Green | `#639922` | `#3B6D11` | `#EAF3DE` | Primary action, active states, success, grazing |
 | Amber | `#BA7517` | `#854F0B` | `#FAEEDA` | Warnings, pending states, sub-moves |
+| Tan | `#C9A875` | `#8C7444` | `#F2E8D2` | Stored feed (DMI bar stored segment, legend swatch); never-grazed forecast block |
 | Teal | `#1D9E75` | `#0F6E56` | `#E1F5EE` | Secondary actions, health, dev responses |
 | Purple | `#534AB7` | `#3C3489` | `#EEEDFE` | Feature category, tertiary badges |
 | Red | `#E24B4A` | `#A32D2D` | `#FCEBEB` | Errors, destructive actions, bugs |
 | Blue | `#185FA5` | `#0C447C` | `#E6F1FB` | Info, in-progress states |
 
 Additional: `--green-l2: #97C459` (used for banner borders and sidebar active accent).
+
+**Tan vs. Amber — why both exist.** Amber (`#BA7517`) is a deep brownish-orange used for *warnings and pending-state* signals (sub-move chips, partial states). Tan (`#C9A875`) is a lighter, hay-coloured neutral used for *stored feed* on data-viz surfaces (DMI bar stored segment, never-grazed forecast block). They live in different visual registers: amber sits next to red as a warning ramp, tan sits next to green and red as a neutral data category. Using amber for stored feed (the pre-2026-05-04 implementation) put it perceptually adjacent to deficit red and made the bar hard to read at a glance — that's the regression this token was introduced to prevent.
 
 ### 1.2 Neutral Palette
 
@@ -547,7 +550,10 @@ v2 uses CSS custom properties organized by category in `src/ui/tokens.css`:
 --color-green-base: #639922;
 --color-green-dark: #3B6D11;
 --color-green-light: #EAF3DE;
-/* ... repeat for amber, teal, purple, red, blue */
+/* ... repeat for amber, tan, teal, purple, red, blue */
+--color-tan-base: #C9A875;     /* stored feed bar segment, never-grazed forecast block */
+--color-tan-dark: #8C7444;
+--color-tan-light: #F2E8D2;
 
 /* Semantic aliases */
 --color-primary: var(--color-green-base);

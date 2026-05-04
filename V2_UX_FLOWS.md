@@ -1565,13 +1565,13 @@ Full-screen view for a single active or closed event. Opens when the user taps *
 
 **DMI chart:**
 
-3-day stacked bar chart shared with the dashboard location card (§17.7 element #11). Both surfaces render through the single component at `src/ui/dmi-chart.js`. The chart obeys the SP-12 / OI-0119 cascade allocation model — see V2_CALCULATION_SPEC.md §4.2 (DMI-8) for the canonical calc spec. Each bar represents one day across a 3-day window (today plus two), with grazing rendered green at the top of the stack and stored feed rendered amber at the base.
+3-day stacked bar chart shared with the dashboard location card (§17.7 element #11). Both surfaces render through the single component at `src/ui/dmi-chart.js`. The chart obeys the SP-12 / OI-0119 cascade allocation model — see V2_CALCULATION_SPEC.md §4.2 (DMI-8) for the canonical calc spec. Each bar represents one day across a 3-day window (today plus two), with grazing rendered green at the top of the stack and stored feed rendered tan (`--color-tan-base`, `#C9A875`) at the base. Tan — not amber — is correct here: amber sits perceptually adjacent to the deficit red and made the bar hard to read at a glance (2026-05-04). See V2_DESIGN_SYSTEM.md §1.1 for the tan vs. amber rationale.
 
 The chart now reports five distinct status values per day. The status drives bar appearance, label, and any inline call-to-action. The five-state model replaced the earlier three-state model (actual / estimated / no_data) when SP-12 shipped, because real field-test data surfaced cases where a day had neither pasture data nor animals on the paddock — collapsing those into a single "no data" status hid the difference between *missing observation* (fixable with a CTA) and *no animals here yet* (not actionable, just blank).
 
 | Status | Bar render | Label | CTA |
 |---|---|---|---|
-| `actual` | Solid two-stack (green pasture / amber stored) | Total DMI value · day label · `✓` indicator | None |
+| `actual` | Solid two-stack (green pasture / tan stored) | Total DMI value · day label · `✓` indicator | None |
 | `estimated` | Striped two-stack (existing diagonal pattern) | Total DMI value with `(est.)` suffix · day label | None |
 | `estimated` with `deficitKg > 0` | Striped two-stack + **red segment atop the stored stack** sized to the deficit portion | Total DMI value `(est.)` with `+X deficit` sub-label · day label | None |
 | `needs_check` | Grey short bar at fixed minimum height · `—` value | "Feed check needed" hint | None — the hint is the prompt; the user opens Feed Check from the card-level button |
@@ -1581,7 +1581,7 @@ The chart now reports five distinct status values per day. The status drives bar
 
 **`needs_check` status — "Feed check needed" hint.** When an event has stored-feed deliveries (any `event_feed_entries` row with `entry_type = 'delivery'` exists) but no recent feed check on a feed line, the cascade returns `needs_check` for the affected days. The chart renders the grey short bar with the inline hint text — the user opens Feed Check from the card-level button, not via a per-bar link. The `needs_check` status replaces the earlier ambiguous "no data" treatment for stored-feed events that lacked a strike point; surfacing it explicitly tells the farmer *what* to do next.
 
-**Deficit segment.** When the cascade exhausts both pasture and stored buckets before meeting demand for the day, `deficitKg > 0` and the bar grows a red segment atop the amber stored stack. The sub-label `+X deficit` renders below the total. This is information-only — the chart doesn't take action on the deficit; it surfaces it so the farmer can react (deliver more feed, move animals, accept the under-feed).
+**Deficit segment.** When the cascade exhausts both pasture and stored buckets before meeting demand for the day, `deficitKg > 0` and the bar grows a red segment atop the tan stored stack. The sub-label `+X deficit` renders below the total. This is information-only — the chart doesn't take action on the deficit; it surfaces it so the farmer can react (deliver more feed, move animals, accept the under-feed).
 
 **Legend.** Always-on: `■ grazing · ■ stored`. Conditional: `■ deficit` (red) appears in the legend only when at least one bar in the 3-day window has `deficitKg > 0`. The conditional swatch keeps the legend honest — no permanent "deficit" entry implying every event is in deficit.
 

@@ -121,6 +121,7 @@
     "auditNoEvent": "no event selected",
     "auditPickEvent": "Pick an event from the dropdown above, or open via the Audit button on an event detail page.",
     "auditPickerPlaceholder": "— select an event —",
+    "auditSearchEventsPlaceholder": "Search events…",
     "auditNoEventsForOperation": "No events for this operation yet.",
     "auditEventHeader": "Event header",
     "auditDerivedStart": "derived start",

@@ -1,4 +1,3 @@
-/* global sessionStorage */
 /** @file Application entry point — boot sequence per V2_APP_ARCHITECTURE.md */
 
 import { init as initStore, setSyncAdapter } from './data/store.js';

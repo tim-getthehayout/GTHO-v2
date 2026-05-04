@@ -11,6 +11,7 @@ export default [
         document: 'readonly',
         window: 'readonly',
         localStorage: 'readonly',
+        sessionStorage: 'readonly',
         crypto: 'readonly',
         fetch: 'readonly',
         setTimeout: 'readonly',

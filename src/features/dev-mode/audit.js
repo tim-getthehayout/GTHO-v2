@@ -115,14 +115,72 @@ function renderAuditHeader(container, event) {
         value: '', disabled: 'disabled', selected: 'selected',
       }, [t('dev.auditPickerPlaceholder')]));
     }
+    // OI-0157-D: precompute a per-event haystack so the search bar's input
+    // listener doesn't re-resolve farm/locations on every keystroke. Joined
+    // and lower-cased once; live-filter is a substring check.
+    const haystacks = new Map();
     for (const evt of events) {
       const start = getEventStartDate(evt.id) || '—';
+      const farm = evt.farmId ? getById('farms', evt.farmId) : null;
+      const pwLocs = getAll('eventPaddockWindows')
+        .filter(pw => pw.eventId === evt.id)
+        .map(pw => getById('locations', pw.locationId)?.name)
+        .filter(Boolean);
+      haystacks.set(evt.id, [evt.id, start, evt.type, farm?.name, ...pwLocs].filter(Boolean).join(' ').toLowerCase());
       picker.appendChild(el('option', {
         value: evt.id,
         ...(evt.id === event?.id ? { selected: 'selected' } : {}),
       }, [`${start} · ${evt.id.slice(0, 8)}`]));
     }
     navRow.appendChild(picker);
+
+    // OI-0157-D: search bar to the right of the picker. Live-filters the
+    // dropdown options by id / start / type / farm / location. Persists
+    // query in `sessionStorage` (per-tab; distinct from the unit-toggle's
+    // `localStorage`). Pressing Enter with exactly one matching option
+    // navigates to that event.
+    const SEARCH_KEY = 'dev-audit-event-search';
+    const initialQuery = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(SEARCH_KEY)) || '';
+
+    function applyFilter(query) {
+      const q = (query || '').trim().toLowerCase();
+      for (const opt of picker.querySelectorAll('option')) {
+        if (!opt.value) continue; // skip the placeholder (empty value)
+        const hay = haystacks.get(opt.value) || '';
+        opt.style.display = (q === '' || hay.includes(q)) ? '' : 'none';
+      }
+    }
+
+    const searchInput = el('input', {
+      type: 'text',
+      'data-testid': 'dev-audit-event-search',
+      placeholder: t('dev.auditSearchEventsPlaceholder'),
+      style: {
+        width: '200px', fontSize: '11px', padding: '4px 6px',
+        border: '0.5px solid var(--border2)', borderRadius: '4px',
+        background: 'var(--bg)', fontFamily: 'inherit', color: 'var(--text)',
+      },
+      value: initialQuery,
+      onInput: (e) => {
+        const q = e.target.value;
+        try { sessionStorage.setItem(SEARCH_KEY, q); } catch { /* quota */ }
+        applyFilter(q);
+      },
+      onKeyDown: (e) => {
+        if (e.key !== 'Enter') return;
+        const visible = [...picker.querySelectorAll('option')]
+          .filter(o => o.value && o.style.display !== 'none');
+        if (visible.length === 1) {
+          e.preventDefault();
+          navigate(`#/dev/audit?id=${visible[0].value}`);
+        }
+      },
+    });
+    navRow.appendChild(searchInput);
+
+    // Initial filter pass so the page comes back filtered after a route
+    // round-trip within the same tab.
+    if (initialQuery) applyFilter(initialQuery);
   } else {
     navRow.appendChild(el('span', {
       'data-testid': 'dev-audit-no-events-note',

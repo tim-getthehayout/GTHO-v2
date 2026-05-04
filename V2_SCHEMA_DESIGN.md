@@ -567,12 +567,13 @@ CREATE TABLE animals (
 | operation_id | uuid | FK → operations, NOT NULL | RLS |
 | name | text | NOT NULL | |
 | color | text | | Hex color for UI badges |
-| archived | boolean | DEFAULT false | Soft delete |
+| archived_at | timestamptz | NULL | Soft-delete timestamp. NULL = active. Set to `now()` when the group is archived. Replaces an earlier `archived boolean` column (migration 024 / OI-0090, SP-11 Part 3): a timestamp lets the UI show *when* a group was archived in the management list and lets analytics query "groups archived in the last 30 days" without a separate audit table. The partial index `idx_groups_active ON groups WHERE archived_at IS NULL` keeps active-group queries fast. |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
 **Design decisions:**
 - **Operation-scoped with derived current farm (OI-0133):** The group record itself has no `farm_id`. The group's current farm is derived at read time by taking the latest open `event_group_window` (one with `date_left IS NULL`, sorted by `date_joined DESC, time_joined DESC`) and reading that window's parent event's `farm_id`. A group with no open window has no current farm — it appears only in "All farms" view. This removes the drift class where a cross-farm move updated the destination event but left `groups.farm_id` pointing at the source farm. Helper: `getGroupCurrentFarm(groupId)` in `src/data/store.js`. Prior design stored `farm_id` on the group and required the move wizard to keep it in sync; migration 032 dropped the column. See CLAUDE.md §"Known Traps" for the grep contracts that prevent re-introduction.
+- **Soft-delete via timestamp, not boolean (SP-11 Part 3, OI-0090):** Migration 024 upgraded `archived boolean` to `archived_at timestamptz`. The trigger was the empty-group archive cascade (UI_SPRINT_SPEC SP-11): when the last animal leaves a group, the management UI prompts the user to archive it, and we want to display "archived 3 days ago" in the list. A boolean lost that information. Existing `archived = true` rows were backfilled with `archived_at = updated_at` during the migration. CP-55/CP-56 backup migration handles the upgrade for older backups.
 - **No animalIds[] array:** V1 derived `group.animalIds` from the membership ledger at load time. V2 does the same — the group record never stores a list of animals.
 
 ```sql
@@ -581,10 +582,16 @@ CREATE TABLE groups (
   operation_id  uuid NOT NULL REFERENCES operations(id),
   name          text NOT NULL,
   color         text,
-  archived      boolean DEFAULT false,
+  archived_at   timestamptz,                                     -- NULL = active. Migration 024 (SP-11 / OI-0090) replaced earlier `archived boolean`.
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- Migration 024 (SP-11) created `idx_groups_active ON groups(farm_id) WHERE archived_at IS NULL`.
+-- Migration 032 (OI-0133) dropped `farm_id`, which auto-dropped that index. No replacement
+-- index exists today — group lookups currently filter by `archived_at IS NULL` after RLS scopes
+-- by `operation_id`. If active-group query volume becomes a hot path, consider re-creating the
+-- partial index on `(operation_id) WHERE archived_at IS NULL`. Tracked separately if needed.
 ```
 
 ### 3.4 animal_group_memberships
@@ -810,8 +817,6 @@ The event parent record. Deliberately thin — most detail lives in child tables
 | id | uuid | PK | |
 | operation_id | uuid | NOT NULL, FK → operations | RLS scope |
 | farm_id | uuid | NOT NULL, FK → farms | An event belongs to exactly one farm — no event straddles farms. Cross-farm moves produce **two** linked events (see `source_event_id`). |
-| date_in | date | NOT NULL | Event start date |
-| time_in | text | NULL | Optional time of day (HH:MM) |
 | date_out | date | NULL | NULL = event still open |
 | time_out | text | NULL | |
 | source_event_id | uuid | NULL, FK → events ON DELETE SET NULL | When this event was created by a cross-farm move, points back to the (now-closed) source event on the other farm. NULL for regular within-farm events. Enables event cards to render "← Moved from {farm}" / "→ Moved to {farm}" markers on each side of the move pair. |
@@ -820,6 +825,7 @@ The event parent record. Deliberately thin — most detail lives in child tables
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
 **Design decisions:**
+- **No `date_in` / `time_in` (OI-0117, migration 028):** The event start datetime is **derived at read time** from the earliest child window — `MIN(event_paddock_windows.date_opened, event_group_windows.date_joined)`. Migration 028 dropped the previously-stored `date_in` / `time_in` columns. Reads go through `getEventStart(eventId)` / `getEventStartDate(eventId)` in `src/features/events/event-start.js`; the hero-line edit writes through to the earliest child window via `setEventStart()`. The drop closed the OI-0115 drift class: a phantom `change` event on a teardown-replaced date input could overwrite the stored `date_in` while the child windows held the true start, leaving every downstream calc reading stale state. CLAUDE.md "Known Traps" carries the grep contracts that prevent re-introduction. **General rule for v2:** if a value is derivable from child rows at read time, derive it on read — do not also store it on the parent.
 - **No pastureId** — paddock participation is in event_paddock_windows
 - **No groupId, animalCount, avgWeight** — group participation is in event_group_windows, with point-in-time snapshots there
 - **No status column** — status is derived: `date_out IS NULL` → active, otherwise closed
@@ -833,8 +839,8 @@ CREATE TABLE events (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   operation_id      uuid NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
   farm_id           uuid NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
-  date_in           date NOT NULL,
-  time_in           text,
+  -- date_in / time_in dropped in migration 028 (OI-0117) — derived at read time from
+  -- the earliest child window via getEventStart() / getEventStartDate().
   date_out          date,
   time_out          text,
   source_event_id   uuid REFERENCES events(id) ON DELETE SET NULL,
@@ -942,42 +948,65 @@ CREATE TABLE event_group_windows (
 **Replaces:** v1 `event_feed_deliveries`
 **Audit refs:** FED-01, FED-02, FED-03, FED-04, GRZ-04
 
-Records every feed delivery or transfer on an event. Feed is always delivered to a specific paddock within the event (location_id is NOT NULL). Transfers between events are tracked via source_event_id.
+Records every feed delivery, transfer-in, or transfer-out on an event. Feed is always delivered to a specific paddock within the event (location_id is NOT NULL). The `entry_type` column distinguishes incoming deliveries from outgoing removals.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | id | uuid | PK | |
 | operation_id | uuid | NOT NULL, FK → operations | RLS scope |
-| event_id | uuid | NOT NULL, FK → events ON DELETE CASCADE | Parent event |
+| event_id | uuid | NOT NULL, FK → events ON DELETE CASCADE | Parent event the entry belongs to. For removals, this is the *source* event the feed left from. |
 | batch_id | uuid | NOT NULL, FK → batches | Which feed batch |
-| location_id | uuid | NOT NULL, FK → locations | Which paddock received the feed |
-| date | date | NOT NULL | Delivery date |
+| location_id | uuid | NOT NULL, FK → locations | Which paddock the feed left from (for removals) or arrived at (for deliveries) |
+| date | date | NOT NULL | Entry date |
 | time | text | NULL | |
-| quantity | numeric | NOT NULL | Amount delivered (always positive) |
-| source_event_id | uuid | NULL, FK → events | NULL = fresh delivery. Set = transferred from this event |
+| quantity | numeric | NOT NULL, CHECK (quantity > 0) | Amount in batch units. Always positive — direction is encoded by `entry_type`, not sign. |
+| entry_type | text | NOT NULL, DEFAULT 'delivery', CHECK in ('delivery','removal') | Direction of the entry. `delivery` = feed arrived on this event; `removal` = feed left this event for somewhere else. Added in migration 023 (SP-10 §8a Move Feed Out). |
+| destination_type | text | NULL, CHECK in ('batch','event') | Where a `removal` went. `batch` = returned to inventory (creates/credits a batch row). `event` = transferred to another open event. Required when `entry_type = 'removal'` (CHECK `chk_removal_has_destination`); must be NULL when `entry_type = 'delivery'`. Added in migration 023. |
+| destination_event_id | uuid | NULL, FK → events ON DELETE SET NULL | Set when `destination_type = 'event'`; FK to the destination event. Enforced by CHECK `chk_dest_event_consistency`: must be NOT NULL when `destination_type = 'event'`, NULL otherwise. Added in migration 023. |
+| source_event_id | uuid | NULL, FK → events | Pre-SP-10 transfer-in marker — kept for backward compatibility with delivery rows that came from another event. NULL = fresh delivery. SP-10's `removal` rows on the source event are now the canonical record of an event-to-event transfer; the destination event's matching `delivery` row points back via `source_event_id` so historical UIs continue to work. |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
 **Design decisions:**
-- **Always positive quantity.** No negative transfer-out entries. A transfer creates one new entry on the destination event with source_event_id pointing to where it came from. The source event's remaining is computed by the calculation layer (total delivered minus total consumed minus total transferred out).
-- **location_id NOT NULL.** Feed is always delivered to a specific paddock. For bale grazing, knowing which paddock got the bales is essential for nutrient and residue tracking.
-- **source_event_id for transfers.** When closing an event, the move wizard asks "how much feed to move?" The answer becomes a new feed entry on the destination event with source_event_id = old event. The leftover on the source event is recorded as feed residual via a feed check (see 5.5).
-- **No unit column.** Unit comes from the batch (batch.quantity_unit). All feed entries for a batch use the same unit.
-- **No transfer_pair_id / negative qty pattern.** The v1 double-entry model (negative on source, positive on destination) was error-prone. v2 uses a simpler model: the destination entry points back to the source event. The calculation layer derives what left the source.
+- **Always positive quantity, direction in `entry_type` (SP-10).** Pre-SP-10, only "delivery" rows existed; transfers were modeled by adding a delivery row on the destination event and pointing its `source_event_id` back. SP-10's "Move Feed Out" flow added the `removal` direction so the source event has an explicit record of feed leaving (without resorting to negative quantities, which v1 used and which were error-prone). The calculation layer reads both `entry_type = 'delivery'` (in) and `entry_type = 'removal'` (out) for any consumption / remaining calculation.
+- **Destination model — batch or event.** A `removal` either goes back to inventory (`destination_type = 'batch'`) — useful when a farmer pulls bales off a paddock and returns them to the stack — or transfers to another open event (`destination_type = 'event'` with `destination_event_id` set). The check constraints enforce that the right destination columns are populated for each case.
+- **location_id NOT NULL.** Feed is always tied to a specific paddock. For bale grazing, knowing which paddock got the bales is essential for nutrient and residue tracking. For removals, this is the paddock the feed *left from*.
+- **Pre-SP-10 `source_event_id` retained for compatibility.** The original v2 transfer model used a single `delivery` row on the destination with `source_event_id` pointing to the source event. SP-10 adds the explicit `removal` row on the source for symmetry, but the `source_event_id` column on delivery rows is preserved so historical data and the destination-side of new transfers both render correctly.
+- **No unit column.** Unit comes from the batch (`batch.quantity_unit`). All feed entries for a batch use the same unit.
+- **No transfer_pair_id.** Transfer pairs are linked by walking `event_feed_entries WHERE entry_type = 'removal' AND destination_event_id = :dest` from the source side, or `WHERE entry_type = 'delivery' AND source_event_id = :source` from the destination side. A pair_id would be a third source of truth; keeping it implicit avoids drift.
+
+**CP-55/CP-56 export-spec impact:** New persisted columns `entry_type`, `destination_type`, `destination_event_id` must be included in CP-55 export and CP-56 import. CP-56 must default `entry_type = 'delivery'` and the two destination columns to NULL when reading backups from schema_version ≤ 22 — that matches migration 023's `DEFAULT 'delivery'` and gives older backups the same shape as the pre-SP-10 model. Tracked in OPEN_ITEMS.
 
 ```sql
 CREATE TABLE event_feed_entries (
-  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  operation_id      uuid NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
-  event_id          uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-  batch_id          uuid NOT NULL REFERENCES batches(id),
-  location_id       uuid NOT NULL REFERENCES locations(id),
-  date              date NOT NULL,
-  time              text,
-  quantity          numeric NOT NULL CHECK (quantity > 0),
-  source_event_id   uuid REFERENCES events(id),
-  created_at        timestamptz NOT NULL DEFAULT now(),
-  updated_at        timestamptz NOT NULL DEFAULT now()
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id          uuid NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+  event_id              uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  batch_id              uuid NOT NULL REFERENCES batches(id),
+  location_id           uuid NOT NULL REFERENCES locations(id),
+  date                  date NOT NULL,
+  time                  text,
+  quantity              numeric NOT NULL CHECK (quantity > 0),
+  entry_type            text NOT NULL DEFAULT 'delivery',                     -- migration 023 (SP-10)
+  destination_type      text,                                                 -- migration 023 (SP-10)
+  destination_event_id  uuid REFERENCES events(id) ON DELETE SET NULL,        -- migration 023 (SP-10)
+  source_event_id       uuid REFERENCES events(id),
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+
+  -- Migration 023 check constraints (SP-10 Move Feed Out)
+  CONSTRAINT chk_entry_type_enum
+    CHECK (entry_type IN ('delivery', 'removal')),
+  CONSTRAINT chk_destination_type_enum
+    CHECK (destination_type IS NULL OR destination_type IN ('batch', 'event')),
+  CONSTRAINT chk_removal_has_destination
+    CHECK (entry_type = 'delivery' OR destination_type IS NOT NULL),
+  CONSTRAINT chk_dest_event_consistency
+    CHECK (
+      (destination_type = 'event' AND destination_event_id IS NOT NULL)
+      OR (destination_type = 'batch' AND destination_event_id IS NULL)
+      OR (destination_type IS NULL AND destination_event_id IS NULL)
+    )
 );
 ```
 
@@ -2482,6 +2511,7 @@ CREATE TABLE release_notes (
 | 2026-04-14 | Tier 3 migration testing — OI-0055 | Root-cause fix: added `operation_id uuid NOT NULL FK → operations` to four tables that were missing it: §5.6 event_feed_check_items, §6.2 survey_draft_entries, §7.2 harvest_event_fields, §11.4 todo_assignments. Updated column specs, design decision notes, and CREATE TABLE SQL for all four. Design Principle #8 simplified — no longer has exceptions. Migration 019 adds the column + backfill. |
 | 2026-04-17 | Local-only fields audit — OI-0089 | Retroactive documentation of two tables that existed in live Supabase, entity code, and §5.3a but were missing from this design doc. Added §5.8 `event_observations` (migration 021 + `bale_ring_residue_count` from migration 022, SP-2 event-time pasture observations) and §9.11 `animal_notes` (migration 012 "Domain 9 amendment", OI-0003). Both sections match existing style (column table, design decisions, CREATE TABLE). No schema change — doc catch-up only. Live ground truth: `SCHEMA_DUMP_2026-04-17.md`. |
 | 2026-04-18 | OI-0111 Settings UI unit conversion — farm_settings bale-ring column renamed | Migration 027 renames `farm_settings.bale_ring_residue_diameter_ft` → `bale_ring_residue_diameter_cm`, converts stored values (× 30.48), sets default 365.76, drops the old column. Bumps `schema_version` 26 → 27. The BRC-1 calc in `src/calcs/survey-bale-ring.js` stays imperial-native; callers (paddock-card, surveys) convert cm → ft inline before invoking. This closes the last farm-settings column that stored imperial natively — the whole table now follows the metric-internal / display-converted rule. §1.3 column table + CREATE TABLE SQL updated. |
+| 2026-05-03 | Reconciliation Session A — schema doc catch-up (RECONCILIATION_PLAN_2026-05-03 SCH-1, SCH-2, SCH-3) | **§3.3 groups (SCH-1):** column table + CREATE TABLE updated to show `archived_at timestamptz` (replaces earlier `archived boolean` per migration 024 / SP-11 Part 3 / OI-0090). Added design-decision paragraph on the soft-delete-via-timestamp pattern. Updated index comment to reflect that migration 032's `farm_id` drop auto-dropped the `idx_groups_active` partial index without a replacement. **§5.1 events (SCH-2):** removed `date_in` and `time_in` from column table and CREATE TABLE (dropped in migration 028 / OI-0117). Added design-decision paragraph documenting the derive-on-read pattern via `getEventStart()` / `setEventStart()`, the OI-0115 drift class it closed, and the general rule "if derivable from child rows, derive on read." **§5.4 event_feed_entries (SCH-3):** added `entry_type`, `destination_type`, `destination_event_id` columns and four check constraints (chk_entry_type_enum, chk_destination_type_enum, chk_removal_has_destination, chk_dest_event_consistency) per migration 023 / SP-10 §8a Move Feed Out. Rewrote the design-decision section to cover the new direction-via-entry_type model (no negative quantities), the batch-vs-event destination model, and why pre-SP-10 `source_event_id` is retained for compatibility. Flagged CP-55/CP-56 export-spec impact for the three new columns. **SCH-4 (farm_settings) confirmed already reconciled** — `bale_ring_residue_diameter_cm` was documented in the 2026-04-18 entry above; no edit needed in this session. No code changed in this session — documentation catch-up only. Owner: Cowork. |
 
 ---
 

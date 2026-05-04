@@ -1850,6 +1850,21 @@ body.field-mode .sheet-handle { display: none; }
   font-weight: 500;
 }
 
+/* OI-0155: active-state visual for the mobile bottom-nav. OI-0154 added the
+   DOM contract (`.bnav-item.active` toggled on hashchange); this rule
+   completes the visible contract. Reuses the same design tokens as the
+   desktop sidebar's `.dsk-nav-item.active` rule (line 296) — green accent
+   color + 600 weight on the label — so desktop and mobile stay visually
+   consistent. The bottom-nav has no SVG icons today (text-only labels), so
+   no fill/stroke rule is needed. */
+.bnav-item.active {
+  color: var(--green-d);
+}
+
+.bnav-item.active .bnav-label {
+  font-weight: 600;
+}
+
 /* Hide bottom nav on desktop */
 @media (min-width: 900px) {
   .bottom-nav {

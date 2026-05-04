@@ -59,69 +59,6 @@
 
 ---
 
-### OI-0155 — Mobile bottom-nav `.bnav-item.active` rule does not exist; OI-0154 sets the class on the correct item but mobile users see no visual difference; cosmetic CSS-only follow-on
-**Added:** 2026-05-03 | **Area:** v2-build / ui / styles / mobile | **Priority:** P3 (cosmetic only; navigation works correctly on mobile, only the active-state highlight is invisible). Not a hold; can ship anytime.
-
-**Status:** open — Phase 1 DESIGN LOCKED, ready for Claude Code handoff. Claude Code flagged this on the OI-0154 ship summary 2026-05-03: *"Bottom-nav visual deferred — `.bnav-item.active` has no CSS today; DOM contract in place for a future cosmetic OI."* OI-0155 is that future cosmetic OI.
-
-**Reproducer (live, 2026-05-03 post-OI-0154):** On a mobile-width viewport (or DevTools device-emulation mobile), navigate between bottom-nav items. The active class IS being toggled correctly by `updateActiveBottomNavItem` (verifiable via DevTools Elements panel — the `active` class moves between items as expected). But there's no visual change because no CSS rule targets `.bnav-item.active`. Desktop sidebar works correctly post-OI-0154 because the desktop active-state class (`dsk-nav-item-active` or equivalent) already had a CSS rule.
-
-**Root cause:** Pre-OI-0154, the bottom-nav active class was never set anywhere — the destructive operationMembers rebuild rebuilt the bottom nav with the active class baked into the build code at render time, and the rebuilds happened often enough that no one noticed the pre-baked active state was sometimes stale. CSS for the active state was never written because no consistent class existed for it. OI-0154 added the consistent class (DOM contract) and the JS update path (hashchange listener), but didn't add the CSS rule because the OI-0154 spec was JS-scoped.
-
-**Fix — Phase 1 (DESIGN LOCKED, ready for Claude Code):**
-
-Single CSS rule in whatever stylesheet currently styles `.bnav-item` (likely `src/styles/header.css` or `src/styles/main.css` — Claude Code greps to confirm). Match the visual intent of the desktop sidebar's active-state rule, adapted for the bottom-nav layout (typically: highlighted icon color + bold label, sometimes a small top-border or background tint depending on the existing visual language).
-
-Sketch — exact properties to be confirmed by reading the existing `.bnav-item` and desktop active-state rules:
-
-```css
-.bnav-item.active {
-  color: var(--accent);              /* match desktop active color */
-  font-weight: 600;                  /* match desktop active weight */
-  /* optional: subtle indicator, e.g. */
-  /* border-top: 2px solid var(--accent); */
-}
-
-.bnav-item.active svg {
-  fill: var(--accent);               /* if icons use fill */
-  stroke: var(--accent);             /* if icons use stroke */
-}
-```
-
-**Don't introduce new design tokens** — reuse whatever color / weight / spacing tokens the desktop sidebar's active rule already uses, so desktop and mobile stay visually consistent.
-
-**Acceptance criteria — Phase 1:**
-
-- [ ] On a mobile-width viewport, the active bottom-nav item is visually distinguishable from the inactive items.
-- [ ] The visual treatment matches the desktop sidebar's active-state design intent (same accent color, comparable weight emphasis).
-- [ ] No regression on the inactive `.bnav-item` styling.
-- [ ] No regression on the desktop sidebar (the `.dsk-nav-item-active` rule and any related rules are untouched).
-- [ ] Optional: a snapshot test or DOM-and-computed-style assertion in `tests/unit/ui/header.test.js` extending OI-0154's tests — assert that an active bottom-nav item has a different color than an inactive one. CSS-only changes don't always need a test, but since OI-0154 added the DOM contract and OI-0155 completes the visual contract, a one-line assertion that `getComputedStyle(activeItem).color !== getComputedStyle(inactiveItem).color` closes the loop.
-
-**Files to edit (Phase 1):**
-
-- One stylesheet file in `src/styles/` (likely `header.css` or `main.css` — grep to confirm). Single CSS rule, ~5-10 lines including any icon-color adjustments.
-- Optional: `tests/unit/ui/header.test.js` — extend with the computed-style assertion described above.
-
-**Schema change:** NONE.
-
-**CP-55/CP-56 impact:** NONE — pure CSS cosmetic.
-
-**Architectural notes:**
-
-- **Pure cosmetic, no JS impact.** The CSS rule consumes the DOM contract OI-0154 established. If anyone removes or renames the `.bnav-item.active` class in JS, OI-0155's CSS becomes inert but doesn't break anything.
-- **Ships independently of the OI-0149 → OI-0154 chain.** OI-0155 is the last cosmetic shoe to drop; no further latent-bug exposure expected because it's CSS-only.
-- **PLUGIN IMPROVEMENT candidate (small):** "When introducing a new state-class on a DOM element, ship the CSS rule in the same commit as the JS that sets the class. Splitting the DOM contract from the visual contract leaves users seeing 'no effect' even when the JS is correct." Worth a row in IMPROVEMENTS.md when this lands.
-
-**Spec file:** Body of this OI is the Phase 1 spec. Thin pointer at `github/issues/OI-0155_bottom-nav-active-css.md` to be filed when Claude Code picks this up.
-
-**Related:**
-
-- **OI-0154** (closed earlier today, this session) — established the DOM contract (class + update path) that OI-0155's CSS consumes. OI-0155 is the visual completion.
-- **OI-0146** (closed) — introduced the mobile bottom nav. OI-0155 stays faithful to OI-0146's design intent.
-
----
-
 ### OI-0150 — Dev Mode hardening sweep — render-yielding in heavy dev-mode screens (audit page + dev/logs viewer) + close the `logger` → `app_logs` pipe so client errors actually land in the table the viewer reads
 **Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0154 ships and field-tests clean for one day** (hold condition shifted OI-0149 → OI-0151 → OI-0152 → OI-0153 → OI-0154 on 2026-05-03 across the same diagnostic session — five sequential ships exposing latent bugs underneath each prior fix; OI-0154 is the JS chain's bottom, OI-0155 is a pure-CSS follow-on that doesn't reset the field-test clock).
 
@@ -5280,6 +5217,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0155 — Mobile bottom-nav `.bnav-item.active` rule did not exist; OI-0154 set the class but mobile users saw no visual difference (Phase 1)
+**Added:** 2026-05-03 | **Closed:** 2026-05-04 | **Area:** v2-build / ui / styles / mobile
+**Resolution:** Phase 1 shipped per locked design — pure-CSS cosmetic completion of OI-0154's DOM contract. **What shipped:** `src/styles/main.css` — two new rules immediately after the existing `.bnav-label` rule: (1) `.bnav-item.active { color: var(--green-d); }` — same accent color token (`--green-d`) the desktop sidebar's `.dsk-nav-item.active` rule (line 296) uses, so desktop and mobile stay visually consistent. (2) `.bnav-item.active .bnav-label { font-weight: 600; }` — bumps the label weight to match desktop. The cascade isn't enough on its own because `.bnav-label` has its own explicit `font-weight: 500` — without the descendant rule the active-state weight would not apply. **No SVG fill/stroke rule needed** — the bottom-nav today is text-only (the `renderBottomNav` builder appends only a `<span class="bnav-label">` child to each `.bnav-item`). **No new design tokens introduced** — reused `--green-d` from the existing token set. **Inline comment block** in the CSS file references OI-0155 + the OI-0154 DOM contract it consumes + the design-token reuse rationale. **Tests:** no new JS test added — OI-0154's existing DOM-level toggle tests already prove the active class lands on the correct item across hashchange events. The optional `getComputedStyle` assertion the OI body suggested is unreliable in JSDOM (which doesn't auto-load project CSS), so the visual contract is left to the grep contract + manual browser verification. Suite stays at 1419 / 1419 green. Hook test suite 7/7. **All three grep contracts hold:** `.bnav-item.active` in `src/styles/` → 3 matches (1 in the inline comment + 2 rule selectors); `.bnav-item\b` → 5 matches (preserves the base rule + nav-badge descendant); `.dsk-nav-item.active` → 2 matches (desktop rule + svg sub-rule untouched at lines 296 / 298). Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 contracts all still hold. **`npm run lint`** 0 errors. **`npm run build`** clean. **Manual UI smoke test on mobile DevTools emulation:** unverified by Claude Code (JSDOM doesn't render CSS; visual confirmation needs a real browser). The grep contract proves the rules are in source and the build embeds them; recommend Tim cold-loads the deployed site on mobile or DevTools mobile-emulation, taps between bottom-nav items, and confirms the active item shows the green-d color + 600-weight label. **Latent-bug-revealed-by-surgical-refactor doctrine:** OI-0155 is the cosmetic completion to the OI-0149 → OI-0151 → OI-0152 → OI-0153 → OI-0154 chain. Pure-CSS, no JS impact, no further latent-bug exposure expected. **Same family as OI-0117 / OI-0133 / OI-0139 / OI-0151 / OI-0152 / OI-0153 / OI-0154** ("two things doing one job, drifting") — the active-state DOM contract and the active-state visual contract were split across different layers; OI-0154 added the DOM half, OI-0155 closes the visual half. **GitHub issue:** GH-50 filed and closed; spec at `github/issues/GH-50_OI-0155_bottom-nav-active-css.md`. **Schema change:** none. **CP-55/CP-56 impact:** none — pure CSS cosmetic.
+
+---
 
 ### OI-0154 — Sidebar (and mobile bottom nav) active-menu-item state stays stale on navigation; hashchange listener was hidden behind the OI-0153 destructive rebuild (Phase 1)
 **Added:** 2026-05-03 | **Closed:** 2026-05-03 | **Area:** v2-build / ui / header / navigation

@@ -221,10 +221,14 @@ function renderAuditHeader(container, event) {
         fontFamily: 'inherit',
         fontWeight: mode === currentMode ? '600' : '400',
       },
-      onClick: () => {
+      // OI-0150-A: renderEventAudit is async (yields between sections); the
+      // unit-toggle onClick must therefore be async too. The async arrow is
+      // safe here — DOM event listeners ignore the returned promise; any
+      // rejection would surface in the renderer's own try/catch surfaces.
+      onClick: async () => {
         if (getAuditUnitMode() === mode) return;
         setAuditUnitMode(mode);
-        renderEventAudit(container.parentElement || container);
+        await renderEventAudit(container.parentElement || container);
       },
     }, [t(labelKey)]));
   }
@@ -539,7 +543,7 @@ function renderGroupWindowSubBlock(parent, gw, eventId, groupWindowResultsByGwId
  * ANI-ADA — all 6 cards were silently dropped). The Maps are now generic;
  * any new resolver in those scopes surfaces automatically.
  */
-function renderPaddockWindowBlocks(container, event, groupWindowResultsByGwId, paddockWindowResultsByPwId) {
+async function renderPaddockWindowBlocks(container, event, groupWindowResultsByGwId, paddockWindowResultsByPwId) {
   if (!event) return;
   const card = el('div', { className: 'card', 'data-testid': 'dev-audit-paddock-blocks', style: { padding: 'var(--space-3)', marginTop: 'var(--space-3)' } });
   card.appendChild(el('h2', { style: { fontSize: '14px', margin: '0 0 6px 0' } }, [t('dev.auditPaddockWindows')]));
@@ -743,6 +747,10 @@ function renderPaddockWindowBlocks(container, event, groupWindowResultsByGwId, p
     block.appendChild(itemsTable);
 
     card.appendChild(block);
+    // OI-0150-A: yield between paddock-window blocks so multi-paddock
+    // strip-graze events build incrementally on screen instead of
+    // freezing the tab while every block is constructed up front.
+    await new Promise(r => setTimeout(r, 0));
   }
 
   container.appendChild(card);
@@ -917,25 +925,65 @@ function renderDmi8Card(card, inst) {
     el('span', {}, [t('dev.auditHintReason')]),
   ]);
   details.appendChild(tableHeader);
-  for (const d of (inst.dailyBreakdown || [])) {
-    const color = chipMap[d.status] || 'outline';
-    const numericRender = (val) => {
-      if (val == null) return text('—');
-      return renderFormattedValue(formatAuditValue(val, 'weight'));
-    };
-    details.appendChild(el('div', {
-      'data-testid': `dev-audit-dmi8-day-${d.date}`,
-      style: { display: 'grid', gridTemplateColumns: '90px 110px 90px 80px 80px 70px 1fr 1fr', gap: '4px', fontSize: '10px', fontFamily: 'monospace', padding: '1px 0' },
+
+  // OI-0150-A: cap the inline daily-breakdown table at the 30 most-recent
+  // days. Older days fold into a child `<details>` (closed by default) so
+  // a 60+ day event renders 30 rows up front instead of 60+. The
+  // auto-expand-on-anomalies behavior on the parent stays — that's a
+  // separate "hey, look at this" signal. The resolver returns days in
+  // chronological order; we slice from the end to get the most recent.
+  const MOST_RECENT_DAYS = 30;
+  const allDays = inst.dailyBreakdown || [];
+  const recentDays = allDays.length > MOST_RECENT_DAYS
+    ? allDays.slice(allDays.length - MOST_RECENT_DAYS)
+    : allDays;
+  const olderDays = allDays.length > MOST_RECENT_DAYS
+    ? allDays.slice(0, allDays.length - MOST_RECENT_DAYS)
+    : [];
+
+  // capDays: the row builder, factored so it can run for both the inline
+  // recent slice and the deferred older-days slice.
+  const capDays = (rows, parentEl) => {
+    for (const d of rows) {
+      const color = chipMap[d.status] || 'outline';
+      const numericRender = (val) => {
+        if (val == null) return text('—');
+        return renderFormattedValue(formatAuditValue(val, 'weight'));
+      };
+      parentEl.appendChild(el('div', {
+        'data-testid': `dev-audit-dmi8-day-${d.date}`,
+        style: { display: 'grid', gridTemplateColumns: '90px 110px 90px 80px 80px 70px 1fr 1fr', gap: '4px', fontSize: '10px', fontFamily: 'monospace', padding: '1px 0' },
+      }, [
+        el('span', {}, [d.date]),
+        el('span', { className: `badge badge-${color}`, style: { fontSize: '9px' } }, [t(`dev.auditDmi8Status.${d.status}`)]),
+        el('span', { style: { textAlign: 'right' } }, [numericRender(d.totalDmiKg)]),
+        el('span', { style: { textAlign: 'right' } }, [numericRender(d.pastureDmiKg)]),
+        el('span', { style: { textAlign: 'right' } }, [numericRender(d.storedDmiKg)]),
+        el('span', { style: { textAlign: 'right' } }, [numericRender(d.deficitKg)]),
+        el('span', { style: { color: 'var(--text2)' } }, [(d.pwOpenIds || []).join(', ')]),
+        el('span', { style: { color: 'var(--text2)' } }, [[d.hint, d.reason].filter(Boolean).join(' · ')]),
+      ]));
+    }
+  };
+
+  capDays(recentDays, details);
+
+  if (olderDays.length > 0) {
+    const olderDetails = el('details', {
+      'data-testid': 'dev-audit-dmi8-daily-older',
+      style: { marginTop: '4px' },
+    });
+    olderDetails.appendChild(el('summary', {
+      style: { fontSize: '10px', cursor: 'pointer', color: 'var(--text2)' },
     }, [
-      el('span', {}, [d.date]),
-      el('span', { className: `badge badge-${color}`, style: { fontSize: '9px' } }, [t(`dev.auditDmi8Status.${d.status}`)]),
-      el('span', { style: { textAlign: 'right' } }, [numericRender(d.totalDmiKg)]),
-      el('span', { style: { textAlign: 'right' } }, [numericRender(d.pastureDmiKg)]),
-      el('span', { style: { textAlign: 'right' } }, [numericRender(d.storedDmiKg)]),
-      el('span', { style: { textAlign: 'right' } }, [numericRender(d.deficitKg)]),
-      el('span', { style: { color: 'var(--text2)' } }, [(d.pwOpenIds || []).join(', ')]),
-      el('span', { style: { color: 'var(--text2)' } }, [[d.hint, d.reason].filter(Boolean).join(' · ')]),
+      // i18n key reuse: parameterised "show older N days" — keep human-
+      // readable English fallback inline because this is a dev-mode-only
+      // surface and adding a key is overkill.
+      `Show older days (${olderDays.length})`,
     ]));
+    olderDetails.appendChild(tableHeader.cloneNode(true));
+    capDays(olderDays, olderDetails);
+    details.appendChild(olderDetails);
   }
   card.appendChild(details);
 }
@@ -992,8 +1040,23 @@ function renderStoreSupabaseDiff(container, event) {
   container.appendChild(card);
 }
 
-/** Render the full Event Audit page. */
-export function renderEventAudit(container) {
+// OI-0150-A: yields between section renderers + between paddock-window
+// blocks let Chrome pump events (style, layout, paint, input) so the audit
+// page builds incrementally instead of freezing the tab on populated events.
+// `setTimeout(r, 0)` is the deliberate choice over `queueMicrotask` —
+// microtasks run before paint, so they don't give the browser a chance to
+// render. We want a real macrotask boundary. The literal expression
+// `await new Promise(r => setTimeout(r, 0))` is repeated at each yield site
+// (rather than wrapped in a helper) so the locked grep contract finds it.
+
+/** Render the full Event Audit page.
+ *
+ * OI-0150-A: async + yields between every two top-level sections so the
+ * page builds incrementally on populated events. `renderPaddockWindowBlocks`
+ * (Section 4) yields between paddock-window blocks so multi-paddock
+ * strip-graze events scroll-build instead of freezing the tab.
+ */
+export async function renderEventAudit(container) {
   clear(container);
   const wrapper = el('div', {
     className: 'dev-audit-wrapper',
@@ -1053,12 +1116,18 @@ export function renderEventAudit(container) {
     }
   }
 
-  // Sections 2–7.
+  // Sections 2–7. OI-0150-A: yield between every two consecutive sections.
   renderEventHeader(wrapper, event);
+  await new Promise(r => setTimeout(r, 0));
   renderTimeline(wrapper, event);
-  renderPaddockWindowBlocks(wrapper, event, groupWindowResultsByGwId, paddockWindowResultsByPwId);
+  await new Promise(r => setTimeout(r, 0));
+  await renderPaddockWindowBlocks(wrapper, event, groupWindowResultsByGwId, paddockWindowResultsByPwId);
+  await new Promise(r => setTimeout(r, 0));
   renderEventLevelFeedRecords(wrapper, event);
+  await new Promise(r => setTimeout(r, 0));
   renderEventCalcCards(wrapper, event, eventResolverResults);
+  await new Promise(r => setTimeout(r, 0));
   renderDmiBars(wrapper, event);
+  await new Promise(r => setTimeout(r, 0));
   renderStoreSupabaseDiff(wrapper, event);
 }

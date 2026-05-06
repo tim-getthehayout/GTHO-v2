@@ -5,6 +5,7 @@
 import { getSyncAdapter, mergeRemote, beginBatch, endBatch } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
 import { logger } from '../utils/logger.js';
+import { flushLoggerBuffer } from './log-flush.js';
 
 const LAST_PULLED_KEY = 'gtho_last_pulled_at';
 
@@ -75,6 +76,11 @@ async function _doPullAllRemote() {
 
   if (pulled > 0 || errors === 0) {
     try { localStorage.setItem(LAST_PULLED_KEY, String(Date.now())); } catch { /* quota */ }
+    // OI-0150-C: opportunistic logger-buffer flush after every successful
+    // pull. Piggybacks on the sync-event path so we don't need a separate
+    // flush timer; if the buffer is empty this is a no-op. Failures here
+    // never throw — the flush logs internally and leaves the buffer intact.
+    try { await flushLoggerBuffer(); } catch { /* defensive */ }
   }
 
   return { pulled, errors };

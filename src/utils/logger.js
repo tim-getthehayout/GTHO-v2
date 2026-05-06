@@ -36,6 +36,11 @@ function bufferEntry(entry) {
 
 /**
  * Create a structured log entry.
+ *
+ * OI-0150-C: stamp `session_id` on every entry from `sessionStorage` (set
+ * once at boot in `src/main.js`). Lets `flushLoggerBuffer()` group rows by
+ * browser session in the dev/logs viewer without an extra join.
+ *
  * @param {'info'|'warn'|'error'} level
  * @param {string} category - Source module/area (maps to `source` column)
  * @param {string} message
@@ -43,11 +48,14 @@ function bufferEntry(entry) {
  * @returns {object}
  */
 function createEntry(level, category, message, context) {
+  let sessionId = null;
+  try { sessionId = sessionStorage.getItem('gtho_session_id') || null; } catch { /* not browser */ }
   return {
     level,
     source: category,
     message: typeof message === 'string' ? message.slice(0, 2000) : String(message),
     context: context || null,
+    session_id: sessionId,
     created_at: new Date().toISOString(),
   };
 }

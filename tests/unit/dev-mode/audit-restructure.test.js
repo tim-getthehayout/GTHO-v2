@@ -96,7 +96,7 @@ function seedBatch() {
 }
 
 describe('Resolver scope dispatch (OI-0145)', () => {
-  it('reports correct scope per resolver', () => {
+  it('reports correct scope per resolver', async () => {
     expect(getResolverScope('FOR-1')).toBe('paddock-window');
     expect(getResolverScope('DMI-2')).toBe('group-window');
     expect(getResolverScope('DMI-3')).toBe('event');
@@ -104,14 +104,14 @@ describe('Resolver scope dispatch (OI-0145)', () => {
     expect(getResolverScope('DOES-NOT-EXIST')).toBeNull();
   });
 
-  it('resolveCalcForCalcCard returns scope on result', () => {
+  it('resolveCalcForCalcCard returns scope on result', async () => {
     const r = resolveCalcForCalcCard('FOR-1', { eventId: EVT });
     expect(r?.scope).toBe('paddock-window');
   });
 });
 
 describe('Group-window-to-paddock-window overlap (OI-0145 boundary cases)', () => {
-  it('overlap: gw leaves on the same day pw closes (inclusive — should match)', () => {
+  it('overlap: gw leaves on the same day pw closes (inclusive — should match)', async () => {
     seedClassAndAnimals(3);
     seedForageTypeAndLocations();
     add('groups', GroupEntity.create({ id: GROUP_A, operationId: OP, name: 'Cow-Calf' }),
@@ -125,13 +125,13 @@ describe('Group-window-to-paddock-window overlap (OI-0145 boundary cases)', () =
       dateJoined: '2026-04-30', dateLeft: '2026-04-30', headCount: 5, avgWeightKg: 540,
     }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
 
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     expect(document.querySelector('[data-testid="dev-audit-paddock-window-pw-1"]')).toBeTruthy();
     // gw-1 left the same day pw-1 closed → still overlaps via inclusive comparison.
     expect(document.querySelector('[data-testid="dev-audit-group-window-gw-1"]')).toBeTruthy();
   });
 
-  it('no overlap: gw left strictly before pw opened', () => {
+  it('no overlap: gw left strictly before pw opened', async () => {
     seedClassAndAnimals(3);
     seedForageTypeAndLocations();
     add('groups', GroupEntity.create({ id: GROUP_A, operationId: OP, name: 'Cow-Calf' }),
@@ -145,12 +145,12 @@ describe('Group-window-to-paddock-window overlap (OI-0145 boundary cases)', () =
       dateJoined: '2026-04-29', dateLeft: '2026-05-01', headCount: 5, avgWeightKg: 540,
     }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
 
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     expect(document.querySelector('[data-testid="dev-audit-paddock-window-pw-2"]')).toBeTruthy();
     expect(document.querySelector('[data-testid="dev-audit-group-window-gw-2"]')).toBeFalsy();
   });
 
-  it('overlap: gw joins same day a sub-move opens (inclusive)', () => {
+  it('overlap: gw joins same day a sub-move opens (inclusive)', async () => {
     seedClassAndAnimals(3);
     seedForageTypeAndLocations();
     add('groups', GroupEntity.create({ id: GROUP_A, operationId: OP, name: 'Cow-Calf' }),
@@ -164,13 +164,13 @@ describe('Group-window-to-paddock-window overlap (OI-0145 boundary cases)', () =
       dateJoined: '2026-05-01', headCount: 5, avgWeightKg: 540,
     }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
 
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     expect(document.querySelector('[data-testid="dev-audit-group-window-gw-3"]')).toBeTruthy();
   });
 });
 
 describe('Per-paddock-window block rendering (3-window strip-graze)', () => {
-  it('renders 3 paddock blocks with location, forage type, observation, and feed sub-tables', () => {
+  it('renders 3 paddock blocks with location, forage type, observation, and feed sub-tables', async () => {
     seedClassAndAnimals(3);
     seedForageTypeAndLocations();
     seedBatch();
@@ -198,7 +198,7 @@ describe('Per-paddock-window block rendering (3-window strip-graze)', () => {
       dateJoined: '2026-04-29', headCount: 5, avgWeightKg: 540,
     }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
 
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
 
     expect(document.querySelector('[data-testid="dev-audit-paddock-window-pw-g1"]')).toBeTruthy();
     expect(document.querySelector('[data-testid="dev-audit-paddock-window-pw-g2"]')).toBeTruthy();
@@ -215,7 +215,7 @@ describe('Per-paddock-window block rendering (3-window strip-graze)', () => {
 });
 
 describe('Orphan feed entries (Section 4b)', () => {
-  it('surfaces feed entries whose locationId does not match any paddock window', () => {
+  it('surfaces feed entries whose locationId does not match any paddock window', async () => {
     seedClassAndAnimals(3);
     seedForageTypeAndLocations();
     seedBatch();
@@ -228,14 +228,14 @@ describe('Orphan feed entries (Section 4b)', () => {
       date: '2026-04-30', quantity: 1,
     }), FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
 
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     const orphans = document.querySelector('[data-testid="dev-audit-orphan-feed-entries"]');
     expect(orphans).toBeTruthy();
     expect(orphans.textContent).toContain('1');
     expect(orphans.textContent).toMatch(/no matching paddock window/);
   });
 
-  it('reports zero orphans when every locationId matches a paddock window', () => {
+  it('reports zero orphans when every locationId matches a paddock window', async () => {
     seedClassAndAnimals(3);
     seedForageTypeAndLocations();
     seedBatch();
@@ -248,21 +248,21 @@ describe('Orphan feed entries (Section 4b)', () => {
       date: '2026-04-30', quantity: 1,
     }), FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
 
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     const orphans = document.querySelector('[data-testid="dev-audit-orphan-feed-entries"]');
     expect(orphans.textContent).toContain('(0)');
   });
 });
 
 describe('Section 1 unit toggle (OI-0145)', () => {
-  it('renders the 3-way toggle with radiogroup ARIA + the explanatory note', () => {
+  it('renders the 3-way toggle with radiogroup ARIA + the explanatory note', async () => {
     add('eventPaddockWindows', PaddockWindowEntity.create({
       id: 'pw-only', operationId: OP, eventId: EVT, locationId: LOC_A,
       dateOpened: '2026-04-29',
     }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
     seedForageTypeAndLocations();
 
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     const toggle = document.querySelector('[data-testid="dev-audit-unit-toggle"]');
     expect(toggle).toBeTruthy();
     expect(toggle.getAttribute('role')).toBe('radiogroup');
@@ -274,15 +274,16 @@ describe('Section 1 unit toggle (OI-0145)', () => {
     expect(document.querySelector('[data-testid="dev-audit-unit-metric"]').getAttribute('aria-checked')).toBe('true');
   });
 
-  it('clicking Standard persists the choice and re-renders the page in imperial', () => {
+  it('clicking Standard persists the choice and re-renders the page in imperial', async () => {
     add('eventPaddockWindows', PaddockWindowEntity.create({
       id: 'pw-only', operationId: OP, eventId: EVT, locationId: LOC_A,
       dateOpened: '2026-04-29',
     }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
     seedForageTypeAndLocations();
 
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     document.querySelector('[data-testid="dev-audit-unit-standard"]').click();
+    await flushMacrotasks();
 
     expect(localStorage.getItem('dev-audit-unit-mode')).toBe('standard');
     // Re-render happened — Standard now aria-checked.
@@ -337,9 +338,9 @@ describe('Group-window header weight unit toggle (OI-0157-A)', () => {
     throw new Error('live: line not found');
   }
 
-  it('metric mode: stored line shows kg with 2-decimal rounding (no raw float)', () => {
+  it('metric mode: stored line shows kg with 2-decimal rounding (no raw float)', async () => {
     seedGwForUnitTest();
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     // Default is metric.
     const stored = getStoredLineText();
     // 253.5300428571427 → "253.53 kg" via formatAuditValue(value, 'weight', 2).
@@ -350,10 +351,11 @@ describe('Group-window header weight unit toggle (OI-0157-A)', () => {
     expect(stored).toContain('28 head');
   });
 
-  it('standard mode: stored line converts kg to lbs', () => {
+  it('standard mode: stored line converts kg to lbs', async () => {
     seedGwForUnitTest();
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     document.querySelector('[data-testid="dev-audit-unit-standard"]').click();
+    await flushMacrotasks();
     const stored = getStoredLineText();
     // 253.5300428571427 kg × 2.20462 = 558.95 lbs (toFixed(2)).
     expect(stored).toContain('lbs');
@@ -361,20 +363,22 @@ describe('Group-window header weight unit toggle (OI-0157-A)', () => {
     expect(stored).toContain('28 head');
   });
 
-  it('hybrid mode: stored line shows both kg and lbs', () => {
+  it('hybrid mode: stored line shows both kg and lbs', async () => {
     seedGwForUnitTest();
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     document.querySelector('[data-testid="dev-audit-unit-hybrid"]').click();
+    await flushMacrotasks();
     const stored = getStoredLineText();
     expect(stored).toContain('253.53 kg');
     expect(stored).toContain('lbs');
     expect(stored).toContain('28 head');
   });
 
-  it('live line uses the same unit toggle (parity with stored)', () => {
+  it('live line uses the same unit toggle (parity with stored)', async () => {
     seedGwForUnitTest();
-    renderEventAudit(seedDom());
+    await renderEventAudit(seedDom());
     document.querySelector('[data-testid="dev-audit-unit-standard"]').click();
+    await flushMacrotasks();
     const live = getLiveLineText();
     // Live falls back to stored when no animals are seeded — same kg value.
     expect(live).toContain('lbs');
@@ -384,7 +388,7 @@ describe('Group-window header weight unit toggle (OI-0157-A)', () => {
 });
 
 describe('DMI-8 resolver — 3-day no_animals window (no group windows)', () => {
-  it('returns one event-scoped instance with per-day breakdown counting no_animals', () => {
+  it('returns one event-scoped instance with per-day breakdown counting no_animals', async () => {
     // Event with paddock windows but no group windows → DMI-8 returns no_animals
     // every day (totalDmiKg <= 0).
     seedForageTypeAndLocations();
@@ -411,7 +415,7 @@ describe('DMI-8 resolver — 3-day no_animals window (no group windows)', () => 
 });
 
 describe('DMI-8 resolver — no_pasture_data on missing observation', () => {
-  it('counts no_pasture_data days when observations are missing', () => {
+  it('counts no_pasture_data days when observations are missing', async () => {
     seedClassAndAnimals(3);
     seedForageTypeAndLocations();
     add('events', EventEntity.create({
@@ -448,6 +452,19 @@ describe('DMI-8 resolver — no_pasture_data on missing observation', () => {
     expect(inst.sources.paddockWindows.total).toBe(1);
   });
 });
+
+// OI-0150-A: renderEventAudit is async and yields via setTimeout(r, 0)
+// between sections. The unit-toggle onClick is also async (`await
+// renderEventAudit(...)`) — `click()` itself returns void, so tests that
+// click and then assert on the re-rendered DOM must drain the macrotask
+// queue. Drain enough loops to outlast every `await new Promise(r =>
+// setTimeout(r, 0))` in the renderer (currently 8 yield sites; 20 loops
+// gives margin).
+async function flushMacrotasks(loops = 20) {
+  for (let i = 0; i < loops; i++) {
+    await new Promise(r => setTimeout(r, 0));
+  }
+}
 
 function seedDom() {
   const c = document.createElement('div');

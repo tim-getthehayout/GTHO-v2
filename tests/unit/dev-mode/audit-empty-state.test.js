@@ -56,12 +56,12 @@ function mountContainer() {
 }
 
 describe('audit empty-state picker (OI-0147 Bug A)', () => {
-  it('renders the picker AND a placeholder option in empty state when events exist', () => {
+  it('renders the picker AND a placeholder option in empty state when events exist', async () => {
     seedEvent(EVT_A, '2026-04-29');
     seedEvent(EVT_B, '2026-04-30');
     setHash('#/dev/audit'); // No id query string
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const picker = document.querySelector('[data-testid="dev-audit-event-picker"]');
     expect(picker).toBeTruthy();
     const options = picker.querySelectorAll('option');
@@ -71,43 +71,43 @@ describe('audit empty-state picker (OI-0147 Bug A)', () => {
     expect(options[0].textContent).toBe('— select an event —');
   });
 
-  it('does NOT render prev/next buttons in empty state', () => {
+  it('does NOT render prev/next buttons in empty state', async () => {
     seedEvent(EVT_A, '2026-04-29');
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     expect(document.querySelector('[data-testid="dev-audit-prev"]')).toBeFalsy();
     expect(document.querySelector('[data-testid="dev-audit-next"]')).toBeFalsy();
   });
 
-  it('selecting an event from the empty-state picker navigates to that event', () => {
+  it('selecting an event from the empty-state picker navigates to that event', async () => {
     seedEvent(EVT_A, '2026-04-29');
     seedEvent(EVT_B, '2026-04-30');
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const picker = document.querySelector('[data-testid="dev-audit-event-picker"]');
     picker.value = EVT_A;
     picker.dispatchEvent(new Event('change'));
     expect(window.location.hash).toBe(`#/dev/audit?id=${EVT_A}`);
   });
 
-  it('renders the "no events" note when events.length === 0', () => {
+  it('renders the "no events" note when events.length === 0', async () => {
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     expect(document.querySelector('[data-testid="dev-audit-event-picker"]')).toBeFalsy();
     const note = document.querySelector('[data-testid="dev-audit-no-events-note"]');
     expect(note).toBeTruthy();
     expect(note.textContent).toContain('No events');
   });
 
-  it('with an event selected, the picker still renders without a placeholder', () => {
+  it('with an event selected, the picker still renders without a placeholder', async () => {
     seedEvent(EVT_A, '2026-04-29');
     seedEvent(EVT_B, '2026-04-30');
     setHash(`#/dev/audit?id=${EVT_A}`);
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const picker = document.querySelector('[data-testid="dev-audit-event-picker"]');
     expect(picker).toBeTruthy();
     const options = picker.querySelectorAll('option');
@@ -148,11 +148,11 @@ describe('audit event-picker search bar (OI-0157-D)', () => {
       .filter(o => o.value && o.style.display !== 'none');
   }
 
-  it('renders the search input next to the picker', () => {
+  it('renders the search input next to the picker', async () => {
     seedEvent(E1, '2026-04-29');
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const search = document.querySelector('[data-testid="dev-audit-event-search"]');
     expect(search).toBeTruthy();
     expect(search.tagName).toBe('INPUT');
@@ -160,11 +160,11 @@ describe('audit event-picker search bar (OI-0157-D)', () => {
     expect(search.value).toBe('');
   });
 
-  it('typing a 4-char prefix unique to one event leaves exactly that option visible', () => {
+  it('typing a 4-char prefix unique to one event leaves exactly that option visible', async () => {
     seedFiveEvents();
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const search = document.querySelector('[data-testid="dev-audit-event-search"]');
     // E2 starts with "2222"; no other UUID begins with that prefix.
     search.value = '2222';
@@ -175,11 +175,11 @@ describe('audit event-picker search bar (OI-0157-D)', () => {
     expect(visible[0].value).toBe(E2);
   });
 
-  it('clearing the query restores all options', () => {
+  it('clearing the query restores all options', async () => {
     seedFiveEvents();
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const search = document.querySelector('[data-testid="dev-audit-event-search"]');
 
     search.value = '2222';
@@ -191,11 +191,11 @@ describe('audit event-picker search bar (OI-0157-D)', () => {
     expect(visibleOptions()).toHaveLength(5);
   });
 
-  it('matches against location names in addition to ids/dates', () => {
+  it('matches against location names in addition to ids/dates', async () => {
     seedFiveEvents();
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const search = document.querySelector('[data-testid="dev-audit-event-search"]');
     // Default location name from beforeEach is "P-1" — every seeded event
     // shares the same location, so the query matches all 5.
@@ -204,11 +204,11 @@ describe('audit event-picker search bar (OI-0157-D)', () => {
     expect(visibleOptions()).toHaveLength(5);
   });
 
-  it('Enter with exactly one matching option navigates to that event', () => {
+  it('Enter with exactly one matching option navigates to that event', async () => {
     seedFiveEvents();
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const search = document.querySelector('[data-testid="dev-audit-event-search"]');
     search.value = '3333'; // unique prefix of E3
     search.dispatchEvent(new Event('input'));
@@ -219,11 +219,11 @@ describe('audit event-picker search bar (OI-0157-D)', () => {
     expect(window.location.hash).toBe(`#/dev/audit?id=${E3}`);
   });
 
-  it('Enter does NOT navigate when multiple options are visible', () => {
+  it('Enter does NOT navigate when multiple options are visible', async () => {
     seedFiveEvents();
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const search = document.querySelector('[data-testid="dev-audit-event-search"]');
     // Empty query → all 5 visible.
     expect(visibleOptions()).toHaveLength(5);
@@ -235,11 +235,11 @@ describe('audit event-picker search bar (OI-0157-D)', () => {
     expect(window.location.hash).toBe(beforeHash);
   });
 
-  it('persists the query in sessionStorage on each keystroke', () => {
+  it('persists the query in sessionStorage on each keystroke', async () => {
     seedFiveEvents();
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const search = document.querySelector('[data-testid="dev-audit-event-search"]');
     search.value = '4444';
     search.dispatchEvent(new Event('input'));
@@ -247,12 +247,12 @@ describe('audit event-picker search bar (OI-0157-D)', () => {
     expect(sessionStorage.getItem('dev-audit-event-search')).toBe('4444');
   });
 
-  it('restores the query from sessionStorage on render and applies the filter', () => {
+  it('restores the query from sessionStorage on render and applies the filter', async () => {
     seedFiveEvents();
     sessionStorage.setItem('dev-audit-event-search', '5555');
     setHash('#/dev/audit');
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
     const search = document.querySelector('[data-testid="dev-audit-event-search"]');
     expect(search.value).toBe('5555');
     // Filter applied at mount.

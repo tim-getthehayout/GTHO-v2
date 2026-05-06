@@ -14,8 +14,26 @@ import { logger } from '../../utils/logger.js';
 import { getOperation } from '../../data/store.js';
 import { renderDevModeBadge } from './index.js';
 
-const FETCH_LIMIT = 1000;
+// OI-0150-B: lower default page size from 1000 → 200 and add cursor
+// pagination via "Load more" button. With lazy `<pre>` rendering on each row
+// (also OI-0150-B), 200 is a comfortable steady-state page; users who need
+// more reach for "Load more" or the CSV export.
+const FETCH_LIMIT = 200;
 const SEVERITIES = ['error', 'warn', 'info', 'debug'];
+
+// OI-0150-B: 250ms debounce for the search input. Inline helper — single
+// consumer, no util file. setTimeout-based; fires once after the typist
+// stops typing for `ms` ms.
+function debounce(fn, ms) {
+  let timer = null;
+  return function debounced(...args) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn.apply(this, args);
+    }, ms);
+  };
+}
 
 function severityBadgeColor(level) {
   if (level === 'error') return 'red';
@@ -70,6 +88,10 @@ export async function renderLogsViewer(container) {
   // State
   let allRows = [];
   let filtered = [];
+  // OI-0150-B: cursor for "Load more" pagination — the oldest `created_at`
+  // of any row currently in `allRows`. Each "Load more" click fetches the
+  // next FETCH_LIMIT rows older than this cursor.
+  let oldestSeen = null;
   let filters = {
     severities: new Set(SEVERITIES),
     sources: new Set(),
@@ -116,12 +138,22 @@ export async function renderLogsViewer(container) {
         el('span', { style: { fontSize: '11px', color: 'var(--text2)' } }, [r.source || '—']),
         el('span', { style: { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, [r.message || '']),
       ]));
-      row.appendChild(el('pre', {
-        style: { fontSize: '10px', overflow: 'auto', maxHeight: '320px', padding: '8px', background: 'var(--bg-2, #f6f6f6)', marginTop: '4px' },
-      }, [text(JSON.stringify({
-        operation_id: r.operation_id, user_id: r.user_id, session_id: r.session_id,
-        context: r.context, stack: r.stack, app_version: r.app_version,
-      }, null, 2))]));
+      // OI-0150-B: lazy-render the `<pre>` body on first `toggle`. Pre-OI-0150
+      // every row eagerly built a JSON.stringify'd block whether the user
+      // ever opened it or not; on a populated viewer that's hundreds of
+      // strings of work paid up front. Memoize via `data-built="1"` so a
+      // re-open doesn't rebuild.
+      row.addEventListener('toggle', () => {
+        if (row.getAttribute('data-built') === '1') return;
+        if (!row.open) return;
+        row.appendChild(el('pre', {
+          style: { fontSize: '10px', overflow: 'auto', maxHeight: '320px', padding: '8px', background: 'var(--bg-2, #f6f6f6)', marginTop: '4px' },
+        }, [text(JSON.stringify({
+          operation_id: r.operation_id, user_id: r.user_id, session_id: r.session_id,
+          context: r.context, stack: r.stack, app_version: r.app_version,
+        }, null, 2))]));
+        row.setAttribute('data-built', '1');
+      });
       listEl.appendChild(row);
     }
   }
@@ -182,24 +214,81 @@ export async function renderLogsViewer(container) {
   filterRow.appendChild(el('label', { style: { fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' } }, [el('span', {}, [t('dev.logsFrom')]), fromInput]));
   filterRow.appendChild(el('label', { style: { fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' } }, [el('span', {}, [t('dev.logsTo')]), toInput]));
 
+  // OI-0150-B: debounce the search at 250ms so a fast typist doesn't
+  // trigger a filter pass + full list rebuild on every keystroke.
+  const debouncedApplySearch = debounce((value) => {
+    filters.search = value;
+    applyFilters();
+  }, 250);
   const searchInput = el('input', {
     type: 'text',
     'data-testid': 'dev-logs-search',
     placeholder: t('dev.logsSearchPlaceholder'),
     style: { fontSize: '11px', padding: '4px 6px', border: '0.5px solid var(--border2)', borderRadius: '4px', background: 'var(--bg)', fontFamily: 'inherit', color: 'var(--text)', flex: '1', minWidth: '120px' },
-    onInput: (e) => { filters.search = e.target.value; applyFilters(); },
+    onInput: (e) => debouncedApplySearch(e.target.value),
   });
   filterRow.appendChild(searchInput);
 
   filterRow.appendChild(el('button', {
     className: 'btn btn-outline btn-xs',
     'data-testid': 'dev-logs-csv-export',
+    // OI-0150-B: tooltip documents the scope of CSV export — currently
+    // loaded rows only (200 per page; "Load more" extends the loaded set).
+    title: 'Exports loaded rows only',
     onClick: () => exportCsv(filtered),
   }, [t('dev.logsExportCsv')]));
 
   wrapper.appendChild(filterRow);
   wrapper.appendChild(countEl);
   wrapper.appendChild(listEl);
+
+  // OI-0150-B: "Load more" button — fetches the next FETCH_LIMIT rows
+  // older than the current oldest. Hidden by default; revealed once the
+  // first page lands (we don't know yet whether more rows exist). Disabled
+  // and updated to "No more rows" when the last fetch returns < FETCH_LIMIT.
+  const loadMoreBtn = el('button', {
+    className: 'btn btn-outline btn-xs',
+    'data-testid': 'dev-logs-load-more',
+    style: { marginTop: 'var(--space-2)', display: 'none' },
+    onClick: async () => {
+      if (!supabase || !oldestSeen) return;
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = 'Loading…';
+      try {
+        const { data, error } = await supabase
+          .from('app_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .lt('created_at', oldestSeen)
+          .limit(FETCH_LIMIT);
+        if (error) throw error;
+        const next = data || [];
+        if (next.length === 0) {
+          loadMoreBtn.textContent = 'No more rows';
+          return;
+        }
+        allRows = allRows.concat(next);
+        oldestSeen = next[next.length - 1].created_at;
+        // Refresh source dropdown distinct values.
+        const distinct = Array.from(new Set(allRows.map(r => r.source).filter(Boolean))).sort();
+        clear(sourceSelect);
+        sourceSelect.appendChild(el('option', { value: '' }, [t('dev.logsSourceAll')]));
+        for (const src of distinct) sourceSelect.appendChild(el('option', { value: src }, [src]));
+        applyFilters();
+        loadMoreBtn.textContent = 'Load more';
+        if (next.length < FETCH_LIMIT) {
+          loadMoreBtn.textContent = 'No more rows';
+        } else {
+          loadMoreBtn.disabled = false;
+        }
+      } catch (err) {
+        logger.error('dev-mode', 'Failed to load more app_logs', { error: err.message });
+        loadMoreBtn.textContent = 'Load failed — retry';
+        loadMoreBtn.disabled = false;
+      }
+    },
+  }, ['Load more']);
+  wrapper.appendChild(loadMoreBtn);
 
   // Fetch
   if (!supabase) {
@@ -214,6 +303,13 @@ export async function renderLogsViewer(container) {
       .limit(FETCH_LIMIT);
     if (error) throw error;
     allRows = data || [];
+    // OI-0150-B: stamp cursor + reveal Load-more if the page is full.
+    if (allRows.length > 0) {
+      oldestSeen = allRows[allRows.length - 1].created_at;
+      if (allRows.length >= FETCH_LIMIT) {
+        loadMoreBtn.style.display = '';
+      }
+    }
   } catch (err) {
     logger.error('dev-mode', 'Failed to fetch app_logs', { error: err.message });
     listEl.appendChild(el('p', { className: 'auth-error' }, [t('dev.logsFetchFailed')]));

@@ -117,8 +117,28 @@ function installStubResolver(calcName, scope, instance, descriptionTag = '(OI-01
   });
 }
 
+describe('renderEventAudit yielding contract (OI-0150-A)', () => {
+  it('returns a Promise (renderEventAudit is async)', () => {
+    const result = renderEventAudit(mountContainer());
+    expect(result).toBeInstanceOf(Promise);
+    return result; // resolve to clean up
+  });
+
+  it('yields between sections via setTimeout(0) macrotasks', async () => {
+    // Spy on globalThis.setTimeout — every section boundary should produce
+    // at least one setTimeout(fn, 0) call. Yields are between every two of
+    // 7 top-level sections + once per paddock-window iteration; the spec
+    // contract requires ≥ 2 yield sites in production code.
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    await renderEventAudit(mountContainer());
+    const zeroDelayCalls = spy.mock.calls.filter(([, ms]) => ms === 0);
+    expect(zeroDelayCalls.length).toBeGreaterThanOrEqual(2);
+    spy.mockRestore();
+  });
+});
+
 describe('audit renderer dispatches by scope (OI-0158)', () => {
-  it('group-window-scoped stub result renders inside the matching group-window sub-block', () => {
+  it('group-window-scoped stub result renders inside the matching group-window sub-block', async () => {
     const STUB = 'STUB-GW-OI0158';
     installStubResolver(STUB, 'group-window', {
       label: 'Stub group-window output',
@@ -130,7 +150,7 @@ describe('audit renderer dispatches by scope (OI-0158)', () => {
       outputSuffix: ' stub',
     });
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
 
     // Pre-OI-0158: this query returned null because the renderer hardcoded
     // DMI-2 by name in the group-window sub-block. Post-OI-0158: the
@@ -145,7 +165,7 @@ describe('audit renderer dispatches by scope (OI-0158)', () => {
     expect(subBlock.contains(card)).toBe(true);
   });
 
-  it('paddock-window-scoped stub result renders inside the matching paddock-window block', () => {
+  it('paddock-window-scoped stub result renders inside the matching paddock-window block', async () => {
     const STUB = 'STUB-PW-OI0158';
     installStubResolver(STUB, 'paddock-window', {
       label: 'Stub paddock-window output',
@@ -157,7 +177,7 @@ describe('audit renderer dispatches by scope (OI-0158)', () => {
       outputSuffix: ' stub',
     });
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
 
     const card = document.querySelector(`[data-testid="dev-audit-calc-card-${STUB}-${PW_ID}"]`);
     expect(card).toBeTruthy();
@@ -166,7 +186,7 @@ describe('audit renderer dispatches by scope (OI-0158)', () => {
     expect(pwBlock.contains(card)).toBe(true);
   });
 
-  it('cards in a window block are sorted alphabetically by calc name (deterministic)', () => {
+  it('cards in a window block are sorted alphabetically by calc name (deterministic)', async () => {
     // Two stub resolvers in the same group-window scope — assert the cards
     // appear in alphabetical order regardless of iteration order in the
     // dispatcher's allCalcs loop.
@@ -201,7 +221,7 @@ describe('audit renderer dispatches by scope (OI-0158)', () => {
       return realResolve(name, ctx);
     });
 
-    renderEventAudit(mountContainer());
+    await renderEventAudit(mountContainer());
 
     const subBlock = document.querySelector(`[data-testid="dev-audit-group-window-${GW_ID}"]`);
     const cardA = subBlock.querySelector(`[data-testid="dev-audit-calc-card-${STUB_A}-${GW_ID}"]`);

@@ -202,27 +202,6 @@ Each sub-item is independently shippable. Don't bundle A+C+D+B into one commit �
 
 ---
 
-### OI-0150 — Dev Mode hardening sweep — render-yielding in heavy dev-mode screens (audit page + dev/logs viewer) + close the `logger` → `app_logs` pipe so client errors actually land in the table the viewer reads
-**Added:** 2026-05-03 | **Area:** v2-build / dev-mode / observability / perf | **Priority:** P2 (no user-visible flow blocked; dev/audit and dev/logs are gated behind `is_dev`; freeze surface area expands as operation data grows; the logger pipe gap means the diagnostic surface we built does not see real errors). **Hold until OI-0154 ships and field-tests clean for one day** (hold condition shifted OI-0149 → OI-0151 → OI-0152 → OI-0153 → OI-0154 on 2026-05-03 across the same diagnostic session — five sequential ships exposing latent bugs underneath each prior fix; OI-0154 is the JS chain's bottom, OI-0155 is a pure-CSS follow-on that doesn't reset the field-test clock).
-
-**Status:** open — DESIGN LOCKED on the framework, three tracks (A / B / C) each with locked Phase 1 scope. Surfaced 2026-05-03 alongside OI-0149 when Tim's overnight `#/dev/audit` hang and the same-session `#/dev/logs` hang were diagnosed. The OI-0149 root cause (cold-boot pull blocks paint + `visibilitychange` stacks pulls) accounts for the home-page hang and the dev/logs hang on a single-row table; tracks A and B here cover the *latent* render anti-patterns that would still bite once the dataset grows past Phase-3 field-testing volumes, and track C closes the data-path gap that left the dev/logs viewer reading an effectively empty table.
-
-**Origin:** 2026-05-03 — diagnostic session for OI-0149. While ruling out the audit page and dev/logs screen as causes of Tim's hangs, Cowork found three latent issues:
-
-- **Track A (audit page synchronous render).** `src/features/dev-mode/audit.js:912` (`renderEventAudit`) builds the entire DOM in one synchronous pass with no yielding. For each paddock window it runs `O(n²)` patterns: `.find()` inside `.filter()` inside a per-window loop over animals / weight records / classes / forage types / observations / feed entries / feed checks. The DMI-8 card auto-expands its daily breakdown when `needs_check` or `no_pasture_data` rows exist, and that breakdown grows by exactly one row per day for long-running open-ended events. Today's render-time is bounded by the 5-day-old open events Tim has running; it scales linearly with event duration and operation size. Already heavy enough to chew through Chrome's 5s "Page unresponsive" budget on `#/dev/audit?id=fb407a55-aa0e-4cbb-b906-af6964a0addc` (Tim's G-event with three open paddock windows + strip-graze pattern).
-- **Track B (dev/logs viewer render anti-patterns).** `src/features/dev-mode/logs.js`. Five compounding issues:
-  1. `onInput` on the search box has no debounce — every keystroke runs `applyFilters()` → `renderList()` → `clear(listEl)` + full rebuild.
-  2. `applyFilters()` does substring search across `JSON.stringify(r.context || {})` for every row, every keystroke; no memoization.
-  3. Each row's `<details>` always contains a `<pre>JSON.stringify(..., null, 2)</pre>` block — the cost is paid upfront whether the disclosure is open or not.
-  4. Severity checkboxes, source dropdown, and date inputs all fire a full re-render on every change.
-  5. `FETCH_LIMIT = 1000` is fixed; no virtual scroll, no paging, no "load more." Worst-case payload is bounded only by Supabase's row count for the user.
-  Today the table has one row for Tim's user, so none of the above bite. It will start biting the moment track C lands and the table actually fills up.
-- **Track C (logger → `app_logs` pipe gap).** `src/utils/logger.js` writes to (a) `console.*` and (b) a 200-entry rolling localStorage buffer under `_log_buffer`. Nothing flushes the buffer to Supabase. Grep confirms: only references to `appLogs` in the codebase are the entity registration (`src/entities/app-log.js`), the store's known entity types list, the sync registry's exclusion comment ("appLogs — direct-write, no pull needed — A24"), and the dev/logs viewer that reads from `app_logs`. There is **no** code path that inserts into `app_logs` from the client. Tim's user has exactly one row in `app_logs` — origin unknown, presumably a manual SQL insert / migration test / admin curl. The dev/logs viewer was built expecting the pipe to exist on the write side; the pipe does not exist.
-
-**Doctrine — same family as OI-0149:** all three tracks are "we built a feature that assumes a quiet boot/paint/data layer; reality is heavier." Phase-3 field-testing volumes are about to make the assumptions visible. OI-0150 closes the gap before the gap becomes a hang.
-
----
-
 #### Track A — Audit page render-yielding (Phase 1 DESIGN LOCKED)
 
 **Files:** `src/features/dev-mode/audit.js`.
@@ -5360,6 +5339,56 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0150 — Dev Mode hardening sweep (Phase 1, three tracks: audit page render-yielding + dev/logs viewer hardening + wire logger buffer → app_logs)
+**Added:** 2026-05-03 | **Closed:** 2026-05-06 | **Area:** v2-build / dev-mode / observability / perf
+**Resolution:** All three tracks shipped in one commit per the bundling guidance — the OPEN_ITEMS.md status flip + orphan-flip stay atomic. Hold lifted 2026-05-04 after OI-0154 field-tested clean for 24h.
+
+**Track A — audit page render-yielding** (`src/features/dev-mode/audit.js`).
+- `renderEventAudit` is `async`. `await new Promise(r => setTimeout(r, 0))` between every two of the seven top-level section renderers (`renderEventHeader → renderTimeline → renderPaddockWindowBlocks → renderEventLevelFeedRecords → renderEventCalcCards → renderDmiBars → renderStoreSupabaseDiff`). Inline rather than helper-wrapped so the locked grep contract `await new Promise(r => setTimeout(r, 0))` finds 8 matches in source.
+- The unit-toggle `onClick` arrow is now `async () => { ... await renderEventAudit(...) ... }`.
+- `renderPaddockWindowBlocks` is `async` and awaits `setTimeout(r, 0)` between paddock-window iterations — for Tim's strip-graze G-event with three open paddock windows, this is the difference between "freeze for 3 seconds" and "scroll-builds-as-you-watch."
+- DMI-8 daily-breakdown table now caps at the **most-recent 30 days** inline; older days fold into a child `<details>` (closed by default) so a 60+ day event renders 30 rows up front instead of 60+. The auto-expand-on-needs-check / no-pasture-data behavior on the parent stays. Constants: `MOST_RECENT_DAYS = 30`; helper: `capDays(rows, parentEl)`.
+
+**Track B — dev/logs viewer hardening** (`src/features/dev-mode/logs.js`).
+- `FETCH_LIMIT` lowered 1000 → 200. New cursor state `oldestSeen` advances on each "Load more" click; the next page fetches via `lt('created_at', oldestSeen)`.
+- New "Load more" button (`data-testid="dev-logs-load-more"`) hidden by default; reveals when the first page is full; transitions to "No more rows" / "Load failed — retry" based on the next response. CSV export's `title` attribute documents that the export operates on currently-loaded rows only.
+- Per-row `<pre>` JSON block is now built lazily on first `toggle` event of its `<details>` parent and memoized via `data-built="1"`. Closed rows pay nothing; re-opening a row doesn't rebuild.
+- Search input wrapped in a 250ms `debounce()` (inline helper, no util file). The full filter + render cycle now fires once after the typist stops, not on every keystroke.
+
+**Track C — wire logger buffer → `app_logs`** (new `src/data/log-flush.js`, edits to `src/utils/logger.js` + `src/main.js` + `src/data/pull-remote.js`).
+- New `flushLoggerBuffer({ unloading })` reads `logger.getBuffer()`, decorates each row with `user_id` (from `getUser()?.id`), `operation_id` (from `getOperation()?.id`), `session_id` (from `sessionStorage.getItem('gtho_session_id')`), `app_version` (from `__BUILD_STAMP__` with meta-tag fallback), batch-inserts via `supabase.from('app_logs').insert(rows)`, calls `logger.clearBuffer()` on success, leaves the buffer intact on failure (RLS denial, network, offline). When `opts.unloading === true`, also fires `navigator.sendBeacon(url, blob)` for payloads under ~60KB so the request can survive page teardown.
+- `src/main.js` boot stamps a `gtho_session_id` UUID into `sessionStorage` once per browser session (cleared on tab close → fresh id on cold boot).
+- `src/utils/logger.js` `createEntry` now stamps `session_id` on every entry from `sessionStorage` so the row is grouped consistently in dev/logs.
+- Three flush triggers wired:
+  1. `visibilitychange` to `'hidden'` in `src/main.js` — best-effort flush before background.
+  2. `pagehide` in `src/main.js` — covers tab close, navigation away, browser quit. `sendBeacon` is the only path that may complete during teardown.
+  3. After every successful `pullAllRemote()` in `src/data/pull-remote.js` (right after the `LAST_PULLED_KEY` stamp).
+- Console.warn / console.error inside the flush path is intentionally absent — feeding the failure back into the same buffer we're trying to drain would be a feedback loop. The flush returns `{ flushed: 0 }` and waits for the next trigger.
+
+**Tests:** suite total 1469 → 1487 (+18).
+- Track A: existing audit tests adapted to `async` (28 `renderEventAudit(...)` call sites in `audit-empty-state.test.js` + `audit-render.test.js` + `audit-restructure.test.js` now `await renderEventAudit(...)`). Unit-toggle click sites in `audit-restructure.test.js` gain a `flushMacrotasks()` helper that drains 20 setTimeout(0) cycles so the async re-render settles before assertions. Two new yielding-contract cases in `audit-render.test.js` (`renderEventAudit` returns a Promise; `setTimeout(0)` is called ≥ 2 times during a render).
+- Track B: new `tests/unit/dev-mode/logs.test.js` (6 cases) — debounce defers filter pass until 250ms idle; closed `<details>` rows have no `<pre>` until first toggle; lazy `<pre>` builds once on toggle and memoizes via `data-built`; "Load more" hidden when first page < FETCH_LIMIT, reveals when full + cursor advances on click; CSV tooltip text. `vi.hoisted` Supabase mock with chainable `.select().order().lt(...).limit(...)`.
+- Track C: new `tests/unit/data/log-flush.test.js` (10 cases) — empty buffer is no-op; batched insert with full decoration; buffer cleared on success; buffer intact on insert failure; entry-level `session_id` preserved; sessionStorage fallback when entry has none; null user/operation handled defensively; `sendBeacon` used for unloading=true only; no `sendBeacon` on regular path; session id stable within a session.
+
+**All seven OI-0150 grep contracts hold:**
+- Track A: `await new Promise(r => setTimeout(r, 0))` in `audit.js` → 8 matches; `MOST_RECENT_DAYS|capDays` → 9 matches.
+- Track B: `FETCH_LIMIT = 200` in `logs.js` → 1 match; `data-built` → 3 matches; `debounce|setTimeout.*250` → 6 matches.
+- Track C: `flushLoggerBuffer` in `src/` → 8 matches (definition + 3 call sites + 4 doc/comment refs); `gtho_session_id` in `src/` → 4 matches (set in main.js, read in log-flush.js + logger.js).
+
+Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0157 / OI-0158 grep contracts all still hold.
+
+**Lint / build:** `npm run lint` 0 errors, 63 pre-existing warnings. `npm run build` clean.
+
+**Manual UI smoke test on Tim's populated op:** unverified by Claude Code. Recommended verification: open `#/dev/audit?id=fb407a55-aa0e-4cbb-b906-af6964a0addc` (Tim's G-event with three open paddock windows + strip-graze pattern) — page should build incrementally, no Chrome "Page unresponsive" banner, sections paint progressively. Open `#/dev/logs` — typing in the search input should not stutter the row list; `querySelectorAll('details:not([open]) pre').length` in DevTools console should return 0 on initial load. Trigger a `logger.error(...)` in the app, navigate away and back, refresh `#/dev/logs` — the new row should appear with the current `gtho_session_id` populated.
+
+**Mystery `app_logs` row trace (per spec):** trace deferred to Tim. The query `select id, user_id, source, message, app_version, created_at from app_logs where user_id = auth.uid() limit 5;` requires an authenticated Supabase session and isn't reachable from Claude Code's execution environment (RLS-gated, no admin context). If the pre-existing row's `app_version` reads `'dev'` or anything other than the current build stamp, that's diagnostic — likely a manual SQL insert or migration test. If origin remains unknown after Tim runs the query, the close-out criterion explicitly accepts that.
+
+**OI-0149 verdict reaffirmed:** OI-0150 is the polish on top of the OI-0149 → OI-0151 → OI-0152 → OI-0153 → OI-0154 chain. None of the three tracks block field testing; they harden the diagnostic surface area Tim now uses to reason about the app.
+
+**GitHub issue:** GH-51 filed and closed; spec at `github/issues/GH-51_OI-0150_dev-mode-hardening-sweep.md`. **Schema impact:** none. **CP-55/CP-56 impact:** none — `app_logs` is already excluded from `BACKUP_TABLES` per `src/data/backup-export.js:15`.
+
+---
 
 ### OI-0159 — DMI bar stored-feed segment switches from amber to tan per V1 parity
 **Added:** 2026-05-04 | **Closed:** 2026-05-04 | **Area:** v2-build / dev-mode / dmi-chart / design-system

@@ -4,6 +4,7 @@ import { init as initStore, setSyncAdapter } from './data/store.js';
 import { closePaddockWindowOrphans } from './data/one-time-fixes.js';
 import { CustomSync } from './data/custom-sync.js';
 import { pullAllRemote } from './data/pull-remote.js';
+import { flushLoggerBuffer } from './data/log-flush.js';
 import { loadLocale } from './i18n/i18n.js';
 import { route, initRouter, requireDev } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
@@ -211,6 +212,16 @@ function showApp(app) {
   // can render off this snapshot without waiting on the network).
   initStore();
 
+  // OI-0150-C: stamp a session id at boot so every logger entry from this
+  // browser session shares one id (groups errors together in dev/logs).
+  // Generated once per session — `sessionStorage` clears on tab close, so
+  // a cold boot in a new tab gets a fresh id automatically.
+  try {
+    if (!sessionStorage.getItem('gtho_session_id')) {
+      sessionStorage.setItem('gtho_session_id', crypto.randomUUID());
+    }
+  } catch { /* sessionStorage not available — logger entries get null session_id */ }
+
   // Wire sync adapter
   const syncAdapter = new CustomSync();
   setSyncAdapter(syncAdapter);
@@ -290,9 +301,25 @@ function showApp(app) {
       syncAdapter.flush().then(() => pullAllRemote());
     });
     document.addEventListener('visibilitychange', () => {
+      // OI-0150-C: when the tab goes hidden, opportunistically flush the
+      // logger buffer with the unloading flag so the regular insert is
+      // tried alongside a `navigator.sendBeacon` best-effort. This
+      // handles the "tab backgrounded but not closed" case (the
+      // pagehide handler covers tab close + browser quit).
+      if (document.visibilityState === 'hidden') {
+        flushLoggerBuffer({ unloading: true }).catch(() => { /* defensive */ });
+        return;
+      }
       if (document.visibilityState !== 'visible') return;
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
       syncAdapter.flush().then(() => pullAllRemote());
+    });
+    // OI-0150-C: pagehide is the canonical "tab is going away" event.
+    // Better than `beforeunload` for cleanup — fires reliably for tab
+    // close, navigation away, and browser quit. sendBeacon is the only
+    // path that may make it out before the page tears down.
+    window.addEventListener('pagehide', () => {
+      flushLoggerBuffer({ unloading: true }).catch(() => { /* defensive */ });
     });
     // Initial sync — does not block first paint.
     syncAdapter.flush().then(() => pullAllRemote());

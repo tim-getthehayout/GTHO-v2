@@ -10,7 +10,13 @@
 
 ## 1. Move Wizard
 
-The primary way to close an active event and place a group into a new location. Triggered from the group card via "Move" button.
+Closes a group's window on its current event and opens a destination — either a new event at a new paddock or a join into an existing event. The wizard runs in one of three modes depending on which Move button was tapped:
+
+- **Full-event mode** — every open group window on the source event closes, every open paddock window closes, and `events.date_out` is stamped. Triggered by the **Move all** button on the dashboard event card (§17.7) and by the Move buttons on the events list (§4) and field-mode picker (§16.5).
+- **Scoped + remaining mode** — only the tapped group's window closes; other groups stay grazing on the source event, paddock windows stay open, and `events.date_out` stays null. Triggered by the per-group **Move** button on the dashboard event card's `GROUPS` section (§17.7 #10), the per-group Move button in the dashboard group strip, and the per-group Move button in the event detail sheet (§17.15).
+- **Scoped + last mode** — same trigger surface as scoped + remaining, but the wizard detects that the tapped group is the last open group window on the event. Behaviorally identical to full-event mode: paddock windows close, `events.date_out` is stamped. The wizard's Step 3 copy reflects "Close {paddock}" rather than the per-group "Move {group} out of {paddock}" framing.
+
+The mode determines what Step 3 renders and what the save sequence does. See §1.5 for render rules and §1.6 for the conditional save sequence.
 
 ### 1.1 Step 1: Destination Type
 
@@ -51,36 +57,69 @@ Data: Sets `is_strip_graze = true`, generates a `strip_group_id` (shared UUID fo
 
 ### 1.5 Step 3: Close-Out + New Event
 
-Split panel:
+Split panel. The section title and observation cards render conditionally based on mode (§1) and source/destination location type (`'land'` vs. `'confinement'` per the `locations.type` enum).
 
-**Left: Close current event**
+**Left: Close source side**
+
+Section title varies by mode:
+
+| mode | Title |
+|---|---|
+| `scoped-remaining` | `"Move {GroupName} out of {PaddockName}"` |
+| `scoped-last` | `"Close {PaddockName}"` |
+| `full-event` | `"Close Current Event"` |
+
+Always rendered, regardless of mode:
 - Date out (default: today)
 - Time out (optional)
-- Residual height (cm) — pre-filled from location's forage type default (3-tier config A17)
-- Recovery min/max days — pre-filled from last observation or forage type default (3-tier config A17)
-- Feed check prompt (if feed entries exist) — "How much feed remains?"
-- **Confinement handling:** If any paddock windows point to confinement or partial-capture locations, the close summary shows captured NPK routed to the associated manure batch. Manure batch transaction created automatically based on `location.capture_percent × excretion NPK × (window duration / event duration)`.
+- Feed transfer card (if feed entries exist on the source event) — Move / Residual radio per batch × location, with forced remaining-quantity input on Residual (per OI-0136); skipped entirely in `scoped-remaining` mode (feed stays with the groups still on the source event)
+
+Conditionally rendered — **post-graze observation card** (Residual height, Recovery min/max days, Notes):
+
+| mode | source location type | Post-graze card |
+|---|---|---|
+| `scoped-remaining` | any | Hidden — paddock is mid-grazing; residual / recovery don't apply yet |
+| `scoped-last` | `land` | Shown |
+| `scoped-last` | `confinement` | Hidden — corral / dry-lot has no standing forage to measure |
+| `full-event` | `land` | Shown |
+| `full-event` | `confinement` | Hidden |
+
+When shown, the card pre-fills: residual height from the location's forage type default (3-tier config A17), recovery min/max from last observation or forage type default. Values are validated per OI-0040 / OI-0041.
+
+**Confinement handling on close:** If any paddock window on the closing event points to a confinement or partial-capture location, the close summary routes captured NPK to the associated manure batch (manure batch transaction created automatically based on `location.capture_percent × excretion NPK × window duration / event duration`). This runs regardless of post-graze card visibility — it's a data-side computation, not a UI capture.
 
 **Right: New event (or join)**
-- Date in (default: same as close date)
-- Time in (optional)
-- Pre-graze height (cm)
-- Forage cover %
-- Head count (auto-filled from group window)
-- Feed to transfer (if any — "Move X bales to new location?")
+
+Always rendered when destType is `'new'`:
+- Date in (default: same as close date; one-way mirror from Date out per OI-0101 until the user touches the input)
+- Time in (optional; same one-way mirror)
+- Head count (auto-filled from the snapshotted group window — silent, no UI, captured automatically via `getLiveWindowHeadCount` at save time)
+- Feed transfer destination (if Move was selected on any feed line) — destination paddock receives a new `event_feed_entry` with `source_event_id` linking back
 - **Strip graze setup** (if selected in Step 2c): shows strip count and size summary
+
+Conditionally rendered — **pre-graze observation card** (Pre-graze height, Forage cover %, Notes):
+
+| destType + destination location type | Pre-graze card |
+|---|---|
+| `new` + `land` | Shown |
+| `new` + `confinement` | Hidden — corral / dry-lot has no standing forage |
+| `join` (existing event) | Hidden — destination paddock already has a pre-graze obs from when its event opened |
 
 ### 1.6 Save Actions (in order)
 
-1. Create feed check with `is_close_reading: true` (if feed exists and user provided remaining)
-2. Close all open paddock windows on source event (`date_closed = date_out`)
-3. Close all open group windows on source event (`date_left = date_out`)
-4. Set source event `date_out`
-5. Create paddock_observation (type='close') with residual height, recovery days
-6. Create new event at destination (or add group window to existing event)
-7. Create paddock_observation (type='open') with pre-graze readings
-8. Create feed transfer entries if user chose to move feed (new event_feed_entry with source_event_id = old event)
-9. If strip graze: set `is_strip_graze = true`, `strip_group_id`, and `area_pct` on the first paddock window
+The save sequence is mode-aware. Steps marked **[full-event / scoped-last only]** are skipped in `scoped-remaining` mode because the source event stays open and the paddock continues to be grazed.
+
+1. **[full-event / scoped-last only]** Create feed check with `is_close_reading: true` (if feed exists). Per-line `remainingQuantity` comes from the farmer's Move/Residual choice: Move → 0; Residual → farmer-confirmed value from the forced input (OI-0135 / OI-0136).
+2. **[full-event / scoped-last only]** Close all open paddock windows on source event (`date_closed = date_out`); also creates `paddock_observation` (type='close') with residual / recovery values when the post-graze card was rendered.
+3. Close the affected group window(s) on source event (`date_left = date_out`). Scoped modes close only the tapped group's window; full-event closes all open group windows. Live head count and avg weight are snapshotted onto the closing window before the close write (OI-0091).
+4. **[full-event / scoped-last only]** Set source event `date_out`.
+5. (Subsumed into step 2 — paddock observation is created in the same loop as the paddock-window close.)
+6. Create new event at destination (or add group window to existing event).
+7. **[destination is `'land'` only]** Create `paddock_observation` (type='open') with pre-graze readings from the pre-graze card. When destination is confinement, the obs row is not created (no standing forage to measure).
+8. Create feed transfer entries on the destination for any Move-selected lines (new `event_feed_entry` with `source_event_id` linking back to the closing source event).
+9. If strip graze: set `is_strip_graze = true`, `strip_group_id`, and `area_pct` on the first paddock window of the destination event.
+
+The mode is determined at save time by counting remaining open group windows on the source event after the scoped close; `scoped-last` is the case where that count is zero, and the wizard runs the full close sequence (steps 1, 2, 4) even though the entry surface was a per-group Move button.
 
 ### 1.7 Adaptation Notes for v2
 
@@ -1269,7 +1308,7 @@ The `Feed check` and `Feed` actions are accessed exclusively via the two large b
 #### What is NOT on this card
 
 - **Per-group reweigh icon.** v1 showed a small scale icon next to the per-group Move button. v2 does not — reweigh moves to the Animals area. Tracked as **OI-0065** (P3, follow-up).
-- **Per-group "scoped" Move targeting.** The per-group Move button on this card opens the move wizard at the **event** level (it's the same wizard that the Move-all header button opens). True per-group move scoping is tracked as **OI-0066** (P3, follow-up). Behavior on the dashboard card is intentionally event-scoped for now.
+- (OI-0066 closed — per-group Move on this card now opens the wizard in scoped mode, closing only the tapped group's window. See §1 for the three modes.)
 
 #### Header buttons (top-right, floating)
 
@@ -1303,7 +1342,6 @@ The full line-by-line spec, including the v1 HTML/CSS reference extracted verbat
 **Linked OPEN_ITEMS:**
 
 - **OI-0065** — Per-group reweigh moved from dashboard card to Animals area (P3, follow-up).
-- **OI-0066** — Per-group Move on dashboard card is event-scoped, not group-scoped (P3, follow-up).
 
 ### 17.8 Open Tasks Section (Dashboard)
 

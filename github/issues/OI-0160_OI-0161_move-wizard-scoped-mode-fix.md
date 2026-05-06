@@ -204,6 +204,13 @@ Each commit's message must include the OI ID per the orphan-flip rule (`commit-m
 
 After both commits, flip both OIs Open → Closed in `OPEN_ITEMS.md` in a third commit (or fold into the second commit) with a brief change-log row per Cowork delivery-gate convention.
 
-### Follow-up (Cowork, not Claude Code)
+### Canonical doc reference
 
-`V2_UX_FLOWS.md` §1 (Move Wizard) is stale on two counts: (a) line 1272 says OI-0066 is open / P3 / follow-up — OI-0066 closed and scoped moves shipped; (b) doesn't document the OI-0161 mode/location-type gating rules. Schedule a Cowork reconciliation pass for §1 after this batch ships.
+The design lives in `V2_UX_FLOWS.md` §1 (Move Wizard) — **already updated in the same Cowork session that drafted this spec**. Specifically:
+
+- **§1 intro** describes the three modes (full-event / scoped-remaining / scoped-last) and the trigger surfaces for each.
+- **§1.5** has the full mode-and-location-type gating tables for the close-section title, the post-graze observation card, and the pre-graze observation card.
+- **§1.6** marks each save step that is skipped in `scoped-remaining` mode.
+- **§17.7** dashboard card spec — stale OI-0066 reference removed.
+
+Read those sections of V2_UX_FLOWS.md alongside this spec — V2_UX_FLOWS.md is canonical for design intent; this spec is canonical for the Claude Code implementation hand-off (file paths, line numbers, test cases, commit guidance). The two should not conflict; if they do, update both in the same commit and flag the drift.

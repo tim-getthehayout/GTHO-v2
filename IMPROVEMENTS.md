@@ -240,6 +240,27 @@ expect(data).toHaveLength(1);
 
 **Related memory:** complements IMPROVEMENT #16 (OPEN_ITEMS.md closure discipline — sibling/orphan/downstream-moot rules at the OI surface) by adding the parallel rule at the code surface. Same drift class, one layer deeper.
 
+### 18. Reconcile canonical base docs at write time — don't defer doc edits to a later reconciliation session
+**Plugin:** project-infrastructure
+**Skill:** doc-workflow, deploy-gate
+**Status:** **Applied in plugin v0.3.0 (2026-05-06).** Doc-workflow SKILL.md adds a "Reconcile Canonical Base Docs at Write Time" section. project-instructions-template.md adds a Cowork Delivery Gate checkbox. RELEASES.md documents the rule. Plugin file: `project-infrastructure-v0.3.0.plugin`.
+
+**What:** When a Cowork session designs a fix, change, or new feature that has implications for a canonical base design doc (architecture, schema, UX flows, calculation spec, design system, etc.), update the base doc in the same session as the OI or spec edit. Do not write "flag for separate Cowork reconciliation session" or accumulate doc changes for a later sweep. Both edits land in the same commit. Active-sprint specs (e.g., a `UI_SPRINT_SPEC.md`) are the documented exception — they intentionally accumulate during the sprint and reconcile at the end.
+
+**Why:** OI-0160 / OI-0161 session, 2026-05-06. Cowork drafted a move-wizard fix and initially flagged a `V2_UX_FLOWS.md` §1 update as "Cowork follow-up, not Claude Code's responsibility, schedule a separate session." Tim pushed back: deferred reconciliation sessions pile up; the person who designed the change is the one positioned to update the doc accurately; a base doc that drifts from the OI is a silent design-intent drift class indistinguishable from the consolidated case until someone next reads the doc and is misled. Same shape as IMPROVEMENT #16 (OPEN_ITEMS.md closure discipline — piggyback / orphan-flip / downstream-moot all enforce "update related artifacts at the moment of the change") but at the canonical-doc surface rather than the OI surface.
+
+A specific instance from the same session: V2_UX_FLOWS.md §17.7 line 1272 had referenced OI-0066 as P3/follow-up/open. OI-0066 closed weeks earlier (scoped moves shipped). The stale reference would have stayed there indefinitely under the deferred-reconciliation pattern, since "update line 1272" wasn't a discrete agenda item — it was something only visible to whoever was already deep in the move-wizard topic. Reconcile-at-write-time catches that class because the editor is already in the section.
+
+**How to apply (already in plugin v0.3.0):**
+1. **doc-workflow SKILL.md** — new "Reconcile Canonical Base Docs at Write Time" section between "Document-Level Change Logs" and "Handoff: Cowork to Claude Code." Explains the rule, the why, the how, and two exceptions (active sprint specs; topics with no canonical base doc).
+2. **project-instructions-template.md** — Cowork Delivery Gate gains a checkbox: "Canonical base docs reconciled in this session — if any OI or spec references a base design doc, the base doc was updated in this session, not deferred."
+3. **RELEASES.md** — v0.3.0 entry documents the rule in plain language.
+4. **plugin.json** — version bumped 0.2.0 → 0.3.0.
+
+**Where:** `skills/doc-workflow/SKILL.md` (new section after Document-Level Change Logs). `skills/project-scaffold/references/project-instructions-template.md` (delivery-gate checkbox). `RELEASES.md` (v0.3.0 entry). `.claude-plugin/plugin.json` (version bump). All four edits shipped in plugin v0.3.0.
+
+**Related memory:** Stored as feedback memory `feedback_reconcile_base_docs_at_write_time.md` in the Cowork auto-memory for this user. Complements IMPROVEMENT #16 (OPEN_ITEMS.md closure discipline) — same drift class at the canonical-doc surface rather than the OI surface.
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

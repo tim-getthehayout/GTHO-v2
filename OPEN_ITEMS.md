@@ -147,6 +147,115 @@ Each sub-item is independently shippable. Don't bundle A+C+D+B into one commit �
 
 ---
 
+### OI-0159 — Move wizard: three compounding bugs (0-remaining still prompts move/residual, partial-write on validate throw with wizard left open, no idempotency guard on closed source) — orphan B-3 event written 2026-05-06
+
+**Added:** 2026-05-06 | **Area:** v2-build / move-wizard / data-integrity | **Priority:** P1 (live data integrity bug — Tim hit it on 2026-05-06 moving Shenk Culls + Bull Group from D → B-3; produced one orphan destination event with a paddock window but no group windows; Supabase cleanup already applied this session)
+
+**Status:** open — **DESIGN LOCKED** on all three sub-items. Ready for Claude Code.
+
+**Live repro (2026-05-06):** Tim moved Shenk Culls + Bull Group from paddock D to B-3. Live remaining feed on D was 0 (last delivery was 1 bale on 2026-04-29; most recent feed-check item for that batch/loc stamped 0). The wizard rendered the Move/Residual radio anyway with a default "0" residual input. Tim clicked Save with the default Move radio still selected. The wizard wrote source-side closes (group windows, paddock window, event date_out, close-reading check), wrote the destination event + paddock window + group windows + open observation, then threw on Step 8's destination delivery insert (`FeedEntryEntity.validate` rejects `quantity <= 0` — `event-feed-entry.js:46`). The catch handler painted the error in `statusEl` and **left the wizard open** because `moveWizardSheet.close()` is the very last line of the try block, never reached. Tim saw the error message, switched the radio to "Residual" with value 0, clicked Save again → that ran a second pass on a now-closed source: `allOpenSourceGWs` came back empty, so no group windows were created on the second destination event (the orphan). Final state: two B-3 events sharing the same `source_event_id`, one with both groups (Run 1) and one with only a paddock window + open observation (Run 2). Cleanup SQL applied 2026-05-06: orphan event `01b1617f-c54a-4048-8317-bbdbbb359cc1` + its paddock window `57257407-b178-4855-a1fe-3d5fc30e5f08` + the open observation `8167b0d0-5ce4-4218-8756-0acccf674626` deleted; duplicate close-reading check `dcbb820c-fec2-4a8f-8613-b9d03153f714` and its check item deleted; source D event/paddock window/group windows/close-reading aligned to `2026-05-05 13:00` (matches the dest B-3 open).
+
+**Three bugs identified — three sub-items.** They compound: A is the trigger, B is the partial-commit cascade once A's default click fails validation, C is the no-second-defense layer that lets the user retry into an inconsistent destination.
+
+---
+
+**Sub-item A — `getLiveRemainingForMove` returns 0 → wizard still renders the Move/Residual radio.**
+
+`src/features/events/move-wizard.js` lines 417-538 build a Move/Residual radio for every `(batchId, locationId)` pair returned by `getLiveRemainingForMove(sourceEvent.id)`, with no early-exit when `group.total <= 0`. There's nothing meaningful to decide when remaining is 0 — both choices semantically equal "nothing to move, nothing to leave." But the prompt still gates Save:
+- Default radio is Move (`moveRadio` has `checked: 'true'`, `state.choice = 'move'`).
+- If the user clicks Save with Move selected, Step 8 tries to write a `FeedEntry` with `quantity: 0`, which `event-feed-entry.js:46` rejects (`quantity must be a positive number`) → throws → bug B fires.
+- If the user clicks Save with Residual selected and the input still showing the default "0", validation passes (`v === '0'` is not blank/NaN/<0) and Step 1's check-item correctly stamps `remainingQuantity: 0` on the source-side close — but the user is forced to make a meaningless choice.
+
+**Locked design:** in Step 3's render pass, drop the `(batch, location)` group entirely from `feedGroups` AND `transferToggles` when `group.total <= 0`. Don't render a radio, don't render a label, don't include in the iteration. Step 1 (close-reading write) builds its own `feedGroups` Map from `feedEntries` regardless — that path stays as-is so the close-reading check item still stamps `remainingQuantity: 0` for those (batch, location) pairs (preserving the OI-0135/OI-0139 invariants). Only the destination-side feed-transfer write is affected (Step 8's `if (toggle.choice !== 'move') continue;` filter), and the right behavior for a 0-remaining group is "no transfer entry written," which is exactly what dropping it from `transferToggles` produces. **Edge case:** when ALL feed groups have remaining=0, the feed-transfer section UI block has no toggles to render. Behavior should match the existing `feedEntries.length === 0` branch on line 533: render the `t('event.feedTransferNone')` italic hint instead of an empty section. Add a new i18n key `event.feedTransferAllZero` ("Source has no feed remaining — nothing to move or leave behind.") so the hint reads accurately when there ARE deliveries on file but all live-remaining values are 0 (vs. the literal no-deliveries case).
+
+**Files:** `src/features/events/move-wizard.js` (Step 3 render block, lines 417-538), `src/i18n/en.js` (new key `event.feedTransferAllZero`), tests under `tests/unit/events/move-wizard.test.js` (or wherever wizard tests live).
+
+**Acceptance:**
+- [ ] When `getLiveRemainingForMove` returns 0 for every (batch, location) pair on the source event, Step 3 renders zero Move/Residual radios and shows the new "all-zero" hint instead.
+- [ ] When some pairs are >0 and some are 0, only the >0 pairs render radios; the 0 pairs are silently absent.
+- [ ] `transferToggles` array passed to `executeMoveWizard` excludes 0-remaining entries — verifiable via a unit test that mocks `getLiveRemainingForMove` to return mixed values and asserts the rendered DOM only has radios for >0 entries.
+- [ ] OI-0135 / OI-0139 invariants intact: source-side close-reading check items still stamp `remainingQuantity: 0` for the dropped pairs (Step 1 builds its own `feedGroups` independent of `transferToggles`).
+- [ ] Grep contract: `grep -n "if (group.total <= 0) continue" src/features/events/move-wizard.js` returns ≥ 1 match.
+
+---
+
+**Sub-item B — `executeMoveWizard` is non-transactional and leaves the wizard open on throw, masking partial commits as "the move didn't go through."**
+
+`src/features/events/move-wizard.js` lines 566-853 wrap ~280 lines of sequential writes in a single `try { ... } catch (err) { statusEl.appendChild(...) }`. Steps run synchronously through `add()` / `update()` / `closeGroupWindow()` / `closePaddockWindow()` calls, each of which writes to localStorage immediately and queues a Supabase sync. Any throw mid-sequence leaves earlier writes committed, paints the error in the wizard's status area, and **leaves the wizard open** because `moveWizardSheet.close()` is the last line of the try block and is never reached. The user sees a wizard that looks unsubmitted and has no signal that source GWs / dest event / dest paddock window were already written.
+
+**Locked design — two layers, both required:**
+
+1. **Wizard-level pre-flight validation.** Hoist every potentially-throwing condition that doesn't depend on prior write side-effects to the top of `executeMoveWizard`, *before* Step 1 runs. Currently we already pre-validate post-graze, pre-graze, dateOut, and residual inputs. Extend that pre-flight to include: (a) `FeedEntryEntity.validate` dry-run on every Move-choice toggle so the `quantity > 0` rule is checked *before* any source-side close happens; (b) any other entity-shape validation that a future addition might silently trip. Pattern: build the destination delivery records in memory first, run `FeedEntryEntity.validate(record)` on each, collect errors into `statusEl`, return early without writing if any fail. Only after pre-flight passes do we run Step 1's source-side close.
+
+2. **Catch-block must close the wizard and surface a visible error toast.** The current behavior — paint error in `statusEl`, leave wizard open — is the worst of both worlds: the user can't tell whether the writes succeeded. Replace with: `moveWizardSheet.close()` in `finally` (so the wizard always closes); show a toast via the existing pattern (e.g. `empty-group-prompt.js:37`'s `showToast` helper — extract to a shared `src/ui/toast.js` if it isn't already shared) that says "Move ran into an error mid-save — please review the source event and any duplicate destination event before retrying." `logger.error('move-wizard', err.message, { sourceEventId, ... })` so the failure lands in `app_logs` once OI-0150-C ships the writer pipe.
+
+**Why both layers:** Layer 1 catches the known-class case (today's `quantity <= 0` throw, plus any future entity validator additions) and prevents partial commits in the common path. Layer 2 is the safety net for unknown / unforeseen throws — the wizard never strands a half-committed move with no user signal. Same direction as the OI-0151 / OI-0152 / OI-0153 doctrine of "fix the producer not every consumer" (Layer 1 fixes the producer of validation errors, Layer 2 fixes the consumer's UX contract when something *else* throws).
+
+**Files:** `src/features/events/move-wizard.js` (executeMoveWizard, lines 566-853), possibly `src/ui/toast.js` (extract from `empty-group-prompt.js` if not already shared), `src/i18n/en.js` (new keys `event.moveWizardSaveError`, `event.moveWizardSaveErrorToast`), tests under `tests/unit/events/move-wizard.test.js`.
+
+**Acceptance:**
+- [ ] Pre-flight rejects a Move-choice toggle whose `toggle.total === 0` (mooted by sub-item A) and any other case where `FeedEntryEntity.validate({ ..., quantity: toggle.total })` returns invalid — error rendered in `statusEl`, no source-side writes occur.
+- [ ] When any throw fires inside `executeMoveWizard`'s try block: wizard closes, a visible toast surfaces with the move-wizard error copy, `logger.error` is called with `category: 'move-wizard'` and the source event ID in context.
+- [ ] Unit test simulating a `FeedEntryEntity.validate` throw mid-Step-8 asserts: source GWs were NOT closed, source event date_out NOT updated, dest event NOT created, wizard closed, toast appeared.
+- [ ] Existing happy-path tests still pass (close → create → transfer in order, wizard closes at end).
+- [ ] Grep contract: `grep -nE "moveWizardSheet\.close\(\)" src/features/events/move-wizard.js` returns ≥ 2 matches (try-end + finally OR catch).
+
+---
+
+**Sub-item C — No idempotency guard: `executeMoveWizard` runs unchanged on a closed source event, silently writing a second destination event with no group windows.**
+
+When `allOpenSourceGWs` is empty (because the source event was already closed by an earlier successful run), `executeMoveWizard` continues and writes:
+- Another close-reading feed check on the (already closed) source event with `is_close_reading: true` (and another check-item per (batch, location) pair).
+- Another `update('events', sourceEvent.id, { dateOut, timeOut })` — overwrites the prior close stamp.
+- A whole new destination event with paddock window + open observation.
+- Zero group windows on the destination (because the snapshot loop iterates an empty `sourceGWs` array → `sourceGroupState` is empty → the dest-side `for (const gs of sourceGroupState)` loop doesn't fire).
+- Zero feed-transfer entries (no toggles in the all-zero scenario, and even if the user retried with non-zero remaining, the source side is already closed so the transfer is incoherent).
+
+This is exactly what produced the orphan `01b1617f` event Tim cleaned up this session.
+
+**Locked design:** at the top of `executeMoveWizard`, after the existing pre-flight validation, refuse to proceed when the source state is incoherent. Two checks:
+1. **Source already closed (full-event move):** `if (!isScoped && sourceEvent.dateOut)` → render error `t('event.moveWizardSourceClosed')` ("This event was already closed. The move may have already happened — close this dialog and check the destination paddock.") in `statusEl`, do not run any writes. This catches the "user re-opened the wizard on a closed source" path.
+2. **No open group windows to move (scoped or full):** `if (sourceGWs.length === 0)` → render error `t('event.moveWizardNothingToMove')` ("There are no open groups on this event to move. Refresh the dashboard to see the current state."), do not run any writes. This catches every other "the run before me already did the work" path including the scoped variant.
+
+**Why two checks:** sub-item B's pre-flight + finally-close fixes the symptom (no more partial commits, wizard always closes), but a user who closes a "successful" wizard, sees the empty-group prompt for a culled group, dismisses it, and then re-clicks Move on the same source event from a stale dashboard view will still hit the same "writes a duplicate dest event" path. Sub-item C is the second-line defense that refuses to act when the source state has nothing left for this wizard to do.
+
+**Files:** `src/features/events/move-wizard.js` (top of `executeMoveWizard`, lines 566-600 area), `src/i18n/en.js` (two new keys), tests under `tests/unit/events/move-wizard.test.js`.
+
+**Acceptance:**
+- [ ] Full-event move on a source event whose `dateOut` is set: wizard refuses to write, surfaces the "already closed" error, no destination writes occur.
+- [ ] Scoped move whose `scopedGroupWindowId` no longer matches an open group window on the source: wizard refuses to write, surfaces the "nothing to move" error.
+- [ ] Full-event move whose source event has zero open group windows (because all were closed by a prior run): wizard refuses to write, same error.
+- [ ] Happy path (open source, open scoped GW or full event with ≥ 1 open GW) still proceeds normally.
+- [ ] Unit tests covering each refuse-to-act case + a regression test that re-running the wizard on the same closed source produces no second destination event in the store.
+
+---
+
+**Acceptance — full OI:**
+- [ ] All three sub-items shipped with their individual acceptance criteria met.
+- [ ] Live-repro regression test: simulate the 2026-05-06 D → B-3 sequence (live remaining = 0, default Move radio, click Save) — pre-OI-0159 path threw mid-execute and left a partial commit; post-OI-0159 path renders no Move/Residual radios (sub-item A), pre-flight succeeds, source closes cleanly, dest event written cleanly, wizard closes cleanly. Then simulate a SECOND wizard open on the now-closed source and assert sub-item C refuses to write.
+
+**CP-55/CP-56 impact:** NONE. No schema change, no new persisted field, no migration. Pure UI / control-flow fix.
+
+**Schema change:** NONE.
+
+**Files (combined):** `src/features/events/move-wizard.js` (Step 3 render block + executeMoveWizard pre-flight + finally-close), possibly `src/ui/toast.js` (extract from `empty-group-prompt.js`), `src/i18n/en.js` (4-5 new keys), `tests/unit/events/move-wizard.test.js` (or wherever wizard tests live — search for existing pattern).
+
+**Spec file:** `github/issues/OI-0159_move-wizard-three-bugs.md` — full spec consolidated A/B/C, written same session.
+
+**Related:**
+- OI-0135 (closed) — move-wizard quantity used original delivery total ignoring prior live-remaining; introduced `getLiveRemainingForMove`. This OI extends the live-remaining doctrine: when the helper returns 0, *don't render the choice*.
+- OI-0136 (closed) — "Leave as residual" forces a remaining-quantity input. Sub-item A drops the entire choice when remaining is 0; OI-0136's forced-input is irrelevant to a 0-remaining group because the group no longer renders.
+- OI-0139 (closed) — feed-check prefill ignores deliveries timestamped after most-recent check; same `getLiveRemainingForMove` helper. No interaction — sub-item A consumes the helper's output unchanged.
+- OI-0140 (closed) — multi-window paddock disambiguation in the feed delivery sheet. No interaction.
+- OI-0050 (closed) — onboarding writer-side sync gap. Sub-item B extends the same "writer can fail silently" doctrine into the move wizard's transactional path.
+- OI-0090 / SP-11 (empty-group prompt) — the empty-group prompt for "Culls" stacking on top of the wizard is what made Tim think the first attempt errored. Not changed by this OI but flagged: the wizard's `close()` happens BEFORE `maybeShowEmptyGroupPrompt` fires, so the prompt always appears on a closed wizard. After sub-item B's finally-close lands, this stays correct.
+- OI-0117 / OI-0133 (closed) — same family of "two paths can disagree" → consolidate to one truth. Sub-item C's idempotency check is the same direction: the wizard refuses to run when the source state says "I'm already done."
+
+**Change Log:**
+- 2026-05-06 — Cowork drafted OI-0159 with three sub-items (A: 0-remaining still prompts; B: partial-write on validate throw, wizard left open; C: no idempotency guard on closed source). Live repro confirmed in Supabase (orphan event `01b1617f`, duplicate close-reading check `dcbb820c`, source D's mismatched close stamps). Cleanup SQL applied: orphan + duplicate deleted, source D close aligned to `2026-05-05 13:00` (matches dest B-3 open). Three bugs trace cleanly to specific lines: A = `move-wizard.js:417-538` (no early-exit), B = `move-wizard.js:566-853` (try without finally + non-transactional sequence), C = `move-wizard.js:566` start (no source-state pre-check). Smoking-gun validator at `event-feed-entry.js:46` (`quantity <= 0` throw). Spec file `github/issues/OI-0159_move-wizard-three-bugs.md` written same session. **No code change this session — OPEN_ITEMS.md edits + spec file only; ready for Claude Code in any A/B/C order, but B is the safety net so shipping it first protects against any future bugs landing without proper transactional semantics.**
+
+---
+
 ### OI-0156 — CP-55 / CP-56 spec catch-up for new persisted fields surfaced during 2026-05-03 schema-doc reconciliation (event_feed_entries.entry_type / destination_type / destination_event_id from migration 023, and the groups.archived_at upgrade from migration 024)
 **Added:** 2026-05-03 | **Area:** v2-build / backup / export-import / spec | **Priority:** P2 (CP-55 export and CP-56 import are the round-trip safety net; new persisted fields that aren't in the export spec round-trip silently as data loss when a backup is exported/imported across versions). Not a hold; CP-55/CP-56 specs and code already exist — this is a catch-up edit, not net-new design.
 

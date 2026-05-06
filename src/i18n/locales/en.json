@@ -313,6 +313,8 @@
     "selectLocationFirst": "Select a location first",
     "step3Title": "Close & Move",
     "closeSource": "Close Current Event",
+    "closePaddockNamed": "Close {paddock}",
+    "moveGroupOutOf": "Move {group} out of {paddock}",
     "openDest": "Open New Event",
     "dateOut": "Date Out",
     "timeOut": "Time Out",

@@ -147,111 +147,6 @@ Each sub-item is independently shippable. Don't bundle A+C+D+B into one commit �
 
 ---
 
-### OI-0161 — Move wizard Step 3 copy and observation cards render full-event language regardless of mode (scoped vs. full-event) and source/destination location type (land vs. confinement); farmers can't tell whether the wizard is moving one group or closing the whole event, and the post-graze observation card asks for residual height when the paddock isn't being vacated
-**Added:** 2026-05-06 | **Area:** v2-build / events / move-wizard / observations / ux / copy | **Priority:** P1 (UX confusion + data quality — without copy that reflects mode, farmers either don't trust the scoped behavior or capture meaningless residual-height observations on a paddock that's still being grazed. Surfaced 2026-05-06 when Tim attempted a scoped move of Mixed Calves out of G-5 and saw form copy identical to a full-event close.)
-
-**Status:** open — DESIGN COMPLETE below; ready for implementation.
-
-**Symptom — what Tim saw on 2026-05-06:** Tapped the per-group Move button on Mixed Calves (correctly the scoped-mode path on `dashboard/index.js:919`, which passes `{ scopedGroupWindowId: activeGW?.id }`). The wizard's Step 3 rendered:
-- Title: "Close & Move"
-- Section header: "Close Current Event"
-- Post-Graze Observations card (Residual Height, Recovery Window, Notes) — visually marked Optional, but the framing read as if the paddock was being vacated.
-- "Open New Event" section with pre-graze observations card.
-
-The Save behavior would have been correct (only Mixed Calves leaves G-5; Shenk Cows + Cow-Calf Herd stay grazing on the open source event), but the form copy made Tim suspect the entire G-5 event was about to close. Confidence in the wizard goes down; in production, a less-experienced user would either (a) abort the move or (b) capture a residual-height number on a paddock that's still being grazed by the other two groups, polluting the post-graze data.
-
-**Design — Step 3 render rules by mode + location type:**
-
-Three state inputs determine the rendering:
-1. `mode` — derived from `state.scopedGroupWindowId` and the count of remaining open group windows on the source event:
-   - `'scoped-remaining'` if `scopedGroupWindowId` is set AND ≥1 other open group window remains on the event
-   - `'scoped-last'` if `scopedGroupWindowId` is set AND it's the last open group window on the event (paddock will actually be vacated)
-   - `'full-event'` if `scopedGroupWindowId` is null (legacy full-event path)
-2. `sourceLocationType` — read `getById('locations', pw.locationId).type` for an open paddock window on the source event; values are `'land'` or `'confinement'` per `src/entities/location.js:20` (`VALID_TYPES = ['confinement', 'land']`).
-3. `destLocationType` — read `getById('locations', state.locationId).type` when `state.destType === 'new'`.
-
-| mode | sourceLocationType | Section title (close side) | Post-graze card |
-|---|---|---|---|
-| `scoped-remaining` | any | `"Move {GroupName} out of {PaddockName}"` | Hidden |
-| `scoped-last` | `'land'` | `"Close {PaddockName}"` | Shown |
-| `scoped-last` | `'confinement'` | `"Close {PaddockName}"` | Hidden (no residual / recovery on confinement) |
-| `full-event` | `'land'` | `"Close Current Event"` (current copy preserved) | Shown |
-| `full-event` | `'confinement'` | `"Close Current Event"` | Hidden (no residual / recovery on confinement) |
-
-| destType + destLocationType | Pre-graze card |
-|---|---|
-| `'new'` + `'land'` | Shown |
-| `'new'` + `'confinement'` | Hidden |
-| `'join'` (existing event) | Hidden — destination paddock already has a pre-graze obs from when its event opened |
-
-`{GroupName}` is `getById('groups', sourceGroupWindow.groupId).name`; `{PaddockName}` is `getById('locations', sourcePaddockWindow.locationId).name`. Both look up via the canonical store helpers; defensive fallback if either returns null: title becomes `"Move group"` / `"Close paddock"` rather than crashing.
-
-**Why these gating rules — the data model the copy must reflect:**
-
-- **Scoped + remaining groups:** the paddock is mid-grazing. Residual height represents partial intake, not post-graze leftover. Recovery window doesn't apply because the paddock isn't recovering yet. Capturing these now corrupts the obs record. The group's departure snapshot (head count, avg weight, date_left) is captured automatically via `getLiveWindowHeadCount` / `getLiveWindowAvgWeight` at `move-wizard.js:698-700` — no UI needed for that path, it's silent and correct already.
-- **Scoped + last group leaving:** the paddock is being vacated. Behaviorally identical to full-event close (the wizard already detects this at line 716 — `lastGroupLeaving = remainingOpenGWs.length === 0` — and runs the full close sequence). Post-graze obs is meaningful here.
-- **Full-event move:** unchanged behavior; copy preserved for parity.
-- **Confinement source:** residual height and recovery window are pasture concepts. A corral / dry-lot doesn't have standing forage to measure or a recovery period to project. Hiding the post-graze card on confinement is consistent with V2 design intent (per the `'confinement' | 'land'` distinction in the location entity).
-- **Confinement destination:** same reasoning — pre-graze height has no meaning at a corral. Locked by Tim 2026-05-06: "Gated, never show for confinement."
-
-**What the existing code already does right (don't touch):**
-
-- `getLiveWindowHeadCount` / `getLiveWindowAvgWeight` snapshot at `move-wizard.js:698-700` — captures the group's departure state into `event_group_windows.head_count` / `avg_weight_kg` on close. Silent, automatic, correct in every mode.
-- `lastGroupLeaving` detection at line 716 — already gates the paddock-window close + event date_out write. The new copy table above just mirrors that same condition into the visible UI.
-- Feed transfer section already correctly conditional (only renders when `feedEntries.length > 0`); scoped mode already skips the close-reading feed check at line 611 (`isScoped ? [] : feedEntries`). No behavior changes needed there for OI-0161 — only the copy / card-render gating.
-
-**Files affected:**
-
-- `src/features/events/move-wizard.js`:
-  - `renderStep3` (lines 320–564) — compute `mode`, `sourceLocationType`, `destLocationType` once at function entry; use them to gate section title text and observation card render. Specifically:
-    - Line 327 `closeSection` title: replace static `t('event.closeSource')` with mode-dependent string per the table.
-    - Lines 363–367 post-graze card render: wrap in `if (mode === 'full-event' || mode === 'scoped-last') { if (sourceLocationType === 'land') { /* render */ } }`.
-    - Lines 399–407 pre-graze card render: wrap in `if (state.destType === 'new' && destLocationType === 'land') { /* render */ }`.
-  - `executeMoveWizard` (lines 566–853) — `postGraze.validate()` and `preGraze.validate()` calls (lines 574–581) are already guarded by `if (postGraze)` / `if (preGraze)` truthiness; verify those guards remain correct when the cards aren't rendered (the variables stay `null`).
-
-- `src/i18n/locales/en.json`:
-  - `event.closeSource` stays `"Close Current Event"` (full-event mode preserves current copy).
-  - New keys: `event.moveGroupOutOf` → `"Move {group} out of {paddock}"`, `event.closePaddock` → `"Close {paddock}"`. Use the existing parameterized-string convention (see `event.feedTransferResidualAmountLabel` at en.json:329 for the `{loc}` substitution pattern).
-
-- `V2_UX_FLOWS.md` §1 (Move Wizard) and §17.7 — **already updated in the same Cowork session that drafted this OI** (2026-05-06). §1 intro now describes the three modes (full-event / scoped-remaining / scoped-last); §1.5 documents the mode-and-location-type gating tables for both observation cards; §1.6 marks save steps that are skipped in scoped-remaining mode; §17.7 stale OI-0066 reference replaced. Claude Code does not need to touch V2_UX_FLOWS.md during implementation — the design is canonical there now.
-
-**Tests:**
-
-`tests/unit/move-wizard.test.js` — six new cases:
-1. Scoped + remaining → post-graze card not rendered, title contains group name + " out of " + paddock name.
-2. Scoped + last + land source → post-graze card rendered, title `Close {paddockName}`.
-3. Scoped + last + confinement source → post-graze card NOT rendered, title `Close {paddockName}`.
-4. Full-event + land source → post-graze card rendered, title "Close Current Event" (regression).
-5. Full-event + confinement source → post-graze card NOT rendered.
-6. Land destination → pre-graze rendered (regression). Confinement destination → pre-graze NOT rendered. Join existing event → pre-graze NOT rendered (regression — existing behavior).
-
-Add `data-testid` attributes to enable selection: `'move-wizard-post-graze-card'` on the post-graze card container; `'move-wizard-pre-graze-card'` on the pre-graze container; `'move-wizard-close-section-title'` on the inner section header.
-
-**Acceptance:**
-
-- [ ] All six gating-table rows behave per spec, verified by the new unit tests.
-- [ ] No regression in full-event mode (existing rotations on land paddocks look identical to today).
-- [ ] When Tim re-runs the 2026-05-06 scenario (scoped move of Mixed Calves out of G-5 to a confinement corral): wizard close-section title reads `Move Mixed Calves out of G - 5`; no post-graze card; no pre-graze card (corral is confinement); Save succeeds and only Mixed Calves leaves; Shenk Cows + Cow-Calf Herd stay open on the source G-5 event.
-- [ ] No console errors when location lookup fails (defensive: if `getById('locations', X)` returns null, title falls back to a generic `"Move group"` / `"Close paddock"` rather than crashing).
-- [ ] Hook contract verified: `event_group_windows.head_count` and `avg_weight_kg` are still stamped on the closed scoped group window (the silent snapshot path is unchanged).
-- [ ] No new lint warnings; `npx vitest run` green; `npm run build` green.
-
-**Related OIs:**
-
-- **OI-0066** (closed) — introduced `scopedGroupWindowId` to the move wizard. OI-0161 is the visible-UX completion of that work (copy + observation gating).
-- **OI-0160** (open, sibling — same session) — fix the missing `scopedGroupWindowId` on the detail-sheet per-group Move button. Without OI-0160, half the per-group surfaces produce a full-event close even though OI-0161 makes the wizard look correct in scoped mode. Both should land in the same commit batch.
-- **OI-0112** (closed) — added pre-graze + post-graze cards to the move wizard. OI-0161 narrows when those cards render based on mode + location type.
-- **OI-0040 / OI-0041** (closed) — observation card validation. OI-0161 doesn't change validation rules; it only changes whether the card is rendered (and therefore whether validation runs).
-
-**CP-55/CP-56 impact:** None. No schema changes, no new persisted fields. Pure render-side gating; the data captured (or not) is unchanged from the existing observation card behavior.
-
-**Spec file:** `github/issues/OI-0160_OI-0161_move-wizard-scoped-mode-fix.md` — combined spec covering both this OI and OI-0160 (they're tightly coupled and should land together).
-
-**Change Log:**
-- 2026-05-06 — Cowork drafted OI-0161 after Tim surfaced the misleading wizard form on a scoped move. Design locked in same session: gate post-graze on (mode + sourceLocationType); gate pre-graze on (destType + destLocationType). Confinement always hides both observation cards per Tim's 2026-05-06 confirmation. V2_UX_FLOWS.md §1 (mode descriptions, §1.5 gating tables, §1.6 conditional save steps) and §17.7 (line 1272 stale OI-0066 reference) updated in the same session per Tim's "reconcile base docs at write time, not in deferred sessions" feedback (PLUGIN IMPROVEMENT candidate). Spec file at `github/issues/OI-0160_OI-0161_move-wizard-scoped-mode-fix.md`.
-
----
-
 ### OI-0156 — CP-55 / CP-56 spec catch-up for new persisted fields surfaced during 2026-05-03 schema-doc reconciliation (event_feed_entries.entry_type / destination_type / destination_event_id from migration 023, and the groups.archived_at upgrade from migration 024)
 **Added:** 2026-05-03 | **Area:** v2-build / backup / export-import / spec | **Priority:** P2 (CP-55 export and CP-56 import are the round-trip safety net; new persisted fields that aren't in the export spec round-trip silently as data loss when a backup is exported/imported across versions). Not a hold; CP-55/CP-56 specs and code already exist — this is a catch-up edit, not net-new design.
 
@@ -5444,6 +5339,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0161 — Move wizard Step 3 copy + observation cards now reflect mode (scoped vs. full-event) and source/destination location type (land vs. confinement)
+**Added:** 2026-05-06 | **Closed:** 2026-05-06 | **Area:** v2-build / events / move-wizard / observations / ux / copy
+**Resolution:** `src/features/events/move-wizard.js` Step 3 derives three state inputs at `renderStep3` entry — `mode` (`'scoped-remaining'` / `'scoped-last'` / `'full-event'`), `sourceLocationType`, `destLocationType` — and uses them to gate (a) the close-section title text and (b) which observation cards render. **Title gating:** `'scoped-remaining'` → `t('event.moveGroupOutOf', { group, paddock })`; `'scoped-last'` → `t('event.closePaddockNamed', { paddock })`; `'full-event'` → `t('event.closeSource')` (preserved). **Post-graze card** renders only when `(mode === 'full-event' || mode === 'scoped-last') && sourceLocationType === 'land'`. **Pre-graze card** renders only when `state.destType === 'new' && destLocationType === 'land'` (the existing-event / `'join'` path was already gated by the enclosing `if`). When not rendered, `postGraze` / `preGraze` stay `null` and the executeMoveWizard `if (postGraze)` / `if (preGraze)` guards (lines 574 / 578 / 724 / 798) skip validation + getValues — verified by walking the diff. **Defensive fallbacks:** `sourceLoc?.name ?? 'paddock'` and `sourceGroup?.name ?? 'group'` so a missing entity lookup degrades to "Move group" / "Close paddock" instead of crashing. **i18n:** two new keys in `src/i18n/locales/en.json`: `event.closePaddockNamed` ("Close {paddock}") and `event.moveGroupOutOf` ("Move {group} out of {paddock}"). **Surprise:** the spec's suggested key `event.closePaddock` collides with a long-standing literal `"Close paddock"` already at en.json:356 (used by `detail.js:503`'s per-paddock close button). Duplicate JSON keys are silently overridden by the LAST occurrence — the spec's suggested name was getting shadowed. Renamed to `closePaddockNamed` to disambiguate; comment in move-wizard.js documents why. **Three new data-testid attributes** for test selectors: `move-wizard-close-section-title` (close-section header), `move-wizard-post-graze-card` (postGraze.container), `move-wizard-pre-graze-card` (preGraze.container). **Tests:** new `tests/unit/move-wizard-step3-gating.test.js` (8 cases per spec): scoped+remaining+land → no post-graze, "Move Mixed Calves out of G - 5"; scoped+last+land → post-graze + "Close G - 5"; scoped+last+confinement → no post-graze + "Close Corral A"; full-event+land → post-graze + "Close Current Event"; full-event+confinement → no post-graze; land destination → pre-graze present; confinement destination → no pre-graze; join existing event → no pre-graze. All 8 pass post-fix. Suite 1489 → 1497 (+8). `npm run lint` 0 errors. `npm run build` clean. **Existing OI-0066 scoped-move tests** at `tests/unit/move-wizard-scoped.test.js` still pass — no regression on the close-out decision logic. **Schema impact:** none. **CP-55/CP-56 impact:** none — pure render-side gating. **Follow-up flagged for Cowork:** `V2_UX_FLOWS.md` §1 / §17.7 documentation already updated in the same Cowork session that drafted this OI; no Claude Code touch needed there.
+
+---
 
 ### OI-0160 — Per-group Move button in event detail dialog (`detail.js:766`) didn't pass `scopedGroupWindowId`; tapping Move next to one group fired a full-event close
 **Added:** 2026-05-06 | **Closed:** 2026-05-06 | **Area:** v2-build / events / move-wizard / detail / ux

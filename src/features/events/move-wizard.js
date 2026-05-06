@@ -322,9 +322,67 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
 
   const inputs = {};
 
+  // OI-0161: derive `mode`, source/destination location types, and the
+  // group/paddock names once at function entry. Step 3 copy + observation
+  // card visibility gate off these. See OPEN_ITEMS.md → OI-0161 for the
+  // full gating tables; the short form:
+  //   - mode `'scoped-remaining'` (some groups stay): no post-graze obs.
+  //   - mode `'scoped-last'` + land: behaviorally a paddock close → obs.
+  //   - mode `'scoped-last'` + confinement: no obs (corral has no residual).
+  //   - mode `'full-event'` + land: legacy obs path preserved.
+  //   - mode `'full-event'` + confinement: no obs.
+  const scopedMode = !!state.scopedGroupWindowId;
+  const allOpenGWs = getAll('eventGroupWindows').filter(w =>
+    w.eventId === sourceEvent.id && !w.dateLeft);
+  const remainingAfterMove = scopedMode
+    ? allOpenGWs.filter(w => w.id !== state.scopedGroupWindowId).length
+    : 0;
+  const mode = !scopedMode
+    ? 'full-event'
+    : (remainingAfterMove > 0 ? 'scoped-remaining' : 'scoped-last');
+
+  // Source paddock window — first open PW on the event. Both scoped and
+  // full-event paths use the same lookup; the wizard already operates at
+  // event level for the full-event close, and a scoped move's source
+  // paddock is whichever PW is currently open.
+  const sourcePW = getAll('eventPaddockWindows').find(w =>
+    w.eventId === sourceEvent.id && !w.dateClosed);
+  const sourceLoc = sourcePW ? getById('locations', sourcePW.locationId) : null;
+  const sourceLocationType = sourceLoc?.type ?? 'land'; // defensive default
+  const sourcePaddockName = sourceLoc?.name ?? 'paddock';
+
+  const sourceGW = scopedMode
+    ? allOpenGWs.find(w => w.id === state.scopedGroupWindowId)
+    : null;
+  const sourceGroup = sourceGW ? getById('groups', sourceGW.groupId) : null;
+  const sourceGroupName = sourceGroup?.name ?? 'group';
+
+  // Destination location type (only meaningful when destType === 'new').
+  const destLoc = (state.destType === 'new' && state.locationId)
+    ? getById('locations', state.locationId)
+    : null;
+  const destLocationType = destLoc?.type ?? null;
+
+  // OI-0161: close-section title reflects the mode. The substituted
+  // `closePaddockNamed` is distinct from the long-standing literal
+  // `event.closePaddock` ("Close paddock", used by the per-paddock
+  // close button at `detail.js:503`) — duplicate keys in en.json
+  // silently collide, so OI-0161 carries its own key.
+  let closeSectionTitle;
+  if (mode === 'scoped-remaining') {
+    closeSectionTitle = t('event.moveGroupOutOf', { group: sourceGroupName, paddock: sourcePaddockName });
+  } else if (mode === 'scoped-last') {
+    closeSectionTitle = t('event.closePaddockNamed', { paddock: sourcePaddockName });
+  } else {
+    closeSectionTitle = t('event.closeSource');
+  }
+
   // Close source section
   const closeSection = el('div', { className: 'close-open-section' }, [
-    el('div', { className: 'close-open-section-title' }, [t('event.closeSource')]),
+    el('div', {
+      className: 'close-open-section-title',
+      'data-testid': 'move-wizard-close-section-title',
+    }, [closeSectionTitle]),
   ]);
 
   closeSection.appendChild(el('label', { className: 'form-label' }, [t('event.dateOut')]));
@@ -360,9 +418,19 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   });
 
   // Post-graze observation card on close-out section (OI-0112 surface #2).
+  // OI-0161: gated on mode + sourceLocationType. Render only when the
+  // paddock is actually being vacated (mode === 'scoped-last' or
+  // 'full-event') AND the source is a pasture (residual height + recovery
+  // window are pasture concepts; confinement / dry-lot has neither).
+  // When not rendered: `postGraze` stays null and the executeMoveWizard
+  // `if (postGraze)` guards (lines 574, 724) skip validation + getValues.
   const farmSettings = getAll('farmSettings')[0] || null;
-  const postGraze = renderPostGrazeCard({ farmSettings });
-  closeSection.appendChild(postGraze.container);
+  let postGraze = null;
+  if ((mode === 'full-event' || mode === 'scoped-last') && sourceLocationType === 'land') {
+    postGraze = renderPostGrazeCard({ farmSettings });
+    postGraze.container.setAttribute('data-testid', 'move-wizard-post-graze-card');
+    closeSection.appendChild(postGraze.container);
+  }
 
   panel.appendChild(closeSection);
 
@@ -398,13 +466,19 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
 
     // Pre-graze observation card on destination section (OI-0112 surface #1).
     // OI-0124 Phase 1: use OI-0075 fallback — Location entity field is areaHectares.
-    const destLoc = state.locationId ? getById('locations', state.locationId) : null;
-    const destLocHa = destLoc?.areaHectares ?? destLoc?.areaHa;
-    const paddockAcres = destLocHa != null
-      ? convert(destLocHa, 'area', 'toImperial')
-      : null;
-    preGraze = renderPreGrazeCard({ farmSettings, paddockAcres, initialValues: {} });
-    openSection.appendChild(preGraze.container);
+    // OI-0161: gated on destLocationType. Pre-graze height has no meaning
+    // at a confinement / dry-lot, so skip the card entirely on that
+    // destination type. Existing-event ('join') path is already gated by
+    // the enclosing `state.destType === 'new'` block above.
+    if (destLocationType === 'land') {
+      const destLocHa = destLoc?.areaHectares ?? destLoc?.areaHa;
+      const paddockAcres = destLocHa != null
+        ? convert(destLocHa, 'area', 'toImperial')
+        : null;
+      preGraze = renderPreGrazeCard({ farmSettings, paddockAcres, initialValues: {} });
+      preGraze.container.setAttribute('data-testid', 'move-wizard-pre-graze-card');
+      openSection.appendChild(preGraze.container);
+    }
 
     panel.appendChild(openSection);
   }

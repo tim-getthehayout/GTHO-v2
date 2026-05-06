@@ -213,7 +213,7 @@ Three state inputs determine the rendering:
   - `event.closeSource` stays `"Close Current Event"` (full-event mode preserves current copy).
   - New keys: `event.moveGroupOutOf` → `"Move {group} out of {paddock}"`, `event.closePaddock` → `"Close {paddock}"`. Use the existing parameterized-string convention (see `event.feedTransferResidualAmountLabel` at en.json:329 for the `{loc}` substitution pattern).
 
-- `V2_UX_FLOWS.md` §1 (Move Wizard) — Cowork follow-up, not Claude Code's responsibility. Two updates needed: (a) line 1272 incorrectly says OI-0066 is open / P3 / follow-up — OI-0066 closed and scoped moves shipped; (b) document the OI-0161 gating rules in the Step 3 spec. **Flag for separate Cowork session.**
+- `V2_UX_FLOWS.md` §1 (Move Wizard) and §17.7 — **already updated in the same Cowork session that drafted this OI** (2026-05-06). §1 intro now describes the three modes (full-event / scoped-remaining / scoped-last); §1.5 documents the mode-and-location-type gating tables for both observation cards; §1.6 marks save steps that are skipped in scoped-remaining mode; §17.7 stale OI-0066 reference replaced. Claude Code does not need to touch V2_UX_FLOWS.md during implementation — the design is canonical there now.
 
 **Tests:**
 
@@ -248,58 +248,7 @@ Add `data-testid` attributes to enable selection: `'move-wizard-post-graze-card'
 **Spec file:** `github/issues/OI-0160_OI-0161_move-wizard-scoped-mode-fix.md` — combined spec covering both this OI and OI-0160 (they're tightly coupled and should land together).
 
 **Change Log:**
-- 2026-05-06 — Cowork drafted OI-0161 after Tim surfaced the misleading wizard form on a scoped move. Design locked in same session: gate post-graze on (mode + sourceLocationType); gate pre-graze on (destType + destLocationType). Confinement always hides both observation cards per Tim's 2026-05-06 confirmation. V2_UX_FLOWS.md §1 update flagged as separate Cowork follow-up.
-
----
-
-### OI-0160 — Per-group Move button in event detail dialog (`detail.js:766`) doesn't pass `scopedGroupWindowId`; tapping Move next to one group fires a full-event close that moves all groups, not just the one the farmer selected
-**Added:** 2026-05-06 | **Area:** v2-build / events / move-wizard / detail / ux | **Priority:** P0 (live data risk — farmer taps Move next to one group expecting that group to leave; instead all groups on the event are closed and moved together. Tim caught this on 2026-05-06 while planning to pull Mixed Calves out of G-5 and leave Shenk Cows + Cow-Calf Herd grazing.)
-
-**Status:** open — small code fix (one call site).
-
-**Symptom:** In the event-detail sheet's group-list, each group row has Move / Edit / × buttons. Tapping **Move** opens the move wizard, but the call site at `src/features/events/detail.js:766` is:
-
-```js
-isActive ? el('button', {
-  className: 'btn btn-teal btn-xs',
-  onClick: () => openMoveWizard(event, ctx.operationId, ctx.farmId),
-}, [t('dashboard.move')]) : null,
-```
-
-No `{ scopedGroupWindowId: gw.id }` opts. The wizard runs in full-event mode and on Save closes every open group window + every open paddock window + sets `events.date_out` on the source event. The farmer's mental model — "I'm moving this one group" — is wrong by the form text alone (Step 3 says "Close Current Event"), and the Save behavior compounds the misunderstanding.
-
-**Reference (working surfaces, both already correctly scoped):**
-- `src/features/dashboard/index.js:919` — open-event card per-group row (`{ scopedGroupWindowId: activeGW?.id }`) ✓
-- `src/features/dashboard/index.js:1375` — group-strip per-group row (`{ scopedGroupWindowId: gw.id }`) ✓
-
-The detail-sheet button is the only per-group surface that drops the scope opt.
-
-**Fix:** One-line edit. The local variable `gw` is in scope at line 766 (it's the `for (const gw of gws)` loop variable; see line 741).
-
-```js
-isActive ? el('button', {
-  className: 'btn btn-teal btn-xs',
-  onClick: () => openMoveWizard(event, ctx.operationId, ctx.farmId, { scopedGroupWindowId: gw.id }),
-}, [t('dashboard.move')]) : null,
-```
-
-**Acceptance:**
-
-- [ ] Open an event with ≥2 open group windows; from the event-detail sheet, tap Move on one group; complete the wizard with destination = corral.
-- [ ] After Save: only the tapped group has `event_group_windows.date_left` stamped; the other groups remain open on the source event; source event's `events.date_out` remains null; source paddock window remains open with `date_closed = null`.
-- [ ] No regression on the dashboard-card per-group Move buttons (already correctly scoped — both paths now produce identical scoped behavior).
-- [ ] Test added: `tests/unit/events/detail-group-move-button.test.js` — render the detail sheet for a multi-group event, find the Move button (e.g. via the row's group-name text or a new `data-testid="detail-group-move-${gw.id}"` attribute added in the same change), click it, and assert `openMoveWizard` was called with `{ scopedGroupWindowId: gw.id }` as the 4th argument. Use `vi.spyOn` against the imported `openMoveWizard` to intercept the call without rendering the wizard sheet.
-
-**Related OIs:**
-- **OI-0066** (closed, source of the scoped-move pattern) — introduced `scopedGroupWindowId` to `openMoveWizard`. The detail.js call site was added later (or missed during the OI-0066 sweep) and never picked up the new opt.
-- **OI-0161** (open, sibling — same session) — Move wizard Step 3 copy + observation cards don't reflect scoped mode. Both OIs ship together: OI-0160 fixes the silent full-event close on the wrong surface; OI-0161 makes the wizard form copy match the actual mode.
-
-**CP-55/CP-56 impact:** None.
-
-**Spec file:** `github/issues/OI-0160_OI-0161_move-wizard-scoped-mode-fix.md` — combined spec covering both OI-0160 and OI-0161.
-
-**Change Log:**
-- 2026-05-06 — Cowork drafted OI-0160 after Tim surfaced the bug while diagnosing OI-0161. Bundled with OI-0161 in a single spec file because both are scoped-mode wizard surfaces and should land together.
+- 2026-05-06 — Cowork drafted OI-0161 after Tim surfaced the misleading wizard form on a scoped move. Design locked in same session: gate post-graze on (mode + sourceLocationType); gate pre-graze on (destType + destLocationType). Confinement always hides both observation cards per Tim's 2026-05-06 confirmation. V2_UX_FLOWS.md §1 (mode descriptions, §1.5 gating tables, §1.6 conditional save steps) and §17.7 (line 1272 stale OI-0066 reference) updated in the same session per Tim's "reconcile base docs at write time, not in deferred sessions" feedback (PLUGIN IMPROVEMENT candidate). Spec file at `github/issues/OI-0160_OI-0161_move-wizard-scoped-mode-fix.md`.
 
 ---
 
@@ -5495,6 +5444,12 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0160 — Per-group Move button in event detail dialog (`detail.js:766`) didn't pass `scopedGroupWindowId`; tapping Move next to one group fired a full-event close
+**Added:** 2026-05-06 | **Closed:** 2026-05-06 | **Area:** v2-build / events / move-wizard / detail / ux
+**Resolution:** One-line fix in `src/features/events/detail.js:766` plus a new `data-testid` on the same button. The per-row Move button now passes `{ scopedGroupWindowId: gw.id }` to `openMoveWizard(...)`, mirroring the two correct callsites in `src/features/dashboard/index.js` (line 919 open-event card, line 1375 group strip). New testid `detail-group-move-${gw.id}` follows the existing `detail-group-${gw.id}` / `detail-remove-group-${gw.id}` pattern in the same file. The other `openMoveWizard` callsite in detail.js (line 1338, "Move to existing event" button in the unplace dialog) is intentionally full-event mode — unchanged. **Test:** new `tests/unit/events/detail-group-move-button.test.js` (2 cases): (a) clicking Move on the second group of a multi-group event passes exactly `(event, op, farm, { scopedGroupWindowId: GW_B })` — verified to fail before the fix (testid absent + 4th arg missing) and pass after; (b) single-group event still passes the scoped opt (the wizard's `lastGroupLeaving` logic at move-wizard.js:716 handles the equivalence). Suite 1487 → 1489 (+2). `npm run lint` 0 errors. `npm run build` clean. **Schema impact:** none. **CP-55/CP-56 impact:** none.
+
+---
 
 ### OI-0150 — Dev Mode hardening sweep (Phase 1, three tracks: audit page render-yielding + dev/logs viewer hardening + wire logger buffer → app_logs)
 **Added:** 2026-05-03 | **Closed:** 2026-05-06 | **Area:** v2-build / dev-mode / observability / perf

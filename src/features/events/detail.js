@@ -763,7 +763,12 @@ function renderGroups(ctx) {
       el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
         isActive ? el('button', {
           className: 'btn btn-teal btn-xs',
-          onClick: () => openMoveWizard(event, ctx.operationId, ctx.farmId),
+          // OI-0160: pass `scopedGroupWindowId` so the wizard runs in
+          // scoped mode and only closes this group's window — not every
+          // group on the event. Mirrors `src/features/dashboard/index.js`
+          // line 919 (open-event card) + line 1375 (group strip).
+          'data-testid': `detail-group-move-${gw.id}`,
+          onClick: () => openMoveWizard(event, ctx.operationId, ctx.farmId, { scopedGroupWindowId: gw.id }),
         }, [t('dashboard.move')]) : null,
         el('button', {
           className: 'btn btn-outline btn-xs',

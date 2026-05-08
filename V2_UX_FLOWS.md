@@ -128,6 +128,49 @@ The mode is determined at save time by counting remaining open group windows on 
 - Feed transfer uses `source_event_id` on the destination entry, not negative quantities.
 - **Dairy milking routine (post-launch enhancement):** Saved schedule templates that auto-generate paddock windows (e.g., "6am–7:30am and 4pm–5:30pm daily at Milking Parlor"). Same data model as manual sub-moves — just removes the tedium of frequent daily entries.
 
+### 1.8 Place Mode
+
+Sibling to the Move Wizard. Used when a group has no current placement (no open `event_group_window`) and the farmer wants to start grazing it on a paddock. Triggered by the dashboard Place buttons (§17.7 group card and Unplaced groups section).
+
+**Lives in `src/features/events/place-wizard.js`.** Step 1 (destination type) and Step 2 (location/event picker + strip-graze) are reused from `src/features/events/wizard-shared.js` — the same module the Move Wizard reuses. Place Mode does **not** share Step 3 with Move; the close-source side, feed transfer card, and OI-0101 mirror don't apply when there is no source event.
+
+**Entry signature:** `openPlaceWizard(groupId, operationId, farmId)`. The `groupId` is pre-bound from the dashboard button — there is no group picker step. The wizard does not accept a source event under any name; the seam is enforced at the file boundary.
+
+**Pre-open guard:** if the group has 0 active animal memberships, surface a toast (`"This group has no animals — add animals before placing it"`) and abort. Matches the OI-0086 empty-group prompt pattern.
+
+**Step 1 — Destination Type.** Reuses §1.1 verbatim. Title is `"Place {groupName}"` instead of `"Choose destination"` because the user came from a per-group action.
+
+**Step 2 — Location / Event Picker.** Reuses §1.2 / §1.3 / §1.4 verbatim — same farm chip, same four section layout for new locations, same existing-event list for join, same strip-graze toggle.
+
+**Step 3 — Open Destination Only.** Single section. No close-source side. No feed transfer.
+
+| destType + destination location type | Pre-graze card |
+|---|---|
+| `new` + `land` | Shown |
+| `new` + `confinement` | Hidden — corral / dry-lot has no standing forage |
+| `join` (existing event) | Hidden — destination paddock already has a pre-graze obs from when its event opened |
+
+Always rendered when destType is `'new'`:
+- Date in (default: today; no mirror — there is no Date out to mirror from)
+- Time in (optional)
+- Strip graze setup summary (when toggled in Step 2c)
+
+**Save sequence.** Steps 6, 7, 9 of §1.6 only. The source-side steps (1, 2, 3, 4) are skipped entirely because there is no source. Step 8 (feed transfer entries) is skipped because there is nothing to transfer.
+
+1. (Skipped — no source close-reading.)
+2. (Skipped — no source paddock windows.)
+3. (Skipped — no source group windows.)
+4. (Skipped — no source `events.date_out`.)
+5. (Skipped — no source paddock observation.)
+6. **Create new event at destination (or add group window to existing).** New event's `source_event_id` is `null`. New paddock window opens at the chosen location. New `event_group_window` opens for the placed group.
+7. **[destination is `'land'` only]** Create `paddock_observation` (type='open') with pre-graze readings.
+8. (Skipped — no feed transfer.)
+9. If strip graze: set `is_strip_graze = true`, `strip_group_id`, and `area_pct` on the first paddock window of the destination event.
+
+**Cross-farm placement** is supported the same way as cross-farm Move (§1.2 farm chip): the new event's `farm_id` matches the chip-selected farm. `source_event_id` stays null on placement (no source to link to).
+
+**Why a sibling and not a wizard mode:** the Move wizard already carries five orthogonal axes (scoped vs full-event, new vs join, source land vs confinement, dest land vs confinement, OI-0101 mirror touched). Step 3 alone reads source-side state in ~15 places. Adding "source present vs absent" as a sixth axis on top of OI-0162's pre-flight + idempotency guards would create pressure to bypass those guards. Splitting at the natural seam (presence of source) keeps each path readable. See OI-0163 for the full rationale.
+
 ---
 
 ## 2. Paddock Window Management (Sub-Moves)
@@ -1256,7 +1299,7 @@ Rendered top-to-bottom in this order. Each sub-element is conditional:
 | Button | Style | Condition | Action |
 |--------|-------|-----------|--------|
 | Move | `btn btn-teal` (filled) | Group has active event | Opens event edit sheet |
-| Place | `btn btn-teal` (filled) | Group has NO active event | Opens move wizard (§1) |
+| Place | `btn btn-teal` (filled) | Group has NO active event | Opens place wizard (§1.8) |
 | Split | `btn btn-outline` | Only if active event exists | Opens split sheet |
 | Weights | `btn btn-outline` | Always | Opens weight recording (§14.1) |
 | Edit | `btn btn-outline` | Always | Opens group edit sheet (§15.2) |
@@ -1328,7 +1371,7 @@ Survey creation lives on the Surveys screen (§7) and on the per-paddock survey 
 Renders below the active event card grid when at least one group has no open `event_group_window`.
 
 - Section header: `Unplaced groups` (`.sec` label).
-- One row per unplaced group: group name + head count + **Place** button (`btn btn-teal btn-sm`) — opens move wizard with the group pre-selected and no source event.
+- One row per unplaced group: group name + head count + **Place** button (`btn btn-teal btn-sm`) — opens place wizard (§1.8) with the group pre-selected.
 - Hidden entirely when no unplaced groups exist.
 
 #### Empty state

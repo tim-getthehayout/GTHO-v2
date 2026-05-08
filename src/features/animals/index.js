@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, reactivateGroup } from '../../data/store.js';
+import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import * as GroupEntity from '../../entities/group.js';
@@ -21,14 +21,18 @@ import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
 import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
 import { syncCalvingRecordForAnimal } from './calving-sync.js';
-import { maybeShowEmptyGroupPrompt } from './empty-group-prompt.js';
+import { maybeShowEmptyGroupPrompt, groupEventHistoryCount } from './empty-group-prompt.js';
+import { showToast } from '../../ui/toast.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
-let selectedFilter = null;  // group ID or null (All)
+// OI-0164: selectedFilter is one of three mutually exclusive states:
+//   null → All chip active (active animals only)
+//   '__culls' sentinel → Culls chip active (culled animals only)
+//   <groupId> → group chip active (active animals in that group only)
+let selectedFilter = null;
 let searchQuery = '';
-let showCulled = false;
 let showArchivedGroups = false;  // OI-0090 / SP-11 Part 4
 let sortColumn = 'tag';
 let sortAsc = true;
@@ -77,6 +81,7 @@ export function renderAnimalsScreen(container) {
   function renderFilterHeader() {
     clear(filterWrap);
     const groups = getAll('groups').filter(g => !g.archivedAt);
+    const cullCount = getAll('animals').filter(a => a.active === false).length;
     const chipsEl = el('div', { className: 'agc-chips' });
 
     // "All" chip
@@ -96,6 +101,19 @@ export function renderAnimalsScreen(container) {
         g.name,
       ]));
     }
+
+    // OI-0164: Culls (N) chip — terminal pill, hidden when N === 0.
+    if (cullCount > 0) {
+      const isCulls = selectedFilter === '__culls';
+      chipsEl.appendChild(el('span', {
+        className: `agc-chip agc-chip-culls${isCulls ? ' active' : ''}`,
+        'data-testid': 'animals-chip-culls',
+        onClick: () => { selectedFilter = isCulls ? null : '__culls'; renderAll(); },
+      }, [
+        el('span', { className: 'agc-dot' }),
+        `${t('animal.cullsChip') || 'Culls'} (${cullCount})`,
+      ]));
+    }
     filterWrap.appendChild(chipsEl);
 
     // Search bar
@@ -107,17 +125,12 @@ export function renderAnimalsScreen(container) {
     searchInput.addEventListener('input', () => { searchQuery = searchInput.value; renderAnimalList(); });
     filterWrap.appendChild(el('div', { style: { position: 'relative' } }, [searchInput]));
 
-    // Secondary controls
-    const showCulledCheck = el('input', { type: 'checkbox', style: { accentColor: 'var(--amber)' } });
-    if (showCulled) showCulledCheck.checked = true;
-    showCulledCheck.addEventListener('change', () => { showCulled = showCulledCheck.checked; renderAnimalList(); });
-
-    filterWrap.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginTop: '7px' } }, [
-      el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text2)', cursor: 'pointer', whiteSpace: 'nowrap' } }, [
-        showCulledCheck, 'Show culled',
-      ]),
+    // OI-0164: + Add animal action — re-anchored as a single right-aligned button
+    // row below the search bar. The legacy cull-visibility checkbox is gone; the
+    // Culls pill above is the new exclusive lifecycle filter.
+    filterWrap.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '7px' } }, [
       el('button', {
-        className: 'btn btn-green btn-xs', style: { whiteSpace: 'nowrap', marginLeft: 'auto' },
+        className: 'btn btn-green btn-xs', style: { whiteSpace: 'nowrap' },
         onClick: () => openAnimalSheet(null, operationId, farmId),
       }, ['+ Add animal']),
     ]));
@@ -157,6 +170,11 @@ export function renderAnimalsScreen(container) {
     ]);
     groupsCard.appendChild(header);
 
+    // OI-0164: 2-column tile grid at all viewports (≥ 320px). Recovers the
+    // wasted horizontal space the legacy single-column row layout left on phone.
+    // The active-group `×` delete affordance is gone — Edit → Archive (default)
+    // or Edit → Delete (gated, see openGroupSheet) is the only path.
+    const grid = el('div', { className: 'groups-grid', 'data-testid': 'groups-grid' });
     for (const g of groups) {
       const headCount = memberships.filter(m => m.groupId === g.id).length;
       const animals = getAll('animals');
@@ -195,33 +213,35 @@ export function renderAnimalsScreen(container) {
 
       const isFiltered = selectedFilter === g.id;
 
-      const row = el('div', {
-        style: { borderLeft: `3px solid ${g.color || 'var(--green)'}`, marginBottom: '6px', cursor: 'pointer', padding: '10px 12px', background: isFiltered ? 'var(--green-l)' : 'transparent', borderRadius: isFiltered ? '0 var(--radius) var(--radius) 0' : '0' },
+      // OI-0164: 2-column tile (no `\u00D7` delete affordance \u2014 Edit \u2192 Archive/Delete is the only path).
+      const tile = el('div', {
+        className: 'groups-grid-tile',
+        'data-testid': `group-tile-${g.id}`,
+        style: { borderLeft: `3px solid ${g.color || 'var(--green)'}`, background: isFiltered ? 'var(--green-l)' : 'transparent' },
         onClick: () => { selectedFilter = isFiltered ? null : g.id; renderAll(); },
       }, [
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' } }, [
-          el('div', {}, [
-            el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [
-              g.name, ' ',
-              isPlaced
-                ? el('span', { className: 'badge bt' }, [`active \u00B7 ${locName}`])
-                : el('span', { className: 'badge bb' }, ['unplaced']),
-            ]),
-            sexLine ? el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [sexLine]) : null,
-            el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
-              `${headCount} head \u00B7 avg ${avgWeightDisplay} ${unitLabel('weight', unitSys)} \u00B7 DMI target ${dmiDisplay} ${unitLabel('weight', unitSys)}/day`,
-            ]),
-          ].filter(Boolean)),
-          el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' }, onClick: (e) => e.stopPropagation() }, [
-            el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupSheet(g, operationId) }, ['Edit']),
-            isPlaced ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSplitGroupSheet(g, operationId) }, ['Split']) : null,
-            el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupWeightsSheet(g, operationId) }, ['Weights']),
-            el('button', { style: { border: 'none', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontSize: '18px', padding: '2px 4px' }, onClick: () => { if (confirm(`Delete group "${g.name}"?`)) remove('groups', g.id, 'groups'); } }, ['\u00D7']),
-          ].filter(Boolean)),
+        el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [
+          g.name, ' ',
+          isPlaced
+            ? el('span', { className: 'badge bt' }, [`active \u00B7 ${locName}`])
+            : el('span', { className: 'badge bb' }, ['unplaced']),
         ]),
-      ]);
-      groupsCard.appendChild(row);
+        sexLine ? el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [sexLine]) : null,
+        el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
+          `${headCount} head \u00B7 avg ${avgWeightDisplay} ${unitLabel('weight', unitSys)} \u00B7 DMI target ${dmiDisplay} ${unitLabel('weight', unitSys)}/day`,
+        ]),
+        el('div', {
+          style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' },
+          onClick: (e) => e.stopPropagation(),
+        }, [
+          el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupSheet(g, operationId) }, ['Edit']),
+          isPlaced ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSplitGroupSheet(g, operationId) }, ['Split']) : null,
+          el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupWeightsSheet(g, operationId) }, ['Weights']),
+        ].filter(Boolean)),
+      ].filter(Boolean));
+      grid.appendChild(tile);
     }
+    if (groups.length) groupsCard.appendChild(grid);
 
     if (!groups.length) {
       groupsCard.appendChild(el('div', { className: 'empty' }, ['No groups yet. Add one to organize your herd.']));
@@ -292,12 +312,19 @@ export function renderAnimalsScreen(container) {
     const groups = getAll('groups');
     const weightRecords = getAll('animalWeightRecords');
 
-    // Filter
+    // OI-0164: lifecycle filter is mutually exclusive — All (active only),
+    // Culls (culled only, no group filter), or a specific group (active in that
+    // group only). The 0.5-opacity styling on culled rows below is now visual
+    // confirmation inside the Culls view, not a way to dim mixed-in rows.
     let filtered = allAnimals;
-    if (!showCulled) filtered = filtered.filter(a => a.active !== false);
-    if (selectedFilter) {
+    if (selectedFilter === '__culls') {
+      filtered = filtered.filter(a => a.active === false);
+    } else if (selectedFilter) {
+      filtered = filtered.filter(a => a.active !== false);
       const groupAnimalIds = new Set(memberships.filter(m => m.groupId === selectedFilter).map(m => m.animalId));
       filtered = filtered.filter(a => groupAnimalIds.has(a.id));
+    } else {
+      filtered = filtered.filter(a => a.active !== false);
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -442,7 +469,7 @@ function ensureGroupSheetDOM() {
   ]));
 }
 
-function openGroupSheet(existingGroup, operationId) {
+export function openGroupSheet(existingGroup, operationId) {
   ensureGroupSheetDOM();
   if (!groupSheet) groupSheet = new Sheet('group-sheet-wrap');
   const panel = document.getElementById('group-sheet-panel');
@@ -531,8 +558,22 @@ function openGroupSheet(existingGroup, operationId) {
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
 
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '12px' } }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
+  // OI-0164: Edit-mode footer is Cancel · Save · Archive · Delete. Archive is
+  // primary destructive (preserves event history); Delete is gated on the same
+  // event_group_windows count check the archived-row Delete uses.
+  const eventCount = isEdit ? groupEventHistoryCount(existingGroup.id) : 0;
+  const deleteDisabled = eventCount > 0;
+
+  const cancelBtn = el('button', {
+    className: 'btn btn-outline',
+    'data-testid': 'group-sheet-cancel',
+    onClick: () => groupSheet.close(),
+  }, ['Cancel']);
+
+  const saveBtn = el('button', {
+    className: 'btn btn-green',
+    'data-testid': 'group-sheet-save',
+    onClick: () => {
       clear(statusEl);
       const name = nameInput.value.trim();
       if (!name) { statusEl.appendChild(el('span', {}, ['Name is required'])); return; }
@@ -575,15 +616,48 @@ function openGroupSheet(existingGroup, operationId) {
         for (const gid of affectedGroupIds) maybeShowEmptyGroupPrompt(gid);
         groupSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
-    } }, ['Save group']),
-    el('button', { className: 'btn btn-outline', onClick: () => groupSheet.close() }, ['Cancel']),
-  ]));
+    },
+  }, ['Save group']);
+
+  const footerChildren = [cancelBtn, saveBtn];
 
   if (isEdit) {
-    panel.appendChild(el('div', { style: { marginTop: '8px' } }, [
-      el('button', { className: 'btn btn-red btn-sm', style: { width: 'auto' }, onClick: () => { if (confirm(`Delete group "${existingGroup.name}"?`)) { remove('groups', existingGroup.id, 'groups'); groupSheet.close(); } } }, ['Delete group']),
-    ]));
+    const archiveBtn = el('button', {
+      className: 'btn btn-amber',
+      'data-testid': 'group-sheet-archive',
+      onClick: () => {
+        archiveGroup(existingGroup.id);
+        groupSheet.close();
+        showToast(`Group ${existingGroup.name} archived`);
+      },
+    }, [t('group.archiveButton') || 'Archive']);
+
+    const deleteBtn = el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'group-sheet-delete',
+      style: {
+        color: deleteDisabled ? 'var(--text2)' : 'var(--red)',
+        borderColor: deleteDisabled ? 'var(--border)' : 'var(--red)',
+        opacity: deleteDisabled ? '0.5' : '1',
+        cursor: deleteDisabled ? 'not-allowed' : 'pointer',
+      },
+      title: deleteDisabled
+        ? `This group is on ${eventCount} event(s). Archive instead to preserve history.`
+        : '',
+      onClick: () => {
+        if (deleteDisabled) return;
+        if (!confirm(`Delete group "${existingGroup.name}"?`)) return;
+        remove('groups', existingGroup.id, 'groups');
+        groupSheet.close();
+      },
+    }, ['Delete']);
+
+    if (deleteDisabled) deleteBtn.setAttribute('disabled', '');
+
+    footerChildren.push(archiveBtn, deleteBtn);
   }
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '12px' } }, footerChildren));
 
   groupSheet.open();
 }

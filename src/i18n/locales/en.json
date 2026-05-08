@@ -590,10 +590,14 @@
     "cullDateRequired": "Date is required.",
     "reactivate": "Reactivate",
     "reactivateConfirm": "Reactivate {label}? You can reassign them to a group after reactivation.",
-    "optional": "optional"
+    "optional": "optional",
+    "cullsChip": "Culls"
   },
   "group": {
-    "placeEmptyGroupWarning": "This group has no animals — add animals before placing it"
+    "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",
+    "archiveButton": "Archive",
+    "archivedToast": "Group {name} archived",
+    "deleteDisabledTooltip": "This group is on {count} event(s). Archive instead to preserve history."
   },
   "feed": {
     "title": "Feed",

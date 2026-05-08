@@ -278,6 +278,37 @@ A specific instance from the same session: V2_UX_FLOWS.md §17.7 line 1272 had r
 
 **Where:** `skills/doc-workflow/SKILL.md` (new section). `skills/project-scaffold/references/project-instructions-template.md` (Session Start Protocol step). `RELEASES.md` (v0.4.0 entry). `.claude-plugin/plugin.json` (version bump). All four edits shipped in plugin v0.4.0.
 
+### 20. Cowork commit guidance must check working-tree state for OPEN_ITEMS.md before drafting the push command — concurrent Claude Code commits can absorb pending Cowork edits and trip the orphan-flip hook on Cowork's follow-up
+
+**Plugin:** project-infrastructure
+**Skill:** deploy-gate, doc-workflow
+
+**What:** When Cowork drafts the paste-ready git commit/push command at the end of a session, the deploy-gate's command generator must run a state check first. If the session edited `OPEN_ITEMS.md` AND `git diff HEAD -- OPEN_ITEMS.md` returns empty (the edit is already at HEAD because a concurrent commit absorbed it), the generated command must:
+
+1. Drop `OPEN_ITEMS.md` from the `git add` list — it's already at HEAD, so adding it stages nothing.
+2. Add `--no-verify` to the `git commit` line.
+3. Include a one-line note in the commit message body that the OI's `OPEN_ITEMS.md` entry shipped in commit `<SHA>` (recoverable via `git log --diff-filter=A -p OPEN_ITEMS.md | grep -B5 OI-NNNN`) and that `--no-verify` bypasses the orphan-flip hook per the documented bypass case ("OI is mentioned but not being closed in this commit").
+
+The pre-flight check is one bash line: `git diff --quiet HEAD -- OPEN_ITEMS.md && echo "absorbed" || echo "diff present"`. If the session had a hand-on-OPEN_ITEMS.md and the result is `absorbed`, the path above kicks in.
+
+**Why:** GTHO-v2, 2026-05-08 cowork session for OI-0164 (animals area UI rework). Cowork drafted the OI-0164 entry via the Edit tool to `OPEN_ITEMS.md`, then drafted §15.0 / §15.2 in `V2_UX_FLOWS.md` and a thin pointer in `github/issues/`. While those edits sat in the working tree (un-staged, un-committed), Claude Code committed unrelated OI-0163 work — commit `555c370`, *"feat(events): OI-0163 — Place wizard for unplaced groups (A → B → C)"*. Claude Code's commit included `git add OPEN_ITEMS.md` to flip OI-0163's status line per the orphan-flip rule. The `git add` naturally pulled in Cowork's still-uncommitted OI-0164 entry too, since both edits lived in the same file. Both shipped in the same commit and pushed to origin together.
+
+By the time Tim ran the paste-ready Cowork command (`git add OPEN_ITEMS.md V2_UX_FLOWS.md github/issues/OI-0164_*.md && git commit -m "OI-0164 — Animals area UI rework spec..."`), `OPEN_ITEMS.md` was already at HEAD; `git add OPEN_ITEMS.md` staged nothing for that path. The commit-msg hook then fired *"OI-0164 referenced but OPEN_ITEMS.md is not in the staged diff"* and blocked the commit. Tim had to debug the commands by hand and re-run with `--no-verify`. Round-trip cost: one debug session, ~15 min, and a follow-up commit that should have been the only commit.
+
+The trigger is **concurrent Cowork ↔ Claude Code activity in shared docs**, which is increasingly common as both agents share repos. The bug class sits next to IMPROVEMENTS #14 (verify push landed) and #15 (atomic git add for spec-rename race) — same family of silent state divergence between Cowork's mental model of the repo and the git reality. None of the existing rules catch this variant: #14's SHA-match check passes (the partial-set push lands cleanly), #15's atomic-add issue doesn't fire (no spec-rename race), and #16's OPEN_ITEMS.md closure discipline assumes Cowork *itself* is the commit author flipping the status line.
+
+**How to apply:**
+
+1. **deploy-gate SKILL.md — Push command generator gains a pre-flight diff check.** Before emitting the paste-ready command, run `git diff --quiet HEAD -- OPEN_ITEMS.md` for any session that edited OPEN_ITEMS.md. If the file shows no working-tree diff, the edit shipped via a concurrent commit and the generator must (a) drop OPEN_ITEMS.md from the add list, (b) add `--no-verify` to the commit line, (c) include the explanatory note in the message body. Same for any other doc subject to a similar hook (PROJECT_CHANGELOG.md if a similar hook is added in future). Document the four cases the generator handles: working-tree diff present (default add+commit), working-tree clean and HEAD ≠ origin (the concurrent commit already pushed), working-tree clean and HEAD = origin (no edit needed at all — surface as a "nothing to commit on this file" note rather than a silent omission), staged-but-not-committed (intermediate state — flag as unusual).
+
+2. **doc-workflow SKILL.md — Spec Handoff section gains a "concurrent-edit awareness" subsection.** When Cowork edits OPEN_ITEMS.md in a project where Claude Code is known to commit autonomously (any project with a CLAUDE.md that grants Claude Code commit authority on PROJECT_CHANGELOG / git operations — i.e. most modern projects), Cowork should `git fetch && git status` before drafting the push command, not after the user reports a failure. Concretely: the deploy-gate's session-end protocol should `git fetch origin <branch>` and `git log HEAD..origin/<branch> --name-only -- OPEN_ITEMS.md` to detect commits that landed on origin during the session and may have absorbed Cowork's edits.
+
+3. **(Optional, project-specific) Orphan-flip hook gets a transitive-satisfaction clause.** If `git log --since="<deploy-gate-recent-window>" -p -- OPEN_ITEMS.md | grep -q "OI-NNNN"` finds the OI ID added to the file in a recent commit on the current branch, the current commit's reference is satisfied transitively and the hook passes without `--no-verify`. The "recent window" is project-tunable (e.g. 1 hour, or "since last push to origin"). Skill-level rule above is the portable cure; this hook polish is the belt-and-braces complement.
+
+**Where:** `deploy-gate` SKILL.md (Push command generator — pre-flight `git diff HEAD -- OPEN_ITEMS.md` check + `--no-verify` defaulting + the four-case state matrix in the generator's docstring). `doc-workflow` SKILL.md (Spec Handoff section — concurrent-edit awareness subsection with the `git fetch && git log HEAD..origin/<branch>` pattern). Optional: pre-commit hook template in `project-scaffold` SKILL.md (transitive-satisfaction clause for the orphan-flip rule).
+
+**Related memory:** Builds on IMPROVEMENTS #14 (verify push landed), #15 (atomic git add for spec-rename race), #16 (OPEN_ITEMS.md closure discipline — sibling/orphan/downstream-moot). Same family of silent-state-divergence-in-Cowork-handoff failures; this entry covers the concurrent-Claude-Code-commit variant. User auto-memory: complements `feedback_push_and_prompt.md` and `feedback_verify_push_landed.md`.
+
 **Related memory:** Same family as IMPROVEMENT #16 (OPEN_ITEMS.md closure discipline — orphan-flip rule) and IMPROVEMENT #18 (reconcile base docs at write time) — all three are "the artifact you're touching has invisible-from-here state that you must check before writing." OI numbering's invisible state is the closed-section history; orphan-flip's is the staged-files set; reconcile-at-write-time's is the canonical doc that wasn't open in your editor.
 
 ## Applied

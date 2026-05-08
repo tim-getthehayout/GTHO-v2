@@ -261,6 +261,25 @@ A specific instance from the same session: V2_UX_FLOWS.md §17.7 line 1272 had r
 
 **Related memory:** Stored as feedback memory `feedback_reconcile_base_docs_at_write_time.md` in the Cowork auto-memory for this user. Complements IMPROVEMENT #16 (OPEN_ITEMS.md closure discipline) — same drift class at the canonical-doc surface rather than the OI surface.
 
+### 19. Scan Open AND Closed sections before assigning a new OI number — closed OIs keep their numbers permanently
+**Plugin:** project-infrastructure
+**Skill:** doc-workflow, project-scaffold (session-start protocol)
+**Status:** **Applied in plugin v0.4.0 (2026-05-06).** Doc-workflow SKILL.md adds an "OI Numbering — Scan Open AND Closed Before Assigning" section. project-instructions-template.md adds a Session Start Protocol step. RELEASES.md documents the rule. Plugin file: `project-infrastructure-v0.4.0.plugin`.
+
+**What:** When filing a new OPEN_ITEMS.md entry, the next OI number is `MAX(open ∪ closed) + 1` — not `MAX(open) + 1`. Closed OIs retain their numbers permanently in deployed history (commit messages, closed-PR references, spec filenames in git). Reusing a closed OI's number creates a collision: two unrelated entries share an ID, ID-based searches return the wrong result, commit messages and spec filenames silently overlap with already-shipped work. The one-line scan to use: `grep -oE 'OI-[0-9]+' OPEN_ITEMS.md | sort -u | tail -5`.
+
+**Why:** GTHO-v2, 2026-05-06 — same afternoon as IMPROVEMENT #18. Cowork drafted a P1 OI about move-wizard partial-write behavior, assigned `OI-0159`, and shipped the entry into OPEN_ITEMS.md and a spec file in `github/issues/`. `OI-0159` had already been used and closed two days earlier (DMI bar tan/amber color swap, shipped + closed 2026-05-04). The trap: when OPEN_ITEMS.md uses the standard `## Open` / `## Closed` sectioning, the natural reading habit is to look at the top of `## Open`, see the highest visible OI (OI-0156 at the time), and increment by one. The closed entries below — OI-0157, OI-0158, OI-0159 (DMI bar tan), all shipped 2026-05-04 — got skipped. The collision wasn't caught until the follow-up session noticed two `### OI-0159` headers in the file. Fix was a clean renumber to OI-0162 (since 0160 and 0161 had also shipped by then), but the time spent renaming + verifying internal references is what this rule prevents.
+
+**How to apply (already in plugin v0.4.0):**
+1. **doc-workflow SKILL.md** — new "OI Numbering — Scan Open AND Closed Before Assigning" section after "Reconcile Canonical Base Docs at Write Time." Explains the trap, the one-line scan, what to do if a collision is caught after the fact (older entry keeps the number — it's already in deployed history; newer entry takes the next free number; document the renumber in the change log), and a session-start aid.
+2. **project-instructions-template.md** — Session Start Protocol gains step 4: "If the session is likely to file a new OI, scan OPEN_ITEMS.md for the highest OI number across both Open and Closed sections … and note the next available number."
+3. **RELEASES.md** — v0.4.0 entry documents the rule with the GTHO-v2 collision as the live example.
+4. **plugin.json** — version bumped 0.3.0 → 0.4.0.
+
+**Where:** `skills/doc-workflow/SKILL.md` (new section). `skills/project-scaffold/references/project-instructions-template.md` (Session Start Protocol step). `RELEASES.md` (v0.4.0 entry). `.claude-plugin/plugin.json` (version bump). All four edits shipped in plugin v0.4.0.
+
+**Related memory:** Same family as IMPROVEMENT #16 (OPEN_ITEMS.md closure discipline — orphan-flip rule) and IMPROVEMENT #18 (reconcile base docs at write time) — all three are "the artifact you're touching has invisible-from-here state that you must check before writing." OI numbering's invisible state is the closed-section history; orphan-flip's is the staged-files set; reconcile-at-write-time's is the canonical doc that wasn't open in your editor.
+
 ## Applied
 
 _(Entries move here after the plugin skill is updated)_

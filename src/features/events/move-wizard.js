@@ -8,19 +8,19 @@ import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/wind
 import { logger } from '../../utils/logger.js';
 import { maybeShowEmptyGroupPrompt } from '../animals/empty-group-prompt.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert, unitLabel } from '../../utils/units.js';
+import { convert } from '../../utils/units.js';
 import * as EventEntity from '../../entities/event.js';
-import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
-import * as GroupWindowEntity from '../../entities/event-group-window.js';
-import { createObservation, renderLocationPicker } from './index.js';
+import { createObservation } from './index.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
-import { getEventStartDate } from './event-start.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 import { showToast } from '../../ui/toast.js';
+import {
+  renderStep1, renderStep2, createDestinationEvent, joinExistingEvent,
+} from './wizard-shared.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -92,229 +92,13 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
       el('span', { className: `wiz-dot${state.step >= 3 ? ' active' : ''}` }),
     ]));
 
-    if (state.step === 1) renderStep1(panel, state, render);
+    if (state.step === 1) renderStep1(panel, state, render, () => moveWizardSheet?.close());
     else if (state.step === 2) renderStep2(panel, state, render, operationId, sourceEvent);
     else renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys);
   }
 
   render();
   moveWizardSheet.open();
-}
-
-// Step 1: Destination type
-function renderStep1(panel, state, render) {
-  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.step1Title')]));
-
-  const grid = el('div', { style: { display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' } });
-
-  grid.appendChild(el('div', {
-    className: `dest-type-card${state.destType === 'new' ? ' selected' : ''}`,
-    'data-testid': 'move-wizard-dest-new',
-    onClick: () => { state.destType = 'new'; render(); },
-  }, [t('event.newLocation')]));
-
-  grid.appendChild(el('div', {
-    className: `dest-type-card${state.destType === 'join' ? ' selected' : ''}`,
-    'data-testid': 'move-wizard-dest-join',
-    onClick: () => { state.destType = 'join'; render(); },
-  }, [t('event.joinExisting')]));
-
-  panel.appendChild(grid);
-
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
-    el('button', {
-      className: 'btn btn-green',
-      'data-testid': 'move-wizard-step-1-next',
-      disabled: !state.destType ? 'true' : undefined,
-      onClick: () => {
-        if (state.destType) { state.step = 2; render(); }
-      },
-    }, [t('action.next')]),
-    el('button', {
-      className: 'btn btn-outline',
-      onClick: () => moveWizardSheet.close(),
-    }, [t('action.cancel')]),
-  ]));
-}
-
-// Step 2: Location picker (new) or event picker (join)
-function renderStep2(panel, state, render, operationId, sourceEvent) {
-  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [
-    state.destType === 'new' ? t('event.step2Title') : t('event.step2ExistingTitle'),
-  ]));
-
-  if (state.destType === 'new') {
-    // Farm chip — scopes location picker to a specific farm (GH-5)
-    const allFarms = getAll('farms').filter(f => !f.archived);
-    if (allFarms.length > 1) {
-      const destFarm = allFarms.find(f => f.id === state.destFarmId);
-      const farmChip = el('div', { className: 'wizard-farm-chip', 'data-testid': 'move-wizard-farm-chip' }, [
-        el('span', {}, [`Farm: ${destFarm?.name || '?'}`]),
-        el('select', {
-          className: 'auth-select', style: { marginLeft: 'var(--space-2)', maxWidth: '160px' },
-          'data-testid': 'move-wizard-farm-select',
-        }, allFarms.map(f => el('option', { value: f.id, ...(f.id === state.destFarmId ? { selected: 'true' } : {}) }, [f.name]))),
-      ]);
-      farmChip.querySelector('select').addEventListener('change', (e) => {
-        state.destFarmId = e.target.value;
-        state.locationId = null; // Reset location when farm changes
-        render();
-      });
-      panel.appendChild(farmChip);
-    }
-
-    // Location picker — filtered by destination farm
-    const locations = getAll('locations').filter(l => !l.archived && l.farmId === state.destFarmId);
-    const selection = { locationId: state.locationId };
-    const pickerEl = el('div', { 'data-testid': 'move-wizard-location-picker' });
-    renderLocationPicker(pickerEl, locations, selection);
-
-    // Sync selection back to wizard state on click
-    pickerEl.addEventListener('click', () => {
-      state.locationId = selection.locationId;
-    });
-    panel.appendChild(pickerEl);
-
-    // Strip graze toggle
-    const stripToggle = el('div', { style: { marginTop: 'var(--space-4)' } });
-    const stripCheckbox = el('input', {
-      type: 'checkbox',
-      'data-testid': 'move-wizard-strip-graze',
-      ...(state.stripGraze ? { checked: 'true' } : {}),
-    });
-    stripCheckbox.addEventListener('change', () => {
-      state.stripGraze = stripCheckbox.checked;
-      render();
-    });
-    stripToggle.appendChild(el('label', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-3)', cursor: 'pointer' } }, [
-      stripCheckbox,
-      el('span', { className: 'form-label', style: { margin: '0' } }, [t('event.stripGraze')]),
-    ]));
-    panel.appendChild(stripToggle);
-
-    // Strip size inputs (only if strip graze enabled)
-    if (state.stripGraze) {
-      const loc = state.locationId ? getById('locations', state.locationId) : null;
-      const paddockAreaHa = loc?.areaHectares || 0;
-      const unitSys = getUnitSystem();
-      const areaUnit = unitLabel('area', unitSys);
-
-      // Area input (acres or hectares depending on unit system)
-      const displayArea = paddockAreaHa > 0
-        ? (unitSys === 'imperial'
-          ? convert(paddockAreaHa * state.stripSizePct / 100, 'area', 'toImperial')
-          : paddockAreaHa * state.stripSizePct / 100)
-        : '';
-      panel.appendChild(el('label', { className: 'form-label' }, [`${t('event.stripArea')} (${areaUnit})`]));
-      const stripAreaInput = el('input', {
-        type: 'number',
-        className: 'auth-input settings-input',
-        value: displayArea !== '' ? parseFloat(displayArea.toFixed(2)) : '',
-        'data-testid': 'move-wizard-strip-area',
-        ...(paddockAreaHa <= 0 ? { disabled: 'true', placeholder: t('event.selectLocationFirst') } : {}),
-      });
-      stripAreaInput.addEventListener('input', () => {
-        if (paddockAreaHa <= 0) return;
-        let areaInHa = parseFloat(stripAreaInput.value) || 0;
-        if (unitSys === 'imperial') {
-          areaInHa = convert(areaInHa, 'area', 'toMetric');
-        }
-        state.stripSizePct = paddockAreaHa > 0 ? Math.round((areaInHa / paddockAreaHa) * 100) : 100;
-        state.stripCount = state.stripSizePct > 0 ? Math.ceil(100 / state.stripSizePct) : 1;
-        // Update percentage input without re-rendering
-        if (pctInput) pctInput.value = state.stripSizePct;
-        if (countInput) countInput.value = state.stripCount;
-      });
-      panel.appendChild(stripAreaInput);
-
-      // Percentage input
-      panel.appendChild(el('label', { className: 'form-label' }, [t('event.stripSize')]));
-      const pctInput = el('input', {
-        type: 'number',
-        className: 'auth-input settings-input',
-        value: state.stripSizePct,
-        'data-testid': 'move-wizard-strip-size',
-      });
-      pctInput.addEventListener('input', () => {
-        const val = parseFloat(pctInput.value) || 0;
-        state.stripSizePct = val;
-        state.stripCount = val > 0 ? Math.ceil(100 / val) : 1;
-        // Update area input
-        if (paddockAreaHa > 0 && stripAreaInput) {
-          let areaVal = paddockAreaHa * val / 100;
-          if (unitSys === 'imperial') areaVal = convert(areaVal, 'area', 'toImperial');
-          stripAreaInput.value = parseFloat(areaVal.toFixed(2));
-        }
-        if (countInput) countInput.value = state.stripCount;
-      });
-      panel.appendChild(pctInput);
-
-      // Count input
-      panel.appendChild(el('label', { className: 'form-label' }, [t('event.stripCount')]));
-      const countInput = el('input', {
-        type: 'number',
-        className: 'auth-input settings-input',
-        value: state.stripCount,
-        'data-testid': 'move-wizard-strip-count',
-      });
-      countInput.addEventListener('input', () => {
-        const val = parseInt(countInput.value, 10) || 1;
-        state.stripCount = val;
-        state.stripSizePct = val > 0 ? Math.round(100 / val) : 100;
-        // Update area + pct inputs
-        if (pctInput) pctInput.value = state.stripSizePct;
-        if (paddockAreaHa > 0 && stripAreaInput) {
-          let areaVal = paddockAreaHa * state.stripSizePct / 100;
-          if (unitSys === 'imperial') areaVal = convert(areaVal, 'area', 'toImperial');
-          stripAreaInput.value = parseFloat(areaVal.toFixed(2));
-        }
-      });
-      panel.appendChild(countInput);
-    }
-  } else {
-    // Existing event picker
-    const activeEvents = getAll('events').filter(e => !e.dateOut && e.id !== sourceEvent.id);
-    if (!activeEvents.length) {
-      panel.appendChild(el('p', { className: 'form-hint' }, [t('event.noActiveEvents')]));
-    } else {
-      for (const evt of activeEvents) {
-        const pw = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
-        const locNames = pw.map(w => {
-          const loc = getById('locations', w.locationId);
-          return loc ? loc.name : '?';
-        }).join(', ');
-        const isSelected = state.existingEventId === evt.id;
-
-        panel.appendChild(el('div', {
-          className: `loc-picker-item${isSelected ? ' selected' : ''}`,
-          'data-testid': `move-wizard-event-${evt.id}`,
-          onClick: () => { state.existingEventId = evt.id; render(); },
-        }, [
-          el('div', {}, [
-            el('span', { style: { fontWeight: '500' } }, [locNames || evt.id.slice(0, 8)]),
-            el('div', { className: 'window-detail' }, [getEventStartDate(evt.id) || '']),
-          ]),
-        ]));
-      }
-    }
-  }
-
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
-    el('button', {
-      className: 'btn btn-outline',
-      onClick: () => { state.step = 1; render(); },
-    }, [t('action.back')]),
-    el('button', {
-      className: 'btn btn-green',
-      'data-testid': 'move-wizard-step-2-next',
-      onClick: () => {
-        if (state.destType === 'new' && !state.locationId) return;
-        if (state.destType === 'join' && !state.existingEventId) return;
-        state.step = 3;
-        render();
-      },
-    }, [t('action.next')]),
-  ]));
 }
 
 // Step 3: Close & Move
@@ -889,61 +673,23 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       const dateIn = inputs.dateIn.value || dateOut;
       const timeIn = inputs.timeIn.value || null;
 
-      // Step 6: Create new event
-      // OI-0122: sourceEventId is always set on rotations (same-farm AND cross-farm)
-      // so the DMI-8 chart's date-routing bridge (dmi-chart-context.js:140-142)
-      // can reach back to the prior event for days that pre-date the new event's
-      // start. The display-side "← Moved from {farm}" banner at events/index.js:346
-      // already applies a farmId comparison, so same-farm rotations won't trigger
-      // the banner even though sourceEventId is now populated.
-      const isCrossFarm = state.destFarmId && state.destFarmId !== farmId;
-      // OI-0117: date_in/time_in dropped — start is derived from the first
-      // child paddock window (created immediately below with dateOpened/timeOpened).
-      const newEvent = EventEntity.create({
+      // Steps 6 + 7 + 9 — create the destination event, paddock window,
+      // group windows, and the open paddock observation. OI-0122:
+      // sourceEventId is always set on rotations (same-farm AND cross-farm)
+      // so DMI-8 chart's date-routing bridge can reach back to the prior
+      // event. OI-0091: live head/avg values are captured into
+      // sourceGroupState above, so the destination GW writes use the
+      // as-of-close-out snapshot.
+      const { newEvent } = createDestinationEvent({
+        state,
         operationId,
-        farmId: state.destFarmId || farmId,
+        farmId,
         sourceEventId: sourceEvent.id,
+        dateIn,
+        timeIn,
+        groupSnapshots: sourceGroupState,
+        preGrazeValues: preGraze ? preGraze.getValues() : {},
       });
-      add('events', newEvent, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
-
-      // Create paddock window at destination
-      const pwData = {
-        operationId,
-        eventId: newEvent.id,
-        locationId: state.locationId,
-        dateOpened: dateIn,
-        timeOpened: timeIn,
-      };
-
-      // Step 9: Strip graze flags
-      if (state.stripGraze) {
-        pwData.isStripGraze = true;
-        pwData.stripGroupId = crypto.randomUUID();
-        pwData.areaPct = state.stripSizePct;
-      }
-
-      const newPW = PaddockWindowEntity.create(pwData);
-      add('eventPaddockWindows', newPW, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-
-      // Create group windows for all groups that were on the source event.
-      // OI-0091: stamp live values as of dateIn (sourceGroupState captured before close).
-      for (const gs of sourceGroupState) {
-        if (gs.headCount < 1) continue;
-        const newGW = GroupWindowEntity.create({
-          operationId,
-          eventId: newEvent.id,
-          groupId: gs.groupId,
-          dateJoined: dateIn,
-          timeJoined: timeIn,
-          headCount: gs.headCount,
-          avgWeightKg: gs.avgWeightKg,
-        });
-        add('eventGroupWindows', newGW, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
-      }
-
-      // Step 7: Open observation for destination paddock
-      createObservation(operationId, state.locationId, 'open', newPW.id, new Date().toISOString(),
-        preGraze ? preGraze.getValues() : {});
 
       // Step 8: Feed transfer — only 'move' lines write a destination delivery row.
       // 'residual' lines are already captured by the close-reading remainingQuantity
@@ -968,30 +714,14 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
 
     } else {
       // Join existing event — add group windows (OI-0091: live values, duplicate-open guard)
-      const dateIn = dateOut;
-      const timeIn = timeOut;
-
-      for (const gs of sourceGroupState) {
-        if (gs.headCount < 1) continue;
-        const existingOpen = getAll('eventGroupWindows')
-          .find(w => w.groupId === gs.groupId && w.eventId === state.existingEventId && !w.dateLeft);
-        if (existingOpen) {
-          logger.warn('move-wizard', 'duplicate-open-window guard: skipping', {
-            groupId: gs.groupId, eventId: state.existingEventId, existingWindowId: existingOpen.id,
-          });
-          continue;
-        }
-        const newGW = GroupWindowEntity.create({
-          operationId,
-          eventId: state.existingEventId,
-          groupId: gs.groupId,
-          dateJoined: dateIn,
-          timeJoined: timeIn,
-          headCount: gs.headCount,
-          avgWeightKg: gs.avgWeightKg,
-        });
-        add('eventGroupWindows', newGW, GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
-      }
+      joinExistingEvent({
+        operationId,
+        existingEventId: state.existingEventId,
+        groupSnapshots: sourceGroupState,
+        dateJoined: dateOut,
+        timeJoined: timeOut,
+        logCategory: 'move-wizard',
+      });
     }
 
     // OI-0162-B: success path — wizard closes from the finally block.

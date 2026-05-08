@@ -330,6 +330,10 @@
     "moveWizardSaveErrorToast": "Move ran into an error mid-save — please review the source event and any duplicate destination event before retrying.",
     "moveWizardSourceClosed": "This event was already closed. The move may have already happened — close this dialog and check the destination paddock.",
     "moveWizardNothingToMove": "There are no open groups on this event to move. Refresh the dashboard to see the current state.",
+    "placeStep1Title": "Place {group}",
+    "placeStep3Title": "Open at {location}",
+    "placeStep3TitleJoin": "Add {group} to {location}",
+    "placeWizardSaveError": "Save failed: {error}",
     "noActiveEvents": "No active events to join.",
     "closeEvent": "Close Event",
     "closeEventTitle": "Close Event",
@@ -587,6 +591,9 @@
     "reactivate": "Reactivate",
     "reactivateConfirm": "Reactivate {label}? You can reassign them to a group after reactivation.",
     "optional": "optional"
+  },
+  "group": {
+    "placeEmptyGroupWarning": "This group has no animals — add animals before placing it"
   },
   "feed": {
     "title": "Feed",

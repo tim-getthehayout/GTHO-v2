@@ -13,6 +13,7 @@ import { openTodoSheet } from '../todos/todo-sheet.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { unitLabel } from '../../utils/units.js';
 import { openMoveWizard } from '../events/move-wizard.js';
+import { openPlaceWizard } from '../events/place-wizard.js';
 import { openCloseEventSheet } from '../events/close.js';
 import { openSubmoveOpenSheet, openSubmoveCloseSheet } from '../events/submove.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
@@ -917,7 +918,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   body.appendChild(el('div', { className: 'grp-actions' }, [
     isOnPasture
       ? el('button', { className: 'btn btn-teal', 'data-testid': `dashboard-move-btn-${group.id}`, onClick: (e) => { e.stopPropagation(); openMoveWizard(activeEvent, operationId, farmId, { scopedGroupWindowId: activeGW?.id }); } }, ['Move'])
-      : el('button', { className: 'btn btn-teal', 'data-testid': `dashboard-place-btn-${group.id}`, onClick: (e) => { e.stopPropagation(); navigate('#/events'); } }, ['Place']),
+      : el('button', { className: 'btn btn-teal', 'data-testid': `dashboard-place-btn-${group.id}`, onClick: (e) => { e.stopPropagation(); openPlaceWizard(group.id, operationId, farmId); } }, ['Place']),
     el('button', { className: 'btn btn-outline', onClick: (e) => { e.stopPropagation(); navigate('#/animals'); } }, ['Weights']),
     el('button', { className: 'btn btn-outline', onClick: (e) => { e.stopPropagation(); navigate('#/animals'); } }, ['Edit']),
   ]));
@@ -987,7 +988,7 @@ function renderLocationsView(gridEl) {
       const hc = memberships.filter(m => m.groupId === group.id).length;
       section.appendChild(el('div', { className: 'card', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)', padding: '10px 14px' } }, [
         el('span', { style: { fontSize: '13px' } }, [`${group.name} \u00B7 ${hc} head`]),
-        el('button', { className: 'btn btn-teal btn-sm', onClick: () => navigate('#/events') }, [t('dashboard.place')]),
+        el('button', { className: 'btn btn-teal btn-sm', 'data-testid': `dashboard-unplaced-place-btn-${group.id}`, onClick: () => openPlaceWizard(group.id, operationId, farmId) }, [t('dashboard.place')]),
       ]));
     }
     gridEl.appendChild(section);

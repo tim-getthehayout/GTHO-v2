@@ -4,11 +4,91 @@
 
 ---
 
+### OI-0164 — Animals area UI rework: groups list goes 2-column tiles, Archive button added to Group Edit sheet, "Show culled" checkbox replaced with a Culls filter pill
+
+**Added:** 2026-05-08 | **Area:** v2-build / animals route / groups list / animal list filters | **Priority:** P2 (UX polish — animals area works today, but the groups list burns horizontal space on phone and the cull surface is the wrong shape for big operations)
+
+**Status:** open — **DESIGN LOCKED**. Ready for Claude Code.
+
+**Background.** The animals route (`#/animals`, rendered by `src/features/animals/index.js`) stacks three regions: a chip-based filter row (`All` + per-group chips + search bar + `Show culled` checkbox + `+ Add animal`), a config row (Classes / Treatments / AI Sires), and two stacked sections — a Groups list and an Animals list. Three things are off:
+
+1. **Groups list wastes horizontal space.** Today's `renderGroupsList` (~133–283) renders each active group as a single-column full-width row with a left colour stripe. On a phone, the right half of every row past the action buttons is dead space. With 4–8 groups in a typical operation, this scrolls a long way for content that would fit two-up.
+2. **No manual archive entry point.** The schema supports archive (`groups.archived_at` timestamptz, migration 024 / SP-11). Today the only path that stamps `archivedAt` is the empty-group prompt (OI-0090) that fires when the last animal leaves a group. From the Group Edit sheet (`openGroupSheet`, ~445–589) the only destructive action is **Delete**, which is wrong primary semantics for a group that has event history (it destroys provenance instead of preserving it).
+3. **"Show culled" checkbox mixes culls into the active list at 50% opacity.** The current control (~111–123) is a checkbox-with-amber-accent in the secondary controls row. When checked, culled animals appear in the same list as active animals, just dimmed. In a 200-animal operation, finding one cull in the dimmed mix is hard; the goal of this rework is an **exclusive** culls view, not a mixed view.
+
+**Three sub-items.**
+
+**Sub-item A — Groups list: 2-column tile grid (always, including phone).** Replace the inline-stacked rows in `renderGroupsList` with a CSS grid: `grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch;`. Each tile keeps the same content as today's row but rendered as a self-contained card: 3px left colour stripe, name + status badge (`active · {location}` or `unplaced`), sex breakdown line, head + avg weight + DMI line, and the action buttons (Edit / Split / Weights). Padding shifts from `10px 12px` (row) to `12px` (tile). Tiles stretch to match the tallest in the row.
+
+The tile's action button row may need to wrap on a narrow phone (380px ÷ 2 = 190px per tile). That's acceptable — wrapping is preferable to truncating button labels. The archived-groups section below the active grid stays single-column (low traffic, longer per-row text — `Archived 2026-04-12 · last headcount 17 · 8 events` — and the action buttons are wider).
+
+Tim explicitly wants the 2-column behavior at all viewports, not just desktop, because the phone view is where the wasted space is most visible.
+
+**Sub-item B — Group Edit sheet: Archive becomes the primary destructive action, Delete moves to "disabled-unless-no-events" fallback.** In `openGroupSheet`, the existing footer is Cancel · Save · Delete (one-click destructive). Replace with **Cancel · Save · Archive · Delete**. Behavior:
+
+- **Archive button** — runs the same `archiveGroup(g.id)` write that the empty-group prompt uses today: stamps `archivedAt = now()`, queues sync, closes the sheet, fires a toast (`Group {name} archived`). Visible only in edit mode, not create mode.
+- **Delete button** — applies the same gate as the archived-groups row delete (`src/features/animals/index.js:264–271`): disabled with tooltip *"This group is on N event(s). Archive instead to preserve history."* when the group has ≥ 1 `event_group_windows`. Enabled and one-step-destructive (`confirm("Delete group ...?")`) when there are 0 event windows.
+
+This brings the edit sheet into parity with the archived-row controls — same gate, same wording, same primary-vs-fallback hierarchy.
+
+The `×` icon button on the active-group tile (today's `src/features/animals/index.js:219`) goes away — that was the only "delete" surface on an active group, and it bypassed the archive-first model. Edit is the only path to remove a group going forward.
+
+**Sub-item C — Animals list: drop "Show culled" checkbox, add `Culls (N)` filter pill at the end of the chips row.** Three coordinated changes in `renderFilterHeader` and `renderAnimalList`:
+
+1. **Drop the checkbox.** Remove the `showCulledCheck` element (~111–117), the `Show culled` label, the secondary controls flex row that hosts it (~115–123 keeping only the `+ Add animal` button), and the `showCulled` state variable. The `+ Add animal` button stays — re-anchor it inline at the end of the chips row (or in a single-action row below if chips wrap).
+2. **Add `Culls (N)` chip.** Append a final chip to the existing `agc-chips` row, after the per-group chips. Visual: amber dot prefix (`var(--amber)`) for parity with the dropped checkbox's amber accent; label text is `Culls (N)` where N is the count of `animals` with `active === false`. Hidden when N is 0 (no culls in the operation).
+3. **Filter logic update in `renderAnimalList`.** Three mutually exclusive states:
+   - `selectedFilter === null` (the `All` chip is active, default) → `filtered = animals.filter(a => a.active !== false)` — active only.
+   - `selectedFilter === '__culls'` (the `Culls` chip is active) → `filtered = animals.filter(a => a.active === false)` — culls only. Group membership filter does NOT apply.
+   - `selectedFilter === <groupId>` (a group chip is active) → existing behavior, filtered by group membership AND `active !== false`.
+
+Tapping any chip deselects whatever was selected before — the three states are mutually exclusive. Search continues to work in any of the three states (search-within-current-filter).
+
+The existing 0.5-opacity styling on culled rows (`src/features/animals/index.js:383`) stays — it's now the *visual confirmation inside the Culls view* that this row is culled, not a way to dim mixed-in culls.
+
+**Files (combined):**
+
+| File | Purpose |
+|------|---------|
+| `src/features/animals/index.js` | `renderGroupsList` (tile grid + drop `×` icon), `openGroupSheet` (Archive + Delete-gated buttons), `renderFilterHeader` (drop `showCulled` checkbox, add `Culls (N)` chip), `renderAnimalList` (sentinel-based filter logic) |
+| `src/styles/index.css` (or wherever `.agc-chips` and `.grp-card` live) | Add `.groups-grid` (2-col CSS grid). Add `.agc-chip-culls` modifier with amber dot. |
+| `src/i18n/locales/en.json` | New keys: `group.archiveButton` ("Archive"), `group.archivedToast` ("Group {name} archived"), `group.deleteDisabledTooltip` (reuse existing wording from archived-row delete), `animal.cullsChip` ("Culls") |
+| `tests/unit/animals/` | Cover: tile grid renders one tile per active group; Archive button calls `archiveGroup`; Delete button is disabled when `event_group_windows` count > 0; `Culls` chip toggles cull-only filter; tapping group chip while `Culls` is active deselects `Culls` |
+
+**No schema changes. No migrations. No CP-55/CP-56 impact.** Pure UI rework over existing data.
+
+**Acceptance criteria:**
+
+- [ ] Animals route renders the groups list as a 2-column grid at all viewports (≥ 320px). Archived groups section below stays single-column.
+- [ ] Each active group tile shows name + status badge + sex breakdown + head/avg weight/DMI line + Edit / Split (if placed) / Weights buttons. The `×` delete icon is gone.
+- [ ] Group Edit sheet footer has Cancel · Save · Archive · Delete buttons. Archive stamps `archivedAt = now()`, closes the sheet, fires the `Group {name} archived` toast. Delete is disabled with the *"This group is on N event(s)…"* tooltip when the group has ≥ 1 `event_group_windows`; enabled and one-step destructive otherwise.
+- [ ] Filter chip row shows: `All` · per-group chips · `Culls (N)` (when N > 0). The "Show culled" checkbox no longer renders. The `showCulled` state variable is gone.
+- [ ] Tapping `Culls` filters the animal list to `active === false` only and visually highlights the chip the same way active group chips highlight today.
+- [ ] Tapping `All` or any group chip while `Culls` is active deselects `Culls` and returns to active-only filtering (or group-and-active filtering).
+- [ ] Search bar works within whatever lifecycle state is active — i.e. when `Culls` is active, search filters within culls.
+- [ ] Grep contract: `grep -n "Show culled" src/features/animals/index.js` returns 0 matches.
+- [ ] Grep contract: `grep -n "showCulled" src/features/animals/index.js` returns 0 matches.
+- [ ] Grep contract: `grep -nE "'\\\\u00D7'|'×'" src/features/animals/index.js` returns 0 matches at the active-group tile (line 219 today). The archived-row Delete button stays.
+- [ ] V2_UX_FLOWS.md §15.0 (new) documents the animals route screen layout with the tile grid + Culls pill pattern; §15.2 footer updated to include Archive button + gated Delete.
+
+**Spec file:** `github/issues/OI-0164_animals-area-ui-rework.md` — thin pointer to OPEN_ITEMS.md OI-0164 + V2_UX_FLOWS.md §15.0 / §15.2 (per "specs in base docs, not spec files" rule; this OI is outside the active UI sprint, so the full spec lives in V2_UX_FLOWS, not the spec file).
+
+**CP-55/CP-56 spec impact:** None. Pure UI rework — no schema, entity, JSONB, or migration changes. Backup round-trip is unaffected.
+
+**V2_UX_FLOWS.md updates (this session):**
+
+1. Add **§15.0 Animals Screen Layout** between §15's intro paragraph and §15.1. Documents the chip row (All + per-group chips + Culls pill), search bar, config row, groups grid (2-col), animals list. Sits as the screen-level overview that hosts §15.1 and §15.2 sheets.
+2. Update **§15.2 Group CRUD Sheet** to add an "Edit-mode footer actions" subsection: Cancel · Save · Archive · Delete with the gated-Delete tooltip wording.
+
+**Origin:** 2026-05-08 cowork session. Tim observed (a) the groups list was wasting horizontal space on phone, (b) there was no manual archive entry point on the Group Edit sheet (today's only path is the empty-group cascade from OI-0090), and (c) the "Show culled" mixed view made it hard to find one cull among hundreds. Locked design after a single clarifying round on cull-pill semantics: pill replaces the checkbox entirely (exclusive view), Archive button added to edit sheet (Delete becomes a fallback gated on event-history count), groups grid goes 2-col at all viewports.
+
+---
+
 ### OI-0163 — Place button on unplaced groups dumps user on rotation calendar instead of opening a placement flow — implement Place mode of the wizard family (no source event)
 
 **Added:** 2026-05-08 | **Area:** v2-build / move-wizard / dashboard | **Priority:** P1 (blocks Tim's current workflow — animals split into new groups on 2026-05-07 cannot be placed without manually creating a new event from scratch via the rotation calendar; the documented dashboard Place flow is broken)
 
-**Status:** open — **DESIGN LOCKED**. Ready for Claude Code.
+**Status:** closed 2026-05-08 — **A + B + C shipped in single bundled commit.** `wizard-shared.js` extracted (renderStep1, renderStep2, createDestinationEvent, joinExistingEvent — pure refactor, all 45 existing move-wizard tests still pass). `place-wizard.js` built as a sibling orchestrator: empty-group pre-open guard + Step 3 stripped to Open destination only + steps 6/7/9 of §1.6 on Save. Dashboard Place buttons (line 921 group card + line 991 Unplaced section) wired to `openPlaceWizard(group.id, operationId, farmId)`. Field-mode confirmed Place-free. 12 new tests in `tests/unit/events/place-wizard.test.js` cover empty-group toast + Step navigation + Save in all four shape combinations (new+land / new+confinement / join / strip-graze) + cross-farm + Save-throw error path. Grep contracts hold: `function renderStep1\|function renderStep2` returns 0 in `move-wizard.js`; `createDestinationEvent\|joinExistingEvent` returns ≥ 2 in `wizard-shared.js`; `sourceEvent\|sourceEventId\|source_event_id` returns 0 in `place-wizard.js` (seam enforced at file boundary, not by null — `createDestinationEvent`'s `sourceEventId` defaults to null so the place call site simply omits it); `closeGroupWindow\|closePaddockWindow` returns 0 in `place-wizard.js`; `feedEntries\|getLiveRemainingForMove\|FeedEntryEntity` returns 0 in `place-wizard.js`; `navigate('#/events')` returns 0 in `dashboard/index.js`; `openPlaceWizard` returns ≥ 2 in `dashboard/index.js`. i18n keys added: `event.placeStep1Title`, `event.placeStep3Title`, `event.placeStep3TitleJoin`, `event.placeWizardSaveError`, `group.placeEmptyGroupWarning` (5 keys total — spec listed 4 but Step 3 needs both new-location and join variants). Full suite green: 1517 / 1517 tests pass; lint + build clean.
 
 **Bug:** The two `Place` buttons in `src/features/dashboard/index.js` (line 920 — group card when no active event; line 990 — Unplaced groups section in Locations view) both run `() => navigate('#/events')`, dumping the user on the rotation calendar with no placement context. There is no call to `openMoveWizard` from either site. V2_UX_FLOWS.md §17.7 lines 1259 + 1331 already document the intended behavior ("opens move wizard with the group pre-selected and no source event") — the code never matched the spec. This is a doc/code drift, not a regression.
 

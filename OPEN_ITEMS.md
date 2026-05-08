@@ -4,15 +4,49 @@
 
 ---
 
-### OI-0162 — Move wizard: three compounding bugs (0-remaining still prompts move/residual, partial-write on validate throw with wizard left open, no idempotency guard on closed source) — orphan B-3 event written 2026-05-06
+### OI-0163 — Place button on unplaced groups dumps user on rotation calendar instead of opening a placement flow — implement Place mode of the wizard family (no source event)
 
-**Added:** 2026-05-06 | **Area:** v2-build / move-wizard / data-integrity | **Priority:** P1 (live data integrity bug — Tim hit it on 2026-05-06 moving Shenk Culls + Bull Group from D → B-3; produced one orphan destination event with a paddock window but no group windows; Supabase cleanup already applied this session)
+**Added:** 2026-05-08 | **Area:** v2-build / move-wizard / dashboard | **Priority:** P1 (blocks Tim's current workflow — animals split into new groups on 2026-05-07 cannot be placed without manually creating a new event from scratch via the rotation calendar; the documented dashboard Place flow is broken)
 
-**Status:** open — **DESIGN LOCKED** on all three sub-items. Ready for Claude Code.
+**Status:** open — **DESIGN LOCKED**. Ready for Claude Code.
 
-**Live repro (2026-05-06):** Tim moved Shenk Culls + Bull Group from paddock D to B-3. Live remaining feed on D was 0 (last delivery was 1 bale on 2026-04-29; most recent feed-check item for that batch/loc stamped 0). The wizard rendered the Move/Residual radio anyway with a default "0" residual input. Tim clicked Save with the default Move radio still selected. The wizard wrote source-side closes (group windows, paddock window, event date_out, close-reading check), wrote the destination event + paddock window + group windows + open observation, then threw on Step 8's destination delivery insert (`FeedEntryEntity.validate` rejects `quantity <= 0` — `event-feed-entry.js:46`). The catch handler painted the error in `statusEl` and **left the wizard open** because `moveWizardSheet.close()` is the very last line of the try block, never reached. Tim saw the error message, switched the radio to "Residual" with value 0, clicked Save again → that ran a second pass on a now-closed source: `allOpenSourceGWs` came back empty, so no group windows were created on the second destination event (the orphan). Final state: two B-3 events sharing the same `source_event_id`, one with both groups (Run 1) and one with only a paddock window + open observation (Run 2). Cleanup SQL applied 2026-05-06: orphan event `01b1617f-c54a-4048-8317-bbdbbb359cc1` + its paddock window `57257407-b178-4855-a1fe-3d5fc30e5f08` + the open observation `8167b0d0-5ce4-4218-8756-0acccf674626` deleted; duplicate close-reading check `dcbb820c-fec2-4a8f-8613-b9d03153f714` and its check item deleted; source D event/paddock window/group windows/close-reading aligned to `2026-05-05 13:00` (matches the dest B-3 open).
+**Bug:** The two `Place` buttons in `src/features/dashboard/index.js` (line 920 — group card when no active event; line 990 — Unplaced groups section in Locations view) both run `() => navigate('#/events')`, dumping the user on the rotation calendar with no placement context. There is no call to `openMoveWizard` from either site. V2_UX_FLOWS.md §17.7 lines 1259 + 1331 already document the intended behavior ("opens move wizard with the group pre-selected and no source event") — the code never matched the spec. This is a doc/code drift, not a regression.
 
-**Three bugs identified — three sub-items.** They compound: A is the trigger, B is the partial-commit cascade once A's default click fails validation, C is the no-second-defense layer that lets the user retry into an inconsistent destination.
+**Why now:** Tim split animals into new groups on 2026-05-07. Those new groups are unplaced. Tapping Place sends him to the rotation calendar instead of a placement flow, and there is no documented path on the calendar to start a new event scoped to a specific group. The workaround is to manually start a fresh event from the calendar and remember to add the right group — error-prone and undiscoverable.
+
+**Design decision: option 2 — separate Place wizard with shared helpers.** The existing move wizard already carries five orthogonal axes (scoped vs full-event, new vs join, source `'land'` vs `'confinement'`, dest `'land'` vs `'confinement'`, OI-0101 mirror touched vs not). Step 3 alone has ~15 reads of source-side state (`sourcePW`, `sourceGW`, `sourceLoc`, `sourceLocationType`, `sourcePaddockName`, `sourceGroup`, the OI-0161 mode discriminator, post-graze card, close-source section, feed-transfer section, mirror, OI-0136 residual capture, OI-0139 live-remaining math). `executeMoveWizard`'s first half is all source-closure work that simply doesn't exist for a placement. Adding "source present vs absent" as a sixth axis on top of OI-0162's just-landed pre-flight + idempotency guards makes the wizard read worse and creates pressure to bypass those guards. Splitting at the natural seam (presence-of-source) keeps each path readable. The shared parts (Step 1 destType picker, Step 2 location/event picker + strip-graze + farm chip, the destination-event-creation half of execute) extract into `src/features/events/wizard-shared.js`. Both `move-wizard.js` and a new `place-wizard.js` become thin orchestrators on top.
+
+**Three sub-items.**
+
+- **A — Extract shared steps + dest-creation into `wizard-shared.js`.** Pure refactor of `move-wizard.js`, no behavior change. Move-wizard tests must continue passing without modification beyond import path updates.
+- **B — Build `place-wizard.js`.** New file. Reuses Step 1 + Step 2 from shared. Step 3 is a stripped "Open destination" form: date in, time in, pre-graze card (gated on `dest.type === 'land'`). No close-source section. No feed transfer. Save sequence runs steps 6, 7, 9 of §1.6 only (skip 1, 2, 3, 4, 8 — all source-side work).
+- **C — Wire dashboard Place buttons.** Replace `() => navigate('#/events')` with `() => openPlaceWizard(group.id, operationId, farmId)` at both sites (line 920 + line 990). Also wire field-mode if Place is exposed there (it isn't today — confirm and ignore if so).
+
+**Files:** `src/features/events/move-wizard.js` (extract), `src/features/events/wizard-shared.js` (new), `src/features/events/place-wizard.js` (new), `src/features/dashboard/index.js` (lines 920 + 990), `src/i18n/locales/en.json` (new keys: `event.placeStep1Title`, `event.placeStep3Title`, `event.placeWizardSaveError`), `tests/unit/events/place-wizard.test.js` (new), `tests/unit/events/move-wizard.test.js` (import-path updates only).
+
+**Acceptance criteria:**
+
+- [ ] Tap Place on a group card with no active event → place wizard opens. Step 1 shows New / Join. Step 2 picks farm + location (or existing event). Step 3 shows only Open destination + pre-graze card (gated on land).
+- [ ] Tap Place in Unplaced groups section → same flow.
+- [ ] Save creates the destination event + paddock window + group window for the placed group + open paddock observation (when destination is land). No source-side writes happen — there is no source.
+- [ ] When destType is `join`, save creates a group window on the existing event. No new event row, no new paddock window.
+- [ ] Strip-graze toggle works on Place same as on Move (Step 2c).
+- [ ] Cross-farm placement: when Step 2 farm chip differs from the operation's `active_farm_id`, the new event is created on the chip-selected farm. `source_event_id` stays null on placement (no source to link to).
+- [ ] Move wizard regression: every existing move-wizard unit test passes after the shared-helper extraction. No behavior change.
+- [ ] Grep contract: `grep -rn "navigate('#/events')" src/features/dashboard/index.js` returns 0 matches. Both Place buttons go through `openPlaceWizard`.
+- [ ] Grep contract: `grep -n "sourceEvent" src/features/events/place-wizard.js` returns 0 matches. The place wizard does not import or reference a source event under any name — the seam is enforced at the file boundary, not by null checks.
+- [ ] Empty-group guard: if the group has 0 active memberships at the moment Place is tapped, surface a toast ("This group has no animals — add animals before placing it") and do not open the wizard. Matches existing OI-0086 empty-group prompt pattern.
+- [ ] V2_UX_FLOWS.md §1.8 "Place Mode" added in this session; §17.7 lines 1259 + 1331 updated to point at §1.8.
+
+**Spec file:** `github/issues/OI-0163_unplaced-place-flow.md` — full spec consolidated A/B/C, written same session.
+
+**CP-55/CP-56 spec impact:** None. This OI is a pure UI/wizard refactor. Data shapes (events, paddock windows, group windows, observations, feed entries) are unchanged. No new columns, no new tables, no JSONB shape changes. Backup round-trip is unaffected.
+
+**V2_UX_FLOWS.md updates (this session):**
+
+1. Add §1.8 "Place Mode" — brief subsection describing entry points (dashboard Place buttons), reused steps (1, 2 from §1), Step 3 differences (no close source, no feed transfer, just Open destination), and save sequence (steps 6, 7, 9 of §1.6 only).
+2. Update §17.7 line 1259: "Opens move wizard (§1)" → "Opens place wizard (§1.8)".
+3. Update §17.7 line 1331: "opens move wizard with the group pre-selected and no source event" → "opens place wizard (§1.8) with the group pre-selected".
 
 ---
 
@@ -5305,6 +5339,26 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0162 — Move wizard: three compounding bugs (0-remaining still prompts move/residual, partial-write on validate throw, no idempotency guard) — orphan B-3 event written 2026-05-06
+**Added:** 2026-05-06 | **Closed:** 2026-05-08 | **Area:** v2-build / events / move-wizard / data-integrity
+**Resolution:** Single bundled commit covering A → B → C per spec. Three compounding bugs that produced one orphan destination event in production on 2026-05-06 (D → B-3 sequence with 0 live remaining feed). All three sub-items shipped as one commit at the same surface (`src/features/events/move-wizard.js`) with one regression test file covering every layer.
+
+**Bug A — `getLiveRemainingForMove` returns 0, wizard still rendered the radio.** `src/features/events/move-wizard.js` Step 3 feed-transfer block (lines ~514-538) gained an early-continue: `if (group.total <= 0) continue;`. Pairs with 0 live remaining no longer render a Move/Residual radio and don't push into `transferToggles`. The skip-on-zero pass also re-routes the empty-block branch — when `feedEntries.length > 0` but every pair is 0, the wizard surfaces an italic hint (`data-testid="move-wizard-feed-transfer-all-zero"`, i18n `event.feedTransferAllZero`: "Source has no feed remaining — nothing to move or leave behind."). The OI-0135 / OI-0139 invariant — source close-reading must still stamp `remainingQuantity: 0` for those pairs — is preserved by the independent `feedGroups` walk in `executeMoveWizard` Step 1, which doesn't filter on toggle presence.
+
+**Bug B — `executeMoveWizard` was non-transactional and left the wizard open on throw.** Two layers shipped: (1) **Pre-flight FeedEntry validation** (`executeMoveWizard` lines ~660-690) — every Move-choice toggle is dry-run through `FeedEntryEntity.create` + `FeedEntryEntity.validate` *before* Step 1 runs. Failures paint errors in `statusEl` and return early without writing anything. After Bug A's skip-on-zero pass, `toggle.total > 0` is guaranteed by construction, but the pre-flight stays as a defense against future entity-validator additions. (2) **`try/catch/finally`** wrapping the existing Steps 1–8 — `catch` calls `logger.error('move-wizard', ...)` with `sourceEventId / operationId / farmId / destFarmId / locationId / scopedGroupWindowId` context plus surfaces a user-visible toast (`event.moveWizardSaveErrorToast`); `finally` runs `moveWizardSheet.close()` so the wizard never strands the user with "still open + inscrutable error message" on a partial commit. The `showToast` helper extracted from `src/features/animals/empty-group-prompt.js` into the new shared `src/ui/toast.js` so the move-wizard's save-error toast and the empty-group prompt's archive/delete toasts share one DOM shape (per the spec — "don't write a second copy"). The empty-group-prompt call site now imports the shared helper and re-exports a thin wrapper preserving its long-standing `data-testid="empty-group-prompt-toast"`.
+
+**Bug C — No idempotency guard.** `executeMoveWizard` now hoists `isScoped` / `allOpenSourceGWs` / `sourceGWs` to the top of the function (right after pre-flight) and applies two refuse-to-act guards before any writes: (a) `if (!isScoped && sourceEvent.dateOut)` → surface `event.moveWizardSourceClosed` in `statusEl` and return; (b) `if (sourceGWs.length === 0)` → surface `event.moveWizardNothingToMove` and return. The duplicate computation that lived at the old line ~761 (inside the try block) was removed and replaced with reads of the hoisted locals. The two guards cover the production failure mode (re-running the wizard on a now-closed source from a stale dashboard view) and the related "stale GW set" path (scoped move whose `scopedGroupWindowId` no longer matches an open window).
+
+**i18n:** four new keys in `src/i18n/locales/en.json` under the existing `event` block — `feedTransferAllZero`, `moveWizardSaveErrorToast`, `moveWizardSourceClosed`, `moveWizardNothingToMove`.
+
+**Tests:** new `tests/unit/move-wizard-three-bugs.test.js` — 8 cases covering all three bugs plus the full-OI live-repro regression: (1) 0-remaining feed → no Move/Residual radios; (2) all-zero hint surfaces when feedEntries exist but every pair is 0; (3) source close-reading still stamps `remainingQuantity: 0` for dropped pairs (OI-0135 / OI-0139 invariant intact); (4) clean Save (no feed throws thanks to Bug A) closes the wizard with no error toast; (5) synthetic mid-try throw (via `vi.spyOn(EventEntity, 'validate').mockImplementation` to throw on the destination event write) → wizard closes via finally + save-error toast appears; (6) full-event move on a source with `dateOut` set → refuses with "already closed" + no destination writes; (7) full-event move on a source with zero open group windows → refuses with "no open groups"; (8) live-repro regression of the 2026-05-06 D → B-3 sequence — first save closes source cleanly + creates destination with both group windows; second save (on the now-closed source) refuses with "already closed" + writes no second destination event. All 8 pass post-fix; existing 35 move-wizard tests still pass (no regression on OI-0066 scoped-move, OI-0104 / OI-0135 / OI-0136 / OI-0139 / OI-0140 / OI-0161 cases).
+
+**All five grep contracts hold:** `if (group.total <= 0) continue` in `move-wizard.js` → 1 match; `moveWizardSheet\.close\(\)` → 2 matches (sheet-init backdrop + finally-close); `} finally {` → 1 match (the executeMoveWizard wrapper). Bug C contracts (refuse-to-act guards) verified by the i18n keys appearing exactly once each in `move-wizard.js`.
+
+**Suite:** 1497 → 1505 (+8). `npm run lint` 0 errors. `npm run build` clean. **Schema impact:** none. **CP-55/CP-56 impact:** none — pure logic + render-side gating; no new persisted fields, no JSONB shape change, no migration. **Files:** `src/features/events/move-wizard.js`, `src/ui/toast.js` (new shared helper), `src/features/animals/empty-group-prompt.js` (import update), `src/i18n/locales/en.json`, `tests/unit/move-wizard-three-bugs.test.js`. The 2026-05-06 production cleanup (orphan event + duplicate close-reading deleted, source D close aligned to `2026-05-05 13:00`) was applied by Tim ahead of this fix; the regression test seeds the equivalent state to prove the path is now closed.
+
+---
 
 ### OI-0161 — Move wizard Step 3 copy + observation cards now reflect mode (scoped vs. full-event) and source/destination location type (land vs. confinement)
 **Added:** 2026-05-06 | **Closed:** 2026-05-06 | **Area:** v2-build / events / move-wizard / observations / ux / copy

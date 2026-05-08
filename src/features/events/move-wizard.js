@@ -20,6 +20,7 @@ import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getEventStartDate } from './event-start.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
+import { showToast } from '../../ui/toast.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -512,6 +513,17 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     }
 
     for (const [key, group] of Object.entries(feedGroups)) {
+      // OI-0162-A: skip (batch, location) pairs with 0 live remaining.
+      // Pre-OI-0162 the wizard rendered a Move/Residual radio for every
+      // delivered pair regardless of consumption. Default = Move → on
+      // Save, Step 8 tried to write a destination FeedEntry with
+      // quantity=0, which `event-feed-entry.js:46` rejects with a throw.
+      // The throw was caught silently AFTER source-side closes had
+      // already committed (Bug B). Skip-on-zero drops the trigger; the
+      // independent close-reading walk in `executeMoveWizard` (Steps 1)
+      // still stamps `remainingQuantity: 0` for these pairs so OI-0135
+      // / OI-0139 invariants are intact.
+      if (group.total <= 0) continue;
       const batch = getById('batches', group.batchId);
       const loc = getById('locations', group.locationId);
       const batchName = batch ? batch.name : '?';
@@ -602,13 +614,23 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   // OI-0104 Step 3 reorder: feed transfer sits under Close section (between
   // post-graze observation card and Open destination section). Append order:
   //   closeSection → feedSection (if any) → openSection (if destType==='new')
-  if (feedSection) {
+  // OI-0162-A: when feedEntries exist but every (batch, location) pair has
+  // 0 live remaining, transferToggles ends up empty after the skip-on-zero
+  // pass above. Surface an italic hint so the wizard doesn't render an
+  // empty feed-transfer block.
+  if (feedSection && transferToggles.length > 0) {
     closeSection.appendChild(feedSection);
   } else if (feedEntries.length === 0) {
     closeSection.appendChild(el('div', {
       className: 'form-hint',
       style: { fontStyle: 'italic', marginTop: 'var(--space-4)' },
     }, [t('event.feedTransferNone')]));
+  } else if (transferToggles.length === 0) {
+    closeSection.appendChild(el('div', {
+      className: 'form-hint',
+      style: { fontStyle: 'italic', marginTop: 'var(--space-4)' },
+      'data-testid': 'move-wizard-feed-transfer-all-zero',
+    }, [t('event.feedTransferAllZero')]));
   }
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'move-wizard-status' });
@@ -672,13 +694,67 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     }
   }
 
+  // OI-0162-B Layer 1 — pre-flight FeedEntry validation.
+  // Build the destination delivery records in memory first; if any fail
+  // FeedEntryEntity.validate (notably the `quantity > 0` invariant), paint
+  // errors and return early without writing anything. After OI-0162-A's
+  // skip-on-zero pass, every Move-choice toggle has total > 0 by
+  // construction — this pre-flight is a defense against future entity-
+  // validator additions and against any state.locationId resolving to
+  // null mid-write.
+  if (transferToggles && transferToggles.length) {
+    const dateInPreview = inputs.dateIn?.value || dateOut;
+    const timeInPreview = inputs.timeIn?.value || null;
+    for (const toggle of transferToggles) {
+      if (toggle.choice !== 'move') continue;
+      const dryRun = FeedEntryEntity.create({
+        operationId,
+        eventId: '00000000-0000-0000-0000-000000000000', // placeholder; only shape matters here
+        batchId: toggle.batchId,
+        locationId: state.locationId || toggle.locationId,
+        date: dateInPreview,
+        time: timeInPreview,
+        quantity: toggle.total,
+        sourceEventId: sourceEvent.id,
+      });
+      const v = FeedEntryEntity.validate(dryRun);
+      if (!v.valid) {
+        statusEl.appendChild(el('span', {}, [v.errors.join(', ')]));
+        return;
+      }
+    }
+  }
+
+  // OI-0162-C: idempotency guards — refuse to act on an already-closed
+  // source. Pre-OI-0162 a re-run on the same closed event silently wrote
+  // a duplicate destination event with no group windows (orphan event;
+  // produced 01b1617f in production on 2026-05-06). Hoisted from the
+  // mid-function computation at the old line ~761; the duplicate
+  // computation below is replaced by reads of these locals.
+  const isScoped = !!state.scopedGroupWindowId;
+  const allOpenSourceGWs = getAll('eventGroupWindows')
+    .filter(w => w.eventId === sourceEvent.id && !w.dateLeft);
+  const sourceGWs = isScoped
+    ? allOpenSourceGWs.filter(w => w.id === state.scopedGroupWindowId)
+    : allOpenSourceGWs;
+
+  if (!isScoped && sourceEvent.dateOut) {
+    statusEl.appendChild(el('span', {}, [t('event.moveWizardSourceClosed')]));
+    return;
+  }
+  if (sourceGWs.length === 0) {
+    statusEl.appendChild(el('span', {}, [t('event.moveWizardNothingToMove')]));
+    return;
+  }
+
   try {
     // --- CLOSE SOURCE (Steps 1-5 of save sequence) ---
 
     // OI-0066: scoped moves leave the source event open for remaining groups
     // and keep their feed on the source event. Full-event moves run the
-    // full close sequence as before.
-    const isScoped = !!state.scopedGroupWindowId;
+    // full close sequence as before. `isScoped`, `allOpenSourceGWs`, and
+    // `sourceGWs` are hoisted to the top of executeMoveWizard for OI-0162-C
+    // so the idempotency guards can read them.
 
     // Step 1: Create close-reading feed check if feed entries exist
     // Skipped in scoped mode — feed stays with the groups still on the source.
@@ -757,11 +833,9 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
 
     // Step 3: Close group windows (OI-0091 — live values stamped).
     // OI-0066: scoped move closes only the one GW; full event move closes all.
+    // OI-0162-C: `allOpenSourceGWs` and `sourceGWs` are hoisted to the
+    // top of executeMoveWizard (used by the refuse-to-act guards).
     // Snapshot before closing so the destination write has live values.
-    const allOpenSourceGWs = getAll('eventGroupWindows').filter(w => w.eventId === sourceEvent.id && !w.dateLeft);
-    const sourceGWs = isScoped
-      ? allOpenSourceGWs.filter(w => w.id === state.scopedGroupWindowId)
-      : allOpenSourceGWs;
     const sourceGroupState = [];
     {
       const memberships = getAll('animalGroupMemberships');
@@ -920,8 +994,27 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       }
     }
 
-    moveWizardSheet.close();
+    // OI-0162-B: success path — wizard closes from the finally block.
   } catch (err) {
-    statusEl.appendChild(el('span', {}, [err.message]));
+    // OI-0162-B Layer 2 — log + toast + finally-close. Pre-OI-0162 the
+    // catch handler appended the error message to `statusEl` and left the
+    // wizard open, but partial commits had already landed (source closed,
+    // destination event created with zero group windows, etc.). The user
+    // saw "the wizard is still open with an error" and re-clicked Save
+    // (Bug C territory). Now: log with full context, surface the toast so
+    // the user knows to review the source + destination, and let the
+    // finally block close the wizard so a re-click can't compound the
+    // partial commit.
+    logger.error('move-wizard', err && err.message ? err.message : String(err), {
+      sourceEventId: sourceEvent.id,
+      operationId,
+      farmId,
+      destFarmId: state.destFarmId,
+      locationId: state.locationId,
+      scopedGroupWindowId: state.scopedGroupWindowId,
+    });
+    showToast(t('event.moveWizardSaveErrorToast'), 'move-wizard-save-error-toast');
+  } finally {
+    moveWizardSheet.close();
   }
 }

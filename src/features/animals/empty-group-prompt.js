@@ -34,16 +34,13 @@ function ensureSheetDOM() {
   ]));
 }
 
+// OI-0162-B: showToast extracted to `src/ui/toast.js` so the move wizard
+// (and any future consumer) shares the same DOM shape. Local wrapper keeps
+// the long-standing default `data-testid="empty-group-prompt-toast"` so
+// existing tests continue to find the empty-group-flow toasts.
+import { showToast as showToastShared } from '../../ui/toast.js';
 function showToast(message, testid = 'empty-group-prompt-toast') {
-  if (typeof document === 'undefined') return;
-  const existing = document.querySelector(`[data-testid="${testid}"]`);
-  if (existing) existing.remove();
-  const toast = document.createElement('div');
-  toast.setAttribute('data-testid', testid);
-  toast.textContent = message;
-  toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;z-index:400;max-width:90%;';
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
+  return showToastShared(message, testid);
 }
 
 /**

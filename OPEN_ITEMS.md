@@ -4,6 +4,49 @@
 
 ---
 
+### OI-0187 — Window edit dialogs compare a date string against the floor OBJECT, so every open/join-date edit on a multi-window event is blocked unconditionally
+
+**Added:** 2026-06-23 | **Area:** v2-build / events / edit-paddock-window / edit-group-window / validation | **Priority:** P1 (correction blocker — no open/join date can be edited on any event that has more than one window; Tim wedged 2026-06-23 trying to backdate a B-2 sub-move)
+
+**Status:** open
+
+**Bug.** `getEventStartFloorExcluding(eventId, excludeWindowId, excludeType)` (`src/features/events/event-start.js:133`) returns an **object** `{ date, time, name }`. Both edit dialogs compare the user's typed date *string* directly against that object:
+
+- `src/features/events/edit-paddock-window.js:231` — `if (floorDate && newDateOpened < floorDate)`
+- `src/features/events/edit-group-window.js:117` — `if (floorDate && newDateJoined < floorDate)`
+
+`"2026-06-11" < {object}` coerces the object to its string primitive `"[object Object]"`. Because `"2"` (char 50) sorts before `"["` (char 91), the comparison is **always true** whenever `floorDate` is truthy — i.e. whenever the event has at least one sibling window. The real floor date (`floorDate.date`) is never read. Result: the guard fires unconditionally on every window that has a sibling, blocking all open/join-date edits with "Paddock can't open before the event started" / "Group can't join before the event started" regardless of the value typed.
+
+**Live repro (2026-06-23).** Event in paddock D, anchor window B-3 opened the 9th. Tim edits the B-2 sub-move window and sets its open date to the 11th (legitimately after the 9th). The guard blocks it — not because 11 < 9 (it isn't), but because `"2026-06-11" < "[object Object]"` is true. There is no UI workaround: the guard blocks every value, so date corrections are impossible on any multi-window event.
+
+**Root cause.** Introduced with the OI-0117 floor guard (2026-04-18): `getEventStartFloorExcluding` was written to return an object so the dialog could name the blocking sibling, but both call sites were left comparing against the bare object instead of `.date`. The existing tests didn't catch it because the object coercion silently "passes" the truthiness check.
+
+**Fix (root cause).** Compare against `floorDate.date` in both files:
+
+- `edit-paddock-window.js:231` → `if (floorDate && newDateOpened < floorDate.date) { … }`
+- `edit-group-window.js:117` → `if (floorDate && newDateJoined < floorDate.date) { … }`
+
+(The guard is date-only by intent — same-day, earlier-time openings are permitted. If a datetime-aware floor is wanted later, that's a separate item; this fix restores the documented date-floor behavior.)
+
+**Files:** `src/features/events/edit-paddock-window.js`, `src/features/events/edit-group-window.js`, `tests/unit/` (regression test, see below).
+
+**Acceptance criteria:**
+
+- [ ] Editing a sub-move paddock window to a date **on or after** the event's earliest sibling opening (and on/before event close) saves successfully — the 2026-06-23 B-2→11th repro passes.
+- [ ] Editing a window to a date **strictly before** the earliest sibling opening still blocks with the existing message.
+- [ ] Same two assertions for `edit-group-window.js` (join date).
+- [ ] Regression test asserts the floor is consumed via `.date`, not the bare object — e.g. a window with an earlier sibling accepts a later open date.
+- [ ] Grep contract: `grep -nE "newDate(Opened|Joined) < floorDate\b" src/features/events/` returns 0 matches (the bare-object comparison is gone; only `floorDate.date` is allowed).
+- [ ] No other consumer of `getEventStartFloorExcluding` compares against the bare object.
+
+**CP-55/CP-56 spec impact:** None — pure validation-logic fix; no schema, column, JSONB, entity-field, or migration change.
+
+**Related:** OI-0117 (introduced `getEventStartFloorExcluding` and the floor guard — this is a defect in that change). OI-0116 (same error message, the original backdate-a-sub-move scenario). OI-0064 (the paddock-window edit dialog).
+
+**Origin:** 2026-06-23 cowork session; Tim blocked making the B-2 sub-move start on the 11th when the anchor B-3 opened on the 9th.
+
+---
+
 ### OI-0186 — Date-conflict on close/move shows a cryptic validator string with no remedy — replace with a plain message naming the paddock + one-tap correction
 
 **Added:** 2026-06-23 | **Area:** v2-build / events / close / move-wizard / ux / copy | **Priority:** P1 (usability — the conflict is recoverable in-app today only via the per-paddock Edit dialog, but nothing points there; Tim got wedged on Close Event 2026-06-23)

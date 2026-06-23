@@ -8,7 +8,7 @@
 
 **Added:** 2026-06-23 | **Area:** v2-build / events / edit-paddock-window / edit-group-window / validation | **Priority:** P1 (correction blocker — no open/join date can be edited on any event that has more than one window; Tim wedged 2026-06-23 trying to backdate a B-2 sub-move)
 
-**Status:** open
+**Status:** closed 2026-06-23 — root-cause fix shipped. Both call sites now compare against `floorDate.date` rather than the bare `{ date, time, name }` object: `src/features/events/edit-paddock-window.js:235` (was `:231`) and `src/features/events/edit-group-window.js:118` (was `:117`). 4 new regression tests in `tests/unit/window-edit-floor-comparison.test.js` cover both dialogs across both directions — accept a later open/join date than the sibling floor (the 2026-06-23 B-2→11th repro: anchor B-3 opens 06-09, edited window saves to 06-11), and still block a strictly earlier open/join date with the same "can't open before" / "can't join before" message. Grep contract `grep -rnE "< floorDate[^.]" src/` returns 0 — no bare-object comparison remains anywhere in `src/`. The spec's literal regex `floorDate\b` is satisfied in intent (it would technically also match `floorDate.date` since `\b` matches the `.` boundary, but no bare-`floorDate` comparison exists post-fix; the equivalent stricter pattern `floorDate[^.]` confirms 0). Suite: 1557 → 1561 (+4), all green; lint clean. Pure validation-logic fix — no schema, migration, or CP-55/CP-56 impact. Filed as GH-57.
 
 **Bug.** `getEventStartFloorExcluding(eventId, excludeWindowId, excludeType)` (`src/features/events/event-start.js:133`) returns an **object** `{ date, time, name }`. Both edit dialogs compare the user's typed date *string* directly against that object:
 

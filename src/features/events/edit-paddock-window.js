@@ -227,8 +227,12 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
     // window — if this paddock is currently the anchor, moving its open date
     // later is allowed so long as it doesn't move the event start past a
     // sibling's opening.
+    // OI-0187: `getEventStartFloorExcluding` returns `{ date, time, name }` —
+    // compare against `.date`, not the object. `string < object` coerced the
+    // object to `"[object Object]"` which sorts AFTER any "2026-…" string, so
+    // the guard fired unconditionally on every multi-window event.
     const floorDate = getEventStartFloorExcluding(event.id, pw.id, 'paddock');
-    if (floorDate && newDateOpened < floorDate) { statusEl.appendChild(el('span', {}, ['Paddock can\'t open before the event started'])); return; }
+    if (floorDate && newDateOpened < floorDate.date) { statusEl.appendChild(el('span', {}, ['Paddock can\'t open before the event started'])); return; }
     if (event.dateOut && newDateOpened > event.dateOut) { statusEl.appendChild(el('span', {}, ['Paddock can\'t open after the event closed'])); return; }
     if (newDateClosed && newDateClosed < newDateOpened) { statusEl.appendChild(el('span', {}, ['Close date must be after open date'])); return; }
     if (event.dateOut && newDateClosed && newDateClosed > event.dateOut) { statusEl.appendChild(el('span', {}, ['Paddock can\'t stay open after the event closed'])); return; }

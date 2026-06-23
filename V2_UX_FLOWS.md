@@ -526,6 +526,14 @@ Closing an event when the group is going off-pasture entirely (e.g., sold, to ba
 - **Data:** Same close actions as Move Wizard Step 3 left side, without creating a new event
 - **Confinement handling:** Same as Move Wizard — if any paddock windows point to confinement or partial-capture locations, captured NPK is routed to the associated manure batch based on `location.capture_percent × excretion NPK × (window duration / event duration)`.
 
+### 9.2 Pre-flight + atomic apply (OI-0185)
+
+Before any write, the close dry-runs every open child window's proposed close (`dateClosed = date_out` for paddock windows, `dateLeft = date_out` for group windows) through its entity `validate()`. If any window opens **after** the chosen out-datetime, the close makes **zero writes** (no half-closed windows, event `date_out` untouched) and surfaces the conflict to §9.3 instead of throwing. The same pre-flight guards the Move Wizard's source-side close (extends OI-0162). This prevents the failure that orphaned 46 head on 2026-06-14: a move closed group departures, then threw on a source paddock window that opened after the move-out date, leaving departures with no arrival.
+
+### 9.3 Guided date-conflict correction (OI-0186)
+
+When the §9.2 pre-flight finds a conflict, the user sees a plain dialog — never the raw "dateClosed must be on or after dateOpened" validator string. It names each conflicting paddock and its open date vs. the chosen out-date (e.g. *"E-5 opens Jun 14, after your Jun 6 close — cattle can't leave before they arrived"*) and offers one-tap **Set open date to [out-date]** (corrects and resumes the close in one flow), **Edit…** (opens the paddock-window edit dialog, §2 / OI-0064), and **Cancel**. Multi-conflict lists every window with a **Fix all**. No correction is silent — each is shown and tapped.
+
 ---
 
 ## 10. Harvest Recording

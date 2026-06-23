@@ -171,6 +171,11 @@ Part of the SyncAdapter's (A10) retry lifecycle. Failed writes after 5 retries b
 
 "Push All" button in Settings re-queues dead letters for retry. Dead letter behavior is covered by the SyncAdapter's 14-scenario test suite (A10).
 
+**Dead letters must not be silent (OI-0184).** A dead letter is a write that never reached Supabase — the most dangerous state in an offline-first app, because the local view still shows the change as saved. As built, `getDeadLetters()` / `retryDeadLetters()` exist in `src/data/custom-sync.js` but have **no consumers**: nothing surfaces the count and nothing retries automatically, so the only recovery is the manual "Push All" (`pushAllToSupabase`). Two contracts close the gap:
+
+- **Auto-retry on reconnect.** On every successful `flush()` and on `online` / `visibilitychange→visible`, the dead-letter queue is drained back through the push path (bounded) before the adapter declares idle. A transient-failure record heals itself on the next good connection with no user action. "Push All" becomes the manual fallback, not the only recovery.
+- **Surfaced, not green-masked.** The dead-letter count feeds the §9 sync indicator (`sync-failed`, red) and `getSyncHealth()` must never report green/idle while the dead-letter or pending queue is non-empty — a single later success cannot repaint green over a real backlog.
+
 ### 3.6 Log Viewer
 
 Admin screen in Settings:
@@ -483,7 +488,10 @@ The sync dot in the header (V2_DESIGN_SYSTEM.md §3.14) and the desktop sidebar'
 | `sync-stale` (amber) | Empty | Older than 15 min, or `null` | Nothing pending to upload, but local view may be stale |
 | `sync-pending` (amber) | Non-empty | Any | Push queue has work; not yet known if local view is fresh |
 | `sync-off` (`--text3`) | — | — | Offline (`navigator.onLine === false`) |
+| `sync-failed` (red) | — | — | Dead-letter queue non-empty (OI-0184) — N writes never reached the server. Shows the count; tap runs `retryDeadLetters()` + `flush()`. Takes precedence over green/amber. |
 | `sync-err` (red) | — | — | Sync adapter reported an unrecoverable error |
+
+**Failed-write axis (OI-0184).** Green requires push queue empty AND dead-letter queue empty AND pull fresh. The indicator reads dead-letter count via `getDeadLetters().length` (or `getSyncHealth()`); a non-empty dead-letter queue forces `sync-failed` regardless of the push/pull axes, so a silently-dropped correction can never hide behind a green dot. See §3.5.
 
 The 15-minute stale threshold is a balance between honesty and noise — short enough to surface a forgotten cold-boot (the user's been on the app for an hour without ever pulling), long enough to avoid amber flicker during normal background pulls. Tunable; lives as a constant in `src/data/pull-remote.js`.
 

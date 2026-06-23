@@ -330,6 +330,15 @@
     "moveWizardSaveErrorToast": "Move ran into an error mid-save — please review the source event and any duplicate destination event before retrying.",
     "moveWizardSourceClosed": "This event was already closed. The move may have already happened — close this dialog and check the destination paddock.",
     "moveWizardNothingToMove": "There are no open groups on this event to move. Refresh the dashboard to see the current state.",
+    "windowCloseConflict": "Cannot close — {count} paddock(s) opened after the chosen close date. Edit those windows or pick a later date.",
+    "windowCloseConflictTitle": "Some paddocks opened after this date",
+    "windowCloseConflictParagraph": "Cattle can't leave a paddock before they arrived. Pick a fix per row or use Fix all.",
+    "windowCloseConflictPaddockLine": "{location} opens {openDate}, after your {outDate}.",
+    "windowCloseConflictGroupLine": "{group} joined {openDate}, after your {outDate}.",
+    "windowCloseConflictSetOpenDate": "Set open date to {outDate}",
+    "windowCloseConflictEdit": "Edit…",
+    "windowCloseConflictCancel": "Cancel",
+    "windowCloseConflictFixAll": "Fix all",
     "placeStep1Title": "Place {group}",
     "placeStep3Title": "Open at {location}",
     "placeStep3TitleJoin": "Add {group} to {location}",
@@ -1173,7 +1182,9 @@
     "lastRefreshAt": "Synced · last refresh {time}",
     "stale": "Stale · refresh now",
     "refreshing": "Refreshing…",
-    "refreshFailed": "Refresh failed"
+    "refreshFailed": "Refresh failed",
+    "failed": "Sync failed · {count} pending",
+    "retryingFailed": "Retrying failed syncs…"
   },
   "error": {
     "generic": "Something went wrong. Please try again."

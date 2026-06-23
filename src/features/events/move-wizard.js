@@ -21,6 +21,8 @@ import { showToast } from '../../ui/toast.js';
 import {
   renderStep1, renderStep2, createDestinationEvent, joinExistingEvent,
 } from './wizard-shared.js';
+import { checkWindowCloses } from './window-close-guard.js';
+import { openDateConflictDialog } from './date-conflict-dialog.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -528,6 +530,32 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
   }
   if (sourceGWs.length === 0) {
     statusEl.appendChild(el('span', {}, [t('event.moveWizardNothingToMove')]));
+    return;
+  }
+
+  // OI-0185 — pre-flight source-window close dates BEFORE any write fires.
+  // The pre-OI-0185 path closed group windows first, then threw on a source
+  // paddock window whose date_opened post-dated the move-out (live repro
+  // 2026-06-14: E-series source PW opened 06-14, move-out 06-06, four group
+  // windows stamped `left 06-06`, no destination created, 46 head orphaned).
+  // Source PW pre-flight only applies when the close branch will actually fire
+  // — that's the `lastGroupLeaving` predicate the write path uses below.
+  const remainingAfterClose = allOpenSourceGWs.filter(w => !sourceGWs.some(closed => closed.id === w.id));
+  const willCloseSourcePaddocks = remainingAfterClose.length === 0;
+  const conflicts = checkWindowCloses(sourceEvent.id, dateOut, timeOut, {
+    scopedGroupWindowIds: isScoped ? [state.scopedGroupWindowId] : null,
+    includePaddockWindows: willCloseSourcePaddocks,
+  });
+  if (conflicts.length > 0) {
+    // OI-0186 — guided correction. Resume re-enters executeMoveWizard with the
+    // same args; the pre-flight runs again, so a residual conflict simply
+    // re-opens the dialog rather than slipping through.
+    openDateConflictDialog({
+      conflicts,
+      operationId,
+      event: sourceEvent,
+      onResume: () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze),
+    });
     return;
   }
 

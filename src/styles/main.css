@@ -310,6 +310,10 @@ body {
 .sync-err { background: var(--red); }
 .sync-off { background: var(--text3); }
 .sync-stale { background: var(--amber); }
+/* OI-0184: red state when the dead-letter queue is non-empty — local writes
+   have exhausted retries and never reached Supabase. Distinct from the
+   transient .sync-err so a tap can drive the recovery path. */
+.sync-failed { background: var(--red); }
 
 /* Screen heading (placeholder screens) */
 .screen-heading {

@@ -296,13 +296,29 @@ function formatPullTime(epochMs) {
 
 function getSyncState() {
   const adapter = getSyncAdapter();
-  let status;
-  try { status = adapter ? adapter.getStatus() : 'offline'; } catch { status = 'offline'; }
+  // OI-0184: consume the combined health snapshot rather than `getStatus()`
+  // alone — a non-empty DLQ forces `sync-failed` (red) regardless of the
+  // transient status flag, so a single later success cannot repaint green
+  // over a real backlog.
+  let health;
+  try {
+    health = adapter && adapter.getSyncHealth
+      ? adapter.getSyncHealth()
+      : { status: adapter ? adapter.getStatus() : 'offline', queueLength: 0, deadLetterCount: 0 };
+  } catch { health = { status: 'offline', queueLength: 0, deadLetterCount: 0 }; }
 
-  if (status !== 'idle') {
-    const dotClass = { syncing: 'sync-pending', error: 'sync-err', offline: 'sync-off' }[status] || 'sync-off';
-    const label = { syncing: 'Syncing...', error: 'Sync error', offline: 'Offline' }[status] || 'Offline';
-    return { status, dotClass, label };
+  if (health.deadLetterCount > 0) {
+    return {
+      status: 'failed',
+      dotClass: 'sync-failed',
+      label: t('sync.failed', { count: health.deadLetterCount }),
+    };
+  }
+
+  if (health.status !== 'idle') {
+    const dotClass = { syncing: 'sync-pending', error: 'sync-err', offline: 'sync-off' }[health.status] || 'sync-off';
+    const label = { syncing: 'Syncing...', error: 'Sync error', offline: 'Offline' }[health.status] || 'Offline';
+    return { status: health.status, dotClass, label };
   }
 
   const lastPulled = getLastPulledAt();
@@ -314,12 +330,27 @@ function getSyncState() {
 }
 
 async function triggerManualPull(container) {
+  // OI-0184: when the indicator is red because of a non-empty DLQ, the user's
+  // tap means "retry my failed writes," not "re-pull remote state." Run the
+  // DLQ recovery first so a successful tap empties the queue and the indicator
+  // returns to green.
+  const adapter = getSyncAdapter();
+  let hasDeadLetters = false;
+  try {
+    const health = adapter && adapter.getSyncHealth ? adapter.getSyncHealth() : null;
+    hasDeadLetters = !!(health && health.deadLetterCount > 0);
+  } catch { /* defensive — adapter missing or threw, fall through with hasDeadLetters=false */ }
+
   const dot = container.querySelector('.sync-dot');
   const labelEl = container.querySelector('.sync-label');
   if (dot) { dot.className = 'sync-dot sync-pending'; }
-  if (labelEl) { labelEl.textContent = t('sync.refreshing'); }
+  if (labelEl) { labelEl.textContent = hasDeadLetters ? t('sync.retryingFailed') : t('sync.refreshing'); }
 
   try {
+    if (hasDeadLetters && adapter) {
+      adapter.retryDeadLetters();
+      if (adapter.flush) await adapter.flush();
+    }
     await pullAllRemote();
     const state = getSyncState();
     if (dot) { dot.className = `sync-dot ${state.dotClass}`; }

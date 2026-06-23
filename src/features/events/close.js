@@ -12,6 +12,8 @@ import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import * as ManureTxEntity from '../../entities/manure-batch-transaction.js';
 import { createObservation } from './index.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
+import { checkWindowCloses } from './window-close-guard.js';
+import { openDateConflictDialog } from './date-conflict-dialog.js';
 
 let closeEventSheet = null;
 
@@ -174,6 +176,23 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
   if (conflicts.length) {
     const msg = conflicts.join('\n') + '\n\nClosing this event will close these groups here but leave them on the other event(s). Proceed?';
     if (!window.confirm(msg)) return;
+  }
+
+  // OI-0185 + OI-0186 — pre-flight every open source window's proposed close
+  // BEFORE any write fires. On conflict, abort with zero writes and hand the
+  // structured conflict list to the guided-correction dialog. The dialog
+  // resumes the close (via onResume) after a one-tap fix or "Fix all"; the
+  // re-entered executeClose runs the pre-flight again so a partial fix that
+  // left a residual conflict simply re-opens the dialog.
+  const closeConflicts = checkWindowCloses(evt.id, dateOut, timeOut);
+  if (closeConflicts.length > 0) {
+    openDateConflictDialog({
+      conflicts: closeConflicts,
+      operationId,
+      event: evt,
+      onResume: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze),
+    });
+    return;
   }
 
   try {

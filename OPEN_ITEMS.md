@@ -4,6 +4,155 @@
 
 ---
 
+### OI-0190 — Editing a destination event's start datetime should prompt to cascade the matching source-side close timestamps; today the link silently breaks
+
+**Added:** 2026-06-24 | **Area:** v2-build / events / event-start / detail | **Priority:** P2 (workaround exists once OI-0188 ships — open the source event and edit its windows manually; this OI removes the manual round-trip and surfaces the link explicitly)
+
+**Status:** open — DESIGN REQUIRED, depends on OI-0188 for the alternative remediation path
+
+**Bug.** When the move wizard executes, source-side `dateLeft` / `dateClosed` and destination-side `dateJoined` / `dateOpened` are mirrored at write time (`dateOut == dateIn` unless the user touched the destination input — `src/features/events/move-wizard.js:190-203`). Once written they're decoupled. Editing the destination event's start via `setEventStart` (`src/features/events/event-start.js:155`) updates only the destination's earliest child window. The source's matching close timestamps don't move, leaving a 1+ day gap in the timeline.
+
+Live repro (Tim's G-5 → K-5): wizard accepted tomorrow's date as `dateOut`. Tim corrected K-5's start to today via the hero-line date edit. G-5 still shows the group leaving tomorrow. Nothing in the app reconciles them, and (per OI-0188) there's no UI path to correct G-5 directly.
+
+**Fix (design — cascade prompt with three buttons).**
+
+1. **Trigger:** any call to `setEventStart(eventId, newDate, newTime, opts)` where `event.sourceEventId != null`.
+
+2. **Detection of cascade-eligible source-side windows** (pure function, isolatable + unit-testable):
+   - `event_group_window` rows on source where `groupId` matches a destination GW's `groupId` AND `(dateLeft, timeLeft) == (oldDestStart.date, oldDestStart.time)`.
+   - `event_paddock_window` rows on source where `(dateClosed, timeClosed) == (oldDestStart.date, oldDestStart.time)`.
+   - Match on the OLD destination start because that's the wizard-time link. If source-side has already drifted independently, no auto-cascade — show soft warning instead.
+
+3. **Prompt copy** when cascade targets exist:
+   > "Update [Source Event Name] too?
+   > [Group A] left [Source] on [old date]. Updating [Dest] to [new date] will leave a gap. Update [Source]'s leave time to match?"
+   > [Update both] [Just this event] [Cancel]
+
+4. **Validation before any write.** Validate every proposed cascade write against the entity validators (`event_group_window.dateLeft >= dateJoined`, `event_paddock_window.dateClosed >= dateOpened`). If any fail, surface specific copy ("[Group A] joined [Source] on May 3 — can't set their leave date to May 2") and abort the entire edit including the destination. No partial commit.
+
+5. **Application:** if user picks "Update both" and validation passes, write destination first (existing `setEventStart` behavior), then iterate cascade targets and update each via the entity update path. If "Just this event," write destination only and silently skip cascade. If "Cancel," nothing writes.
+
+6. **Funnel all event-start edits through `setEventStart`.** `src/features/events/edit-paddock-window.js` and `src/features/events/edit-group-window.js` currently write directly to a window. If the window being edited is the event's earliest opening (detect via `getEventStartFloorExcluding` returning null, or a floor later than the proposed new date), route the write through `setEventStart` so the cascade-prompt logic fires consistently — don't duplicate the detection in three places.
+
+**Edge cases worked through (none block the design):**
+
+- **Source drifted independently** (source close no longer matches old destination start) → no auto-cascade. Soft warning shown but cascade not offered.
+- **Source has multiple GWs (scoped move, others still on source)** → cascade only the GWs whose `groupId` matches a destination GW. Other open GWs on source untouched.
+- **Source has sub-moves on the same paddock** → don't touch sub-move PWs. Their `dateOpened` / `dateClosed` are independent of the parent close. Schema permits sub-move close after parent close (no validator violation), though display oddities possible — flag for audit page later, out of scope here.
+- **Destination has no `sourceEventId`** (place flow, root event) → no cascade prompt; existing `setEventStart` flow unchanged.
+- **Editing destination start FORWARD in time** → same logic. Cascade pushes source close forward. Could overlap with later events' starts on the source-side chain, but those events live on the destination's downstream chain, not the source — so no conflict. Caller (user) responsible for noticing.
+
+**Side effects of cascade — verified non-breaking:**
+
+- Feed deliveries on source dated after new `dateLeft`: stay associated with source event, no validator change. Display oddity ("delivered after close"), tolerable.
+- DMI bars: source's DMI for the gap day disappears, destination's DMI for that day appears. Correct semantics.
+- Rotation calendar: source event range shrinks (or expands) by the cascade delta. Correct.
+- Recovery window for source paddock: starts one day earlier (or later). Correct.
+
+**Files:** `src/features/events/event-start.js` (cascade detection + apply, accept new `opts.confirmCascade(sourceInfo)` callback), `src/features/events/detail.js` (hero-line callback wiring), `src/features/events/edit-paddock-window.js` and `src/features/events/edit-group-window.js` (route earliest-window edits through `setEventStart`), `src/i18n/locales/en.json` (prompt copy keys), `tests/unit/events/event-start.test.js` (existing test file — add cascade cases).
+
+**Acceptance criteria:**
+
+- [ ] `detectCascadeTargets(eventId, oldStart, newStart)` is a pure function in `event-start.js` returning `{ groupWindows: [...], paddockWindows: [...] }`. Unit tests cover: no-source (returns empty), matched tie (returns targets), drifted-source (returns empty), scoped-move (returns only matching groupId GWs).
+- [ ] `setEventStart` accepts `opts.confirmCascade(sourceInfo) → 'both' | 'dest-only' | 'cancel'`. When omitted, behavior is identical to today (no cascade — preserves callers that haven't been wired yet).
+- [ ] Validation runs against ALL cascade targets before any write; first validator failure aborts the entire operation including the destination.
+- [ ] Live-repro test (Tim's G-5 → K-5 sequence): wizard with wrong date, hero-line correction on destination, assert prompt appears, accept "Update both," assert both sides consistent post-write.
+- [ ] Soft-warning test: pre-edit source's `dateLeft` independently, then edit destination — assert no auto-cascade prompt, only the drift warning surfaces.
+- [ ] Validator-rejection test: try to cascade a `dateLeft` before source's `dateJoined` — assert specific error shown, neither side updated.
+- [ ] `edit-paddock-window.js` and `edit-group-window.js` route earliest-window edits through `setEventStart` (regression test: editing the earliest window via either dialog triggers the cascade prompt for an event with a `sourceEventId`).
+
+**CP-55/CP-56 spec impact:** None — cascade is a write-pattern over existing columns; no schema, column, JSONB, or migration change.
+
+**Related:** OI-0117 / OI-0133 (derive-on-read doctrine — same "two stored facts for one truth" smell, but here the right fix is "keep them tied with explicit cascade" rather than "derive one from the other," because the source-side close is genuinely independent data once the user starts editing it). OI-0188 (closed-event access — provides the manual fallback when this cascade isn't offered or is declined). OI-0162-C (move-wizard idempotency — refuses to re-run the wizard on a closed source; this OI handles the correction path that OI-0162-C closes off).
+
+**Origin:** 2026-06-24 cowork session; live repro on Tim's G-5 → K-5 sequence where the wizard accepted tomorrow's date and the hero-line correction on the destination silently left the source-side close at the wrong date.
+
+---
+
+### OI-0189 — `new Date().toISOString().slice(0, 10)` is UTC, not local; "Day N" labels and dashboard pasture-% silently skew by one day every evening for non-UTC users
+
+**Added:** 2026-06-24 | **Area:** v2-build / date-utils / dashboard / detail / reports | **Priority:** P2 (silent skew that fires nightly for every user east of UTC; not catastrophic but erodes trust in the numbers, and the fix is mechanical)
+
+**Status:** open — DESIGN REQUIRED, narrow scope
+
+**Bug.** `todayStr = new Date().toISOString().slice(0, 10)` is used as "today's date" in ~20 callsites. ISO strings are UTC. After 8 PM Eastern (or earlier for users further east of UTC), UTC has already rolled to tomorrow, so `todayStr` returns tomorrow's date in the user's local frame.
+
+Live repro (Tim's K-5 dashboard card, dev-mode build): animals went in at 10:30 AM Eastern same day; card reads "Day 2 · In May 8, 26" at 8:23 PM Eastern. Should read "Day 1". At that moment UTC = 5/9 00:23, so `daysBetweenInclusive('2026-05-08', '2026-05-09') = 2`.
+
+**Skew classification:**
+
+- **Display-only labels:** "Day N" on dashboard cards, event detail header, events log row.
+- **Calculation-affecting:** dashboard summary "pasture %" (`src/features/dashboard/index.js:278` and the loop at 286-294 — `days = daysBetweenInclusive(gw.dateJoined || start, now=todayStr)`; `totalDmiKg += dmiKgPerDay * days`). After 8 PM Eastern, `days` inflates by 1, totalDmiKg is overstated, pasture % drops. Resets at midnight UTC. Also any "total days on event" total in reports.
+- **Insulated:** "~X days remaining" on location cards (`for3.fn({ availableDmKg, groupDmiKgPerDay })`, pure ratio, no `todayStr`). DMI demand display (instantaneous head × avg weight). Live head / avg weight as-of `now` (only changes if a record landed within the local-evening → midnight-UTC window).
+
+**Fix (design).** Add `getLocalTodayStr()` to `src/utils/date-utils.js`:
+
+```js
+export function getLocalTodayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+```
+
+Sweep every `new Date().toISOString().slice(0, 10)` in `src/features/` and replace with `getLocalTodayStr()`. Per current grep: ~20 callsites across dashboard, detail, list-view, mobile wrapper, reports, audit, audit-resolvers, field-mode.
+
+**Files:** `src/utils/date-utils.js` (new export + unit tests), `src/features/dashboard/index.js`, `src/features/events/detail.js`, `src/features/events/list-view/events-log.js`, `src/features/events/index.js`, `src/features/reports/index.js`, `src/features/dev-mode/audit.js`, `src/features/dev-mode/audit-resolvers.js`, `src/features/field-mode/index.js`, `tests/unit/utils/date-utils.test.js`.
+
+**Acceptance criteria:**
+
+- [ ] `getLocalTodayStr()` exists in `src/utils/date-utils.js` with unit tests covering midnight, noon, and 11:59 PM local across multiple timezone offsets (mock `Date`).
+- [ ] **Grep contract:** `grep -rn "new Date().toISOString().slice(0, 10)" src/features/` returns 0 matches. `src/utils/` and test files are exempt.
+- [ ] Live repro fixed: simulated 8:23 PM EDT on 2026-05-08 with `dateOpened = '2026-05-08'` — card reads "Day 1".
+- [ ] Dashboard pasture-% regression test re-baselined: simulated late-evening local time produces the same value as simulated noon local time on the same day.
+- [ ] Sweep covers `daysSince`-style usage for recovery / rest-period tracking — any surface that computes days since last close consumes `getLocalTodayStr()` too.
+
+**CP-55/CP-56 spec impact:** None — no schema change. Dates are already stored as date-only strings in local-day semantics; this aligns the runtime "today" with that storage convention.
+
+**Related:** OI-0117 / OI-0133 (derive-on-read doctrine — same "one source of truth" hygiene, applied to time-of-day).
+
+**Origin:** 2026-06-24 cowork session; live repro on Tim's K-5 dashboard card at 8:23 PM Eastern.
+
+---
+
+### OI-0188 — Closed events have no entry point in the UI; data correction on a closed event is impossible without dev tools
+
+**Added:** 2026-06-24 | **Area:** v2-build / events / navigation / list-view | **Priority:** P1 (correction blocker — every common post-close fix requires the closed-event detail page, and there is no path to it from anywhere in the app)
+
+**Status:** open — DESIGN REQUIRED, narrow scope
+
+**Bug.** There is no path in the UI to reach a closed event's detail page. Three blockers stack:
+
+1. No `#/event/:id` route exists. Event detail is sheet-only (`openEventDetailSheet` in `src/features/events/detail.js:71`).
+2. The only call to `openEventDetailSheet` is from active dashboard cards (`src/features/dashboard/index.js:1244`). Closed events don't render dashboard cards.
+3. The events log on `#/events` does list closed events (the filter dropdown has an explicit "closed" option, `events-log.js:48`), but item `onClick` is `navigate('#/events')` — the same screen. No drill-in (`src/features/events/list-view/events-log.js:151`).
+
+**Why now.** Tim hit this trying to fix G-5's leave date after the move-wizard mirror went stale (see OI-0190). The common correction needs — wrong move date, wrong post-graze observation, late feed delivery on a closed event — all require the closed-event detail page. Today the only path is direct Supabase edits.
+
+**Fix (design).** Minimum viable: wire `events-log` item `onClick` to call `openEventDetailSheet(event, operationId, farmId)`. The detail sheet already handles closed events — `isActive = !event.dateOut` at `detail.js:525` gates which controls are enabled, not which sections render. operationId / farmId are derivable from the event row.
+
+Stretch (defer if it complicates the sheet lifecycle): add a real `#/event/:id` route for stable URLs, browser-back support, and Dev Mode audit deep-linking.
+
+**Files:** `src/features/events/list-view/events-log.js` (onClick wire-up), possibly `src/features/events/detail.js` (verify no active-only assumptions in render paths).
+
+**Acceptance criteria:**
+
+- [ ] Tapping any item in `events-log` opens the event detail sheet for both active and closed events.
+- [ ] Closed-event detail renders all sections: pre-graze, post-graze, paddocks, groups, feed entries, DMI bars.
+- [ ] Edit controls that apply to closed events (group window dateLeft, paddock window dateClosed, feed entry edits) are usable on a closed-event detail.
+- [ ] Action controls that don't apply to closed events (Sub-move, Move, Feed check) remain disabled with the existing `isActive` guard at `detail.js:525`.
+- [ ] Existing events-log filter test still passes.
+
+**CP-55/CP-56 spec impact:** None — pure navigation wire-up; no schema, column, JSONB, or migration change.
+
+**Related:** OI-0162-C (refuses to re-run wizard on a closed source — correct guard but leaves no remediation path; this OI is the remediation path). OI-0190 (closed-event detail is the manual fallback when the cascade prompt isn't offered or is declined).
+
+**Origin:** 2026-06-24 cowork session; surfaced during Tim's K-5 / G-5 reconciliation when no in-app path existed to correct G-5's leave date.
+
+---
+
 ### OI-0187 — Window edit dialogs compare a date string against the floor OBJECT, so every open/join-date edit on a multi-window event is blocked unconditionally
 
 **Added:** 2026-06-23 | **Area:** v2-build / events / edit-paddock-window / edit-group-window / validation | **Priority:** P1 (correction blocker — no open/join date can be edited on any event that has more than one window; Tim wedged 2026-06-23 trying to backdate a B-2 sub-move)
@@ -5946,6 +6095,9 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-06-24 | OI-0188 filed (P1) — closed events have no in-UI entry point; the events-log item onClick is a no-op (`navigate('#/events')` on the same screen) and there is no `#/event/:id` route, so post-close correction is impossible without dev tools. Surfaced during Tim's K-5 / G-5 reconciliation. Min-viable fix: wire events-log onClick to `openEventDetailSheet`. | Cowork — body in OPEN_ITEMS.md (no spec file yet) |
+| 2026-06-24 | OI-0189 filed (P2) — `new Date().toISOString().slice(0, 10)` is UTC; after 8 PM Eastern, `todayStr` returns tomorrow's date, inflating dashboard pasture-% (`days × dmiKgPerDay` overcounts) and all "Day N" labels by one. Live repro: K-5 card reads "Day 2" at 8:23 PM Eastern when animals went in same day. Fix: `getLocalTodayStr()` helper + sweep ~20 callsites in `src/features/`. Location-card "days remaining" and DMI demand are insulated. | Cowork — body in OPEN_ITEMS.md (no spec file yet) |
+| 2026-06-24 | OI-0190 filed (P2) — destination event's `setEventStart` doesn't cascade to the source event's matching `dateLeft` / `dateClosed`. Move wizard mirrors them at write time then they decouple. Live repro: Tim corrected K-5 to today, G-5 still shows the group leaving tomorrow. Fix: cascade-prompt with [Update both] [Just this event] [Cancel], detection via match on old destination start, validators run before any write, edit-paddock-window / edit-group-window route earliest-window edits through `setEventStart` for consistent prompt firing. | Cowork — body in OPEN_ITEMS.md (no spec file yet) |
 | 2026-06-23 | OI-0184 filed (P0) — failed syncs dead-letter silently in `src/data/custom-sync.js`; `getDeadLetters`/`retryDeadLetters` have zero consumers, so a correction can never reach Supabase while the sync dot stays green. Live repro: Tim's E-5 window correction never synced (`updated_at` stuck at 2026-06-14 until direct-SQL repair). Fix: surface dead-letter count in the OI-0141 indicator + auto-retry on reconnect. | Cowork — spec to `github/issues/OI-0184_*.md` |
 | 2026-06-23 | OI-0185 filed (P0) — `close.js` `executeClose` and `move-wizard.js` `executeMoveWizard` are non-atomic on window-date conflicts; the 2026-06-14 E-series→D move threw on a source paddock-window close after stamping group departures, orphaning 46 head. Extends OI-0162 with a pre-flight window-close validation + all-or-nothing apply. | Cowork — spec to `github/issues/OI-0185_*.md` |
 | 2026-06-23 | OI-0186 filed (P1) — date conflict on close/move shows raw `dateClosed must be on or after dateOpened` with no remedy; replace with a plain message naming the paddock + one-tap correction (reuses `edit-paddock-window.js`). Consumes OI-0185's conflict list. Same session also applied a direct-SQL data repair (E-5 window dates fixed, event `68ff47f6` closed 06-06, new event `798ba1ad` placed the 46 head in D as of 06-06 09:00). | Cowork — spec to `github/issues/OI-0186_*.md`; data repair via Supabase MCP |

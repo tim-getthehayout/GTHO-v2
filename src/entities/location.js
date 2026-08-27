@@ -12,6 +12,10 @@ export const FIELDS = {
   soilType:       { type: 'text',        required: false, sbColumn: 'soil_type' },
   forageTypeId:   { type: 'uuid',        required: false, sbColumn: 'forage_type_id' },
   capturePercent: { type: 'numeric',     required: false, sbColumn: 'capture_percent' },
+  geojson:        { type: 'json',        required: false, sbColumn: 'geojson' },
+  centroidLat:    { type: 'numeric',     required: false, sbColumn: 'centroid_lat' },
+  centroidLng:    { type: 'numeric',     required: false, sbColumn: 'centroid_lng' },
+  mapSource:      { type: 'text',        required: false, sbColumn: 'map_source' },
   archived:       { type: 'boolean',     required: false, sbColumn: 'archived' },
   createdAt:      { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:      { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
@@ -19,6 +23,7 @@ export const FIELDS = {
 
 const VALID_TYPES = ['confinement', 'land'];
 const VALID_LAND_USES = ['pasture', 'mixed_use', 'crop'];
+const VALID_MAP_SOURCES = ['drawn', 'imported'];
 
 export function create(data = {}) {
   return {
@@ -33,6 +38,10 @@ export function create(data = {}) {
     soilType: data.soilType ?? null,
     forageTypeId: data.forageTypeId ?? null,
     capturePercent: data.capturePercent ?? null,
+    geojson: data.geojson ?? null,
+    centroidLat: data.centroidLat ?? null,
+    centroidLng: data.centroidLng ?? null,
+    mapSource: data.mapSource ?? null,
     archived: data.archived ?? false,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
@@ -52,6 +61,9 @@ export function validate(record) {
   if (record.landUse && !VALID_LAND_USES.includes(record.landUse)) {
     errors.push(`landUse must be one of: ${VALID_LAND_USES.join(', ')}`);
   }
+  if (record.mapSource && !VALID_MAP_SOURCES.includes(record.mapSource)) {
+    errors.push(`mapSource must be one of: ${VALID_MAP_SOURCES.join(', ')}`);
+  }
   return { valid: errors.length === 0, errors };
 }
 
@@ -68,6 +80,10 @@ export function toSupabaseShape(record) {
     soil_type: record.soilType,
     forage_type_id: record.forageTypeId,
     capture_percent: record.capturePercent,
+    geojson: record.geojson,
+    centroid_lat: record.centroidLat,
+    centroid_lng: record.centroidLng,
+    map_source: record.mapSource,
     archived: record.archived,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
@@ -90,6 +106,10 @@ export function fromSupabaseShape(row) {
     soilType: row.soil_type,
     forageTypeId: row.forage_type_id,
     capturePercent: row.capture_percent != null ? Number(row.capture_percent) : null,
+    geojson: row.geojson ?? null,
+    centroidLat: row.centroid_lat != null ? Number(row.centroid_lat) : null,
+    centroidLng: row.centroid_lng != null ? Number(row.centroid_lng) : null,
+    mapSource: row.map_source ?? null,
     archived: row.archived,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

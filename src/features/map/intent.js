@@ -1,12 +1,12 @@
-/** @file Shared map intent so sheets can open draw/pin mode without a cycle. */
+/** @file Shared map intent so sheets can open draw/pin/pick mode without a cycle. */
 
 import { navigate } from '../../ui/router.js';
 
-/** @type {{ mode: 'view'|'draw'|'pin', locationId?: string, todoId?: string } | null} */
+/** @type {{ mode: 'view'|'draw'|'pin'|'pick', locationId?: string, todoId?: string } } */
 export let mapIntent = { mode: 'view' };
 
 export function setMapIntent(next) {
-  mapIntent = next;
+  mapIntent = next || { mode: 'view' };
 }
 
 export function startDrawLocation(locationId) {

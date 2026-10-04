@@ -69,6 +69,7 @@ Implementation side, before the task is done:
 - Status or related docs updated if the task required it.
 - Clear commit message.
 - Unspecified design questions flagged, not silently decided.
+- If the change ships to the live app, tell Tim the build stamp to confirm. The header shows `bYYYY-MM-DD.HHMM-<shortsha>` (`data-testid="header-build-stamp"`). The short sha is the commit that deploy built. Do not call the work visible until that stamp is on the device after a hard refresh.
 
 ### Continuous improvement
 Reusable process improvements go back to the framework repository. Project-specific lessons stay here. Refresh `project-framework/` when the upstream framework changes.
@@ -84,6 +85,7 @@ These extend the rules above. They do not replace them.
 - Grok Build updates `PROJECT_CHANGELOG.md` (one row per change) and code under `src/`, `tests/`, and `supabase/`.
 - Either role may log in `IMPROVEMENTS.md`. A completed `TASKS.md` item is checked in the same session.
 - A commit that cites `OI-NNNN` must also update `OPEN_ITEMS.md` in that commit. Close sibling items on the same path or symbol in that commit. A schema bump or dropped column closes now-moot items that name the retired symbol.
+- After a Pages deploy, name the build stamp Tim should see in the header. Match the short sha from the successful deploy, not the last local commit if deploy failed.
 
 ---
 

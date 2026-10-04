@@ -2,7 +2,7 @@
 
 **Generated:** 2026-10-04
 **Source:** Grok design session
-**Status:** Implemented in `5c2db09`. Pages stamp `b2026-10-04.2101-5c2db09`.
+**Status:** Implemented in `5c2db09`. Header stamp of status commit `61472d3` is `b2026-10-04.2104-61472d3`.
 
 ## What was decided
 

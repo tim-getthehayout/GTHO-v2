@@ -2,7 +2,7 @@
 
 **Generated:** 2026-10-04
 **Source:** Grok design session
-**Status:** Ready for Grok Build
+**Status:** Implemented in `8748872`. Migration 035 applied and verified. Pages stamp `b2026-10-04.1957-8748872`.
 
 ## What was decided
 
@@ -21,7 +21,7 @@ Tim locked this on 2026-10-04:
 
 ## What to build / change
 
-Implement `github/issues/OI-0102_multi-paddock-open.md`. Migration 035 is specified and not applied. Apply and verify it before UI.
+Implemented in `8748872` from `github/issues/OI-0102_multi-paddock-open.md`. Migration 035 was applied and verified before UI.
 
 ## Acceptance criteria
 
@@ -37,9 +37,9 @@ The spec's test list is the acceptance list. Do not add a stored anchor. Do not 
 ## References
 
 - `github/issues/OI-0102_multi-paddock-open.md`
-- `PROJECT_STATUS.md` section 5, item 1
+- `PROJECT_STATUS.md` section 5, item 2
 - `OPEN_ITEMS.md` OI-0102
-- Commit `c94231c`
+- Spec commit `c94231c`. Ship commit `8748872`.
 
 ## Open questions for the implementer
 

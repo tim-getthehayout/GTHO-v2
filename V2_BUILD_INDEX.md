@@ -2,8 +2,10 @@
 
 **Purpose:** Master index for the v2 rebuild. Maps every design doc, tracks design and build progress, and serves as the handoff document between sessions. **Any new session starts here.**
 
-**Last updated:** 2026-04-14
+**Last updated:** 2026-10-04
 **Current phase:** Phase 3 — Build (IN PROGRESS)
+
+Session entry is `PROJECT_STATUS.md`, then `AGENTS.md`. This index is phase history. Farm map geometry shipped 2026-10-04 (migration 034, PR #58). Live confirmation stamp ends `1e76f0a`.
 
 ---
 

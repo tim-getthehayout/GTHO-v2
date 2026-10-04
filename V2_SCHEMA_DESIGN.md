@@ -51,6 +51,10 @@ The root entities that everything else FKs into. Design priority: keep `operatio
 | currency | text | NOT NULL, DEFAULT 'USD' | ISO 4217 code. Truly operation-wide — all farms share one currency. |
 | unit_system | text | NOT NULL, DEFAULT 'imperial', CHECK (unit_system IN ('metric','imperial')) | Display unit preference. Operation-wide (A44) — same rationale as currency. Storage is always metric (§1.1 V2_INFRASTRUCTURE.md); this column only controls display conversion. |
 | archived | boolean | DEFAULT false | Soft delete |
+| geojson | jsonb | NULL | Polygon ring. Added in migration 034 (2026-10-04). |
+| centroid_lat | numeric | NULL | Center of the ring. Migration 034. |
+| centroid_lng | numeric | NULL | Center of the ring. Migration 034. |
+| map_source | text | NULL | `drawn` or `imported`. Migration 034. |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
@@ -354,6 +358,10 @@ CREATE TABLE locations (
   forage_type_id    uuid REFERENCES forage_types(id),
   capture_percent   numeric,
   archived          boolean DEFAULT false,
+  geojson           jsonb,
+  centroid_lat      numeric,
+  centroid_lng      numeric,
+  map_source        text,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
@@ -2392,6 +2400,8 @@ CREATE TABLE submissions (
 | location_id | uuid | NULL, FK → locations | V1: paddock (text name). V2: proper FK. |
 | animal_id | uuid | NULL, FK → animals | Link to specific animal (treatment reminders, weaning tasks) |
 | due_date | date | NULL | V1 had this in JS but not in Supabase schema. Now a proper column. |
+| point_lat | numeric | NULL | Optional map pin. Migration 034. A to-do is a location or a point. |
+| point_lng | numeric | NULL | Optional map pin. Migration 034. |
 | created_by | uuid | NULL, FK → operation_members | Who created the task |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
@@ -2413,6 +2423,8 @@ CREATE TABLE todos (
   location_id     uuid REFERENCES locations(id),
   animal_id       uuid REFERENCES animals(id),
   due_date        date,
+  point_lat       numeric,
+  point_lng       numeric,
   created_by      uuid REFERENCES operation_members(id),
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()

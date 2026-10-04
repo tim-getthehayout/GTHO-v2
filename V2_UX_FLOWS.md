@@ -39,6 +39,9 @@ Four sections, each showing location cards:
 
 Each card shows enough info to make a grazing decision without opening another screen.
 
+**Map pick (2026-10-04):** The pasture list has Pick on map. The overlay draws imported or drawn perimeters, labels each paddock at its centroid, and a click shows acreage plus the last closed paddock-window date. The same map is at `#/map` from Locations. FieldMargin import is GeoJSON, KML, or KMZ. A numbered strip with no parent is proposed as `{parent}-{n}` when its center falls inside a named outline. Shapefile import is not in this version.
+
+
 ### 1.3 Step 2b: Existing Event Picker (Join Existing)
 
 **Farm chip (top of picker):** Same behavior as §1.2 — filters the list to events on the selected farm. Default is current active farm. Joining an event on a different farm from the source is a valid cross-farm move: the source event closes, animals migrate to the existing destination event (`animal_group_memberships` update), and the destination event's `event_group_windows` extend to include the arriving group.

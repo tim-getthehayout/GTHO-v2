@@ -6,24 +6,14 @@
  */
 
 import { supabase } from './supabase-client.js';
-// getSyncAdapter reserved for future use (CP-56 wholesale replace)
-// import { getSyncAdapter } from './store.js';
 import { canExport, exportOperationBackup, downloadBackup } from './backup-export.js';
 import { BACKUP_MIGRATIONS } from './backup-migrations.js';
 import { pullAllRemote } from './pull-remote.js';
 import { logger } from '../utils/logger.js';
 
-/** Current build's supported format_version. */
 const SUPPORTED_FORMAT_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 34;
 
-/** Current build's schema_version (must match latest migration). */
-const CURRENT_SCHEMA_VERSION = 33;
-
-/**
- * FK-dependency insert order per V2_MIGRATION_PLAN.md §5.3a — authoritative.
- * Inserts iterate top-to-bottom. Deletes iterate bottom-to-top.
- * See V2_MIGRATION_PLAN.md §5.3a — authoritative.
- */
 const FK_ORDER = [
   'operations',
   'farms',
@@ -39,7 +29,7 @@ const FK_ORDER = [
   'farm_settings',
   'user_preferences',
   'locations',
-  'animals',               // two-pass: dam_id, sire_animal_id
+  'animals',
   'groups',
   'batches',
   'treatment_types',
@@ -49,7 +39,7 @@ const FK_ORDER = [
   'batch_nutritional_profiles',
   'soil_tests',
   'surveys',
-  'events',                // two-pass: source_event_id
+  'events',
   'manure_batches',
   'amendments',
   'amendment_locations',
@@ -76,19 +66,11 @@ const FK_ORDER = [
   'submissions',
 ];
 
-/** Tables that use two-pass insert (self-referential FKs). */
 const TWO_PASS_TABLES = {
   animals: ['dam_id', 'sire_animal_id'],
   events: ['source_event_id'],
 };
 
-/**
- * Truly global reference tables — upsert by id, no delete (§5.3 footnote).
- * Only tables WITHOUT operation_id belong here. Per-operation seed data
- * (forage_types, animal_classes, treatment_categories, treatment_types,
- * input_product_categories) are operation-scoped and follow normal
- * delete-then-insert during import. (OI-0056)
- */
 const REFERENCE_TABLES = new Set([
   'dose_units',
   'input_product_units',
@@ -96,13 +78,6 @@ const REFERENCE_TABLES = new Set([
 
 const INSERT_BATCH_SIZE = 500;
 
-// ── Step 1: File validation (§5.7.1) ─────────────────────────────
-
-/**
- * Validate a parsed backup envelope.
- * @param {object} backup
- * @returns {{ valid: boolean, error?: string }}
- */
 export function validateBackup(backup) {
   if (!backup || typeof backup !== 'object') {
     return { valid: false, error: 'Invalid JSON: not an object.' };
@@ -125,11 +100,6 @@ export function validateBackup(backup) {
   return { valid: true };
 }
 
-/**
- * Extract preview data from a backup for the confirm sheet (§5.7.3).
- * @param {object} backup
- * @returns {object}
- */
 export function getBackupPreview(backup) {
   const op = (backup.tables?.operations || [])[0];
   return {
@@ -141,13 +111,6 @@ export function getBackupPreview(backup) {
   };
 }
 
-// ── Step 5: Migration chain (§5.7.5) ─────────────────────────────
-
-/**
- * Migrate a backup forward through the migration chain if needed.
- * @param {object} backup - Mutated in place
- * @returns {{ migrated: boolean, from: number, to: number, error?: string }}
- */
 export function migrateBackupForward(backup) {
   const from = backup.schema_version;
   let current = from;
@@ -169,17 +132,10 @@ export function migrateBackupForward(backup) {
   return { migrated: from !== current, from, to: current };
 }
 
-// ── Step 6: Wholesale replace (§5.7.6) ───────────────────────────
-
-/**
- * Delete all rows for an operation from a table.
- * @param {string} table
- * @param {string} operationId
- */
 async function deleteTableRows(table, operationId) {
-  if (REFERENCE_TABLES.has(table)) return; // reference tables upsert, don't delete
-  if (table === 'operations') return; // skip — blocked by operation_members FK; updated in insert phase
-  if (table === 'operation_members') return; // skip — managed separately, not replaced during import
+  if (REFERENCE_TABLES.has(table)) return;
+  if (table === 'operations') return;
+  if (table === 'operation_members') return;
 
   const { error } = await supabase
     .from(table)
@@ -188,19 +144,10 @@ async function deleteTableRows(table, operationId) {
   if (error) throw new Error(`Delete failed on ${table}: ${error.message}`);
 }
 
-/**
- * Insert rows into a table in batches.
- * For two-pass tables, pass 1 nullifies self-FKs; pass 2 updates them.
- * For reference tables, upserts by id.
- * @param {string} table
- * @param {Array<object>} rows
- * @param {string} operationId
- */
 async function insertTableRows(table, rows, operationId) {
   if (!rows || rows.length === 0) return;
-  if (table === 'operation_members') return; // skip — not replaced during import
+  if (table === 'operation_members') return;
 
-  // Operations: update existing row instead of insert (can't delete due to FK)
   if (table === 'operations') {
     const op = rows[0];
     if (op) {
@@ -223,7 +170,6 @@ async function insertTableRows(table, rows, operationId) {
   const isReference = REFERENCE_TABLES.has(table);
   const twoPassCols = TWO_PASS_TABLES[table];
 
-  // Pass 1: insert (with self-FKs nullified for two-pass tables)
   const insertRows = twoPassCols
     ? rows.map(r => {
         const copy = { ...r };
@@ -248,7 +194,6 @@ async function insertTableRows(table, rows, operationId) {
     }
   }
 
-  // Pass 2: update self-referential FKs
   if (twoPassCols) {
     const updates = rows.filter(r => twoPassCols.some(col => r[col] != null));
     for (const row of updates) {
@@ -267,14 +212,6 @@ async function insertTableRows(table, rows, operationId) {
   }
 }
 
-// ── Step 8: Parity check (§5.7.8) ────────────────────────────────
-
-/**
- * Run post-import parity check.
- * @param {object} backup
- * @param {string} operationId
- * @returns {Promise<{ pass: boolean, mismatches: Array<{table: string, expected: number, actual: number}> }>}
- */
 async function parityCheck(backup, operationId) {
   const mismatches = [];
 
@@ -295,7 +232,6 @@ async function parityCheck(backup, operationId) {
       continue;
     }
 
-    // Reference tables may have seed rows not in the backup, so actual >= expected is OK
     if (REFERENCE_TABLES.has(table)) {
       if (count < expected) {
         mismatches.push({ table, expected, actual: count });
@@ -308,37 +244,22 @@ async function parityCheck(backup, operationId) {
   return { pass: mismatches.length === 0, mismatches };
 }
 
-// ── Main import orchestrator (§5.7 steps 1–10) ──────────────────
-
-/**
- * Import a JSON backup file into the current operation.
- * @param {object} backup - Parsed JSON backup object
- * @param {string} operationId - Current operation ID
- * @param {Function} [onProgress] - Called with (phase, detail, pct)
- * @param {object} [options]
- * @param {boolean} [options.skipAutoBackup] - Skip auto-backup step (CP-57 §1.6: empty operation)
- * @returns {Promise<{ success: boolean, error?: string, autoBackupFileName?: string, parityResult?: object }>}
- */
 export async function importOperationBackup(backup, operationId, onProgress, options = {}) {
   const progress = (phase, detail, pct) => {
     if (onProgress) onProgress(phase, detail, pct);
   };
 
-  // Step 1: Validate (already done before calling, but double-check)
   progress('Validating', '', 5);
   const validation = validateBackup(backup);
   if (!validation.valid) {
     return { success: false, error: validation.error };
   }
 
-  // Step 2: Pending-writes gate
   const exportCheck = canExport();
   if (!exportCheck.ok) {
     return { success: false, error: 'Sync pending — retry when sync completes.' };
   }
 
-  // Step 4: Auto-backup of current state (§5.7.4)
-  // CP-57 §1.6: skip when target operation is empty (nothing to back up)
   let autoBackupFileName;
   if (options.skipAutoBackup) {
     logger.info('backup', 'auto-backup skipped (empty operation)', { operation_id: operationId });
@@ -354,7 +275,6 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     }
   }
 
-  // Step 5: Migrate forward if needed (§5.7.5)
   if (backup.schema_version < CURRENT_SCHEMA_VERSION) {
     progress('Migrating', `v${backup.schema_version} → v${CURRENT_SCHEMA_VERSION}`, 20);
     const migResult = migrateBackupForward(backup);
@@ -363,8 +283,6 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     }
   }
 
-  // Step 6: Wholesale replace (§5.7.6)
-  // Delete: bottom-to-top per §5.3a
   const deleteOrder = [...FK_ORDER].reverse();
   const totalSteps = deleteOrder.length + FK_ORDER.length;
   let stepsDone = 0;
@@ -381,7 +299,6 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  // Insert: top-to-bottom per §5.3a
   for (const table of FK_ORDER) {
     const rows = backup.tables[table] || [];
     progress('Replacing data', `Inserting ${table} (${rows.length} rows)`, 25 + Math.round((stepsDone / totalSteps) * 50));
@@ -395,7 +312,6 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  // Step 7: Re-seed local store (§5.7.7)
   progress('Refreshing', '', 85);
   try {
     await pullAllRemote();
@@ -403,11 +319,9 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     logger.error('backup', 'store re-hydrate failed after import', { error: err.message });
   }
 
-  // Step 8: Parity check (§5.7.8)
   progress('Verifying', '', 90);
   const parityResult = await parityCheck(backup, operationId);
 
-  // Step 9: Log (§5.7.9)
   const totalRows = FK_ORDER.reduce((sum, t) => sum + (backup.tables[t] || []).length, 0);
   if (parityResult.pass) {
     logger.info('backup', 'import complete', {
@@ -432,5 +346,4 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
   };
 }
 
-/** Export FK_ORDER and CURRENT_SCHEMA_VERSION for tests and CP-57. */
 export { FK_ORDER, REFERENCE_TABLES, TWO_PASS_TABLES, CURRENT_SCHEMA_VERSION };

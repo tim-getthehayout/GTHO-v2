@@ -32,6 +32,7 @@ import { renderAmendmentsScreen } from './features/amendments/entry.js';
 import { renderManureScreen } from './features/amendments/manure.js';
 import { renderNpkPricesScreen } from './features/amendments/npk-prices.js';
 import { renderHarvestScreen } from './features/harvest/index.js';
+import { renderFarmMapScreen } from './features/map/index.js';
 import { renderFeedbackScreen } from './features/feedback/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { renderDevHome } from './features/dev-mode/index.js';
@@ -40,33 +41,17 @@ import { renderLogsViewer } from './features/dev-mode/logs.js';
 import { renderSchemaReadout } from './features/dev-mode/schema.js';
 import { getFieldMode, setFieldMode, migrateUnitSystemFromLocalStorage } from './utils/preferences.js';
 
-// Register all calculations on import (CP-45/46/47, CP-54)
 import './calcs/core.js';
 import './calcs/feed-forage.js';
 import './calcs/advanced.js';
 import './calcs/capacity.js';
 import './calcs/survey-bale-ring.js';
 
-/**
- * Boot the application.
- * Sequence: load locale → check session → if auth'd show app, else show auth overlay
- */
 async function boot() {
-  // 1. Load locale first (needed for auth screen text)
   await loadLocale('en');
-
-  // 2. Get app container
   const app = document.getElementById('app');
-
-  // 3. Check for invite token in URL (CP-66)
   const inviteToken = extractInviteToken();
-
-  // 4. Check existing session
   const user = await initSession();
-
-  // Track the last rendered user ID — prevents onAuthChange from
-  // re-rendering when the same user is still signed in (OI-0052).
-  // Supabase fires INITIAL_SESSION + TOKEN_REFRESHED on load.
   let lastRenderedUserId = null;
 
   if (user) {
@@ -81,20 +66,12 @@ async function boot() {
       showApp(app);
     }
   } else {
-    if (inviteToken) {
-      showAuth(app, inviteToken);
-    } else {
-      showAuth(app);
-    }
+    if (inviteToken) showAuth(app, inviteToken);
+    else showAuth(app);
   }
 
-  // 5. Listen for auth state changes (logout, token expiry, sign-in)
   onAuthChange(async (changedUser) => {
-    // Skip if same user still signed in (token refresh, initial session restore)
-    if (changedUser && changedUser.id === lastRenderedUserId) {
-      return;
-    }
-
+    if (changedUser && changedUser.id === lastRenderedUserId) return;
     lastRenderedUserId = changedUser?.id || null;
     clear(app);
     if (changedUser) {
@@ -115,18 +92,11 @@ async function boot() {
   });
 }
 
-/**
- * Show the auth overlay.
- * @param {HTMLElement} app
- * @param {string} [inviteToken] - If present, show invite context banner
- */
 function showAuth(app, inviteToken) {
   clear(app);
   if (inviteToken) {
-    // Store token for post-auth claim
     sessionStorage.setItem('gtho_invite_token', inviteToken);
     clearInviteHash();
-    // Show context banner above auth
     app.appendChild(el('div', {
       className: 'invite-banner',
       'data-testid': 'invite-banner',
@@ -138,23 +108,13 @@ function showAuth(app, inviteToken) {
   });
 }
 
-/**
- * Handle invite claim after authentication.
- * @param {HTMLElement} app
- * @param {string} token
- * @param {object} user
- */
 async function handleInviteClaim(app, token, user) {
   clearInviteHash();
-
-  // Check if user is already a member of any operation
   const alreadyMember = await userHasOperation(user.id);
-
   const result = await claimInviteByToken(token, user.id);
 
   if (result.success) {
     showApp(app);
-    // Toast after app renders
     setTimeout(() => {
       const toast = el('div', { className: 'export-toast', 'data-testid': 'invite-success-toast' }, [
         t('members.welcomeToast'),
@@ -163,7 +123,6 @@ async function handleInviteClaim(app, token, user) {
       setTimeout(() => toast.remove(), 4000);
     }, 500);
   } else if (alreadyMember) {
-    // Already a member — just show the app
     showApp(app);
     setTimeout(() => {
       const toast = el('div', { className: 'export-toast', 'data-testid': 'invite-already-member-toast' }, [
@@ -173,7 +132,6 @@ async function handleInviteClaim(app, token, user) {
       setTimeout(() => toast.remove(), 4000);
     }, 500);
   } else {
-    // Invalid/expired token
     clear(app);
     app.appendChild(el('div', {
       className: 'invite-error-screen',
@@ -193,47 +151,19 @@ async function handleInviteClaim(app, token, user) {
   }
 }
 
-/**
- * Show the authenticated app shell.
- *
- * OI-0149 boot order: paint from localStorage first, sync in the background.
- * `initStore()` populates state synchronously from localStorage so every
- * screen has data to render; routes + header + `initRouter()` run before
- * any pull starts. `flush() + pullAllRemote()` runs fire-and-forget after
- * `initRouter()`; the `mergeRemote() → notify()` cascade re-renders the
- * subscribed surfaces as remote rows land. Online + visibilitychange
- * handlers do not `await` at the call site — the `inFlight` dedupe in
- * `pull-remote.js` absorbs concurrent firings.
- *
- * @param {HTMLElement} app
- */
 function showApp(app) {
-  // Init store — load from localStorage (synchronous; everything that follows
-  // can render off this snapshot without waiting on the network).
   initStore();
-
-  // OI-0150-C: stamp a session id at boot so every logger entry from this
-  // browser session shares one id (groups errors together in dev/logs).
-  // Generated once per session — `sessionStorage` clears on tab close, so
-  // a cold boot in a new tab gets a fresh id automatically.
   try {
     if (!sessionStorage.getItem('gtho_session_id')) {
       sessionStorage.setItem('gtho_session_id', crypto.randomUUID());
     }
-  } catch { /* sessionStorage not available — logger entries get null session_id */ }
+  } catch { /* sessionStorage not available */ }
 
-  // Wire sync adapter
   const syncAdapter = new CustomSync();
   setSyncAdapter(syncAdapter);
-
-  // OI-0095 Part B: one-time app-side paddock-window orphan cleanup.
-  // Guarded by a per-device localStorage flag — runs once, no-op thereafter.
   closePaddockWindowOrphans();
-
-  // Migrate legacy unit system from localStorage to operation (A44)
   migrateUnitSystemFromLocalStorage();
 
-  // Check if onboarding needed (no operations for this user)
   if (needsOnboarding()) {
     clear(app);
     const onboardingContainer = el('div', { className: 'app-content' });
@@ -245,7 +175,6 @@ function showApp(app) {
     return;
   }
 
-  // Check for field mode (URL param or preference)
   const urlParams = new window.URLSearchParams(window.location.search);
   if (urlParams.has('field')) {
     setFieldMode(true);
@@ -253,18 +182,15 @@ function showApp(app) {
     document.body.classList.add('field-mode');
   }
 
-  // Render header
   renderHeader(app);
-
-  // Create content area
   const content = el('main', { className: 'app-content' });
   app.appendChild(content);
 
-  // Register routes
   route('#/', renderDashboard);
   route('#/field', renderFieldModeHome);
   route('#/events', renderEventsScreen);
   route('#/locations', renderLocationsScreen);
+  route('#/map', renderFarmMapScreen);
   route('#/feed', renderFeedScreen);
   route('#/animals', renderAnimalsScreen);
   route('#/reports', renderReportsScreen);
@@ -278,50 +204,29 @@ function showApp(app) {
   route('#/harvest', renderHarvestScreen);
   route('#/feedback', renderFeedbackScreen);
   route('#/feed-quality', renderFeedQualityScreen);
-  // OI-0138: Dev Mode shelf — gated by `requireDev` (silent redirect to `#/`
-  // when current user does not have `is_dev = true` on the active operation).
-  // Tool routes (`#/dev/audit`, `#/dev/logs`, `#/dev/schema`) register from
-  // their phase modules as they land.
   route('#/dev', requireDev(renderDevHome));
   route('#/dev/audit', requireDev(renderEventAudit));
   route('#/dev/logs', requireDev(renderLogsViewer));
   route('#/dev/schema', requireDev(renderSchemaReadout));
 
-  // Init router — renders the current hash route from the localStorage
-  // snapshot synchronously. First paint happens here, before any pull starts.
   initRouter(content);
 
-  // Background sync. Fire-and-forget — first paint already happened. The
-  // `inFlight` dedupe in `pull-remote.js` (OI-0149) makes it safe for the
-  // online + visibilitychange handlers below to call this without coordinating
-  // with the boot pull. The `notify()` cascade in `mergeRemote()` re-renders
-  // subscribed surfaces as remote rows land.
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
       syncAdapter.flush().then(() => pullAllRemote());
     });
     document.addEventListener('visibilitychange', () => {
-      // OI-0150-C: when the tab goes hidden, opportunistically flush the
-      // logger buffer with the unloading flag so the regular insert is
-      // tried alongside a `navigator.sendBeacon` best-effort. This
-      // handles the "tab backgrounded but not closed" case (the
-      // pagehide handler covers tab close + browser quit).
       if (document.visibilityState === 'hidden') {
-        flushLoggerBuffer({ unloading: true }).catch(() => { /* defensive */ });
+        flushLoggerBuffer({ unloading: true }).catch(() => {});
         return;
       }
       if (document.visibilityState !== 'visible') return;
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
       syncAdapter.flush().then(() => pullAllRemote());
     });
-    // OI-0150-C: pagehide is the canonical "tab is going away" event.
-    // Better than `beforeunload` for cleanup — fires reliably for tab
-    // close, navigation away, and browser quit. sendBeacon is the only
-    // path that may make it out before the page tears down.
     window.addEventListener('pagehide', () => {
-      flushLoggerBuffer({ unloading: true }).catch(() => { /* defensive */ });
+      flushLoggerBuffer({ unloading: true }).catch(() => {});
     });
-    // Initial sync — does not block first paint.
     syncAdapter.flush().then(() => pullAllRemote());
   }
 }

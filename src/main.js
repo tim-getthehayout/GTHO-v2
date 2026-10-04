@@ -9,7 +9,7 @@ import { loadLocale } from './i18n/i18n.js';
 import { route, initRouter, requireDev } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
 import { el, clear } from './ui/dom.js';
-import { initSession, onAuthChange, getUser } from './features/auth/session.js';
+import { initSession, onAuthChange, getUser, logout } from './features/auth/session.js';
 import { renderAuthOverlay } from './features/auth/index.js';
 import { needsOnboarding, renderOnboarding } from './features/onboarding/index.js';
 import {
@@ -191,9 +191,11 @@ async function claimIfNoMembership(user) {
 async function resolveEmptyStore(app, syncAdapter, gen) {
   renderBootStatus(app, t('onboarding.checkingOperation'));
   const user = getUser();
-  let membership = user
-    ? await lookupOperationMembership(user.id)
-    : { status: 'error', error: 'No user' };
+  if (!user) {
+    showAuth(app);
+    return;
+  }
+  let membership = await lookupOperationMembership(user.id);
   if (gen !== showAppGen) return;
 
   if (membership.status === 'none' && user) {
@@ -216,6 +218,24 @@ async function resolveEmptyStore(app, syncAdapter, gen) {
   if (decision === 'wizard') {
     clear(app);
     const onboardingContainer = el('div', { className: 'app-content' });
+    app.appendChild(el('div', {
+      className: 'boot-signed-in',
+      'data-testid': 'boot-signed-in',
+      style: { padding: 'var(--space-4)', textAlign: 'center', color: 'var(--text2)' },
+    }, [
+      el('span', {}, [t('onboarding.signedInAs', { email: user.email || '' })]),
+      el('button', {
+        className: 'auth-toggle',
+        type: 'button',
+        'data-testid': 'boot-sign-out',
+        style: { marginLeft: 'var(--space-3)' },
+        onClick: async () => {
+          await logout();
+          lastRenderedUserId = null;
+          showAuth(app);
+        },
+      }, [t('auth.logout')]),
+    ]));
     app.appendChild(onboardingContainer);
     renderOnboarding(onboardingContainer, () => {
       clear(app);

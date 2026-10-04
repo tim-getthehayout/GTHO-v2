@@ -29,6 +29,13 @@ export default [
         confirm: 'readonly',
         requestAnimationFrame: 'readonly',
         queueMicrotask: 'readonly',
+        DOMParser: 'readonly',
+        TextDecoder: 'readonly',
+        TextEncoder: 'readonly',
+        DecompressionStream: 'readonly',
+        Response: 'readonly',
+        DataView: 'readonly',
+        File: 'readonly',
       },
     },
     rules: {

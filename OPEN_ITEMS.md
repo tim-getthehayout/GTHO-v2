@@ -5726,6 +5726,14 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 ## Closed
 
+### OI-0191 — Existing operation forced through new-operation wizard on a fresh browser
+**Added:** 2026-10-04 | **Closed:** 2026-10-04 | **Area:** v2-build / auth / onboarding / boot
+**Resolution:** Regression of OI-0061. OI-0149 correctly stopped awaiting the full `pullAllRemote()` before paint (that hung cold boot), but `showApp()` still treated `getAll('operations').length === 0` as "new user" and returned before any pull. A PC / incognito / cleared `localStorage` therefore rendered the wizard and never loaded the existing operation. Finishing the wizard inserted a duplicate.
+
+**What shipped:** Membership lookup now returns `member` / `none` / `error` and a failed lookup is not "no operation". Empty local store shows a checking state, claims a pending invite only when lookup is `none`, and awaits a strict pull of `operations` + `operation_members` (errors are not swallowed as empty) before the gate. Wizard only if lookup succeeded and found no membership. Member whose operation did not hydrate gets a retry screen, not the wizard. Populated cache still paints before the full pull. Full `pullAllRemote()` stays fire-and-forget after `initRouter()`. Login success no longer starts a second boot when `onAuthChange` already owns that user. `decideBootGate` unit tests cover the four outcomes. OI-0149 boot-order test still requires route registration before `pullAllRemote` resolves.
+
+**Schema change:** none. **CP-55/CP-56 impact:** none.
+
 ### OI-0162 — Move wizard: three compounding bugs (0-remaining still prompts move/residual, partial-write on validate throw, no idempotency guard) — orphan B-3 event written 2026-05-06
 **Added:** 2026-05-06 | **Closed:** 2026-05-08 | **Area:** v2-build / events / move-wizard / data-integrity
 **Resolution:** Single bundled commit covering A → B → C per spec. Three compounding bugs that produced one orphan destination event in production on 2026-05-06 (D → B-3 sequence with 0 live remaining feed). All three sub-items shipped as one commit at the same surface (`src/features/events/move-wizard.js`) with one regression test file covering every layer.

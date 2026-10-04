@@ -1,21 +1,22 @@
 /** @file Application entry point — boot sequence per V2_APP_ARCHITECTURE.md */
 
-import { init as initStore, setSyncAdapter } from './data/store.js';
+import { init as initStore, setSyncAdapter, getAll } from './data/store.js';
 import { closePaddockWindowOrphans } from './data/one-time-fixes.js';
 import { CustomSync } from './data/custom-sync.js';
-import { pullAllRemote } from './data/pull-remote.js';
+import { pullAllRemote, pullEntitiesStrict } from './data/pull-remote.js';
 import { flushLoggerBuffer } from './data/log-flush.js';
 import { loadLocale } from './i18n/i18n.js';
 import { route, initRouter, requireDev } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
 import { el, clear } from './ui/dom.js';
-import { initSession, onAuthChange } from './features/auth/session.js';
+import { initSession, onAuthChange, getUser } from './features/auth/session.js';
 import { renderAuthOverlay } from './features/auth/index.js';
 import { needsOnboarding, renderOnboarding } from './features/onboarding/index.js';
 import {
   extractInviteToken, clearInviteHash, claimInviteByToken,
-  claimPendingInviteByEmail, userHasOperation,
+  claimPendingInviteByEmail, lookupOperationMembership,
 } from './features/auth/invite-claim.js';
+import { decideBootGate } from './features/auth/boot-gate.js';
 import { t } from './i18n/i18n.js';
 import { renderDashboard } from './features/dashboard/index.js';
 import { renderEventsScreen } from './features/events/index.js';
@@ -47,22 +48,22 @@ import './calcs/advanced.js';
 import './calcs/capacity.js';
 import './calcs/survey-bale-ring.js';
 
+let showAppGen = 0;
+let lastRenderedUserId = null;
+let appListenersBound = false;
+
 async function boot() {
   await loadLocale('en');
   const app = document.getElementById('app');
   const inviteToken = extractInviteToken();
   const user = await initSession();
-  let lastRenderedUserId = null;
 
   if (user) {
     lastRenderedUserId = user.id;
     if (inviteToken) {
       await handleInviteClaim(app, inviteToken, user);
     } else {
-      const hasOp = await userHasOperation(user.id);
-      if (!hasOp) {
-        await claimPendingInviteByEmail(user.email, user.id);
-      }
+      await claimIfNoMembership(user);
       showApp(app);
     }
   } else {
@@ -80,10 +81,7 @@ async function boot() {
         sessionStorage.removeItem('gtho_invite_token');
         await handleInviteClaim(app, storedToken, changedUser);
       } else {
-        const hasOp = await userHasOperation(changedUser.id);
-        if (!hasOp) {
-          await claimPendingInviteByEmail(changedUser.email, changedUser.id);
-        }
+        await claimIfNoMembership(changedUser);
         showApp(app);
       }
     } else {
@@ -103,6 +101,11 @@ function showAuth(app, inviteToken) {
     }, [t('members.inviteBanner')]));
   }
   renderAuthOverlay(app, () => {
+    // login()/signup() already notified onAuthChange, which owns boot.
+    // Fallback if that listener did not start a boot for this user.
+    const user = getUser();
+    if (user && user.id === lastRenderedUserId) return;
+    if (user) lastRenderedUserId = user.id;
     clear(app);
     showApp(app);
   });
@@ -110,7 +113,8 @@ function showAuth(app, inviteToken) {
 
 async function handleInviteClaim(app, token, user) {
   clearInviteHash();
-  const alreadyMember = await userHasOperation(user.id);
+  const membership = await lookupOperationMembership(user.id);
+  const alreadyMember = membership.status === 'member';
   const result = await claimInviteByToken(token, user.id);
 
   if (result.success) {
@@ -152,6 +156,7 @@ async function handleInviteClaim(app, token, user) {
 }
 
 function showApp(app) {
+  const gen = ++showAppGen;
   initStore();
   try {
     if (!sessionStorage.getItem('gtho_session_id')) {
@@ -164,7 +169,51 @@ function showApp(app) {
   closePaddockWindowOrphans();
   migrateUnitSystemFromLocalStorage();
 
+  // Populated cache paints immediately. An empty cache is not "new user" —
+  // confirm membership and hydrate operations before the wizard (OI-0191).
+  // The full pull stays fire-and-forget after paint (OI-0149).
   if (needsOnboarding()) {
+    resolveEmptyStore(app, syncAdapter, gen);
+    return;
+  }
+
+  if (gen !== showAppGen) return;
+  paintApp(app, syncAdapter);
+}
+
+async function claimIfNoMembership(user) {
+  const membership = await lookupOperationMembership(user.id);
+  if (membership.status !== 'none') return membership;
+  await claimPendingInviteByEmail(user.email, user.id);
+  return lookupOperationMembership(user.id);
+}
+
+async function resolveEmptyStore(app, syncAdapter, gen) {
+  renderBootStatus(app, t('onboarding.checkingOperation'));
+  const user = getUser();
+  let membership = user
+    ? await lookupOperationMembership(user.id)
+    : { status: 'error', error: 'No user' };
+  if (gen !== showAppGen) return;
+
+  if (membership.status === 'none' && user) {
+    await claimPendingInviteByEmail(user.email, user.id);
+    if (gen !== showAppGen) return;
+    membership = await lookupOperationMembership(user.id);
+    if (gen !== showAppGen) return;
+  }
+
+  if (membership.status === 'member') {
+    await pullEntitiesStrict(['operations', 'operationMembers']);
+    if (gen !== showAppGen) return;
+  }
+
+  const decision = decideBootGate({
+    localOperationCount: getAll('operations').length,
+    membershipStatus: membership.status,
+  });
+
+  if (decision === 'wizard') {
     clear(app);
     const onboardingContainer = el('div', { className: 'app-content' });
     app.appendChild(onboardingContainer);
@@ -175,6 +224,45 @@ function showApp(app) {
     return;
   }
 
+  if (decision !== 'app') {
+    renderBootBlocked(app, () => showApp(app));
+    return;
+  }
+
+  paintApp(app, syncAdapter);
+}
+
+function renderBootStatus(app, message) {
+  clear(app);
+  app.appendChild(el('div', {
+    className: 'app-content',
+    'data-testid': 'boot-status',
+    style: { padding: 'var(--space-6)', textAlign: 'center' },
+  }, [
+    el('p', {}, [message]),
+  ]));
+}
+
+function renderBootBlocked(app, onRetry) {
+  clear(app);
+  app.appendChild(el('div', {
+    className: 'app-content',
+    'data-testid': 'boot-blocked',
+    style: { padding: 'var(--space-6)', textAlign: 'center', maxWidth: '32rem', margin: '0 auto' },
+  }, [
+    el('p', {}, [t('onboarding.existingOperationUnconfirmed')]),
+    el('button', {
+      className: 'btn btn-green',
+      type: 'button',
+      'data-testid': 'boot-retry',
+      style: { marginTop: 'var(--space-4)' },
+      onClick: onRetry,
+    }, [t('onboarding.retry')]),
+  ]));
+}
+
+function paintApp(app, syncAdapter) {
+  clear(app);
   const urlParams = new window.URLSearchParams(window.location.search);
   if (urlParams.has('field')) {
     setFieldMode(true);
@@ -211,7 +299,8 @@ function showApp(app) {
 
   initRouter(content);
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && !appListenersBound) {
+    appListenersBound = true;
     window.addEventListener('online', () => {
       syncAdapter.flush().then(() => pullAllRemote());
     });

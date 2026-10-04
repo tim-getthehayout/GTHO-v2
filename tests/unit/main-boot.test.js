@@ -43,6 +43,7 @@ function setupMocks() {
         return result;
       });
     },
+    pullEntitiesStrict: () => Promise.resolve({ ok: true, error: null, byType: {} }),
     getLastPulledAt: () => null,
   }));
 
@@ -61,6 +62,7 @@ function setupMocks() {
     init: () => record('initStore'),
     setSyncAdapter: () => {},
     getSyncAdapter: () => null,
+    getAll: () => [],
     mergeRemote: () => {},
     isCurrentUserDev: () => false,
     getOperation: () => null,
@@ -79,6 +81,7 @@ function setupMocks() {
   vi.doMock('../../src/features/auth/session.js', () => ({
     initSession: () => Promise.resolve(fakeUser),
     onAuthChange: () => {},
+    getUser: () => fakeUser,
   }));
 
   vi.doMock('../../src/features/auth/index.js', () => ({
@@ -91,6 +94,7 @@ function setupMocks() {
     claimInviteByToken: () => Promise.resolve({ success: true }),
     claimPendingInviteByEmail: () => Promise.resolve(),
     userHasOperation: () => Promise.resolve(true),
+    lookupOperationMembership: () => Promise.resolve({ status: 'member', operationId: 'op-1' }),
   }));
 
   vi.doMock('../../src/features/onboarding/index.js', () => ({

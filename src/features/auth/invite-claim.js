@@ -107,17 +107,43 @@ export async function claimPendingInviteByEmail(email, userId) {
 
 /**
  * Check if the current user already has a membership in any operation.
+ * A lookup error is not "no operation" — use lookupOperationMembership for the boot gate.
  * @param {string} userId
  * @returns {Promise<boolean>}
  */
 export async function userHasOperation(userId) {
-  if (!supabase) return false;
-  const { data } = await supabase
-    .from('operation_members')
-    .select('operation_id')
-    .eq('user_id', userId)
-    .limit(1);
-  return (data && data.length > 0);
+  const result = await lookupOperationMembership(userId);
+  return result.status === 'member';
+}
+
+/**
+ * Membership lookup that does not collapse errors into "no operation".
+ * @param {string} userId
+ * @returns {Promise<{ status: 'member'|'none'|'error', operationId?: string, error?: string }>}
+ */
+export async function lookupOperationMembership(userId) {
+  if (!supabase) return { status: 'error', error: 'Supabase not configured' };
+  if (!userId) return { status: 'error', error: 'No user' };
+
+  try {
+    const { data, error } = await supabase
+      .from('operation_members')
+      .select('operation_id')
+      .eq('user_id', userId)
+      .limit(1);
+
+    if (error) {
+      logger.warn('invite', 'membership lookup failed', { error: error.message });
+      return { status: 'error', error: error.message };
+    }
+    if (data && data.length > 0) {
+      return { status: 'member', operationId: data[0].operation_id };
+    }
+    return { status: 'none' };
+  } catch (err) {
+    logger.warn('invite', 'membership lookup exception', { error: err.message });
+    return { status: 'error', error: err.message };
+  }
 }
 
 /**

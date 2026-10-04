@@ -6,6 +6,7 @@ import { getSyncAdapter, mergeRemote, beginBatch, endBatch } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
 import { logger } from '../utils/logger.js';
 import { flushLoggerBuffer } from './log-flush.js';
+import { supabase } from './supabase-client.js';
 
 const LAST_PULLED_KEY = 'gtho_last_pulled_at';
 
@@ -36,6 +37,53 @@ export function pullAllRemote() {
   if (inFlight) return inFlight;
   inFlight = _doPullAllRemote().finally(() => { inFlight = null; });
   return inFlight;
+}
+
+/**
+ * Pull a few tables and surface errors. Used by the boot gate so an existing
+ * operation can hydrate before the new-operation wizard is considered.
+ * Unlike pullAll(), a Supabase error is not reported as an empty table.
+ * Does not take the full-pull inFlight lock — the later fire-and-forget
+ * pullAllRemote() still owns that.
+ * @param {string[]} entityTypes
+ * @returns {Promise<{ ok: boolean, error: string|null, byType: Record<string, { pulled: number, error: string|null }> }>}
+ */
+export async function pullEntitiesStrict(entityTypes) {
+  const byType = {};
+  if (!supabase) return { ok: false, error: 'Supabase not configured', byType };
+
+  const adapter = getSyncAdapter();
+  if (adapter) {
+    const online = await adapter.isOnline();
+    if (!online) return { ok: false, error: 'offline', byType };
+  }
+
+  beginBatch();
+  try {
+    for (const entityType of entityTypes) {
+      const reg = SYNC_REGISTRY[entityType];
+      if (!reg) {
+        byType[entityType] = { pulled: 0, error: 'unknown entity' };
+        return { ok: false, error: `unknown entity ${entityType}`, byType };
+      }
+      const { data, error } = await supabase.from(reg.table).select('*');
+      if (error) {
+        logger.error('sync', `strict pull failed for ${reg.table}`, { error: error.message });
+        byType[entityType] = { pulled: 0, error: error.message };
+        return { ok: false, error: error.message, byType };
+      }
+      const records = (data || []).map(row => reg.from(row));
+      if (records.length > 0) mergeRemote(entityType, records);
+      byType[entityType] = { pulled: records.length, error: null };
+    }
+  } catch (err) {
+    logger.error('sync', 'strict pull exception', { error: err.message });
+    return { ok: false, error: err.message, byType };
+  } finally {
+    endBatch();
+  }
+
+  return { ok: true, error: null, byType };
 }
 
 async function _doPullAllRemote() {

@@ -49,7 +49,7 @@ export async function renderFarmMapScreen(container) {
     maxZoom: 19,
   }).addTo(map);
 
-  const locations = getAll('locations').filter((l) => !l.archived && l.type === 'land');
+  const locations = getAll('locations').filter((l) => !l.archived);
   const drawn = locations.filter(locationHasPerimeter);
   const locLayers = L.featureGroup();
   for (const loc of drawn) {
@@ -183,6 +183,11 @@ export async function renderFarmMapScreen(container) {
 
   renderToolbar();
   requestAnimationFrame(() => map.invalidateSize());
+  window.addEventListener('gtho-boundaries-imported', function onImported() {
+    window.removeEventListener('gtho-boundaries-imported', onImported);
+    renderFarmMapScreen(container);
+  });
 }
+
 
 export { openLocationMapPicker, openBoundaryImportPicker };

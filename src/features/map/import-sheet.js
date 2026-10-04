@@ -129,4 +129,5 @@ function applyRows(rows) {
     }
   }
   window.alert(`Imported ${attached} onto existing locations and created ${created} new ones.`);
+  window.dispatchEvent(new CustomEvent('gtho-boundaries-imported'));
 }

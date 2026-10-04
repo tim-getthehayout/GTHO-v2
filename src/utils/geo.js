@@ -4,6 +4,9 @@ const M_PER_DEG_LAT = 111320;
 
 function ringFromGeojson(geojson) {
   if (!geojson) return null;
+  if (typeof geojson === 'string') {
+    try { geojson = JSON.parse(geojson); } catch { return null; }
+  }
   const coords = geojson.type === 'Feature' ? geojson.geometry?.coordinates : geojson.coordinates;
   if (!coords || !coords[0] || coords[0].length < 4) return null;
   return coords[0];

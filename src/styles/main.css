@@ -3213,3 +3213,8 @@ body.field-mode .sheet-handle { display: none; }
   opacity: 0.6;
   cursor: default;
 }
+
+.farm-map-screen { display: flex; flex-direction: column; min-height: calc(100vh - 120px); }
+.farm-map-canvas { height: 70vh; min-height: 420px; width: 100%; border-radius: 8px; background: #1a1a1a; }
+.farm-map-toolbar, .farm-map-hint { margin-bottom: 8px; }
+.farm-map-actions { display: flex; gap: 8px; flex-wrap: wrap; }

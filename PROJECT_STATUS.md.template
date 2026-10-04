@@ -1,0 +1,43 @@
+# [Project Name] — Project Status
+
+**Last updated:** YYYY-MM-DD  
+**Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
+
+---
+
+## 1. Project Goals
+
+- …
+
+## 2. Constraints & Priorities
+
+- …
+
+## 3. Current State
+
+What exists today (hardware, code, services, accounts, prior work):
+
+- …
+
+## 4. Key Decisions / Decision Log
+
+| Date | Decision | Notes |
+|------|----------|-------|
+|      |          |       |
+
+## 5. Open Questions / Next Steps
+
+1. …
+2. …
+
+## 6. Framework feedback (process only)
+
+Park reusable process discoveries here. Do not leave them only in this project — fold them into the framework repository when they are clear.
+
+| Date | Discovery | Suggested framework change | Status |
+|------|-----------|----------------------------|--------|
+|      |           |                            |        |
+
+---
+
+*Update this file after every significant decision so future sessions start with accurate context.*

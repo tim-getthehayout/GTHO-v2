@@ -1,60 +1,130 @@
-# AGENTS.md — GTHO v2
+# AGENTS.md — Project Framework Instructions
 
-This file adapts the shared Project Framework for Get The Hay Out v2. Shared process rules (roles, ownership, handoff, delivery gates, session protocol) come from the framework. Domain content stays in the existing specs. Do not rewrite those specs to match this file.
+This file is the primary instruction set for both Grok project conversations and Grok Build sessions.
 
-**Living status document:** `PROJECT_STATUS.md` (read this first at the start of every conversation or Grok Build session).
-
-`CLAUDE.md` remains the implementation rulebook (schema-first, mutation pattern, tests, logging). It is no longer the session entry. The 2026-04-15 UI sprint section in `CLAUDE.md` is retired.
+**Rule priority:** Project-specific `AGENTS.md` (if present) overrides this framework file for domain content. Shared process rules in this file still apply unless explicitly overridden.
 
 ---
 
-## Project-specific context
+## 0. New Project / First-Pass Scaffold
 
-**What this project is**
-Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, GitHub Pages. Live app: `https://tim-getthehayout.github.io/GTHO-v2/`. v1 is a separate repo, `get-the-hay-out`.
+When a project is new, has an empty or missing living status document, or the user asks to “scaffold”, “start a new project”, or “set up the framework for this project”:
 
-**Hard constraints / priorities**
-- Schema first. A new field needs a numbered SQL migration, then the entity `FIELDS` and shape mappers, then feature code. Never add a UI field without a Supabase column.
-- A migration file on disk is not applied. Run it against Supabase in the same session, or hand Tim the SQL if this session cannot reach the project. Verify the columns before calling the work done.
-- Offline-first. Writes go through the store and sync queue. No direct Supabase writes from feature code.
-- No `innerHTML`. Compute on read. Scoped changes only.
-- `main` deploys on push. Do not force-push.
+1. Follow the **project-scaffold** skill (`SKILL.md`).
+2. Interview the user (one major question at a time) to gather goals, constraints, current state, key decisions, and open questions.
+3. Generate a first `PROJECT_STATUS.md` and a project-adapted `AGENTS.md`.
+4. Show the generated files and obtain confirmation before treating them as authoritative.
+5. After confirmation, treat `PROJECT_STATUS.md` as the living source of truth.
 
-**Key working notes**
-- Domain specs stay where they are: `V2_SCHEMA_DESIGN.md`, `V2_UX_FLOWS.md`, `V2_APP_ARCHITECTURE.md`, `V2_CALCULATION_SPEC.md`, `V2_INFRASTRUCTURE.md`, `V2_DESIGN_SYSTEM.md`, `V2_MIGRATION_PLAN.md`, `V2_BUILD_INDEX.md`.
-- Backlog stays in `OPEN_ITEMS.md`. Do not duplicate it into `PROJECT_STATUS.md`. Status points at the open items that matter this session.
-- Session briefs live in `session_briefs/`. Implementation specs live in `github/issues/`.
-- Current schema stamp is 34 (migration `034_location_geometry_todo_points.sql`, applied 2026-10-04). Map work is on `main` as `a554f01`.
+Do not invent design decisions. Record open questions explicitly.
 
 ---
 
-## Framework process rules (do not remove)
+## 1. Roles and Ownership
 
-The following process rules apply unless this project explicitly overrides them.
+| Role | Primary responsibility | Owns |
+|------|------------------------|------|
+| **Grok project chat** | Design, architecture, prioritization, status, decision logging | Living status document, high-level decisions, open questions, session briefs / specs |
+| **Grok Build** | Implementation (editing files, running commands, applying configs) | Code, configuration, infrastructure files, lower-level docs it is asked to change |
+| **Git repository** | Durability and handoff medium | Everything that must survive across sessions and machines |
 
-### Roles and ownership
-- **Grok project chat** owns design, prioritization, living status, and session briefs/specs. This replaces the old Cowork role in `CLAUDE.md`.
-- **Grok Build** owns concrete implementation (files, commands, configs) and does not invent design decisions. This replaces the old Claude Code role.
-- **Git** is the durable handoff medium between the two and between machines.
+### Ownership rules
 
-Doc map, carried forward:
-- Grok project chat edits design docs (`V2_*.md`), `OPEN_ITEMS.md`, `github/issues/` specs, `V2_BUILD_INDEX.md`, and `PROJECT_STATUS.md`.
-- Grok Build updates `PROJECT_CHANGELOG.md` (one row per change), code under `src/`, `tests/`, `supabase/`, and `CLAUDE.md` only when an implementation rule changes.
-- Either may log in `IMPROVEMENTS.md`. `TASKS.md` is updated in the same session a tracked task completes.
+- The living status document is the single source of truth for current project state. Update it after every significant decision or change.
+- Grok Build does not invent design decisions. If something is not specified in the status doc, a brief, or a spec, it stops and flags the question.
+- Specs and session briefs are written by the design side (Grok chat) and consumed by the implementation side (Grok Build).
+- Do not edit files owned by the other role without explicit handoff.
 
-### Session start
-1. Read the latest `PROJECT_STATUS.md`.
-2. Read this `AGENTS.md`.
-3. Surface relevant open items from `OPEN_ITEMS.md` (do not read the whole file unless the session needs it).
-4. Confirm the session goal before making changes.
+---
 
-### Handoff
-Design decisions and requirements are written into `PROJECT_STATUS.md` and/or a session brief or spec, then committed. Grok Build is pointed at those docs with a focused prompt. After implementation, return to the Grok chat to review and update status.
+## 2. Session Start Protocol (both sides)
 
-### Delivery gate
-Update living status and open items. Do not leave unspecified design questions silent. Prefer scoped changes.
+1. Identify and read the **latest** living status document for the project.
+2. Read this `AGENTS.md` (and any project-specific overlay).
+3. Surface relevant open items or decisions that affect the current task.
+4. Confirm the goal of the session before making changes.
 
-A commit that cites `OI-NNNN` must also update `OPEN_ITEMS.md` in that commit. When a fix closes an item, grep for siblings on the same path or symbol and close those in the same commit. A schema bump or dropped column must close now-moot items that name the retired symbol.
+If the living status document is missing or clearly empty, switch to the New Project / First-Pass Scaffold protocol above.
 
-### Continuous improvement
-Reusable process improvements go back to the framework repository. Project-specific lessons stay here.
+---
+
+## 3. Handoff Protocol (Grok chat ↔ Grok Build)
+
+Because the two environments cannot talk to each other directly, **Git + living docs** are the interface.
+
+### Design → Implementation
+
+1. Capture decisions and requirements in the living status document and/or a short session brief or spec file.
+2. Commit and push those docs to the project repository.
+3. Start Grok Build in the project directory with a focused prompt that points at the relevant docs, for example:
+
+   > Read PROJECT_STATUS.md and the latest session brief. Implement the changes described. Follow AGENTS.md. Do not invent design decisions.
+
+### Implementation → Design
+
+1. Grok Build commits its work with a clear message.
+2. Optionally leaves a short note of what changed.
+3. Return to the Grok project chat to review, close items, and update the living status.
+
+### Multi-machine use
+
+The same repository can be cloned on a laptop (Mac) and on a server. Grok Build can run in either place. The repository remains the single source of truth. Push/pull regularly so both sides stay in sync.
+
+---
+
+## 4. Delivery / End-of-Session Gate
+
+Before considering a design session or an implementation task complete:
+
+**Design side (Grok chat)**
+- [ ] Living status document updated with decisions made this session
+- [ ] Open items added, closed, or updated as needed
+- [ ] Spec or session brief written if implementation work was defined
+- [ ] Any process improvements noted for the framework repo
+
+**Implementation side (Grok Build)**
+- [ ] Only the requested changes were made (scoped changes)
+- [ ] Living status or related docs updated if the task required it
+- [ ] Clear commit message
+- [ ] No unresolved design questions left silent — flag them instead
+
+---
+
+## 5. Living Status Document
+
+Every non-trivial project maintains a living status document (recommended name: `PROJECT_STATUS.md`).
+
+It should contain at minimum:
+- Project goals and constraints
+- Current state (what exists, what is decided)
+- Decision log / changelog
+- Open questions / next steps
+
+Update it after every significant decision. New conversations and new Grok Build sessions treat it as the source of truth.
+
+---
+
+## 6. Open Items & Decision Discipline
+
+- Record open questions and unresolved decisions explicitly.
+- Do not silently invent solutions for unspecified design choices.
+- When closing an item, note why and (if useful) the date or commit.
+
+---
+
+## 7. Continuous Improvement
+
+When work on a project reveals a reusable process improvement, capture it and feed it back into this framework repository so future projects benefit.
+
+Project-specific lessons stay in the project. Process lessons come here.
+
+---
+
+## 8. Communication Preferences (default)
+
+- Prefer plain language.
+- One major question at a time when decisions are needed.
+- Explain the “why” behind recommendations.
+- Keep outputs scannable.
+
+Projects may override or extend these preferences in their own `AGENTS.md`.

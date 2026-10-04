@@ -1,0 +1,47 @@
+# AGENTS.md — [Project Name]
+
+This file adapts the shared Project Framework for this specific project.  
+Shared process rules (roles, ownership, handoff, delivery gates, session protocol) come from the framework repository. Domain content lives here.
+
+**Living status document:** `PROJECT_STATUS.md` (read this first at the start of every conversation or Grok Build session).
+
+---
+
+## Project-specific context
+
+**What this project is**  
+[1–3 sentences]
+
+**Hard constraints / priorities**  
+- …
+- …
+
+**Key working notes**  
+- …
+- …
+
+---
+
+## Framework process rules (do not remove)
+
+The following process rules apply unless this project explicitly overrides them.
+
+### Roles and ownership
+- **Grok project chat** owns design, prioritization, living status, and session briefs/specs.
+- **Grok Build** owns concrete implementation (files, commands, configs) and does not invent design decisions.
+- **Git** is the durable handoff medium between the two and between machines.
+
+### Session start
+1. Read the latest `PROJECT_STATUS.md`.
+2. Read this `AGENTS.md`.
+3. Surface relevant open items.
+4. Confirm the session goal before making changes.
+
+### Handoff
+Design decisions and requirements are written into `PROJECT_STATUS.md` and/or a session brief or spec, then committed. Grok Build is pointed at those docs with a focused prompt. After implementation, return to the Grok chat to review and update status.
+
+### Delivery gate
+Update living status and open items. Do not leave unspecified design questions silent. Prefer scoped changes.
+
+### Continuous improvement
+Reusable process improvements go back to the framework repository. Project-specific lessons stay here.

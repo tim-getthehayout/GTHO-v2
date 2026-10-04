@@ -41,6 +41,8 @@ Each card shows enough info to make a grazing decision without opening another s
 
 **Map pick (2026-10-04):** The pasture list has Pick on map. The overlay draws imported or drawn perimeters, labels each paddock at its centroid, and a click shows acreage plus the last closed paddock-window date. The same map is at `#/map` from Locations. FieldMargin import is GeoJSON, KML, or KMZ. A numbered strip with no parent is proposed as `{parent}-{n}` when its center falls inside a named outline. Shapefile import is not in this version.
 
+**Multi-paddock open (OI-0102, accepted 2026-10-04, not built):** Step 2a accepts more than one land paddock. Tap toggles. Tap again unselects. Map pick toggles too. One forage card on Step 3 is copied onto each new window. In-use paddocks stay visible and are not selectable. Confinement stays single-select. Strip graze (§1.4) turns off if a second paddock is selected, and selecting strip graze collapses the picker to one paddock. Spec: `github/issues/OI-0102_multi-paddock-open.md`.
+
 
 ### 1.3 Step 2b: Existing Event Picker (Join Existing)
 
@@ -50,7 +52,7 @@ List of active events with: location name(s), group(s) already on it, days open.
 
 ### 1.4 Step 2c: Strip Graze Option
 
-When the user selects a destination paddock (Step 2a), a **"Strip graze this paddock"** toggle is available. If enabled:
+When the user selects a destination paddock (Step 2a), a **"Strip graze this paddock"** toggle is available. It is only available when exactly one paddock is selected (OI-0102). If enabled:
 
 - **Strip size input:** User defines strip size as either **acres/hectares** or **percentage** — both inputs are always visible, and editing one auto-derives the other from the paddock's total area. Respects the operation's display unit preference (acres vs. hectares).
 - **Number of strips:** Optionally set directly (derives strip size) or derived from strip size.
@@ -185,15 +187,15 @@ Adding or removing a paddock (location) from an active event. Triggered from the
 ### 2.1 Open Paddock Window (Start Sub-Move)
 
 - **Trigger:** "Sub-move" button on event card
-- **Flow:** Location picker (same as Move Wizard Step 2a, filtered to available locations), date, time
-- **Data:** Creates `event_paddock_window` with `date_opened`, `time_opened`
-- **Side effect:** Creates `paddock_observation` (type='open') with pre-graze readings
+- **Flow:** Location picker (same as Move Wizard Step 2a, filtered to available locations), date, time. OI-0102: the picker multi-selects. One pre-graze card is copied onto each window. Windows from that Save share `open_cohort_id` and do not join an earlier cohort.
+- **Data:** Creates one `event_paddock_window` per selected paddock with `date_opened`, `time_opened`
+- **Side effect:** Creates one `paddock_observation` (type='open') per window with the same pre-graze readings
 
 ### 2.2 Close Paddock Window (End Sub-Move)
 
 - **Trigger:** "Close" button on the paddock's row within the event card
-- **Primary paddock rule:** The first paddock window by `start_time` is the "primary" window. Its "Close" button is disabled — the user must close the entire event (§9) to leave the primary paddock. This prevents events from rolling indefinitely as paddocks open and close around a never-ending event. If the user wants to leave the primary paddock, they should close the event and start a new one via the Move wizard (§1).
-- **Flow:** Date closed, time closed, residual height, recovery days, optional feed check for this paddock
+- **No primary paddock (OI-0102):** Any open window can close on its own, including a member of a set opened together. Closing one gate does not close the others. A cohort also has "Close these," which closes every still-open member and copies one residual onto each. There is no anchor column. Leaving the last open window is still a close-event / move, not an empty event.
+- **Flow:** Date closed, time closed, residual height, recovery days, optional feed check for this paddock. A single-gate close has its own reading. A cohort close has one reading copied onto each window that Save closes.
 - **Data:** Sets `date_closed`, `time_closed` on the paddock window
 - **Side effect:** Creates `paddock_observation` (type='close') with residual data
 - **Confinement handling:** If the location has `capture_percent > 0`, excretion NPK for the window's duration is routed to the associated manure batch.
@@ -215,7 +217,7 @@ Adding or removing a paddock (location) from an active event. Triggered from the
 
 ### 2.5 Design Note
 
-V1's sub-move was a nested entity on the event with its own data structure and duration tracking. V2 replaces the separate entity with paddock windows — the same table used for the primary paddock. A "sub-move" is just a secondary paddock window on the same event. Time fields (`time_opened`, `time_closed`) enable sub-day NPK apportionment, which is critical for dairy operations where animals visit a milking parlor multiple times daily.
+V1's sub-move was a nested entity on the event with its own data structure and duration tracking. V2 replaces the separate entity with paddock windows. All windows are equal. A "sub-move" is another paddock window on the same event. Time fields (`time_opened`, `time_closed`) enable sub-day NPK apportionment, which is critical for dairy operations where animals visit a milking parlor multiple times daily. OI-0102: windows opened in one Save share `open_cohort_id` so the set can be closed together later. That id is not an anchor.
 
 Strip grazing (§2.4) reuses the same paddock window model — each strip is a separate window on the same `location_id`, linked by `strip_group_id`. This means existing observation, feed, and NPK logic works per-strip without any special cases.
 

@@ -3780,11 +3780,15 @@ Grep `checkDate` across `src/features/feed/check.js` for any other instance of t
 
 ---
 
-### OI-0102 — Multi-paddock selection in pasture picker (DESIGN REQUIRED, do not build)
-**Added:** 2026-04-18 | **Area:** v2-build / locations / picker / ux | **Priority:** P3 (QoL — farmers who run multi-paddock / strip groups currently have to create events paddock-by-paddock or rely on strip-graze which isn't the same thing)
-**Checkpoint:** design session required before implementation; explicitly deferred
+### OI-0102 — Multi-paddock selection in pasture picker
+**Added:** 2026-04-18 | **Area:** v2-build / locations / picker / ux | **Priority:** P2 (fall/spring grazing — open several whole paddocks in one Save)
+**Checkpoint:** spec accepted 2026-10-04. Ready for Build. Do not invent design.
 
-**Status:** open — **DESIGN REQUIRED, do not build.** Captured here so it doesn't get lost while the five field-testing roadblocks are being spec'd.
+**Status:** open — spec accepted, ready to build. Design hold lifted. Spec: `github/issues/OI-0102_multi-paddock-open.md`.
+
+**Locked 2026-10-04 (Tim):** One event, N `event_paddock_windows`, one forage card fanned out to one observation per window. Windows from one Save share `open_cohort_id` (migration 035). Cohort is a label, not a lock: one gate may close early. Bulk close copies one residual onto each window that Save closes; a single-gate close has its own reading. In-use paddocks are visible and not selectable. Moved bales go to one chosen paddock of the set. Sub-move open multi-selects too. Strip graze stays single-paddock and is mutually exclusive with multi-select. No anchor column.
+
+The questions below are the 2026-04-18 design hold. They are answered by the spec. Do not build from this section.
 
 **What Tim asked:** Explore allowing multi-paddock selection in the pasture picker so a farmer can put one animal group onto two or more paddocks at once, without using strip-graze. Today's picker (`renderLocationPicker` in `src/features/events/index.js:641`) is single-select (`selection.locationId`).
 
@@ -3817,7 +3821,7 @@ An event today is keyed on one paddock window at creation (though `event_paddock
 
 **CP-55/CP-56 impact:** probably none (multi-paddock is already representable with today's `event_paddock_windows` table). Confirm once design locks.
 
-**Schema change:** probably none. Confirm once design locks.
+**Schema change:** migration 035 adds nullable `event_paddock_windows.open_cohort_id`. Not applied. Build applies and verifies it before UI.
 
 **Related:**
 

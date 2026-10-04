@@ -879,6 +879,7 @@ Each row represents a paddock's participation in an event. Opening a window = an
 | is_strip_graze | boolean | DEFAULT false | Marks this window as part of a strip grazing sequence |
 | strip_group_id | uuid | NULL | Shared across all strips in the same sequence |
 | area_pct | numeric | DEFAULT 100, CHECK (> 0 AND ≤ 100) | Percentage of paddock area this window covers |
+| open_cohort_id | uuid | NULL | OI-0102. Shared by windows opened in the same Save. Null = opened alone. Not an anchor. Migration 035, not yet applied. |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
@@ -887,6 +888,7 @@ Each row represents a paddock's participation in an event. Opening a window = an
 - **no_pasture override** — normally inherited from location type, but can be set per-window for mixed-use locations where you want to track as stored-feed-only for a particular visit.
 - **Closing a window triggers a paddock observation** (recorded in paddock_observations with source='event').
 - **Opening a window also triggers a paddock observation** (pre-graze reading).
+- **Open cohort (OI-0102, specified 2026-10-04, migration 035 not yet applied):** windows opened in one Save share `open_cohort_id`. Null means opened alone. The cohort is a label, not a lock: any member can close early. It is not an anchor. Strip graze still uses `strip_group_id`. See `github/issues/OI-0102_multi-paddock-open.md`.
 - **Strip grazing** — when `is_strip_graze = true`, the window represents a portion of a paddock (sized by `area_pct`). All strips in the same sequence share a `strip_group_id`. UI shows strip-specific controls (advance strip, progress indicator). Calculation layer uses `area_pct` for effective area in stocking density and NPK. Each strip gets its own pre/post-graze observations via the standard window open/close mechanism. See spec: `github/issues/strip-grazing-paddock-windows.md`.
 
 ```sql
@@ -903,6 +905,7 @@ CREATE TABLE event_paddock_windows (
   is_strip_graze    boolean DEFAULT false,
   strip_group_id    uuid,
   area_pct          numeric DEFAULT 100 CHECK (area_pct > 0 AND area_pct <= 100),
+  open_cohort_id    uuid,  -- OI-0102, migration 035, not yet applied
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()
 );

@@ -17,6 +17,7 @@ import { openSubmoveOpenSheet, openSubmoveCloseSheet, openAdvanceStripSheet } fr
 import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
 import { openCloseEventSheet } from './close.js';
 import { openLocationMapPicker } from '../map/picker.js';
+import { paddockFacts } from '../map/paddock-facts.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { readStateFromUrl, getCalendarState } from './calendar-state.js';
@@ -770,6 +771,7 @@ export function renderLocationPicker(container, locations, selection, opts = {})
           },
         }, [
           el('span', {}, [loc.name]),
+          el('span', { style: { display: 'block', fontSize: '11px', color: 'var(--text2)' } }, [paddockFacts(loc).area + ' · ' + paddockFacts(loc).grazed]),
           getTypeBadgeSmall(loc),
         ]);
       }),

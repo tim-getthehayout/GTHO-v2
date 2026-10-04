@@ -6,6 +6,7 @@ import { getActiveFarmId } from '../../data/store.js';
 import { loadLeaflet } from './leaflet-loader.js';
 import { findLocationAtPoint, locationHasPerimeter } from '../../utils/geo.js';
 import { addPaddockLabel } from './labels.js';
+import { paddockPopup } from './paddock-facts.js';
 import * as TodoEntity from '../../entities/todo.js';
 
 const OVERLAY_ID = 'map-picker-overlay';
@@ -35,7 +36,7 @@ function paintLocations(L, map, locations, selectedId, onPick) {
     });
     layer.on('click', () => onPick(loc.id));
     const label = loc.fieldCode ? `${loc.name} (${loc.fieldCode})` : loc.name;
-    layer.bindTooltip(label, { sticky: true });
+    layer.bindPopup(paddockPopup(loc));
     layer.addTo(map);
     addPaddockLabel(L, map, loc);
     layers.push(layer);

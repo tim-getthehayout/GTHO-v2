@@ -3,8 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, getById, getActiveFarmId, update } from '../../data/store.js';
-import { getUnitSystem } from '../../utils/preferences.js';
-import { display } from '../../utils/units.js';
+import { paddockPopup } from './paddock-facts.js';
 import { loadLeaflet } from './leaflet-loader.js';
 import { mapIntent, setMapIntent } from './intent.js';
 import { ringToGeojson, findLocationAtPoint, locationHasPerimeter } from '../../utils/geo.js';
@@ -15,30 +14,6 @@ import { addPaddockLabel } from './labels.js';
 import * as TodoEntity from '../../entities/todo.js';
 
 let mapInstance = null;
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>]/g, (c) => ({ '&': '&', '<': '<', '>': '>' }[c]));
-}
-
-function lastClosedGraze(locationId) {
-  const windows = getAll('eventPaddockWindows').filter((w) => w.locationId === locationId && w.dateClosed);
-  if (!windows.length) return null;
-  windows.sort((a, b) => String(b.dateClosed).localeCompare(String(a.dateClosed))
-    || String(b.timeClosed || '').localeCompare(String(a.timeClosed || '')));
-  return windows[0];
-}
-
-function paddockPopup(loc) {
-  const unitSys = getUnitSystem();
-  const area = loc.areaHectares != null ? display(loc.areaHectares, 'area', unitSys, 1) : 'No acreage';
-  const closed = lastClosedGraze(loc.id);
-  const grazed = closed
-    ? `Last grazed ${closed.dateClosed}${closed.timeClosed ? ' ' + closed.timeClosed : ''}`
-    : 'No closed grazing';
-  const title = loc.fieldCode ? `${loc.name} (${loc.fieldCode})` : loc.name;
-  return `<div class="paddock-popup"><strong>${escapeHtml(title)}</strong><div>${escapeHtml(area)}</div><div>${escapeHtml(grazed)}</div></div>`;
-}
-
 
 function defaultCenter() {
   const farmId = getActiveFarmId();

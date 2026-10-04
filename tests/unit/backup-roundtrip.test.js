@@ -143,26 +143,11 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→33 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(19);
+    it('has migration entries for 14→34 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(20);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[15]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[16]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[17]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[18]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[19]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[20]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[21]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[22]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[23]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[24]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[25]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[26]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[27]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[28]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[29]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[30]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[31]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[32]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[33]).toBe('function');
     });
 
     it('OI-0133 — v31→v32 strips farm_id from every groups row + stamps schema_version=32', () => {

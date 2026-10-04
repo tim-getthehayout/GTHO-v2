@@ -17,6 +17,22 @@ export function ringToGeojson(ring) {
   return { type: 'Polygon', coordinates: [closed] };
 }
 
+/** Reject rings with out-of-range lng/lat. Used by import and the geo tests. */
+export function validateImportedRing(geojson) {
+  const ring = ringFromGeojson(geojson);
+  if (!ring) return { valid: false, errors: ['Ring is missing or too short'] };
+  const errors = [];
+  for (const pt of ring) {
+    const lng = pt[0];
+    const lat = pt[1];
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180 || !Number.isFinite(lat) || lat < -90 || lat > 90) {
+      errors.push('Coordinate out of range');
+      break;
+    }
+  }
+  return { valid: errors.length === 0, errors };
+}
+
 export function polygonCentroid(geojson) {
   const ring = ringFromGeojson(geojson);
   if (!ring) return null;

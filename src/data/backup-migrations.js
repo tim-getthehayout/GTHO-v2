@@ -157,4 +157,8 @@ export const BACKUP_MIGRATIONS = {
   //            default applies on insert, so no transform is needed beyond the
   //            version stamp.
   32: (b) => { b.schema_version = 33; return b; },
+  // 033 → 034: location perimeters (geojson, centroid, map_source) and todo
+  //            map pins (point_lat, point_lng). Columns are nullable, so
+  //            older backups restore without them.
+  33: (b) => { b.schema_version = 34; return b; },
 };

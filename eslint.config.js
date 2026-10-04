@@ -34,6 +34,7 @@ export default [
         TextEncoder: 'readonly',
         DecompressionStream: 'readonly',
         Response: 'readonly',
+        CustomEvent: 'readonly',
         DataView: 'readonly',
         File: 'readonly',
       },

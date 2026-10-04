@@ -16,6 +16,7 @@ import { openMoveWizard } from './move-wizard.js';
 import { openSubmoveOpenSheet, openSubmoveCloseSheet, openAdvanceStripSheet } from './submove.js';
 import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
 import { openCloseEventSheet } from './close.js';
+import { openLocationMapPicker } from '../map/picker.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { readStateFromUrl, getCalendarState } from './calendar-state.js';
@@ -694,6 +695,23 @@ export function renderLocationPicker(container, locations, selection, opts = {})
     }
   });
   container.appendChild(searchWrap);
+  container.appendChild(el('button', {
+    type: 'button',
+    className: 'btn btn-outline btn-sm',
+    'data-testid': 'location-picker-map',
+    style: { margin: '0 0 var(--space-2) var(--space-2)' },
+    onClick: () => openLocationMapPicker({
+      selectedId: selection.locationId,
+      title: 'Pick a paddock',
+      onSelect: (id) => {
+        const loc = locations.find((l) => l.id === id);
+        if (!loc) return;
+        selection.locationId = id;
+        if (typeof opts.onSelect === 'function') opts.onSelect(loc);
+        renderLocationPicker(container, locations, selection, opts);
+      },
+    }),
+  }, ['Pick on map']));
 
   // Classify locations into sections
   const allPaddockWindows = getAll('eventPaddockWindows');

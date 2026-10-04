@@ -3218,3 +3218,6 @@ body.field-mode .sheet-handle { display: none; }
 .farm-map-canvas { height: 70vh; min-height: 420px; width: 100%; border-radius: 8px; background: #1a1a1a; }
 .farm-map-toolbar, .farm-map-hint { margin-bottom: 8px; }
 .farm-map-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.map-picker-overlay { position: fixed; inset: 0; z-index: 500; background: var(--bg, #111); display: flex; flex-direction: column; padding: 12px; }
+.map-picker-overlay .farm-map-canvas { flex: 1; height: auto; min-height: 0; }

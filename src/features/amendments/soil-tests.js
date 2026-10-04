@@ -1,6 +1,7 @@
 /** @file Soil test recording — CP-39. Per-paddock soil tests with 13-element panel. */
 
 import { el, clear } from '../../ui/dom.js';
+import { mapPickButton } from '../map/picker.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
@@ -99,7 +100,7 @@ function openSoilTestSheet(existing, operationId) {
   inputs.locationId = el('select', { className: 'auth-select', 'data-testid': 'soil-test-location' },
     locations.map(l => el('option', { value: l.id }, [l.name])));
   if (existing?.locationId) inputs.locationId.value = existing.locationId;
-  panel.appendChild(inputs.locationId);
+  panel.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [inputs.locationId, mapPickButton(inputs.locationId, { title: 'Pick a field' })]));
 
   // Date
   panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.soilTestDate')]));

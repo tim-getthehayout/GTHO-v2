@@ -1,6 +1,7 @@
 /** @file Amendment entry — CP-40. Amendment flow with NPK preview and multi-paddock distribution. */
 
 import { el, clear } from '../../ui/dom.js';
+import { openLocationMapPicker } from '../map/picker.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, remove, subscribe } from '../../data/store.js';
@@ -286,7 +287,17 @@ function openAmendmentSheet(existing, operationId) {
   }
 
   // Paddock multi-select
-  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.paddocks')]));
+  panel.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+    el('label', { className: 'form-label', style: { margin: '0' } }, [t('amendment.paddocks')]),
+    el('button', { type: 'button', className: 'btn btn-outline btn-sm', onClick: () => openLocationMapPicker({
+      title: 'Add a paddock',
+      onSelect: (id) => {
+        selectedLocations.add(id);
+        const box = document.getElementById(`amend-loc-${id}`);
+        if (box) box.checked = true;
+      },
+    }) }, ['Pick on map']),
+  ]));
   const paddockListEl = el('div', { 'data-testid': 'amendment-paddocks', style: { marginBottom: 'var(--space-3)' } });
   for (const loc of locations) {
     const checked = selectedLocations.has(loc.id);

@@ -1,6 +1,7 @@
 /** @file Harvest flow — v1 parity tile-based UI. Single openHarvestSheet used from all entry points. */
 
 import { el, clear } from '../../ui/dom.js';
+import { mapPickButton } from '../map/picker.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, subscribe } from '../../data/store.js';
@@ -343,7 +344,7 @@ function renderTileGrid(panel, operationId, preSelectedLocationId) {
         const qtyInput = el('input', { type: 'number', min: '0', step: '1', placeholder: '0', value: row.quantity ?? '' });
         qtyInput.addEventListener('change', () => { row.quantity = parseInt(qtyInput.value, 10) || null; });
         rowEl.appendChild(el('div', { className: 'two' }, [
-          el('div', { className: 'field' }, [el('label', {}, ['Field']), fieldSelect]),
+          el('div', { className: 'field' }, [el('label', {}, ['Field']), fieldSelect, mapPickButton(fieldSelect, { title: 'Pick a field' })]),
           el('div', { className: 'field' }, [el('label', {}, [t('harvest.baleCount')]), qtyInput]),
         ]));
 

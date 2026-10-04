@@ -149,3 +149,22 @@ export async function openLocationMapPicker(opts = {}) {
 
   requestAnimationFrame(() => map.invalidateSize());
 }
+
+export function mapPickButton(selectEl, extra = {}) {
+  return el('button', {
+    type: 'button',
+    className: 'btn btn-outline btn-sm',
+    'data-testid': extra.testId || 'map-pick-button',
+    onClick: () => openLocationMapPicker({
+      selectedId: selectEl?.value || extra.selectedId || null,
+      title: extra.title || 'Pick a paddock',
+      onSelect: (id) => {
+        if (selectEl) {
+          selectEl.value = id;
+          selectEl.dispatchEvent(new Event('change'));
+        }
+        extra.onSelect?.(id);
+      },
+    }),
+  }, ['Map']);
+}

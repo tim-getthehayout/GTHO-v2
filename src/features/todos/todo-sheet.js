@@ -3,6 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
+import { mapPickButton } from '../map/picker.js';
 import * as store from '../../data/store.js';
 import * as todoEntity from '../../entities/todo.js';
 import * as todoAssignmentEntity from '../../entities/todo-assignment.js';
@@ -134,7 +135,7 @@ function renderSheetContent(prefill) {
       el('option', { value: loc.id, ...(locationVal === loc.id ? { selected: 'selected' } : {}) }, [loc.name])
     ),
   ]);
-  contentEl.appendChild(locationSelect);
+  contentEl.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [locationSelect, mapPickButton(locationSelect, { title: 'Pick a task location' })]));
 
   // Animal select
   const animals = store.getAll('animals').filter(a => a.status !== 'culled');

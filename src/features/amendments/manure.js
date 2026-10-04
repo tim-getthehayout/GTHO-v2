@@ -1,6 +1,7 @@
 /** @file Manure batch management — CP-41. Batch CRUD with 13-element composition and transaction ledger. */
 
 import { el, clear } from '../../ui/dom.js';
+import { mapPickButton } from '../map/picker.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, add, update, remove, subscribe } from '../../data/store.js';
@@ -159,7 +160,7 @@ function openManureBatchSheet(existing, operationId) {
     ...locations.map(l => el('option', { value: l.id }, [l.name])),
   ]);
   if (existing?.sourceLocationId) inputs.sourceLocationId.value = existing.sourceLocationId;
-  panel.appendChild(inputs.sourceLocationId);
+  panel.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [inputs.sourceLocationId, mapPickButton(inputs.sourceLocationId, { title: 'Pick a source pasture' })]));
 
   // Estimated volume (kg)
   panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.manureBatchVolume')]));

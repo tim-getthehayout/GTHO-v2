@@ -9,6 +9,7 @@ import { ringToGeojson, findLocationAtPoint, locationHasPerimeter } from '../../
 import { applyLocationGeometry } from './apply-geometry.js';
 import { openBoundaryImportPicker } from './import-sheet.js';
 import { openLocationMapPicker } from './picker.js';
+import { addPaddockLabel } from './labels.js';
 import * as TodoEntity from '../../entities/todo.js';
 
 let mapInstance = null;
@@ -58,6 +59,7 @@ export async function renderFarmMapScreen(container) {
     });
     layer.bindTooltip(loc.fieldCode ? `${loc.name} (${loc.fieldCode})` : loc.name, { sticky: true });
     layer.addTo(locLayers);
+    addPaddockLabel(L, map, loc);
   }
   locLayers.addTo(map);
   if (drawn.length) {

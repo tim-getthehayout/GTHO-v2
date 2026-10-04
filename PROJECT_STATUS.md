@@ -1,23 +1,57 @@
-# PROJECT_STATUS.md — GTHO v2
+# GTHO v2 — Project Status
 
-Read this first. Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
+**Last updated:** 2026-10-04  
+**Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
-**As of:** 2026-10-04
-**Schema:** 34, applied in Supabase (`034_location_geometry_todo_points.sql`).
-**App:** `https://tim-getthehayout.github.io/GTHO-v2/` deploys from `main`.
+Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
 
-## Now
+---
 
-Farm map is on `main` (`a554f01`, PR #58). Locations can store a GeoJSON polygon, centroid, and `map_source` (`drawn` or `imported`). Todos can store a point. Shared picker is wired for harvest, amendments, the move wizard, and todos. Import is GeoJSON, KML, and KMZ. Shapefile is not in v1.
+## 1. Project Goals
 
-Working rules now live in `AGENTS.md`. `CLAUDE.md` is the implementation rulebook only.
+- Pasture and grazing PWA for the farm: locations, animals, moves, harvest, amendments, todos.
+- Offline-first, then sync to Supabase.
+- Location-aware work: pastures are polygons; a to-do is a pasture or a map point.
 
-## Read next if the session needs it
+## 2. Constraints & Priorities
 
-- Map ship: `session_briefs/SESSION_BRIEF_2026-10-04_farm-map-geometry.md` and `github/issues/GH-58_farm-map-geometry.md`.
-- Open bugs: `OPEN_ITEMS.md`. Recently filed and still design-required as of 2026-06-24: OI-0188 (no UI into a closed event), OI-0189 (UTC date after 8 PM Eastern), OI-0190 (destination start edit does not cascade to the source close). OI-0191 (do not wizard an existing operation on an empty browser) shipped in `1cedc14`.
-- Domain specs: `V2_SCHEMA_DESIGN.md` §2.1 does not yet list the migration 034 columns. Do not treat that section as the live schema for map fields.
+- Schema first. No UI field without a Supabase column.
+- A migration file is not applied until it has been run and verified.
+- Writes go through the store and sync queue.
+- `main` deploys to GitHub Pages. Do not force-push.
+- GPS is foreground only. Shapefile import is out of v1.
 
-## Not now
+## 3. Current State
 
-Shapefile import. Background geofencing. Rewriting `OPEN_ITEMS.md` or the V2 design docs into a new format.
+- App: `https://tim-getthehayout.github.io/GTHO-v2/` from `main`.
+- Stack: vanilla JS, Vite, Supabase, GitHub Pages. v1 is `get-the-hay-out`.
+- Schema stamp 34. Migration `034_location_geometry_todo_points.sql` applied in Supabase on 2026-10-04.
+- Farm map is on `main` (`a554f01`, PR #58). Locations store GeoJSON, centroid, and `map_source`. Todos may store a point. Shared picker covers harvest, amendments, the move wizard, and todos. Import is GeoJSON, KML, and KMZ.
+- Working rules: root `AGENTS.md`. Process reference: `project-framework/`. Implementation rules: `CLAUDE.md`.
+- `V2_SCHEMA_DESIGN.md` §2.1 does not yet list the migration 034 columns. Do not treat that section as the live schema for map fields.
+
+## 4. Key Decisions / Decision Log
+
+| Date | Decision | Notes |
+|------|----------|-------|
+| 2026-10-04 | Pastures are polygons; to-do location is a location or a point | Migration 034 applied. Shapefile deferred. |
+| 2026-10-04 | Adopt the project framework inside this repo | Process files live in `project-framework/`. Root `AGENTS.md` is the project file. |
+| 2026-10-04 | Do not rewrite the V2 design docs to match the framework | Specs stay. Status points at them. |
+
+## 5. Open Questions / Next Steps
+
+1. OI-0188 — no UI into a closed event. Design required. Body in `OPEN_ITEMS.md`.
+2. OI-0189 — UTC date after 8 PM Eastern. Design required.
+3. OI-0190 — destination start edit does not cascade to the source close. Design required.
+4. Patch `V2_SCHEMA_DESIGN.md` §2.1 with the migration 034 columns when the schema doc is next touched.
+5. OI-0191 shipped in `1cedc14` (do not wizard an existing operation on an empty browser).
+
+## 6. Framework feedback (process only)
+
+| Date | Discovery | Suggested framework change | Status |
+|------|-----------|----------------------------|--------|
+| 2026-10-04 | Uploading the framework pack into an existing app repo overwrites the project `AGENTS.md` and lands templates in the root | Adoption note: copy into `project-framework/` and keep a project `AGENTS.md` at root | Parked |
+
+---
+
+*Update this file after every significant decision so future sessions start with accurate context.*

@@ -3,6 +3,11 @@
     "name": "Get The Hay Out",
     "version": "v2"
   },
+  "pwa": {
+    "updateReady": "A new version of GTHO is ready.",
+    "updateNow": "Update now",
+    "updateLater": "Later"
+  },
   "header": {
     "allFarms": "All farms",
     "switchFarm": "Switch farm",

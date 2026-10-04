@@ -1886,6 +1886,52 @@ body.field-mode .sheet-handle { display: none; }
   }
 }
 
+/* OI-0192: persistent update bar. z-index 90 stays under .sheet-wrap (100)
+   so an open sheet's Save is not covered. The auth overlay is a separate
+   full-screen layer at 500; while it is up the bar has to paint above it
+   or the signed-out shell cannot tap Update now. On a phone the bar sits
+   above .bottom-nav. 28px is that nav's chrome without the home-indicator
+   inset (border + padding + label). */
+.pwa-update-banner {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  background: var(--bg);
+  color: var(--text);
+  border-top: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+body:has(.auth-overlay) .pwa-update-banner {
+  z-index: 600;
+}
+
+.pwa-update-banner-text {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pwa-update-banner-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+@media (max-width: 899px) {
+  body:has(.bottom-nav) .pwa-update-banner {
+    bottom: calc(28px + var(--safe-bottom));
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Dashboard stats — §17.3 / §17.4                                    */
 /* ------------------------------------------------------------------ */

@@ -41,6 +41,7 @@ import { renderEventAudit } from './features/dev-mode/audit.js';
 import { renderLogsViewer } from './features/dev-mode/logs.js';
 import { renderSchemaReadout } from './features/dev-mode/schema.js';
 import { getFieldMode, setFieldMode, migrateUnitSystemFromLocalStorage } from './utils/preferences.js';
+import { initPwa } from './pwa/update.js';
 
 import './calcs/core.js';
 import './calcs/feed-forage.js';
@@ -109,6 +110,7 @@ function showAuth(app, inviteToken) {
     clear(app);
     showApp(app);
   });
+  initPwa();
 }
 
 async function handleInviteClaim(app, token, user) {
@@ -261,6 +263,7 @@ function renderBootStatus(app, message) {
   }, [
     el('p', {}, [message]),
   ]));
+  initPwa();
 }
 
 function renderBootBlocked(app, onRetry) {
@@ -338,6 +341,7 @@ function paintApp(app, syncAdapter) {
     });
     syncAdapter.flush().then(() => pullAllRemote());
   }
+  initPwa();
 }
 
 boot();

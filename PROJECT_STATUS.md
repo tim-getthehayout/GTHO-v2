@@ -27,7 +27,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 - Stack: vanilla JS, Vite, Supabase, GitHub Pages. v1 is `get-the-hay-out`.
 - Schema stamp 34. Migration `034_location_geometry_todo_points.sql` applied in Supabase on 2026-10-04.
 - Farm map is on `main` (`a554f01`, PR #58). Locations store GeoJSON, centroid, and `map_source`. Todos may store a point. Shared picker covers harvest, amendments, the move wizard, and todos. Import is GeoJSON, KML, and KMZ.
-- Working rules: root `AGENTS.md`. Process reference: `project-framework/`. Implementation rules: `CLAUDE.md`.
+- Working rules: root `AGENTS.md` follows `project-framework/AGENTS.md.template`. Process reference: `project-framework/AGENTS.md`. Implementation rules: `CLAUDE.md`.
 - `V2_SCHEMA_DESIGN.md` §2.1 does not yet list the migration 034 columns. Do not treat that section as the live schema for map fields.
 
 ## 4. Key Decisions / Decision Log
@@ -37,6 +37,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 | 2026-10-04 | Pastures are polygons; to-do location is a location or a point | Migration 034 applied. Shapefile deferred. |
 | 2026-10-04 | Adopt the project framework inside this repo | Process files live in `project-framework/`. Root `AGENTS.md` is the project file. |
 | 2026-10-04 | Do not rewrite the V2 design docs to match the framework | Specs stay. Status points at them. |
+| 2026-10-04 | Root `AGENTS.md` matches the template workflow | Template sections kept. GTHO doc ownership and OI close rules are overrides, not a replacement. |
 
 ## 5. Open Questions / Next Steps
 

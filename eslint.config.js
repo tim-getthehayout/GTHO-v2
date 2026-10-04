@@ -35,6 +35,7 @@ export default [
         DecompressionStream: 'readonly',
         Response: 'readonly',
         CustomEvent: 'readonly',
+        Event: 'readonly',
         DataView: 'readonly',
         File: 'readonly',
       },

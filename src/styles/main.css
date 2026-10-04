@@ -3225,3 +3225,6 @@ body.field-mode .sheet-handle { display: none; }
 .paddock-label { background: transparent; border: none; box-shadow: none; }
 .paddock-label span, .leaflet-marker-icon.paddock-label { background: transparent; border: none; }
 .leaflet-marker-icon.paddock-label { color: #fff; font-weight: 700; font-size: 12px; line-height: 18px; text-align: center; text-shadow: 0 0 3px #000, 0 1px 2px #000; pointer-events: none; }
+
+.paddock-popup { font-size: 13px; line-height: 1.35; }
+.paddock-popup strong { display: block; margin-bottom: 2px; }

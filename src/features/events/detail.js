@@ -454,13 +454,35 @@ function renderPaddocks(ctx) {
 
   const unitSys = getUnitSystem();
   const todayStr = new Date().toISOString().slice(0, 10);
-  const isAnchorOnly = epws.length === 1;
 
   const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
     el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.paddocks')]),
   ]);
 
-  for (const pw of epws) {
+  const sortedOpen = [...epws].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || '')
+    || (a.timeOpened || '').localeCompare(b.timeOpened || ''));
+  const groups = [];
+  const seenCohorts = new Set();
+  for (const pw of sortedOpen) {
+    if (pw.openCohortId) {
+      if (seenCohorts.has(pw.openCohortId)) continue;
+      seenCohorts.add(pw.openCohortId);
+      groups.push({
+        kind: 'cohort',
+        id: pw.openCohortId,
+        members: sortedOpen.filter((w) => w.openCohortId === pw.openCohortId),
+      });
+    } else {
+      groups.push({ kind: 'single', id: pw.id, members: [pw] });
+    }
+  }
+
+  function rowGetsClose(pw) {
+    if (pw.openCohortId) return true;
+    return epws.length > 1;
+  }
+
+  function appendPaddockRow(parent, pw) {
     const loc = getById('locations', pw.locationId);
     const locName = loc?.name || '?';
     const areaDisplay = loc?.areaHa ? display(loc.areaHa, 'area', unitSys, 2) : '';
@@ -495,7 +517,7 @@ function renderPaddocks(ctx) {
       className: 'btn btn-outline btn-xs',
       onClick: () => { const evt = getById('events', ctx.eventId); openEditPaddockWindowDialog(pw, evt, ctx.operationId); },
     }, ['Edit']));
-    if (!isAnchorOnly) {
+    if (rowGetsClose(pw)) {
       pwBtns.appendChild(el('button', {
         className: 'btn btn-teal btn-xs',
         'data-testid': `detail-close-paddock-${pw.id}`,
@@ -503,8 +525,36 @@ function renderPaddocks(ctx) {
       }, [t('event.closePaddock')]));
     }
     pwCard.appendChild(pwBtns);
+    parent.appendChild(pwCard);
+  }
 
-    card.appendChild(pwCard);
+  for (const group of groups) {
+    if (group.kind === 'cohort') {
+      const names = group.members
+        .map((pw) => getById('locations', pw.locationId)?.name || '?')
+        .join(', ');
+      const block = el('div', {
+        'data-testid': `detail-cohort-${group.id}`,
+        style: { marginBottom: 'var(--space-2)' },
+      }, [
+        el('div', {
+          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: 'var(--space-2)' },
+        }, [
+          el('div', { style: { fontWeight: '600', fontSize: '13px' } }, [
+            t('event.openedTogether', { names }),
+          ]),
+          el('button', {
+            className: 'btn btn-teal btn-xs',
+            'data-testid': `detail-close-cohort-${group.id}`,
+            onClick: () => openSubmoveCloseSheet(group.members, ctx.operationId),
+          }, [t('event.closeThese')]),
+        ]),
+      ]);
+      for (const pw of group.members) appendPaddockRow(block, pw);
+      card.appendChild(block);
+    } else {
+      appendPaddockRow(card, group.members[0]);
+    }
   }
 
   el2.appendChild(card);
@@ -1187,9 +1237,8 @@ function renderSubmoves(ctx) {
 
   const isActive = !event.dateOut;
   const allPws = getAll('eventPaddockWindows').filter(w => w.eventId === ctx.eventId);
-  // Sub-moves are non-anchor paddock windows (opened after the first)
   const sorted = [...allPws].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || ''));
-  const submoves = sorted.slice(1); // skip anchor
+  const submoves = sorted;
 
   if (!submoves.length && !isActive) return;
 

@@ -10,6 +10,7 @@ import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import * as BatchEntity from '../../entities/batch.js';
+import { openLocationNames } from './open-cohort.js';
 
 let moveFeedSheet = null;
 
@@ -179,8 +180,8 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
         const evtSelect = el('select', { className: 'auth-select' }, [
           el('option', { value: '' }, ['\u2014 pick event \u2014']),
           ...openEvents.map(e => {
-            const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === e.id && !pw.dateClosed);
-            const locName = pws[0] ? (locMap.get(pws[0].locationId)?.name || '?') : '?';
+            const names = openLocationNames(e.id);
+            const locName = names.length ? names.join(', ') : '?';
             return el('option', { value: e.id }, [locName]);
           }),
         ]);
@@ -220,7 +221,8 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
       if (!line) continue;
       const amt = moveAmounts[key] || 0;
       const unit = line.batch?.unit || 'units';
-      const destLabel = destType === 'batch' ? 'inventory' : (destEventId ? (locMap.get(getAll('eventPaddockWindows').find(pw => pw.eventId === destEventId && !pw.dateClosed)?.locationId)?.name || 'Event') : '?');
+      const destNames = destEventId ? openLocationNames(destEventId) : [];
+      const destLabel = destType === 'batch' ? 'inventory' : (destEventId ? (destNames.join(', ') || 'Event') : '?');
 
       panel.appendChild(el('div', { style: { fontSize: '13px', padding: '6px 0', borderBottom: '0.5px solid var(--border)' } }, [
         `Move ${amt} ${unit} ${line.batch?.name || '?'} \u2192 ${destLabel}`,

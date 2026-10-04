@@ -12,7 +12,7 @@ import { pullAllRemote } from './pull-remote.js';
 import { logger } from '../utils/logger.js';
 
 const SUPPORTED_FORMAT_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 34;
+const CURRENT_SCHEMA_VERSION = 35;
 
 const FK_ORDER = [
   'operations',

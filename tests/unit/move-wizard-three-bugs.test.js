@@ -322,7 +322,10 @@ describe('OI-0162 full-OI live-repro regression — 2026-05-06 D → B-3', () =>
     openMoveWizard(closedSrc, OP, FARM);
     document.querySelector('[data-testid="move-wizard-dest-new"]').click();
     document.querySelector('[data-testid="move-wizard-step-1-next"]').click();
-    document.querySelector(`[data-testid="location-picker-item-${DST_LOC}"]`).click();
+    // B-3 is open on the destination from the first Save. Multi-select
+    // leaves that row visible and not selectable (OI-0102). Paddock D
+    // closed with the source, so it is free for this second attempt.
+    document.querySelector(`[data-testid="location-picker-item-${SRC_LOC}"]`).click();
     document.querySelector('[data-testid="move-wizard-step-2-next"]').click();
     document.querySelector('[data-testid="move-wizard-save"]').click();
     const status = document.querySelector('[data-testid="move-wizard-status"]');

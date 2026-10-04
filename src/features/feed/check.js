@@ -9,6 +9,7 @@ import { navigate } from '../../ui/router.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
+import { openLocationNames } from '../events/open-cohort.js';
 
 let feedCheckSheet = null;
 
@@ -71,8 +72,7 @@ export function openFeedCheckSheet(evt, operationId) {
   const lastCheckItems = lastCheck ? allCheckItems.filter(i => i.feedCheckId === lastCheck.id) : [];
 
   // Location + group context
-  const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === evt.id && !pw.dateClosed);
-  const loc = pws[0] ? getById('locations', pws[0].locationId) : null;
+  const locLabel = openLocationNames(evt.id).join(', ');
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === evt.id && !gw.dateLeft);
   const groupNames = gws.map(gw => { const g = getById('groups', gw.groupId); return g?.name || ''; }).filter(Boolean).join(', ');
 
@@ -116,9 +116,9 @@ export function openFeedCheckSheet(evt, operationId) {
   ]));
 
   // Context line
-  if (loc || groupNames) {
+  if (locLabel || groupNames) {
     panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '8px' } }, [
-      `\uD83C\uDF3F ${loc?.name || ''} \u00B7 ${groupNames}`,
+      `\uD83C\uDF3F ${locLabel} \u00B7 ${groupNames}`,
     ]));
   }
 

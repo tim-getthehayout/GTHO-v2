@@ -8,7 +8,7 @@ import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/wind
 import { logger } from '../../utils/logger.js';
 import { maybeShowEmptyGroupPrompt } from '../animals/empty-group-prompt.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert } from '../../utils/units.js';
+
 import * as EventEntity from '../../entities/event.js';
 import { createObservation } from './index.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
@@ -20,6 +20,7 @@ import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 import { showToast } from '../../ui/toast.js';
 import {
   renderStep1, renderStep2, createDestinationEvent, joinExistingEvent,
+  destinationLocationIds, summedPaddockAcres, feedDestinationId,
 } from './wizard-shared.js';
 import { checkWindowCloses } from './window-close-guard.js';
 import { openDateConflictDialog } from './date-conflict-dialog.js';
@@ -63,6 +64,8 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
     step: 1,
     destType: null,        // 'new' | 'join'
     locationId: null,
+    locationIds: [],
+    feedLocationId: null,
     existingEventId: null,
     destFarmId: farmId,    // Farm chip selection (default = source farm)
     stripGraze: false,
@@ -144,11 +147,10 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   const sourceGroup = sourceGW ? getById('groups', sourceGW.groupId) : null;
   const sourceGroupName = sourceGroup?.name ?? 'group';
 
-  // Destination location type (only meaningful when destType === 'new').
-  const destLoc = (state.destType === 'new' && state.locationId)
-    ? getById('locations', state.locationId)
-    : null;
-  const destLocationType = destLoc?.type ?? null;
+  // Destination set (only meaningful when destType === 'new').
+  const destIds = state.destType === 'new' ? destinationLocationIds(state) : [];
+  const destLocs = destIds.map((id) => getById('locations', id)).filter(Boolean);
+  const allDestLand = destLocs.length > 0 && destLocs.every((l) => l.type === 'land');
 
   // OI-0161: close-section title reflects the mode. The substituted
   // `closePaddockNamed` is distinct from the long-standing literal
@@ -257,12 +259,12 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     // at a confinement / dry-lot, so skip the card entirely on that
     // destination type. Existing-event ('join') path is already gated by
     // the enclosing `state.destType === 'new'` block above.
-    if (destLocationType === 'land') {
-      const destLocHa = destLoc?.areaHectares ?? destLoc?.areaHa;
-      const paddockAcres = destLocHa != null
-        ? convert(destLocHa, 'area', 'toImperial')
-        : null;
-      preGraze = renderPreGrazeCard({ farmSettings, paddockAcres, initialValues: {} });
+    if (allDestLand) {
+      preGraze = renderPreGrazeCard({
+        farmSettings,
+        paddockAcres: summedPaddockAcres(destIds),
+        initialValues: {},
+      });
       preGraze.container.setAttribute('data-testid', 'move-wizard-pre-graze-card');
       openSection.appendChild(preGraze.container);
     }
@@ -279,6 +281,21 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
     feedSection = el('div', { className: 'close-open-section', style: { marginTop: 'var(--space-4)' } }, [
       el('div', { className: 'close-open-section-title' }, [t('event.feedTransfer')]),
     ]);
+    if (state.destType === 'new' && destIds.length > 1) {
+      if (!state.feedLocationId || !destIds.includes(state.feedLocationId)) {
+        state.feedLocationId = destIds[0];
+      }
+      const feedDest = el('select', {
+        className: 'auth-select',
+        'data-testid': 'move-wizard-feed-destination',
+      }, destIds.map((id) => el('option', {
+        value: id,
+        ...(id === state.feedLocationId ? { selected: 'true' } : {}),
+      }, [getById('locations', id)?.name || id.slice(0, 8)])));
+      feedDest.addEventListener('change', () => { state.feedLocationId = feedDest.value; });
+      feedSection.appendChild(el('label', { className: 'form-label' }, [t('event.feedDestination')]));
+      feedSection.appendChild(feedDest);
+    }
 
     // OI-0135: group labels read live-remaining (most-recent feed-check item per
     // batch × location, falling back to delivery total). Replaces the prior
@@ -729,7 +746,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
             operationId,
             eventId: newEvent.id,
             batchId: toggle.batchId,
-            locationId: state.locationId,
+            locationId: feedDestinationId(state),
             date: dateIn,
             time: timeIn,
             quantity: toggle.total,

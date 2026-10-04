@@ -23,6 +23,7 @@ import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
 import { syncCalvingRecordForAnimal } from './calving-sync.js';
 import { maybeShowEmptyGroupPrompt, groupEventHistoryCount } from './empty-group-prompt.js';
 import { showToast } from '../../ui/toast.js';
+import { openLocationNames } from '../events/open-cohort.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
@@ -206,9 +207,7 @@ export function renderAnimalsScreen(container) {
       const isPlaced = !!(activeEvent && !activeEvent.dateOut);
       let locName = '';
       if (isPlaced) {
-        const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === activeEvent.id && !pw.dateClosed);
-        const loc = pws[0] ? getById('locations', pws[0].locationId) : null;
-        locName = loc?.name || '';
+        locName = openLocationNames(activeEvent.id).join(', ');
       }
 
       const isFiltered = selectedFilter === g.id;
@@ -398,9 +397,8 @@ export function renderAnimalsScreen(container) {
         const gws2 = getAll('eventGroupWindows').filter(gw => gw.groupId === grp.id && !gw.dateLeft);
         const ae = gws2[0] ? getById('events', gws2[0].eventId) : null;
         if (ae && !ae.dateOut) {
-          const pws2 = getAll('eventPaddockWindows').filter(pw => pw.eventId === ae.id && !pw.dateClosed);
-          const loc2 = pws2[0] ? getById('locations', pws2[0].locationId) : null;
-          if (loc2) locBadge = el('span', { className: 'badge bt', style: { fontSize: '10px' } }, [loc2.name]);
+          const names = openLocationNames(ae.id);
+          if (names.length) locBadge = el('span', { className: 'badge bt', style: { fontSize: '10px' } }, [names.join(', ')]);
         }
       }
 
@@ -690,9 +688,7 @@ function openSplitGroupSheet(group, operationId) {
   // Find location
   const gws = getAll('eventGroupWindows').filter(gw => gw.groupId === group.id && !gw.dateLeft);
   const activeEvent = gws[0] ? getById('events', gws[0].eventId) : null;
-  const pws = activeEvent ? getAll('eventPaddockWindows').filter(pw => pw.eventId === activeEvent.id && !pw.dateClosed) : [];
-  const loc = pws[0] ? getById('locations', pws[0].locationId) : null;
-  const locName = loc?.name || '';
+  const locName = activeEvent ? openLocationNames(activeEvent.id).join(', ') : '';
 
   const splitAnimals = new Set();
   let destType = 'new';

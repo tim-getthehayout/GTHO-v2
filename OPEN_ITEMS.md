@@ -3662,7 +3662,7 @@ Plus at least one integration test driving the pull path (`mergeRemote(entityTyp
 **Schema change:** none.
 
 **Related:**
-- **OI-0102** (multi-paddock selection — DESIGN REQUIRED) — shares the same component; if multi-pick lands later, the search bar naturally filters across selectable items.
+- **OI-0102** (multi-paddock selection — closed 2026-10-04) — shares this picker. Multi-select keeps the search query across re-renders.
 
 ---
 
@@ -3798,7 +3798,7 @@ Grep `checkDate` across `src/features/feed/check.js` for any other instance of t
 **Added:** 2026-04-18 | **Area:** v2-build / locations / picker / ux | **Priority:** P2 (fall/spring grazing — open several whole paddocks in one Save)
 **Checkpoint:** spec accepted 2026-10-04. Ready for Build. Do not invent design.
 
-**Status:** open — spec accepted, ready to build. Design hold lifted. Spec: `github/issues/OI-0102_multi-paddock-open.md`.
+**Status:** closed — 2026-10-04. One Save opens N paddock windows on one event. Windows from that Save share `open_cohort_id` when N > 1. Null means the window was opened alone. Migration 035 was applied and verified before UI: `event_paddock_windows.open_cohort_id` is uuid and nullable, index `idx_event_paddock_windows_event_open_cohort` is on `(event_id, open_cohort_id)`, `operations.schema_version` is 35, history version `20261004192258`. Spec: `github/issues/OI-0102_multi-paddock-open.md`.
 
 **Locked 2026-10-04 (Tim):** One event, N `event_paddock_windows`, one forage card fanned out to one observation per window. Windows from one Save share `open_cohort_id` (migration 035). Cohort is a label, not a lock: one gate may close early. Bulk close copies one residual onto each window that Save closes; a single-gate close has its own reading. In-use paddocks are visible and not selectable. Moved bales go to one chosen paddock of the set. Sub-move open multi-selects too. Strip graze stays single-paddock and is mutually exclusive with multi-select. No anchor column.
 
@@ -3835,7 +3835,7 @@ An event today is keyed on one paddock window at creation (though `event_paddock
 
 **CP-55/CP-56 impact:** probably none (multi-paddock is already representable with today's `event_paddock_windows` table). Confirm once design locks.
 
-**Schema change:** migration 035 adds nullable `event_paddock_windows.open_cohort_id`. Not applied. Build applies and verifies it before UI.
+**Schema change:** migration 035 applied and verified 2026-10-04. Nullable uuid `event_paddock_windows.open_cohort_id`. Index `idx_event_paddock_windows_event_open_cohort`. `schema_version` 35. History `20261004192258`. No new table and no FK. Backup 34→35 is a stamp only.
 
 **Related:**
 

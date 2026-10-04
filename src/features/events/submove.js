@@ -8,7 +8,7 @@ import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { createObservation, renderLocationPicker } from './index.js';
-import { convert } from '../../utils/units.js';
+import { openPaddockWindows, summedPaddockAcres } from './open-cohort.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
@@ -39,7 +39,7 @@ export function openSubmoveOpenSheet(evt, operationId) {
 
   const locations = getAll('locations').filter(l => !l.archived);
   const todayStr = new Date().toISOString().slice(0, 10);
-  const selection = { locationId: null };
+  const selection = { locationId: null, locationIds: [] };
   const inputs = {};
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.openWindowTitle')]));
@@ -70,12 +70,11 @@ export function openSubmoveOpenSheet(evt, operationId) {
   panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectLocation')]));
   const locPickerEl = el('div', { 'data-testid': 'submove-open-location-picker' });
   renderLocationPicker(locPickerEl, locations, selection, {
-    onSelect: (loc) => {
-      // location.areaHectares → acres for the imperial-native BRC-1 calc.
-      const acres = loc?.areaHectares != null
-        ? convert(loc.areaHectares, 'area', 'toImperial')
-        : null;
-      preGraze.setPaddockAcres(acres);
+    multi: true,
+    onSelect: () => {
+      // Summed acres for the imperial-native BRC-1 calc. One pick matches
+      // the single-paddock card; a second pick adds that paddock's area.
+      preGraze.setPaddockAcres(summedPaddockAcres(selection.locationIds));
     },
   });
   panel.appendChild(locPickerEl);
@@ -91,22 +90,30 @@ export function openSubmoveOpenSheet(evt, operationId) {
       'data-testid': 'submove-open-save',
       onClick: () => {
         clear(statusEl);
-        if (!selection.locationId) {
+        const locationIds = selection.locationIds.length
+          ? selection.locationIds.slice()
+          : (selection.locationId ? [selection.locationId] : []);
+        if (!locationIds.length) {
           statusEl.appendChild(el('span', {}, [t('event.selectLocation')]));
           return;
         }
         const pgv = preGraze.validate();
         if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
         try {
-          const pw = PaddockWindowEntity.create({
+          // Neighbors opened in this Save. Does not retitle the event,
+          // move the group, or rewrite windows that are already open.
+          const windows = openPaddockWindows({
             operationId,
             eventId: evt.id,
-            locationId: selection.locationId,
+            locationIds,
             dateOpened: inputs.dateOpened.value,
             timeOpened: inputs.timeOpened.value || null,
           });
-          add('eventPaddockWindows', pw, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-          createObservation(operationId, selection.locationId, 'open', pw.id, new Date().toISOString(), preGraze.getValues());
+          const observedAt = new Date().toISOString();
+          const values = preGraze.getValues();
+          for (const pw of windows) {
+            createObservation(operationId, pw.locationId, 'open', pw.id, observedAt, values);
+          }
           submoveOpenSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));
@@ -147,9 +154,15 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   if (!panel) return;
   clear(panel);
 
+  const windows = (Array.isArray(paddockWindow) ? paddockWindow : [paddockWindow]).filter(Boolean);
+  if (!windows.length) return;
+  const first = windows[0];
+
   const todayStr = new Date().toISOString().slice(0, 10);
-  const loc = getById('locations', paddockWindow.locationId);
-  const locName = loc ? loc.name : '';
+  const locName = windows
+    .map((w) => getById('locations', w.locationId)?.name)
+    .filter(Boolean)
+    .join(', ');
   const inputs = {};
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.closeWindowTitle')]));
@@ -178,7 +191,7 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
 
   // OI-0119: forced feed-check card when the event has any stored-feed
   // deliveries. Strikes a clean actual/estimated boundary on sub-move close.
-  const eventFeedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === paddockWindow.eventId);
+  const eventFeedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === first.eventId);
   const hasStoredFeed = eventFeedEntries.length > 0;
   const feedCheckInputs = []; // { batchId, locationId, input, unitLabel }
   if (hasStoredFeed) {
@@ -194,7 +207,7 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
     // OI-0135: display hint reads live-remaining (most-recent feed check per
     // batch × location) so the "Delivered: N" line lines up with the value the
     // farmer is about to confirm, not the original delivery total.
-    const liveRemaining = getLiveRemainingForMove(paddockWindow.eventId);
+    const liveRemaining = getLiveRemainingForMove(first.eventId);
     const groups = {};
     for (const entry of eventFeedEntries) {
       const key = `${entry.batchId}|${entry.locationId}`;
@@ -257,30 +270,32 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
         }
 
         try {
-          // OI-0095: terminal close — route through closePaddockWindow.
-          closePaddockWindow(
-            paddockWindow.locationId,
-            paddockWindow.eventId,
-            inputs.dateClosed.value,
-            inputs.timeClosed.value || null,
-          );
-          createObservation(paddockWindow.operationId, paddockWindow.locationId, 'close', paddockWindow.id, new Date().toISOString(), postGraze.getValues());
+          // One residual, copied onto every window this Save closes.
+          // The feed check is the event's reading, written once.
+          const values = postGraze.getValues();
+          const observedAt = new Date().toISOString();
+          const dateClosed = inputs.dateClosed.value;
+          const timeClosed = inputs.timeClosed.value || null;
+          for (const pw of windows) {
+            closePaddockWindow(pw.locationId, pw.eventId, dateClosed, timeClosed);
+            createObservation(pw.operationId, pw.locationId, 'close', pw.id, observedAt, values);
+          }
 
           // OI-0119: write the feed check + items so DMI-8 converts the prior
           // interval's storedDmiKg from estimated → actual on re-read.
           if (hasStoredFeed && feedCheckInputs.length) {
             const check = FeedCheckEntity.create({
-              operationId: paddockWindow.operationId,
-              eventId: paddockWindow.eventId,
-              date: inputs.dateClosed.value,
-              time: inputs.timeClosed.value || null,
+              operationId: first.operationId,
+              eventId: first.eventId,
+              date: dateClosed,
+              time: timeClosed,
               isCloseReading: false,
             });
             add('eventFeedChecks', check,
               FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
             for (const item of feedCheckInputs) {
               const checkItem = FeedCheckItemEntity.create({
-                operationId: paddockWindow.operationId,
+                operationId: first.operationId,
                 feedCheckId: check.id,
                 batchId: item.batchId,
                 locationId: item.locationId,

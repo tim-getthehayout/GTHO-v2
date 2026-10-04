@@ -29,10 +29,25 @@ import { logger } from '../../utils/logger.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel } from '../../utils/units.js';
 import * as EventEntity from '../../entities/event.js';
-import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { createObservation, renderLocationPicker } from './index.js';
 import { getEventStartDate } from './event-start.js';
+import { openPaddockWindows, summedPaddockAcres } from './open-cohort.js';
+
+export { summedPaddockAcres };
+
+/** Location ids chosen for a new destination. Falls back to the single id. */
+export function destinationLocationIds(state) {
+  if (Array.isArray(state.locationIds) && state.locationIds.length) return state.locationIds.slice();
+  return state.locationId ? [state.locationId] : [];
+}
+
+/** Paddock that receives moved bales. Defaults to the first selected. */
+export function feedDestinationId(state) {
+  const ids = destinationLocationIds(state);
+  if (state.feedLocationId && ids.includes(state.feedLocationId)) return state.feedLocationId;
+  return ids[0] || null;
+}
 
 /**
  * Step 1 — destination type picker (New / Join existing).
@@ -112,21 +127,37 @@ export function renderStep2(panel, state, render, operationId, sourceEvent) {
       ]);
       farmChip.querySelector('select').addEventListener('change', (e) => {
         state.destFarmId = e.target.value;
-        state.locationId = null; // Reset location when farm changes
+        state.locationId = null;
+        state.locationIds = [];
+        state.feedLocationId = null;
         render();
       });
       panel.appendChild(farmChip);
     }
 
-    // Location picker — filtered by destination farm
+    // Location picker — filtered by destination farm. Multi unless strip graze
+    // has collapsed the set to one paddock (OI-0102). The picker stays able
+    // to add a second paddock; that addition turns strip graze off.
     const locations = getAll('locations').filter(l => !l.archived && l.farmId === state.destFarmId);
-    const selection = { locationId: state.locationId };
+    const selection = {
+      locationId: state.locationId,
+      locationIds: destinationLocationIds(state),
+    };
     const pickerEl = el('div', { 'data-testid': 'move-wizard-location-picker' });
-    renderLocationPicker(pickerEl, locations, selection);
-
-    // Sync selection back to wizard state on click
-    pickerEl.addEventListener('click', () => {
-      state.locationId = selection.locationId;
+    renderLocationPicker(pickerEl, locations, selection, {
+      multi: true,
+      onSelect: () => {
+        state.locationIds = selection.locationIds.slice();
+        state.locationId = state.locationIds[0] || null;
+        if (state.feedLocationId && !state.locationIds.includes(state.feedLocationId)) {
+          state.feedLocationId = null;
+        }
+        const pickedConfinement = state.locationIds.some((id) => locations.find((l) => l.id === id)?.type === 'confinement');
+        if (state.stripGraze && (state.locationIds.length > 1 || pickedConfinement)) {
+          state.stripGraze = false;
+          render();
+        }
+      },
     });
     panel.appendChild(pickerEl);
 
@@ -139,6 +170,13 @@ export function renderStep2(panel, state, render, operationId, sourceEvent) {
     });
     stripCheckbox.addEventListener('change', () => {
       state.stripGraze = stripCheckbox.checked;
+      if (state.stripGraze) {
+        const ids = destinationLocationIds(state);
+        if (ids.length > 1) {
+          state.locationIds = [ids[0]];
+          state.locationId = ids[0];
+        }
+      }
       render();
     });
     stripToggle.appendChild(el('label', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-3)', cursor: 'pointer' } }, [
@@ -149,7 +187,7 @@ export function renderStep2(panel, state, render, operationId, sourceEvent) {
 
     // Strip size inputs (only if strip graze enabled)
     if (state.stripGraze) {
-      const loc = state.locationId ? getById('locations', state.locationId) : null;
+      const loc = state.locationId ? getById('locations', state.locationId) : null; // one paddock: strip collapsed the set
       const paddockAreaHa = loc?.areaHectares || 0;
       const unitSys = getUnitSystem();
       const areaUnit = unitLabel('area', unitSys);
@@ -266,7 +304,7 @@ export function renderStep2(panel, state, render, operationId, sourceEvent) {
       className: 'btn btn-green',
       'data-testid': 'move-wizard-step-2-next',
       onClick: () => {
-        if (state.destType === 'new' && !state.locationId) return;
+        if (state.destType === 'new' && destinationLocationIds(state).length === 0) return;
         if (state.destType === 'join' && !state.existingEventId) return;
         state.step = 3;
         render();
@@ -303,31 +341,26 @@ export function createDestinationEvent({
   dateIn, timeIn, groupSnapshots, preGrazeValues,
 }) {
   // Step 6: Create new event
+  const locationIds = destinationLocationIds(state);
   const newEvent = EventEntity.create({
     operationId,
     farmId: state.destFarmId || farmId,
     sourceEventId,
+    notes: state.notes || null,
   });
   add('events', newEvent, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
 
-  // Create paddock window at destination
-  const pwData = {
+  // One window, or N windows sharing one open_cohort_id. Strip only when
+  // the set is a single paddock (OI-0102).
+  const windows = openPaddockWindows({
     operationId,
     eventId: newEvent.id,
-    locationId: state.locationId,
+    locationIds,
     dateOpened: dateIn,
     timeOpened: timeIn,
-  };
-
-  // Step 9: Strip graze flags
-  if (state.stripGraze) {
-    pwData.isStripGraze = true;
-    pwData.stripGroupId = crypto.randomUUID();
-    pwData.areaPct = state.stripSizePct;
-  }
-
-  const newPW = PaddockWindowEntity.create(pwData);
-  add('eventPaddockWindows', newPW, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    strip: { enabled: !!state.stripGraze, areaPct: state.stripSizePct },
+  });
+  const newPW = windows[0];
 
   // Create group windows for every snapshot with at least one head.
   // OI-0091: stamp live values as of dateIn. For the move wizard, the
@@ -354,11 +387,13 @@ export function createDestinationEvent({
   // Move wizard always passes a value object (possibly `{}`) so the
   // existing "always write observation" behavior is preserved verbatim.
   if (preGrazeValues !== null) {
-    createObservation(operationId, state.locationId, 'open', newPW.id, new Date().toISOString(),
-      preGrazeValues);
+    const observedAt = new Date().toISOString();
+    for (const pw of windows) {
+      createObservation(operationId, pw.locationId, 'open', pw.id, observedAt, preGrazeValues);
+    }
   }
 
-  return { newEvent, newPW };
+  return { newEvent, newPW, newPWs: windows };
 }
 
 /**

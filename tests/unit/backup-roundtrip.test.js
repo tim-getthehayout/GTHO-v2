@@ -143,11 +143,11 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→34 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(20);
+    it('has migration entries for 14→35 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(21);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[32]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[33]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[34]).toBe('function');
     });
 
     it('OI-0133 — v31→v32 strips farm_id from every groups row + stamps schema_version=32', () => {

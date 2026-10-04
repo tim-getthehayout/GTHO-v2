@@ -876,6 +876,7 @@ export function splitPaddockWindow(locationId, eventId, changeDate, changeTime, 
     isStripGraze: newState && newState.isStripGraze !== undefined ? newState.isStripGraze : openPW.isStripGraze,
     stripGroupId: newState && newState.stripGroupId !== undefined ? newState.stripGroupId : openPW.stripGroupId,
     noPasture: newState && newState.noPasture !== undefined ? newState.noPasture : openPW.noPasture,
+    openCohortId: newState && newState.openCohortId !== undefined ? newState.openCohortId : openPW.openCohortId,
   };
   const newPW = PaddockWindowEntity.create({
     operationId: openPW.operationId,
@@ -887,6 +888,7 @@ export function splitPaddockWindow(locationId, eventId, changeDate, changeTime, 
     isStripGraze: next.isStripGraze,
     stripGroupId: next.stripGroupId,
     noPasture: next.noPasture,
+    openCohortId: next.openCohortId,
   });
   add(
     'eventPaddockWindows', newPW,

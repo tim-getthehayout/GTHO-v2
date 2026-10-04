@@ -9,7 +9,6 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert } from '../../utils/units.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import * as EventEntity from '../../entities/event.js';
-import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import * as ObservationEntity from '../../entities/paddock-observation.js';
 import { openMoveWizard } from './move-wizard.js';
@@ -17,6 +16,7 @@ import { openSubmoveOpenSheet, openSubmoveCloseSheet, openAdvanceStripSheet } fr
 import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
 import { openCloseEventSheet } from './close.js';
 import { openLocationMapPicker } from '../map/picker.js';
+import { openPaddockWindows, openLocationNames } from './open-cohort.js';
 import { paddockFacts } from '../map/paddock-facts.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
@@ -227,10 +227,10 @@ function renderEventCard(evt, operationId) {
   const groupWindows = getAll('eventGroupWindows').filter(w => w.eventId === evt.id);
   const unitSys = getUnitSystem();
 
-  // Primary location name (first opened paddock window)
   const sortedPW = [...paddockWindows].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || ''));
-  const primaryLoc = sortedPW.length ? getById('locations', sortedPW[0].locationId) : null;
-  const titleText = primaryLoc ? primaryLoc.name : evt.id.slice(0, 8);
+  const openNames = openLocationNames(evt.id);
+  const titleNames = openNames.length ? openNames : openLocationNames(evt.id, { includeClosed: true });
+  const titleText = titleNames.length ? titleNames.join(', ') : evt.id.slice(0, 8);
 
   // Day count
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -419,36 +419,24 @@ function renderPaddockWindowsSection(windows, eventIsActive, evt, operationId) {
   }
 
   // Render individual window rows
-  for (let idx = 0; idx < windows.length; idx++) {
-    const w = windows[idx];
+  for (const w of windows) {
     const loc = getById('locations', w.locationId);
     const locName = loc ? loc.name : w.locationId.slice(0, 8);
     const isOpen = !w.dateClosed;
-    const isPrimary = idx === 0;
 
     const rightSide = [];
     rightSide.push(el('span', {
       className: `badge ${isOpen ? 'badge-green' : 'badge-amber'}`,
     }, [isOpen ? t('event.windowOpen') : t('event.windowClosed')]));
 
-    // Close button for non-primary open windows on active events
+    // Every open window can close on its own. A cohort is a label, not an anchor.
     if (eventIsActive && isOpen) {
-      if (isPrimary) {
-        rightSide.push(el('button', {
-          className: 'btn btn-outline btn-xs',
-          disabled: 'true',
-          title: t('event.primaryCannotClose'),
-          'data-testid': `events-close-window-${w.id}`,
-          style: { opacity: '0.4', cursor: 'not-allowed', marginLeft: 'var(--space-2)' },
-        }, [t('event.closeWindow')]));
-      } else {
-        rightSide.push(el('button', {
-          className: 'btn btn-outline btn-xs',
-          'data-testid': `events-close-window-${w.id}`,
-          style: { marginLeft: 'var(--space-2)' },
-          onClick: () => openSubmoveCloseSheet(w, operationId),
-        }, [t('event.closeWindow')]));
-      }
+      rightSide.push(el('button', {
+        className: 'btn btn-outline btn-xs',
+        'data-testid': `events-close-window-${w.id}`,
+        style: { marginLeft: 'var(--space-2)' },
+        onClick: () => openSubmoveCloseSheet(w, operationId),
+      }, [t('event.closeWindow')]));
     }
 
     children.push(el('div', {
@@ -458,7 +446,6 @@ function renderPaddockWindowsSection(windows, eventIsActive, evt, operationId) {
       el('div', {}, [
         el('span', { className: 'window-name' }, [
           locName,
-          isPrimary ? ` (${t('event.primary')})` : '',
           w.isStripGraze && w.areaPct < 100 ? ` (${w.areaPct}%)` : '',
         ]),
         el('div', { className: 'window-detail' }, [
@@ -553,7 +540,7 @@ function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-u
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const inputs = {};
-  const selection = { locationId: null, groupId: null };
+  const selection = { locationId: null, locationIds: [], groupId: null };
 
   // Date
   panel.appendChild(el('label', { className: 'form-label' }, [t('event.dateIn')]));
@@ -578,7 +565,7 @@ function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-u
   // Location picker
   panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectLocation')]));
   const locPickerEl = el('div', { 'data-testid': 'create-event-location-picker' });
-  renderLocationPicker(locPickerEl, locations, selection);
+  renderLocationPicker(locPickerEl, locations, selection, { multi: true });
   panel.appendChild(locPickerEl);
 
   // Group picker
@@ -643,14 +630,65 @@ function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-u
 // Location picker with sections
 // ---------------------------------------------------------------------------
 
+function openEventLabel(locationId) {
+  const w = getAll('eventPaddockWindows').find((pw) => pw.locationId === locationId && !pw.dateClosed);
+  if (!w) return '';
+  const names = getAll('eventGroupWindows')
+    .filter((gw) => gw.eventId === w.eventId && !gw.dateLeft)
+    .map((gw) => getById('groups', gw.groupId)?.name)
+    .filter(Boolean);
+  return names.length ? names.join(', ') : w.eventId.slice(0, 8);
+}
+
+function pickerCountText(ids, locations) {
+  const parts = [
+    ids.length === 1
+      ? t('event.locationPicker.countOne')
+      : t('event.locationPicker.count', { count: ids.length }),
+  ];
+  let hectares = 0;
+  let any = false;
+  const missing = [];
+  for (const id of ids) {
+    const loc = locations.find((l) => l.id === id);
+    const ha = loc?.areaHectares ?? loc?.areaHa;
+    const n = ha == null || ha === '' ? NaN : Number(ha);
+    if (!Number.isFinite(n)) {
+      missing.push(loc?.name || id);
+      continue;
+    }
+    hectares += n;
+    any = true;
+  }
+  if (any) parts.push(display(hectares, 'area', getUnitSystem(), 1));
+  if (missing.length === 1) parts.push(t('event.locationPicker.noArea', { name: missing[0] }));
+  else if (missing.length > 1) parts.push(t('event.locationPicker.noAreaMany', { names: missing.join(', ') }));
+  return parts.join(' · ');
+}
+
+function finishLocationPick(container, locations, selection, opts, loc) {
+  if (typeof opts.onSelect === 'function') opts.onSelect(loc);
+  if (container.isConnected) renderLocationPicker(container, locations, selection, opts);
+}
+
 export function renderLocationPicker(container, locations, selection, opts = {}) {
   clear(container);
+  const multi = !!opts.multi;
+  if (multi && !Array.isArray(selection.locationIds)) {
+    selection.locationIds = selection.locationId ? [selection.locationId] : [];
+  }
 
   // OI-0105: persist the search query across re-renders (re-render fires on
   // selection click). Query is stored on the container's dataset so it survives
   // the clear() above without leaking across separate picker invocations.
   const query = container.dataset.locationSearchQuery || '';
   const queryLc = query.toLowerCase();
+
+  const allPaddockWindows = getAll('eventPaddockWindows');
+  const inUseLocationIds = new Set();
+  for (const w of allPaddockWindows) {
+    if (!w.dateClosed) inUseLocationIds.add(w.locationId);
+  }
 
   // Sticky search input at the top of the picker.
   const searchInput = el('input', {
@@ -684,6 +722,12 @@ export function renderLocationPicker(container, locations, selection, opts = {})
   }, [
     el('div', { style: { position: 'relative' } }, [searchInput, clearBtn]),
   ]);
+  if (multi) {
+    searchWrap.appendChild(el('div', {
+      'data-testid': 'location-picker-count',
+      style: { fontSize: '12px', color: 'var(--text2)', marginTop: 'var(--space-2)' },
+    }, [pickerCountText(selection.locationIds, locations)]));
+  }
   searchInput.addEventListener('input', () => {
     container.dataset.locationSearchQuery = searchInput.value;
     renderLocationPicker(container, locations, selection, opts);
@@ -701,25 +745,40 @@ export function renderLocationPicker(container, locations, selection, opts = {})
     className: 'btn btn-outline btn-sm',
     'data-testid': 'location-picker-map',
     style: { margin: '0 0 var(--space-2) var(--space-2)' },
-    onClick: () => openLocationMapPicker({
-      selectedId: selection.locationId,
-      title: 'Pick a paddock',
-      onSelect: (id) => {
-        const loc = locations.find((l) => l.id === id);
-        if (!loc) return;
-        selection.locationId = id;
-        if (typeof opts.onSelect === 'function') opts.onSelect(loc);
-        renderLocationPicker(container, locations, selection, opts);
-      },
-    }),
-  }, ['Pick on map']));
-
-  // Classify locations into sections
-  const allPaddockWindows = getAll('eventPaddockWindows');
-  const inUseLocationIds = new Set();
-  for (const w of allPaddockWindows) {
-    if (!w.dateClosed) inUseLocationIds.add(w.locationId);
-  }
+    onClick: () => {
+      if (multi) {
+        const landIds = selection.locationIds.filter((id) => locations.find((l) => l.id === id)?.type !== 'confinement');
+        const blockedReasons = {};
+        for (const id of inUseLocationIds) {
+          blockedReasons[id] = t('event.locationPicker.openOn', { event: openEventLabel(id) });
+        }
+        openLocationMapPicker({
+          mode: 'multi',
+          selectedIds: landIds,
+          blockedIds: [...inUseLocationIds],
+          blockedReasons,
+          title: t('event.locationPicker.pickOnMap'),
+          onSelect: (ids) => {
+            selection.locationIds = ids.slice();
+            selection.locationId = ids[0] || null;
+            finishLocationPick(container, locations, selection, opts, null);
+          },
+        });
+        return;
+      }
+      openLocationMapPicker({
+        selectedId: selection.locationId,
+        title: 'Pick a paddock',
+        onSelect: (id) => {
+          const loc = locations.find((l) => l.id === id);
+          if (!loc) return;
+          selection.locationId = id;
+          if (Array.isArray(selection.locationIds)) selection.locationIds = [id];
+          finishLocationPick(container, locations, selection, opts, loc);
+        },
+      });
+    },
+  }, [t('event.locationPicker.pickOnMap')]));
 
   const matches = locations.filter(loc =>
     !queryLc || (loc.name || '').toLowerCase().includes(queryLc),
@@ -747,6 +806,22 @@ export function renderLocationPicker(container, locations, selection, opts = {})
     { key: 'confinement', label: t('event.locationPicker.confinement'), locs: confinement },
   ];
 
+  function applyMultiTap(loc) {
+    if (inUseLocationIds.has(loc.id)) return false;
+    if (loc.type === 'confinement') {
+      selection.locationIds = [loc.id];
+      selection.locationId = loc.id;
+      return true;
+    }
+    const next = selection.locationIds.filter((id) => locations.find((l) => l.id === id)?.type !== 'confinement');
+    const idx = next.indexOf(loc.id);
+    if (idx >= 0) next.splice(idx, 1);
+    else next.push(loc.id);
+    selection.locationIds = next;
+    selection.locationId = next[0] || null;
+    return true;
+  }
+
   let anyRendered = false;
   for (const section of sections) {
     if (!section.locs.length) continue;
@@ -758,20 +833,32 @@ export function renderLocationPicker(container, locations, selection, opts = {})
         'data-testid': `location-picker-section-${section.key}`,
       }, [section.label]),
       ...section.locs.map(loc => {
-        const isSelected = selection.locationId === loc.id;
+        const blocked = multi && inUseLocationIds.has(loc.id);
+        const isSelected = blocked
+          ? false
+          : (multi ? selection.locationIds.includes(loc.id) : selection.locationId === loc.id);
+        const subtitle = blocked
+          ? t('event.locationPicker.openOn', { event: openEventLabel(loc.id) })
+          : `${paddockFacts(loc).area} · ${paddockFacts(loc).grazed}`;
         return el('div', {
-          className: `loc-picker-item${isSelected ? ' selected' : ''}`,
+          className: `loc-picker-item${isSelected ? ' selected' : ''}${blocked ? ' in-use' : ''}`,
           'data-testid': `location-picker-item-${loc.id}`,
+          style: blocked ? { cursor: 'default', opacity: '0.7' } : undefined,
           onClick: () => {
+            if (multi) {
+              if (!applyMultiTap(loc)) return;
+              finishLocationPick(container, locations, selection, opts, loc);
+              return;
+            }
             selection.locationId = loc.id;
+            if (Array.isArray(selection.locationIds)) selection.locationIds = [loc.id];
             // OI-0114 NC-1: fire optional onSelect so callers can react to
             // the location choice (e.g. late-bind paddockAcres into a card).
-            if (typeof opts.onSelect === 'function') opts.onSelect(loc);
-            renderLocationPicker(container, locations, selection, opts);
+            finishLocationPick(container, locations, selection, opts, loc);
           },
         }, [
           el('span', {}, [loc.name]),
-          el('span', { style: { display: 'block', fontSize: '11px', color: 'var(--text2)' } }, [paddockFacts(loc).area + ' · ' + paddockFacts(loc).grazed]),
+          el('span', { style: { display: 'block', fontSize: '11px', color: 'var(--text2)' } }, [subtitle]),
           getTypeBadgeSmall(loc),
         ]);
       }),
@@ -868,7 +955,10 @@ function saveEvent(selection, inputs, operationId, farmId, unitSys, statusEl) {
   clear(statusEl);
   statusEl.className = 'auth-error';
 
-  if (!selection.locationId) {
+  const locationIds = (Array.isArray(selection.locationIds) && selection.locationIds.length)
+    ? selection.locationIds.slice()
+    : (selection.locationId ? [selection.locationId] : []);
+  if (!locationIds.length) {
     statusEl.appendChild(el('span', {}, [t('event.selectLocation')]));
     return;
   }
@@ -910,18 +1000,19 @@ function saveEvent(selection, inputs, operationId, farmId, unitSys, statusEl) {
     });
     add('events', event, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
 
-    // 2. Create paddock window
-    const paddockWindow = PaddockWindowEntity.create({
+    // 2. One window, or N windows sharing one open_cohort_id (OI-0102).
+    // This dialog has no forage card; each window still gets an open observation.
+    const windows = openPaddockWindows({
       operationId,
       eventId: event.id,
-      locationId: selection.locationId,
+      locationIds,
       dateOpened: dateIn,
       timeOpened: timeIn,
     });
-    add('eventPaddockWindows', paddockWindow, PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-
-    // Create open observation for the paddock
-    createObservation(operationId, selection.locationId, 'open', paddockWindow.id, new Date().toISOString());
+    const observedAt = new Date().toISOString();
+    for (const paddockWindow of windows) {
+      createObservation(operationId, paddockWindow.locationId, 'open', paddockWindow.id, observedAt);
+    }
 
     // 3. Create group window
     const groupWindow = GroupWindowEntity.create({

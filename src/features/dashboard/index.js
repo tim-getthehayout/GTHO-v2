@@ -25,6 +25,7 @@ import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/wind
 import { getEventStartDate } from '../events/event-start.js';
 import { computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
+import { openLocationNames } from '../events/open-cohort.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -693,10 +694,10 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   let locationName = '';
   let dayCount = 0;
   if (isOnPasture) {
-    const pws = getAll('eventPaddockWindows').filter(w => w.eventId === activeEvent.id && !w.dateClosed);
-    if (pws.length) {
-      const loc = getById('locations', pws[0].locationId);
-      locationName = loc ? loc.name : '?';
+    const names = openLocationNames(activeEvent.id);
+    if (names.length) locationName = names.join(', ');
+    else if (getAll('eventPaddockWindows').some(w => w.eventId === activeEvent.id && !w.dateClosed)) {
+      locationName = '?';
     }
     const startDate = getEventStartDate(activeEvent.id);
     dayCount = startDate ? daysBetweenInclusive(startDate, todayStr) : 0;
@@ -1220,9 +1221,30 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   // Daily DMI display
   const dailyDmiDisplay = dailyDmiKg > 0 ? convert(dailyDmiKg, 'weight', 'toImperial').toFixed(0) : null;
 
-  // --- Sub-paddocks (non-anchor windows) ---
+  // Neighbors sit under the open set. A cohort opened together is the base,
+  // not one real paddock plus sub-moves. A sole open window has no sub rows.
   const sortedPws = [...allPws].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || ''));
-  const subPaddocks = sortedPws.slice(1);
+  const openSorted = [...openPws].sort((a, b) => (a.dateOpened || '').localeCompare(b.dateOpened || ''));
+  const cohortCounts = new Map();
+  for (const pw of openSorted) {
+    if (!pw.openCohortId) continue;
+    cohortCounts.set(pw.openCohortId, (cohortCounts.get(pw.openCohortId) || 0) + 1);
+  }
+  let baseCohortId = null;
+  for (const pw of openSorted) {
+    if (pw.openCohortId && cohortCounts.get(pw.openCohortId) >= 2) {
+      baseCohortId = pw.openCohortId;
+      break;
+    }
+  }
+  let subPaddocks;
+  if (baseCohortId) {
+    subPaddocks = sortedPws.filter((pw) => pw.openCohortId !== baseCohortId);
+  } else if (openSorted.length < 2) {
+    subPaddocks = [];
+  } else {
+    subPaddocks = openSorted;
+  }
   const hasSubMoves = subPaddocks.length > 0;
 
   // --- Build card ---

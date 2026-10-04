@@ -17,12 +17,13 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { logger } from '../../utils/logger.js';
-import { convert } from '../../utils/units.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { showToast } from '../../ui/toast.js';
 import {
   renderStep1, renderStep2, createDestinationEvent, joinExistingEvent,
+  destinationLocationIds, summedPaddockAcres,
 } from './wizard-shared.js';
+import { openLocationNames } from './open-cohort.js';
 
 let placeWizardSheet = null;
 
@@ -71,6 +72,7 @@ export function openPlaceWizard(groupId, operationId, farmId) {
     groupId,
     destType: null,
     locationId: null,
+    locationIds: [],
     existingEventId: null,
     destFarmId: farmId,
     stripGraze: false,
@@ -114,21 +116,20 @@ export function openPlaceWizard(groupId, operationId, farmId) {
 function renderStep3(panel, state, group, operationId, farmId, parentRender) {
   const inputs = {};
 
-  const destLoc = (state.destType === 'new' && state.locationId)
-    ? getById('locations', state.locationId)
-    : null;
-  const destLocationType = destLoc?.type ?? null;
+  const destIds = state.destType === 'new' ? destinationLocationIds(state) : [];
+  const destLocs = destIds.map((id) => getById('locations', id)).filter(Boolean);
+  const allDestLand = destLocs.length > 0 && destLocs.every((l) => l.type === 'land');
 
   // Title: "Open at {location}" for new, "Add {group} to {location}" for
   // join. The join target's location comes from the existing event's open
   // paddock window (every active event has at least one).
   let titleText;
   if (state.destType === 'new') {
-    titleText = t('event.placeStep3Title', { location: destLoc?.name || '' });
+    const names = destLocs.map((l) => l.name).filter(Boolean).join(', ');
+    titleText = t('event.placeStep3Title', { location: names });
   } else {
-    const joinPW = getAll('eventPaddockWindows').find(w => w.eventId === state.existingEventId && !w.dateClosed);
-    const joinLoc = joinPW ? getById('locations', joinPW.locationId) : null;
-    titleText = t('event.placeStep3TitleJoin', { group: group?.name || '', location: joinLoc?.name || '' });
+    const joinNames = openLocationNames(state.existingEventId).join(', ');
+    titleText = t('event.placeStep3TitleJoin', { group: group?.name || '', location: joinNames });
   }
   panel.appendChild(el('h2', {
     className: 'wizard-step-title',
@@ -160,10 +161,12 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender) {
   // has a pre-graze obs from when its paddock window opened) skip it.
   let preGraze = null;
   const farmSettings = getAll('farmSettings')[0] || null;
-  if (state.destType === 'new' && destLocationType === 'land') {
-    const destLocHa = destLoc?.areaHectares ?? destLoc?.areaHa;
-    const paddockAcres = destLocHa != null ? convert(destLocHa, 'area', 'toImperial') : null;
-    preGraze = renderPreGrazeCard({ farmSettings, paddockAcres, initialValues: {} });
+  if (state.destType === 'new' && allDestLand) {
+    preGraze = renderPreGrazeCard({
+      farmSettings,
+      paddockAcres: summedPaddockAcres(destIds),
+      initialValues: {},
+    });
     preGraze.container.setAttribute('data-testid', 'place-wizard-pre-graze-card');
     openSection.appendChild(preGraze.container);
   }

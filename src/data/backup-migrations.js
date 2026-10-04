@@ -161,4 +161,7 @@ export const BACKUP_MIGRATIONS = {
   //            map pins (point_lat, point_lng). Columns are nullable, so
   //            older backups restore without them.
   33: (b) => { b.schema_version = 34; return b; },
+  // 034 → 035: OI-0102 — nullable event_paddock_windows.open_cohort_id.
+  //            Older backups omit the column; the database default is null.
+  34: (b) => { b.schema_version = 35; return b; },
 };

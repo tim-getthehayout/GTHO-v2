@@ -1,6 +1,7 @@
 /** @file Full-screen map overlay for picking a paddock or dropping a todo pin. */
 
 import { el, clear } from '../../ui/dom.js';
+import { t } from '../../i18n/i18n.js';
 import { getAll, getById, update } from '../../data/store.js';
 import { getActiveFarmId } from '../../data/store.js';
 import { loadLeaflet } from './leaflet-loader.js';
@@ -22,26 +23,32 @@ function defaultCenter() {
   return [35.2271, -80.8431];
 }
 
-function paintLocations(L, map, locations, selectedId, onPick) {
+function polygonStyle(on, blocked) {
+  if (blocked) {
+    return { color: '#868e96', weight: 2, fillOpacity: 0.2, fillColor: '#adb5bd' };
+  }
+  if (on) {
+    return { color: '#f5c518', weight: 3, fillOpacity: 0.45, fillColor: '#f5c518' };
+  }
+  return { color: '#2f9e44', weight: 2, fillOpacity: 0.28, fillColor: '#69db7c' };
+}
+
+function paintLocations(L, map, locations, styleFor, onPick) {
   const layers = [];
   for (const loc of locations) {
     if (!loc.geojson) continue;
-    const layer = L.geoJSON(loc.geojson, {
-      style: {
-        color: loc.id === selectedId ? '#f5c518' : '#2f9e44',
-        weight: loc.id === selectedId ? 3 : 2,
-        fillOpacity: loc.id === selectedId ? 0.45 : 0.28,
-        fillColor: loc.id === selectedId ? '#f5c518' : '#69db7c',
-      },
-    });
+    const layer = L.geoJSON(loc.geojson, { style: () => styleFor(loc.id) });
     layer.on('click', () => onPick(loc.id));
-    const label = loc.fieldCode ? `${loc.name} (${loc.fieldCode})` : loc.name;
     layer.bindPopup(paddockPopup(loc));
     layer.addTo(map);
     addPaddockLabel(L, map, loc);
-    layers.push(layer);
+    layers.push({ id: loc.id, layer });
   }
-  return layers;
+  return {
+    restyle() {
+      for (const { id, layer } of layers) layer.setStyle(styleFor(id));
+    },
+  };
 }
 
 export function closeMapPicker() {
@@ -51,8 +58,11 @@ export function closeMapPicker() {
 export async function openLocationMapPicker(opts = {}) {
   closeMapPicker();
   const mode = opts.mode || 'pick';
+  const multi = mode === 'multi';
   const filter = opts.filter || ((l) => !l.archived && l.type === 'land');
   let selectedId = opts.selectedId || null;
+  const selectedIds = new Set(opts.selectedIds || []);
+  const blockedIds = new Set(multi ? (opts.blockedIds || []) : []);
   let pin = null;
 
   const overlay = el('div', { id: OVERLAY_ID, className: 'map-picker-overlay', 'data-testid': 'map-picker' });
@@ -66,10 +76,25 @@ export async function openLocationMapPicker(opts = {}) {
 
   function renderToolbar() {
     clear(toolbar);
-    toolbar.appendChild(el('div', { className: 'farm-map-title' }, [opts.title || (mode === 'pin' ? 'Drop a pin' : 'Pick a paddock')]));
+    const defaultTitle = mode === 'pin' ? 'Drop a pin' : (multi ? 'Pick paddocks' : 'Pick a paddock');
+    toolbar.appendChild(el('div', { className: 'farm-map-title' }, [opts.title || defaultTitle]));
     const actions = el('div', { className: 'farm-map-actions' });
     actions.appendChild(el('button', { className: 'btn btn-outline btn-sm', onClick: closeMapPicker }, ['Cancel']));
-    if (mode === 'pick') {
+    if (multi) {
+      const count = selectedIds.size;
+      actions.appendChild(el('button', {
+        className: 'btn btn-green btn-sm',
+        disabled: count === 0,
+        'data-testid': 'map-picker-use',
+        onClick: () => {
+          if (!selectedIds.size) return;
+          opts.onSelect?.([...selectedIds]);
+          closeMapPicker();
+        },
+      }, [count === 1
+        ? t('event.locationPicker.usePaddock')
+        : t('event.locationPicker.usePaddocks', { count })]));
+    } else if (mode === 'pick') {
       actions.appendChild(el('button', {
         className: 'btn btn-green btn-sm',
         disabled: !selectedId,
@@ -102,7 +127,7 @@ export async function openLocationMapPicker(opts = {}) {
 
   hint.textContent = mode === 'pin'
     ? 'Tap the map to drop a pin. If you tap inside a paddock it will also attach that location.'
-    : 'Tap a paddock outline to select it.';
+    : (multi ? t('event.locationPicker.mapHint') : 'Tap a paddock outline to select it.');
 
   renderToolbar();
 
@@ -115,9 +140,26 @@ export async function openLocationMapPicker(opts = {}) {
 
   const locations = getAll('locations').filter(filter);
   const drawn = locations.filter(locationHasPerimeter);
-  paintLocations(L, map, drawn, selectedId, (id) => {
+  function styleFor(id) {
+    return polygonStyle(multi ? selectedIds.has(id) : id === selectedId, blockedIds.has(id));
+  }
+  const painted = paintLocations(L, map, drawn, styleFor, (id) => {
+    if (multi) {
+      if (blockedIds.has(id)) {
+        const reason = opts.blockedReasons?.[id];
+        if (reason) hint.textContent = reason;
+        return;
+      }
+      if (selectedIds.has(id)) selectedIds.delete(id);
+      else selectedIds.add(id);
+      painted.restyle();
+      hint.textContent = getById('locations', id)?.name || t('event.locationPicker.mapHint');
+      renderToolbar();
+      return;
+    }
     selectedId = id;
     if (mode === 'pick') {
+      painted.restyle();
       hint.textContent = getById('locations', id)?.name || 'Selected';
       renderToolbar();
     }

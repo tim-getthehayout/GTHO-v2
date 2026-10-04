@@ -15,7 +15,7 @@ const FT_ID = 'ee0e8400-e29b-41d4-a716-446655440000';
 
 describe('entity: event-paddock-window', () => {
   it('exports FIELDS with sbColumn for every field', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(14);
+    expect(Object.keys(FIELDS)).toHaveLength(15);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }
@@ -45,6 +45,17 @@ describe('entity: event-paddock-window', () => {
   describe('shape round-trip', () => {
     it('round-trips correctly', () => {
       const r = create({ operationId: OP_ID, eventId: EVT_ID, locationId: LOC_ID, dateOpened: '2024-06-01', areaPct: 50, isStripGraze: true });
+      expect(fromSupabaseShape(toSupabaseShape(r))).toEqual(r);
+    });
+
+    it('round-trips a non-null openCohortId', () => {
+      const cohort = '11111111-1111-4111-8111-111111111111';
+      const r = create({
+        operationId: OP_ID, eventId: EVT_ID, locationId: LOC_ID,
+        dateOpened: '2024-06-01', areaPct: 100, openCohortId: cohort,
+      });
+      expect(r.openCohortId).toBe(cohort);
+      expect(toSupabaseShape(r).open_cohort_id).toBe(cohort);
       expect(fromSupabaseShape(toSupabaseShape(r))).toEqual(r);
     });
   });

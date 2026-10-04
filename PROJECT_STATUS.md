@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-10-04  
+**Last updated:** 2026-10-04 (session close)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -27,7 +27,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 - Stack: vanilla JS, Vite, Supabase, GitHub Pages. v1 is `get-the-hay-out`.
 - Schema stamp 34. Migration `034_location_geometry_todo_points.sql` applied in Supabase on 2026-10-04.
 - Farm map is on `main` (`a554f01`, PR #58). Locations store GeoJSON, centroid, and `map_source`. Todos may store a point. Shared picker covers harvest, amendments, the move wizard, and todos. Import is GeoJSON, KML, and KMZ.
-- Working rules: root `AGENTS.md` is the session and implementation file. `CLAUDE.md` is a retired pointer. Process reference: `project-framework/AGENTS.md`.
+- Working rules: root `AGENTS.md` is the session and implementation file. `CLAUDE.md` is a retired pointer. Process reference: `project-framework/AGENTS.md`. A shipped change must name the header build stamp to confirm.
 - `V2_SCHEMA_DESIGN.md` §2.1 does not yet list the migration 034 columns. Do not treat that section as the live schema for map fields.
 
 ## 4. Key Decisions / Decision Log
@@ -39,6 +39,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 | 2026-10-04 | Do not rewrite the V2 design docs to match the framework | Specs stay. Status points at them. |
 | 2026-10-04 | Root `AGENTS.md` matches the template workflow | Template sections kept. GTHO doc ownership and OI close rules are overrides, not a replacement. |
 | 2026-10-04 | `AGENTS.md` replaces `CLAUDE.md` | Implementation rules moved into `AGENTS.md`. `CLAUDE.md` is a redirect stub. |
+| 2026-10-04 | Map is in the live app | Import, centered labels, click bubble with acreage and last closed grazing, map pick on the move pasture picker. Confirm header stamp ending `1e76f0a`. |
 
 ## 5. Open Questions / Next Steps
 

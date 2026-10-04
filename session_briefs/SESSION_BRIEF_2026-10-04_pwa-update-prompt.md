@@ -2,7 +2,7 @@
 
 **Generated:** 2026-10-04
 **Source:** Grok design session
-**Status:** Ready for Grok Build
+**Status:** Implemented in `5c2db09`. Pages stamp `b2026-10-04.2101-5c2db09`.
 
 ## What was decided
 
@@ -10,11 +10,11 @@ The Home Screen app never asks to update because v2 has no service worker, no ma
 
 Ship the v1 gate, scoped to `/GTHO-v2/`: a stable service worker that does not `skipWaiting()` until the user taps Update now, plus a `version.json` poll as the backstop. No Workbox. No auto-reload. No install nag.
 
-Full decision is `github/issues/OI-0192_pwa-update-prompt.md`. Do not invent design past that file.
+Full decision is `github/issues/GH-59_OI-0192_pwa-update-prompt.md`. Do not invent design past that file.
 
 ## What to build / change
 
-Implement OI-0192 only. File the GitHub issue from the spec and rename the spec with the `GH-` number. Flip OI-0192 to closed in the commit that cites it.
+Implemented in `5c2db09` from `github/issues/GH-59_OI-0192_pwa-update-prompt.md`. The GitHub issue is GH-59. OI-0192 was closed in that commit.
 
 ## Acceptance criteria
 
@@ -31,14 +31,14 @@ The checklist in the spec, section 8. Lint and unit tests green. Report the head
 
 ## References
 
-- `github/issues/OI-0192_pwa-update-prompt.md`
+- `github/issues/GH-59_OI-0192_pwa-update-prompt.md`
 - `PROJECT_STATUS.md` decision row 2026-10-04 PWA update prompt
 - `V2_INFRASTRUCTURE.md` §7.3 and CP-59 in `V2_BUILD_INDEX.md` (update prompt only; do not expand the checkpoint)
 - v1 reference, do not copy the `?v=` registration: `get-the-hay-out` `sw.js` and the registration block in its `index.html`
 
 ## OPEN_ITEMS changes
 
-- OI-0192 added by this handoff as open, ready for build. Build flips it to closed in the implementation commit.
+- OI-0192 was closed in `5c2db09`.
 
 ## Open questions for the implementer
 

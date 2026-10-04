@@ -5736,7 +5736,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 **What shipped:** Scoped `/GTHO-v2/sw.js` with no `?v=` on registration. Install does not call `skipWaiting()`. Activate deletes other `gtho-` caches, then `clients.claim()`. Fetch ignores other origins, does not handle `sw.js`, reloads `version.json`, uses network-first for navigation, and cache-first for hashed assets. The build writes `version.json` and replaces the quoted stamp in `dist/sw.js` so the worker bytes change every deploy. `decideUpdateAction`: dev or dismissed is none; a waiting worker with an existing controller is apply-worker; a non-empty differing remote stamp is reload-document. Update now sets `sessionStorage` `gtho_pwa_update_accepted` to `1` first. `controllerchange` reloads only when that flag is `1`, so the first `clients.claim()` does not reload. Later hides the bar until the next visible or pageshow. Recheck is on boot, visibility, and pageshow. No interval and no auto-reload. `initPwa()` runs after paint on the signed-out shell, the boot status, and the app. Banner copy is i18n. z-index 90 stays under an open sheet. While `.auth-overlay` is up the bar is z-index 600 so the login screen can tap Update now. Below 900px the bar sits above `.bottom-nav` only when that nav is present. Seven decision tests in `tests/unit/pwa/update.test.js`. Lint 0 errors. Suite 1594 green.
 
-**Schema change:** none. **CP-55/CP-56 impact:** none.
+**Schema change:** none. **CP-55/CP-56 impact:** none. Shipped in `5c2db09`. Pages stamp `b2026-10-04.2101-5c2db09`.
 
 ### OI-0191 — Existing operation forced through new-operation wizard on a fresh browser
 **Added:** 2026-10-04 | **Closed:** 2026-10-04 | **Area:** v2-build / auth / onboarding / boot

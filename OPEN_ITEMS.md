@@ -4,6 +4,20 @@
 
 ---
 
+### OI-0192 — Home Screen PWA does not detect a deploy or ask to update
+
+**Added:** 2026-10-04 | **Area:** v2-build / pwa / service-worker | **Priority:** P1 (installed Home Screen copy stays on the old bundle after a deploy; no prompt exists)
+
+**Status:** open — ready for build. Design accepted 2026-10-04. Spec: `github/issues/OI-0192_pwa-update-prompt.md`. Brief: `session_briefs/SESSION_BRIEF_2026-10-04_pwa-update-prompt.md`.
+
+**Bug.** Live Pages has no service worker, no manifest, and no `version.json`. Add to Home Screen is a web clip. iOS keeps the Vite shell, so the baked header stamp never moves and nothing asks the user to update. v1 had this gate. CP-59 / `V2_INFRASTRUCTURE.md` §7.3 was never built.
+
+**Fix (decided).** Stable `/GTHO-v2/sw.js` that does not `skipWaiting()` until Update now. `version.json` poll with a cache-busting query is the second signal. Later hides until the next resume. No auto-reload. No Workbox. No install nag. First `clients.claim()` must not reload.
+
+**Build flips this to closed** in the commit that implements the spec.
+
+---
+
 ### OI-0190 — Editing a destination event's start datetime should prompt to cascade the matching source-side close timestamps; today the link silently breaks
 
 **Added:** 2026-06-24 | **Area:** v2-build / events / event-start / detail | **Priority:** P2 (workaround exists once OI-0188 ships — open the source event and edit its windows manually; this OI removes the manual round-trip and surfaces the link explicitly)

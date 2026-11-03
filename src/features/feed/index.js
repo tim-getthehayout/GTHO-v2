@@ -13,6 +13,137 @@ import * as BatchAdjustmentEntity from '../../entities/batch-adjustment.js';
 /** Unsubscribe functions */
 let unsubs = [];
 
+/** Session toggle: include archived batches in the feed list. */
+let showArchived = false;
+
+/** Batch ids whose activity list is expanded past the first page. */
+const expandedActivity = new Set();
+
+const ACTIVITY_LIMIT = 8;
+
+const ADJUST_REASONS = [
+  ['reconcile', 'feed.adjustReasonReconcile'],
+  ['waste', 'feed.adjustReasonWaste'],
+  ['sold', 'feed.adjustReasonSold'],
+  ['other', 'feed.adjustReasonOther'],
+];
+
+function todayDateString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function reasonLabel(reason) {
+  const known = ADJUST_REASONS.find(([value]) => value === reason);
+  return known ? t(known[1]) : (reason || '');
+}
+
+function activitySortKey(date, time) {
+  return `${date || '0000-00-00'}T${time || '00:00'}`;
+}
+
+/**
+ * Most-recent-first activity for one batch.
+ * Feed-out rows are display-only. Adjustment rows carry the record for edit.
+ * Feed-in is the batch's own original quantity — no extra joins.
+ */
+function batchActivityRows(batch) {
+  const locations = getAll('locations');
+  const locName = (id) => locations.find(l => l.id === id)?.name || '';
+  const rows = [];
+
+  for (const entry of getAll('eventFeedEntries')) {
+    if (entry.batchId !== batch.id) continue;
+    const loc = locName(entry.locationId);
+    const parts = [
+      entry.date || '',
+      t('feed.activityOut'),
+      `${entry.quantity} ${batch.unit || ''}`.trim(),
+    ];
+    if (loc) parts.push(loc);
+    const createdTime = (entry.time || (entry.createdAt || '').slice(11, 16));
+    rows.push({
+      label: parts.filter(Boolean).join(' · '),
+      sort: activitySortKey(entry.date, createdTime),
+      adj: null,
+    });
+  }
+
+  for (const adj of getAll('batchAdjustments')) {
+    if (adj.batchId !== batch.id) continue;
+    const date = adj.adjustmentDate || (adj.createdAt || '').slice(0, 10);
+    const reason = reasonLabel(adj.reason);
+    const parts = [
+      date,
+      t('feed.activityAdjustment'),
+      `${adj.previousQty} → ${adj.newQty}`,
+    ];
+    if (reason) parts.push(reason);
+    rows.push({
+      label: parts.filter(Boolean).join(' · '),
+      sort: activitySortKey(date, (adj.createdAt || '').slice(11, 16)),
+      adj,
+    });
+  }
+
+  if (batch.quantity != null) {
+    const inDate = batch.purchaseDate || (batch.createdAt || '').slice(0, 10);
+    rows.push({
+      label: [
+        inDate,
+        t('feed.activityIn'),
+        `${batch.quantity} ${batch.unit || ''}`.trim(),
+      ].filter(Boolean).join(' · '),
+      sort: activitySortKey(inDate, '00:00:00'),
+      adj: null,
+    });
+  }
+
+  rows.sort((a, b) => b.sort.localeCompare(a.sort));
+  return rows;
+}
+
+function renderBatchActivity(batch, operationId, rootContainer) {
+  const rows = batchActivityRows(batch);
+  if (!rows.length) return null;
+
+  const expanded = expandedActivity.has(batch.id);
+  const visible = expanded ? rows : rows.slice(0, ACTIVITY_LIMIT);
+  const hidden = rows.length - visible.length;
+  const list = el('div', {
+    'data-testid': `feed-batch-activity-${batch.id}`,
+    style: { marginTop: 'var(--space-2)' },
+  });
+
+  for (const row of visible) {
+    const lineChildren = [el('span', {}, [row.label])];
+    if (row.adj) {
+      lineChildren.push(el('button', {
+        className: 'btn btn-outline btn-xs',
+        'data-testid': `feed-batch-adj-edit-${row.adj.id}`,
+        onClick: () => openBatchAdjustSheet(batch, operationId, row.adj),
+      }, [t('action.edit')]));
+    }
+    list.appendChild(el('div', {
+      className: 'batch-card-detail',
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' },
+    }, lineChildren));
+  }
+
+  if (hidden > 0) {
+    list.appendChild(el('button', {
+      className: 'btn btn-outline btn-xs',
+      'data-testid': `feed-batch-activity-more-${batch.id}`,
+      style: { marginTop: '4px' },
+      onClick: () => {
+        expandedActivity.add(batch.id);
+        renderBatchList(rootContainer, operationId);
+      },
+    }, [t('feed.activityEarlier', { count: hidden })]));
+  }
+
+  return list;
+}
+
 // ---------------------------------------------------------------------------
 // Main render
 // ---------------------------------------------------------------------------
@@ -38,13 +169,23 @@ export function renderFeedScreen(container) {
 
     // Batches section
     el('div', { 'data-testid': 'feed-batches-section' }, [
-      el('div', { className: 'screen-action-bar' }, [
+      el('div', { className: 'screen-action-bar', style: { flexWrap: 'wrap', gap: '8px' } }, [
         el('h2', { className: 'settings-section-title', style: { marginBottom: '0' } }, [t('feed.batches')]),
-        el('button', {
-          className: 'btn btn-green btn-sm',
-          'data-testid': 'feed-add-batch-btn',
-          onClick: () => openBatchSheet(null, operationId),
-        }, [t('feed.addBatch')]),
+        el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+          el('button', {
+            className: showArchived ? 'fp active' : 'fp',
+            'data-testid': 'feed-show-archived',
+            onClick: () => {
+              showArchived = !showArchived;
+              renderBatchList(container, operationId);
+            },
+          }, [showArchived ? t('feed.hideArchived') : t('feed.showArchived')]),
+          el('button', {
+            className: 'btn btn-green btn-sm',
+            'data-testid': 'feed-add-batch-btn',
+            onClick: () => openBatchSheet(null, operationId),
+          }, [t('feed.addBatch')]),
+        ]),
       ]),
       el('div', { 'data-testid': 'feed-batch-list' }),
     ]),
@@ -88,6 +229,7 @@ export function renderFeedScreen(container) {
   unsubs.push(subscribe('feedTypes', () => renderFeedTypeList(container)));
   unsubs.push(subscribe('batches', () => renderBatchList(container, operationId)));
   unsubs.push(subscribe('batchAdjustments', () => renderBatchList(container, operationId)));
+  unsubs.push(subscribe('eventFeedEntries', () => renderBatchList(container, operationId)));
 }
 
 // ---------------------------------------------------------------------------
@@ -452,21 +594,39 @@ function saveFeedType(existingFt, inputs, harvestState, operationId, unitSys, st
 // Batch list (CP-25)
 // ---------------------------------------------------------------------------
 
+function syncArchivedPill(rootContainer) {
+  const pill = rootContainer.querySelector('[data-testid="feed-show-archived"]');
+  if (!pill) return;
+  pill.className = showArchived ? 'fp active' : 'fp';
+  pill.replaceChildren(document.createTextNode(
+    showArchived ? t('feed.hideArchived') : t('feed.showArchived'),
+  ));
+}
+
 function renderBatchList(rootContainer, operationId) {
   const listEl = rootContainer.querySelector('[data-testid="feed-batch-list"]');
   if (!listEl) return;
   clear(listEl);
+  syncArchivedPill(rootContainer);
 
-  const batches = getAll('batches').filter(b => !b.archived);
+  const allBatches = getAll('batches');
+  const archivedCount = allBatches.filter(b => b.archived).length;
+  const batches = showArchived ? allBatches : allBatches.filter(b => !b.archived);
   const feedTypes = getAll('feedTypes');
   const ftMap = {};
   for (const ft of feedTypes) ftMap[ft.id] = ft;
 
   if (!batches.length) {
+    const emptyKey = !showArchived && archivedCount > 0
+      ? 'feed.batchesEmptyWithArchived'
+      : 'feed.batchesEmpty';
+    const emptyText = emptyKey === 'feed.batchesEmptyWithArchived'
+      ? t(emptyKey, { count: archivedCount })
+      : t(emptyKey);
     listEl.appendChild(el('p', {
       className: 'form-hint',
       'data-testid': 'feed-batch-empty',
-    }, [t('feed.batchesEmpty')]));
+    }, [emptyText]));
     return;
   }
 
@@ -498,6 +658,7 @@ function renderBatchList(rootContainer, operationId) {
           style: { width: `${Math.max(pct, 0)}%` },
         }),
       ]),
+      renderBatchActivity(batch, operationId, rootContainer),
       el('div', { className: 'batch-card-actions' }, [
         el('button', {
           className: 'btn btn-outline btn-xs',
@@ -509,6 +670,25 @@ function renderBatchList(rootContainer, operationId) {
           'data-testid': `feed-batch-adjust-${batch.id}`,
           onClick: () => openBatchAdjustSheet(batch, operationId),
         }, [t('feed.adjustBatch')]),
+        batch.archived
+          ? el('button', {
+            className: 'btn btn-outline btn-xs',
+            'data-testid': `feed-batch-restore-${batch.id}`,
+            onClick: () => {
+              update('batches', batch.id, { archived: false },
+                BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+            },
+          }, [t('action.restore')])
+          : el('button', {
+            className: 'btn btn-outline btn-xs',
+            'data-testid': `feed-batch-archive-${batch.id}`,
+            onClick: () => {
+              if (window.confirm(t('feed.confirmArchiveBatch'))) {
+                update('batches', batch.id, { archived: true },
+                  BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+              }
+            },
+          }, [t('action.archive')]),
         el('button', {
           className: 'btn btn-outline btn-xs',
           'data-testid': `feed-batch-delete-${batch.id}`,
@@ -715,7 +895,15 @@ function saveBatch(existingBatch, inputs, operationId, unitSys, statusEl) {
 
 let batchAdjustSheet = null;
 
-function openBatchAdjustSheet(batch, operationId) {
+function reasonSelectOptions(current) {
+  const options = ADJUST_REASONS.map(([value, key]) => el('option', { value }, [t(key)]));
+  if (current && !ADJUST_REASONS.some(([value]) => value === current)) {
+    options.push(el('option', { value: current }, [current]));
+  }
+  return options;
+}
+
+function openBatchAdjustSheet(batch, operationId, existingAdj = null) {
   if (!batchAdjustSheet) {
     batchAdjustSheet = new Sheet('batch-adjust-sheet-wrap');
   }
@@ -725,6 +913,9 @@ function openBatchAdjustSheet(batch, operationId) {
   clear(panel);
 
   const inputs = {};
+  const existingDate = existingAdj
+    ? (existingAdj.adjustmentDate || (existingAdj.createdAt || '').slice(0, 10))
+    : '';
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('feed.adjustBatchTitle')]));
   panel.appendChild(el('p', { className: 'form-hint', style: { marginBottom: 'var(--space-4)' } }, [
@@ -734,21 +925,27 @@ function openBatchAdjustSheet(batch, operationId) {
   // New quantity
   panel.appendChild(el('label', { className: 'form-label' }, [t('feed.adjustNewQty')]));
   inputs.newQty = el('input', {
-    type: 'number', className: 'auth-input settings-input', value: batch.remaining,
+    type: 'number', className: 'auth-input settings-input',
+    value: existingAdj ? existingAdj.newQty : batch.remaining,
     'data-testid': 'batch-adjust-new-qty',
   });
   panel.appendChild(inputs.newQty);
+
+  // Effective date — above the reason dropdown
+  panel.appendChild(el('label', { className: 'form-label' }, [t('feed.adjustDate')]));
+  inputs.adjustmentDate = el('input', {
+    type: 'date', className: 'auth-input',
+    value: existingDate || todayDateString(),
+    'data-testid': 'batch-adjust-date',
+  });
+  panel.appendChild(inputs.adjustmentDate);
 
   // Reason
   panel.appendChild(el('label', { className: 'form-label' }, [t('feed.adjustReason')]));
   inputs.reason = el('select', {
     className: 'auth-select', 'data-testid': 'batch-adjust-reason',
-  }, [
-    el('option', { value: 'reconcile' }, [t('feed.adjustReasonReconcile')]),
-    el('option', { value: 'waste' }, [t('feed.adjustReasonWaste')]),
-    el('option', { value: 'sold' }, [t('feed.adjustReasonSold')]),
-    el('option', { value: 'other' }, [t('feed.adjustReasonOther')]),
-  ]);
+  }, reasonSelectOptions(existingAdj?.reason));
+  if (existingAdj?.reason) inputs.reason.value = existingAdj.reason;
   panel.appendChild(inputs.reason);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'batch-adjust-status' });
@@ -765,23 +962,39 @@ function openBatchAdjustSheet(batch, operationId) {
           statusEl.appendChild(el('span', {}, [t('validation.quantityNonNegative')]));
           return;
         }
-        const delta = newQty - batch.remaining;
+        const adjustmentDate = inputs.adjustmentDate.value || todayDateString();
         try {
-          // Create adjustment record
-          const adj = BatchAdjustmentEntity.create({
-            batchId: batch.id,
-            operationId,
-            previousQty: batch.remaining,
-            newQty,
-            delta,
-            reason: inputs.reason.value,
-          });
-          add('batchAdjustments', adj, BatchAdjustmentEntity.validate,
-            BatchAdjustmentEntity.toSupabaseShape, 'batch_adjustments');
+          if (existingAdj) {
+            const delta = newQty - Number(existingAdj.previousQty);
+            update('batchAdjustments', existingAdj.id, {
+              newQty,
+              delta,
+              reason: inputs.reason.value,
+              adjustmentDate,
+            }, BatchAdjustmentEntity.validate, BatchAdjustmentEntity.toSupabaseShape, 'batch_adjustments');
 
-          // Update batch remaining
-          update('batches', batch.id, { remaining: newQty },
-            BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+            const qtyDiff = newQty - Number(existingAdj.newQty);
+            if (qtyDiff !== 0) {
+              update('batches', batch.id, { remaining: Number(batch.remaining) + qtyDiff },
+                BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+            }
+          } else {
+            const delta = newQty - batch.remaining;
+            const adj = BatchAdjustmentEntity.create({
+              batchId: batch.id,
+              operationId,
+              previousQty: batch.remaining,
+              newQty,
+              delta,
+              reason: inputs.reason.value,
+              adjustmentDate,
+            });
+            add('batchAdjustments', adj, BatchAdjustmentEntity.validate,
+              BatchAdjustmentEntity.toSupabaseShape, 'batch_adjustments');
+
+            update('batches', batch.id, { remaining: newQty },
+              BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+          }
 
           batchAdjustSheet.close();
         } catch (err) {

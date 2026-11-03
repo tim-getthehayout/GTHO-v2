@@ -164,4 +164,7 @@ export const BACKUP_MIGRATIONS = {
   // 034 → 035: OI-0102 — nullable event_paddock_windows.open_cohort_id.
   //            Older backups omit the column; the database default is null.
   34: (b) => { b.schema_version = 35; return b; },
+  // 035 → 036: nullable batch_adjustments.adjustment_date. Older backups omit
+  //            the column; the database default is null.
+  35: (b) => { b.schema_version = 36; return b; },
 };

@@ -143,11 +143,18 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→35 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(21);
+    it('has migration entries for 14→36 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(22);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
-      expect(typeof BACKUP_MIGRATIONS[33]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[34]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[35]).toBe('function');
+    });
+
+    it('35→36 stamps schema_version and leaves rows alone', () => {
+      const backup = { schema_version: 35, tables: { batch_adjustments: [{ id: 'a1' }] } };
+      const out = BACKUP_MIGRATIONS[35](backup);
+      expect(out.schema_version).toBe(36);
+      expect(out.tables.batch_adjustments).toEqual([{ id: 'a1' }]);
     });
 
     it('OI-0133 — v31→v32 strips farm_id from every groups row + stamps schema_version=32', () => {

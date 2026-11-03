@@ -1,0 +1,13 @@
+# Project-scoped MCP configuration for GTHO v2
+#
+# Loaded automatically when Grok is started from inside this project.
+# Takes precedence over global ~/.grok/config.toml for servers defined here.
+
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp?project_ref=sxkmultsfsmfcijvsauf"
+enabled = true
+
+# Uses an environment variable for the Supabase Personal Access Token.
+# This is more secure than hard-coding the token.
+[mcp_servers.supabase.headers]
+Authorization = "Bearer ${SUPABASE_MCP_TOKEN}"

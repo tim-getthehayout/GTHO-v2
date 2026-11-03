@@ -1,15 +1,16 @@
 /** @file Entity: batch_adjustments — V2_SCHEMA_DESIGN.md §4.3 */
 
 export const FIELDS = {
-  id:           { type: 'uuid',        required: false, sbColumn: 'id' },
-  batchId:      { type: 'uuid',        required: true,  sbColumn: 'batch_id' },
-  operationId:  { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
-  adjustedBy:   { type: 'uuid',        required: false, sbColumn: 'adjusted_by' },
-  previousQty:  { type: 'numeric',     required: true,  sbColumn: 'previous_qty' },
-  newQty:       { type: 'numeric',     required: true,  sbColumn: 'new_qty' },
-  delta:        { type: 'numeric',     required: true,  sbColumn: 'delta' },
-  reason:       { type: 'text',        required: false, sbColumn: 'reason' },
-  createdAt:    { type: 'timestamptz', required: false, sbColumn: 'created_at' },
+  id:             { type: 'uuid',        required: false, sbColumn: 'id' },
+  batchId:        { type: 'uuid',        required: true,  sbColumn: 'batch_id' },
+  operationId:    { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
+  adjustedBy:     { type: 'uuid',        required: false, sbColumn: 'adjusted_by' },
+  previousQty:    { type: 'numeric',     required: true,  sbColumn: 'previous_qty' },
+  newQty:         { type: 'numeric',     required: true,  sbColumn: 'new_qty' },
+  delta:          { type: 'numeric',     required: true,  sbColumn: 'delta' },
+  reason:         { type: 'text',        required: false, sbColumn: 'reason' },
+  adjustmentDate: { type: 'date',        required: false, sbColumn: 'adjustment_date' },
+  createdAt:      { type: 'timestamptz', required: false, sbColumn: 'created_at' },
 };
 
 export function create(data = {}) {
@@ -22,6 +23,7 @@ export function create(data = {}) {
     newQty: data.newQty ?? 0,
     delta: data.delta ?? 0,
     reason: data.reason ?? null,
+    adjustmentDate: data.adjustmentDate ?? new Date().toISOString().slice(0, 10),
     createdAt: data.createdAt ?? new Date().toISOString(),
   };
 }
@@ -46,6 +48,7 @@ export function toSupabaseShape(record) {
     new_qty: record.newQty,
     delta: record.delta,
     reason: record.reason,
+    adjustment_date: record.adjustmentDate,
     created_at: record.createdAt,
   };
 }
@@ -62,6 +65,7 @@ export function fromSupabaseShape(row) {
     newQty: n(row.new_qty),
     delta: n(row.delta),
     reason: row.reason,
+    adjustmentDate: row.adjustment_date,
     createdAt: row.created_at,
   };
 }

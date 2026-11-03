@@ -7,7 +7,7 @@ const OP_ID = '660e8400-e29b-41d4-a716-446655440000';
 
 describe('entity: batch-adjustment', () => {
   it('exports FIELDS with sbColumn for every field (no updatedAt — write-once)', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(9);
+    expect(Object.keys(FIELDS)).toHaveLength(10);
     expect(FIELDS.updatedAt).toBeUndefined();
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
@@ -26,7 +26,7 @@ describe('entity: batch-adjustment', () => {
 
   describe('shape round-trip', () => {
     it('round-trips correctly', () => {
-      const r = create({ batchId: BATCH_ID, operationId: OP_ID, previousQty: 100, newQty: 95, delta: -5, reason: 'Spoilage' });
+      const r = create({ batchId: BATCH_ID, operationId: OP_ID, previousQty: 100, newQty: 95, delta: -5, reason: 'Spoilage', adjustmentDate: '2026-11-03' });
       expect(fromSupabaseShape(toSupabaseShape(r))).toEqual(r);
     });
   });

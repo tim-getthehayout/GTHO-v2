@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-03 (feed batch adjustment date + archive implemented on feature branch)  
+**Last updated:** 2026-11-03 (feed batch adjustment date + archive merged to main at e679e7e)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -25,8 +25,8 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 - App: `https://tim-getthehayout.github.io/GTHO-v2/` from `main`.
 - Stack: vanilla JS, Vite, Supabase, GitHub Pages. v1 is `get-the-hay-out`.
-- Schema stamp 35 on `main`. Migration `035_paddock_window_open_cohort.sql` applied in Supabase on 2026-10-04. `event_paddock_windows.open_cohort_id` is a nullable uuid. Migration 034 (map geometry) remains applied.
-- Feed batch adjustment date + archive is implemented on `feature/batch-adjust-date-v2` at `22968d3`. Adds `batch_adjustments.adjustment_date`, archive/unarchive + show/hide archived pill, and a batch-card activity list (feed out + adjustments) with edit only on adjustments. Migration `036_batch_adjustment_date.sql` and `BACKUP_MIGRATIONS` 35→36 are in the branch. Not yet merged to `main`. Migration 036 not yet confirmed applied in Supabase. No header stamp until merge + Pages success.
+- Schema stamp 35 on Supabase (migration 035 applied 2026-10-04). Migration 036 (`batch_adjustments.adjustment_date`) is on `main` but not yet confirmed applied and verified in Supabase.
+- Feed batch adjustment date + archive is on `main` (fast-forward to `e679e7e`, feature commit `22968d3`). Adds `batch_adjustments.adjustment_date`, archive/unarchive + show/hide archived pill, and a batch-card activity list (feed out + adjustments) with edit only on adjustments. Migration `036_batch_adjustment_date.sql` and `BACKUP_MIGRATIONS` 35→36 are on `main`. Pages will deploy from this push. Header stamp to be named after the workflow succeeds.
 - Farm map is on `main` (`a554f01`, PR #58). Locations store GeoJSON, centroid, and `map_source`. Todos may store a point. Shared picker covers harvest, amendments, the move wizard, and todos. Import is GeoJSON, KML, and KMZ.
 - Auth boot gate is on `main` (`1cedc14`, follow-ups `87784b8` and `26fc83c`). An empty browser cache is not a new operation. Confirmed by Tim after a hard refresh. Do not finish the new-operation wizard on a PC that already has an operation.
 - Multi-paddock open is on `main` (`8748872`). One Save opens N whole paddocks on one event. Windows from that Save share `open_cohort_id`. Pages deploy succeeded. Confirm header stamp `b2026-10-04.1957-8748872` after a hard refresh.
@@ -47,7 +47,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 | 2026-10-04 | Existing operation must not enter the new-operation wizard | OI-0191. Empty `localStorage` checks `operation_members` before the wizard. Full cold pull stays after paint (OI-0149). Tim confirmed the new build after a hard refresh. |
 | 2026-10-04 | Multi-paddock open is one event, N windows, one reading fanned out | OI-0102 shipped in `8748872`. `open_cohort_id` labels the set and does not lock it. In-use paddocks stay visible and are not selectable. Migration 035 applied and verified. Header stamp `b2026-10-04.1957-8748872`. |
 | 2026-10-04 | Home Screen update is a confirmed prompt, not a reload | OI-0192 shipped in `5c2db09`. Waiting worker or `version.json` mismatch shows Update now / Later. No auto-reload. Header stamp of status commit `61472d3` is `b2026-10-04.2104-61472d3`. Spec: `github/issues/GH-59_OI-0192_pwa-update-prompt.md`. |
-| 2026-11-03 | Feed batch adjustments get a user-settable date; empty batches can be archived | Implemented on `feature/batch-adjust-date-v2` at `22968d3`. `batch_adjustments.adjustment_date` (date). Archive/unarchive + show/hide archived pill. Batch card shows feed-out and adjustments; edit pill only on adjustments. Feed-out amounts stay editable only on the event card. Migration 036 + BACKUP_MIGRATIONS 35→36. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-batch-adjust-date-and-archive.md`. Header stamp after merge + Pages. |
+| 2026-11-03 | Feed batch adjustments get a user-settable date; empty batches can be archived | On `main` (fast-forward to `e679e7e`, feature at `22968d3`). `batch_adjustments.adjustment_date` (date). Archive/unarchive + show/hide archived pill. Batch card shows feed-out and adjustments; edit pill only on adjustments. Feed-out amounts stay editable only on the event card. Migration 036 + BACKUP_MIGRATIONS 35→36. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-batch-adjust-date-and-archive.md`. Header stamp after Pages succeeds. |
 
 ## 5. Open Questions / Next Steps
 
@@ -58,7 +58,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 5. OI-0190 — destination start edit does not cascade to the source close. Design required.
 6. Patch `V2_SCHEMA_DESIGN.md` §2.1 with the migration 034 columns, and the `event_paddock_windows` section with migration 035 `open_cohort_id`, when the schema doc is next touched. The backup export selects all columns, so the new column is included without a column list change.
 7. OI-0191 is closed. Shipped in `1cedc14`. Pages did not publish it until `26fc83c` because lint and unit tests failed. Tim confirmed the post-June build after a hard refresh. Live stamp at this close: `b2026-10-04.1607-1e76f0a`.
-8. Feed batch adjustment date + archive (`feature/batch-adjust-date-v2` at `22968d3`): apply and verify migration 036 in Supabase, merge to `main`, confirm Pages header stamp.
+8. Feed batch adjustment date + archive is on `main` at `e679e7e`. Apply and verify migration 036 in Supabase. Confirm Pages header stamp after the workflow succeeds.
 
 ## 6. Framework feedback (process only)
 

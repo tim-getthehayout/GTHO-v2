@@ -321,14 +321,16 @@ function renderFeedDayGoalBanner() {
   const goal = farmSettings?.feedDayGoal ?? 90;
   const unitSys = getUnitSystem();
 
-  // DM on hand: sum(batch.remaining × dm_pct/100) for non-archived batches.
+  // DM on hand: remaining × kg per unit × dm% for non-archived batches.
+  // Weight falls back batch → feed-type default → 1 kg per unit.
   const batches = getAll('batches').filter(b => !b.archived);
   const feedTypes = getAll('feedTypes');
   const ftMap = new Map(feedTypes.map(ft => [ft.id, ft]));
   let totalDmKg = 0;
   for (const b of batches) {
     const dm = b.dmPct ?? ftMap.get(b.feedTypeId)?.dmPct ?? 100;
-    totalDmKg += (b.remaining ?? 0) * (dm / 100);
+    const weightKg = b.weightPerUnitKg ?? ftMap.get(b.feedTypeId)?.defaultWeightKg ?? 1;
+    totalDmKg += (b.remaining ?? 0) * weightKg * (dm / 100);
   }
 
   // Days on hand = total DM ÷ farm-wide active-animal DMI (V2_UX_FLOWS.md §13.2).

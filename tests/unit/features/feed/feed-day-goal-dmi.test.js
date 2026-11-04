@@ -20,6 +20,7 @@ const FARM = '00000000-0000-0000-0000-0000000000bb';
 const EVT = '00000000-0000-0000-0000-0000000000e1';
 const LOC = '00000000-0000-0000-0000-0000000001a1';
 const FT = '00000000-0000-0000-0000-0000000000f1';
+const FT_DEFAULT = '00000000-0000-0000-0000-0000000000f2';
 const BATCH = '00000000-0000-0000-0000-0000000000b1';
 const BATCH_TYPE_DM = '00000000-0000-0000-0000-0000000000b2';
 const ARCHIVED = '00000000-0000-0000-0000-0000000000b3';
@@ -231,5 +232,44 @@ describe('feed day goal DMI denominator', () => {
     await flush();
     expect(cell('feed-days-on-hand')).toContain('5');
     expect(cell('feed-run-rate')).toContain('10 kg/day');
+  });
+
+  it('converts remaining units to kg DM with batch weight, then feed-type default, then 1', () => {
+    addOp();
+    add('feedTypes', FeedTypeEntity.create({
+      id: FT, operationId: OP, name: 'Bale hay', category: 'forage', unit: 'bale',
+    }), FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
+    add('feedTypes', FeedTypeEntity.create({
+      id: FT_DEFAULT, operationId: OP, name: 'Silage', category: 'forage', unit: 'bag',
+      defaultWeightKg: 25,
+    }), FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
+    add('batches', BatchEntity.create({
+      id: BATCH, operationId: OP, feedTypeId: FT, name: 'Bales',
+      unit: 'bale', quantity: 10, remaining: 10, dmPct: 88, weightPerUnitKg: 20,
+    }), BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+    add('batches', BatchEntity.create({
+      id: BATCH_TYPE_DM, operationId: OP, feedTypeId: FT_DEFAULT, name: 'Bags',
+      unit: 'bag', quantity: 4, remaining: 4, dmPct: 80,
+    }), BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+    add('batches', BatchEntity.create({
+      id: '00000000-0000-0000-0000-0000000000b4', operationId: OP, feedTypeId: FT, name: 'Loose kg',
+      unit: 'kg', quantity: 5, remaining: 5, dmPct: 100,
+    }), BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+    add('batches', BatchEntity.create({
+      id: ARCHIVED, operationId: OP, feedTypeId: FT, name: 'Old bales',
+      unit: 'bale', quantity: 100, remaining: 100, dmPct: 100, weightPerUnitKg: 500, archived: true,
+    }), BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+    addClass(CLS_COW, { dmiPct: 2.5 });
+    addAnimal(COW, { classId: CLS_COW });
+    addWeight(COW, 400, -1);
+    mount();
+
+    // 10 × 20 kg × 88% = 176; 4 × 25 kg × 80% = 80; 5 × 1 kg × 100% = 5. Total 261.
+    // Archived 100 × 500 kg is excluded. DMI is 400 × 2.5% = 10, so days = round(26.1) = 26.
+    expect(cell('feed-dm-on-hand')).toContain('261 kg');
+    expect(cell('feed-run-rate')).toContain('10 kg/day');
+    expect(cell('feed-days-on-hand')).toContain('26');
+    expect(document.querySelector('[data-testid="feed-day-goal-banner"]').textContent)
+      .toContain('26 / 90 days');
   });
 });

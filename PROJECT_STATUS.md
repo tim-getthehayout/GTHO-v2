@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-04 (feed day goal DMI denominator shipped)  
+**Last updated:** 2026-11-04 (feed day goal weightPerUnitKg decision)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -50,10 +50,12 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 | 2026-11-03 | Feed batch adjustments get a user-settable date; empty batches can be archived | On `main` (fast-forward to `e679e7e`, feature at `22968d3`). `batch_adjustments.adjustment_date` (date). Archive/unarchive + show/hide archived pill. Batch card shows feed-out and adjustments; edit pill only on adjustments. Feed-out amounts stay editable only on the event card. Migration 036 applied and verified 2026-11-03. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-batch-adjust-date-and-archive.md`. Header stamp after Pages succeeds. |
 | 2026-11-03 | Feed day goal banner must refresh live on inventory changes | Banner is computed on read but was only rendered once. Adjusting remaining, adding a batch, or a delivery left days-on-hand and the progress bar stale until screen re-entry. Fix: refresh helper called from the existing store subscriptions. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-day-goal-banner-refresh.md`. |
 | 2026-11-04 | Feed day goal denominator is farm-wide active animal DMI | Days on hand = total DM of current non-archived inventory ÷ sum of DMI for every animal with `active !== false`, regardless of group, event, or location. Replaces the 30-day delivery average. Shipped in `7e4563d`. Pages success. Header stamp `b2026-11-04.1205-7e4563d`. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-dmi-denominator.md`. |
+| 2026-11-04 | Feed day goal DM on hand must use weightPerUnitKg | `remaining × dm%` treats remaining as kg. Correct DM is `remaining × weightPerUnitKg × dm% / 100`, falling back to feed-type `defaultWeightKg`, then 1. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-weight-per-unit.md`. |
 
 ## 5. Open Questions / Next Steps
 
-1. Feed day goal denominator change is on `main` (`7e4563d`). Pages succeeded. Confirm header stamp `b2026-11-04.1205-7e4563d` after a hard refresh. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-dmi-denominator.md`.
+1. Feed day goal DM on hand weight correction is ready for Grok Build. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-weight-per-unit.md`.
+2. Feed day goal denominator change is on `main` (`7e4563d`). Pages succeeded. Confirm header stamp `b2026-11-04.1205-7e4563d` after a hard refresh. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-dmi-denominator.md`.
 2. Feed day goal banner refresh is on `main` (`3aedbae`). Pages workflow succeeded. Confirm header stamp after a hard refresh. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-day-goal-banner-refresh.md`.
 3. OI-0192 is closed. Shipped in `5c2db09`. Header stamp of `61472d3` is `b2026-10-04.2104-61472d3`. After the current stamp shows in Safari, remove the Home Screen icon and add it again. The old web clip will not update itself. The next deploy after that re-add should show the banner.
 4. OI-0102 is closed. Shipped in `8748872`. Confirm header stamp `b2026-10-04.1957-8748872`.

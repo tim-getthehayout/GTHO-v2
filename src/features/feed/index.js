@@ -12,6 +12,7 @@ import * as FeedTypeEntity from '../../entities/feed-type.js';
 import * as BatchEntity from '../../entities/batch.js';
 import * as BatchAdjustmentEntity from '../../entities/batch-adjustment.js';
 import * as LocationEntity from '../../entities/location.js';
+import { openLocationMapPicker } from '../map/picker.js';
 import {
   balancesFor,
   positiveBalances,
@@ -827,6 +828,17 @@ function renderBatchList(rootContainer, operationId) {
 // Location choice, details, and moves
 // ---------------------------------------------------------------------------
 
+function revealBatchPrimaryAction(fromEl) {
+  const panel = fromEl.closest?.('.sheet-panel');
+  if (!panel) return;
+  const primary = panel.querySelector(
+    '[data-testid="batch-sheet-save"], [data-testid="batch-move-save"], [data-testid="batch-detail-set-location-save"]',
+  );
+  if (primary && typeof primary.scrollIntoView === 'function') {
+    primary.scrollIntoView({ block: 'nearest' });
+  }
+}
+
 function mountLocationChoice(container, operationId, selection) {
   clear(container);
   const mode = container.dataset.batchLocationMode === 'pasture' ? 'pasture' : 'storage';
@@ -885,10 +897,33 @@ function mountLocationChoice(container, operationId, selection) {
           selection.locationId = record.id;
           container.dataset.batchLocationMode = 'storage';
           mountLocationChoice(container, operationId, selection);
+          revealBatchPrimaryAction(container);
         },
       }, [t('feed.addStorageLocation')]),
       addStatus,
     ]));
+  } else {
+    container.appendChild(el('button', {
+      type: 'button',
+      className: 'btn btn-outline btn-sm',
+      'data-testid': 'batch-location-map',
+      style: { marginBottom: '8px' },
+      onClick: () => {
+        openLocationMapPicker({
+          selectedId: selection.locationId,
+          title: t('event.locationPicker.pickOnMap'),
+          filter: (loc) => !loc.archived && loc.type === 'land' && loc.landUse === 'pasture',
+          onSelect: (id) => {
+            const loc = getById('locations', id);
+            if (!loc || loc.archived || loc.type !== 'land' || loc.landUse !== 'pasture') return;
+            selection.locationId = id;
+            container.dataset.batchLocationMode = 'pasture';
+            mountLocationChoice(container, operationId, selection);
+            revealBatchPrimaryAction(container);
+          },
+        });
+      },
+    }, [t('event.locationPicker.pickOnMap')]));
   }
 
   const locations = getAll('locations').filter(loc => {
@@ -901,17 +936,24 @@ function mountLocationChoice(container, operationId, selection) {
     'data-testid': 'batch-location-picker',
     style: { maxHeight: '240px', overflow: 'auto' },
   });
+  function chooseLocation(id) {
+    selection.locationId = id;
+    mountLocationChoice(container, operationId, selection);
+    revealBatchPrimaryAction(container);
+  }
   for (const loc of locations) {
     const selected = selection.locationId === loc.id;
-    list.appendChild(el('button', {
-      type: 'button',
+    list.appendChild(el('div', {
       className: selected ? 'loc-picker-item selected' : 'loc-picker-item',
+      role: 'button',
+      tabIndex: 0,
       'data-testid': `batch-location-item-${loc.id}`,
       'data-selected': selected ? 'true' : 'false',
-      style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: '4px' },
-      onClick: () => {
-        selection.locationId = loc.id;
-        mountLocationChoice(container, operationId, selection);
+      onClick: () => chooseLocation(loc.id),
+      onKeydown: (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        chooseLocation(loc.id);
       },
     }, [loc.name]));
   }
@@ -969,27 +1011,12 @@ function openBatchDetails(batchId, operationId) {
   }, [t('feed.balances')]));
   const balanceRows = balancesFor(batch.id);
   const balanceList = el('div', { 'data-testid': `feed-batch-balances-${batch.id}` });
+  const locationSelection = { locationId: null };
   if (!balanceRows.length) {
     balanceList.appendChild(el('p', { className: 'form-hint' }, [t('feed.noLocation')]));
-    const selection = { locationId: null };
     const mount = el('div', { 'data-testid': 'batch-detail-set-location' });
     balanceList.appendChild(mount);
-    mountLocationChoice(mount, operationId, selection);
-    balanceList.appendChild(el('button', {
-      className: 'btn btn-green btn-sm',
-      'data-testid': 'batch-detail-set-location-save',
-      style: { marginTop: '8px' },
-      onClick: () => {
-        if (!selection.locationId) return;
-        placeInitialBalance({
-          operationId,
-          batchId: batch.id,
-          locationId: selection.locationId,
-          quantity: Number(batch.remaining),
-          movedAt: todayDateString(),
-        });
-      },
-    }, [t('feed.setLocation')]));
+    mountLocationChoice(mount, operationId, locationSelection);
   } else {
     for (const row of balanceRows) {
       balanceList.appendChild(el('div', { className: 'batch-card-detail' }, [
@@ -1035,7 +1062,23 @@ function openBatchDetails(batchId, operationId) {
   const activity = renderBatchActivity(batch, operationId, panel, true);
   panel.appendChild(activity || el('p', { className: 'form-hint' }, ['—']));
 
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [
+  const setLocationButton = balanceRows.length ? null : el('button', {
+    className: 'btn btn-green btn-sm',
+    'data-testid': 'batch-detail-set-location-save',
+    onClick: () => {
+      if (!locationSelection.locationId) return;
+      placeInitialBalance({
+        operationId,
+        batchId: batch.id,
+        locationId: locationSelection.locationId,
+        quantity: Number(batch.remaining),
+        movedAt: todayDateString(),
+      });
+    },
+  }, [t('feed.setLocation')]);
+
+  panel.appendChild(el('div', { className: 'btn-row sheet-actions-sticky' }, [
+    setLocationButton,
     el('button', {
       className: 'btn btn-outline btn-sm',
       'data-testid': `feed-batch-detail-edit-${batch.id}`,
@@ -1145,7 +1188,7 @@ function openBatchMoveSheet(batch, operationId) {
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'batch-move-status' });
   panel.appendChild(statusEl);
 
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [
+  panel.appendChild(el('div', { className: 'btn-row sheet-actions-sticky' }, [
     el('button', {
       className: 'btn btn-green',
       'data-testid': 'batch-move-save',
@@ -1317,7 +1360,7 @@ function openBatchSheet(existingBatch, operationId) {
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'batch-sheet-status' });
   panel.appendChild(statusEl);
 
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+  panel.appendChild(el('div', { className: 'btn-row sheet-actions-sticky' }, [
     el('button', {
       className: 'btn btn-green',
       'data-testid': 'batch-sheet-save',

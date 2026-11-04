@@ -227,14 +227,31 @@ export function renderFeedScreen(container) {
   renderFeedTypeList(container);
 
   unsubs.push(subscribe('feedTypes', () => renderFeedTypeList(container)));
-  unsubs.push(subscribe('batches', () => renderBatchList(container, operationId)));
-  unsubs.push(subscribe('batchAdjustments', () => renderBatchList(container, operationId)));
-  unsubs.push(subscribe('eventFeedEntries', () => renderBatchList(container, operationId)));
+  unsubs.push(subscribe('batches', () => {
+    renderBatchList(container, operationId);
+    refreshFeedDayGoalBanner(container);
+  }));
+  unsubs.push(subscribe('batchAdjustments', () => {
+    renderBatchList(container, operationId);
+    refreshFeedDayGoalBanner(container);
+  }));
+  unsubs.push(subscribe('eventFeedEntries', () => {
+    renderBatchList(container, operationId);
+    refreshFeedDayGoalBanner(container);
+  }));
+  unsubs.push(subscribe('farmSettings', () => refreshFeedDayGoalBanner(container)));
 }
+
 
 // ---------------------------------------------------------------------------
 // Feed day goal banner (CP-26)
 // ---------------------------------------------------------------------------
+
+function refreshFeedDayGoalBanner(container) {
+  const old = container.querySelector('[data-testid="feed-day-goal-banner"]');
+  if (!old) return;
+  old.replaceWith(renderFeedDayGoalBanner());
+}
 
 function renderFeedDayGoalBanner() {
   const farmSettings = getAll('farmSettings')[0];

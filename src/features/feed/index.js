@@ -6,6 +6,8 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, add, update, remove, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
+import { getCalcByName } from '../../utils/calc-registry.js';
+import '../../calcs/feed-forage.js';
 import * as FeedTypeEntity from '../../entities/feed-type.js';
 import * as BatchEntity from '../../entities/batch.js';
 import * as BatchAdjustmentEntity from '../../entities/batch-adjustment.js';
@@ -240,6 +242,9 @@ export function renderFeedScreen(container) {
     refreshFeedDayGoalBanner(container);
   }));
   unsubs.push(subscribe('farmSettings', () => refreshFeedDayGoalBanner(container)));
+  unsubs.push(subscribe('animals', () => refreshFeedDayGoalBanner(container)));
+  unsubs.push(subscribe('animalWeightRecords', () => refreshFeedDayGoalBanner(container)));
+  unsubs.push(subscribe('animalClasses', () => refreshFeedDayGoalBanner(container)));
 }
 
 
@@ -253,12 +258,70 @@ function refreshFeedDayGoalBanner(container) {
   old.replaceWith(renderFeedDayGoalBanner());
 }
 
+/** Most recent weight on or before `today` (YYYY-MM-DD). Null when none qualify. */
+function latestWeightKgOnOrBefore(animalId, weightRecords, today) {
+  let bestStamp = '';
+  let bestKg = null;
+  for (const w of weightRecords) {
+    if (w.animalId !== animalId) continue;
+    if (typeof w.weightKg !== 'number' || !Number.isFinite(w.weightKg)) continue;
+    const stamp = w.recordedAt || w.date || '';
+    const day = String(stamp).slice(0, 10);
+    if (!day || day > today) continue;
+    if (bestKg == null || stamp > bestStamp) {
+      bestStamp = stamp;
+      bestKg = w.weightKg;
+    }
+  }
+  return bestKg;
+}
+
+/**
+ * One animal's daily DMI via DMI-2. Lactation is ignored (isLactating false),
+ * matching the dashboard group calls this banner follows.
+ */
+function dailyDmiForAnimal(weightKg, animalClass) {
+  const dmiPct = typeof animalClass?.dmiPct === 'number' ? animalClass.dmiPct : 2.5;
+  const dmiPctLactating = typeof animalClass?.dmiPctLactating === 'number'
+    ? animalClass.dmiPctLactating
+    : 2.5;
+  const dmi2 = getCalcByName('DMI-2');
+  if (dmi2) {
+    return dmi2.fn({
+      headCount: 1,
+      avgWeightKg: weightKg,
+      dmiPct,
+      dmiPctLactating,
+      isLactating: false,
+    });
+  }
+  return weightKg * (dmiPct / 100);
+}
+
+/** Sum of DMI for every animal with active !== false. Not limited to open events. */
+function farmWideActiveDmiKg() {
+  const today = todayDateString();
+  const classes = new Map(getAll('animalClasses').map(c => [c.id, c]));
+  const weights = getAll('animalWeightRecords');
+  let total = 0;
+  for (const animal of getAll('animals')) {
+    if (animal.active === false) continue;
+    const cls = animal.classId ? classes.get(animal.classId) : null;
+    const weighed = latestWeightKgOnOrBefore(animal.id, weights, today);
+    const weightKg = weighed != null
+      ? weighed
+      : (typeof cls?.defaultWeightKg === 'number' ? cls.defaultWeightKg : 0);
+    total += dailyDmiForAnimal(weightKg, cls);
+  }
+  return total;
+}
+
 function renderFeedDayGoalBanner() {
   const farmSettings = getAll('farmSettings')[0];
   const goal = farmSettings?.feedDayGoal ?? 90;
   const unitSys = getUnitSystem();
 
-  // DM on hand: sum(batch.remaining × dm_pct/100) for non-archived batches
+  // DM on hand: sum(batch.remaining × dm_pct/100) for non-archived batches.
   const batches = getAll('batches').filter(b => !b.archived);
   const feedTypes = getAll('feedTypes');
   const ftMap = new Map(feedTypes.map(ft => [ft.id, ft]));
@@ -268,24 +331,9 @@ function renderFeedDayGoalBanner() {
     totalDmKg += (b.remaining ?? 0) * (dm / 100);
   }
 
-  // Daily run rate: average daily DM delivered over last 30 days
-  const entries = getAll('eventFeedEntries');
-  const today = new Date();
-  const cutoff = new Date(today);
-  cutoff.setDate(cutoff.getDate() - 30);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-  const recentEntries = entries.filter(e => e.date >= cutoffStr);
-  let recentDmKg = 0;
-  for (const e of recentEntries) {
-    const batch = batches.find(b => b.id === e.batchId) || getAll('batches').find(b => b.id === e.batchId);
-    const dm = batch?.dmPct ?? ftMap.get(batch?.feedTypeId)?.dmPct ?? 100;
-    recentDmKg += (e.quantity ?? 0) * (dm / 100);
-  }
-  const daySpan = Math.max(1, Math.round((today - cutoff) / (1000 * 60 * 60 * 24)));
-  const dailyRunRateKg = recentEntries.length > 0 ? recentDmKg / daySpan : 0;
-
-  // Days on hand
-  const daysOnHand = dailyRunRateKg > 0 ? Math.round(totalDmKg / dailyRunRateKg) : null;
+  // Days on hand = total DM ÷ farm-wide active-animal DMI (V2_UX_FLOWS.md §13.2).
+  const dailyDmiKg = farmWideActiveDmiKg();
+  const daysOnHand = dailyDmiKg > 0 ? Math.round(totalDmKg / dailyDmiKg) : null;
 
   // Progress bar: green ≥ goal, amber 33–99%, red < 33%
   let pct = 0;
@@ -298,8 +346,8 @@ function renderFeedDayGoalBanner() {
 
   // Format DM on hand and run rate in user's unit system
   const dmOnHandDisplay = display(totalDmKg, 'weight', unitSys, 0);
-  const runRateDisplay = dailyRunRateKg > 0
-    ? `${display(dailyRunRateKg, 'weight', unitSys, 0)}/day`
+  const runRateDisplay = dailyDmiKg > 0
+    ? `${display(dailyDmiKg, 'weight', unitSys, 0)}/day`
     : '—';
 
   return el('div', {

@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-04  
 **Source:** Grok design session  
-**Status:** Ready for Grok Build
+**Status:** Implemented (GTHO Build, `f4763d9`)
 
 ## What was decided
 

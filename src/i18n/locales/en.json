@@ -445,7 +445,8 @@
     "name": "Name",
     "type": {
       "confinement": "Confinement",
-      "land": "Land"
+      "land": "Land",
+      "storage": "Storage"
     },
     "landUse": {
       "label": "Land Use",
@@ -465,7 +466,8 @@
       "pasture": "Pasture",
       "mixedUse": "Mixed Use",
       "crop": "Crop",
-      "confinement": "Confinement"
+      "confinement": "Confinement",
+      "storage": "Storage"
     },
     "empty": "No locations yet. Add your first location to get started.",
     "emptyFiltered": "No locations match this filter.",
@@ -680,6 +682,11 @@
     "location": "Location",
     "locationRequired": "Choose a location for this batch.",
     "addNewLocation": "Add new location…",
+    "locationModeStorage": "Storage",
+    "locationModePasture": "Pasture",
+    "addStorageLocation": "Add new storage location…",
+    "storageName": "Name",
+    "storageNameRequired": "Name is required.",
     "noLocation": "No location",
     "setLocation": "Set location",
     "move": "Move",

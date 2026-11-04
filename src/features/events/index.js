@@ -673,6 +673,9 @@ function finishLocationPick(container, locations, selection, opts, loc) {
 
 export function renderLocationPicker(container, locations, selection, opts = {}) {
   clear(container);
+  // Feed storage is not a paddock or a confinement pen. Animal-move and
+  // confinement pickers use this function and must not list storage.
+  locations = locations.filter(loc => loc.type !== 'storage');
   const multi = !!opts.multi;
   if (multi && !Array.isArray(selection.locationIds)) {
     selection.locationIds = selection.locationId ? [selection.locationId] : [];

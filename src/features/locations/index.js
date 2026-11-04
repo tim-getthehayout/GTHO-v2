@@ -188,7 +188,7 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
   const filterRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' } });
   function renderFilterPills() {
     clear(filterRow);
-    for (const [val, label] of [['all', 'All'], ['pasture', 'Pasture'], ['mixed-use', 'Mixed-Use'], ['crop', 'Crop'], ['confinement', 'Confinement']]) {
+    for (const [val, label] of [['all', 'All'], ['pasture', 'Pasture'], ['mixed-use', 'Mixed-Use'], ['crop', 'Crop'], ['confinement', 'Confinement'], ['storage', t('location.filter.storage')]]) {
       const isActive = landUseFilter === val;
       filterRow.appendChild(el('button', {
         style: { padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green)' : 'transparent', color: isActive ? 'white' : 'var(--text2)' },
@@ -242,6 +242,7 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
     // Filter by land use
     if (landUseFilter !== 'all') {
       if (landUseFilter === 'confinement') locs = locs.filter(l => l.type === 'confinement');
+      else if (landUseFilter === 'storage') locs = locs.filter(l => l.type === 'storage');
       else locs = locs.filter(l => l.type === 'land' && l.landUse === landUseFilter);
     }
 
@@ -289,7 +290,9 @@ function buildLocationCard(loc, operationId, farmId, unitSys) {
   const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
   const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(2) : '';
   const isConfinement = loc.type === 'confinement';
-  const landUse = isConfinement ? 'Confinement' : (loc.landUse || 'pasture');
+  const landUse = loc.type === 'storage'
+    ? t('location.type.storage')
+    : (isConfinement ? 'Confinement' : (loc.landUse || 'pasture'));
 
   // Badge class
   const badgeCls = { pasture: 'bg', 'mixed-use': 'bg', crop: 'ba', Confinement: 'bb' }[landUse] || 'bg';
@@ -441,6 +444,9 @@ export function openLocationSheet(existingLoc, operationId, farmId, opts = {}) {
     el('option', { value: 'mixed-use', selected: existingLoc?.landUse === 'mixed-use' }, ['Mixed-use']),
     el('option', { value: 'crop', selected: existingLoc?.landUse === 'crop' }, ['Crop']),
     el('option', { value: 'confinement', selected: existingLoc?.type === 'confinement' }, ['Confinement']),
+    ...(existingLoc?.type === 'storage'
+      ? [el('option', { value: 'storage', selected: true }, [t('location.type.storage')])]
+      : []),
   ]);
   panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['Farm']), inputs.farmId]),
@@ -471,11 +477,24 @@ export function openLocationSheet(existingLoc, operationId, farmId, opts = {}) {
 
   // Toggle pasture/confinement fields
   inputs.landUse.addEventListener('change', () => {
-    const isConf = inputs.landUse.value === 'confinement';
+    const choice = inputs.landUse.value;
+    if (choice === 'storage') {
+      typeState.value = 'storage';
+      pastureFields.style.display = 'none';
+      confinementFields.style.display = 'none';
+      return;
+    }
+    const isConf = choice === 'confinement';
     typeState.value = isConf ? 'confinement' : 'land';
     pastureFields.style.display = isConf ? 'none' : 'block';
     confinementFields.style.display = isConf ? 'block' : 'none';
   });
+  if (existingLoc?.type === 'storage') {
+    typeState.value = 'storage';
+    pastureFields.style.display = 'none';
+    confinementFields.style.display = 'none';
+    inputs.landUse.value = 'storage';
+  }
   if (existingLoc?.type === 'confinement') {
     typeState.value = 'confinement';
     pastureFields.style.display = 'none';

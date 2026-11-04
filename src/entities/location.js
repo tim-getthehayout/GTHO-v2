@@ -21,7 +21,7 @@ export const FIELDS = {
   updatedAt:      { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
 
-const VALID_TYPES = ['confinement', 'land'];
+const VALID_TYPES = ['confinement', 'land', 'storage'];
 const VALID_LAND_USES = ['pasture', 'mixed_use', 'crop'];
 const VALID_MAP_SOURCES = ['drawn', 'imported'];
 

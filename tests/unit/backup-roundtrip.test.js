@@ -143,12 +143,13 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→37 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(23);
+    it('has migration entries for 14→38 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(24);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[34]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[35]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[36]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[37]).toBe('function');
     });
 
     it('36→37 adds empty balance and move tables and stamps schema_version', () => {

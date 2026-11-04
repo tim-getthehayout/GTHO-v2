@@ -11,8 +11,7 @@ import '../../calcs/feed-forage.js';
 import * as FeedTypeEntity from '../../entities/feed-type.js';
 import * as BatchEntity from '../../entities/batch.js';
 import * as BatchAdjustmentEntity from '../../entities/batch-adjustment.js';
-import { renderLocationPicker } from '../events/index.js';
-import { openLocationSheet } from '../locations/index.js';
+import * as LocationEntity from '../../entities/location.js';
 import {
   balancesFor,
   positiveBalances,
@@ -830,28 +829,93 @@ function renderBatchList(rootContainer, operationId) {
 
 function mountLocationChoice(container, operationId, selection) {
   clear(container);
-  const farmId = getAll('farms')[0]?.id || null;
-  container.appendChild(el('button', {
+  const mode = container.dataset.batchLocationMode === 'pasture' ? 'pasture' : 'storage';
+  container.dataset.batchLocationMode = mode;
+
+  const modeButton = (value, label, testId) => el('button', {
     type: 'button',
-    className: 'btn btn-outline btn-sm',
-    'data-testid': 'batch-add-location',
-    style: { marginBottom: '8px' },
+    className: mode === value ? 'fp active' : 'fp',
+    'data-testid': testId,
+    'data-active': mode === value ? 'true' : 'false',
     onClick: () => {
-      openLocationSheet(null, operationId, farmId, {
-        onSaved: (loc) => {
-          selection.locationId = loc.id;
+      container.dataset.batchLocationMode = value;
+      mountLocationChoice(container, operationId, selection);
+    },
+  }, [label]);
+
+  container.appendChild(el('div', {
+    'data-testid': 'batch-location-mode',
+    style: { display: 'flex', gap: '8px', marginBottom: '8px' },
+  }, [
+    modeButton('storage', t('feed.locationModeStorage'), 'batch-location-mode-storage'),
+    modeButton('pasture', t('feed.locationModePasture'), 'batch-location-mode-pasture'),
+  ]));
+
+  if (mode === 'storage') {
+    const nameInput = el('input', {
+      type: 'text',
+      className: 'auth-input',
+      'data-testid': 'batch-storage-name',
+      placeholder: t('feed.storageName'),
+      style: { marginBottom: '8px' },
+    });
+    const addStatus = el('div', { className: 'auth-error', 'data-testid': 'batch-storage-status' });
+    container.appendChild(el('div', { 'data-testid': 'batch-add-storage' }, [
+      nameInput,
+      el('button', {
+        type: 'button',
+        className: 'btn btn-outline btn-sm',
+        'data-testid': 'batch-storage-save',
+        style: { marginBottom: '8px' },
+        onClick: () => {
+          clear(addStatus);
+          const name = nameInput.value.trim();
+          if (!name) {
+            addStatus.appendChild(el('span', {}, [t('feed.storageNameRequired')]));
+            return;
+          }
+          const farmId = getAll('farms')[0]?.id || null;
+          const record = LocationEntity.create({
+            operationId,
+            farmId,
+            name,
+            type: 'storage',
+          });
+          add('locations', record, LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+          selection.locationId = record.id;
+          container.dataset.batchLocationMode = 'storage';
           mountLocationChoice(container, operationId, selection);
         },
-      });
-    },
-  }, [t('feed.addNewLocation')]));
-  const picker = el('div', {
+      }, [t('feed.addStorageLocation')]),
+      addStatus,
+    ]));
+  }
+
+  const locations = getAll('locations').filter(loc => {
+    if (loc.archived) return false;
+    if (mode === 'storage') return loc.type === 'storage';
+    return loc.type === 'land' && loc.landUse === 'pasture';
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  const list = el('div', {
     'data-testid': 'batch-location-picker',
     style: { maxHeight: '240px', overflow: 'auto' },
   });
-  container.appendChild(picker);
-  const locations = getAll('locations').filter(loc => !loc.archived);
-  renderLocationPicker(picker, locations, selection, {});
+  for (const loc of locations) {
+    const selected = selection.locationId === loc.id;
+    list.appendChild(el('button', {
+      type: 'button',
+      className: selected ? 'loc-picker-item selected' : 'loc-picker-item',
+      'data-testid': `batch-location-item-${loc.id}`,
+      'data-selected': selected ? 'true' : 'false',
+      style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: '4px' },
+      onClick: () => {
+        selection.locationId = loc.id;
+        mountLocationChoice(container, operationId, selection);
+      },
+    }, [loc.name]));
+  }
+  container.appendChild(list);
 }
 
 function closeBatchDetails() {

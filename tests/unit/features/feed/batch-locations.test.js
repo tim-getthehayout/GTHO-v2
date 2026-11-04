@@ -25,7 +25,7 @@ function seedBase() {
   add('farms', FarmEntity.create({ id: FARM, operationId: OP, name: 'Farm' }),
     FarmEntity.validate, FarmEntity.toSupabaseShape, 'farms');
   add('locations', LocationEntity.create({
-    id: BARN, operationId: OP, farmId: FARM, name: 'Hay Barn', type: 'confinement',
+    id: BARN, operationId: OP, farmId: FARM, name: 'Hay Barn', type: 'storage',
   }), LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
   add('locations', LocationEntity.create({
     id: PAD, operationId: OP, farmId: FARM, name: 'Field Pad', type: 'land', landUse: 'pasture',
@@ -52,7 +52,7 @@ function createBatch(name, quantity) {
   document.querySelector('[data-testid="batch-sheet-name"]').value = name;
   document.querySelector('[data-testid="batch-sheet-quantity"]').value = String(quantity);
   document.querySelector('[data-testid="batch-sheet-unit"]').value = 'bale';
-  document.querySelector(`[data-testid="location-picker-item-${BARN}"]`).click();
+  document.querySelector(`[data-testid="batch-location-item-${BARN}"]`).click();
   document.querySelector('[data-testid="batch-sheet-save"]').click();
 }
 
@@ -76,7 +76,7 @@ describe('feed batch locations', () => {
       .toContain('Choose a location');
     expect(getAll('batches')).toHaveLength(0);
 
-    document.querySelector(`[data-testid="location-picker-item-${BARN}"]`).click();
+    document.querySelector(`[data-testid="batch-location-item-${BARN}"]`).click();
     document.querySelector('[data-testid="batch-sheet-save"]').click();
     await flush();
 
@@ -109,7 +109,8 @@ describe('feed batch locations', () => {
       .toContain('Hay Barn');
     document.querySelector(`[data-testid="feed-batch-move-${batch.id}"]`).click();
     document.querySelector('[data-testid="batch-move-quantity"]').value = '4';
-    document.querySelector(`#batch-move-sheet-panel [data-testid="location-picker-item-${PAD}"]`).click();
+    document.querySelector('#batch-move-sheet-panel [data-testid="batch-location-mode-pasture"]').click();
+    document.querySelector(`#batch-move-sheet-panel [data-testid="batch-location-item-${PAD}"]`).click();
     document.querySelector('[data-testid="batch-move-save"]').click();
     await flush();
 
@@ -141,7 +142,8 @@ describe('feed batch locations', () => {
     document.querySelector(`[data-testid="feed-batch-details-${batch.id}"]`).click();
     document.querySelector(`[data-testid="feed-batch-move-${batch.id}"]`).click();
     document.querySelector('[data-testid="batch-move-quantity"]').value = '4';
-    document.querySelector(`#batch-move-sheet-panel [data-testid="location-picker-item-${PAD}"]`).click();
+    document.querySelector('#batch-move-sheet-panel [data-testid="batch-location-mode-pasture"]').click();
+    document.querySelector(`#batch-move-sheet-panel [data-testid="batch-location-item-${PAD}"]`).click();
     document.querySelector('[data-testid="batch-move-save"]').click();
     await flush();
 

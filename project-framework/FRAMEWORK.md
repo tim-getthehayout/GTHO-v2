@@ -36,6 +36,9 @@ Best for:
 - Implementing a well-specified task
 - Working close to the target environment or on a development machine
 
+### Git Bridge (optional)
+A bridge bot on the writer machine. Lands doc-only changes it is handed, checks that pushed branches are intact when asked, and verifies with `git ls-remote`. In Mode A it pushes doc commits from the writer. In Mode B its doc-only changes also go through a pull request; it never pushes to `main`. It does not invent design, never force-pushes, and does not push while Grok Build is editing the same repo.
+
 ### Git Repository
 The durable shared memory and the only reliable bridge between the two roles and between machines.
 
@@ -75,6 +78,9 @@ Update `PROJECT_STATUS.md` with the decision, then tell Grok Build to read it an
 ### Structured
 Write a short session brief or spec file, commit it, then point Grok Build at that file.
 
+### Pull request (Mode B)
+Grok Build pushes a feature branch; the owner reviews and merges a pull request into `main`. See `AGENTS.md` §3 Git modes.
+
 ### Multi-step
 Break work into small, reviewable increments. Update status after each increment.
 
@@ -93,9 +99,13 @@ See `AGENTS.md` §4. The gates exist to prevent:
 ## Multi-Machine Usage
 
 1. Canonical repo lives on the shared remote (GitHub for GTHO).
-2. Clone on any machine that will run Grok Build or be used for design review.
-3. Pull before starting significant work; push after finishing.
+2. One always-on machine is the writer. It holds the clone Grok Build works in, and it holds the credential for a private forge.
+3. Pull before starting significant work; push from that machine after finishing.
 4. Avoid long-lived divergent local branches for framework-adopting projects.
+
+A laptop is a window onto the writer. Browser project chat cannot reach a private LAN forge. A local Git bridge on the writer lands those doc commits. The bridge does not invent design, and it does not push while Grok Build is editing the same repo. The project `AGENTS.md` names the writer and the clone path.
+
+That paragraph is Mode A. In Mode B (GitHub), Grok Build pushes feature branches, the owner merges pull requests into a protected `main`, and the Git bridge lands doc-only changes and verifies `main` after a merge. See `AGENTS.md` §3 Git modes.
 
 ---
 

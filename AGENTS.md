@@ -25,7 +25,7 @@ Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, G
 - Domain specs stay where they are: `V2_SCHEMA_DESIGN.md`, `V2_UX_FLOWS.md`, `V2_APP_ARCHITECTURE.md`, `V2_CALCULATION_SPEC.md`, `V2_INFRASTRUCTURE.md`, `V2_DESIGN_SYSTEM.md`, `V2_MIGRATION_PLAN.md`, `V2_BUILD_INDEX.md`.
 - Backlog stays in `OPEN_ITEMS.md`. Do not copy it into `PROJECT_STATUS.md`. Status points at the open items that matter this session.
 - Session briefs live in `session_briefs/`. New briefs use `project-framework/session-brief.template.md`. Implementation specs live in `github/issues/` (this project does not use a `specs/` folder).
-- Current schema stamp is 35 (migration `035_paddock_window_open_cohort.sql`, applied 2026-10-04).
+- Current schema stamp is 36 (migration `036_batch_adjustment_date.sql`, applied 2026-11-03).
 
 ---
 
@@ -36,6 +36,7 @@ The following process rules apply unless this project explicitly overrides them.
 ### Roles and ownership
 - **Grok project chat** owns design, prioritization, living status, and session briefs/specs.
 - **Grok Build** owns concrete implementation (files, commands, configs) and does not invent design decisions.
+- **Homelab Git Bridge** lands doc-only changes it is handed, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. It does not invent design, never force-pushes, and does not push while Grok Build is editing the repo.
 - **Git** is the durable handoff medium between the two and between machines.
 
 Grok Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` unless the handoff says to. Grok project chat does not treat an unimplemented idea as shipped.
@@ -83,6 +84,7 @@ These extend the rules above. They do not replace them.
 - Grok project chat replaces the old Cowork role. Grok Build replaces the old Claude Code role.
 - Grok project chat edits `V2_*.md`, `OPEN_ITEMS.md`, `github/issues/` specs, `V2_BUILD_INDEX.md`, and `PROJECT_STATUS.md`.
 - Grok Build updates `PROJECT_CHANGELOG.md` (one row per change) and code under `src/`, `tests/`, and `supabase/`.
+- Homelab Git Bridge never pushes to `main`; its doc-only changes go through a pull request like any other (see Git Workflow). It does not edit code.
 - Either role may log in `IMPROVEMENTS.md`. A completed `TASKS.md` item is checked in the same session.
 - A commit that cites `OI-NNNN` must also update `OPEN_ITEMS.md` in that commit. Close sibling items on the same path or symbol in that commit. A schema bump or dropped column closes now-moot items that name the retired symbol.
 - After a Pages deploy, name the build stamp Tim should see in the header. Match the short sha from the successful deploy, not the last local commit if deploy failed.
@@ -95,8 +97,14 @@ Moved here from `CLAUDE.md` on 2026-10-04. The April 2026 UI sprint is retired. 
 
 ## Git Workflow
 
-- **`main`** — single branch, all work committed directly
+- **Mode:** framework Mode B (feature branch and pull request).
+- **Writer:** Tim's Mac, clone `~/Github/GTHO-v2`, pushing to GitHub `tim-getthehayout/GTHO-v2`.
 - **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages on every push to main. Site at `https://tim-getthehayout.github.io/GTHO-v2/`
+- **Grok project chat** never pushes. It writes the session brief; Grok Build or Homelab Git Bridge commits it.
+- **Grok Build** commits on a feature branch made from `main` and pushes that branch. Feature branches do not deploy.
+- **Pull request:** each feature gets a GitHub pull request into `main`. Tim reviews the diff and merges it himself.
+- **Homelab Git Bridge** lands doc-only changes, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. Its doc-only changes also go through a pull request into `main`; it has no bypass and never pushes to `main`.
+- **`main` protection (intended setting):** GitHub ruleset on `main`: pull request required (0 approvals), no force-pushes, no deletion, no bypass actors.
 - Commit after each completed checkpoint or substantive edit
 - **Never use worktree isolation** (`isolation: "worktree"`)
 - After cloning, run `git config core.hooksPath .githooks` once to activate the orphan-flip enforcement hook (OI-0148 — `commit-msg` hook that fails any commit referencing `OI-NNNN` without staging `OPEN_ITEMS.md`; bypass with `--no-verify` when an OI is mentioned but not being closed).

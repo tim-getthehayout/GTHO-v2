@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-03 (feed-day-goal banner refresh)  
+**Last updated:** 2026-11-04 (docs cleanup after banner refresh)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -52,20 +52,21 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 ## 5. Open Questions / Next Steps
 
-1. Feed day goal banner refresh is on `main`. Confirm header stamp after Pages succeeds. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-day-goal-banner-refresh.md`.
+1. Feed day goal banner refresh is on `main` (`3aedbae`). Pages workflow succeeded. Confirm header stamp after a hard refresh. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-day-goal-banner-refresh.md`.
 2. OI-0192 is closed. Shipped in `5c2db09`. Header stamp of `61472d3` is `b2026-10-04.2104-61472d3`. After the current stamp shows in Safari, remove the Home Screen icon and add it again. The old web clip will not update itself. The next deploy after that re-add should show the banner.
-2. OI-0102 is closed. Shipped in `8748872`. Confirm header stamp `b2026-10-04.1957-8748872`.
-3. OI-0188 — no UI into a closed event. Design required. Body in `OPEN_ITEMS.md`.
-4. OI-0189 — UTC date after 8 PM Eastern. Design required.
-5. OI-0190 — destination start edit does not cascade to the source close. Design required.
-6. Patch `V2_SCHEMA_DESIGN.md` §2.1 with the migration 034 columns, and the `event_paddock_windows` section with migration 035 `open_cohort_id`, when the schema doc is next touched. The backup export selects all columns, so the new column is included without a column list change.
-7. OI-0191 is closed. Shipped in `1cedc14`. Pages did not publish it until `26fc83c` because lint and unit tests failed. Tim confirmed the post-June build after a hard refresh. Live stamp at this close: `b2026-10-04.1607-1e76f0a`.
-8. Feed batch adjustment date + archive is on `main`. Migration 036 applied and verified. Confirm Pages header stamp after the workflow succeeds.
+3. OI-0102 is closed. Shipped in `8748872`. Confirm header stamp `b2026-10-04.1957-8748872`.
+4. OI-0188 — no UI into a closed event. Design required. Body in `OPEN_ITEMS.md`.
+5. OI-0189 — UTC date after 8 PM Eastern. Design required.
+6. OI-0190 — destination start edit does not cascade to the source close. Design required.
+7. Patch `V2_SCHEMA_DESIGN.md` §2.1 with the migration 034 columns, and the `event_paddock_windows` section with migration 035 `open_cohort_id`, when the schema doc is next touched. The backup export selects all columns, so the new column is included without a column list change.
+8. OI-0191 is closed. Shipped in `1cedc14`. Pages did not publish it until `26fc83c` because lint and unit tests failed. Tim confirmed the post-June build after a hard refresh. Live stamp at this close: `b2026-10-04.1607-1e76f0a`.
+9. Feed batch adjustment date + archive is on `main`. Migration 036 applied and verified. Confirm Pages header stamp after the workflow succeeds.
 
 ## 6. Framework feedback (process only)
 
 | Date | Discovery | Suggested framework change | Status |
 |------|-----------|----------------------------|--------|
+| 2026-11-04 | Project chat implemented and pushed a code change (feed banner refresh) instead of writing the brief and handing off to Grok Build | Keep role split strict: docs + brief in project chat, code in Build. Note when the split is mixed. | Noted |
 | 2026-10-04 | Uploading the framework pack into an existing app repo overwrites the project `AGENTS.md` and lands templates in the root | Adoption note: copy into `project-framework/` and keep a project `AGENTS.md` at root | Parked |
 | 2026-10-04 | A green local commit is not the live app if Pages fails before upload | End-of-session gate should name the header stamp only after the deploy workflow succeeds | Parked |
 | 2026-10-04 | A docs commit on `main` rebuilds the header stamp | The stamp named in that commit is the previous deploy. The header then shows the docs commit's own sha | Parked |

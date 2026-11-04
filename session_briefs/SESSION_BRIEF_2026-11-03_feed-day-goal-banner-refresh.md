@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-03  
 **Source:** Grok design session  
-**Status:** Ready for Grok Build
+**Status:** Implemented (project chat, `3aedbae`)
 
 ## What was decided
 

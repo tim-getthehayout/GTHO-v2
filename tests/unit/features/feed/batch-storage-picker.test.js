@@ -1,8 +1,9 @@
 /** @file Batch location picker lists storage and pasture separately. */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll, getById, setSyncAdapter } from '../../../../src/data/store.js';
 import { renderFeedScreen } from '../../../../src/features/feed/index.js';
 import { renderLocationPicker } from '../../../../src/features/events/index.js';
+import * as MapPicker from '../../../../src/features/map/picker.js';
 import { setLocale } from '../../../../src/i18n/i18n.js';
 import en from '../../../../src/i18n/locales/en.json';
 import * as OperationEntity from '../../../../src/entities/operation.js';
@@ -67,7 +68,12 @@ describe('feed batch storage picker', () => {
     expect(storage.dataset.active).toBe('true');
     expect(pasture.dataset.active).toBe('false');
     expect(document.querySelector('[data-testid="batch-add-storage"]')).not.toBeNull();
-    expect(document.querySelector(`[data-testid="batch-location-item-${SILO}"]`)).not.toBeNull();
+    const silo = document.querySelector(`[data-testid="batch-location-item-${SILO}"]`);
+    expect(silo).not.toBeNull();
+    expect(silo.tagName).toBe('DIV');
+    expect(silo.className).toContain('loc-picker-item');
+    expect(document.querySelector('[data-testid="batch-location-map"]')).toBeNull();
+    expect(document.querySelector('[data-testid="batch-sheet-save"]').closest('.sheet-actions-sticky')).not.toBeNull();
     expect(document.querySelector(`[data-testid="batch-location-item-${OLD}"]`)).toBeNull();
     expect(document.querySelector(`[data-testid="batch-location-item-${PASTURE}"]`)).toBeNull();
     expect(document.querySelector(`[data-testid="batch-location-item-${MIXED}"]`)).toBeNull();
@@ -76,7 +82,10 @@ describe('feed batch storage picker', () => {
     pasture.click();
     expect(document.querySelector('[data-testid="batch-location-mode-pasture"]').dataset.active).toBe('true');
     expect(document.querySelector('[data-testid="batch-add-storage"]')).toBeNull();
-    expect(document.querySelector(`[data-testid="batch-location-item-${PASTURE}"]`)).not.toBeNull();
+    expect(document.querySelector('[data-testid="batch-location-map"]')).not.toBeNull();
+    const north = document.querySelector(`[data-testid="batch-location-item-${PASTURE}"]`);
+    expect(north).not.toBeNull();
+    expect(north.className).toContain('loc-picker-item');
     expect(document.querySelector(`[data-testid="batch-location-item-${SILO}"]`)).toBeNull();
     expect(document.querySelector(`[data-testid="batch-location-item-${PEN}"]`)).toBeNull();
     expect(document.querySelector(`[data-testid="batch-location-item-${MIXED}"]`)).toBeNull();
@@ -95,12 +104,36 @@ describe('feed batch storage picker', () => {
     const item = document.querySelector(`[data-testid="batch-location-item-${created.id}"]`);
     expect(item).not.toBeNull();
     expect(item.dataset.selected).toBe('true');
+    expect(document.querySelector('[data-testid="batch-sheet-save"]').closest('.sheet-actions-sticky')).not.toBeNull();
     expect(document.querySelector('[data-testid="batch-location-mode-pasture"]').dataset.active).toBe('false');
 
     document.querySelector('[data-testid="batch-location-mode-pasture"]').click();
     expect(document.querySelector('[data-testid="batch-add-storage"]')).toBeNull();
     expect(document.querySelector(`[data-testid="batch-location-item-${created.id}"]`)).toBeNull();
     expect(getById('locations', created.id).type).toBe('storage');
+  });
+
+  it('selects a pasture from the shared map picker and keeps Save in the footer', () => {
+    const spy = vi.spyOn(MapPicker, 'openLocationMapPicker').mockImplementation((opts) => {
+      opts.onSelect(PASTURE);
+    });
+    openBatchSheet();
+    document.querySelector('[data-testid="batch-location-mode-pasture"]').click();
+    document.querySelector('[data-testid="batch-location-map"]').click();
+    expect(spy).toHaveBeenCalled();
+    const filter = spy.mock.calls[0][0].filter;
+    expect(filter({ archived: false, type: 'land', landUse: 'pasture' })).toBe(true);
+    expect(filter({ archived: false, type: 'storage', landUse: null })).toBe(false);
+    expect(filter({ archived: false, type: 'confinement', landUse: null })).toBe(false);
+    const picked = document.querySelector(`[data-testid="batch-location-item-${PASTURE}"]`);
+    expect(picked.dataset.selected).toBe('true');
+    expect(picked.className).toContain('selected');
+    const save = document.querySelector('[data-testid="batch-sheet-save"]');
+    expect(save).not.toBeNull();
+    expect(save.textContent).toBe('Save');
+    expect(save.closest('.sheet-actions-sticky')).not.toBeNull();
+    expect(document.querySelector('[data-testid="batch-sheet-cancel"]')).not.toBeNull();
+    spy.mockRestore();
   });
 
   it('keeps storage locations out of the animal-move picker', () => {

@@ -16,6 +16,11 @@ Shared process rules (roles, ownership, handoff, delivery gates, session protoco
 - …
 - …
 
+**Git setup**  
+- Mode: [A: writer machine, private forge | B: feature branch and pull request]
+- Writer machine: [machine name]
+- Clone path: [absolute path on the writer]
+
 **Key working notes**  
 - …
 - …
@@ -29,6 +34,7 @@ The following process rules apply unless this project explicitly overrides them.
 ### Roles and ownership
 - **Grok project chat** owns design, prioritization, living status, and session briefs/specs.
 - **Grok Build** owns concrete implementation (files, commands, configs) and does not invent design decisions.
+- **Git bridge** (if used) lands doc-only changes it is handed, checks that pushed branches are intact when asked, and verifies with `git ls-remote`. It does not invent design, never force-pushes, and does not push while Grok Build is editing the same repo.
 - **Git** is the durable handoff medium between the two and between machines.
 
 ### Session start

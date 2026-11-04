@@ -92,6 +92,8 @@
       }
     ],
     "batch_adjustments": [],
+    "batch_location_balances": [],
+    "batch_moves": [],
     "events": [
       {
         "id": "66666666-6666-6666-6666-666666666666",

@@ -3,11 +3,11 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update } from '../../data/store.js';
+import { getAll, getById, add } from '../../data/store.js';
 import { daysBetweenInclusive } from '../../utils/date-utils.js';
 import { getEventStartDate } from '../events/event-start.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
-import * as BatchEntity from '../../entities/batch.js';
+import { positiveBalances, deductDelivery, locationName } from './batch-balances.js';
 
 let deliverFeedSheet = null;
 
@@ -73,7 +73,7 @@ export function openDeliverFeedSheet(evt, operationId) {
   }
 
   // State: selected lines
-  let selectedLines = []; // { batchId, qty }
+  let selectedLines = []; // { batchId, qty, sourceLocationId }
 
   // Group batches by feed type
   const feedTypes = getAll('feedTypes');
@@ -92,9 +92,38 @@ export function openDeliverFeedSheet(evt, operationId) {
   function toggleBatch(batchId) {
     const idx = selectedLines.findIndex(l => l.batchId === batchId);
     if (idx >= 0) selectedLines.splice(idx, 1);
-    else selectedLines.push({ batchId, qty: 0 });
+    else {
+      const holdings = positiveBalances(batchId);
+      selectedLines.push({
+        batchId,
+        qty: 0,
+        sourceLocationId: holdings.length === 1 ? holdings[0].locationId : null,
+      });
+    }
     renderBatches();
     renderSummary();
+  }
+
+  function sourcePicker(batch, line) {
+    const holdings = positiveBalances(batch.id);
+    if (holdings.length <= 1) return null;
+    const select = el('select', {
+      'data-testid': `feed-delivery-source-${batch.id}`,
+      style: { marginTop: '8px', width: '100%', padding: '6px 8px' },
+    }, [
+      el('option', { value: '' }, [t('feed.fromLocation')]),
+      ...holdings.map(row => el('option', { value: row.locationId }, [
+        `${locationName(row.locationId) || '?'} (${row.quantity})`,
+      ])),
+    ]);
+    select.value = line.sourceLocationId || '';
+    select.addEventListener('change', () => {
+      line.sourceLocationId = select.value || null;
+    });
+    return el('div', { onClick: (e) => e.stopPropagation() }, [
+      el('div', { style: { fontSize: '12px', marginBottom: '4px' } }, [t('feed.fromLocation')]),
+      select,
+    ]);
   }
 
   function adjQty(lineIdx, delta) {
@@ -168,6 +197,7 @@ export function openDeliverFeedSheet(evt, operationId) {
               ]),
             ]),
             detailLine ? el('div', { style: { fontSize: '11px', color: 'var(--green-d)', marginTop: '3px', opacity: '.8' } }, [detailLine]) : null,
+            sourcePicker(batch, line),
           ].filter(Boolean)));
         }
 
@@ -282,17 +312,27 @@ export function openDeliverFeedSheet(evt, operationId) {
         }
         try {
           for (const line of linesToSave) {
+            const holdings = positiveBalances(line.batchId);
+            const sourceLocationId = holdings.length === 1
+              ? holdings[0].locationId
+              : (line.sourceLocationId || null);
+            if (holdings.length > 1 && !sourceLocationId) {
+              statusEl.appendChild(el('span', {}, [t('feed.locationRequired')]));
+              return;
+            }
+            const deducted = deductDelivery(line.batchId, sourceLocationId, line.qty);
+            if (deducted) {
+              statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
+              return;
+            }
             const entry = FeedEntryEntity.create({
               operationId, eventId: evt.id,
               batchId: line.batchId, locationId: selectedLocationId,
+              sourceLocationId,
               date: dateInput.value, time: timeInput.value || null,
               quantity: line.qty,
             });
             add('eventFeedEntries', entry, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
-            const batch = getById('batches', line.batchId);
-            if (batch) {
-              update('batches', batch.id, { remaining: Math.max(0, batch.remaining - line.qty) }, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
-            }
           }
           deliverFeedSheet.close();
         } catch (err) {

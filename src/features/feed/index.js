@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, add, update, remove, subscribe } from '../../data/store.js';
+import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
@@ -11,6 +11,19 @@ import '../../calcs/feed-forage.js';
 import * as FeedTypeEntity from '../../entities/feed-type.js';
 import * as BatchEntity from '../../entities/batch.js';
 import * as BatchAdjustmentEntity from '../../entities/batch-adjustment.js';
+import { renderLocationPicker } from '../events/index.js';
+import { openLocationSheet } from '../locations/index.js';
+import {
+  balancesFor,
+  positiveBalances,
+  movesFor,
+  locationName,
+  locationSummaryText,
+  placeInitialBalance,
+  moveBatchQuantity,
+  applyRemainingDelta,
+  deleteBatchWithLocations,
+} from './batch-balances.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -62,6 +75,8 @@ function batchActivityRows(batch) {
       `${entry.quantity} ${batch.unit || ''}`.trim(),
     ];
     if (loc) parts.push(loc);
+    const source = locName(entry.sourceLocationId);
+    if (source) parts.push(t('feed.activityFrom', { name: source }));
     const createdTime = (entry.time || (entry.createdAt || '').slice(11, 16));
     rows.push({
       label: parts.filter(Boolean).join(' · '),
@@ -104,11 +119,11 @@ function batchActivityRows(batch) {
   return rows;
 }
 
-function renderBatchActivity(batch, operationId, rootContainer) {
+function renderBatchActivity(batch, operationId, rootContainer, showAll = false) {
   const rows = batchActivityRows(batch);
   if (!rows.length) return null;
 
-  const expanded = expandedActivity.has(batch.id);
+  const expanded = showAll || expandedActivity.has(batch.id);
   const visible = expanded ? rows : rows.slice(0, ACTIVITY_LIMIT);
   const hidden = rows.length - visible.length;
   const list = el('div', {
@@ -222,6 +237,16 @@ export function renderFeedScreen(container) {
       el('div', { className: 'sheet-backdrop', onClick: () => batchAdjustSheet && batchAdjustSheet.close() }),
       el('div', { className: 'sheet-panel', id: 'batch-adjust-sheet-panel' }),
     ]),
+
+    el('div', { className: 'sheet-wrap', id: 'batch-detail-sheet-wrap', style: { zIndex: '220' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => closeBatchDetails() }),
+      el('div', { className: 'sheet-panel', id: 'batch-detail-sheet-panel' }),
+    ]),
+
+    el('div', { className: 'sheet-wrap', id: 'batch-move-sheet-wrap', style: { zIndex: '230' } }, [
+      el('div', { className: 'sheet-backdrop', onClick: () => batchMoveSheet && batchMoveSheet.close() }),
+      el('div', { className: 'sheet-panel', id: 'batch-move-sheet-panel' }),
+    ]),
   ]);
 
   container.appendChild(screenEl);
@@ -229,18 +254,25 @@ export function renderFeedScreen(container) {
   renderFeedTypeList(container);
 
   unsubs.push(subscribe('feedTypes', () => renderFeedTypeList(container)));
-  unsubs.push(subscribe('batches', () => {
+  const refreshBatches = () => {
     renderBatchList(container, operationId);
+    refreshOpenDetail(operationId);
+  };
+  unsubs.push(subscribe('batches', () => {
+    refreshBatches();
     refreshFeedDayGoalBanner(container);
   }));
   unsubs.push(subscribe('batchAdjustments', () => {
-    renderBatchList(container, operationId);
+    refreshBatches();
     refreshFeedDayGoalBanner(container);
   }));
   unsubs.push(subscribe('eventFeedEntries', () => {
-    renderBatchList(container, operationId);
+    refreshBatches();
     refreshFeedDayGoalBanner(container);
   }));
+  unsubs.push(subscribe('batchLocationBalances', refreshBatches));
+  unsubs.push(subscribe('batchMoves', refreshBatches));
+  unsubs.push(subscribe('locations', () => renderBatchList(container, operationId)));
   unsubs.push(subscribe('farmSettings', () => refreshFeedDayGoalBanner(container)));
   unsubs.push(subscribe('animals', () => refreshFeedDayGoalBanner(container)));
   unsubs.push(subscribe('animalWeightRecords', () => refreshFeedDayGoalBanner(container)));
@@ -703,9 +735,11 @@ function renderBatchList(rootContainer, operationId) {
     const pct = batch.quantity > 0 ? (batch.remaining / batch.quantity) * 100 : 0;
     const progressClass = pct > 50 ? 'progress-green' : pct > 20 ? 'progress-amber' : 'progress-red';
 
+    const summary = locationSummaryText(batch.id);
     listEl.appendChild(el('div', {
       className: 'card batch-card',
       'data-testid': `feed-batch-${batch.id}`,
+      onClick: () => openBatchDetails(batch.id, operationId),
     }, [
       el('div', { className: 'batch-card-head' }, [
         el('div', {}, [
@@ -713,35 +747,52 @@ function renderBatchList(rootContainer, operationId) {
           el('div', { className: 'batch-card-detail' }, [
             [ftName, `${batch.remaining}/${batch.quantity} ${batch.unit}`].filter(Boolean).join(' · '),
           ]),
+          el('div', {
+            className: 'batch-card-detail',
+            'data-testid': `feed-batch-locations-${batch.id}`,
+          }, [summary || t('feed.noLocation')]),
         ]),
         el('span', { className: 'form-hint' }, [
           `${Math.round(pct)}%`,
         ]),
       ]),
-      // Progress bar
       el('div', { className: 'progress-bar' }, [
         el('div', {
           className: `progress-fill ${progressClass}`,
           style: { width: `${Math.max(pct, 0)}%` },
         }),
       ]),
-      renderBatchActivity(batch, operationId, rootContainer),
       el('div', { className: 'batch-card-actions' }, [
         el('button', {
           className: 'btn btn-outline btn-xs',
+          'data-testid': `feed-batch-details-${batch.id}`,
+          onClick: (e) => {
+            e.stopPropagation();
+            openBatchDetails(batch.id, operationId);
+          },
+        }, [t('feed.details')]),
+        el('button', {
+          className: 'btn btn-outline btn-xs',
           'data-testid': `feed-batch-edit-${batch.id}`,
-          onClick: () => openBatchSheet(batch, operationId),
+          onClick: (e) => {
+            e.stopPropagation();
+            openBatchSheet(batch, operationId);
+          },
         }, [t('action.edit')]),
         el('button', {
           className: 'btn btn-outline btn-xs',
           'data-testid': `feed-batch-adjust-${batch.id}`,
-          onClick: () => openBatchAdjustSheet(batch, operationId),
+          onClick: (e) => {
+            e.stopPropagation();
+            openBatchAdjustSheet(batch, operationId);
+          },
         }, [t('feed.adjustBatch')]),
         batch.archived
           ? el('button', {
             className: 'btn btn-outline btn-xs',
             'data-testid': `feed-batch-restore-${batch.id}`,
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation();
               update('batches', batch.id, { archived: false },
                 BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
             },
@@ -749,7 +800,8 @@ function renderBatchList(rootContainer, operationId) {
           : el('button', {
             className: 'btn btn-outline btn-xs',
             'data-testid': `feed-batch-archive-${batch.id}`,
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation();
               if (window.confirm(t('feed.confirmArchiveBatch'))) {
                 update('batches', batch.id, { archived: true },
                   BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
@@ -759,9 +811,11 @@ function renderBatchList(rootContainer, operationId) {
         el('button', {
           className: 'btn btn-outline btn-xs',
           'data-testid': `feed-batch-delete-${batch.id}`,
-          onClick: () => {
+          onClick: (e) => {
+            e.stopPropagation();
             if (window.confirm(t('feed.confirmDeleteBatch'))) {
-              remove('batches', batch.id, 'batches');
+              if (detailBatchId === batch.id) closeBatchDetails();
+              deleteBatchWithLocations(batch.id);
             }
           },
         }, [t('action.delete')]),
@@ -771,10 +825,305 @@ function renderBatchList(rootContainer, operationId) {
 }
 
 // ---------------------------------------------------------------------------
+// Location choice, details, and moves
+// ---------------------------------------------------------------------------
+
+function mountLocationChoice(container, operationId, selection) {
+  clear(container);
+  const farmId = getAll('farms')[0]?.id || null;
+  container.appendChild(el('button', {
+    type: 'button',
+    className: 'btn btn-outline btn-sm',
+    'data-testid': 'batch-add-location',
+    style: { marginBottom: '8px' },
+    onClick: () => {
+      openLocationSheet(null, operationId, farmId, {
+        onSaved: (loc) => {
+          selection.locationId = loc.id;
+          mountLocationChoice(container, operationId, selection);
+        },
+      });
+    },
+  }, [t('feed.addNewLocation')]));
+  const picker = el('div', {
+    'data-testid': 'batch-location-picker',
+    style: { maxHeight: '240px', overflow: 'auto' },
+  });
+  container.appendChild(picker);
+  const locations = getAll('locations').filter(loc => !loc.archived);
+  renderLocationPicker(picker, locations, selection, {});
+}
+
+function closeBatchDetails() {
+  detailBatchId = null;
+  if (batchDetailSheet) batchDetailSheet.close();
+}
+
+function refreshOpenDetail(operationId) {
+  if (!detailBatchId) return;
+  const wrap = document.getElementById('batch-detail-sheet-wrap');
+  if (!wrap || !wrap.classList.contains('open')) return;
+  openBatchDetails(detailBatchId, operationId);
+}
+
+function detailField(label, value) {
+  return el('div', { className: 'batch-card-detail' }, [
+    `${label}: ${value == null || value === '' ? '—' : value}`,
+  ]);
+}
+
+function openBatchDetails(batchId, operationId) {
+  const batch = getById('batches', batchId);
+  if (!batch) return;
+  if (!batchDetailSheet) batchDetailSheet = new Sheet('batch-detail-sheet-wrap');
+  const panel = document.getElementById('batch-detail-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+  detailBatchId = batchId;
+
+  const ft = getById('feedTypes', batch.feedTypeId);
+  const unitSys = getUnitSystem();
+  const weight = batch.weightPerUnitKg == null
+    ? '—'
+    : display(batch.weightPerUnitKg, 'weight', unitSys, 0);
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [batch.name]));
+  panel.appendChild(detailField(t('feed.batchFeedType'), ft?.name || '—'));
+  panel.appendChild(detailField(t('feed.batchNumber'), batch.batchNumber));
+  panel.appendChild(detailField(t('feed.batchSource'), batch.source));
+  panel.appendChild(detailField(t('feed.batchQuantity'), `${batch.quantity} ${batch.unit || ''}`.trim()));
+  panel.appendChild(detailField(t('feed.batchRemaining'), `${batch.remaining} ${batch.unit || ''}`.trim()));
+  panel.appendChild(detailField(t('feed.batchWeightPerUnit'), weight));
+  panel.appendChild(detailField(t('feed.batchDmPct'), batch.dmPct));
+  panel.appendChild(detailField(t('feed.batchCostPerUnit'), batch.costPerUnit));
+  panel.appendChild(detailField(t('feed.batchPurchaseDate'), batch.purchaseDate));
+  panel.appendChild(detailField(t('feed.batchNotes'), batch.notes));
+
+  panel.appendChild(el('h3', {
+    className: 'settings-section-title',
+    style: { marginTop: 'var(--space-4)' },
+  }, [t('feed.balances')]));
+  const balanceRows = balancesFor(batch.id);
+  const balanceList = el('div', { 'data-testid': `feed-batch-balances-${batch.id}` });
+  if (!balanceRows.length) {
+    balanceList.appendChild(el('p', { className: 'form-hint' }, [t('feed.noLocation')]));
+    const selection = { locationId: null };
+    const mount = el('div', { 'data-testid': 'batch-detail-set-location' });
+    balanceList.appendChild(mount);
+    mountLocationChoice(mount, operationId, selection);
+    balanceList.appendChild(el('button', {
+      className: 'btn btn-green btn-sm',
+      'data-testid': 'batch-detail-set-location-save',
+      style: { marginTop: '8px' },
+      onClick: () => {
+        if (!selection.locationId) return;
+        placeInitialBalance({
+          operationId,
+          batchId: batch.id,
+          locationId: selection.locationId,
+          quantity: Number(batch.remaining),
+          movedAt: todayDateString(),
+        });
+      },
+    }, [t('feed.setLocation')]));
+  } else {
+    for (const row of balanceRows) {
+      balanceList.appendChild(el('div', { className: 'batch-card-detail' }, [
+        `${locationName(row.locationId) || '?'} — ${row.quantity} ${batch.unit || ''}`.trim(),
+      ]));
+    }
+  }
+  panel.appendChild(balanceList);
+
+  if (positiveBalances(batch.id).length) {
+    panel.appendChild(el('button', {
+      className: 'btn btn-outline btn-sm',
+      'data-testid': `feed-batch-move-${batch.id}`,
+      style: { marginTop: '8px' },
+      onClick: () => openBatchMoveSheet(batch, operationId),
+    }, [t('feed.move')]));
+  }
+
+  panel.appendChild(el('h3', {
+    className: 'settings-section-title',
+    style: { marginTop: 'var(--space-4)' },
+  }, [t('feed.locationHistory')]));
+  const history = el('div', { 'data-testid': `feed-batch-moves-${batch.id}` });
+  const moveRows = movesFor(batch.id);
+  if (!moveRows.length) {
+    history.appendChild(el('p', { className: 'form-hint' }, ['—']));
+  } else {
+    for (const move of moveRows) {
+      const from = move.fromLocationId ? (locationName(move.fromLocationId) || '?') : '—';
+      const to = locationName(move.toLocationId) || '?';
+      const note = move.notes ? ` · ${move.notes}` : '';
+      history.appendChild(el('div', { className: 'batch-card-detail' }, [
+        `${move.movedAt} · ${from} → ${to} · ${move.quantity} ${batch.unit || ''}${note}`.trim(),
+      ]));
+    }
+  }
+  panel.appendChild(history);
+
+  panel.appendChild(el('h3', {
+    className: 'settings-section-title',
+    style: { marginTop: 'var(--space-4)' },
+  }, [t('feed.activityTitle')]));
+  const activity = renderBatchActivity(batch, operationId, panel, true);
+  panel.appendChild(activity || el('p', { className: 'form-hint' }, ['—']));
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [
+    el('button', {
+      className: 'btn btn-outline btn-sm',
+      'data-testid': `feed-batch-detail-edit-${batch.id}`,
+      onClick: () => openBatchSheet(batch, operationId),
+    }, [t('action.edit')]),
+    el('button', {
+      className: 'btn btn-outline btn-sm',
+      'data-testid': `feed-batch-detail-adjust-${batch.id}`,
+      onClick: () => openBatchAdjustSheet(batch, operationId),
+    }, [t('feed.adjustBatch')]),
+    batch.archived
+      ? el('button', {
+        className: 'btn btn-outline btn-sm',
+        onClick: () => {
+          update('batches', batch.id, { archived: false },
+            BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+        },
+      }, [t('action.restore')])
+      : el('button', {
+        className: 'btn btn-outline btn-sm',
+        'data-testid': `feed-batch-detail-archive-${batch.id}`,
+        onClick: () => {
+          if (window.confirm(t('feed.confirmArchiveBatch'))) {
+            update('batches', batch.id, { archived: true },
+              BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+            closeBatchDetails();
+          }
+        },
+      }, [t('action.archive')]),
+    el('button', {
+      className: 'btn btn-outline btn-sm',
+      'data-testid': `feed-batch-detail-delete-${batch.id}`,
+      onClick: () => {
+        if (window.confirm(t('feed.confirmDeleteBatch'))) {
+          closeBatchDetails();
+          deleteBatchWithLocations(batch.id);
+        }
+      },
+    }, [t('action.delete')]),
+    el('button', {
+      className: 'btn btn-outline btn-sm',
+      onClick: () => closeBatchDetails(),
+    }, [t('action.cancel')]),
+  ]));
+
+  batchDetailSheet.open();
+}
+
+function openBatchMoveSheet(batch, operationId) {
+  if (!batchMoveSheet) batchMoveSheet = new Sheet('batch-move-sheet-wrap');
+  const panel = document.getElementById('batch-move-sheet-panel');
+  if (!panel) return;
+  clear(panel);
+
+  const holdings = positiveBalances(batch.id);
+  const inputs = {};
+  const toSelection = { locationId: null };
+
+  panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('feed.moveBatch')]));
+
+  panel.appendChild(el('label', { className: 'form-label' }, [t('feed.moveFrom')]));
+  inputs.fromLocationId = el('select', {
+    className: 'auth-select',
+    'data-testid': 'batch-move-from',
+  }, holdings.map(row => el('option', { value: row.locationId }, [
+    `${locationName(row.locationId) || '?'} (${row.quantity})`,
+  ])));
+  if (holdings.length === 1) inputs.fromLocationId.value = holdings[0].locationId;
+  panel.appendChild(inputs.fromLocationId);
+
+  const currentFrom = () => holdings.find(row => row.locationId === inputs.fromLocationId.value) || holdings[0];
+
+  panel.appendChild(el('label', { className: 'form-label' }, [t('feed.moveQuantity')]));
+  inputs.quantity = el('input', {
+    type: 'number',
+    className: 'auth-input settings-input',
+    'data-testid': 'batch-move-quantity',
+    value: currentFrom()?.quantity ?? '',
+  });
+  panel.appendChild(inputs.quantity);
+  inputs.fromLocationId.addEventListener('change', () => {
+    inputs.quantity.value = currentFrom()?.quantity ?? '';
+  });
+
+  panel.appendChild(el('label', { className: 'form-label' }, [t('feed.moveTo')]));
+  const toMount = el('div', { 'data-testid': 'batch-move-to' });
+  panel.appendChild(toMount);
+  mountLocationChoice(toMount, operationId, toSelection);
+
+  panel.appendChild(el('label', { className: 'form-label' }, [t('feed.moveDate')]));
+  inputs.movedAt = el('input', {
+    type: 'date',
+    className: 'auth-input',
+    'data-testid': 'batch-move-date',
+    value: todayDateString(),
+  });
+  panel.appendChild(inputs.movedAt);
+
+  panel.appendChild(el('label', { className: 'form-label' }, [t('feed.moveNotes')]));
+  inputs.notes = el('textarea', {
+    className: 'auth-input',
+    'data-testid': 'batch-move-notes',
+    style: { minHeight: '50px', resize: 'vertical' },
+  });
+  panel.appendChild(inputs.notes);
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'batch-move-status' });
+  panel.appendChild(statusEl);
+
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [
+    el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'batch-move-save',
+      onClick: () => {
+        clear(statusEl);
+        const error = moveBatchQuantity({
+          operationId,
+          batchId: batch.id,
+          fromLocationId: inputs.fromLocationId.value,
+          toLocationId: toSelection.locationId,
+          quantity: parseFloat(inputs.quantity.value),
+          movedAt: inputs.movedAt.value || todayDateString(),
+          notes: inputs.notes.value.trim() || null,
+        });
+        if (error === 'same') {
+          statusEl.appendChild(el('span', {}, [t('feed.moveSameLocation')]));
+          return;
+        }
+        if (error) {
+          statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
+          return;
+        }
+        batchMoveSheet.close();
+      },
+    }, [t('action.save')]),
+    el('button', {
+      className: 'btn btn-outline',
+      onClick: () => batchMoveSheet.close(),
+    }, [t('action.cancel')]),
+  ]));
+
+  batchMoveSheet.open();
+}
+
+// ---------------------------------------------------------------------------
 // Batch sheet (create / edit)
 // ---------------------------------------------------------------------------
 
 let batchSheet = null;
+let batchDetailSheet = null;
+let batchMoveSheet = null;
+let detailBatchId = null;
 
 function openBatchSheet(existingBatch, operationId) {
   if (!batchSheet) {
@@ -892,6 +1241,15 @@ function openBatchSheet(existingBatch, operationId) {
   });
   panel.appendChild(inputs.notes);
 
+  const locationSelection = { locationId: null };
+  const needsLocation = !existingBatch || balancesFor(existingBatch.id).length === 0;
+  if (needsLocation) {
+    panel.appendChild(el('label', { className: 'form-label' }, [t('feed.location')]));
+    const locationMount = el('div', { 'data-testid': 'batch-sheet-location' });
+    panel.appendChild(locationMount);
+    mountLocationChoice(locationMount, operationId, locationSelection);
+  }
+
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'batch-sheet-status' });
   panel.appendChild(statusEl);
 
@@ -899,7 +1257,7 @@ function openBatchSheet(existingBatch, operationId) {
     el('button', {
       className: 'btn btn-green',
       'data-testid': 'batch-sheet-save',
-      onClick: () => saveBatch(existingBatch, inputs, operationId, unitSys, statusEl),
+      onClick: () => saveBatch(existingBatch, inputs, operationId, unitSys, statusEl, locationSelection),
     }, [t('action.save')]),
     el('button', {
       className: 'btn btn-outline',
@@ -911,7 +1269,7 @@ function openBatchSheet(existingBatch, operationId) {
   batchSheet.open();
 }
 
-function saveBatch(existingBatch, inputs, operationId, unitSys, statusEl) {
+function saveBatch(existingBatch, inputs, operationId, unitSys, statusEl, locationSelection) {
   clear(statusEl);
   statusEl.className = 'auth-error';
 
@@ -926,6 +1284,10 @@ function saveBatch(existingBatch, inputs, operationId, unitSys, statusEl) {
   }
 
   const quantity = parseNum(inputs.quantity) ?? 0;
+  if (!existingBatch && !locationSelection?.locationId) {
+    statusEl.appendChild(el('span', {}, [t('feed.locationRequired')]));
+    return;
+  }
 
   const data = {
     operationId,
@@ -946,9 +1308,25 @@ function saveBatch(existingBatch, inputs, operationId, unitSys, statusEl) {
   try {
     if (existingBatch) {
       update('batches', existingBatch.id, data, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+      if (balancesFor(existingBatch.id).length === 0 && locationSelection?.locationId) {
+        placeInitialBalance({
+          operationId,
+          batchId: existingBatch.id,
+          locationId: locationSelection.locationId,
+          quantity: Number(existingBatch.remaining),
+          movedAt: data.purchaseDate || todayDateString(),
+        });
+      }
     } else {
       const record = BatchEntity.create(data);
       add('batches', record, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+      placeInitialBalance({
+        operationId,
+        batchId: record.id,
+        locationId: locationSelection.locationId,
+        quantity,
+        movedAt: data.purchaseDate || todayDateString(),
+      });
     }
     batchSheet.close();
   } catch (err) {
@@ -988,6 +1366,18 @@ function openBatchAdjustSheet(batch, operationId, existingAdj = null) {
   panel.appendChild(el('p', { className: 'form-hint', style: { marginBottom: 'var(--space-4)' } }, [
     `${batch.name} — ${batch.remaining}/${batch.quantity} ${batch.unit}`,
   ]));
+
+  const balanceRows = balancesFor(batch.id);
+  if (balanceRows.length > 1) {
+    panel.appendChild(el('label', { className: 'form-label' }, [t('feed.adjustLocation')]));
+    inputs.locationId = el('select', {
+      className: 'auth-select',
+      'data-testid': 'batch-adjust-location',
+    }, balanceRows.map(row => el('option', { value: row.locationId }, [
+      `${locationName(row.locationId) || '?'} (${row.quantity})`,
+    ])));
+    panel.appendChild(inputs.locationId);
+  }
 
   // New quantity
   panel.appendChild(el('label', { className: 'form-label' }, [t('feed.adjustNewQty')]));
@@ -1032,35 +1422,39 @@ function openBatchAdjustSheet(batch, operationId, existingAdj = null) {
         const adjustmentDate = inputs.adjustmentDate.value || todayDateString();
         try {
           if (existingAdj) {
-            const delta = newQty - Number(existingAdj.previousQty);
+            const qtyDiff = newQty - Number(existingAdj.newQty);
+            if (qtyDiff !== 0) {
+              const balanceError = applyRemainingDelta(batch.id, inputs.locationId?.value || null, qtyDiff);
+              if (balanceError) {
+                statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
+                return;
+              }
+            }
             update('batchAdjustments', existingAdj.id, {
               newQty,
-              delta,
+              delta: newQty - Number(existingAdj.previousQty),
               reason: inputs.reason.value,
               adjustmentDate,
             }, BatchAdjustmentEntity.validate, BatchAdjustmentEntity.toSupabaseShape, 'batch_adjustments');
-
-            const qtyDiff = newQty - Number(existingAdj.newQty);
-            if (qtyDiff !== 0) {
-              update('batches', batch.id, { remaining: Number(batch.remaining) + qtyDiff },
-                BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
-            }
           } else {
             const delta = newQty - batch.remaining;
+            const balanceError = applyRemainingDelta(batch.id, inputs.locationId?.value || null, delta);
+            if (balanceError) {
+              statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
+              return;
+            }
+            const fresh = getById('batches', batch.id);
             const adj = BatchAdjustmentEntity.create({
               batchId: batch.id,
               operationId,
               previousQty: batch.remaining,
-              newQty,
-              delta,
+              newQty: fresh?.remaining ?? newQty,
+              delta: (fresh?.remaining ?? newQty) - Number(batch.remaining),
               reason: inputs.reason.value,
               adjustmentDate,
             });
             add('batchAdjustments', adj, BatchAdjustmentEntity.validate,
               BatchAdjustmentEntity.toSupabaseShape, 'batch_adjustments');
-
-            update('batches', batch.id, { remaining: newQty },
-              BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
           }
 
           batchAdjustSheet.close();

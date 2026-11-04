@@ -23,6 +23,8 @@ import { toSupabaseShape as membershipToSb } from '../entities/animal-group-memb
 import { toSupabaseShape as feedTypeToSb } from '../entities/feed-type.js';
 import { toSupabaseShape as batchToSb } from '../entities/batch.js';
 import { toSupabaseShape as batchAdjToSb } from '../entities/batch-adjustment.js';
+import { toSupabaseShape as batchBalanceToSb } from '../entities/batch-location-balance.js';
+import { toSupabaseShape as batchMoveToSb } from '../entities/batch-move.js';
 import { toSupabaseShape as eventToSb } from '../entities/event.js';
 import { toSupabaseShape as pwToSb } from '../entities/event-paddock-window.js';
 import { toSupabaseShape as gwToSb } from '../entities/event-group-window.js';
@@ -66,6 +68,7 @@ const TO_SB_MAP = {
   locations: locToSb, forageTypes: forageToSb, animalClasses: classToSb,
   animals: animalToSb, groups: groupToSb, animalGroupMemberships: membershipToSb,
   feedTypes: feedTypeToSb, batches: batchToSb, batchAdjustments: batchAdjToSb,
+  batchLocationBalances: batchBalanceToSb, batchMoves: batchMoveToSb,
   events: eventToSb, eventPaddockWindows: pwToSb, eventGroupWindows: gwToSb,
   eventFeedEntries: feToSb, eventFeedChecks: fcToSb, eventFeedCheckItems: fciToSb,
   surveys: surveyToSb, surveyDraftEntries: draftToSb, paddockObservations: obsToSb,

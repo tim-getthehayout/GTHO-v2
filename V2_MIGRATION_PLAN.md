@@ -695,7 +695,7 @@ locations, forage_types
 animal_classes, animals, groups, animal_group_memberships
 
 **D4 — Feed Inventory**
-feed_types, batches, batch_adjustments
+feed_types, batches, batch_adjustments, batch_location_balances, batch_moves
 
 **D5 — Event System**
 events, event_paddock_windows, event_group_windows, event_feed_entries, event_feed_checks, event_feed_check_items
@@ -754,34 +754,36 @@ Supabase enforces foreign-key integrity at write time. A wholesale replace that 
 19. `input_products`
 20. `animal_group_memberships`
 21. `batch_adjustments`
-22. `batch_nutritional_profiles`
-23. `soil_tests`
-24. `surveys`
-25. `events` — **two-pass** because of self-referential `source_event_id`: pass 1 inserts with `source_event_id` set to `NULL`; pass 2 `UPDATE`s to set `source_event_id`.
-26. `manure_batches`
-27. `amendments`
-28. `amendment_locations`
-29. `manure_batch_transactions`
-30. `npk_price_history`
-31. `event_paddock_windows`
-32. `event_group_windows`
-33. `event_feed_entries`
-34. `event_feed_checks`
-35. `event_feed_check_items`
-36. `paddock_observations`
-37. `survey_draft_entries`
-38. `harvest_events`
-39. `harvest_event_fields`
-40. `animal_weight_records`
-41. `animal_treatments`
-42. `animal_bcs_scores`
-43. `animal_breeding_records`
-44. `animal_heat_records`
-45. `animal_calving_records`
-46. `animal_notes`
-47. `todos`
-48. `todo_assignments`
-49. `submissions`
+22. `batch_location_balances` — migration 037. Quantity of one batch at one location. Depends on `batches` and `locations`.
+23. `batch_moves` — migration 037. Append-only transfers. `from_location_id` is nullable (first placement). Depends on `batches` and `locations`.
+24. `batch_nutritional_profiles`
+25. `soil_tests`
+26. `surveys`
+27. `events` — **two-pass** because of self-referential `source_event_id`: pass 1 inserts with `source_event_id` set to `NULL`; pass 2 `UPDATE`s to set `source_event_id`.
+28. `manure_batches`
+29. `amendments`
+30. `amendment_locations`
+31. `manure_batch_transactions`
+32. `npk_price_history`
+33. `event_paddock_windows`
+34. `event_group_windows`
+35. `event_feed_entries` — nullable `source_location_id` (migration 037) references `locations`, which is earlier in this list. `location_id` remains the delivery paddock.
+36. `event_feed_checks`
+37. `event_feed_check_items`
+38. `paddock_observations`
+39. `survey_draft_entries`
+40. `harvest_events`
+41. `harvest_event_fields`
+42. `animal_weight_records`
+43. `animal_treatments`
+44. `animal_bcs_scores`
+45. `animal_breeding_records`
+46. `animal_heat_records`
+47. `animal_calving_records`
+48. `animal_notes`
+49. `todos`
+50. `todo_assignments`
+51. `submissions`
 
 **Note on `event_observations` removal (2026-04-20, OI-0113, migration 029).** The table was dropped after OI-0112 migrated every writer and OI-0119 migrated the last reader (DMI-8) to `paddock_observations`. Prior revisions of this list had `event_observations` at position 32 with `event_paddock_windows` as its parent; the drop removed that entry and renumbered positions 33–50 up by one. CP-56's 28→29 migration rule discards the key from older backups (`src/data/backup-migrations.js` entry 28).
 

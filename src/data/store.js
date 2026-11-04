@@ -22,7 +22,7 @@ export const ENTITY_TYPES = [
   // D3: Animals & Groups
   'animalClasses', 'animals', 'groups', 'animalGroupMemberships',
   // D4: Feed Inventory
-  'feedTypes', 'batches', 'batchAdjustments',
+  'feedTypes', 'batches', 'batchAdjustments', 'batchLocationBalances', 'batchMoves',
   // D5: Events
   'events', 'eventPaddockWindows', 'eventGroupWindows', 'eventFeedEntries',
   'eventFeedChecks', 'eventFeedCheckItems',

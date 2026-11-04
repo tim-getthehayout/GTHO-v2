@@ -786,7 +786,7 @@ describe('v1-migration (CP-57)', () => {
         'ai_bulls', 'spreaders', 'input_product_categories', 'input_product_units',
         'treatment_categories', 'dose_units', 'farm_settings', 'user_preferences',
         'locations', 'animals', 'groups', 'batches', 'treatment_types', 'input_products',
-        'animal_group_memberships', 'batch_adjustments', 'batch_nutritional_profiles',
+        'animal_group_memberships', 'batch_adjustments', 'batch_location_balances', 'batch_moves', 'batch_nutritional_profiles',
         'soil_tests', 'surveys', 'events', 'manure_batches', 'amendments',
         'amendment_locations', 'manure_batch_transactions', 'npk_price_history',
         'event_paddock_windows', 'event_group_windows', 'event_feed_entries',

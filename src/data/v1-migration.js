@@ -1346,6 +1346,8 @@ export function transformV1ToV2(v1, opts) {
       input_products: v2InputProducts,
       animal_group_memberships: v2AnimalGroupMemberships,
       batch_adjustments: v2BatchAdjustments,
+      batch_location_balances: [],
+      batch_moves: [],
       batch_nutritional_profiles: v2BatchNutritionalProfiles,
       soil_tests: v2SoilTests,
       surveys: v2Surveys,

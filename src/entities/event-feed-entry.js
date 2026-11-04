@@ -13,6 +13,7 @@ export const FIELDS = {
   destinationType:    { type: 'text',    required: false, sbColumn: 'destination_type' },
   destinationEventId: { type: 'uuid',    required: false, sbColumn: 'destination_event_id' },
   sourceEventId: { type: 'uuid',        required: false, sbColumn: 'source_event_id' },
+  sourceLocationId: { type: 'uuid',     required: false, sbColumn: 'source_location_id' },
   createdAt:     { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:     { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -31,6 +32,7 @@ export function create(data = {}) {
     destinationType: data.destinationType ?? null,
     destinationEventId: data.destinationEventId ?? null,
     sourceEventId: data.sourceEventId ?? null,
+    sourceLocationId: data.sourceLocationId ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
   };
@@ -61,6 +63,7 @@ export function toSupabaseShape(record) {
     destination_type: record.destinationType,
     destination_event_id: record.destinationEventId,
     source_event_id: record.sourceEventId,
+    source_location_id: record.sourceLocationId,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -82,6 +85,7 @@ export function fromSupabaseShape(row) {
     destinationType: row.destination_type || null,
     destinationEventId: row.destination_event_id || null,
     sourceEventId: row.source_event_id,
+    sourceLocationId: row.source_location_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

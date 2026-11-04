@@ -391,13 +391,13 @@ function buildLocationCard(loc, operationId, farmId, unitSys) {
 
 function ensureLocationSheetDOM() {
   if (document.getElementById('loc-edit-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'loc-edit-wrap', style: { zIndex: '210' } }, [
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'loc-edit-wrap', style: { zIndex: '240' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => locationSheet?.close() }),
     el('div', { className: 'sheet-panel', id: 'loc-edit-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
   ]));
 }
 
-function openLocationSheet(existingLoc, operationId, farmId) {
+export function openLocationSheet(existingLoc, operationId, farmId, opts = {}) {
   ensureLocationSheetDOM();
   if (!locationSheet) locationSheet = new Sheet('loc-edit-wrap');
   const panel = document.getElementById('loc-edit-panel');
@@ -486,7 +486,7 @@ function openLocationSheet(existingLoc, operationId, farmId) {
   panel.appendChild(statusEl);
 
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [
-    el('button', { className: 'btn btn-green', onClick: () => saveLocation(existingLoc, typeState, inputs, operationId, farmId, unitSys, statusEl) }, [isEdit ? 'Save changes' : 'Add location']),
+    el('button', { className: 'btn btn-green', onClick: () => saveLocation(existingLoc, typeState, inputs, operationId, farmId, unitSys, statusEl, opts.onSaved) }, [isEdit ? 'Save changes' : 'Add location']),
     el('button', { className: 'btn btn-outline', onClick: () => locationSheet.close() }, ['Cancel']),
   ]));
 
@@ -503,7 +503,7 @@ function openLocationSheet(existingLoc, operationId, farmId) {
   locationSheet.open();
 }
 
-function saveLocation(existingLoc, typeState, inputs, operationId, farmId, unitSys, statusEl) {
+function saveLocation(existingLoc, typeState, inputs, operationId, farmId, unitSys, statusEl, onSaved) {
   clear(statusEl);
   const type = typeState.value;
   const name = inputs.name.value.trim();
@@ -525,9 +525,15 @@ function saveLocation(existingLoc, typeState, inputs, operationId, farmId, unitS
   };
 
   try {
+    let saved = existingLoc;
     if (existingLoc) update('locations', existingLoc.id, data, LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
-    else { const rec = LocationEntity.create(data); add('locations', rec, LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations'); }
+    else {
+      const rec = LocationEntity.create(data);
+      add('locations', rec, LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+      saved = rec;
+    }
     locationSheet.close();
+    if (onSaved) onSaved(saved);
   } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
 }
 

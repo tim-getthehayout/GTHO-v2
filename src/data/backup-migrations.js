@@ -167,4 +167,14 @@ export const BACKUP_MIGRATIONS = {
   // 035 → 036: nullable batch_adjustments.adjustment_date. Older backups omit
   //            the column; the database default is null.
   35: (b) => { b.schema_version = 36; return b; },
+  // 036 → 037: batch_location_balances, batch_moves, and nullable
+  //            event_feed_entries.source_location_id. Older backups have no
+  //            balance rows and no invented locations. The new column is omitted.
+  36: (b) => {
+    b.tables = b.tables || {};
+    if (!b.tables.batch_location_balances) b.tables.batch_location_balances = [];
+    if (!b.tables.batch_moves) b.tables.batch_moves = [];
+    b.schema_version = 37;
+    return b;
+  },
 };

@@ -32,6 +32,8 @@ export const BACKUP_TABLES = {
   feed_types:                { paginate: false },
   batches:                   { paginate: false },
   batch_adjustments:         { paginate: false },
+  batch_location_balances:   { paginate: false },
+  batch_moves:               { paginate: false },
   // D5
   events:                    { paginate: true },
   event_paddock_windows:     { paginate: true },

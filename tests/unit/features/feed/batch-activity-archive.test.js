@@ -75,7 +75,9 @@ describe('feed batch activity, adjustment date, and archive', () => {
 
   it('lists feed out and the original quantity, and only adjustments are editable', () => {
     const card = document.querySelector(`[data-testid="feed-batch-${BATCH}"]`);
-    const activity = card.querySelector(`[data-testid="feed-batch-activity-${BATCH}"]`);
+    expect(card.querySelector(`[data-testid="feed-batch-activity-${BATCH}"]`)).toBeNull();
+    document.querySelector(`[data-testid="feed-batch-details-${BATCH}"]`).click();
+    const activity = document.querySelector(`[data-testid="feed-batch-activity-${BATCH}"]`);
     expect(activity.textContent).toContain('Out');
     expect(activity.textContent).toContain('2 bale');
     expect(activity.textContent).toContain('North');
@@ -109,6 +111,7 @@ describe('feed batch activity, adjustment date, and archive', () => {
     expect(adj.delta).toBe(-2);
     expect(getById('batches', BATCH).remaining).toBe(8);
 
+    document.querySelector(`[data-testid="feed-batch-details-${BATCH}"]`).click();
     const activity = document.querySelector(`[data-testid="feed-batch-activity-${BATCH}"]`);
     const adjLine = [...activity.querySelectorAll('.batch-card-detail')]
       .find(line => line.textContent.includes('Adjustment'));
@@ -150,6 +153,7 @@ describe('feed batch activity, adjustment date, and archive', () => {
     pill().click();
     expect(pill().textContent).toBe('Hide archived');
     expect(document.querySelector(`[data-testid="feed-batch-restore-${BATCH}"]`)).not.toBeNull();
+    document.querySelector(`[data-testid="feed-batch-details-${BATCH}"]`).click();
     expect(document.querySelector(`[data-testid="feed-batch-activity-${BATCH}"]`).textContent).toContain('Out');
 
     document.querySelector(`[data-testid="feed-batch-restore-${BATCH}"]`).click();

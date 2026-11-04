@@ -12,7 +12,7 @@ import { pullAllRemote } from './pull-remote.js';
 import { logger } from '../utils/logger.js';
 
 const SUPPORTED_FORMAT_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 36;
+const CURRENT_SCHEMA_VERSION = 37;
 
 const FK_ORDER = [
   'operations',
@@ -36,6 +36,8 @@ const FK_ORDER = [
   'input_products',
   'animal_group_memberships',
   'batch_adjustments',
+  'batch_location_balances',
+  'batch_moves',
   'batch_nutritional_profiles',
   'soil_tests',
   'surveys',

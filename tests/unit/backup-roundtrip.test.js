@@ -13,10 +13,10 @@ import fixture from '../fixtures/backup-v14.json';
 
 // v14 fixture is historical and still carries event_observations: [] — it walks
 // the BACKUP_MIGRATIONS chain and the 28→29 step drops the key (OI-0113).
-const EXPECTED_FIXTURE_TABLE_COUNT = 50;
-// Current export lists 49 tables: 52 total tables (post-OI-0113 drop of
-// event_observations) minus 3 excluded (operation_members, app_logs, release_notes).
-const EXPECTED_EXPORT_TABLE_COUNT = 49;
+const EXPECTED_FIXTURE_TABLE_COUNT = 52;
+// Current export lists 51 tables: 54 entity types minus 3 excluded
+// (operation_members, app_logs, release_notes).
+const EXPECTED_EXPORT_TABLE_COUNT = 51;
 
 describe('backup round-trip (CP-55)', () => {
   describe('fixture structure', () => {
@@ -143,11 +143,21 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→36 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(22);
+    it('has migration entries for 14→37 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(23);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[34]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[35]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[36]).toBe('function');
+    });
+
+    it('36→37 adds empty balance and move tables and stamps schema_version', () => {
+      const backup = { schema_version: 36, tables: { batches: [{ id: 'b1' }] } };
+      const out = BACKUP_MIGRATIONS[36](backup);
+      expect(out.schema_version).toBe(37);
+      expect(out.tables.batches).toEqual([{ id: 'b1' }]);
+      expect(out.tables.batch_location_balances).toEqual([]);
+      expect(out.tables.batch_moves).toEqual([]);
     });
 
     it('35→36 stamps schema_version and leaves rows alone', () => {

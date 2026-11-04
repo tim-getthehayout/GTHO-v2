@@ -16,6 +16,8 @@ import { fromSupabaseShape as fromAnimalGroupMembership } from '../entities/anim
 import { fromSupabaseShape as fromFeedType } from '../entities/feed-type.js';
 import { fromSupabaseShape as fromBatch } from '../entities/batch.js';
 import { fromSupabaseShape as fromBatchAdjustment } from '../entities/batch-adjustment.js';
+import { fromSupabaseShape as fromBatchLocationBalance } from '../entities/batch-location-balance.js';
+import { fromSupabaseShape as fromBatchMove } from '../entities/batch-move.js';
 import { fromSupabaseShape as fromEvent } from '../entities/event.js';
 import { fromSupabaseShape as fromEventPaddockWindow } from '../entities/event-paddock-window.js';
 import { fromSupabaseShape as fromEventGroupWindow } from '../entities/event-group-window.js';
@@ -73,6 +75,8 @@ export const SYNC_REGISTRY = {
   feedTypes:                { table: 'feed_types',                from: fromFeedType },
   batches:                  { table: 'batches',                   from: fromBatch },
   batchAdjustments:         { table: 'batch_adjustments',         from: fromBatchAdjustment },
+  batchLocationBalances:    { table: 'batch_location_balances',    from: fromBatchLocationBalance },
+  batchMoves:               { table: 'batch_moves',                from: fromBatchMove },
   events:                   { table: 'events',                    from: fromEvent },
   eventPaddockWindows:      { table: 'event_paddock_windows',     from: fromEventPaddockWindow },
   eventGroupWindows:        { table: 'event_group_windows',       from: fromEventGroupWindow },

@@ -30,6 +30,12 @@ describe('entity: location', () => {
     it('fails when required fields missing', () => {
       expect(validate(create()).valid).toBe(false);
     });
+    it('accepts storage as its own type', () => {
+      const r = create({ name: 'Hay Barn', operationId: OP_ID, farmId: FARM_ID, type: 'storage' });
+      expect(validate(r).valid).toBe(true);
+      expect(r.landUse).toBeNull();
+      expect(r.geojson).toBeNull();
+    });
     it('fails for invalid type', () => {
       const r = create({ name: 'P1', operationId: OP_ID, farmId: FARM_ID, type: 'barn' });
       expect(validate(r).valid).toBe(false);

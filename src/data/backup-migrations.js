@@ -177,4 +177,7 @@ export const BACKUP_MIGRATIONS = {
     b.schema_version = 37;
     return b;
   },
+  // 037 → 038: locations.type may be 'storage'. No new column. Older backups
+  //            only contain confinement and land, which still pass the check.
+  37: (b) => { b.schema_version = 38; return b; },
 };

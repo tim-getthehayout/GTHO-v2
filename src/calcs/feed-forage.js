@@ -99,20 +99,24 @@ registerCalc({
   name: 'DMI-4',
   category: 'dmi',
   description: 'How much DMI came from pasture vs stored feed (mass balance)',
-  formula: 'pasture_dmi_kg = total_dmi - stored_consumed; pasture_pct = pasture_dmi / total_dmi × 100',
+  formula: 'pasture_dmi_kg = min(available_pasture, max(0, total_dmi - stored_consumed)); pasture_pct = pasture_dmi / total_dmi × 100',
   source: 'V2_CALCULATION_SPEC.md §4.2',
-  notes: 'Mass balance approach — assumes full daily intake met. Reasonable approximation.',
+  notes: 'Pasture never goes negative. When availablePastureDmKg is passed, pasture also cannot exceed that FOR-1 estimate; demand beyond it stays with stored feed. storedDmiKg remains the stored-consumed input.',
   inputs: [
     { name: 'totalDmiKg', type: 'number', unit: 'kg' },
     { name: 'storedConsumedKg', type: 'number', unit: 'kg' },
+    { name: 'availablePastureDmKg', type: 'number', unit: 'kg', notes: 'Optional FOR-1 cap. Omit to floor at 0 only.' },
   ],
   output: { type: 'object', shape: '{ pastureDmiKg, storedDmiKg, pasturePct }', unit: 'kg / %' },
   example: {
     inputs: { totalDmiKg: 400, storedConsumedKg: 100 },
     output: { pastureDmiKg: 300, storedDmiKg: 100, pasturePct: 75 },
   },
-  fn({ totalDmiKg, storedConsumedKg }) {
-    const pastureDmiKg = totalDmiKg - storedConsumedKg;
+  fn({ totalDmiKg, storedConsumedKg, availablePastureDmKg }) {
+    let pastureDmiKg = Math.max(0, totalDmiKg - storedConsumedKg);
+    if (typeof availablePastureDmKg === 'number' && Number.isFinite(availablePastureDmKg)) {
+      pastureDmiKg = Math.min(Math.max(0, availablePastureDmKg), pastureDmiKg);
+    }
     return {
       pastureDmiKg,
       storedDmiKg: storedConsumedKg,

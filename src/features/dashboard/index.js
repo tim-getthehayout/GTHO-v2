@@ -256,6 +256,72 @@ function getEventsInPeriod(period) {
   });
 }
 
+/** Date-time stamp for feed rows. Missing time sorts as 00:00. */
+export function feedInstant(date, time) {
+  return `${date || ''}T${time || '00:00'}`;
+}
+
+/**
+ * Stored-feed mass for one event, from raw entries and checks.
+ * Latest check is any check (not only a close reading), ordered by date, time, then createdAt.
+ * Remaining stored DM is that check's residual plus deliveries and minus removals strictly after it.
+ * No check means remaining is 0 (do not invent a residual). Stored consumed is net delivered minus that remaining.
+ */
+export function eventStoredFeedDm(eventId) {
+  const dmi1 = getCalcByName('DMI-1');
+  const batches = getAll('batches');
+  const batchMap = new Map(batches.map(b => [b.id, b]));
+  const feedEntries = getAll('eventFeedEntries').filter(fe => fe.eventId === eventId);
+  const entries = feedEntries.map(fe => {
+    const b = batchMap.get(fe.batchId);
+    const qtyUnits = fe.entryType === 'removal' ? -(fe.quantity ?? 0) : (fe.quantity ?? 0);
+    return {
+      qtyKg: qtyUnits * (b?.weightPerUnitKg ?? 0),
+      dmPct: b?.dmPct ?? 100,
+      stamp: feedInstant(fe.date, fe.time),
+    };
+  });
+  const netDeliveredDmKg = dmi1 ? dmi1.fn({ entries, remainingDmKg: 0 }) : 0;
+  const checks = getAll('eventFeedChecks')
+    .filter(fc => fc.eventId === eventId)
+    .sort((a, b) => {
+      const byWhen = feedInstant(b.date, b.time).localeCompare(feedInstant(a.date, a.time));
+      if (byWhen !== 0) return byWhen;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    });
+  const latest = checks[0] || null;
+  if (!latest) {
+    return {
+      hasStoredFeed: feedEntries.length > 0,
+      netDeliveredDmKg,
+      remainingStoredDmKg: 0,
+      storedConsumedKg: Math.max(0, netDeliveredDmKg),
+    };
+  }
+  const checkStamp = feedInstant(latest.date, latest.time);
+  let checkDm = 0;
+  for (const ci of getAll('eventFeedCheckItems').filter(ci => ci.feedCheckId === latest.id)) {
+    const b = batchMap.get(ci.batchId);
+    const wpu = b?.weightPerUnitKg ?? 0;
+    const dm = b?.dmPct ?? 100;
+    checkDm += (ci.remainingQuantity ?? 0) * wpu * (dm / 100);
+  }
+  let afterDm = 0;
+  for (const entry of entries) {
+    if (entry.stamp > checkStamp) afterDm += entry.qtyKg * (entry.dmPct / 100);
+  }
+  const remainingStoredDmKg = Math.max(0, checkDm + afterDm);
+  const storedConsumedKg = dmi1
+    ? Math.max(0, dmi1.fn({ entries, remainingDmKg: remainingStoredDmKg }))
+    : Math.max(0, netDeliveredDmKg - remainingStoredDmKg);
+  return {
+    hasStoredFeed: feedEntries.length > 0,
+    netDeliveredDmKg,
+    remainingStoredDmKg,
+    storedConsumedKg,
+  };
+}
+
 /**
  * OI-0075 Bug 7: shared Pasture % computation used by both desktop and mobile
  * stat cards. Mass balance via DMI-4 across all supplied events:
@@ -274,8 +340,6 @@ export function computePasturePercent(events) {
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const batches = getAll('batches');
-  const batchMap = new Map(batches.map(b => [b.id, b]));
   const todayStr = new Date().toISOString().slice(0, 10);
 
   let totalDmiKg = 0;
@@ -295,15 +359,7 @@ export function computePasturePercent(events) {
       totalDmiKg += dmiKgPerDay * days;
     }
     if (dmi1) {
-      const fes = getAll('eventFeedEntries').filter(fe => fe.eventId === event.id);
-      if (fes.length) {
-        const entries = fes.map(fe => {
-          const b = batchMap.get(fe.batchId);
-          const qtyUnits = fe.entryType === 'removal' ? -(fe.quantity ?? 0) : (fe.quantity ?? 0);
-          return { qtyKg: qtyUnits * (b?.weightPerUnitKg ?? 0), dmPct: b?.dmPct ?? 100 };
-        });
-        totalStoredDmKg += dmi1.fn({ entries, remainingDmKg: 0 });
-      }
+      totalStoredDmKg += eventStoredFeedDm(event.id).storedConsumedKg;
     }
   }
 
@@ -1050,12 +1106,12 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const cst1 = getCalcByName('CST-1');
   const dmi2 = getCalcByName('DMI-2');
   const dmi4 = getCalcByName('DMI-4');
-  const dmi1 = getCalcByName('DMI-1');
   const npk1 = getCalcByName('NPK-1');
   const npk2 = getCalcByName('NPK-2');
   const for1 = getCalcByName('FOR-1');
   const for2 = getCalcByName('FOR-2');
   const for3 = getCalcByName('FOR-3');
+  const for4 = getCalcByName('FOR-4');
 
   const eventStartDate = getEventStartDate(event.id);
   const dayCount = eventStartDate ? daysBetweenInclusive(eventStartDate, todayStr) : 0;
@@ -1088,50 +1144,11 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     }
   }
 
-  // Stored feed consumed (from DMI-1).
-  // OI-0075 Bug 5: fe.quantity is in the batch's UNITS (bales, lbs, tonnes), not
-  // kg, and dmPct needs to come from the batch, not be hardcoded to 100. Pre-fix,
-  // "2 bales at 500 kg × 85% DM" rendered as 2 lbs DM instead of ~1874 lbs DM.
-  // v1 calcConsumedDMI also subtracts residual from the latest close-reading
-  // feed check, so we factor that in when a close-reading exists.
-  let storedConsumedKg = 0;
-  if (dmi1 && feedEntries.length) {
-    const entries = feedEntries.map(fe => {
-      const b = batchMap.get(fe.batchId);
-      const qtyUnits = fe.entryType === 'removal' ? -(fe.quantity ?? 0) : (fe.quantity ?? 0);
-      const weightPerUnitKg = b?.weightPerUnitKg ?? 0;
-      const dmPct = b?.dmPct ?? 100;
-      return { qtyKg: qtyUnits * weightPerUnitKg, dmPct };
-    });
-    // v1 parity: subtract the latest close-reading feed check's remaining DM
-    // across items. When no close-reading exists yet, remainingDmKg = 0.
-    const feedChecks = getAll('eventFeedChecks')
-      .filter(fc => fc.eventId === event.id && fc.isCloseReading)
-      .sort((a, b) => (b.date || b.createdAt || '').localeCompare(a.date || a.createdAt || ''));
-    let remainingDmKg = 0;
-    if (feedChecks.length) {
-      const latest = feedChecks[0];
-      const items = getAll('eventFeedCheckItems').filter(ci => ci.feedCheckId === latest.id);
-      for (const ci of items) {
-        const b = batchMap.get(ci.batchId);
-        const wpu = b?.weightPerUnitKg ?? 0;
-        const dm = b?.dmPct ?? 100;
-        remainingDmKg += (ci.remainingQuantity ?? 0) * wpu * (dm / 100);
-      }
-    }
-    storedConsumedKg = dmi1.fn({ entries, remainingDmKg });
-  }
-
-  // Pasture/stored split
-  let pasturePct = 100, storedPct = 0, pastureDmKg = 0, storedDmKg = 0;
-  const totalDmiKgPeriod = dailyDmiKg * dayCount;
-  if (dmi4 && totalDmiKgPeriod > 0) {
-    const split = dmi4.fn({ totalDmiKg: totalDmiKgPeriod, storedConsumedKg });
-    pasturePct = Math.round(split.pasturePct);
-    storedPct = 100 - pasturePct;
-    pastureDmKg = split.pastureDmiKg;
-    storedDmKg = split.storedDmiKg;
-  }
+  // Stored feed: every check counts, not only a close reading. Deliveries and
+  // removals strictly after that check adjust the residual. No check → residual 0.
+  const feedMass = eventStoredFeedDm(event.id);
+  const storedConsumedKg = feedMass.storedConsumedKg;
+  const remainingStoredDmKg = feedMass.remainingStoredDmKg;
 
   // Forage / capacity
   // OI-0075 Bug 3: this reads pre-graze from paddock_observations (type='open',
@@ -1169,8 +1186,41 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       areaHectares: totalAreaHa, areaPct: areaPctForCalc, coverPct, dmKgPerCmPerHa: dmPerCmPerHa,
     });
     if (for2) estAuds = for2.fn({ availableDmKg, dmPerAudKg: 11 });
-    if (for3 && dailyDmiKg > 0) daysRemaining = for3.fn({ availableDmKg, groupDmiKgPerDay: dailyDmiKg });
     forageHeightDisplay = display(obs.forageHeightCm, 'length', unitSys, 1);
+  }
+
+  // Pasture bottoms at 0 and cannot exceed the FOR-1 estimate when we have one.
+  // Stored feed on the card stays the consumed amount (deliveries minus residual).
+  let pasturePct = 100, storedPct = 0, pastureDmKg = 0, storedDmKg = 0;
+  const totalDmiKgPeriod = dailyDmiKg * dayCount;
+  const for1Ran = !!(for1 && obs?.forageHeightCm && totalAreaHa > 0);
+  if (dmi4 && totalDmiKgPeriod > 0) {
+    const split = dmi4.fn({
+      totalDmiKg: totalDmiKgPeriod,
+      storedConsumedKg,
+      ...(for1Ran ? { availablePastureDmKg: availableDmKg } : {}),
+    });
+    pasturePct = Math.round(split.pasturePct);
+    storedPct = 100 - pasturePct;
+    pastureDmKg = split.pastureDmiKg;
+    storedDmKg = split.storedDmiKg;
+  }
+
+  // No stored feed: forage-only FOR-3. With stored feed: FOR-4 on leftover
+  // forage plus hay still out. The label is only for a non-zero hay remainder.
+  let daysIncludeStored = false;
+  if (dailyDmiKg > 0) {
+    if (!hasStoredFeed && for3 && availableDmKg > 0) {
+      daysRemaining = for3.fn({ availableDmKg, groupDmiKgPerDay: dailyDmiKg });
+    } else if (hasStoredFeed && for4) {
+      const forageLeftKg = Math.max(0, availableDmKg - pastureDmKg);
+      daysRemaining = for4.fn({
+        remainingStoredDmKg,
+        forageEstimateKg: forageLeftKg,
+        groupDmiKgPerDay: dailyDmiKg,
+      });
+      daysIncludeStored = remainingStoredDmKg > 0;
+    }
   }
 
   // Weight + AU — OI-0157-B1: route through ANI-AU registry call. Math is
@@ -1310,9 +1360,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   // paddock, no pre-graze observation yet, etc.). Now: render the line
   // whenever EITHER the full estimate works OR we can at least show partial
   // info (forage height, ADA) with a hint naming what's missing.
-  if (availableDmKg > 0 && dailyDmiKg > 0) {
+  if (dailyDmiKg > 0 && (availableDmKg > 0 || daysIncludeStored)) {
     let capText = `Est. capacity: ${Math.round(estAuds)} AUDs \u00B7 ~${daysRemaining} days remaining`;
-    if (hasStoredFeed) capText += ' (incl. stored feed)';
+    if (daysIncludeStored) capText += ' (incl. stored feed)';
     if (forageHeightDisplay) capText += ` \u00B7 ${forageHeightDisplay}"`;
     if (totalAcres > 0) capText += ` \u00B7 ADA est: ${adaPerAc.toFixed(1)}/ac`;
     children.push(el('div', { style: { fontSize: '12px', color: 'var(--color-green-dark, #3B6D11)', fontWeight: '500', marginBottom: 'var(--space-1)' } }, [capText]));

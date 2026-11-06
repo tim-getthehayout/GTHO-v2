@@ -6,7 +6,7 @@ const OP_ID = '550e8400-e29b-41d4-a716-446655440000';
 
 describe('entity: animal', () => {
   it('exports FIELDS with sbColumn for every field', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(21);
+    expect(Object.keys(FIELDS)).toHaveLength(23);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }
@@ -20,6 +20,8 @@ describe('entity: animal', () => {
       expect(r.damId).toBeNull();
       // OI-0099: confirmed_bred column is NOT NULL DEFAULT false; entity default mirrors.
       expect(r.confirmedBred).toBe(false);
+      expect(r.isBulk).toBe(false);
+      expect(r.bulkHeadCount).toBeNull();
     });
   });
 
@@ -44,6 +46,21 @@ describe('entity: animal', () => {
         cullDate: null, cullReason: null, cullNotes: null,
       });
       expect(fromSupabaseShape(toSupabaseShape(r))).toEqual(r);
+    });
+
+    it('round-trips a composite and coerces bulk_head_count', () => {
+      const r = create({ operationId: OP_ID, sex: 'female', isBulk: true, bulkHeadCount: 40, name: 'Ewe lot' });
+      expect(r.isBulk).toBe(true);
+      expect(r.bulkHeadCount).toBe(40);
+      const sb = toSupabaseShape(r);
+      expect(sb.is_bulk).toBe(true);
+      expect(sb.bulk_head_count).toBe(40);
+      expect(fromSupabaseShape({ ...sb, bulk_head_count: '40' }).bulkHeadCount).toBe(40);
+    });
+
+    it('rejects a head count on an individual', () => {
+      const r = create({ operationId: OP_ID, sex: 'female', bulkHeadCount: 3 });
+      expect(validate(r).valid).toBe(false);
     });
 
     it('round-trips confirmedBred (OI-0099)', () => {

@@ -17,6 +17,7 @@ function ensureSheetDOM() {
 }
 
 export function openBcsSheet(animal, operationId) {
+  if (animal?.isBulk) return;
   ensureSheetDOM();
   if (!bcsSheet) bcsSheet = new Sheet('bcs-sheet-wrap');
   const panel = document.getElementById('bcs-sheet-panel');

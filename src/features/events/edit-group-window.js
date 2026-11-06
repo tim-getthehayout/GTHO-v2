@@ -83,7 +83,7 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
     const animalClasses = getAll('animalClasses');
     const animalWeightRecords = getAll('animalWeightRecords');
     const nowStr = new Date().toISOString().slice(0, 10);
-    const headCountDisplay = getLiveWindowHeadCount(gw, { memberships, now: nowStr });
+    const headCountDisplay = getLiveWindowHeadCount(gw, { memberships, animals, now: nowStr });
     const avgWeightKgDisplay = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: nowStr });
     const weightText = avgWeightKgDisplay > 0 ? display(avgWeightKgDisplay, 'weight', unitSys, 0) : '—';
     panel.appendChild(el('div', { className: 'two' }, [

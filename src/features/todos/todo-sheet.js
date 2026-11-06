@@ -138,7 +138,7 @@ function renderSheetContent(prefill) {
   contentEl.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [locationSelect, mapPickButton(locationSelect, { title: 'Pick a task location' })]));
 
   // Animal select
-  const animals = store.getAll('animals').filter(a => a.status !== 'culled');
+  const animals = store.getAll('animals').filter(a => a.status !== 'culled' && (a.isBulk !== true || a.id === animalVal));
   contentEl.appendChild(el('label', { className: 'form-label' }, [t('todos.fieldAnimal')]));
   const animalSelect = el('select', { className: 'auth-select', 'data-testid': 'todo-animal-select' }, [
     el('option', { value: '' }, [t('form.noneOption')]),

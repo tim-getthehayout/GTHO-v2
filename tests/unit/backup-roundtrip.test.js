@@ -143,13 +143,25 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→38 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(24);
+    it('has migration entries for 14→39 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(25);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[34]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[35]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[36]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[37]).toBe('function');
+      expect(typeof BACKUP_MIGRATIONS[38]).toBe('function');
+    });
+
+    it('38→39 marks existing animals as individuals', () => {
+      const backup = {
+        schema_version: 38,
+        tables: { animals: [{ id: 'a1', sex: 'female' }, { id: 'a2', is_bulk: true, bulk_head_count: 12 }] },
+      };
+      const out = BACKUP_MIGRATIONS[38](backup);
+      expect(out.schema_version).toBe(39);
+      expect(out.tables.animals[0]).toMatchObject({ is_bulk: false, bulk_head_count: null });
+      expect(out.tables.animals[1]).toMatchObject({ is_bulk: true, bulk_head_count: 12 });
     });
 
     it('36→37 adds empty balance and move tables and stamps schema_version', () => {

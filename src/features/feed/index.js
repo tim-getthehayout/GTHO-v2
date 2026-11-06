@@ -340,9 +340,12 @@ function farmWideActiveDmiKg() {
     if (animal.active === false) continue;
     const cls = animal.classId ? classes.get(animal.classId) : null;
     const weighed = latestWeightKgOnOrBefore(animal.id, weights, today);
+    const perHeadDefault = typeof cls?.defaultWeightKg === 'number' ? cls.defaultWeightKg : 0;
+    // A recorded composite weight is the lot total. The class default is per head.
+    const heads = animal.isBulk === true ? Math.max(0, Math.floor(Number(animal.bulkHeadCount) || 0)) : 1;
     const weightKg = weighed != null
       ? weighed
-      : (typeof cls?.defaultWeightKg === 'number' ? cls.defaultWeightKg : 0);
+      : perHeadDefault * heads;
     total += dailyDmiForAnimal(weightKg, cls);
   }
   return total;

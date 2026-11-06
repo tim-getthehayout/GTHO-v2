@@ -21,7 +21,7 @@ import { openFeedCheckSheet } from '../feed/check.js';
 import { openGroupAddSheet } from '../events/group-windows.js';
 import { openEventDetailSheet } from '../events/detail.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
 import { computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
@@ -349,7 +349,7 @@ export function computePasturePercent(events) {
     for (const gw of gws) {
       const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
       const now = gw.dateLeft || event.dateOut || todayStr;
-      const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+      const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
       const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
       const dmiKgPerDay = dmi2.fn({
         headCount: liveHead, avgWeightKg: liveAvg,
@@ -404,7 +404,7 @@ function computeDesktopMetrics(events, _unitSys) {
       if (dmi2) {
         const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
         const now = gw.dateLeft || event.dateOut || todayStr;
-        const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+        const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
         const dmiKgPerDay = dmi2.fn({
           headCount: liveHead,
@@ -452,7 +452,7 @@ function computeDesktopMetrics(events, _unitSys) {
       for (const gw of gws) {
         const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
         const now = gw.dateLeft || event.dateOut || todayStr;
-        const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+        const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
         const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
         const result = npk1.fn({
@@ -554,7 +554,7 @@ function computeMobileMetrics(events, _unitSys) {
       for (const gw of gws) {
         const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
         const now = gw.dateLeft || event.dateOut || todayStr;
-        const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+        const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
         const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
         const result = npk1.fn({
@@ -600,7 +600,7 @@ function computeMobileMetrics(events, _unitSys) {
   const costPerDay = totalDays > 0 ? feedCostTotal / totalDays : 0;
   let costColor = 'var(--color-amber-base)';
   // Threshold per §17.4 — need head count for per-head calc (live memberships only)
-  const totalHead = memberships.filter(m => !m.dateLeft).length || 1;
+  const totalHead = sumMembershipHeads(memberships, animals, m => !m.dateLeft) || 1;
   const costPerHdDay = costPerDay / totalHead;
   if (costPerHdDay < 2) costColor = 'var(--color-green-base)';
   else if (costPerHdDay > 5) costColor = 'var(--color-red-base)';
@@ -732,14 +732,14 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
 
   // Live values for the active open window (OI-0091).
   const activeLiveHead = activeGW
-    ? getLiveWindowHeadCount(activeGW, { memberships, now: todayStr })
+    ? getLiveWindowHeadCount(activeGW, { memberships, animals, now: todayStr })
     : 0;
   const activeLiveAvg = activeGW
     ? getLiveWindowAvgWeight(activeGW, { memberships, animals, animalClasses, animalWeightRecords, now: todayStr })
     : 0;
 
   // Head count — use live memberships (same logic for groups not on pasture).
-  const headCount = memberships.filter(m => m.groupId === group.id && !m.dateLeft).length;
+  const headCount = sumMembershipHeads(memberships, animals, m => m.groupId === group.id && !m.dateLeft);
 
   // Average weight
   const avgWeightDisplay = activeLiveAvg > 0
@@ -1009,6 +1009,7 @@ function renderLocationsView(gridEl) {
   const activeEvents = getVisibleEvents().filter(e => !e.dateOut);
   const groups = getVisibleGroups().filter(g => !g.archivedAt);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
+  const animals = getAll('animals');
   const operationId = getAll('operations')[0]?.id;
   const farmId = getActiveFarmId() || getAll('farms')[0]?.id;
   const unitSys = getUnitSystem();
@@ -1042,7 +1043,7 @@ function renderLocationsView(gridEl) {
       el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('dashboard.unplacedGroups')]),
     ]);
     for (const group of unplacedGroups) {
-      const hc = memberships.filter(m => m.groupId === group.id).length;
+      const hc = sumMembershipHeads(memberships, animals, m => m.groupId === group.id);
       section.appendChild(el('div', { className: 'card', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)', padding: '10px 14px' } }, [
         el('span', { style: { fontSize: '13px' } }, [`${group.name} \u00B7 ${hc} head`]),
         el('button', { className: 'btn btn-teal btn-sm', 'data-testid': `dashboard-unplaced-place-btn-${group.id}`, onClick: () => openPlaceWizard(group.id, operationId, farmId) }, [t('dashboard.place')]),
@@ -1095,7 +1096,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const liveByGwId = new Map();
   let totalHead = 0, totalWeightKg = 0;
   for (const gw of gws) {
-    const liveHead = getLiveWindowHeadCount(gw, { memberships, now: todayStr });
+    const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now: todayStr });
     const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: todayStr });
     liveByGwId.set(gw.id, { head: liveHead, avg: liveAvg });
     totalHead += liveHead;

@@ -224,7 +224,7 @@ function executePlaceWizard(state, inputs, group, operationId, farmId, statusEl,
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const headCount = getLiveWindowHeadCount(fakeWindow, { memberships, now: dateIn });
+  const headCount = getLiveWindowHeadCount(fakeWindow, { memberships, animals, now: dateIn });
   const avgWeightKg = getLiveWindowAvgWeight(fakeWindow, {
     memberships, animals, animalClasses, animalWeightRecords, now: dateIn,
   });

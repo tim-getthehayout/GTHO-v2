@@ -85,7 +85,7 @@ export function openGroupAddSheet(evt, operationId) {
     const animals = getAll('animals');
     const animalClasses = getAll('animalClasses');
     const animalWeightRecords = getAll('animalWeightRecords');
-    livePreview.head = getLiveWindowHeadCount(stub, { memberships, now: dateJoined });
+    livePreview.head = getLiveWindowHeadCount(stub, { memberships, animals, now: dateJoined });
     livePreview.avgKg = getLiveWindowAvgWeight(stub, { memberships, animals, animalClasses, animalWeightRecords, now: dateJoined });
     livePreview.headLabel.textContent = String(livePreview.head);
     livePreview.weightLabel.textContent = livePreview.avgKg > 0

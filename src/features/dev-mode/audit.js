@@ -420,7 +420,7 @@ function renderGroupWindowSubBlock(parent, gw, eventId, groupWindowResultsByGwId
   const allClasses = getAll('animalClasses');
   const allWeights = getAll('animalWeightRecords');
 
-  const liveHead = getLiveWindowHeadCount(gw, { memberships: allMemberships, now: isoToday });
+  const liveHead = getLiveWindowHeadCount(gw, { memberships: allMemberships, animals: allAnimals, now: isoToday });
   const liveAvg = getLiveWindowAvgWeight(gw, {
     memberships: allMemberships, animals: allAnimals,
     animalClasses: allClasses, animalWeightRecords: allWeights, now: isoToday,

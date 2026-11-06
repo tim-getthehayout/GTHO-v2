@@ -580,7 +580,7 @@ registerCalc({
         const cls = gw.animalClassId && animalClasses ? animalClasses[gw.animalClassId] : null;
         const pct = cls?.dmiPct ?? 2.5;
         const head = memberships
-          ? getLiveWindowHeadCount(gw, { memberships, now: dt })
+          ? getLiveWindowHeadCount(gw, { memberships, animals, now: dt })
           : (gw.headCount ?? 0);
         const avg = memberships
           // OI-0130: animalClasses here is a map keyed by classId; convert

@@ -8,6 +8,8 @@ export const FIELDS = {
   eid:            { type: 'text',    required: false, sbColumn: 'eid' },
   name:           { type: 'text',    required: false, sbColumn: 'name' },
   sex:            { type: 'text',    required: true,  sbColumn: 'sex' },
+  isBulk:         { type: 'boolean', required: false, sbColumn: 'is_bulk' },
+  bulkHeadCount:  { type: 'integer', required: false, sbColumn: 'bulk_head_count' },
   damId:          { type: 'uuid',    required: false, sbColumn: 'dam_id' },
   sireAnimalId:   { type: 'uuid',    required: false, sbColumn: 'sire_animal_id' },
   sireAiBullId:   { type: 'uuid',    required: false, sbColumn: 'sire_ai_bull_id' },
@@ -33,6 +35,8 @@ export function create(data = {}) {
     eid: data.eid ?? null,
     name: data.name ?? null,
     sex: data.sex ?? 'female',
+    isBulk: data.isBulk ?? false,
+    bulkHeadCount: data.isBulk ? (data.bulkHeadCount ?? 0) : (data.bulkHeadCount ?? null),
     damId: data.damId ?? null,
     sireAnimalId: data.sireAnimalId ?? null,
     sireAiBullId: data.sireAiBullId ?? null,
@@ -59,6 +63,16 @@ export function validate(record) {
   if (!record.sex || typeof record.sex !== 'string') {
     errors.push('sex is required');
   }
+  if (typeof record.isBulk !== 'boolean') {
+    errors.push('isBulk must be a boolean');
+  } else if (record.isBulk) {
+    const n = record.bulkHeadCount;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) {
+      errors.push('bulkHeadCount must be an integer >= 0 when isBulk is true');
+    }
+  } else if (record.bulkHeadCount != null) {
+    errors.push('bulkHeadCount must be null when isBulk is false');
+  }
   return { valid: errors.length === 0, errors };
 }
 
@@ -71,6 +85,8 @@ export function toSupabaseShape(record) {
     eid: record.eid,
     name: record.name,
     sex: record.sex,
+    is_bulk: record.isBulk ?? false,
+    bulk_head_count: record.isBulk ? record.bulkHeadCount : null,
     dam_id: record.damId,
     sire_animal_id: record.sireAnimalId,
     sire_ai_bull_id: record.sireAiBullId,
@@ -97,6 +113,10 @@ export function fromSupabaseShape(row) {
     eid: row.eid,
     name: row.name,
     sex: row.sex,
+    isBulk: row.is_bulk === true,
+    bulkHeadCount: row.bulk_head_count != null && row.bulk_head_count !== ''
+      ? Number(row.bulk_head_count)
+      : null,
     damId: row.dam_id,
     sireAnimalId: row.sire_animal_id,
     sireAiBullId: row.sire_ai_bull_id,

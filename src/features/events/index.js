@@ -905,16 +905,20 @@ function renderGroupPicker(container, groups, selection, unitSys) {
 
   for (const group of groups) {
     const activeMembers = memberships.filter(m => m.groupId === group.id && !m.dateLeft);
-    const headCount = activeMembers.length;
+    let headCount = 0;
 
-    // Calculate avg weight from class defaults
+    // Calculate avg weight from class defaults. A composite uses its head count
+    // and the class default per head so the average stays a per-head figure.
     let totalWeight = 0;
     let weightCount = 0;
     for (const m of activeMembers) {
       const animal = animals.find(a => a.id === m.animalId);
-      if (animal?.classId && classMap[animal.classId]?.defaultWeightKg) {
-        totalWeight += classMap[animal.classId].defaultWeightKg;
-        weightCount++;
+      const heads = animal?.isBulk === true ? Math.max(0, Math.floor(Number(animal.bulkHeadCount) || 0)) : 1;
+      headCount += heads;
+      const perHead = animal?.classId ? classMap[animal.classId]?.defaultWeightKg : null;
+      if (perHead) {
+        totalWeight += perHead * heads;
+        weightCount += heads;
       }
     }
     const avgWeightKg = weightCount > 0 ? totalWeight / weightCount : 0;

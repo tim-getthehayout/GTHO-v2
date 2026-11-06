@@ -261,7 +261,7 @@ function renderSummary(ctx) {
   let totalHead = 0;
   let totalWeightKg = 0;
   for (const gw of gws) {
-    const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+    const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
     const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
     liveByGwId.set(gw.id, { head: liveHead, avg: liveAvg });
     totalHead += liveHead;
@@ -791,7 +791,7 @@ function renderGroups(ctx) {
   for (const gw of gws) {
     const grp = getById('groups', gw.groupId);
     const grpName = grp?.name || '?';
-    const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+    const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
     const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
     const weightDisplay = liveAvg > 0 ? display(liveAvg, 'weight', unitSys, 0) : '\u2014';
     // OI-0157-B1: route through ANI-AU registry call.
@@ -1091,7 +1091,7 @@ function renderDmiNpk(ctx) {
   const liveByGwId = new Map();
   for (const gw of gws) {
     liveByGwId.set(gw.id, {
-      head: getLiveWindowHeadCount(gw, { memberships, now }),
+      head: getLiveWindowHeadCount(gw, { memberships, animals, now }),
       avg: getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now }),
     });
   }

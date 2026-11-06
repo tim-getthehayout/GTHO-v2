@@ -23,10 +23,56 @@ function isMembershipLive(m, groupId, now) {
   return true;
 }
 
-export function getLiveWindowHeadCount(gw, { memberships, now }) {
+/**
+ * Head represented by one animal row.
+ * An individual is 1. A composite is bulkHeadCount, floored at 0.
+ * A missing animal record stays 1 so older callers that lack the row do not drop a membership.
+ */
+export function animalHeadCount(animal) {
+  if (!animal || animal.isBulk !== true) return 1;
+  const n = Number(animal.bulkHeadCount);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.floor(n);
+}
+
+/**
+ * Head across memberships. Pass `animals` so composites contribute bulkHeadCount.
+ * Without `animals`, each membership counts as 1 (pre-composite behavior).
+ */
+export function sumMembershipHeads(memberships, animals, pred) {
+  const byId = new Map((animals || []).map(a => [a.id, a]));
+  let head = 0;
+  for (const m of memberships || []) {
+    if (pred && !pred(m)) continue;
+    head += animals ? animalHeadCount(byId.get(m.animalId)) : 1;
+  }
+  return head;
+}
+
+/**
+ * Yes on the composite-reduce prompt.
+ * Head drops by the number of individuals added, floored at 0.
+ * Weight drops by that same share of the composite's latest total weight, floored at 0.
+ * No weight on file leaves weightKgAfter null (nothing to subtract).
+ */
+export function reduceCompositeTotals({ headBefore, weightKg, headsToRemove }) {
+  const before = Math.max(0, Math.floor(Number(headBefore) || 0));
+  const remove = Math.max(0, Math.floor(Number(headsToRemove) || 0));
+  const applied = Math.min(remove, before);
+  const headAfter = Math.max(0, before - remove);
+  if (typeof weightKg !== 'number' || !Number.isFinite(weightKg)) {
+    return { headAfter, weightKgAfter: null };
+  }
+  if (before <= 0 || applied <= 0) return { headAfter, weightKgAfter: Math.max(0, weightKg) };
+  return { headAfter, weightKgAfter: Math.max(0, weightKg - (weightKg * applied / before)) };
+}
+
+export function getLiveWindowHeadCount(gw, { memberships, now, animals } = {}) {
   if (gw.dateLeft != null) return gw.headCount ?? 0;
   if (!memberships || !now) return gw.headCount ?? 0;
-  return memberships.filter(m => isMembershipLive(m, gw.groupId, now)).length;
+  const live = memberships.filter(m => isMembershipLive(m, gw.groupId, now));
+  if (!animals) return live.length;
+  return sumMembershipHeads(live, animals);
 }
 
 /**
@@ -85,10 +131,25 @@ export function getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses
     }
   }
 
+  const animalById = new Map(animals.map(a => [a.id, a]));
   let sum = 0;
   let count = 0;
   for (const id of liveAnimalIds) {
+    const animal = animalById.get(id);
     const rec = weightsByAnimal.get(id);
+    // A composite weight record is the lot total, and the class default is per head.
+    if (animal?.isBulk === true) {
+      const heads = animalHeadCount(animal);
+      if (heads <= 0) continue;
+      if (rec && typeof rec.weightKg === 'number') {
+        sum += rec.weightKg;
+        count += heads;
+      } else if (classDefaultByAnimalId.has(id)) {
+        sum += classDefaultByAnimalId.get(id) * heads;
+        count += heads;
+      }
+      continue;
+    }
     if (rec && typeof rec.weightKg === 'number') {
       sum += rec.weightKg;
       count += 1;

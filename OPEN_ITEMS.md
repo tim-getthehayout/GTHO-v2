@@ -4,6 +4,18 @@
 
 ---
 
+### OI-0193 — Composite animal columns are not yet in the schema or backup spec docs
+
+**Added:** 2026-11-06 | **Area:** schema / backup | **Priority:** P3
+
+**Status:** open — doc follow-up for Grok project chat. Code and migration 039 are in the composite-animals change. Do not treat this as a second implementation.
+
+Migration `039_animals_bulk_composite.sql` adds `animals.is_bulk` (boolean, not null, default false) and `animals.bulk_head_count` (integer, null on individuals, >= 0 on composites). Total weight stays on `animal_weight_records`. `BACKUP_MIGRATIONS[38]` stamps older backups as individuals. `V2_SCHEMA_DESIGN.md` §3.2 and `V2_MIGRATION_PLAN.md` §5 do not list the columns yet. Design docs are owned by project chat.
+
+**CP-55/CP-56:** export already selects every animals column, so the new columns ride along after the migration is applied. Import of a pre-39 backup sets `is_bulk` false and `bulk_head_count` null.
+
+---
+
 ### OI-0190 — Editing a destination event's start datetime should prompt to cascade the matching source-side close timestamps; today the link silently breaks
 
 **Added:** 2026-06-24 | **Area:** v2-build / events / event-start / detail | **Priority:** P2 (workaround exists once OI-0188 ships — open the source event and edit its windows manually; this OI removes the manual round-trip and surfaces the link explicitly)

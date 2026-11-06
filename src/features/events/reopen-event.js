@@ -6,6 +6,7 @@ import { getAll, getById, update } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
+import { sumMembershipHeads } from '../../calcs/window-helpers.js';
 
 /**
  * OI-0095 paddock classifier: for each event_paddock_window closed on
@@ -72,7 +73,11 @@ export function classifyGwsForReopen(event) {
       keepClosed.push({ gw, group, reason: 'moved' });
       continue;
     }
-    const liveCount = memberships.filter(m => m.groupId === gw.groupId && !m.dateLeft).length;
+    const liveCount = sumMembershipHeads(
+      memberships,
+      getAll('animals'),
+      m => m.groupId === gw.groupId && !m.dateLeft,
+    );
     if (liveCount <= 0) {
       keepClosed.push({ gw, group, reason: 'empty' });
       continue;

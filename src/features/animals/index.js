@@ -353,8 +353,9 @@ export function renderAnimalsScreen(container) {
     for (const m of memberships) { if (!membershipMap.has(m.animalId)) membershipMap.set(m.animalId, m); }
     const latestWeightMap = new Map();
     for (const w of weightRecords) {
-      const existing = latestWeightMap.get(w.animalId);
-      if (!existing || (w.date || '') > (existing.date || '')) latestWeightMap.set(w.animalId, w);
+      if (!w.animalId || latestWeightMap.has(w.animalId)) continue;
+      const latest = latestWeightForAnimal(weightRecords, w.animalId);
+      if (latest) latestWeightMap.set(w.animalId, latest);
     }
 
     // Sort
@@ -432,7 +433,7 @@ export function renderAnimalsScreen(container) {
             ]),
           ]),
           el('div', { style: { textAlign: 'right', flexShrink: '0' } }, [
-            el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [`${weightDisplay} ${unitLabel('weight', unitSys)}`]),
+            el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [weightDisplay]),
           ]),
         ]),
         // Quick-action buttons
@@ -538,8 +539,8 @@ export function openGroupSheet(existingGroup, operationId) {
       const otherGroupMem = memberships.find(m => m.animalId === a.id && (!isEdit || m.groupId !== existingGroup?.id));
       const inOtherGroup = !!otherGroupMem && !isPicked;
       const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
-      const latestW = weightRecords.filter(w => w.animalId === a.id).sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
-      const weightStr = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) + ' ' + unitLabel('weight', unitSys) : '';
+      const latestW = latestWeightForAnimal(weightRecords, a.id);
+      const weightStr = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '';
       const otherGrp = otherGroupMem ? getAll('groups').find(g => g.id === otherGroupMem.groupId) : null;
 
       pickerEl.appendChild(el('div', {
@@ -737,8 +738,8 @@ function openSplitGroupSheet(group, operationId) {
       if (!a) continue;
       const isPicked = splitAnimals.has(a.id);
       const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
-      const latestW = weightRecords.filter(w => w.animalId === a.id).sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
-      const wStr = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) + ' ' + unitLabel('weight', unitSys) : '';
+      const latestW = latestWeightForAnimal(weightRecords, a.id);
+      const wStr = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '';
 
       pickerEl.appendChild(el('div', {
         style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: isPicked ? 'var(--green-l)' : 'var(--bg2)', borderRadius: 'var(--radius)', marginBottom: '4px', cursor: 'pointer', border: `0.5px solid ${isPicked ? 'var(--green-l2)' : 'var(--border)'}` },
@@ -1296,7 +1297,7 @@ function openGroupWeightsSheet(group, operationId) {
 
   const weightInputs = [];
   for (const a of groupAnimals) {
-    const latestW = weightRecords.filter(w => w.animalId === a.id).sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
+    const latestW = latestWeightForAnimal(weightRecords, a.id);
     const currentDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '—';
     const cls = a.classId ? getAll('animalClasses').find(c => c.id === a.classId) : null;
     const newWtInput = el('input', { type: 'number', placeholder: 'New wt', step: '1', style: { width: '90px', padding: '7px 8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', textAlign: 'right' } });
@@ -1866,13 +1867,14 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
     // ── Weight history ──
     panel.appendChild(el('div', { className: 'div' }));
     panel.appendChild(el('div', { className: 'sec', style: { marginBottom: '6px' } }, ['Weight history']));
-    const animalWeights = weightRecords.filter(w => w.animalId === existingAnimal.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const animalWeights = weightRecords.filter(w => w.animalId === existingAnimal.id).sort((a, b) => (b.recordedAt || b.date || '').localeCompare(a.recordedAt || a.date || ''));
     if (animalWeights.length) {
       const wHistEl = el('div', { style: { fontSize: '12px', color: 'var(--text2)', maxHeight: '120px', overflowY: 'auto' } });
       for (const w of animalWeights) {
+        const when = (w.recordedAt || w.date || '').slice(0, 10) || '?';
         wHistEl.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '0.5px solid var(--border)' } }, [
-          el('span', {}, [w.date || '?']),
-          el('span', { style: { fontWeight: '500' } }, [`${display(w.weightKg, 'weight', unitSys, 0)} ${unitLabel('weight', unitSys)}${w.notes ? ' \u00B7 ' + w.notes : ''}`]),
+          el('span', {}, [when]),
+          el('span', { style: { fontWeight: '500' } }, [`${display(w.weightKg, 'weight', unitSys, 0)}${w.notes ? ' \u00B7 ' + w.notes : ''}`]),
         ]));
       }
       panel.appendChild(wHistEl);

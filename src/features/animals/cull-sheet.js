@@ -11,7 +11,7 @@ import { el, clear } from '../../ui/dom.js';
 import { Sheet } from '../../ui/sheet.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, getById, update, splitGroupWindow } from '../../data/store.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, latestWeightForAnimal } from '../../calcs/window-helpers.js';
 import { maybeShowEmptyGroupPrompt } from './empty-group-prompt.js';
 import { today } from '../../utils/date-utils.js';
 import { display } from '../../utils/units.js';
@@ -182,9 +182,7 @@ export function openCullSheet(animal, operationId, onCommitted) {
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, [t('animal.cullTitle')]));
 
   const unitSys = getUnitSystem();
-  const weights = getAll('animalWeightRecords').filter(w => w.animalId === animal.id);
-  weights.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const latestWeightKg = weights[0]?.weightKg ?? null;
+  const latestWeightKg = latestWeightForAnimal(getAll('animalWeightRecords'), animal.id)?.weightKg ?? null;
   const label = buildAnimalLabel({ animal, latestWeightKg, unitSys });
 
   panel.appendChild(el('div', {

@@ -203,7 +203,7 @@ function executePlaceWizard(state, inputs, group, operationId, farmId, statusEl,
   if (preGraze) {
     const pv = preGraze.validate();
     if (!pv.valid) {
-      statusEl.appendChild(el('span', {}, [pv.errors.join(', ')]));
+      statusEl.appendChild(el('span', {}, [t('event.placeNotSaved', { reason: pv.errors.join(', ') })]));
       return;
     }
   }
@@ -228,6 +228,19 @@ function executePlaceWizard(state, inputs, group, operationId, farmId, statusEl,
   const avgWeightKg = getLiveWindowAvgWeight(fakeWindow, {
     memberships, animals, animalClasses, animalWeightRecords, now: dateIn,
   });
+  // Refuse before any write. A head count of 0 used to skip the group window
+  // and still create the event, then close the wizard. An average of 0 fails
+  // the group-window validator after that event already exists.
+  if (!(headCount >= 1)) {
+    statusEl.appendChild(el('span', {}, [t('event.placeNotSaved', { reason: t('validation.headCountMin') })]));
+    if (saveBtn) saveBtn.disabled = false;
+    return;
+  }
+  if (!(avgWeightKg > 0)) {
+    statusEl.appendChild(el('span', {}, [t('event.placeNotSaved', { reason: t('validation.avgWeightRequired') })]));
+    if (saveBtn) saveBtn.disabled = false;
+    return;
+  }
   const groupSnapshots = [{ groupId: state.groupId, headCount, avgWeightKg }];
 
   try {

@@ -24,7 +24,7 @@ import { syncCalvingRecordForAnimal } from './calving-sync.js';
 import { maybeShowEmptyGroupPrompt, groupEventHistoryCount } from './empty-group-prompt.js';
 import { showToast } from '../../ui/toast.js';
 import { openLocationNames } from '../events/open-cohort.js';
-import { animalHeadCount } from '../../calcs/window-helpers.js';
+import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpers.js';
 import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
 
@@ -199,7 +199,7 @@ export function renderAnimalsScreen(container) {
       const classes = getAll('animalClasses');
       let totalWeightKg = 0;
       for (const a of groupAnimals) {
-        const latestW = weightRecords.filter(w => w.animalId === a.id).sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
+        const latestW = latestWeightForAnimal(weightRecords, a.id);
         const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
         if (a.isBulk === true) {
           const heads = animalHeadCount(a);
@@ -239,7 +239,7 @@ export function renderAnimalsScreen(container) {
         ]),
         sexLine ? el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [sexLine]) : null,
         el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
-          `${headCount} head \u00B7 avg ${avgWeightDisplay} ${unitLabel('weight', unitSys)} \u00B7 DMI target ${dmiDisplay} ${unitLabel('weight', unitSys)}/day`,
+          `${headCount} head \u00B7 avg ${avgWeightDisplay} \u00B7 DMI target ${dmiDisplay}/day`,
         ]),
         el('div', {
           style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' },

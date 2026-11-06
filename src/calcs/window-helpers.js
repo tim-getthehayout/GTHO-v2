@@ -67,6 +67,34 @@ export function reduceCompositeTotals({ headBefore, weightKg, headsToRemove }) {
   return { headAfter, weightKgAfter: Math.max(0, weightKg - (weightKg * applied / before)) };
 }
 
+/** Calendar day of a weight row. Records store recordedAt; older rows may only have date. */
+export function weightRecordDay(record) {
+  const stamp = record?.recordedAt || record?.date || '';
+  return String(stamp).slice(0, 10);
+}
+
+/**
+ * Latest finite weight for one animal on or before `now` (YYYY-MM-DD).
+ * Ordering uses the full recordedAt timestamp, then date. A same-day
+ * timestamp is included: only the calendar day is compared with `now`.
+ */
+export function latestWeightForAnimal(records, animalId, now) {
+  let best = null;
+  let bestStamp = '';
+  for (const w of records || []) {
+    if (w.animalId !== animalId) continue;
+    if (typeof w.weightKg !== 'number' || !Number.isFinite(w.weightKg)) continue;
+    const day = weightRecordDay(w);
+    if (now && day && day > now) continue;
+    const stamp = w.recordedAt || w.date || '';
+    if (!best || stamp > bestStamp) {
+      best = w;
+      bestStamp = stamp;
+    }
+  }
+  return best;
+}
+
 export function getLiveWindowHeadCount(gw, { memberships, now, animals } = {}) {
   if (gw.dateLeft != null) return gw.headCount ?? 0;
   if (!memberships || !now) return gw.headCount ?? 0;
@@ -107,13 +135,12 @@ export function getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses
 
   const weightsByAnimal = new Map();
   if (animalWeightRecords) {
+    const seen = new Set();
     for (const w of animalWeightRecords) {
-      if (!w.animalId || !w.weightKg) continue;
-      if (w.date && w.date > now) continue;
-      const prev = weightsByAnimal.get(w.animalId);
-      if (!prev || (w.date || '') > (prev.date || '')) {
-        weightsByAnimal.set(w.animalId, w);
-      }
+      if (!w.animalId || seen.has(w.animalId)) continue;
+      seen.add(w.animalId);
+      const latest = latestWeightForAnimal(animalWeightRecords, w.animalId, now);
+      if (latest) weightsByAnimal.set(w.animalId, latest);
     }
   }
 

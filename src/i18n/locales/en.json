@@ -358,6 +358,7 @@
     "placeStep3Title": "Open at {location}",
     "placeStep3TitleJoin": "Add {group} to {location}",
     "placeWizardSaveError": "Save failed: {error}",
+    "placeNotSaved": "This group was not placed. {reason}",
     "noActiveEvents": "No active events to join.",
     "closeEvent": "Close Event",
     "closeEventTitle": "Close Event",

@@ -21,7 +21,7 @@ import { openFeedCheckSheet } from '../feed/check.js';
 import { openGroupAddSheet } from '../events/group-windows.js';
 import { openEventDetailSheet } from '../events/detail.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads, animalHeadCount } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
 import { computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
@@ -153,7 +153,7 @@ function renderDesktopStats(period, rootContainer) {
   // Header line
   const groups = getVisibleGroups().filter(g => !g.archivedAt);
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
-  const totalHead = memberships.length;
+  const totalHead = sumMembershipHeads(memberships, getAll('animals'));
   const groupCount = groups.length;
   const activeEvents = getVisibleEvents().filter(e => !e.dateOut);
   const activeCount = activeEvents.length;
@@ -736,12 +736,16 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     : 0;
   const activeLiveAvg = activeGW
     ? getLiveWindowAvgWeight(activeGW, { memberships, animals, animalClasses, animalWeightRecords, now: todayStr })
-    : 0;
+    : getLiveWindowAvgWeight(
+      { groupId: group.id, dateLeft: null },
+      { memberships, animals, animalClasses, animalWeightRecords, now: todayStr },
+    );
 
   // Head count — use live memberships (same logic for groups not on pasture).
   const headCount = sumMembershipHeads(memberships, animals, m => m.groupId === group.id && !m.dateLeft);
 
-  // Average weight
+  // Average weight. Unplaced groups have no window, so the average still
+  // comes from the same live helper (lot total / head for a composite).
   const avgWeightDisplay = activeLiveAvg > 0
     ? display(activeLiveAvg, 'weight', unitSys, 0)
     : '';
@@ -767,9 +771,9 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   const classCounts = {};
   const allClasses = getAll('animalClasses');
   for (const a of groupAnimals) {
-    const cls = allClasses.find(c => c.id === a.animalClassId);
+    const cls = allClasses.find(c => c.id === a.classId);
     const label = cls ? cls.name : 'Unknown';
-    classCounts[label] = (classCounts[label] || 0) + 1;
+    classCounts[label] = (classCounts[label] || 0) + animalHeadCount(a);
   }
   const compositionLine = Object.entries(classCounts).map(([label, count]) => `${count} ${label}`).join(' \u00B7 ');
 
@@ -852,8 +856,13 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   }
 
   // Gender breakdown
-  const females = groupAnimals.filter(a => a.sex === 'female').length;
-  const males = groupAnimals.filter(a => a.sex === 'male').length;
+  let females = 0;
+  let males = 0;
+  for (const a of groupAnimals) {
+    const heads = animalHeadCount(a);
+    if (a.sex === 'female') females += heads;
+    else if (a.sex === 'male') males += heads;
+  }
   const genderLine = [females > 0 ? `${females} female` : null, males > 0 ? `${males} male` : null].filter(Boolean).join(', ') || compositionLine;
 
   // NPK fert value

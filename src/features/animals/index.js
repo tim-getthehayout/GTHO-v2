@@ -1443,15 +1443,34 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   inputs.totalWeight = el('input', {
     type: 'number',
     min: '0',
-    step: '1',
+    step: '0.1',
     placeholder: unitLabel('weight', unitSys),
-    'data-testid': 'animal-composite-total-weight',
+    'data-testid': 'animal-composite-per-head-weight',
   });
+  const lotTotalEl = el('div', {
+    'data-testid': 'animal-composite-lot-total',
+    style: { fontSize: '15px', fontWeight: '500' },
+  }, ['\u2014']);
   const compositeBlock = el('div', { 'data-testid': 'animal-composite-fields' }, [
     el('div', { className: 'field' }, [el('label', {}, [t('animal.compositeName')]), inputs.compositeName]),
     el('div', { className: 'two' }, [
       el('div', { className: 'field' }, [el('label', {}, [t('animal.bulkHeadCount')]), inputs.bulkHeadCount]),
-      el('div', { className: 'field' }, [el('label', {}, [t('animal.totalWeight')]), inputs.totalWeight]),
+      el('div', { className: 'field' }, [el('label', {}, [t('animal.weightPerHead')]), inputs.totalWeight]),
+    ]),
+    el('div', { className: 'field' }, [
+      el('label', {}, [t('animal.totalWeight')]),
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } }, [
+        lotTotalEl,
+        isEdit ? el('button', {
+          type: 'button',
+          className: 'btn btn-outline btn-sm',
+          'data-testid': 'edit-animal-weight-btn',
+          onClick: () => {
+            animalSheet.close();
+            openWeightSheet(existingAnimal, operationId);
+          },
+        }, ['\u2696 Weight']) : null,
+      ].filter(Boolean)),
     ]),
   ]);
   panel.appendChild(compositeBlock);
@@ -1491,12 +1510,31 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   // impossible. Weight changes flow through Quick Weight (which calls
   // maybeSplitForGroup after save, closing the group-side OI-0094 gap).
   const weightRecords = getAll('animalWeightRecords');
-  const latestW = isEdit ? weightRecords.filter(w => w.animalId === existingAnimal.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0] : null;
+  const latestW = isEdit ? latestWeightForAnimal(weightRecords, existingAnimal.id) : null;
+  if (existingAnimal?.isBulk && latestW?.weightKg > 0 && animalHeadCount(existingAnimal) > 0) {
+    const perKg = latestW.weightKg / animalHeadCount(existingAnimal);
+    const shown = unitSys === 'imperial' ? convert(perKg, 'weight', 'toImperial') : perKg;
+    inputs.totalWeight.value = String(Math.round(shown * 1000) / 1000);
+  }
+  function refreshCompositeLotTotal() {
+    clear(lotTotalEl);
+    const heads = Number(inputs.bulkHeadCount.value);
+    const perHead = parseFloat(inputs.totalWeight.value);
+    if (!(heads > 0) || !(perHead > 0)) {
+      lotTotalEl.appendChild(el('span', {}, ['\u2014']));
+      return;
+    }
+    const perKg = unitSys === 'imperial' ? convert(perHead, 'weight', 'toMetric') : perHead;
+    lotTotalEl.appendChild(el('span', {}, [display(perKg * heads, 'weight', unitSys, 0)]));
+  }
+  inputs.bulkHeadCount.addEventListener('input', refreshCompositeLotTotal);
+  inputs.totalWeight.addEventListener('input', refreshCompositeLotTotal);
+  refreshCompositeLotTotal();
   const currentWeightText = latestW?.weightKg
-    ? `${display(latestW.weightKg, 'weight', unitSys, 0)} ${unitLabel('weight', unitSys)}`
+    ? display(latestW.weightKg, 'weight', unitSys, 0)
     : '\u2014';
-  const weightRow = el('div', { className: 'field' }, [
-    el('label', {}, [existingAnimal?.isBulk ? t('animal.totalWeight') : 'Current weight']),
+  const weightRow = el('div', { className: 'field', style: { display: existingAnimal?.isBulk ? 'none' : '' } }, [
+    el('label', {}, ['Current weight']),
     el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } }, [
       el('div', {
         'data-testid': 'edit-animal-current-weight',
@@ -2057,18 +2095,23 @@ async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId,
       confirmDeleteHandler: () => true,
     });
 
-    const rawTotal = parseFloat(inputs.totalWeight?.value);
-    if (isComposite && Number.isFinite(rawTotal) && rawTotal > 0) {
-      let weightKg = rawTotal;
-      if (getUnitSystem() === 'imperial') weightKg = convert(weightKg, 'weight', 'toMetric');
-      const weightRec = WeightRecordEntity.create({
-        operationId,
-        animalId,
-        recordedAt: new Date().toISOString(),
-        weightKg,
-        source: 'manual',
-      });
-      add('animalWeightRecords', weightRec, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
+    const perHead = parseFloat(inputs.totalWeight?.value);
+    if (isComposite && Number.isFinite(perHead) && perHead > 0 && bulkHeadCount > 0) {
+      const unitSysNow = getUnitSystem();
+      const perKg = unitSysNow === 'imperial' ? convert(perHead, 'weight', 'toMetric') : perHead;
+      const lotKg = perKg * bulkHeadCount;
+      const previous = latestWeightForAnimal(getAll('animalWeightRecords'), animalId);
+      const unchanged = previous && Math.abs(previous.weightKg - lotKg) < 0.05;
+      if (!unchanged) {
+        const weightRec = WeightRecordEntity.create({
+          operationId,
+          animalId,
+          recordedAt: new Date().toISOString(),
+          weightKg: lotKg,
+          source: 'manual',
+        });
+        add('animalWeightRecords', weightRec, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
+      }
     }
 
     const acceptedReductions = (!isComposite && newGroupId && newGroupId !== previousGroupId)

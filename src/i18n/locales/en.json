@@ -591,6 +591,7 @@
     "compositeName": "Name",
     "bulkHeadCount": "Head count",
     "totalWeight": "Total weight",
+    "weightPerHead": "Weight per head",
     "bulkHeadCountRequired": "Head count must be a whole number (at least 1 for a new composite).",
     "compositeFallbackName": "Composite",
     "compositeReduceConfirm": "Reduce {name} by {count} head and the same share of its total weight?",

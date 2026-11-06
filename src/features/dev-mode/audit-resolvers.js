@@ -70,7 +70,7 @@ function computeNpk1PerWindow(ctx) {
   const rows = [];
   for (const gw of groupWindows) {
     const cls = gw.animalClassId ? animalClasses.find(c => c.id === gw.animalClassId) : null;
-    const rawHead = getLiveWindowHeadCount(gw, { memberships, now: today });
+    const rawHead = getLiveWindowHeadCount(gw, { memberships, animals, now: today });
     const headCount = rawHead || (gw.headCount ?? 0);
     const rawAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: today });
     const avgWeightKg = rawAvg || (gw.avgWeightKg ?? 0);
@@ -137,7 +137,7 @@ function resolveDMI2(ctx) {
     // Mirror DMI-8's fallback: when memberships aren't populated, the live
     // recompute returns 0; fall back to the window's stored values so the
     // audit reflects the same value calc consumers see in the dashboard.
-    const rawLiveHead = getLiveWindowHeadCount(gw, { memberships, now: today });
+    const rawLiveHead = getLiveWindowHeadCount(gw, { memberships, animals, now: today });
     const liveHead = rawLiveHead || (gw.headCount ?? 0);
     const headSource = rawLiveHead
       ? `eventGroupWindows.${gw.id}.headCount (live)`
@@ -799,7 +799,7 @@ function resolveANIAU(ctx) {
   const instances = [];
   for (const gw of groupWindows) {
     const group = getById('groups', gw.groupId);
-    const rawHead = getLiveWindowHeadCount(gw, { memberships, now: today });
+    const rawHead = getLiveWindowHeadCount(gw, { memberships, animals, now: today });
     const headCount = rawHead || (gw.headCount ?? 0);
     const rawAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: today });
     const avgWeightKg = rawAvg || (gw.avgWeightKg ?? 0);

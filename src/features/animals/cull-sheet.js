@@ -123,7 +123,7 @@ export function confirmCull({ animal, cullDate, cullReason, cullNotes }) {
     const animalClasses = getAll('animalClasses');
     const animalWeightRecords = getAll('animalWeightRecords');
     for (const gw of openGWs) {
-      const liveHead = getLiveWindowHeadCount({ ...gw, dateLeft: null }, { memberships, now: todayStr });
+      const liveHead = getLiveWindowHeadCount({ ...gw, dateLeft: null }, { memberships, animals, now: todayStr });
       const liveAvg = getLiveWindowAvgWeight({ ...gw, dateLeft: null }, { memberships, animals, animalClasses, animalWeightRecords, now: todayStr });
       splitResults.push(splitGroupWindow(groupId, gw.eventId, todayStr, null, {
         headCount: liveHead,
@@ -171,6 +171,7 @@ export function reactivateAnimal({ animal }) {
  * @param {() => void} [onCommitted] - optional callback after successful cull (e.g. to close parent sheet)
  */
 export function openCullSheet(animal, operationId, onCommitted) {
+  if (animal?.isBulk) return;
   ensureSheetDOM();
   if (!cullSheet) cullSheet = new Sheet('cull-sheet-wrap');
   const panel = document.getElementById('cull-sheet-panel');

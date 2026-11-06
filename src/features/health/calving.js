@@ -22,6 +22,7 @@ function ensureSheetDOM() {
 }
 
 export function openCalvingSheet(dam, operationId) {
+  if (dam?.isBulk) return;
   ensureSheetDOM();
   if (!calvingSheet) calvingSheet = new Sheet('calving-sheet-wrap');
   const panel = document.getElementById('calving-sheet-panel');

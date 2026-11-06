@@ -292,7 +292,7 @@ function renderHeatStep1(opId, eventFilter, groupFilter, query) {
   panel.appendChild(searchInput);
 
   // Filter animals
-  let pool = getAll('animals').filter(a => a.sex === 'female' && !a.culled);
+  let pool = getAll('animals').filter(a => a.sex === 'female' && !a.culled && a.isBulk !== true);
 
   if (eventFilter !== 'all') {
     const evGws = getAll('eventGroupWindows').filter(gw => gw.eventId === eventFilter && !gw.dateLeft);

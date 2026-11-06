@@ -32,7 +32,7 @@ export function openWeightSheet(animal, operationId) {
   const displayName = animal.tagNum || animal.name || animal.eid || `A-${animal.id.slice(0, 5)}`;
   const wUnit = unitLabel('weight', unitSys);
 
-  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Update weight']));
+  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, [animal.isBulk ? t('animal.totalWeight') : 'Update weight']));
   panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '14px' } }, [
     `${displayName} \u00B7 current: ${animal.currentWeightKg ? display(animal.currentWeightKg, 'weight', unitSys, 0) : '\u2014'} ${wUnit}`,
   ]));

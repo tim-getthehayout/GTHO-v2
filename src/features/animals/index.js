@@ -24,6 +24,8 @@ import { syncCalvingRecordForAnimal } from './calving-sync.js';
 import { maybeShowEmptyGroupPrompt, groupEventHistoryCount } from './empty-group-prompt.js';
 import { showToast } from '../../ui/toast.js';
 import { openLocationNames } from '../events/open-cohort.js';
+import { animalHeadCount } from '../../calcs/window-helpers.js';
+import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
@@ -177,24 +179,34 @@ export function renderAnimalsScreen(container) {
     // or Edit → Delete (gated, see openGroupSheet) is the only path.
     const grid = el('div', { className: 'groups-grid', 'data-testid': 'groups-grid' });
     for (const g of groups) {
-      const headCount = memberships.filter(m => m.groupId === g.id).length;
       const animals = getAll('animals');
       const groupAnimalIds = new Set(memberships.filter(m => m.groupId === g.id).map(m => m.animalId));
       const groupAnimals = animals.filter(a => groupAnimalIds.has(a.id));
+      const headCount = groupAnimals.reduce((sum, a) => sum + animalHeadCount(a), 0);
 
-      // Sex breakdown
-      const females = groupAnimals.filter(a => a.sex === 'female').length;
-      const males = groupAnimals.filter(a => a.sex === 'male').length;
+      // Sex breakdown counts head, so a composite contributes its bulk head count.
+      let females = 0;
+      let males = 0;
+      for (const a of groupAnimals) {
+        const heads = animalHeadCount(a);
+        if (a.sex === 'female') females += heads;
+        else if (a.sex === 'male') males += heads;
+      }
       const sexLine = [females > 0 ? `${females} female` : null, males > 0 ? `${males} male` : null].filter(Boolean).join(', ');
 
-      // Weight + DMI
+      // Weight + DMI. Composite weight records are the lot total; class default is per head.
       const weightRecords = getAll('animalWeightRecords');
       const classes = getAll('animalClasses');
       let totalWeightKg = 0;
       for (const a of groupAnimals) {
         const latestW = weightRecords.filter(w => w.animalId === a.id).sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
         const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
-        totalWeightKg += latestW?.weightKg ?? cls?.defaultWeightKg ?? 0;
+        if (a.isBulk === true) {
+          const heads = animalHeadCount(a);
+          totalWeightKg += latestW?.weightKg ?? ((cls?.defaultWeightKg ?? 0) * heads);
+        } else {
+          totalWeightKg += latestW?.weightKg ?? cls?.defaultWeightKg ?? 0;
+        }
       }
       const avgWeightDisplay = headCount > 0 ? display(totalWeightKg / headCount, 'weight', unitSys, 0) : '—';
       const dmiKg = totalWeightKg * 0.025;
@@ -412,10 +424,11 @@ export function renderAnimalsScreen(container) {
             el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [
               animal.tagNum || animal.name || `A-${animal.id.slice(0, 5)}`, ' ',
               el('span', { style: { fontSize: '11px', color: 'var(--text2)', fontWeight: '400' } }, [animal.sex === 'female' ? '\u2640' : '\u2642']),
+              animal.isBulk ? el('span', { style: { fontSize: '11px', color: 'var(--text2)', fontWeight: '400' } }, [` ${animalHeadCount(animal)} head`]) : null,
               locBadge ? [' ', locBadge] : null,
             ].flat().filter(Boolean)),
             el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [
-              `${cls?.name || 'No class'} \u00B7 ${grp?.name || 'No group'}`,
+              `${animal.isBulk ? 'Group composite \u00B7 ' : ''}${cls?.name || 'No class'} \u00B7 ${grp?.name || 'No group'}`,
             ]),
           ]),
           el('div', { style: { textAlign: 'right', flexShrink: '0' } }, [
@@ -426,9 +439,9 @@ export function renderAnimalsScreen(container) {
         el('div', { style: { display: 'flex', gap: '5px', marginTop: '5px', flexWrap: 'wrap' } }, [
           el('button', { className: 'btn btn-outline btn-xs', onClick: () => openAnimalSheet(animal, operationId, farmId) }, ['Edit']),
           el('button', { className: 'btn btn-outline btn-xs', onClick: () => openWeightSheet(animal, operationId) }, ['\u2696 Weight']),
-          el('button', { className: 'btn btn-outline btn-xs', onClick: () => openTreatmentSheet(animal, operationId) }, ['\uD83D\uDC89 Treatment']),
-          animal.sex === 'female' ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openBreedingSheet(animal, operationId) }, ['\u2640 Breeding']) : null,
-          el('button', { className: 'btn btn-outline btn-xs', onClick: () => openBcsSheet(animal, operationId) }, ['\uD83D\uDCCA BCS']),
+          animal.isBulk ? null : el('button', { className: 'btn btn-outline btn-xs', onClick: () => openTreatmentSheet(animal, operationId) }, ['\uD83D\uDC89 Treatment']),
+          !animal.isBulk && animal.sex === 'female' ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openBreedingSheet(animal, operationId) }, ['\u2640 Breeding']) : null,
+          animal.isBulk ? null : el('button', { className: 'btn btn-outline btn-xs', onClick: () => openBcsSheet(animal, operationId) }, ['\uD83D\uDCCA BCS']),
         ].filter(Boolean)),
       ]);
 
@@ -590,6 +603,8 @@ export function openGroupSheet(existingGroup, operationId) {
         // mutations land.
         const affectedGroupIds = new Set();
         const currentMems = memberships.filter(m => m.groupId === groupId);
+        const incomingIds = [...pickedAnimals].filter(id => !currentMems.some(m => m.animalId === id));
+        const acceptedReductions = confirmCompositeReductions(groupId, incomingIds);
         for (const m of currentMems) {
           if (!pickedAnimals.has(m.animalId)) {
             update('animalGroupMemberships', m.id, { dateLeft: todayStr, reason: 'removed' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
@@ -609,6 +624,7 @@ export function openGroupSheet(existingGroup, operationId) {
             affectedGroupIds.add(groupId);
           }
         }
+        applyCompositeReductions(acceptedReductions, operationId);
         for (const gid of affectedGroupIds) maybeSplitForGroup(gid, todayStr);
         // OI-0090: surface archive prompt for any group that just emptied out.
         for (const gid of affectedGroupIds) maybeShowEmptyGroupPrompt(gid);
@@ -696,7 +712,8 @@ function openSplitGroupSheet(group, operationId) {
   let newGroupName = '';
 
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '2px' } }, ['Split group']));
-  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '14px' } }, [`${group.name} \u00B7 ${memberships.length} head${locName ? ` \u00B7 at ${locName}` : ''}`]));
+  const splitHead = memberships.reduce((sum, m) => sum + animalHeadCount(allAnimals.find(a => a.id === m.animalId)), 0);
+  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '14px' } }, [`${group.name} \u00B7 ${splitHead} head${locName ? ` \u00B7 at ${locName}` : ''}`]));
 
   // Date/time
   const dateInput = el('input', { type: 'date', value: todayStr });
@@ -730,7 +747,7 @@ function openSplitGroupSheet(group, operationId) {
         el('div', { style: { width: '16px', height: '16px', borderRadius: '50%', border: `1.5px solid ${isPicked ? 'var(--green)' : 'var(--border2)'}`, background: isPicked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' } },
           isPicked ? [el('svg', { width: '10', height: '10', viewBox: '0 0 12 12', fill: 'none' }, [el('polyline', { points: '2,6 5,9 10,3', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })])] : []),
         el('div', { style: { flex: '1', fontSize: '13px' } }, [
-          el('strong', {}, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`]),
+          el('strong', {}, [a.isBulk ? `${a.name || 'Composite'} (${animalHeadCount(a)} head)` : (a.tagNum || a.name || `A-${a.id.slice(0, 5)}`)]),
           ' ',
           el('span', { style: { color: 'var(--text2)', fontSize: '11px' } }, [[a.sex, cls?.name, wStr].filter(Boolean).join(' \u00B7 ')]),
         ]),
@@ -741,7 +758,9 @@ function openSplitGroupSheet(group, operationId) {
   function renderPreview() {
     clear(previewEl);
     if (!splitAnimals.size) return;
-    const remaining = memberships.length - splitAnimals.size;
+    const headOf = (id) => animalHeadCount(allAnimals.find(a => a.id === id));
+    const splitHeadCount = [...splitAnimals].reduce((sum, id) => sum + headOf(id), 0);
+    const remaining = memberships.reduce((sum, m) => sum + headOf(m.animalId), 0) - splitHeadCount;
     previewEl.appendChild(el('div', { className: 'card-inset', style: { marginTop: '12px' } }, [
       el('div', { style: { fontSize: '12px', fontWeight: '600', marginBottom: '6px', color: 'var(--text2)' } }, ['After split']),
       el('div', { style: { padding: '8px 10px', background: 'var(--bg2)', borderRadius: 'var(--radius)', borderLeft: `3px solid ${group.color || '#639922'}` } }, [
@@ -751,7 +770,7 @@ function openSplitGroupSheet(group, operationId) {
       el('div', { style: { textAlign: 'center', fontSize: '18px', padding: '4px 0', color: 'var(--text2)' } }, ['\u2193']),
       el('div', { style: { padding: '8px 10px', background: 'var(--bg2)', borderRadius: 'var(--radius)', borderLeft: `3px solid ${newGroupColor}` } }, [
         el('div', { style: { fontSize: '12px', fontWeight: '600' } }, [destType === 'new' ? (newGroupName || 'New group') : 'Existing group']),
-        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${splitAnimals.size} head`]),
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${splitHeadCount} head`]),
       ]),
     ]));
   }
@@ -839,6 +858,9 @@ function openSplitGroupSheet(group, operationId) {
           targetGroupId = existGroupSelect.value;
           if (!targetGroupId) { statusEl.appendChild(el('span', {}, ['Select a group'])); return; }
         }
+        const acceptedReductions = destType === 'new'
+          ? []
+          : confirmCompositeReductions(targetGroupId, [...splitAnimals]);
         // Move selected animals
         const allMems = getAll('animalGroupMemberships');
         for (const animalId of splitAnimals) {
@@ -847,6 +869,7 @@ function openSplitGroupSheet(group, operationId) {
           const newMem = MembershipEntity.create({ operationId, animalId, groupId: targetGroupId, dateJoined: date, reason: 'split' });
           add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
         }
+        applyCompositeReductions(acceptedReductions, operationId);
         // OI-0094 entry #2: split source group's open window. Target usually new so no-op;
         // maybeSplitForGroup is a safe guard when target is an existing placed group.
         // OI-0137: changeDate must be today, never the user-supplied (possibly backdated) date —
@@ -1259,7 +1282,7 @@ function openGroupWeightsSheet(group, operationId) {
   const memberships = getAll('animalGroupMemberships').filter(m => m.groupId === group.id && !m.dateLeft);
   const animals = getAll('animals');
   const weightRecords = getAll('animalWeightRecords');
-  const groupAnimals = animals.filter(a => memberships.some(m => m.animalId === a.id));
+  const groupAnimals = animals.filter(a => memberships.some(m => m.animalId === a.id) && a.isBulk !== true);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const dateInput = el('input', { type: 'date', value: todayStr });
@@ -1346,14 +1369,47 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
 
   const inputs = {};
   const sexState = { value: existingAnimal?.sex || 'female' };
+  const kind = { value: existingAnimal?.isBulk ? 'composite' : 'individual' };
 
-  // Tag + EID
+  const kindBar = el('div', {
+    'data-testid': 'animal-kind-bar',
+    style: { display: 'flex', gap: '6px', margin: '8px 0 12px' },
+  });
+  const kindButtons = {};
+  let syncKind = () => {};
+  if (!isEdit) {
+    for (const opt of [
+      { key: 'individual', label: t('animal.kindIndividual') },
+      { key: 'composite', label: t('animal.kindComposite') },
+    ]) {
+      const btn = el('button', {
+        type: 'button',
+        className: kind.value === opt.key ? 'btn btn-teal btn-xs' : 'btn btn-outline btn-xs',
+        'data-testid': `animal-kind-${opt.key}`,
+        onClick: () => {
+          kind.value = opt.key;
+          syncKind();
+        },
+      }, [opt.label]);
+      kindButtons[opt.key] = btn;
+      kindBar.appendChild(btn);
+    }
+    panel.appendChild(kindBar);
+  } else if (existingAnimal.isBulk) {
+    panel.appendChild(el('div', {
+      'data-testid': 'animal-kind-composite-label',
+      style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '8px' },
+    }, [t('animal.kindComposite')]));
+  }
+
+  // Tag + EID — individuals only. Composites are identified by name.
   inputs.tagNum = el('input', { type: 'text', placeholder: 'T-001', value: existingAnimal?.tagNum || '' });
   inputs.eid = el('input', { type: 'text', placeholder: '840-…', value: existingAnimal?.eid || '' });
-  panel.appendChild(el('div', { className: 'two' }, [
+  const tagRow = el('div', { className: 'two', 'data-testid': 'animal-tag-row' }, [
     el('div', { className: 'field' }, [el('label', {}, ['Ear tag #']), inputs.tagNum]),
     el('div', { className: 'field' }, [el('label', {}, ['EID #']), inputs.eid]),
-  ]));
+  ]);
+  panel.appendChild(tagRow);
 
   // Sex + Class
   inputs.sex = el('select', {}, [
@@ -1370,6 +1426,35 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
     el('div', { className: 'field' }, [el('label', {}, ['Sex']), inputs.sex]),
     el('div', { className: 'field' }, [el('label', {}, ['Class']), inputs.classId]),
   ]));
+
+  inputs.compositeName = el('input', {
+    type: 'text',
+    placeholder: 'Ewe lot, flock…',
+    value: existingAnimal?.name || '',
+    'data-testid': 'animal-composite-name',
+  });
+  inputs.bulkHeadCount = el('input', {
+    type: 'number',
+    min: '1',
+    step: '1',
+    value: existingAnimal?.isBulk ? String(existingAnimal.bulkHeadCount ?? '') : '',
+    'data-testid': 'animal-composite-head-count',
+  });
+  inputs.totalWeight = el('input', {
+    type: 'number',
+    min: '0',
+    step: '1',
+    placeholder: unitLabel('weight', unitSys),
+    'data-testid': 'animal-composite-total-weight',
+  });
+  const compositeBlock = el('div', { 'data-testid': 'animal-composite-fields' }, [
+    el('div', { className: 'field' }, [el('label', {}, [t('animal.compositeName')]), inputs.compositeName]),
+    el('div', { className: 'two' }, [
+      el('div', { className: 'field' }, [el('label', {}, [t('animal.bulkHeadCount')]), inputs.bulkHeadCount]),
+      el('div', { className: 'field' }, [el('label', {}, [t('animal.totalWeight')]), inputs.totalWeight]),
+    ]),
+  ]);
+  panel.appendChild(compositeBlock);
 
   // OI-0093: Group picker — v2 pattern (tap-to-select rows, matches Move wizard + group-add).
   // `inputs.groupId.value` is read at save time; mirror the <select> interface so saveAnimal
@@ -1411,7 +1496,7 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
     ? `${display(latestW.weightKg, 'weight', unitSys, 0)} ${unitLabel('weight', unitSys)}`
     : '\u2014';
   const weightRow = el('div', { className: 'field' }, [
-    el('label', {}, ['Current weight']),
+    el('label', {}, [existingAnimal?.isBulk ? t('animal.totalWeight') : 'Current weight']),
     el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } }, [
       el('div', {
         'data-testid': 'edit-animal-current-weight',
@@ -1435,7 +1520,7 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
 
   // Dam (v1 gap fix — OI-0099 Class A wires saveAnimal to read this).
   const allAnimals = getAll('animals');
-  const females = allAnimals.filter(a => a.sex === 'female');
+  const females = allAnimals.filter(a => a.sex === 'female' && a.isBulk !== true);
   inputs.damId = el('select', { 'data-testid': 'edit-animal-dam-select' }, [
     el('option', { value: '' }, ['\u2014 unknown \u2014']),
     ...females.map(a => el('option', { value: a.id, selected: existingAnimal?.damId === a.id }, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`])),
@@ -1463,7 +1548,8 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   };
   inputs.damId.addEventListener('change', updateBirthDateHint);
   updateBirthDateHint();
-  panel.appendChild(el('div', {
+  const damRow = el('div', {
+    'data-testid': 'animal-dam-row',
     style: { display: 'flex', gap: '12px', alignItems: 'flex-start' },
   }, [
     el('div', { className: 'field', style: { flex: '1 1 60%' } }, [
@@ -1474,7 +1560,8 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
       birthDateLabel,
       inputs.birthDate,
     ]),
-  ]));
+  ]);
+  panel.appendChild(damRow);
 
   // Sire picker (OI-0099 Class B B1: three modes — Animal in herd / AI bull / None,
   // with an inline Add AI bull sub-dialog). Replaces the legacy freeform `sireTag`
@@ -1486,7 +1573,7 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   // Semantic note: ai_bulls will effectively hold historical/external non-AI bulls
   // that farmers add inline. The table name is a v1-era artifact; renaming/
   // splitting is a future OI (deferred per OI-0099 spec).
-  const males = allAnimals.filter(a => a.sex === 'male' && a.active !== false);
+  const males = allAnimals.filter(a => a.sex === 'male' && a.active !== false && a.isBulk !== true);
   const sireSelection = {
     mode: existingAnimal?.sireAnimalId ? 'animal'
       : existingAnimal?.sireAiBullId ? 'aiBull'
@@ -1629,12 +1716,13 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   inputs.sireAnimalId = { get value() { return sireSelection.mode === 'animal' ? (sireSelection.sireAnimalId || '') : ''; } };
   inputs.sireAiBullId = { get value() { return sireSelection.mode === 'aiBull' ? (sireSelection.sireAiBullId || '') : ''; } };
 
-  panel.appendChild(el('div', { className: 'field', 'data-testid': 'sire-picker' }, [
+  const sireRow = el('div', { className: 'field', 'data-testid': 'sire-picker' }, [
     el('label', {}, ['Sire']),
     sireModeBar,
     sireListContainer,
     sireSummary,
-  ]));
+  ]);
+  panel.appendChild(sireRow);
 
   // Notes
   inputs.notes = el('input', { type: 'text', value: existingAnimal?.notes || '' });
@@ -1651,7 +1739,7 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   //   off → on flip → weaned=true, weanedDate defaults to today, date field enabled + editable
   //   farmer edits date while on → weanedDate takes the edited value (back-date support)
   //   on → off flip → weaned=false, weanedDate=null, date field disabled again
-  if (isEdit) {
+  if (isEdit && !existingAnimal.isBulk) {
     panel.appendChild(el('div', { className: 'div' }));
     const weanedCheck = el('input', { type: 'checkbox', style: { width: '18px', height: '18px', accentColor: 'var(--teal)', flexShrink: '0' } });
     if (existingAnimal.weaned) weanedCheck.checked = true;
@@ -1798,6 +1886,19 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
     el('button', { className: 'btn btn-outline', onClick: () => animalSheet.close() }, ['Cancel']),
   ].filter(Boolean)));
 
+  inputs.kind = kind;
+  syncKind = () => {
+    const composite = kind.value === 'composite';
+    tagRow.style.display = composite ? 'none' : '';
+    compositeBlock.style.display = composite ? '' : 'none';
+    damRow.style.display = composite ? 'none' : 'flex';
+    sireRow.style.display = composite ? 'none' : '';
+    for (const [key, btn] of Object.entries(kindButtons)) {
+      btn.className = kind.value === key ? 'btn btn-teal btn-xs' : 'btn btn-outline btn-xs';
+    }
+  };
+  syncKind();
+
   animalSheet.open();
 }
 
@@ -1870,24 +1971,38 @@ function openAddAiBullSubDialog(operationId, onSelected) {
 
 async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId, previousGroupId, statusEl) {
   clear(statusEl);
+  const isComposite = existingAnimal ? existingAnimal.isBulk === true : inputs.kind?.value === 'composite';
+  let bulkHeadCount = null;
+  if (isComposite) {
+    const parsed = Number(inputs.bulkHeadCount?.value);
+    if (!Number.isInteger(parsed) || parsed < (existingAnimal ? 0 : 1)) {
+      statusEl.appendChild(el('span', {}, [t('animal.bulkHeadCountRequired')]));
+      return;
+    }
+    bulkHeadCount = parsed;
+  }
   const data = {
     operationId,
-    tagNum: inputs.tagNum.value.trim() || null,
-    name: inputs.name?.value?.trim?.() || inputs.tagNum.value.trim() || null,
-    eid: inputs.eid.value.trim() || null,
+    tagNum: isComposite ? null : (inputs.tagNum.value.trim() || null),
+    name: isComposite
+      ? (inputs.compositeName?.value?.trim() || null)
+      : (inputs.name?.value?.trim?.() || inputs.tagNum.value.trim() || null),
+    eid: isComposite ? null : (inputs.eid.value.trim() || null),
     sex: sexState.value,
     classId: inputs.classId.value || null,
-    birthDate: inputs.birthDate.value || null,
+    isBulk: isComposite,
+    bulkHeadCount,
+    birthDate: isComposite ? null : (inputs.birthDate.value || null),
     notes: inputs.notes.value.trim() || null,
     // OI-0099 Class A: damId + weaned + weanedDate.
-    damId: inputs.damId?.value || null,
+    damId: isComposite ? null : (inputs.damId?.value || null),
     weaned: inputs.weaned ? inputs.weaned.checked : null,
     weanedDate: inputs.weaned && inputs.weaned.checked
       ? (inputs.weanedDate?.value || null)
       : null,
     // OI-0099 Class B sire picker: mutual exclusivity via shim getters on inputs.
-    sireAnimalId: inputs.sireAnimalId?.value || null,
-    sireAiBullId: inputs.sireAiBullId?.value || null,
+    sireAnimalId: isComposite ? null : (inputs.sireAnimalId?.value || null),
+    sireAiBullId: isComposite ? null : (inputs.sireAiBullId?.value || null),
     // OI-0099 Class B confirmedBred: new column migration 026.
     confirmedBred: inputs.confirmedBred ? inputs.confirmedBred.checked : false,
   };
@@ -1942,6 +2057,24 @@ async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId,
       confirmDeleteHandler: () => true,
     });
 
+    const rawTotal = parseFloat(inputs.totalWeight?.value);
+    if (isComposite && Number.isFinite(rawTotal) && rawTotal > 0) {
+      let weightKg = rawTotal;
+      if (getUnitSystem() === 'imperial') weightKg = convert(weightKg, 'weight', 'toMetric');
+      const weightRec = WeightRecordEntity.create({
+        operationId,
+        animalId,
+        recordedAt: new Date().toISOString(),
+        weightKg,
+        source: 'manual',
+      });
+      add('animalWeightRecords', weightRec, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
+    }
+
+    const acceptedReductions = (!isComposite && newGroupId && newGroupId !== previousGroupId)
+      ? confirmCompositeReductions(newGroupId, [animalId])
+      : [];
+
     if (newGroupId !== previousGroupId) {
       if (previousGroupId) {
         const mems = getAll('animalGroupMemberships');
@@ -1952,6 +2085,7 @@ async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId,
         const newMem = MembershipEntity.create({ operationId, animalId, groupId: newGroupId, dateJoined: todayStr, reason: previousGroupId ? 'move' : 'initial' });
         add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
       }
+      applyCompositeReductions(acceptedReductions, operationId);
       // OI-0094 entry #3: split both source (if any) and target (if any) groups' open windows.
       if (previousGroupId) maybeSplitForGroup(previousGroupId, todayStr);
       if (newGroupId) maybeSplitForGroup(newGroupId, todayStr);

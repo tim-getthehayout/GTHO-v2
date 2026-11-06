@@ -241,11 +241,12 @@ export function openRetroPlaceFlow(ctx) {
     const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === evt.id);
     const paddockNames = pws.map(pw => { const l = getById('locations', pw.locationId); return l?.name || '?'; }).join(', ');
     const memberships = getAll('animalGroupMemberships');
+    const animals = getAll('animals');
     const todayStr = new Date().toISOString().slice(0, 10);
     const groupChips = gws.map(gw => {
       const g = getById('groups', gw.groupId);
       const now = gw.dateLeft || evt.dateOut || todayStr;
-      const liveHead = getLiveWindowHeadCount(gw, { memberships, now });
+      const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
       return `${g?.name || '?'} (${liveHead})`;
     }).join(', ');
 
@@ -311,7 +312,7 @@ function handleEventPicked(destEvent, panel, ctx, groupName) {
         const animalClasses = getAll('animalClasses');
         const animalWeightRecords = getAll('animalWeightRecords');
         const live = {
-          head: getLiveWindowHeadCount(sourceWindow, { memberships, now: gapStart }),
+          head: getLiveWindowHeadCount(sourceWindow, { memberships, animals, now: gapStart }),
           avg: getLiveWindowAvgWeight(sourceWindow, { memberships, animals, animalClasses, animalWeightRecords, now: gapStart }),
         };
         const newDestWindow = GroupWindowEntity.create({

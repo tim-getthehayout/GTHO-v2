@@ -17,6 +17,7 @@ function ensureSheetDOM() {
 }
 
 export function openBreedingSheet(animal, operationId) {
+  if (animal?.isBulk) return;
   ensureSheetDOM();
   if (!breedingSheet) breedingSheet = new Sheet('breeding-sheet-wrap');
   const panel = document.getElementById('breeding-sheet-panel');

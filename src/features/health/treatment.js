@@ -17,6 +17,7 @@ function ensureSheetDOM() {
 }
 
 export function openTreatmentSheet(animal, operationId) {
+  if (animal?.isBulk) return;
   ensureSheetDOM();
   if (!treatmentSheet) treatmentSheet = new Sheet('treatment-sheet-wrap');
   const panel = document.getElementById('treatment-sheet-panel');

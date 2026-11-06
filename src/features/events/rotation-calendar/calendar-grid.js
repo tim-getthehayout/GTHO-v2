@@ -43,6 +43,7 @@ export function renderCalendarGrid(container) {
   const allGroupWindows = getAll('eventGroupWindows');
   const allGroups = getAll('groups');
   const allMemberships = getAll('animalGroupMemberships');
+  const allAnimals = getAll('animals');
 
   // Filter locations: exclude confinement unless toggled on
   const locations = allLocations.filter(loc => {
@@ -200,7 +201,7 @@ export function renderCalendarGrid(container) {
           dmi: 0,
           headCount: eventGroups.length > 0 ? eventGroupWindows.reduce((s, gw) => {
             const nowStr = gw.dateLeft || event.dateOut || new Date().toISOString().slice(0, 10);
-            return s + getLiveWindowHeadCount(gw, { memberships: allMemberships, now: nowStr });
+            return s + getLiveWindowHeadCount(gw, { memberships: allMemberships, animals: allAnimals, now: nowStr });
           }, 0) : 0,
           isActive,
           isStripGraze: pw.isStripGraze || false,

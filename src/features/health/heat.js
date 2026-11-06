@@ -17,6 +17,7 @@ function ensureSheetDOM() {
 }
 
 export function openHeatSheet(animal, operationId) {
+  if (animal?.isBulk) return;
   ensureSheetDOM();
   if (!heatSheet) heatSheet = new Sheet('heat-sheet-wrap');
   const panel = document.getElementById('heat-sheet-panel');

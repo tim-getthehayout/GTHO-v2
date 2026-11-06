@@ -180,4 +180,18 @@ export const BACKUP_MIGRATIONS = {
   // 037 → 038: locations.type may be 'storage'. No new column. Older backups
   //            only contain confinement and land, which still pass the check.
   37: (b) => { b.schema_version = 38; return b; },
+  // 038 → 039: animals.is_bulk (default false) and animals.bulk_head_count.
+  //            Older backups are individuals: is_bulk false, head count null.
+  38: (b) => {
+    for (const a of (b.tables?.animals || [])) {
+      if (a.is_bulk !== true) {
+        a.is_bulk = false;
+        a.bulk_head_count = null;
+      } else if (a.bulk_head_count == null) {
+        a.bulk_head_count = 0;
+      }
+    }
+    b.schema_version = 39;
+    return b;
+  },
 };

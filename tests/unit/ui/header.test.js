@@ -170,6 +170,24 @@ describe('OI-0153 — header dev-chip updates in place; <main> sibling preserved
   });
 });
 
+describe('header build stamp', () => {
+  it('uses the same label the login overlay shows', async () => {
+    flagDev(TIM, false);
+
+    const { renderHeader } = await import('../../../src/ui/header.js');
+    const { buildStampLabel } = await import('../../../src/ui/build-stamp.js');
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    renderHeader(app);
+
+    const stamp = app.querySelector('[data-testid="header-build-stamp"]');
+    expect(stamp).toBeTruthy();
+    expect(stamp.classList.contains('header-build-stamp')).toBe(true);
+    expect(stamp.textContent).toBe(buildStampLabel());
+    expect(stamp.textContent).toMatch(/^b\d{4}-\d{2}-\d{2}\.\d{4}-[0-9a-f]+$/);
+  });
+});
+
 describe('OI-0154 — sidebar + bottom-nav active-class follows hashchange', () => {
   it('initial mount at #/: Dashboard sidebar item has the active class', async () => {
     flagDev(TIM, false);

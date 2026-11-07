@@ -407,6 +407,17 @@ body {
   color: var(--text);
 }
 
+/* Login reuses .header-build-stamp. Field mode and the narrow-header rule
+   hide that class because the header chrome is hidden. The overlay has no
+   header, so the stamp stays visible before authentication. */
+.auth-overlay .header-build-stamp {
+  display: inline;
+}
+
+body.field-mode .auth-overlay .header-build-stamp {
+  display: inline !important;
+}
+
 /* Buttons */
 .btn {
   display: block;

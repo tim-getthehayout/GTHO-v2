@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-06 (feed day goal formula written into base docs)  
+**Last updated:** 2026-11-06 (feed batch locations status close-out)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -25,7 +25,8 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 - App: `https://tim-getthehayout.github.io/GTHO-v2/` from `main`.
 - Stack: vanilla JS, Vite, Supabase, GitHub Pages. v1 is `get-the-hay-out`.
-- Schema stamp 36. Migration `036_batch_adjustment_date.sql` applied and verified in Supabase on 2026-11-03. `batch_adjustments.adjustment_date` is a nullable date. Migration 035 remains applied.
+- Schema stamp 38. Migration `037_batch_location_balances.sql` applied and verified 2026-11-04 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`). Migration `038_location_type_storage.sql` applied and verified 2026-11-04 (`locations.type` allows `storage`). `operations.schema_version = 38`.
+- Feed batch locations is on `main` (PRs #62, #63, #64; merge commit `6ed4d71`). One batch identity; quantity per location in `batch_location_balances`; append-only `batch_moves` (date); deliveries store `source_location_id`. Cards show a location summary; paper trail is in the details dialog. Storage vs pasture picker (default Storage); add-new only for `type=storage`. Pasture has Pick on map. Save is sticky. Pages success. Header stamp `b2026-11-04.1955-6ed4d71`. Specs: session_briefs/SESSION_BRIEF_2026-11-04_feed-batch-locations.md, SESSION_BRIEF_2026-11-04_feed-batch-storage-picker.md, SESSION_BRIEF_2026-11-04_feed-batch-pasture-map.md.
 - Feed batch adjustment date + archive is on `main` (fast-forward to `e679e7e`, feature commit `22968d3`). Adds `batch_adjustments.adjustment_date`, archive/unarchive + show/hide archived pill, and a batch-card activity list (feed out + adjustments) with edit only on adjustments. Migration 036 and `BACKUP_MIGRATIONS` 35→36 are on `main` and applied. Pages deploy of the merge is pending header stamp confirmation.
 - Farm map is on `main` (`a554f01`, PR #58). Locations store GeoJSON, centroid, and `map_source`. Todos may store a point. Shared picker covers harvest, amendments, the move wizard, and todos. Import is GeoJSON, KML, and KMZ.
 - Auth boot gate is on `main` (`1cedc14`, follow-ups `87784b8` and `26fc83c`). An empty browser cache is not a new operation. Confirmed by Tim after a hard refresh. Do not finish the new-operation wizard on a PC that already has an operation.
@@ -52,6 +53,8 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 | 2026-11-03 | Feed day goal banner must refresh live on inventory changes | Banner is computed on read but was only rendered once. Adjusting remaining, adding a batch, or a delivery left days-on-hand and the progress bar stale until screen re-entry. Fix: refresh helper called from the existing store subscriptions. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-day-goal-banner-refresh.md`. |
 | 2026-11-04 | Feed day goal denominator is farm-wide active animal DMI | Days on hand = total DM of current non-archived inventory ÷ sum of DMI for every animal with `active !== false`, regardless of group, event, or location. Replaces the 30-day delivery average. Shipped in `7e4563d`. Pages success. Header stamp `b2026-11-04.1205-7e4563d`. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-dmi-denominator.md`. |
 | 2026-11-04 | Feed day goal DM on hand must use weightPerUnitKg | `remaining × dm%` treats remaining as kg. Correct DM is `remaining × weightPerUnitKg × dm% / 100`, falling back to feed-type `defaultWeightKg`, then 1. Shipped in `f4763d9`. Pages success. Header stamp `b2026-11-04.1215-f4763d9`. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-weight-per-unit.md`. |
+| 2026-11-04 | Feed batches use multi-location balances, not a single location_id | Migration 037 applied. Moves are date-only and append-only. Delivery source location is distinct from the paddock. Adjustments are location-centric. PRs #62–#64. Header stamp `b2026-11-04.1955-6ed4d71`. |
+| 2026-11-04 | Feed storage is its own location type, not confinement | `type=storage`. Batch picker toggles Storage \| Pasture, opens on Storage. Add-new only for storage (name only). Pastures selectable, not creatable from the batch dialog. Animal/confinement flows never show storage. Migration 038 applied. |
 
 ## 5. Open Questions / Next Steps
 
@@ -66,11 +69,13 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 8. Patch `V2_SCHEMA_DESIGN.md` §2.1 with the migration 034 columns, and the `event_paddock_windows` section with migration 035 `open_cohort_id`, when the schema doc is next touched. The backup export selects all columns, so the new column is included without a column list change.
 9. OI-0191 is closed. Shipped in `1cedc14`. Pages did not publish it until `26fc83c` because lint and unit tests failed. Tim confirmed the post-June build after a hard refresh. Live stamp at this close: `b2026-10-04.1607-1e76f0a`.
 10. Feed batch adjustment date + archive is on `main`. Migration 036 applied and verified. Confirm Pages header stamp after the workflow succeeds.
+11. Feed batch locations is closed. On `main` (PRs #62, #63, #64). Migrations 037 and 038 applied. Header stamp `b2026-11-04.1955-6ed4d71`.
 
 ## 6. Framework feedback (process only)
 
 | Date | Discovery | Suggested framework change | Status |
 |------|-----------|----------------------------|--------|
+| 2026-11-04 | Status and schema stamp were not updated when work went through the GTHO Build bot instead of a Grok Build handoff that returned for close-out | After a bot implementation report, project chat must still update PROJECT_STATUS.md, the AGENTS.md schema stamp, and brief Status lines before the session is done. | Noted |
 | 2026-11-04 | Project chat implemented and pushed a code change (feed banner refresh) instead of writing the brief and handing off to Grok Build | Keep role split strict: docs + brief in project chat, code in Build. Note when the split is mixed. | Noted |
 | 2026-10-04 | Uploading the framework pack into an existing app repo overwrites the project `AGENTS.md` and lands templates in the root | Adoption note: copy into `project-framework/` and keep a project `AGENTS.md` at root | Parked |
 | 2026-10-04 | A green local commit is not the live app if Pages fails before upload | End-of-session gate should name the header stamp only after the deploy workflow succeeds | Parked |

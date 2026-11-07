@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-04  
 **Source:** Grok design session (UI follow-up)  
-**Status:** Ready for implementation  
+**Status:** Implemented. PR #64.  
 **Parent:** session_briefs/SESSION_BRIEF_2026-11-04_feed-batch-storage-picker.md
 
 ## What was decided

@@ -25,7 +25,7 @@ Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, G
 - Domain specs stay where they are: `V2_SCHEMA_DESIGN.md`, `V2_UX_FLOWS.md`, `V2_APP_ARCHITECTURE.md`, `V2_CALCULATION_SPEC.md`, `V2_INFRASTRUCTURE.md`, `V2_DESIGN_SYSTEM.md`, `V2_MIGRATION_PLAN.md`, `V2_BUILD_INDEX.md`.
 - Backlog stays in `OPEN_ITEMS.md`. Do not copy it into `PROJECT_STATUS.md`. Status points at the open items that matter this session.
 - Session briefs live in `session_briefs/`. New briefs use `project-framework/session-brief.template.md`. Implementation specs live in `github/issues/` (this project does not use a `specs/` folder).
-- Current schema stamp is 36 (migration `036_batch_adjustment_date.sql`, applied 2026-11-03).
+- Current schema stamp is 38 (migration `038_location_type_storage.sql`, applied and verified 2026-11-04). Migration 037 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`) is also applied. Migration 039 (composite animals) exists on main; do not treat it as applied unless Tim has verified `schema_version = 39`.
 
 ---
 

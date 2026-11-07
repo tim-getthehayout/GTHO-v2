@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-04  
 **Source:** Grok design session  
-**Status:** Ready for implementation
+**Status:** Implemented. PRs #62–#64. Migrations 037 and 038 applied. Header stamp `b2026-11-04.1955-6ed4d71`.
 
 ## What was decided
 

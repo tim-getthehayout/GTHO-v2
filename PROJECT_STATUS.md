@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-06 (feed batch locations status close-out)  
+**Last updated:** 2026-11-06 (composite animals docs catch-up)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -25,7 +25,8 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 - App: `https://tim-getthehayout.github.io/GTHO-v2/` from `main`.
 - Stack: vanilla JS, Vite, Supabase, GitHub Pages. v1 is `get-the-hay-out`.
-- Schema stamp 38. Migration `037_batch_location_balances.sql` applied and verified 2026-11-04 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`). Migration `038_location_type_storage.sql` applied and verified 2026-11-04 (`locations.type` allows `storage`). `operations.schema_version = 38`.
+- Schema stamp 39. Migration `037_batch_location_balances.sql` applied and verified 2026-11-04 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`). Migration `038_location_type_storage.sql` applied and verified 2026-11-04 (`locations.type` allows `storage`). Migration `039_animals_bulk_composite.sql` applied and verified 2026-11-06 (`animals.is_bulk`, `animals.bulk_head_count`). Tim verified `operations.schema_version = 39`.
+- Composite animals is on main (PRs #66, #67, and #68). Columns `is_bulk` and `bulk_head_count`. Weight input is per head; stored as lot total. Spec: session_briefs/SESSION_BRIEF_2026-11-06_composite-bulk-animals.md.
 - Feed batch locations is on `main` (PRs #62, #63, #64; merge commit `6ed4d71`). One batch identity; quantity per location in `batch_location_balances`; append-only `batch_moves` (date); deliveries store `source_location_id`. Cards show a location summary; paper trail is in the details dialog. Storage vs pasture picker (default Storage); add-new only for `type=storage`. Pasture has Pick on map. Save is sticky. Pages success. Header stamp `b2026-11-04.1955-6ed4d71`. Specs: session_briefs/SESSION_BRIEF_2026-11-04_feed-batch-locations.md, SESSION_BRIEF_2026-11-04_feed-batch-storage-picker.md, SESSION_BRIEF_2026-11-04_feed-batch-pasture-map.md.
 - Feed batch adjustment date + archive is on `main` (fast-forward to `e679e7e`, feature commit `22968d3`). Adds `batch_adjustments.adjustment_date`, archive/unarchive + show/hide archived pill, and a batch-card activity list (feed out + adjustments) with edit only on adjustments. Migration 036 and `BACKUP_MIGRATIONS` 35→36 are on `main` and applied. Pages deploy of the merge is pending header stamp confirmation.
 - Farm map is on `main` (`a554f01`, PR #58). Locations store GeoJSON, centroid, and `map_source`. Todos may store a point. Shared picker covers harvest, amendments, the move wizard, and todos. Import is GeoJSON, KML, and KMZ.
@@ -57,6 +58,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 | 2026-11-04 | Feed batches use multi-location balances, not a single location_id | Migration 037 applied. Moves are date-only and append-only. Delivery source location is distinct from the paddock. Adjustments are location-centric. PRs #62–#64. Header stamp `b2026-11-04.1955-6ed4d71`. |
 | 2026-11-04 | Feed storage is its own location type, not confinement | `type=storage`. Batch picker toggles Storage \| Pasture, opens on Storage. Add-new only for storage (name only). Pastures selectable, not creatable from the batch dialog. Animal/confinement flows never show storage. Migration 038 applied. |
 | 2026-11-05 | Grazing event card pasture DM floors at 0; days remaining include remaining stored feed | Pasture intake = min(FOR-1, max(0, demand − stored consumed)). Days use FOR-4 on leftover forage + remaining stored DM from latest ordinary check + later deliveries. Ordinary checks (not only close-readings) set residual. Shipped PR #65. Pages stamp b2026-11-05.2009-54c2008. Spec: session_briefs/SESSION_BRIEF_2026-11-05_grazing-event-dmi-floor.md. |
+| 2026-11-06 | Composite animal weight input is per head; stored as lot total | On main via PRs #66, #67, and #68. |
 
 ## 5. Open Questions / Next Steps
 

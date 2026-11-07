@@ -524,6 +524,8 @@ CREATE TABLE animal_classes (
 | cull_date | date | | Flattened from v1 cullRecord object |
 | cull_reason | text | | |
 | cull_notes | text | | |
+| is_bulk | boolean | NOT NULL, DEFAULT false | True when this row is a group composite (many head, one record). False for an individual. Default false keeps every existing row an individual. Migration 039. |
+| bulk_head_count | integer | | Head represented by a composite. Null on individual animals. Non-negative integer on composites. Migration 039 / schema stamp 39. |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
@@ -537,6 +539,7 @@ CREATE TABLE animal_classes (
 - **Confirmed bred stored, not derived (A29 — reversed by OI-0099 on 2026-04-18):** V1 stored `confirmedBred` on the animal; v2 originally planned to derive from breeding records ("most recent confirmed breeding with no subsequent calving"). Deriving turned out to block the Edit Animal UI (farmer can confirm pregnancy months before any calving record exists) and required rules that were never implemented. Migration 026 adds `confirmed_bred boolean NOT NULL DEFAULT false`; the Edit Animal checkbox writes directly. If a richer breeding-status model is ever needed (palpation dates, methods, repro history) that's a new `animal_breeding_status` table (see OI-0099 "Option B6" — deferred).
 - **Cull fields flattened:** V1's `cullRecord` JSONB object ({date, reason, notes}) promoted to three proper columns for queryability.
 - **No healthEvents[], calvingRecords[], weightHistory[]:** All moved to their own tables in D9 and weight records table. No JSONB arrays on the animal record.
+- **One row can stand for many head (migration 039, schema stamp 39):** `is_bulk` is true for a group composite and false for an individual. Default false keeps every existing row an individual. `bulk_head_count` is the head represented by a composite (non-negative integer) and null on individuals. CHECK `animals_bulk_head_count_check`: `(is_bulk = false AND bulk_head_count IS NULL) OR (is_bulk = true AND bulk_head_count IS NOT NULL AND bulk_head_count >= 0)`. Total weight stays on `animal_weight_records` (no new weight column). Weight input is per head; stored as lot total (PRs #66, #67, #68).
 
 ```sql
 CREATE TABLE animals (
@@ -559,8 +562,14 @@ CREATE TABLE animals (
   cull_date        date,
   cull_reason      text,
   cull_notes       text,
+  is_bulk          boolean NOT NULL DEFAULT false,
+  bulk_head_count  integer,
   created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now()
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT animals_bulk_head_count_check CHECK (
+    (is_bulk = false AND bulk_head_count IS NULL)
+    OR (is_bulk = true AND bulk_head_count IS NOT NULL AND bulk_head_count >= 0)
+  )
 );
 ```
 

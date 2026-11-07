@@ -2,6 +2,7 @@
 
 import { supabase } from '../../data/supabase-client.js';
 import { logger } from '../../utils/logger.js';
+import { markPasswordRecovery, passwordResetRedirectTo } from './recovery.js';
 
 /** @type {import('@supabase/supabase-js').User|null} */
 let currentUser = null;
@@ -86,6 +87,81 @@ export async function signup(email, password) {
 }
 
 /**
+ * Ask Supabase to email a password reset link.
+ * Unknown addresses still resolve without an error (no account enumeration).
+ * `redirectTo` is the current origin's change-password route.
+ *
+ * @param {string} email
+ * @returns {Promise<{ error: string|null }>}
+ */
+export async function requestPasswordReset(email) {
+  if (!supabase) {
+    return { error: 'Supabase not configured' };
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: passwordResetRedirectTo(),
+  });
+
+  if (error) {
+    logger.warn('auth', 'Password reset request failed', { error: error.message });
+    return { error: error.message };
+  }
+
+  return { error: null };
+}
+
+/**
+ * Exchange a recovery `token_hash` for a session.
+ * auth-js emits `PASSWORD_RECOVERY` when `type` is `recovery`.
+ *
+ * @param {string} tokenHash
+ * @returns {Promise<{ user: object|null, error: string|null }>}
+ */
+export async function verifyRecoveryOtp(tokenHash) {
+  if (!supabase) {
+    return { user: null, error: 'Supabase not configured' };
+  }
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    token_hash: tokenHash,
+    type: 'recovery',
+  });
+
+  if (error) {
+    logger.warn('auth', 'Recovery verify failed', { error: error.message });
+    return { user: null, error: error.message };
+  }
+
+  currentUser = data.session?.user ?? data.user ?? null;
+  markPasswordRecovery();
+  return { user: currentUser, error: null };
+}
+
+/**
+ * Set a new password on the current session.
+ * A recovery session is already signed in; this does not sign the user out.
+ *
+ * @param {string} password
+ * @returns {Promise<{ user: object|null, error: string|null }>}
+ */
+export async function updatePassword(password) {
+  if (!supabase) {
+    return { user: null, error: 'Supabase not configured' };
+  }
+
+  const { data, error } = await supabase.auth.updateUser({ password });
+
+  if (error) {
+    logger.warn('auth', 'Password update failed', { error: error.message });
+    return { user: null, error: error.message };
+  }
+
+  currentUser = data.user ?? currentUser;
+  return { user: currentUser, error: null };
+}
+
+/**
  * Log out the current user.
  * @returns {Promise<void>}
  */
@@ -99,17 +175,18 @@ export async function logout() {
 
 /**
  * Listen for auth state changes (login/logout).
- * @param {Function} callback - (user: User|null) => void
+ * @param {Function} callback - (user: User|null, event?: string) => void
  * @returns {Function} unsubscribe
  */
 export function onAuthChange(callback) {
   listeners.add(callback);
 
-  // Also listen to Supabase auth state changes (token refresh, etc.)
+  // Also listen to Supabase auth state changes (token refresh, recovery, etc.)
   if (supabase) {
-    supabase.auth.onAuthStateChange((_event, session) => {
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') markPasswordRecovery();
       currentUser = session?.user ?? null;
-      callback(currentUser);
+      callback(currentUser, event);
     });
   }
 

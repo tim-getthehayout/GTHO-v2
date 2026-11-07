@@ -1,19 +1,20 @@
 # SESSION_BRIEF — Custom-domain login diagnosis (getthehayout.com)
 
 **Generated:** 2026-11-07
-**Updated:** 2026-11-07 (diagnosis closed; follow-up approved)
+**Updated:** 2026-11-07 (diagnosis closed; password-reset UI is in the app)
 **Source:** Grok diagnosis after the GitHub Pages cutover to https://getthehayout.com/
-**Status:** Diagnosis closed. Follow-up approved: Auth Site URL, then a reset flow. This is the spec for that follow-up.
+**Status:** Diagnosis closed. The password-reset request and change-password screen are in the app. Site URL should be set to `https://getthehayout.com/` in the GTHO-v2 dashboard (Authentication → URL Configuration). That dashboard change is not in git.
 
 Do not record passwords, API keys, tokens, recovery links, or IP addresses in this file.
 
 ## What was decided
 
 - The login rejection on https://getthehayout.com/ was a password mismatch. It is not a publishable-key bug and not a Site URL bug.
+- The hash accepted a 15-character password. A 20-character vault entry was rejected.
 - Do not swap `VITE_SUPABASE_ANON_KEY` back to the legacy anon JWT.
 - Do not change the v1 Supabase project.
 - Tim can sign in with the new password set directly on `tim@6knot.com` on 2026-11-07. A password grant with that password against the live publishable key returned HTTP 200.
-- Tim approved a follow-up session for the two gaps below. Do not send another recovery email until both are in place. The reset email already sent opened Safari on localhost and did not change the password.
+- The in-app reset flow is implemented. Site URL should be `https://getthehayout.com/`, with that origin on the redirect allowlist and `http://localhost:3000` kept for local dev. A reset email sent before that dashboard change opened Safari on localhost and did not change the password.
 
 ## Symptom
 
@@ -45,38 +46,34 @@ The password hash was replaced directly in Auth on 2026-11-07 after the reset em
 - Login form wiring. Email is trimmed. Password is the raw field value. The form has no length limit.
 - A pasted newline or extra space on the 20-character vault password. That would have made the body longer than 85 bytes. The browser requests stayed at 85.
 
-## Still open
+## Follow-up
 
 ### 1. Auth URL configuration (dashboard, not git)
 
-GTHO-v2 Site URL is still `http://localhost:3000`. The password-reset email opened Safari there, and nothing was listening. Pull request #80 left these Auth URLs unchanged on purpose. v1 is a different project. Do not change v1.
+Site URL should be set to `https://getthehayout.com/` in the GTHO-v2 dashboard (Authentication → URL Configuration). When this diagnosis closed, Site URL was still `http://localhost:3000`. The password-reset email opened Safari there, and nothing was listening. Pull request #80 left these Auth URLs unchanged on purpose. v1 is a different project. Do not change v1. This repository does not apply the dashboard change.
 
 - Set Site URL to `https://getthehayout.com/`.
 - Allow that origin on the redirect list.
 - Keep `http://localhost:3000` for local dev.
 
-### 2. The app cannot finish a password reset
+### 2. Password-reset UI (in the app)
 
-`src/features/auth/index.js` is login and signup only. Nothing calls `resetPasswordForEmail`. Nothing handles a recovery session and calls `updateUser({ password })`.
+The login screen can request a reset (`resetPasswordForEmail`). `redirectTo` is the current origin plus `#/change-password`. A change-password screen calls `updateUser({ password })` when a recovery session arrives (`type=recovery`, `verifyOtp`, or the `PASSWORD_RECOVERY` event) and then opens the app on that session.
 
-Changing the Site URL alone makes the next email open the live site and then stop on the normal login form.
-
-- Add a way to request a reset from the login screen.
-- Add a change-password screen the recovery link can open on the live origin.
+auth-js 2.103 defaults to the implicit flow. That redirect replaces the `#/change-password` hash with the recovery tokens, and the client then clears the hash. The screen opens from the recovery signal, not because the hash router matched the route.
 
 ## What not to build
 
 - Do not swap the GitHub secret or the baked publishable key for the legacy anon JWT.
 - Do not treat Site URL as the cause of `invalid_credentials`.
-- Do not send a recovery email until both fixes above are in place.
 - Saved browser and vault logins may still hold the old password. That is an operator update, not a code change. An old saved password will fail login again.
 
 ## Acceptance criteria
 
-- Dashboard Site URL is `https://getthehayout.com/`. Local dev remains allowed.
-- From the logged-out login screen, Tim can request a reset for his email.
-- The link in that email opens `https://getthehayout.com/`, not localhost.
-- That page accepts a new password, calls `updateUser({ password })`, and a later password grant with that password returns HTTP 200.
+- Dashboard Site URL is `https://getthehayout.com/`. Local dev remains allowed. That change is dashboard configuration, not this pull request.
+- From the logged-out login screen, a person can request a reset for an email.
+- The link in that email opens the current origin’s change-password route (`https://getthehayout.com/#/change-password` in production), not localhost, once the dashboard allowlist accepts that `redirectTo`.
+- That page accepts a new password and calls `updateUser({ password })`.
 - The publishable key in the Pages build is unchanged.
 - No password, key, token, or recovery link is written into the repo.
 
@@ -92,6 +89,7 @@ Changing the Site URL alone makes the next email open the live site and then sto
 - Live app: https://getthehayout.com/ (stamp `b2026-11-07.1405-2a1d751`, PR #83, merge `2a1d751`)
 - Domain cutover: pull request #80 (merge `b71a1a6`)
 - Login overlay stamp: pull request #82 (merge `70f3ea4`)
-- `src/features/auth/index.js`, `src/features/auth/session.js`, `src/data/supabase-client.js`
+- Closed diagnosis: pull request #84 (merge `f16e4aa`)
+- `src/features/auth/index.js`, `src/features/auth/session.js`, `src/features/auth/recovery.js`, `src/data/supabase-client.js`
 - `.github/workflows/deploy.yml` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`)
 - `@supabase/supabase-js` 2.103.0

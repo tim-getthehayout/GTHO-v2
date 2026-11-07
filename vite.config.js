@@ -47,7 +47,7 @@ function gthoPwaStampPlugin(stamp) {
 const buildStamp = getBuildStamp();
 
 export default defineConfig({
-  base: '/GTHO-v2/',
+  base: '/',
   define: {
     __BUILD_STAMP__: JSON.stringify(buildStamp),
   },

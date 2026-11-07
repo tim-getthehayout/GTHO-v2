@@ -4,7 +4,7 @@
  */
 const STAMP = '__GTHO_BUILD_STAMP__';
 const CACHE_NAME = 'gtho-' + STAMP;
-const BASE = '/GTHO-v2/';
+const BASE = '/';
 
 function networkFirstNavigation(req) {
   return fetch(req)

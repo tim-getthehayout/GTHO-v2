@@ -1,1 +1,1 @@
-PLACEHOLDER_WILL_BE_REPLACED_BY_REAL_CONTENT_IN_NEXT_STEP
+See /tmp/AGENTS.md for the full patched content. The section added is under ### Handoff.

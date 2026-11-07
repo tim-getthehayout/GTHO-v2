@@ -25,7 +25,7 @@ Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, G
 - Domain specs stay where they are: `V2_SCHEMA_DESIGN.md`, `V2_UX_FLOWS.md`, `V2_APP_ARCHITECTURE.md`, `V2_CALCULATION_SPEC.md`, `V2_INFRASTRUCTURE.md`, `V2_DESIGN_SYSTEM.md`, `V2_MIGRATION_PLAN.md`, `V2_BUILD_INDEX.md`.
 - Backlog stays in `OPEN_ITEMS.md`. Do not copy it into `PROJECT_STATUS.md`. Status points at the open items that matter this session.
 - Session briefs live in `session_briefs/`. New briefs use `project-framework/session-brief.template.md`. Implementation specs live in `github/issues/` (this project does not use a `specs/` folder).
-- Current schema stamp is 36 (migration `036_batch_adjustment_date.sql`, applied 2026-11-03).
+- Current schema stamp is 38 (migration `038_location_type_storage.sql`, applied and verified 2026-11-04). Migration 037 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`) is also applied. Migration 039 (composite animals) exists on main; do not treat it as applied unless Tim has verified `schema_version = 39`.
 
 ---
 
@@ -39,7 +39,7 @@ The following process rules apply unless this project explicitly overrides them.
 - **Homelab Git Bridge** lands doc-only changes it is handed, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. It does not invent design, never force-pushes, and does not push while Grok Build is editing the repo.
 - **Git** is the durable handoff medium between the two and between machines.
 
-Grok Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` unless the handoff says to. Grok project chat does not treat an unimplemented idea as shipped.
+Grok Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` unless the handoff says to. A docs-only handoff is not that exception: send docs-only pull requests to Homelab Git Bridge, not Grok Build or GTHO Build. Grok project chat does not treat an unimplemented idea as shipped.
 
 ### Session start
 1. Read the latest `PROJECT_STATUS.md`.
@@ -109,10 +109,11 @@ Moved here from `CLAUDE.md` on 2026-10-04. The April 2026 UI sprint is retired. 
 - **Mode:** framework Mode B (feature branch and pull request).
 - **Writer:** Tim's Mac, clone `~/Github/GTHO-v2`, pushing to GitHub `tim-getthehayout/GTHO-v2`.
 - **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages on every push to main. Site at `https://tim-getthehayout.github.io/GTHO-v2/`
-- **Grok project chat** never pushes. It writes the session brief; Grok Build or Homelab Git Bridge commits it.
+- **Grok project chat** never pushes. It writes the session brief. Homelab Git Bridge commits doc-only updates (session briefs, living status, schema-stamp notes, design docs) through a pull request. Grok Build commits implementation (code under `src/`, `tests/`, and `supabase/`, plus the matching `PROJECT_CHANGELOG.md` row) on a feature branch. Do not hand Grok Build or GTHO Build a docs-only PR.
 - **Grok Build** commits on a feature branch made from `main` and pushes that branch. Feature branches do not deploy.
 - **Pull request:** each feature gets a GitHub pull request into `main`. Homelab Git Bridge can manage the pull request and merge it.
 - **Homelab Git Bridge** lands doc-only changes, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. Its doc-only changes also go through a pull request into `main`; it has no bypass and never pushes to `main`.
+- A docs-only pull request is opened and managed by Homelab Git Bridge, not Grok Build or GTHO Build.
 - **`main` protection (intended setting):** GitHub ruleset on `main`: pull request required (0 approvals), no force-pushes, no deletion, no bypass actors.
 - Commit after each completed checkpoint or substantive edit
 - **Never use worktree isolation** (`isolation: "worktree"`)

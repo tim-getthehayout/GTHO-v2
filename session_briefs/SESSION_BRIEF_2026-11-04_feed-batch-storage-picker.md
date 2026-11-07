@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-04  
 **Source:** Grok design session (follow-up to feed batch locations)  
-**Status:** Ready for implementation  
+**Status:** Implemented. PR #63. Migration 038 applied.  
 **Parent:** session_briefs/SESSION_BRIEF_2026-11-04_feed-batch-locations.md · PR #62
 
 ## What was decided

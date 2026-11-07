@@ -5730,6 +5730,18 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 ## Closed
 
+### OI-0194 — Recovery email opens the login page instead of the change-password form
+**Added:** 2026-11-07 | **Closed:** 2026-11-07 | **Area:** v2-build / auth / password-reset
+**Status:** closed
+
+**What was wrong.** `resetPasswordForEmail` set `redirectTo` to the origin plus `#/change-password`. GoTrue's implicit success redirect is `redirectTo + "#" +` the access-token query (`AccessTokenResponse.AsRedirectURL`). The browser lands on a double hash: the route, then a second `#`, then `access_token`, `refresh_token`, `expires_in`, `token_type`, and `type=recovery`. auth-js 2.103 `parseParametersFromURL` feeds that whole fragment to `URLSearchParams`, so the key is `/change-password#access_token` and `access_token` is absent. `detectSessionInUrl` does not treat the URL as an implicit grant, no session is stored, and boot shows login. The change-password form never opens. Cancel on that form was not the cause. The form already collects a new password and a confirmation only; a current-password step is not part of this flow.
+
+**Correct behavior.** `redirectTo` is the origin only (`https://getthehayout.com/` in production, `http://localhost:3000/` on local Vite). New recovery links get a single token hash that auth-js can read. Emails already sent with `#/change-password` inside `redirect_to` are rewritten to that clean fragment before `createClient`, so the same form opens. The user does not enter their old password. Cancel still signs out, clears the recovery flag, and returns to login.
+
+**Files:** `src/features/auth/recovery.js`, `src/data/supabase-client.js`, `src/features/auth/session.js`, `src/features/auth/index.js`, `src/main.js`, `tests/unit/auth/password-reset.test.js`.
+
+**Schema change:** none. **CP-55/CP-56 impact:** none. The session brief still describes the old `#/change-password` redirectTo. Project chat owns that doc.
+
 ### OI-0193 — Composite animal columns are not yet in the schema or backup spec docs
 **Added:** 2026-11-06 | **Closed:** 2026-11-06 | **Area:** schema / backup
 **Resolution:** `V2_SCHEMA_DESIGN.md` §3.2 now lists `is_bulk` and `bulk_head_count`. Tim verified `operations.schema_version = 39`.

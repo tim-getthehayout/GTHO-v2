@@ -62,9 +62,10 @@ let lastRenderedUserId = null;
 let appListenersBound = false;
 
 async function boot() {
-  // Read the recovery URL before any await. auth-js initialize (started when
-  // the client module loads) clears an implicit-grant hash after it exchanges
-  // the tokens, and that exchange is in flight by the time boot runs.
+  // supabase-client.js rewrites a double-hash recovery URL before createClient.
+  // Read the repaired URL before any await. auth-js initialize (started when
+  // the client module loads) clears a clean implicit-grant hash after it
+  // exchanges the tokens, and that exchange is in flight by the time boot runs.
   const recovery = readRecoveryArrival(window.location.href);
   await loadLocale('en');
   const app = document.getElementById('app');

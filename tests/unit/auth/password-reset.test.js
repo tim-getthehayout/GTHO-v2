@@ -20,9 +20,12 @@ vi.mock('../../../src/data/supabase-client.js', () => ({
 
 import { renderAuthOverlay, renderChangePassword } from '../../../src/features/auth/index.js';
 import { buildStampLabel } from '../../../src/ui/build-stamp.js';
+import { parseParametersFromURL } from '@supabase/auth-js/dist/module/lib/helpers.js';
 import {
   readRecoveryArrival,
   passwordResetRedirectTo,
+  hrefWithCleanImplicitGrant,
+  installCleanRecoveryHash,
   hrefWithoutRecoverySearch,
   decideAuthScreen,
   markPasswordRecovery,
@@ -90,13 +93,98 @@ describe('recovery URL', () => {
     expect(arrival.isChangePasswordRoute).toBe(false);
   });
 
-  it('builds redirectTo from the current origin and the change-password hash', () => {
+  it('builds redirectTo from the current origin with no hash fragment', () => {
     expect(passwordResetRedirectTo('https://getthehayout.com')).toBe(
-      'https://getthehayout.com/#/change-password',
+      'https://getthehayout.com/',
     );
     expect(passwordResetRedirectTo('http://localhost:3000')).toBe(
-      'http://localhost:3000/#/change-password',
+      'http://localhost:3000/',
     );
+    expect(passwordResetRedirectTo('https://getthehayout.com').includes('#')).toBe(false);
+  });
+
+  it('auth-js cannot read access_token from the double hash GoTrue builds', () => {
+    // GoTrue AccessTokenResponse.AsRedirectURL is redirectTo + "#" + token query.
+    // Placeholder token pieces only. Not a live recovery link.
+    const fragment = 'access_token=at.fake&expires_at=1700000000&expires_in=3600&refresh_token=rt.fake&token_type=bearer&type=recovery';
+    const landing = `https://getthehayout.com/#/change-password#${fragment}`;
+    const parsed = parseParametersFromURL(landing);
+    expect(parsed.access_token).toBeUndefined();
+    expect(parsed.type).toBe('recovery');
+
+    const encoded = `https://getthehayout.com/#/change-password%23${fragment}`;
+    expect(parseParametersFromURL(encoded).access_token).toBeUndefined();
+  });
+
+  it('repairs a double-hash recovery landing into a fragment auth-js can read', () => {
+    const fragment = 'access_token=at.fake&expires_at=1700000000&expires_in=3600&refresh_token=rt.fake&token_type=bearer&type=recovery';
+    const landing = `https://getthehayout.com/#/change-password#${fragment}`;
+    const cleaned = hrefWithCleanImplicitGrant(landing);
+
+    expect(cleaned).toBe(`https://getthehayout.com/#${fragment}`);
+    const parsed = parseParametersFromURL(cleaned);
+    expect(parsed.access_token).toBe('at.fake');
+    expect(parsed.refresh_token).toBe('rt.fake');
+    expect(parsed.expires_in).toBe('3600');
+    expect(parsed.token_type).toBe('bearer');
+    expect(parsed.type).toBe('recovery');
+
+    const arrival = readRecoveryArrival(landing);
+    expect(arrival.type).toBe('recovery');
+    expect(arrival.tokenHash).toBeNull();
+    expect(readRecoveryArrival(cleaned).type).toBe('recovery');
+    expect(decideAuthScreen({
+      recoveryType: readRecoveryArrival(cleaned).type,
+      pending: false,
+      user: { id: 'user-1' },
+    })).toBe('change-password');
+    // No session yet: the screen stays login until the repaired URL is what
+    // auth-js reads. That is why the rewrite runs before createClient.
+    expect(decideAuthScreen({
+      recoveryType: 'recovery',
+      pending: false,
+      user: null,
+    })).toBe('auth');
+  });
+
+  it('repairs a percent-encoded second hash the same way', () => {
+    const fragment = 'access_token=at.fake&expires_in=3600&refresh_token=rt.fake&token_type=bearer&type=recovery';
+    const landing = `https://getthehayout.com/#/change-password%23${fragment}`;
+    expect(hrefWithCleanImplicitGrant(landing)).toBe(`https://getthehayout.com/#${fragment}`);
+    expect(parseParametersFromURL(hrefWithCleanImplicitGrant(landing)).access_token).toBe('at.fake');
+    expect(readRecoveryArrival(landing).type).toBe('recovery');
+  });
+
+  it('leaves a clean implicit hash and ordinary routes unchanged', () => {
+    const clean = 'https://getthehayout.com/#access_token=at.fake&refresh_token=rt.fake&expires_in=3600&token_type=bearer&type=recovery';
+    expect(hrefWithCleanImplicitGrant(clean)).toBe(clean);
+    expect(hrefWithCleanImplicitGrant('https://getthehayout.com/#/change-password')).toBe(
+      'https://getthehayout.com/#/change-password',
+    );
+    expect(hrefWithCleanImplicitGrant('https://getthehayout.com/#/events')).toBe(
+      'https://getthehayout.com/#/events',
+    );
+    expect(hrefWithCleanImplicitGrant('https://getthehayout.com/?token_hash=hashed-token&type=recovery')).toBe(
+      'https://getthehayout.com/?token_hash=hashed-token&type=recovery',
+    );
+  });
+
+  it('installs the repaired hash on the current location before auth-js parses it', () => {
+    const fragment = 'access_token=at.fake&expires_in=3600&refresh_token=rt.fake&token_type=bearer&type=recovery';
+    const prior = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.origin}/#/change-password#${fragment}`,
+    );
+    installCleanRecoveryHash();
+    const parsed = parseParametersFromURL(window.location.href);
+    expect(parsed.access_token).toBe('at.fake');
+    expect(parsed.type).toBe('recovery');
+    expect(parsed.expires_in).toBe('3600');
+    expect(parsed.token_type).toBe('bearer');
+    expect(window.location.hash.startsWith('#/')).toBe(false);
+    window.history.replaceState(null, '', prior || '/');
   });
 
   it('strips recovery query params and leaves an implicit-grant hash untouched', () => {
@@ -147,6 +235,7 @@ describe('forgot password', () => {
     expect(auth.resetPasswordForEmail).toHaveBeenCalledWith('person@example.com', {
       redirectTo: passwordResetRedirectTo(),
     });
+    expect(auth.resetPasswordForEmail.mock.calls[0][1].redirectTo.includes('#')).toBe(false);
     expect(message.classList.contains('auth-info')).toBe(true);
     expect(message.textContent).toBe('Check your email for a password reset link.');
   });
@@ -195,10 +284,15 @@ describe('change password', () => {
     return container;
   }
 
-  it('shows the build stamp and collects a new password', () => {
+  it('shows the build stamp and collects a new password only', () => {
     const container = mountChange();
     expect(container.querySelector('[data-testid="auth-change-password"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="auth-mode"]').textContent).toBe('Change password');
+    const passwords = container.querySelectorAll('input[type="password"]');
+    expect(passwords).toHaveLength(2);
+    expect(passwords[0].getAttribute('autocomplete')).toBe('new-password');
+    expect(passwords[1].getAttribute('autocomplete')).toBe('new-password');
+    expect(container.querySelector('[autocomplete="current-password"]')).toBeNull();
     const stamp = container.querySelector('[data-testid="header-build-stamp"]');
     expect(stamp.textContent).toBe(buildStampLabel());
     expect(stamp.closest('[data-testid="auth-overlay"]')).toBeTruthy();

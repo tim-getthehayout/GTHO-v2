@@ -148,6 +148,10 @@ function showChangePassword(app) {
     if (signedIn) lastRenderedUserId = signedIn.id;
     clear(app);
     showApp(app);
+  }, () => {
+    // Cancel already signed out. Show the login screen on that signed-out session.
+    lastRenderedUserId = null;
+    showAuth(app);
   });
   initPwa();
 }

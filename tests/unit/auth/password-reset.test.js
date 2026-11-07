@@ -29,7 +29,7 @@ import {
   clearPasswordRecovery,
   isPasswordRecoveryPending,
 } from '../../../src/features/auth/recovery.js';
-import { onAuthChange, verifyRecoveryOtp } from '../../../src/features/auth/session.js';
+import { onAuthChange, verifyRecoveryOtp, login, getUser } from '../../../src/features/auth/session.js';
 
 beforeAll(() => setLocale('en', enLocale));
 
@@ -250,6 +250,51 @@ describe('change password', () => {
     expect(onSuccess).not.toHaveBeenCalled();
     expect(isPasswordRecoveryPending()).toBe(true);
     expect(container.querySelector('[data-testid="auth-change-submit"]').disabled).toBe(false);
+  });
+
+  it('shows Cancel in the same style as the other auth secondary actions', () => {
+    const container = mountChange();
+    const cancel = container.querySelector('[data-testid="auth-change-cancel"]');
+    const login = mountLogin();
+    expect(cancel.textContent).toBe('Cancel');
+    expect(cancel.className).toBe('auth-toggle');
+    expect(cancel.type).toBe('button');
+    expect(cancel.className).toBe(login.querySelector('[data-testid="auth-forgot"]').className);
+    expect(cancel.className).toBe(login.querySelector('[data-testid="auth-toggle"]').className);
+  });
+
+  it('cancel signs out, clears recovery, and returns to the login screen', async () => {
+    markPasswordRecovery();
+    auth.signInWithPassword.mockResolvedValue({
+      data: { user: { id: 'user-1' } },
+      error: null,
+    });
+    auth.signOut.mockResolvedValue({ error: null });
+    await login('person@example.com', 'existing-password');
+    expect(getUser()).toEqual({ id: 'user-1' });
+    expect(isPasswordRecoveryPending()).toBe(true);
+
+    const onSuccess = vi.fn();
+    const onCancel = vi.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    renderChangePassword(container, onSuccess, onCancel);
+    container.querySelector('[data-testid="auth-new-password"]').value = 'typed-but-abandoned';
+    container.querySelector('[data-testid="auth-confirm-password"]').value = 'typed-but-abandoned';
+
+    container.querySelector('[data-testid="auth-change-cancel"]').click();
+
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="auth-mode"]').textContent).toBe('Log In');
+    });
+    expect(auth.signOut).toHaveBeenCalledTimes(1);
+    expect(getUser()).toBeNull();
+    expect(isPasswordRecoveryPending()).toBe(false);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(auth.updateUser).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="auth-change-password"]')).toBeNull();
+    expect(container.querySelector('[data-testid="auth-forgot"]')).toBeTruthy();
   });
 });
 

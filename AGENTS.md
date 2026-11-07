@@ -39,7 +39,7 @@ The following process rules apply unless this project explicitly overrides them.
 - **Homelab Git Bridge** lands doc-only changes it is handed, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. It does not invent design, never force-pushes, and does not push while Grok Build is editing the repo.
 - **Git** is the durable handoff medium between the two and between machines.
 
-Grok Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` unless the handoff says to. Grok project chat does not treat an unimplemented idea as shipped.
+Grok Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` unless the handoff says to. A docs-only handoff is not that exception: send docs-only pull requests to Homelab Git Bridge, not Grok Build or GTHO Build. Grok project chat does not treat an unimplemented idea as shipped.
 
 ### Session start
 1. Read the latest `PROJECT_STATUS.md`.
@@ -109,10 +109,11 @@ Moved here from `CLAUDE.md` on 2026-10-04. The April 2026 UI sprint is retired. 
 - **Mode:** framework Mode B (feature branch and pull request).
 - **Writer:** Tim's Mac, clone `~/Github/GTHO-v2`, pushing to GitHub `tim-getthehayout/GTHO-v2`.
 - **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages on every push to main. Site at `https://tim-getthehayout.github.io/GTHO-v2/`
-- **Grok project chat** never pushes. It writes the session brief; Grok Build or Homelab Git Bridge commits it.
+- **Grok project chat** never pushes. It writes the session brief. Homelab Git Bridge commits doc-only updates (session briefs, living status, schema-stamp notes, design docs) through a pull request. Grok Build commits implementation (code under `src/`, `tests/`, and `supabase/`, plus the matching `PROJECT_CHANGELOG.md` row) on a feature branch. Do not hand Grok Build or GTHO Build a docs-only PR.
 - **Grok Build** commits on a feature branch made from `main` and pushes that branch. Feature branches do not deploy.
 - **Pull request:** each feature gets a GitHub pull request into `main`. Homelab Git Bridge can manage the pull request and merge it.
 - **Homelab Git Bridge** lands doc-only changes, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. Its doc-only changes also go through a pull request into `main`; it has no bypass and never pushes to `main`.
+- A docs-only pull request is opened and managed by Homelab Git Bridge, not Grok Build or GTHO Build.
 - **`main` protection (intended setting):** GitHub ruleset on `main`: pull request required (0 approvals), no force-pushes, no deletion, no bypass actors.
 - Commit after each completed checkpoint or substantive edit
 - **Never use worktree isolation** (`isolation: "worktree"`)

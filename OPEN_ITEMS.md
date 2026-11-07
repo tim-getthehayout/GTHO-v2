@@ -5740,7 +5740,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 **Files:** `src/features/auth/recovery.js`, `src/data/supabase-client.js`, `src/features/auth/session.js`, `src/features/auth/index.js`, `src/main.js`, `tests/unit/auth/password-reset.test.js`.
 
-**Schema change:** none. **CP-55/CP-56 impact:** none. The session brief still describes the old `#/change-password` redirectTo. Project chat owns that doc.
+**Schema change:** none. **CP-55/CP-56 impact:** none. Session brief updated 2026-11-07: `redirectTo` is the hash-free origin plus `BASE_URL`, and Tim confirmed a recovery link opens the change-password form on `https://getthehayout.com/`. PR #87 merge `f9b5948a6b3657f8bb0521413c0199634f93b4b0`, feature head `2c92ba36b45fb773154ec8bf1f64ec71c6c932cc`, stamp `b2026-11-07.1612-f9b5948`.
 
 ### OI-0193 — Composite animal columns are not yet in the schema or backup spec docs
 **Added:** 2026-11-06 | **Closed:** 2026-11-06 | **Area:** schema / backup

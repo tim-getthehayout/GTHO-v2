@@ -89,7 +89,8 @@ export async function signup(email, password) {
 /**
  * Ask Supabase to email a password reset link.
  * Unknown addresses still resolve without an error (no account enumeration).
- * `redirectTo` is the current origin's change-password route.
+ * `redirectTo` is the current origin with no hash. The recovery link signs
+ * the user in; the change-password form does not ask for the old password.
  *
  * @param {string} email
  * @returns {Promise<{ error: string|null }>}

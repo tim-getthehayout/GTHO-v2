@@ -249,8 +249,10 @@ export function renderAuthOverlay(container, onSuccess) {
 
 /**
  * Change-password screen for a recovery session.
- * The session is already signed in. Success clears the recovery flag and
- * calls onSuccess so boot can open the app without signing out.
+ * The session is already signed in. This is the forgot-password path: new
+ * password and confirmation only. The current password is not collected.
+ * Success clears the recovery flag and calls onSuccess so boot can open the
+ * app without signing out.
  * Cancel abandons the reset: signs out, clears the recovery flag, and
  * shows the login screen. The recovery session is ended.
  *

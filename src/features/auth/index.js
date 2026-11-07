@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { buildStampLabel } from '../../ui/build-stamp.js';
-import { login, signup, requestPasswordReset, updatePassword } from './session.js';
+import { login, signup, logout, requestPasswordReset, updatePassword } from './session.js';
 import { clearPasswordRecovery } from './recovery.js';
 
 /**
@@ -251,11 +251,14 @@ export function renderAuthOverlay(container, onSuccess) {
  * Change-password screen for a recovery session.
  * The session is already signed in. Success clears the recovery flag and
  * calls onSuccess so boot can open the app without signing out.
+ * Cancel abandons the reset: signs out, clears the recovery flag, and
+ * shows the login screen. The recovery session is ended.
  *
  * @param {HTMLElement} container
  * @param {Function} onSuccess - Called with user after the password is updated
+ * @param {Function} [onCancel] - Called after sign-out. Boot uses this to show login.
  */
-export function renderChangePassword(container, onSuccess) {
+export function renderChangePassword(container, onSuccess, onCancel) {
   const passwordInput = el('input', {
     type: 'password',
     className: 'auth-input',
@@ -283,6 +286,13 @@ export function renderChangePassword(container, onSuccess) {
     'data-testid': 'auth-change-submit',
     onClick: () => submit(),
   }, [t('auth.changePasswordSubmit')]);
+
+  const cancelBtn = el('button', {
+    className: 'auth-toggle',
+    type: 'button',
+    'data-testid': 'auth-change-cancel',
+    onClick: () => cancel(),
+  }, [t('auth.cancel')]);
 
   async function submit() {
     const password = passwordInput.value;
@@ -316,6 +326,17 @@ export function renderChangePassword(container, onSuccess) {
     onSuccess(user);
   }
 
+  async function cancel() {
+    cancelBtn.disabled = true;
+    await logout();
+    clearPasswordRecovery();
+    clear(container);
+    // Login screen for this tab. A later login() notifies onAuthChange, which
+    // opens the app. Boot's onCancel mounts the usual login overlay in its place.
+    renderAuthOverlay(container, () => {});
+    if (typeof onCancel === 'function') onCancel();
+  }
+
   const form = el('form', {
     className: 'auth-form',
     'data-testid': 'auth-change-password',
@@ -323,7 +344,7 @@ export function renderChangePassword(container, onSuccess) {
       e.preventDefault();
       submit();
     },
-  }, [passwordInput, confirmInput, errorEl, submitBtn]);
+  }, [passwordInput, confirmInput, errorEl, submitBtn, cancelBtn]);
 
   clear(container);
   container.appendChild(authCard(t('auth.changePassword'), form));

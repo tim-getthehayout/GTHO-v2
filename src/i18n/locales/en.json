@@ -1059,6 +1059,7 @@
     "resetEmailSent": "Check your email for a password reset link.",
     "resetFailed": "Could not send the reset email. Try again.",
     "backToLogin": "Back to log in",
+    "cancel": "Cancel",
     "changePassword": "Change password",
     "newPassword": "New password",
     "changePasswordSubmit": "Update password",

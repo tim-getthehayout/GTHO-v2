@@ -1051,7 +1051,20 @@
     "loginFailed": "Login failed. Check your email and password.",
     "signupFailed": "Signup failed. {error}",
     "passwordMismatch": "Passwords do not match.",
-    "checkEmail": "Check your email to confirm your account."
+    "checkEmail": "Check your email to confirm your account.",
+    "forgotPassword": "Forgot password?",
+    "resetTitle": "Reset password",
+    "sendResetLink": "Send reset link",
+    "sendingReset": "Sending…",
+    "resetEmailSent": "Check your email for a password reset link.",
+    "resetFailed": "Could not send the reset email. Try again.",
+    "backToLogin": "Back to log in",
+    "changePassword": "Change password",
+    "newPassword": "New password",
+    "changePasswordSubmit": "Update password",
+    "changingPassword": "Updating…",
+    "passwordUpdateFailed": "Could not update the password. {error}",
+    "recoveryLinkInvalid": "This reset link is invalid or expired. Request a new one."
   },
   "settings": {
     "title": "Settings",

@@ -2,17 +2,25 @@
 
 **Generated:** 2026-11-07  
 **Source:** GTHO Build diagnosis after the GitHub Pages cutover to https://getthehayout.com/  
-**Status:** Diagnosis — no implementation decided. Do not treat this as a build spec.
+**Status:** Diagnosis complete. Cause proven. Two follow-ups are in progress: the Site URL dashboard change, and the in-app recovery UI.
 
-This is a findings write-up for Grok project chat (and any later Build session pointed at it). Root cause is not fully proven. Do not invent a code or config change from this document.
+## Resolution
+
+`invalid_credentials` was a password mismatch. It was not the custom domain and not the publishable key. The stored hash accepted a 15-character password. A 20-character vault entry was rejected. Tim is logged in with a new password set directly on the account. This session does not send a recovery email.
+
+Two follow-ups are being applied:
+
+1. **Site URL (dashboard, not git).** In the GTHO-v2 project, Authentication → URL Configuration: set Site URL to `https://getthehayout.com/`, allow that origin on the redirect list, and keep `http://localhost:3000` for local dev. This PR does not apply that dashboard change. Site URL does not cause `invalid_credentials`, and it still needs this update so recovery links return to the live app.
+2. **In-app recovery UI (this change).** Login can request a reset (`resetPasswordForEmail`, `redirectTo` the current origin plus `#/change-password`). A change-password screen calls `updateUser({ password })` when a recovery session arrives (`type=recovery`, `verifyOtp`, or the `PASSWORD_RECOVERY` event) and then opens the app on that session.
+
+The findings below are the diagnosis record. The resolution above is the current instruction.
 
 ## What was decided
 
 - Find the real cause of login failure on https://getthehayout.com/. Tim rejected workarounds.
-- Do not send a password-reset email unless Tim asks.
-- Do not change v1 or v2 Supabase Auth Site URL / redirect allowlists unless diagnosis proves that is the cause and Tim asks.
+- Do not send a password-reset email unless Tim asks. The in-app request control does not send one by itself.
 - Tim confirmed he types `tim@6knot.com`.
-- Tim said the vault login saved for https://getthehayout.com/ is the same password that worked on local development the morning of 2026-11-07.
+- Tim said the vault login saved for https://getthehayout.com/ is the same password that worked on local development the morning of 2026-11-07. The vault entry was longer than the password the hash accepted.
 - Tim rejected the theory that v1 credentials are being mixed up with v2.
 
 ## Symptom
@@ -62,46 +70,42 @@ GTHO v1 (separate project `oihivpwftpngbhwpjsqt`) also has `tim@6knot.com` (last
 - Service worker. `sw.js` intercepts same-origin GETs only, not Auth POSTs. Private mode still fails.
 - Captcha, MFA, OAuth, passkeys. GoTrue public settings: email enabled, `disable_signup` false, `mailer_autoconfirm` true, no captcha, no OAuth, no passkeys.
 - Edge password-verification hooks. No edge functions listed; no `supabase_functions` hook tables found.
-- Password changed after the 6:41 AM ET success. Hash/`updated_at` unchanged.
+- Password changed between the 6:41 AM ET success and the custom-domain failures. At that time the hash and `updated_at` were unchanged. The password was later set directly on the account. See Resolution.
 - Banned, deleted, or unconfirmed user.
 - Login form wiring / variable shadowing in the live minified overlay. `handleSubmit` passes the email and password fields correctly; the success callback is `onSuccess`, not a shadowed input. Email is `.trim()`’d; password is raw `.value` (not trimmed).
 - Client construction: `createClient(VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)` with no extra options. `.github/workflows/deploy.yml` bakes those GitHub secrets into the Pages build. `@supabase/supabase-js` is `^2.103.0` (lockfile 2.103.0 / auth-js 2.103.0). Vite `base` is `/`.
 
 ## Known config gap that does not explain this error
 
-GTHO-v2 Site URL still appears to be `http://localhost:3000` (GoTrue logs missing Referer as Site URL). That is a real leftover from the domain move and should be cleaned up later, but it does not cause `invalid_credentials`. Pull request #80 (base-path / custom domain) left Supabase Auth URLs unchanged on purpose.
+GTHO-v2 Site URL still appears to be `http://localhost:3000` (GoTrue logs missing Referer as Site URL). That is a real leftover from the domain move. It does not cause `invalid_credentials`. It should still be set to `https://getthehayout.com/` in Authentication → URL Configuration, with that origin on the redirect allowlist and `http://localhost:3000` kept for local dev. That dashboard change is not applied by the recovery-UI change. Pull request #80 (base-path / custom domain) left Supabase Auth URLs unchanged on purpose.
 
-## Unproven hypothesis
+## Publishable-key hypothesis — closed
 
 Production Pages bakes the project’s publishable key (`sb_publishable_…`, type publishable, name `default`) from the GitHub secret `VITE_SUPABASE_ANON_KEY`. The same project also has a legacy JWT anon key (not disabled). Local `npm run dev` often uses the legacy JWT anon key from `.env`.
 
-The live JavaScript contains the publishable key, not the legacy JWT. supabase-js 2.103.0 should support publishable keys, and Supabase docs say user auth is unchanged when swapping anon → publishable. That has not been proven against this project with Tim’s actual password.
+The live JavaScript contains the publishable key, not the legacy JWT. This hypothesis is closed: `invalid_credentials` was a password mismatch, not the key type. Do not swap the publishable key back to the legacy anon JWT.
 
-Dummy password-grant POSTs that used the publishable key all returned `invalid_credentials`. Those tests used invented passwords, so they cannot distinguish “wrong password” from “this key type never accepts a correct password.”
-
-A same-password comparison (legacy JWT anon with Bearer vs publishable with Bearer vs publishable apikey-only), using the vault-filled login on https://getthehayout.com/, did not run: the browser tool refused to execute a page script that would read the filled password and post Auth attempts. So this hypothesis is still open.
-
-If a later test shows the legacy anon key succeeds and the publishable key fails with the same password, the live GitHub secret / baked publishable key is the likely production cause versus the 6:41 AM ET localhost success. If both key types fail, Auth is rejecting the submitted password against the unchanged bcrypt hash.
+Dummy password-grant POSTs that used the publishable key all returned `invalid_credentials`. Those tests used invented passwords, so they could not distinguish “wrong password” from “this key type never accepts a correct password.” The later account check did: the hash accepted a 15-character password, and a 20-character vault entry was rejected.
 
 Never commit, paste, or chat the anon key, publishable key, password, recovery links, or IP addresses.
 
 ## What to build / change
 
-Nothing yet. This document is diagnosis only.
-
-Grok project chat should decide the next diagnostic step or, if a cause is proven, write a real implementation brief before any code or Supabase/GitHub-secret change.
+The password mismatch is already resolved on the account. The two follow-ups in the resolution section are the remaining work: the Site URL dashboard change, and the in-app reset request plus change-password screen. Do not swap the publishable key back to the legacy anon JWT. Do not change deploy.yml secrets.
 
 ## Acceptance criteria
 
-Not applicable until a fix is designed. A later implementation brief must say exactly what to change.
+- Login “Forgot password?” collects an email and calls `resetPasswordForEmail` with `redirectTo` on the current origin’s `#/change-password` route.
+- A recovery session (`type=recovery`, `verifyOtp`, or `PASSWORD_RECOVERY`) shows a change-password form that calls `updateUser({ password })` and then opens the app.
+- No database migration. No Site URL edit in git.
 
 ## Constraints and traps to avoid
 
-- Do not invent a production key swap, Site URL change, redirect-allowlist change, or app code change from this diagnosis.
-- Do not send a password-reset or recovery email unless Tim asks.
+- Do not swap `VITE_SUPABASE_ANON_KEY` back to the legacy anon JWT, and do not change deploy.yml secrets.
+- Do not send a recovery email from an agent session. The in-app control sends one only when someone uses it.
 - Do not put credentials, API keys, tokens, recovery links, or IP addresses in chat, commit messages, pull request bodies, or docs.
 - Do not present diagnostic POSTs that used dummy passwords or GTHO Build’s own browser as Tim’s login attempts.
-- Mode B if implementation is later designed: feature branch from latest `main`, pull request into `main`. Feature branches do not deploy. Homelab Git Bridge manages and merges implementation pull requests.
+- Mode B: feature branch from latest `main`, pull request into `main`. Feature branches do not deploy. Homelab Git Bridge manages and merges implementation pull requests.
 - GTHO Build does not merge pull requests or apply migrations without Tim / Git Bridge.
 
 ## References
@@ -115,5 +119,6 @@ Not applicable until a fix is designed. A later implementation brief must say ex
 
 ## Open questions for the implementer
 
-- Does the same correct password succeed against GTHO-v2 when sent with the legacy JWT anon key and fail with the publishable key (or the reverse)? That comparison has not been completed.
-- If both key types fail, why does Auth reject a password Tim says is unchanged since the 6:41 AM ET localhost success, while the stored hash is also unchanged?
+Resolved. The publishable key was not the cause. Auth rejected the submitted password because it did not match the stored hash: the hash accepted a 15-character password, and a 20-character vault entry was rejected.
+
+Still outside this repo: the Site URL dashboard change in the resolution section. auth-js 2.103’s default implicit flow also overwrites the `#/change-password` hash with the recovery tokens, so the screen opens from `type=recovery` / `PASSWORD_RECOVERY` rather than from the hash router matching that route. Whether the dashboard allowlist ignores that hash fragment is not settled in the app code.

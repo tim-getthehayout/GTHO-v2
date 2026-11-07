@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-07 (after PR #82; live stamp `b2026-11-07.1316-70f3ea4`; login diagnosis pointer)  
+**Last updated:** 2026-11-07 (login `invalid_credentials` was a password mismatch; password-reset UI is in the app; Site URL dashboard change is still outstanding; live stamp `b2026-11-07.1316-70f3ea4`)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -60,6 +60,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 | 2026-11-05 | Grazing event card pasture DM floors at 0; days remaining include remaining stored feed | Pasture intake = min(FOR-1, max(0, demand − stored consumed)). Days use FOR-4 on leftover forage + remaining stored DM from latest ordinary check + later deliveries. Ordinary checks (not only close-readings) set residual. Shipped PR #65. Pages stamp b2026-11-05.2009-54c2008. Spec: session_briefs/SESSION_BRIEF_2026-11-05_grazing-event-dmi-floor.md. |
 | 2026-11-06 | Composite animal weight input is per head; stored as lot total | On main via PRs #66, #67, and #68. |
 | 2026-11-07 | Live app is the custom domain | `https://getthehayout.com/` returns HTTP 200; title is "GTHO v2". `https://tim-getthehayout.github.io/GTHO-v2/` returns HTTP 301 to that domain. Live stamp `b2026-11-07.1216-b71a1a6` from the Pages deploy of PR #80 (merge `b71a1a6`). |
+| 2026-11-07 | Custom-domain login failure was a password mismatch | `invalid_credentials` was not the custom domain and not the publishable key. The stored hash accepted a 15-character password; a 20-character vault entry was rejected. Tim is logged in with a new password set directly on the account. Site URL should be `https://getthehayout.com/` in the GTHO-v2 dashboard (Authentication → URL Configuration), with that origin on the redirect allowlist and `http://localhost:3000` kept for local dev. That dashboard change is not in git and is not applied by the password-reset PR. The app now has a login “Forgot password?” request and a change-password screen for a recovery session. |
 
 ## 5. Open Questions / Next Steps
 
@@ -76,7 +77,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 9. OI-0191 is closed. Shipped in `1cedc14`. Pages did not publish it until `26fc83c` because lint and unit tests failed. Tim confirmed the post-June build after a hard refresh. Live stamp at this close: `b2026-10-04.1607-1e76f0a`.
 10. Feed batch adjustment date + archive is on `main`. Migration 036 applied and verified. Confirm Pages header stamp after the workflow succeeds.
 11. Feed batch locations is closed. On `main` (PRs #62, #63, #64). Migrations 037 and 038 applied. Header stamp `b2026-11-04.1955-6ed4d71`.
-12. Login on https://getthehayout.com/ after the domain cutover fails with Auth `invalid_credentials` against GTHO-v2. Last successful password login was 2026-11-07 6:41 AM America/New_York from `http://localhost:3000`. Diagnosis (no fix decided): `session_briefs/SESSION_BRIEF_2026-11-07_custom-domain-login-diagnosis.md`. Do not send a password reset or change Auth Site URL unless Tim asks after a proven cause.
+12. Custom-domain login `invalid_credentials` is resolved. It was a password mismatch: the stored hash accepted a 15-character password, and a 20-character vault entry was rejected. Not the custom domain, and not the publishable key. Tim is logged in with a new password set directly on the account. Site URL still needs a dashboard change, and this repo does not apply it: in the GTHO-v2 project, Authentication → URL Configuration, set Site URL to `https://getthehayout.com/`, allow that origin on the redirect list, and keep `http://localhost:3000` for local dev. The app now includes a password-reset request from the login screen and a change-password screen for a recovery session (`resetPasswordForEmail` redirectTo the current origin `#/change-password`, then `updateUser({ password })`). Diagnosis: `session_briefs/SESSION_BRIEF_2026-11-07_custom-domain-login-diagnosis.md`.
 
 ## 6. Framework feedback (process only)
 

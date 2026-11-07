@@ -9,8 +9,16 @@ import { loadLocale } from './i18n/i18n.js';
 import { route, initRouter, requireDev } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
 import { el, clear } from './ui/dom.js';
-import { initSession, onAuthChange, getUser, logout } from './features/auth/session.js';
-import { renderAuthOverlay } from './features/auth/index.js';
+import { initSession, onAuthChange, getUser, logout, verifyRecoveryOtp } from './features/auth/session.js';
+import { renderAuthOverlay, renderChangePassword } from './features/auth/index.js';
+import {
+  readRecoveryArrival,
+  hrefWithoutRecoverySearch,
+  decideAuthScreen,
+  isPasswordRecoveryPending,
+  clearPasswordRecovery,
+  markPasswordRecovery,
+} from './features/auth/recovery.js';
 import { needsOnboarding, renderOnboarding } from './features/onboarding/index.js';
 import {
   extractInviteToken, clearInviteHash, claimInviteByToken,
@@ -54,25 +62,59 @@ let lastRenderedUserId = null;
 let appListenersBound = false;
 
 async function boot() {
+  // Read the recovery URL before any await. auth-js initialize (started when
+  // the client module loads) clears an implicit-grant hash after it exchanges
+  // the tokens, and that exchange is in flight by the time boot runs.
+  const recovery = readRecoveryArrival(window.location.href);
   await loadLocale('en');
   const app = document.getElementById('app');
-  const inviteToken = extractInviteToken();
-  const user = await initSession();
 
-  if (user) {
-    lastRenderedUserId = user.id;
-    if (inviteToken) {
-      await handleInviteClaim(app, inviteToken, user);
-    } else {
-      await claimIfNoMembership(user);
-      showApp(app);
+  if (recovery.tokenHash && recovery.type === 'recovery') {
+    await verifyRecoveryOtp(recovery.tokenHash);
+    const cleaned = hrefWithoutRecoverySearch(window.location.href);
+    if (cleaned !== window.location.href) {
+      history.replaceState(null, '', cleaned);
     }
-  } else {
-    if (inviteToken) showAuth(app, inviteToken);
-    else showAuth(app);
   }
 
-  onAuthChange(async (changedUser) => {
+  const inviteToken = extractInviteToken();
+  const user = await initSession();
+  const sessionUser = user || getUser();
+  const screen = decideAuthScreen({
+    recoveryType: recovery.type,
+    pending: isPasswordRecoveryPending(),
+    user: sessionUser,
+  });
+
+  if (screen === 'change-password') {
+    showChangePassword(app);
+  } else if (screen === 'app') {
+    lastRenderedUserId = sessionUser.id;
+    if (recovery.isChangePasswordRoute) {
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`);
+    }
+    if (inviteToken) {
+      await handleInviteClaim(app, inviteToken, sessionUser);
+    } else {
+      await claimIfNoMembership(sessionUser);
+      showApp(app);
+    }
+  } else if (inviteToken) {
+    showAuth(app, inviteToken, recovery.type === 'recovery' ? t('auth.recoveryLinkInvalid') : undefined);
+  } else {
+    showAuth(app, undefined, recovery.type === 'recovery' ? t('auth.recoveryLinkInvalid') : undefined);
+  }
+
+  onAuthChange(async (changedUser, event) => {
+    if (event === 'PASSWORD_RECOVERY' && changedUser) {
+      if (!app.querySelector('[data-testid="auth-change-password"]')) {
+        showChangePassword(app);
+      }
+      return;
+    }
+    // Stay on the change-password screen until it clears the recovery flag.
+    // A signed-out session still falls through to the login screen.
+    if (isPasswordRecoveryPending() && changedUser) return;
     if (changedUser && changedUser.id === lastRenderedUserId) return;
     lastRenderedUserId = changedUser?.id || null;
     clear(app);
@@ -91,7 +133,27 @@ async function boot() {
   });
 }
 
-function showAuth(app, inviteToken) {
+function showChangePassword(app) {
+  const user = getUser();
+  if (user) lastRenderedUserId = user.id;
+  // Keep the screen across a refresh. PASSWORD_RECOVERY itself fires once.
+  markPasswordRecovery();
+  clear(app);
+  renderChangePassword(app, () => {
+    clearPasswordRecovery();
+    const url = new URL(window.location.href);
+    url.hash = '/';
+    history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    const signedIn = getUser();
+    if (signedIn) lastRenderedUserId = signedIn.id;
+    clear(app);
+    showApp(app);
+  });
+  initPwa();
+}
+
+function showAuth(app, inviteToken, bannerText) {
+  clearPasswordRecovery();
   clear(app);
   if (inviteToken) {
     sessionStorage.setItem('gtho_invite_token', inviteToken);
@@ -110,6 +172,10 @@ function showAuth(app, inviteToken) {
     clear(app);
     showApp(app);
   });
+  if (bannerText) {
+    const errorEl = app.querySelector('[data-testid="auth-error"]');
+    if (errorEl) errorEl.appendChild(el('span', {}, [bannerText]));
+  }
   initPwa();
 }
 

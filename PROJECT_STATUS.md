@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-07 (domain-root cutover; live stamp `b2026-11-07.1216-b71a1a6`)  
+**Last updated:** 2026-11-07 (after PR #82; live stamp `b2026-11-07.1316-70f3ea4`; login diagnosis pointer)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -23,7 +23,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 ## 3. Current State
 
-- App: `https://getthehayout.com/` from `main`. `https://tim-getthehayout.github.io/GTHO-v2/` redirects there (HTTP 301). Live stamp `b2026-11-07.1216-b71a1a6` (PR #80, merge `b71a1a6`).
+- App: `https://getthehayout.com/` from `main`. `https://tim-getthehayout.github.io/GTHO-v2/` redirects there (HTTP 301). After PR #82 the live stamp is `b2026-11-07.1316-70f3ea4` (merge `70f3ea4`). The earlier domain-root stamp was `b2026-11-07.1216-b71a1a6` (PR #80). Re-verified https://getthehayout.com/version.json: `{ "stamp": "b2026-11-07.1316-70f3ea4" }`.
 - Stack: vanilla JS, Vite, Supabase, GitHub Pages. v1 is `get-the-hay-out`.
 - Schema stamp 39. Migration `037_batch_location_balances.sql` applied and verified 2026-11-04 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`). Migration `038_location_type_storage.sql` applied and verified 2026-11-04 (`locations.type` allows `storage`). Migration `039_animals_bulk_composite.sql` applied and verified 2026-11-06 (`animals.is_bulk`, `animals.bulk_head_count`). Tim verified `operations.schema_version = 39`.
 - Composite animals is on main (PRs #66, #67, and #68). Columns `is_bulk` and `bulk_head_count`. Weight input is per head; stored as lot total. Spec: session_briefs/SESSION_BRIEF_2026-11-06_composite-bulk-animals.md.
@@ -76,6 +76,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 9. OI-0191 is closed. Shipped in `1cedc14`. Pages did not publish it until `26fc83c` because lint and unit tests failed. Tim confirmed the post-June build after a hard refresh. Live stamp at this close: `b2026-10-04.1607-1e76f0a`.
 10. Feed batch adjustment date + archive is on `main`. Migration 036 applied and verified. Confirm Pages header stamp after the workflow succeeds.
 11. Feed batch locations is closed. On `main` (PRs #62, #63, #64). Migrations 037 and 038 applied. Header stamp `b2026-11-04.1955-6ed4d71`.
+12. Login on https://getthehayout.com/ after the domain cutover fails with Auth `invalid_credentials` against GTHO-v2. Last successful password login was 2026-11-07 6:41 AM America/New_York from `http://localhost:3000`. Diagnosis (no fix decided): `session_briefs/SESSION_BRIEF_2026-11-07_custom-domain-login-diagnosis.md`. Do not send a password reset or change Auth Site URL unless Tim asks after a proven cause.
 
 ## 6. Framework feedback (process only)
 

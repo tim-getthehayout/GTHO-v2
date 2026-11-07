@@ -2,7 +2,7 @@
 
 Pasture and grazing PWA. Vanilla JS, Vite, Supabase, GitHub Pages.
 
-- Live app: https://tim-getthehayout.github.io/GTHO-v2/
+- Live app: https://getthehayout.com/ (`https://tim-getthehayout.github.io/GTHO-v2/` redirects there)
 - Start here: `PROJECT_STATUS.md`, then `AGENTS.md`
 - Process reference: `project-framework/`
 - Implementation rules: `CLAUDE.md`

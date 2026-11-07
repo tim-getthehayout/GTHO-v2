@@ -12,7 +12,7 @@ Shared process rules (roles, ownership, handoff, delivery gates, session protoco
 ## Project-specific context
 
 **What this project is**
-Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, GitHub Pages. Live app: `https://tim-getthehayout.github.io/GTHO-v2/`. v1 is a separate repo, `get-the-hay-out`.
+Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, GitHub Pages. Live app: `https://getthehayout.com/`. `https://tim-getthehayout.github.io/GTHO-v2/` redirects there. v1 is a separate repo, `get-the-hay-out`.
 
 **Hard constraints / priorities**
 - Schema first. A new field needs a numbered SQL migration, then the entity `FIELDS` and shape mappers, then feature code. Never add a UI field without a Supabase column.
@@ -108,7 +108,7 @@ Moved here from `CLAUDE.md` on 2026-10-04. The April 2026 UI sprint is retired. 
 
 - **Mode:** framework Mode B (feature branch and pull request).
 - **Writer:** Tim's Mac, clone `~/Github/GTHO-v2`, pushing to GitHub `tim-getthehayout/GTHO-v2`.
-- **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages on every push to main. Site at `https://tim-getthehayout.github.io/GTHO-v2/`
+- **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages on every push to main. Site at `https://getthehayout.com/` (`https://tim-getthehayout.github.io/GTHO-v2/` redirects there)
 - **Grok project chat** never pushes. It writes the session brief. Homelab Git Bridge commits doc-only updates (session briefs, living status, schema-stamp notes, design docs) through a pull request. Grok Build commits implementation (code under `src/`, `tests/`, and `supabase/`, plus the matching `PROJECT_CHANGELOG.md` row) on a feature branch. Do not hand Grok Build or GTHO Build a docs-only PR.
 - **Grok Build** commits on a feature branch made from `main` and pushes that branch. Feature branches do not deploy.
 - **Pull request:** each feature gets a GitHub pull request into `main`. Homelab Git Bridge can manage the pull request and merge it.

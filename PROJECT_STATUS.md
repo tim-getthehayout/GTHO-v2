@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-06 (composite animals docs catch-up)  
+**Last updated:** 2026-11-07 (domain-root cutover; live stamp `b2026-11-07.1216-b71a1a6`)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -23,7 +23,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 ## 3. Current State
 
-- App: `https://tim-getthehayout.github.io/GTHO-v2/` from `main`.
+- App: `https://getthehayout.com/` from `main`. `https://tim-getthehayout.github.io/GTHO-v2/` redirects there (HTTP 301). Live stamp `b2026-11-07.1216-b71a1a6` (PR #80, merge `b71a1a6`).
 - Stack: vanilla JS, Vite, Supabase, GitHub Pages. v1 is `get-the-hay-out`.
 - Schema stamp 39. Migration `037_batch_location_balances.sql` applied and verified 2026-11-04 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`). Migration `038_location_type_storage.sql` applied and verified 2026-11-04 (`locations.type` allows `storage`). Migration `039_animals_bulk_composite.sql` applied and verified 2026-11-06 (`animals.is_bulk`, `animals.bulk_head_count`). Tim verified `operations.schema_version = 39`.
 - Composite animals is on main (PRs #66, #67, and #68). Columns `is_bulk` and `bulk_head_count`. Weight input is per head; stored as lot total. Spec: session_briefs/SESSION_BRIEF_2026-11-06_composite-bulk-animals.md.
@@ -59,6 +59,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 | 2026-11-04 | Feed storage is its own location type, not confinement | `type=storage`. Batch picker toggles Storage \| Pasture, opens on Storage. Add-new only for storage (name only). Pastures selectable, not creatable from the batch dialog. Animal/confinement flows never show storage. Migration 038 applied. |
 | 2026-11-05 | Grazing event card pasture DM floors at 0; days remaining include remaining stored feed | Pasture intake = min(FOR-1, max(0, demand − stored consumed)). Days use FOR-4 on leftover forage + remaining stored DM from latest ordinary check + later deliveries. Ordinary checks (not only close-readings) set residual. Shipped PR #65. Pages stamp b2026-11-05.2009-54c2008. Spec: session_briefs/SESSION_BRIEF_2026-11-05_grazing-event-dmi-floor.md. |
 | 2026-11-06 | Composite animal weight input is per head; stored as lot total | On main via PRs #66, #67, and #68. |
+| 2026-11-07 | Live app is the custom domain | `https://getthehayout.com/` returns HTTP 200; title is "GTHO v2". `https://tim-getthehayout.github.io/GTHO-v2/` returns HTTP 301 to that domain. Live stamp `b2026-11-07.1216-b71a1a6` from the Pages deploy of PR #80 (merge `b71a1a6`). |
 
 ## 5. Open Questions / Next Steps
 

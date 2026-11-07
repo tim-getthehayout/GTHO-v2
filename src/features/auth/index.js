@@ -2,6 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
+import { buildStampLabel } from '../../ui/build-stamp.js';
 import { login, signup } from './session.js';
 
 /**
@@ -22,6 +23,13 @@ export function renderAuthOverlay(container, onSuccess) {
           mode === 'login' ? t('auth.login') : t('auth.signup'),
         ]),
         buildForm(),
+        // Same stamp as the authenticated header. showAuth clears the app
+        // before this overlay mounts, and paintApp clears it again before
+        // the header mounts, so the shared testid is not duplicated.
+        el('span', {
+          className: 'header-build-stamp',
+          'data-testid': 'header-build-stamp',
+        }, [buildStampLabel()]),
       ]),
     ]);
 

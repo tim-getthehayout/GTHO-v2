@@ -13,6 +13,7 @@ import { Sheet } from './sheet.js';
 import * as SubmissionEntity from '../entities/submission.js';
 import { getFeedbackBadgeCount } from '../features/feedback/index.js';
 import { pullAllRemote, getLastPulledAt } from '../data/pull-remote.js';
+import { buildStampLabel } from './build-stamp.js';
 
 const STALE_THRESHOLD_MS = 15 * 60 * 1000;
 
@@ -81,10 +82,8 @@ export function renderHeader(container) {
     navLink('#/settings', t('nav.settings'), 'nav-settings'),
   ]);
 
-  // --- Build stamp ---
-  const buildVersion = (typeof __BUILD_STAMP__ !== 'undefined' && __BUILD_STAMP__ !== 'dev')
-    ? __BUILD_STAMP__
-    : (typeof document !== 'undefined' ? document.querySelector('meta[name="app-version"]')?.content || 'dev' : 'dev');
+  // --- Build stamp (same label as the login overlay) ---
+  const buildVersion = buildStampLabel();
 
   // --- User initials ---
   const user = getUser();

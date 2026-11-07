@@ -120,6 +120,17 @@ Moved here from `CLAUDE.md` on 2026-10-04. The April 2026 UI sprint is retired. 
 - **Never use worktree isolation** (`isolation: "worktree"`)
 - After cloning, run `git config core.hooksPath .githooks` once to activate the orphan-flip enforcement hook (OI-0148 — `commit-msg` hook that fails any commit referencing `OI-NNNN` without staging `OPEN_ITEMS.md`; bypass with `--no-verify` when an OI is mentioned but not being closed).
 
+## Rollback
+
+A bad Pages release is undone the same way a good one ships: through a pull request into `main`. Never force-push and never push directly to `main`.
+
+- Identify the merge that caused the problem. Open a revert of that specific pull request / merge commit. If several stacked changes shipped together, revert that specific merge, not `main` itself.
+- Homelab Git Bridge or Grok Build / GTHO Build may open the revert pull request. Homelab Git Bridge manages and merges it.
+- The revert merge to `main` triggers the existing GitHub Actions deploy workflow (`.github/workflows/deploy.yml`): lint → test → build → deploy to GitHub Pages.
+- After the deploy succeeds, confirm the header build stamp (`data-testid="header-build-stamp"`, format `bYYYY-MM-DD.HHMM-<shortsha>`) matches the revert commit's short sha after a hard refresh. Do not call the app rolled back until that stamp is visible.
+- If the deploy workflow fails, GitHub Pages stays on the last successful build, so users keep the previous app until a good `main` deploy finishes.
+- There is no "restore yesterday" button and no way to republish without a new commit on `main`. The revert pull request is the rollback.
+
 ## Design Docs (read-only for Grok Build)
 
 These are the approved specs. Grok Build reads them during implementation but does not edit them unless the handoff says to. Grok project chat owns design doc changes.

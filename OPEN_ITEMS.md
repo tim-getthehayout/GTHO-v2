@@ -6065,7 +6065,9 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 ### OI-0011 — Feed Screen Metrics Still Show Placeholders
 **Added:** 2026-04-13 | **Closed:** 2026-04-13 | **Area:** v2-build
-**Resolution:** Wired DM on hand (sum batch.remaining × dm_pct for non-archived batches), daily run rate (average daily DM delivered over 30 days from event_feed_entries), and days on hand (DM on hand ÷ run rate) into feed day goal banner. Progress bar threshold coloring now works. Three stat cells added below the heading. Unit-aware via display().
+**Resolution:** Wired DM on hand, daily run rate, and days on hand into the feed day goal banner. Progress bar threshold coloring works. Three stat cells added. Unit-aware via display().
+
+**Later correction (2026-11-04):** Original wiring used remaining × dm% and a 30-day delivery average. Current formula (V2_UX_FLOWS.md §13.2): DM on hand = remaining × weightPerUnitKg × dm% / 100 (fallbacks: feed-type defaultWeightKg, then 1); days on hand = that total ÷ sum of DMI-2 for every animal with active !== false. Shipped in 7e4563d and f4763d9.
 
 ---
 

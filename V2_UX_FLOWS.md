@@ -625,9 +625,13 @@ Planning target for stored feed inventory. Drives the feed screen's color-coded 
 
 ### 13.2 Feed Screen Display
 
-- **Days on hand** = total DM on hand ÷ daily DMI run rate (sum of all group DMI targets)
+- **Total DM on hand** = Σ (`remaining` × weight kg per unit × `dmPct` / 100) for non-archived batches.
+  - Weight kg per unit: batch `weightPerUnitKg`, else feed type `defaultWeightKg`, else 1 kg.
+- **Daily DMI** = sum of DMI-2 for every animal with `active !== false` (farm-wide, not limited to open group windows or events). Culled animals excluded. Weight is latest weight record on or before today, else class default, else 0. DMI % is class `dmiPct` or 2.5. Lactation ignored for this banner.
+- **Days on hand** = total DM on hand ÷ daily DMI (null when daily DMI is 0).
 - **Color coding:** Green ≥ goal, amber 33–99% of goal, red < 33% of goal
 - **Progress bar:** Days as percentage of goal
+- **Live refresh:** Banner re-renders on store changes to batches, adjustments, feed entries, farm settings, animals, weight records, and classes.
 
 ---
 

@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-04 (feed day goal weightPerUnitKg shipped)  
+**Last updated:** 2026-11-06 (feed day goal formula written into base docs)  
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -31,6 +31,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 - Auth boot gate is on `main` (`1cedc14`, follow-ups `87784b8` and `26fc83c`). An empty browser cache is not a new operation. Confirmed by Tim after a hard refresh. Do not finish the new-operation wizard on a PC that already has an operation.
 - Multi-paddock open is on `main` (`8748872`). One Save opens N whole paddocks on one event. Windows from that Save share `open_cohort_id`. Pages deploy succeeded. Confirm header stamp `b2026-10-04.1957-8748872` after a hard refresh.
 - Home Screen update prompt is on `main`. Feature commit `5c2db09` (GH-59). A waiting worker or a `version.json` mismatch shows Update now / Later. No auto-reload. Pages published `5c2db09` as `b2026-10-04.2101-5c2db09`, then the status commit `61472d3` as `b2026-10-04.2104-61472d3`. The header stamp matches the commit Pages last built. The existing Home Screen icon was added without a manifest and will not update itself. Remove it and add it again after the current stamp shows in Safari. The next deploy after that re-add is the one that should show the banner.
+- Feed day goal formula is in `V2_UX_FLOWS.md` §13.2 (DM on hand uses weight per unit; days on hand uses farm-wide active-animal DMI). Shipped `7e4563d` + `f4763d9`.
 - Working rules: root `AGENTS.md` is the session and implementation file. `CLAUDE.md` is a retired pointer. Process reference: `project-framework/AGENTS.md`. A shipped change must name the header build stamp to confirm. A push is not live until the Pages workflow succeeds.
 - `V2_SCHEMA_DESIGN.md` §2.1 does not yet list the migration 034 columns. Do not treat that section as the live schema for map fields.
 
@@ -56,7 +57,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 1. Feed day goal DM on hand weight correction is on `main` (`f4763d9`). Pages succeeded. Confirm header stamp `b2026-11-04.1215-f4763d9` after a hard refresh. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-weight-per-unit.md`.
 2. Feed day goal denominator change is on `main` (`7e4563d`). Pages succeeded. Confirm header stamp `b2026-11-04.1205-7e4563d` after a hard refresh. Spec: `session_briefs/SESSION_BRIEF_2026-11-04_feed-day-goal-dmi-denominator.md`.
-2. Feed day goal banner refresh is on `main` (`3aedbae`). Pages workflow succeeded. Confirm header stamp after a hard refresh. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-day-goal-banner-refresh.md`.
+3. Feed day goal banner refresh is on `main` (`3aedbae`). Pages workflow succeeded. Confirm header stamp after a hard refresh. Spec: `session_briefs/SESSION_BRIEF_2026-11-03_feed-day-goal-banner-refresh.md`.
 3. OI-0192 is closed. Shipped in `5c2db09`. Header stamp of `61472d3` is `b2026-10-04.2104-61472d3`. After the current stamp shows in Safari, remove the Home Screen icon and add it again. The old web clip will not update itself. The next deploy after that re-add should show the banner.
 4. OI-0102 is closed. Shipped in `8748872`. Confirm header stamp `b2026-10-04.1957-8748872`.
 5. OI-0188 — no UI into a closed event. Design required. Body in `OPEN_ITEMS.md`.

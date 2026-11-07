@@ -36,7 +36,7 @@ The following process rules apply unless this project explicitly overrides them.
 ### Roles and ownership
 - **Grok project chat** owns design, prioritization, living status, and session briefs/specs.
 - **Grok Build** owns concrete implementation (files, commands, configs) and does not invent design decisions.
-- **Homelab Git Bridge** lands doc-only changes it is handed, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. It does not invent design, never force-pushes, and does not push while Grok Build is editing the repo.
+- **Homelab Git Bridge** lands doc-only changes it is handed, and it also manages and merges pull requests (docs-only pull requests it opens, and implementation pull requests Grok Build or GTHO Build opens). It checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. It does not invent design, never force-pushes, and does not push while Grok Build is editing the repo.
 - **Git** is the durable handoff medium between the two and between machines.
 
 Grok Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` unless the handoff says to. A docs-only handoff is not that exception: send docs-only pull requests to Homelab Git Bridge, not Grok Build or GTHO Build. Grok project chat does not treat an unimplemented idea as shipped.
@@ -93,7 +93,7 @@ These extend the rules above. They do not replace them.
 - Grok project chat replaces the old Cowork role. Grok Build replaces the old Claude Code role.
 - Grok project chat edits `V2_*.md`, `OPEN_ITEMS.md`, `github/issues/` specs, `V2_BUILD_INDEX.md`, and `PROJECT_STATUS.md`.
 - Grok Build updates `PROJECT_CHANGELOG.md` (one row per change) and code under `src/`, `tests/`, and `supabase/`.
-- Homelab Git Bridge never pushes to `main`; its doc-only changes go through a pull request like any other (see Git Workflow). It does not edit code.
+- Homelab Git Bridge never pushes to `main`; its doc-only changes go through a pull request like any other (see Git Workflow). It manages and merges both docs-only and implementation pull requests. It does not edit code.
 - Either role may log in `IMPROVEMENTS.md`. A completed `TASKS.md` item is checked in the same session.
 - A commit that cites `OI-NNNN` must also update `OPEN_ITEMS.md` in that commit. Close sibling items on the same path or symbol in that commit. A schema bump or dropped column closes now-moot items that name the retired symbol.
 - After a Pages deploy, name the build stamp Tim should see in the header. Match the short sha from the successful deploy, not the last local commit if deploy failed.
@@ -114,6 +114,7 @@ Moved here from `CLAUDE.md` on 2026-10-04. The April 2026 UI sprint is retired. 
 - **Pull request:** each feature gets a GitHub pull request into `main`. Homelab Git Bridge can manage the pull request and merge it.
 - **Homelab Git Bridge** lands doc-only changes, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. Its doc-only changes also go through a pull request into `main`; it has no bypass and never pushes to `main`.
 - A docs-only pull request is opened and managed by Homelab Git Bridge, not Grok Build or GTHO Build.
+- When Grok Build (or GTHO Build) has opened an implementation pull request and reports it ready to merge, it notifies Homelab Git Bridge automatically. Do not wait for Tim or project chat to request that handoff. Homelab Git Bridge then manages and merges the pull request.
 - **`main` protection (intended setting):** GitHub ruleset on `main`: pull request required (0 approvals), no force-pushes, no deletion, no bypass actors.
 - Commit after each completed checkpoint or substantive edit
 - **Never use worktree isolation** (`isolation: "worktree"`)

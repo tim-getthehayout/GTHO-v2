@@ -626,11 +626,20 @@ registerCalc({
       return { dm, hint: coverNull ? 'assumed_full_cover' : null };
     }
 
-    // Convert a feed-entry quantity (batch units) to kg DM.
+    function rowInstant(date, time) {
+      return `${date || ''}T${time || '00:00'}`;
+    }
+
+    // Convert a feed-entry quantity (batch units) to kg DM. Removals subtract.
     function entryDmKg(entry) {
       const b = batches?.[entry.batchId];
       if (!b || !b.weightPerUnitKg || !b.dmPct) return 0;
-      return (entry.quantity ?? 0) * b.weightPerUnitKg * (b.dmPct / 100);
+      const sign = entry.entryType === 'removal' ? -1 : 1;
+      return sign * (entry.quantity ?? 0) * b.weightPerUnitKg * (b.dmPct / 100);
+    }
+
+    function isAfterCheck(entry, check) {
+      return rowInstant(entry.date, entry.time) > rowInstant(check.date, check.time);
     }
 
     // Convert a check item's remaining quantity to kg DM.
@@ -720,7 +729,7 @@ registerCalc({
     // Sort checks (entity-native: `.date`, not `.checkDate`).
     const sortedChecks = [...(feedChecks || [])]
       .filter(c => c.date)
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .sort((a, b) => rowInstant(a.date, a.time).localeCompare(rowInstant(b.date, b.time)));
     const prevCheck = sortedChecks.filter(c => c.date <= date).slice(-1)[0] || null;
 
     // Per-window pasture pools keyed by pwId — each pool tracks its own FOR-1
@@ -767,9 +776,10 @@ registerCalc({
     if (preStartCheck) {
       seedStoredKg = sumCheckKg(preStartCheck);
       seedFromDate = preStartCheck.date;
-      // Deliveries strictly after the check and up to startDate also count.
+      // Deliveries and removals strictly after the check (including later
+      // the same day) and up to the walk start also count.
       for (const e of (feedEntries || [])) {
-        if (e.date > preStartCheck.date && e.date <= startDate) seedStoredKg += entryDmKg(e);
+        if (isAfterCheck(e, preStartCheck) && e.date <= startDate) seedStoredKg += entryDmKg(e);
       }
     } else {
       for (const e of (feedEntries || [])) {
@@ -819,19 +829,21 @@ registerCalc({
         pastureRef.value = totalPasture();
       }
 
-      // (2) Deliveries with date === cursor (skip the startDate seed already counted).
-      if (cursor !== startDate && cursor !== seedFromDate) {
+      // (2)/(3) A check on this day is ground truth at its clock time.
+      // Re-anchor first, then keep deliveries and removals strictly after it.
+      // Adding every same-day delivery before the re-anchor used to wipe
+      // bales placed later that day. Days with no check still add that
+      // day's entries once (the walk-start seed is not added again).
+      const cursorCheck = [...sortedChecks].reverse().find(c => c.date === cursor && (!preStartCheck || c.id !== preStartCheck.id));
+      if (cursorCheck) {
+        storedRef.value = sumCheckKg(cursorCheck);
+        for (const e of (feedEntries || [])) {
+          if (e.date === cursor && isAfterCheck(e, cursorCheck)) storedRef.value += entryDmKg(e);
+        }
+      } else if (cursor !== startDate && cursor !== seedFromDate) {
         for (const e of (feedEntries || [])) {
           if (e.date === cursor) storedRef.value += entryDmKg(e);
         }
-      }
-
-      // (3) Check on cursor date re-anchors stored bucket (prior walk may have
-      // drifted; the check is ground truth). Ignore pre-start checks already
-      // seeded.
-      const cursorCheck = sortedChecks.find(c => c.date === cursor && (!preStartCheck || c.id !== preStartCheck.id));
-      if (cursorCheck) {
-        storedRef.value = sumCheckKg(cursorCheck);
       }
 
       // (4) Allocate.
@@ -845,6 +857,10 @@ registerCalc({
         outRef.pasture = allocated.pasture;
         outRef.stored = allocated.stored;
         outRef.deficit = allocated.deficit;
+        // What's left after today's estimated intake. Tomorrow's countdown
+        // starts here; a later feed check replaces it.
+        outRef.remainingPasture = pastureRef.value;
+        outRef.remainingStored = storedRef.value;
         break;
       }
 
@@ -870,6 +886,8 @@ registerCalc({
       storedDmiKg: outRef.stored,
       pastureDmiKg: outRef.pasture,
       deficitKg: outRef.deficit,
+      remainingPastureDmKg: outRef.remainingPasture,
+      remainingStoredDmKg: outRef.remainingStored,
     };
     if (aggregateHint) out.hint = aggregateHint;
     return out;

@@ -122,12 +122,12 @@ describe('grazing event card DMI floor', () => {
     expect(parseInt(stored[1].replace(/,/g, ''), 10)).toBe(21600);
   });
 
-  it('an ordinary check reduces consumed hay and raises days remaining', () => {
+  it('an ordinary check replaces the delivery projection with the measured residual', () => {
     addDelivery(BATCH, 10, '2026-11-02', '11:00');
     const before = cardText();
     const beforeStored = parseInt(before.match(/Stored feed:\s*([\d,]+)/)[1].replace(/,/g, ''), 10);
     const beforeDays = parseFloat(before.match(/~([\d.]+) days remaining/)[1]);
-    expect(before).not.toContain('(incl. stored feed)');
+    expect(before).toContain('(incl. stored feed)');
 
     const check = FeedCheckEntity.create({
       operationId: OP, eventId: EVT, date: '2026-11-05', time: '09:00', isCloseReading: false,
@@ -141,7 +141,8 @@ describe('grazing event card DMI floor', () => {
     const afterStored = parseInt(after.match(/Stored feed:\s*([\d,]+)/)[1].replace(/,/g, ''), 10);
     const afterDays = parseFloat(after.match(/~([\d.]+) days remaining/)[1]);
     expect(afterStored).toBeLessThan(beforeStored);
-    expect(afterDays).toBeGreaterThan(beforeDays);
+    expect(afterDays).toBeGreaterThan(0);
+    expect(afterDays).toBeLessThan(beforeDays);
     expect(after).toContain('(incl. stored feed)');
     expect(after).not.toMatch(/Pasture:\s*-/);
   });

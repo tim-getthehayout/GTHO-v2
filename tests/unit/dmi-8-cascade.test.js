@@ -191,6 +191,32 @@ describe('OI-0119 — parallel sub-paddocks + sub-move interactions', () => {
     expect(r.deficitKg).toBe(0);
   });
 
+  it('keeps a delivery later the same day as a feed check', () => {
+    // Check at 09:00 leaves 100 kg. 500 kg is delivered at 10:00. Tiny pasture,
+    // so today's 250 kg demand comes out of stored: 100 + 500 - 250 = 350 left.
+    const tinyFt = { [LOC_A]: { dmKgPerCmPerHa: 0.0001, minResidualHeightCm: 5, utilizationPct: 100 } };
+    const feedEntries = [{ id: 'fe-1', batchId: 'b-1', locationId: LOC_A, date: '2026-04-10', time: '10:00', quantity: 500 }];
+    const batches = { 'b-1': { weightPerUnitKg: 1, dmPct: 100 } };
+    const feedChecks = [{ id: 'chk-1', date: '2026-04-10', time: '09:00' }];
+    const feedCheckItems = [{ feedCheckId: 'chk-1', batchId: 'b-1', locationId: LOC_A, remainingQuantity: 100 }];
+    const r = dmi8.fn(baseCtx({ forageTypes: tinyFt, feedEntries, batches, feedChecks, feedCheckItems, date: '2026-04-10' }));
+    expect(r.deficitKg).toBe(0);
+    expect(r.storedDmiKg).toBeCloseTo(250, 2);
+    expect(r.remainingStoredDmKg).toBeCloseTo(350, 2);
+  });
+
+  it('counts remaining stored down by a day of DMI after the check', () => {
+    const tinyFt = { [LOC_A]: { dmKgPerCmPerHa: 0.0001, minResidualHeightCm: 5, utilizationPct: 100 } };
+    const batches = { 'b-1': { weightPerUnitKg: 1, dmPct: 100 } };
+    const feedChecks = [{ id: 'chk-1', date: '2026-04-10', time: '09:00' }];
+    const feedCheckItems = [{ feedCheckId: 'chk-1', batchId: 'b-1', locationId: LOC_A, remainingQuantity: 1000 }];
+    const day0 = dmi8.fn(baseCtx({ forageTypes: tinyFt, batches, feedChecks, feedCheckItems, date: '2026-04-10' }));
+    const day1 = dmi8.fn(baseCtx({ forageTypes: tinyFt, batches, feedChecks, feedCheckItems, date: '2026-04-11' }));
+    expect(day0.remainingStoredDmKg).toBeCloseTo(750, 2);
+    expect(day1.remainingStoredDmKg).toBeCloseTo(500, 2);
+    expect(day1.deficitKg).toBe(0);
+  });
+
   it('delivery on a later date during walk is added on that date', () => {
     // Tiny pasture, delivery on day 11 only. Day 10: stored=0 → deficit 250.
     // Day 11 target: stored gets 500 on day 11 start, demand 250 → stored=250.

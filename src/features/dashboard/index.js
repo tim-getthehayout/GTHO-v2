@@ -23,7 +23,7 @@ import { openEventDetailSheet } from '../events/detail.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads, animalHeadCount } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
-import { computeDmi8Days } from '../events/dmi-chart-context.js';
+import { buildDmi8ChartContext, computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
 import { openLocationNames } from '../events/open-cohort.js';
 
@@ -1122,6 +1122,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const for2 = getCalcByName('FOR-2');
   const for3 = getCalcByName('FOR-3');
   const for4 = getCalcByName('FOR-4');
+  const dmi8 = getCalcByName('DMI-8');
 
   const eventStartDate = getEventStartDate(event.id);
   const dayCount = eventStartDate ? daysBetweenInclusive(eventStartDate, todayStr) : 0;
@@ -1216,11 +1217,48 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     storedDmKg = split.storedDmiKg;
   }
 
-  // No stored feed: forage-only FOR-3. With stored feed: FOR-4 on leftover
-  // forage plus hay still out. The label is only for a non-zero hay remainder.
+  // Project remaining pasture and hay through today (DMI-8 cascade). The
+  // physical check residual does not shrink by itself; each day since the
+  // anchor eats estimated DMI, and deliveries after the check stay in the bucket.
+  let projected = null;
+  if (dmi8) {
+    const chartCtx = buildDmi8ChartContext(event.id);
+    if (chartCtx?.event?.dateIn) {
+      const proj = dmi8.fn({
+        event: chartCtx.event,
+        date: todayStr,
+        groupWindows: chartCtx.groupWindows,
+        memberships: chartCtx.memberships,
+        animals: chartCtx.animals,
+        animalWeightRecords: chartCtx.animalWeightRecords,
+        feedEntries: chartCtx.feedEntries,
+        feedChecks: chartCtx.feedChecks,
+        feedCheckItems: chartCtx.feedCheckItems,
+        batches: chartCtx.batches,
+        paddockWindows: chartCtx.paddockWindows,
+        observations: chartCtx.observations,
+        forageTypes: chartCtx.forageTypes,
+        locations: chartCtx.locations,
+        animalClasses: chartCtx.animalClasses,
+      });
+      if (typeof proj.remainingStoredDmKg === 'number' && typeof proj.remainingPastureDmKg === 'number') {
+        projected = proj;
+      }
+    }
+  }
+
+  // No stored feed and no projection: forage-only FOR-3. Otherwise FOR-4 on
+  // leftover forage plus hay still out. The label is only for a non-zero hay remainder.
   let daysIncludeStored = false;
   if (dailyDmiKg > 0) {
-    if (!hasStoredFeed && for3 && availableDmKg > 0) {
+    if (projected && for4) {
+      daysRemaining = for4.fn({
+        remainingStoredDmKg: projected.remainingStoredDmKg,
+        forageEstimateKg: projected.remainingPastureDmKg,
+        groupDmiKgPerDay: dailyDmiKg,
+      });
+      daysIncludeStored = projected.remainingStoredDmKg > 0;
+    } else if (!hasStoredFeed && for3 && availableDmKg > 0) {
       daysRemaining = for3.fn({ availableDmKg, groupDmiKgPerDay: dailyDmiKg });
     } else if (hasStoredFeed && for4) {
       const forageLeftKg = Math.max(0, availableDmKg - pastureDmKg);
@@ -1468,7 +1506,6 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   }
 
   // §12: DMI 3-day chart (OI-0119 — cascade model, shared chart-context helper)
-  const dmi8 = getCalcByName('DMI-8');
   if (dmi8) {
     const chartDays = computeDmi8Days(event, dmi8);
     if (chartDays.length) {

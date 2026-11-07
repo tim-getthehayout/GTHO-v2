@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-05  
 **Source:** Grok design session (live diagnosis of event eeb2febe-2943-41fc-98ac-6a85d3a061d1)  
-**Status:** Ready for implementation
+**Status:** Implemented (PR #65, merged 2026-11-05). Live stamp b2026-11-05.2009-54c2008. Main at 644511c.
 
 ## What was decided
 
@@ -43,3 +43,6 @@ In src/features/dashboard/index.js (location-card path) and any shared helper th
 - No schema change.  
 - Do not invent new formulas; use or extend the existing FOR-1 / FOR-4 / DMI-1 / DMI-4 registry entries.  
 - Preserve the rest of the card (weight, AU, ADA, cost, chart).
+
+## Close-out
+Shipped 2026-11-05. Pasture floors at 0. Days remaining uses FOR-4 (leftover forage + remaining stored DM from latest ordinary check + later deliveries). No schema. Tests 1623 green. Pages stamp b2026-11-05.2009-54c2008.

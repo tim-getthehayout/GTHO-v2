@@ -1,7 +1,7 @@
 # AGENTS.md — GTHO v2
 
 This file adapts the shared Project Framework for this specific project.
-Shared process rules (roles, ownership, handoff, delivery gates, session protocol) come from `project-framework/AGENTS.md`. Domain content and implementation rules live here.
+Shared process rules (roles, ownership, handoff, delivery gates, session protocol) come from Homelab/project-framework (`https://git.sarnford.com/Homelab/project-framework`) AGENTS.md. Domain content and implementation rules live here.
 
 **Living status document:** `PROJECT_STATUS.md` (read this first at the start of every conversation or Build session).
 **Framework reference:** `Homelab/project-framework` on Forgejo (`https://git.sarnford.com/Homelab/project-framework`). Shared process lives there; do not copy it into this file.
@@ -21,7 +21,7 @@ Shared process rules (roles, ownership, handoff, delivery gates, session protoco
 
 Elevate reusable process improvements to `Homelab/project-framework` by messaging Chief of Staff; do not keep them only in this file.
 
-`CLAUDE.md` is retired. Do not use it. This file replaces it.
+This file is the project rulebook.
 
 ---
 
@@ -40,14 +40,14 @@ Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, G
 **Key working notes**
 - Domain specs stay where they are: `V2_SCHEMA_DESIGN.md`, `V2_UX_FLOWS.md`, `V2_APP_ARCHITECTURE.md`, `V2_CALCULATION_SPEC.md`, `V2_INFRASTRUCTURE.md`, `V2_DESIGN_SYSTEM.md`, `V2_MIGRATION_PLAN.md`, `V2_BUILD_INDEX.md`.
 - Backlog stays in `OPEN_ITEMS.md`. Do not copy it into `PROJECT_STATUS.md`. Status points at the open items that matter this session.
-- Session briefs live in `session_briefs/`. New briefs use `project-framework/session-brief.template.md`. Implementation specs live in `github/issues/` (this project does not use a `specs/` folder).
+- Session briefs live in `session_briefs/`. New briefs use Homelab/project-framework (`https://git.sarnford.com/Homelab/project-framework`) `session-brief.template.md`. Implementation specs live in `github/issues/` (this project does not use a `specs/` folder).
 - Current schema stamp is 39 (migration `039_animals_bulk_composite.sql`, applied and verified 2026-11-06). Tim verified `schema_version = 39`. Migration 037 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`) is also applied. Migration 038 (`038_location_type_storage.sql`) was applied and verified 2026-11-04.
 
 ---
 
 ## Framework process rules (do not remove)
 
-The following process rules apply unless this project explicitly overrides them. Fuller detail is in `project-framework/AGENTS.md`.
+The following process rules apply unless this project explicitly overrides them. Fuller detail is in Homelab/project-framework (`https://git.sarnford.com/Homelab/project-framework`) AGENTS.md.
 
 ### Roles and ownership
 - **GTHO Design** owns design, prioritization, living status, and session briefs/specs.
@@ -63,7 +63,7 @@ GTHO Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` un
 3. Surface relevant open items.
 4. Confirm the session goal before making changes.
 
-If `PROJECT_STATUS.md` is missing or empty, stop and run the scaffold in `project-framework/SKILL.md`. Do not invent the status.
+If `PROJECT_STATUS.md` is missing or empty, stop and run the scaffold in Homelab/project-framework (`https://git.sarnford.com/Homelab/project-framework`) SKILL.md. Do not invent the status.
 
 ### Handoff
 Design decisions and requirements are written into `PROJECT_STATUS.md` and/or a session brief or spec, then committed. GTHO Build is pointed at those docs with a focused prompt. After implementation, return to the Grok chat to review and update status.
@@ -347,10 +347,10 @@ Default to root cause. If you catch yourself mapping new data into a field that 
 - **OPEN_ITEMS.md** — add/close/update entries
 - **github/issues/** — spec files for GTHO Build handoff
 - **V2_BUILD_INDEX.md** — phase status and current focus
+- **AGENTS.md** — project-specific process (do not copy shared framework into it)
 
 **GTHO Build** owns (updates during implementation):
 - **PROJECT_CHANGELOG.md** — one row per change, every commit
-- **CLAUDE.md** — this file (only when rules need updating)
 - All code in `src/`, `tests/`, `supabase/`
 
 **Shared:**

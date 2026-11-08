@@ -447,6 +447,8 @@ Tim locked these choices in the GTHO Design chat:
 3. A write still has an easy check: a review card the user can accept, or correct by voice (or text). Voice-first means less typing, not no review.
 4. Ask-and-answer is in product scope (examples: “Is cow X open?”, “How many open cows do I have?”, “When was paddock X last grazed?”).
 5. A shared module makes sense: one conversation runtime used by GTHO, not folding the general assistant into `feedback-module`. Spoken feedback should use that same assistant and the existing feedback interview contract, not a second inbox.
+6. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. Successful confirmed writes become ordinary farm records. Do not silently keep every conversation as training or audit data.
+7. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop. On desktop it is a floating, movable control.
 
 Chief of Staff owns the still-unwritten shared conversation contract and the `feedback-module` interview contract. GTHO Design owns farm questions, write flows, domain rules, GTHO schema, and the review of farm writes. Farm rules never move into the shared runtime.
 
@@ -468,13 +470,15 @@ Keep from April: a review card before a write commits; multi-turn correction of 
 
 One shared conversation runtime (a sibling shared module; its contract is still unwritten) plus app-owned GTHO tools.
 
-**Entry.** One push-to-talk control for write, ask, and spoken feedback. A text fallback must use the same intent, review, and confirmation rules — not a separate product. Where that control lives, and hold-to-talk versus server voice-activity detection after the button is pressed, are not locked.
+**Entry.** One push-to-talk control for write, ask, and spoken feedback. A text fallback must use the same intent, review, and confirmation rules — not a separate product. The control is prominent in field mode and is present on desktop as a floating, movable control. Hold-to-talk versus server voice-activity detection after the button is pressed is not locked, nor is the exact default dock position or screen edge.
 
 **Online voice (current practice as of 2026-11-08).** Use a realtime speech-to-speech session, not a browser-speech-to-text step followed by a separate chat completion. xAI documents `wss://api.x.ai/v1/realtime` with custom function tools. Browsers cannot attach an `Authorization` header to a WebSocket; the client should authenticate with a short-lived ephemeral token from a GTHO backend (`POST https://api.x.ai/v1/realtime/client_secrets`). The long-lived provider key stays server-side and never ships in the PWA. An ephemeral token is not farm-data authorization: executors must still check the signed-in user and operation membership. Prefer a versioned voice model in production (`grok-voice-latest` is documented as an alias for the current flagship; pin the versioned name when shipping). A Supabase Edge Function is one possible token broker, not a locked deployment choice.
 
 **Tools and trust.** The model may propose function calls. GTHO executors validate arguments independently of the model, enforce operation membership, and recheck a write proposal against current data before commit. Farm-write tools produce proposals — not an unrestricted database or SQL interface. Read tools answer from authorized app data, not model memory, and must not mutate while answering. If a record is missing, say so; do not treat absence as a definitive negative (for example, “is cow X open?”). Remaining-feed questions and any write path that mentions remaining feed must import `getLiveRemainingForMove` from `src/calcs/feed-state.js` rather than recompute it (`V2_CALCULATION_SPEC.md`). Treat transcripts, retrieved records, and model output as untrusted data.
 
 **Confirmation.** Show a review card before a farm write or a feedback filing. The user can accept, correct by voice or text, or cancel. Switching intent (“that was actually a bug,” “wait, log a move instead”) must not commit an abandoned proposal or file feedback accidentally.
+
+**Exceptions.** If a proposal is incomplete, fails validation, is interrupted, or the user walks away mid-review, keep it as a recoverable exception so they can pick it up and finish later. That is in addition to the in-the-moment review card. Discard remains available. Do not invent the inbox location, retention period, or schema here.
 
 **Offline.** The app is offline-first for farm data, but a hosted realtime voice session cannot transcribe or run while disconnected. Do not promise offline AI parsing or answers. Existing manual entry remains available. Whether the first release records an offline audio note (that would need supported storage, consent, playback/delete, and retention) versus a typed first note plus resuming voice when back online is still open. No on-device model is committed.
 
@@ -485,7 +489,8 @@ One shared conversation runtime (a sibling shared module; its contract is still 
 - Who maintains the sibling runtime contract (assign before build; not established by today’s framework).
 - How existing Get help / support submissions map to a shared bug-or-request interview without losing purpose or history.
 - Offline audio-note recording versus typed first-note capture.
-- Where the push-to-talk control lives, and the first farm-write flows to ship (GTHO Design, after the shared contract exists).
+- Where the exception inbox lives, how long unfinished items persist, and the schema for recoverable proposals (design schema-first when implementation begins).
+- The exact default dock position or screen edge for the desktop floating control, and the first farm-write flows to ship (GTHO Design, after the shared contract exists).
 
 Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
 
@@ -529,6 +534,7 @@ The 15-minute stale threshold is a balance between honesty and noise — short e
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 — exceptions and PTT placement | Locked recoverable exceptions (incomplete, invalid, interrupted, or abandoned proposals stay available to finish later). Locked push-to-talk as prominent in field mode and as a floating, movable control on desktop. Inbox location, retention, schema, and exact desktop dock position remain open. |
 | 2026-11-08 | OI-0195 — voice/AI review | Rewrote §8. Retired the April three-phase Haiku / silent-training / on-device roadmap. Current design: shared conversation runtime plus GTHO farm tools; one push-to-talk; review card; realtime speech-to-speech with ephemeral tokens as current practice; no offline AI promise; confidence is not a safety gate. Not a build target. |
 | 2026-04-12 | Session 6 — Infrastructure review | §3.1: Added A9/A10 exception references. §3.3: Aligned app_logs to schema (+operation_id nullable, +context jsonb, RLS by user_id). §3.4–3.5: Added A10 refs, dead letter context structure. §4.1–4.2: Aligned submissions to schema, added A25 ref. §5.1: Fixed RLS to use operation_members, added user-scoped example. §8: Added roadmap scope note. |
 | 2026-04-18 | OI-0106 base-doc reconciliation | §6.1: Expanded entity shape-function test pattern from a single local round-trip to two tests: (a) local round-trip for key mapping, (b) PostgREST pull simulation with stringified numerics asserting `typeof === 'number'`. The local round-trip alone does not catch the PostgREST-string class of bugs that drove the OI-0106 sweep. Cross-references V2_APP_ARCHITECTURE.md §3.1. |

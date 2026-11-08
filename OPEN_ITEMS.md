@@ -8,7 +8,7 @@
 
 **Added:** 2026-11-08 | **Area:** v2-design / voice / ai | **Priority:** P3 (new capability; the app works without it today)
 
-**Status:** open — DESIGN IN PROGRESS 2026-11-08 (slice and shared module locked; original docs rewritten the same day; foundation not fully specified). Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
+**Status:** open — DESIGN IN PROGRESS 2026-11-08 (slice, shared module, recoverable exceptions, and PTT placement locked; original docs rewritten and landed as Forgejo PR #6, merge `7d536cb`; foundation not fully specified). Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
 
 **Need.** Users should be able to enter farm data by voice with an AI helper instead of typing into small phone fields, and they should also be able to ask questions about farm state ("Is cow X open?", "How many open cows do I have?", "When was paddock X last grazed?"). Before this filing there was no open item, no `PROJECT_STATUS.md` mention, and no matching code in `src/`, `tests/`, or `supabase/`. The April 2026 sketch in `V2_INFRASTRUCTURE.md` §8 (reviewed 2026-04-12 in `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md`) has been rewritten as of 2026-11-08 and is no longer current design. The April session brief stays historical. `V2_SCHEMA_DESIGN.md` Domain 11 no longer treats the April transcript/training/script/confidence list as the planned table set. `V2_MIGRATION_PLAN.md` Phase 4 retires the unnamed “Voice field mode (5 checkpoints)” line.
 
@@ -20,12 +20,14 @@
 4. Ask-and-answer is in scope for the product. It will be designed as a path that uses this foundation, not as a separate voice product.
 5. A shared module makes sense: one conversation runtime used by GTHO, not folding the general assistant into `feedback-module`. Spoken feedback uses that same assistant and the existing feedback interview contract.
 6. The original April 2026 voice/AI docs were reviewed against current practice rather than assumed correct, and rewritten. Haiku, Phi, Gemma, WebLLM, silent training capture, confidence-as-a-gate, the narrow `InferenceAdapter`, `source: 'voice' | 'manual'`, the guided-script library, and the unnamed “5 checkpoints” are superseded, not unlocked remaining design.
+7. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. Successful confirmed writes become ordinary farm records, not a parallel conversation log.
+8. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop as a floating, movable control.
 
 **Constraint already in the calc spec:** `V2_CALCULATION_SPEC.md` says any future voice-input flow that talks about remaining feed must import `getLiveRemainingForMove` from `src/calcs/feed-state.js` rather than recompute it. Carry this into the ask-and-answer path and any write path that mentions remaining feed.
 
 **Out of scope for this item:** implementing either path; schema tables for transcripts, training data, guided scripts, or confidence scores (not in the launch schema; design them when implementation of this capability begins); recreating `CLAUDE.md` or a vendored `project-framework/` copy.
 
-**Still unspecified (do not invent):** the shared conversation contract (Chief of Staff); who maintains the sibling runtime; how existing Get help / support submissions map to a shared bug-or-request interview; whether the first release records an offline audio note; where the single push-to-talk control lives; hold-to-talk versus server voice-activity detection after the button is pressed; which write types and which questions ship first; schema tables or columns.
+**Still unspecified (do not invent):** the shared conversation contract (Chief of Staff); who maintains the sibling runtime; how existing Get help / support submissions map to a shared bug-or-request interview; whether the first release records an offline audio note; where the exception inbox lives, how long unfinished items persist, and the schema for recoverable proposals; hold-to-talk versus server voice-activity detection after the button is pressed; the exact default dock position or screen edge for the desktop floating control; which write types and which questions ship first; schema tables or columns.
 
 **Acceptance criteria:**
 
@@ -39,7 +41,7 @@
 
 **Related:** `V2_INFRASTRUCTURE.md` §8 (rewritten 2026-11-08); `V2_SCHEMA_DESIGN.md` Domain 11 future-schema note; `V2_MIGRATION_PLAN.md` Phase 4 voice line; `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md` (historical); `V2_CALCULATION_SPEC.md` remaining-feed reader rule.
 
-**Origin:** 2026-11-08. Tim asked GTHO Build to summarize a voice/AI data-entry thread and hand it to GTHO Design. Independently verified on Forgejo main at `0bcc3b7`.
+**Origin:** 2026-11-08. Tim asked GTHO Build to summarize a voice/AI data-entry thread and hand it to GTHO Design. Independently verified on Forgejo main at `0bcc3b7` before filing. Original-docs rewrite later landed as Forgejo PR #6, merge `7d536cbb152a732e012b0a301279eb37f8b32b90` (verified on the writer 2026-11-08).
 
 ---
 
@@ -6174,6 +6176,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 follow-on locks — recoverable exceptions (incomplete, invalid, interrupted, or abandoned proposals stay available to finish later) and push-to-talk placement (prominent in field mode; floating and movable on desktop). Inbox location, retention, schema, and exact desktop dock position remain open. Rewrite already on Forgejo main as PR #6, merge `7d536cb`. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`. | GTHO Design — docs only, no code this session |
 | 2026-11-08 | OI-0195 original docs reviewed and rewritten — `V2_INFRASTRUCTURE.md` §8 is no longer the April Haiku / silent-training / on-device roadmap. Shared conversation runtime plus GTHO farm tools; review card; no offline AI promise; confidence is not a safety gate. Schema Domain 11 note and migration Phase 4 voice line updated to match. Still design in progress; shared conversation contract not invented. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`. | GTHO Design — docs only, no code this session |
 | 2026-11-08 | OI-0195 filed — voice/AI foundation. Slice locked: shared piece first, then write-entry and ask-and-answer paths; one push-to-talk interface for both; write path keeps a review card (accept or correct by voice). April `V2_INFRASTRUCTURE.md` §8 remains unlocked roadmap. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`. | GTHO Design — docs only, no code this session |
 | 2026-11-08 | OI-0189 closed — shipped on Forgejo main, PR #3 merge `9f84f3c4083b2c9c3da7196e3a5ed84d9d4651ed`, feature `33b8102ec55fd588ed1946e27ecc23c3404af72b`. Device-local `getLocalTodayStr()` as locked 2026-11-08. Grep contract 0 in `src/features/`. GitHub publish not retried. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0189-local-today.md`. | GTHO Design — docs close-out, no code this session |

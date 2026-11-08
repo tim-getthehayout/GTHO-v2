@@ -2293,7 +2293,7 @@ CREATE TABLE batch_nutritional_profiles (
 
 Non-farm-data tables that support the app itself: diagnostics, user feedback, task management, and release communication. These tables have different sync and scoping rules than farm data.
 
-> **Future schema note:** AI/voice integration tables (voice transcripts, training data, guided scripts, confidence scores) are planned but not part of the launch schema. They will be designed as a D11 schema update when AI Phase 1 implementation begins — see V2_INFRASTRUCTURE.md §8 for the design roadmap.
+> **Future schema note (updated 2026-11-08):** Conversation, draft, and any transcript or training tables are **not** part of the launch schema. Do not assume the April 2026 list (voice transcripts, training data, guided scripts, confidence scores) is the right shape — that list came from a superseded roadmap in `V2_INFRASTRUCTURE.md` §8. Design tables schema-first when implementation of the shared voice/AI capability begins. Any stored audio or transcript needs consent, retention, deletion, and access rules in the same design pass. See `V2_INFRASTRUCTURE.md` §8 and `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
 
 ### 11.1 app_logs
 
@@ -2532,6 +2532,7 @@ CREATE TABLE release_notes (
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 — voice/AI schema note | Updated the Domain 11 future-schema note: April transcript/training/script/confidence list is no longer treated as the planned table set. Tables remain undesigned. Pointer to rewritten `V2_INFRASTRUCTURE.md` §8. No schema change. |
 | 2026-04-12 | Session 6 — Infrastructure review | D11.1 app_logs: Added operation_id (nullable, no FK, best-effort) and context (jsonb, dead letter + error metadata). D11 header: Added future schema note for AI/voice tables. Appendix B: Added 2026-04-12 session log entry. |
 | 2026-04-12 | Session 7 — Calculation spec review | D3 animal_classes: excretion_n/p/k_pct → excretion_n/p/k_rate (NRCS unit alignment). Species CHECK updated: 'cattle' → 'beef_cattle' + 'dairy_cattle'. Added dmi_pct_lactating. D9 animal_calving_records: Added dried_off_date for dairy dry-off tracking. |
 | 2026-04-12 | Session 8 — UX flows review | D1 farm_settings: Added forage_quality_scale_min (default 1), forage_quality_scale_max (default 100) for configurable survey assessment range (A41). |

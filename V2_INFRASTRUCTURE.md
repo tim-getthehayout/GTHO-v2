@@ -434,40 +434,60 @@ Vite loads this file automatically. The app code references these via `import.me
 
 ---
 
-## 8. AI Integration Architecture
+## 8. Voice and AI Integration
 
-> **Scope note:** This section describes the planned AI/voice integration across three phases. It is a **design roadmap**, not a Phase 3 build target. No schema tables exist for voice transcripts, training data, or guided scripts — these will be designed as a schema update when Phase 1 implementation begins (after the core app is stable and deployed). Claude Code should not implement this section during the initial v2 build.
+> **Status (2026-11-08):** Design in progress — OI-0195. This section is **not** a build target. GTHO Build should not implement it until GTHO Design hands a locked farm-tool contract and the shared conversation contract exists. No schema tables for conversations, drafts, transcripts, or training data exist yet. Design those schema-first when implementation of this capability begins. The shared conversation contract is owned by Chief of Staff, not by this file.
 
-### 8.1 Three-Phase Strategy
+### 8.1 Product shape (locked 2026-11-08)
 
-**Phase 1 (Launch):** Web Speech API → transcript → Supabase Edge Function → Claude Haiku API → structured data → review card → user confirm → commit.
+Tim locked these choices in the GTHO Design chat:
 
-**Phase 2 (Silent Training Capture):** Every voice interaction logs: raw transcript, AI output, user corrections, final committed data. Builds training dataset.
+1. Voice/AI is a shared foundation piece first. Write-entry and ask-and-answer are later paths that use it.
+2. Both paths are reached from one push-to-talk interface, not separate screens or buttons for writing versus asking.
+3. A write still has an easy check: a review card the user can accept, or correct by voice (or text). Voice-first means less typing, not no review.
+4. Ask-and-answer is in product scope (examples: “Is cow X open?”, “How many open cows do I have?”, “When was paddock X last grazed?”).
+5. A shared module makes sense: one conversation runtime used by GTHO, not folding the general assistant into `feedback-module`. Spoken feedback should use that same assistant and the existing feedback interview contract, not a second inbox.
 
-**Phase 3 (On-Device):** Fine-tuned small model (Phi-3.5-mini or Gemma 3 1B) via WebLLM. Same InferenceAdapter interface — transparent swap. Fallback to Haiku if confidence < 0.7 and online.
+Chief of Staff owns the still-unwritten shared conversation contract and the `feedback-module` interview contract. GTHO Design owns farm questions, write flows, domain rules, GTHO schema, and the review of farm writes. Farm rules never move into the shared runtime.
 
-### 8.2 InferenceAdapter Pattern
+### 8.2 Why the April 2026 sketch is superseded
 
-Same plug-swap pattern as SyncAdapter:
-```js
-export class InferenceAdapter {
-  async parse(transcript, context) { throw new Error('Not implemented'); }
-  async refine(partialResult, correction) { throw new Error('Not implemented'); }
-  getConfidence() { throw new Error('Not implemented'); }
-}
-```
+The April text treated a one-shot cascade as architecture: browser Web Speech API → transcript → Supabase Edge Function → Claude Haiku → structured fields → confirm. It then planned silent training capture of every transcript, model output, and correction, and an on-device swap to a named small model (Phi-3.5-mini or Gemma 3 1B via WebLLM) behind a narrow `InferenceAdapter` (`parse` / `refine` / `getConfidence`), falling back to Haiku if confidence was below 0.7. Those choices are not current design:
 
-### 8.3 Conversational Parsing
+- A farm assistant needs a live conversation that can write, ask, or take feedback — not only parse one utterance into a form.
+- Vendor model names and on-device runtimes are not architecture. Do not lock Haiku, Phi, Gemma, WebLLM, or any other named model as the design. When a hosted provider is used in production, pin a **versioned** model so a floating alias cannot silently change behavior.
+- A model-reported confidence score is not a safety gate. Validate tool arguments in app code, recheck a write proposal against current data, and require user confirmation.
+- Silent training capture is not a launch phase. Storing transcripts or audio needs explicit consent, retention, deletion, and access rules first. Saving a draft for recovery is not permission to build a training set.
+- `source: 'voice' | 'manual'` is too coarse once a user can speak and then correct by voice or text in one session. Do not treat that tag as an existing column.
+- A guided-script library and an on-device model are later candidates, not prerequisites.
+- The migration plan’s “Voice field mode (5 checkpoints)” never listed those checkpoints. Do not invent them.
 
-Multi-turn, not one-shot. User speaks → AI parses and shows review card → user refines field-by-field ("Actually just heifers") → AI updates only that field.
+Keep from April: a review card before a write commits; multi-turn correction of a proposal (“actually just heifers”); a replaceable provider boundary so the app is not welded to one vendor API; all feature writes through the existing store and sync queue.
 
-### 8.4 Guided Script Library
+### 8.3 Current intended architecture
 
-Pre-built voice prompts for common tasks. Each script defines: prompt string, field name, type (location, group, number, text, etc.).
+One shared conversation runtime (a sibling shared module; its contract is still unwritten) plus app-owned GTHO tools.
 
-### 8.5 Source Audit
+**Entry.** One push-to-talk control for write, ask, and spoken feedback. A text fallback must use the same intent, review, and confirmation rules — not a separate product. Where that control lives, and hold-to-talk versus server voice-activity detection after the button is pressed, are not locked.
 
-Every record tagged `source: 'voice'` or `'manual'`. Enables voice-accuracy filtering in reports.
+**Online voice (current practice as of 2026-11-08).** Use a realtime speech-to-speech session, not a browser-speech-to-text step followed by a separate chat completion. xAI documents `wss://api.x.ai/v1/realtime` with custom function tools. Browsers cannot attach an `Authorization` header to a WebSocket; the client should authenticate with a short-lived ephemeral token from a GTHO backend (`POST https://api.x.ai/v1/realtime/client_secrets`). The long-lived provider key stays server-side and never ships in the PWA. An ephemeral token is not farm-data authorization: executors must still check the signed-in user and operation membership. Prefer a versioned voice model in production (`grok-voice-latest` is documented as an alias for the current flagship; pin the versioned name when shipping). A Supabase Edge Function is one possible token broker, not a locked deployment choice.
+
+**Tools and trust.** The model may propose function calls. GTHO executors validate arguments independently of the model, enforce operation membership, and recheck a write proposal against current data before commit. Farm-write tools produce proposals — not an unrestricted database or SQL interface. Read tools answer from authorized app data, not model memory, and must not mutate while answering. If a record is missing, say so; do not treat absence as a definitive negative (for example, “is cow X open?”). Remaining-feed questions and any write path that mentions remaining feed must import `getLiveRemainingForMove` from `src/calcs/feed-state.js` rather than recompute it (`V2_CALCULATION_SPEC.md`). Treat transcripts, retrieved records, and model output as untrusted data.
+
+**Confirmation.** Show a review card before a farm write or a feedback filing. The user can accept, correct by voice or text, or cancel. Switching intent (“that was actually a bug,” “wait, log a move instead”) must not commit an abandoned proposal or file feedback accidentally.
+
+**Offline.** The app is offline-first for farm data, but a hosted realtime voice session cannot transcribe or run while disconnected. Do not promise offline AI parsing or answers. Existing manual entry remains available. Whether the first release records an offline audio note (that would need supported storage, consent, playback/delete, and retention) versus a typed first note plus resuming voice when back online is still open. No on-device model is committed.
+
+**Schema.** No new tables until they are designed and migrated. See `V2_SCHEMA_DESIGN.md` Domain 11. Do not assume the April list (transcripts, training data, guided scripts, confidence scores) is the right shape.
+
+### 8.4 Still open
+
+- Who maintains the sibling runtime contract (assign before build; not established by today’s framework).
+- How existing Get help / support submissions map to a shared bug-or-request interview without losing purpose or history.
+- Offline audio-note recording versus typed first-note capture.
+- Where the push-to-talk control lives, and the first farm-write flows to ship (GTHO Design, after the shared contract exists).
+
+Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
 
 ---
 
@@ -509,6 +529,7 @@ The 15-minute stale threshold is a balance between honesty and noise — short e
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 — voice/AI review | Rewrote §8. Retired the April three-phase Haiku / silent-training / on-device roadmap. Current design: shared conversation runtime plus GTHO farm tools; one push-to-talk; review card; realtime speech-to-speech with ephemeral tokens as current practice; no offline AI promise; confidence is not a safety gate. Not a build target. |
 | 2026-04-12 | Session 6 — Infrastructure review | §3.1: Added A9/A10 exception references. §3.3: Aligned app_logs to schema (+operation_id nullable, +context jsonb, RLS by user_id). §3.4–3.5: Added A10 refs, dead letter context structure. §4.1–4.2: Aligned submissions to schema, added A25 ref. §5.1: Fixed RLS to use operation_members, added user-scoped example. §8: Added roadmap scope note. |
 | 2026-04-18 | OI-0106 base-doc reconciliation | §6.1: Expanded entity shape-function test pattern from a single local round-trip to two tests: (a) local round-trip for key mapping, (b) PostgREST pull simulation with stringified numerics asserting `typeof === 'number'`. The local round-trip alone does not catch the PostgREST-string class of bugs that drove the OI-0106 sweep. Cross-references V2_APP_ARCHITECTURE.md §3.1. |
 | 2026-05-04 | Reconciliation Session C — infra catch-up (RECONCILIATION_PLAN_2026-05-03 INFRA-1, INFRA-2) | Two infrastructure catch-ups. **NEW §1.4 Unit Families (INFRA-1):** documents the named-family pattern that `convert()` and `unitLabel()` already use, with the seven current families in a table including the new **`dmYieldDensity`** family added 2026-05-04 for SP-13 Forage Types (V2_UX_FLOWS.md §20.8) — stored `kg/cm/ha`, displayed `lbs/in/ac`, conversion via the existing `DM_LBS_IN_AC_TO_KG_CM_HA` constant in `src/data/v1-migration.js` (one canonical constant; do not duplicate). Round-trip contract documented (entering `300` imperial must store the v1-migration equivalent and re-render `300`). Six-step "adding a new family" checklist captures the descriptor-pattern wiring so a new measurement type can't ship with feature-code unit math. Cross-reference to `src/features/settings/unit-descriptor.js` as the canonical entry point for unit-aware form fields. **NEW §9 Sync Indicator (INFRA-2):** lifts the OI-0141 "honest sync indicator" pattern from CLAUDE.md grep contracts into the infrastructure doc as the design-level statement. Two-axis state (push queue + last-pull timestamp), 5-state indicator table (`sync-ok` / `sync-stale` / `sync-pending` / `sync-off` / `sync-err`) with the 15-min stale threshold; tap = `pullAllRemote()`, NOT `navigate('#/settings')`; visibility-change auto-pull on `document.visibilitychange → visible` so freshness is re-established before the user even taps; the architectural reason the previous single-axis indicator silently lied. Cross-references the `getLastPulledAt()` canonical reader and the V2_APP_ARCHITECTURE.md §4.6 Derive-on-Read doctrine. No code changes — documentation catch-up only. Owner: Cowork. |

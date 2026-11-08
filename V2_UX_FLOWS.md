@@ -809,6 +809,9 @@ Planning target for stored feed inventory. Drives the feed screen's color-coded 
 3. Create `animal_weight_record` on calf with birth weight (if provided), `source='calving'`
 4. Create `animal_calving_record` linking dam → calf
 5. If sire known: set `sire_animal_id` or `sire_ai_bull_id` on both calving record and calf's animal record
+6. **Required side effect (Tim, 2026-11-08):** automatically set the dam’s `confirmed_bred` / `confirmedBred` to false when the birth is recorded. Apply to ANY path creating an `animal_calving_records` row for the dam, including this sheet, voice using this same save, and creating a calving record by linking a calf to a dam. This explicit stored-state clear is not currently implemented in the live Calving save or `src/features/animals/calving-sync.js`; the A27 class prompt does not substitute for it.
+
+**2026-11-08 host-adapter authority note:** voice populates this live sheet, uses its field requirements/defaults and existing validation/save path, and requires confirmation. Entity-required fields are operationId, damId and calvedAt; dried-off stays optional. The live sheet defaults sex to female, creates a calf iff `!stillbirthCheck.checked || calfTagInput.value.trim()`, and converts a date-only input with `new Date(dateInput.value + 'T12:00:00Z')`. Older sex/stillbirth prose above is contradictory and must not become a newly invented voice rule. Device-local calendar dates remain per OI-0189. The optional A27 heifer→cow class prompt and existing calf/weight/group/calving side effects remain. See infrastructure §8.3a for the general method, not scenario scripts.
 
 **Entry point:** Animal edit sheet → calving history section → "+ Record calving" button. Female-only.
 

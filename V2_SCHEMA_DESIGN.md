@@ -518,7 +518,7 @@ CREATE TABLE animal_classes (
 | birth_date | date | | Drives weaning target calc (birth_date + class.weaning_age_days) |
 | weaned | boolean | | null=unknown, false=not weaned, true=weaned |
 | weaned_date | date | | When marked weaned |
-| confirmed_bred | boolean | NOT NULL, DEFAULT false | Pregnancy-check / palpation confirmed. Stored state per OI-0099 (reverses the original A29 "derived" design). Migration 026. |
+| confirmed_bred | boolean | NOT NULL, DEFAULT false | Stored Edit Animal checkbox (OI-0099), not derived. NOT NULL false default is not sufficient alone to define the open set; cow/heifer female active eligibility applies. Birth must explicitly clear this field (2026-11-08 lock). Migration 026. |
 | notes | text | | |
 | active | boolean | DEFAULT true | false = culled |
 | cull_date | date | | Flattened from v1 cullRecord object |
@@ -537,6 +537,9 @@ CREATE TABLE animal_classes (
 **Design decisions:**
 - **Sire linkage via FKs, not free text (A28):** V1's sireTag (free text) replaced by two FKs: `sire_animal_id` for herd bulls, `sire_ai_bull_id` for AI sires. At most one populated. Lineage on the animal record; breeding history details on `animal_breeding_records` (D9). Edit Animal's sire picker writes these two FKs directly with mutual exclusivity (OI-0099 Class B B1). Inline "Add AI bull" from the picker creates `ai_bulls` rows for historical / external / non-AI bulls that predate the app — the table name is a v1-era artifact retained for now; rename/split is a future OI.
 - **Confirmed bred stored, not derived (A29 — reversed by OI-0099 on 2026-04-18):** V1 stored `confirmedBred` on the animal; v2 originally planned to derive from breeding records ("most recent confirmed breeding with no subsequent calving"). Deriving turned out to block the Edit Animal UI (farmer can confirm pregnancy months before any calving record exists) and required rules that were never implemented. Migration 026 adds `confirmed_bred boolean NOT NULL DEFAULT false`; the Edit Animal checkbox writes directly. If a richer breeding-status model is ever needed (palpation dates, methods, repro history) that's a new `animal_breeding_status` table (see OI-0099 "Option B6" — deferred).
+- **Open-set definition (Tim, 2026-11-08):** active (not culled) females in cow or heifer classes with `confirmed_bred === false`; calves are excluded. Counts and named-animal reproductive evidence use this same data definition. A calf, male or inactive/culled animal is not called an open cow. `confirmed_bred` is NOT NULL DEFAULT false, written by the Edit Animal checkbox (OI-0099), and must now also be cleared on any recorded birth (Domain 9). No separate confirmed-open column. “Open” needed a domain definition because the unchecked default alone would otherwise include calves or other ineligible animals. Missing authorized animal/class evidence is not a definitive negative.
+- **Birth clears stored checkbox (Tim, 2026-11-08):** every path creating an `animal_calving_records` row for a dam must explicitly set her `confirmed_bred` / `confirmedBred` to false. Existing Calving and calving-sync paths do not currently do this. This required side effect includes normal Calving, voice through its save, and calf-to-dam linking that creates the calving row.
+
 - **Cull fields flattened:** V1's `cullRecord` JSONB object ({date, reason, notes}) promoted to three proper columns for queryability.
 - **No healthEvents[], calvingRecords[], weightHistory[]:** All moved to their own tables in D9 and weight records table. No JSONB arrays on the animal record.
 - **One row can stand for many head (migration 039, schema stamp 39):** `is_bulk` is true for a group composite and false for an individual. Default false keeps every existing row an individual. `bulk_head_count` is the head represented by a composite (non-negative integer) and null on individuals. CHECK `animals_bulk_head_count_check`: `(is_bulk = false AND bulk_head_count IS NULL) OR (is_bulk = true AND bulk_head_count IS NOT NULL AND bulk_head_count >= 0)`. Total weight stays on `animal_weight_records` (no new weight column). Weight input is per head; stored as lot total (PRs #66, #67, #68).
@@ -2121,7 +2124,9 @@ CREATE TABLE animal_heat_records (
 2. Record birth weight as weight record on calf (source='calving') if provided
 3. Auto-assign calf to dam's current group via membership ledger
 4. Prompt class reassignment on dam if heifer/ewe/doe role (A27) — e.g., heifer → "First-Calf Heifer" class
-5. Calving resets "confirmed bred" status naturally (A29) — new calving record exists after the breeding record
+5. **Locked 2026-11-08:** recording a birth must explicitly set the dam’s `confirmed_bred` / `confirmedBred` to false. This is stored state, not a natural/derived reset (A29 was reversed by OI-0099). Every path creating an `animal_calving_records` row must do this, including the Calving sheet, voice using the same save, and linking a calf to a dam to create a calving record. The live Calving save and `src/features/animals/calving-sync.js` do not currently clear it; this is a required side effect, not an implemented claim.
+
+**UI/entity authority for voice (2026-11-08).** Populate the live Calving sheet (§14.7), not a parallel questionnaire. Entity-required fields are operationId, damId and calvedAt. Dried-off remains optional in the sheet/entity; the older dairy-required prose above is not a voice/UI requirement. The live sheet defaults calf sex to female and creates a calf iff `!stillbirthCheck.checked || calfTagInput.value.trim()`; do not invent a different stillbirth rule from older UX prose. Date-only calving uses the sheet’s `new Date(dateInput.value + 'T12:00:00Z')`; other surfaces use their own date/time defaults. Device-local calendar dates remain per OI-0189. Existing calf, optional calving-weight, group membership, calving record and optional A27 class prompt side effects remain, plus the explicit dam clear above. DMI-2 is not rewritten by this lock.
 
 **Design decisions:**
 - **Sire FKs on calving record:** Same pattern as breeding records and animal table (A28). Sire at calving may come from the breeding record or be entered fresh.
@@ -2293,7 +2298,7 @@ CREATE TABLE batch_nutritional_profiles (
 
 Non-farm-data tables that support the app itself: diagnostics, user feedback, task management, and release communication. These tables have different sync and scoping rules than farm data.
 
-> **Future schema note (updated 2026-11-08):** Conversation, draft, and any transcript or training tables are **not** part of the launch schema. Do not assume the April 2026 list (voice transcripts, training data, guided scripts, confidence scores) is the right shape — that list came from a superseded roadmap in `V2_INFRASTRUCTURE.md` §8. Design tables schema-first when implementation of the shared voice/AI capability begins. Any stored audio or transcript needs consent, retention, deletion, and access rules in the same design pass. See `V2_INFRASTRUCTURE.md` §8 and `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
+> **Host-adoption design (2026-11-08): HOST-ADAPTER DESIGN SPECIFIED — unimplemented, not handed to Build.** The shared conversation and feedback contracts exist with released adoption targets. Chief of Staff owns both contracts; GTHO is first host adopter, not either module’s owner. Do not grow reusable runtime or interview behavior in GTHO-v2 or alter either CONTRACT. The physical design in §11.2a–b is design DDL, not an applied schema. Testing-end audio disposal and later-rollout consent remain deferred/non-blocking. The April training/script/confidence table list remains superseded. See `V2_INFRASTRUCTURE.md` §8 and the OI-0195 session brief.
 
 ### 11.1 app_logs
 
@@ -2398,6 +2403,645 @@ CREATE TABLE submissions (
   updated_at            timestamptz NOT NULL DEFAULT now()
 );
 ```
+
+#### 11.2a Shared feedback host normalization — OI-0195 (design only)
+
+New normalized feedback items use the **existing `submissions` entity/table**, not a second inbox. Normalize additively; keep existing IDs, labels and host history. The legacy column table and DDL above are not an implementation of this extension. `type` remains feedback/support purpose; shared bug/request classification is a distinct concept. Support `priority` is urgency, never severity. The existing thread JSONB exception does not authorize a new catch-all JSONB column for this design.
+
+| Shared module | GTHO release pin | Annotated tag peels to | Package version |
+|---|---|---|---|
+| `Homelab/feedback-module` | `v0.1.3` | `f70d0d7d83a0b56ffdcd2a28375b6f746863fecb` | `0.1.3` |
+| `Homelab/conversation-runtime` | `v0.1.1` | `aea11f3cdb137a83f0aecaf38e2e60c9d1ba809a` | `0.1.1` |
+
+These are the independently verified release targets for GTHO adoption; nothing auto-spreads. Older tags are unchanged and are **not** adoption pins: feedback-module `v0.1.2` → `f22b58af728594ee5c59edeb362b17467fe6e549`, `v0.1.1` → `eb7fc8010bf5173549db14382411c6386a7e09f2`, `v0.1.0` → `16a68aa94626eaa9f7f4b49754a6616cd0555af9`; conversation-runtime `v0.1.0` → `1a1d1e7b29680d724755f82384b475f1e4b6601f`.
+
+**Faithful historical-field mapping (SQL / JS → contract or host context):**
+
+| Existing field | Logical destination | Preservation / constraint |
+|---|---|---|
+| `id` | `itemId` | Keep exactly. |
+| `operation_id` / `operationId` | scope | Preserve operation scope. |
+| `submitter_id` / `submitterId` | `reporterId` | When present; do not invent identity. |
+| `app` | `appId` | Keep `gthy`. |
+| `type` (`feedback` / `support`) | `sourcePurpose` | Not shared bug/request type; do not overwrite legacy `type`. |
+| `category`, `area` | optional category / area | Preserve original labels. |
+| `screen` | original screen context | Existing values are hash-to-screen mapped, not reconstructed raw routes. |
+| `version` | `buildStamp` | Current Feedback captures the build stamp at save; never copy to `contractVersion`. For new capture, retain first-capture build context. |
+| `note` | candidate `firstNote` | Edited notes and `[Regression]` prefixes are not automatically the untouched original. Preserve the source; do not assert original-note provenance without evidence. |
+| `priority` | host-only support urgency | Not shared severity. |
+| `status`, `thread`, `dev_response`, `dev_response_ts`, `first_response_at`, `resolved_in_version`, `resolution_note`, `oi_number`, `linked_to` | host-only history | Keep. |
+| `created_at` | host history | Not automatically capture time or filing time. |
+| `updated_at` | host-only history | Keep; never replace first capture with latest edit. |
+
+**Historical-state policy (Tim, 2026-11-08).** Add the new fields now with explicit unknowns; ask for missing fields only if someone reopens the item. Old rows retain their IDs and history and are not newly confirmed filings. Historical columns do not supply `contractVersion`, title, shared bug/request type, expected, actual, `reproSteps`, severity, impact, or `reviewConfirmation`. Do not infer classification from purpose/category, invent filing consent, or leave old items permanently in a legacy-only shape. The additive columns and explicit child-table fact states below specify that representation; these are design DDL sketches, not applied migration SQL. `contractVersion` records the pinned shared interview-contract release actually used for filing or adaptation, not an app build or a claim that the original capture used the new contract. Unknown capture and filing times stay unknown.
+
+**Physical extension locked 2026-11-08 — nullable, additive, same inbox:**
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| feedback_kind | text | NULL, CHECK bug/request | Shared kind, not legacy type |
+| contract_version | text | NULL | Interview contract used, not build stamp |
+| title | text | NULL | Shared title |
+| first_note | text | NULL | Original note with provenance, not reconstructed legacy note |
+| expected | text | NULL | Expected result |
+| actual | text | NULL | Actual result |
+| severity | text | NULL, CHECK critical/high/normal/low | Not support priority |
+| impact | text | NULL | Shared impact |
+| captured_at | timestamptz | NULL | First capture, not created_at inferred |
+| filed_at | timestamptz | NULL | Actual filing time |
+| conversation_id | uuid | NULL, scoped FK → assistant_conversations | Origin conversation |
+| review_confirmation_id | uuid | NULL, scoped FK → assistant_review_confirmations | Exact filing confirmation |
+
+**Design decisions.** Do not impose blanket NOT NULL on new columns or manufacture historical facts. The adapter checks new-filing completeness against the pinned feedback-module contract. New facts on historical rows remain NULL with a `submission_field_states` row of `unknown` for each new contract fact, including reproSteps and confirmation; old rows are not newly confirmed filings. Reopening is the only trigger to ask for missing facts. The existing `thread` JSONB exception remains only a thread, never an artifact envelope. No catch-all JSONB is added.
+
+```sql
+-- Design sketch only; add after the referenced artifact tables exist.
+ALTER TABLE submissions
+  ADD CONSTRAINT submissions_operation_identity UNIQUE (operation_id, id),
+  ADD COLUMN feedback_kind text CHECK (feedback_kind IN ('bug','request')),
+  ADD COLUMN contract_version text,
+  ADD COLUMN title text,
+  ADD COLUMN first_note text,
+  ADD COLUMN expected text,
+  ADD COLUMN actual text,
+  ADD COLUMN severity text CHECK (severity IN ('critical','high','normal','low')),
+  ADD COLUMN impact text,
+  ADD COLUMN captured_at timestamptz,
+  ADD COLUMN filed_at timestamptz,
+  ADD COLUMN conversation_id uuid,
+  ADD COLUMN review_confirmation_id uuid,
+  ADD FOREIGN KEY (operation_id, conversation_id)
+    REFERENCES assistant_conversations(operation_id, id),
+  ADD FOREIGN KEY (operation_id, review_confirmation_id)
+    REFERENCES assistant_review_confirmations(operation_id, id);
+```
+
+**Common physical conventions (design only).** Each new table has the following columns, included explicitly in every CREATE TABLE sketch below. JS uses camelCase; SQL uses snake_case. All artifacts are operation-scoped UUID records. All internal artifact FKs use `(operation_id, referenced_id)` against a unique `(operation_id, id)` key, rejecting cross-operation references; existing domain record references must likewise be checked against the current authorized operation, not trusted from model output. The existing Domain 11 operation-membership RLS pattern applies to every new table (enable RLS and scope reads/writes to authorized operation members). These sketches specify design, not executable migration order or applied SQL. Forward references are resolved when assembling a later migration. Index referencing operation/FK columns for scoped access; no new storage engine is chosen.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| id | uuid | PK, default gen_random_uuid() | Stable identity |
+| operation_id | uuid | NOT NULL, FK → operations | RLS and cross-operation integrity |
+| created_at | timestamptz | NOT NULL, default now() | Host creation time |
+| updated_at | timestamptz | NOT NULL, default now() | Host update time; immutable revision content is not edited |
+
+##### `submission_field_states`
+
+**Purpose:** Explicit contract-fact states, not 30 companion columns.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| submission_id | uuid | NOT NULL | Parent submission |
+| field_name | text | NOT NULL | Dedicated contract fact identity, including reproSteps |
+| state | text | NOT NULL CHECK (state IN ('known','unknown','unavailable','not_applicable')) | Explicit fact state |
+| reason | text | NULL | Optional reason |
+| source | text | NULL | Optional provenance |
+
+**Design decisions:** One state row per submission/contract fact. Known values live in the dedicated column or ordered step rows. Unknown, unavailable and not_applicable do not invent values. Historical new facts start unknown.
+
+```sql
+CREATE TABLE submission_field_states (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  submission_id uuid NOT NULL,
+  field_name text NOT NULL,
+  state text NOT NULL CHECK (state IN ('known','unknown','unavailable','not_applicable')),
+  reason text,
+  source text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, submission_id) REFERENCES submissions(operation_id, id),
+  UNIQUE (operation_id, submission_id, field_name)
+);
+```
+
+##### `submission_repro_steps`
+
+**Purpose:** Ordered reproduction steps, not a JSONB payload.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| submission_id | uuid | NOT NULL | Parent submission |
+| position | integer | NOT NULL CHECK (position >= 0) | Stable ordering |
+| step_text | text | NULL | Known step text; NULL for an explicit non-known step |
+| state | text | NOT NULL CHECK (state IN ('known','unknown','unavailable','not_applicable')) | Step fact state |
+| reason | text | NULL | Optional reason |
+| source | text | NULL | Optional provenance |
+
+**Design decisions:** Whole-list unknown/not_applicable is represented in submission_field_states for reproSteps; do not fabricate placeholder step rows. Per-step states are available for partially known lists.
+
+```sql
+CREATE TABLE submission_repro_steps (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  submission_id uuid NOT NULL,
+  position integer NOT NULL CHECK (position >= 0),
+  step_text text,
+  state text NOT NULL CHECK (state IN ('known','unknown','unavailable','not_applicable')),
+  reason text,
+  source text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, submission_id) REFERENCES submissions(operation_id, id),
+  UNIQUE (operation_id, submission_id, position),
+  CHECK ((state = 'known' AND step_text IS NOT NULL) OR (state <> 'known' AND step_text IS NULL))
+);
+```
+
+#### 11.2b Physical host artifacts — OI-0195 (locked 2026-11-08; design DDL only)
+
+Capture original input/context/build stamp before AI interpretation. Artifact presence follows purpose, not every artifact on every conversation. The common UUID, operation, timestamp and RLS conventions above apply. The typed mappings are the draft; there are no shadow draft copies of farm domain tables.
+
+**Review is the populated normal UI.** Feedback/Get Help uses its normal sheet; a farm write uses the matching sheet or wizard. A review card is stored evidence only: exact revision, which normal UI was populated and what was shown. Confirmation binds that card and revision to the authenticated actor and transcript evidence. A correction updates those same UI fields, creates a new immutable proposal revision, supersedes the old revision, invalidates its confirmation for execution, and requires a new confirmation. Intent switches and cancellation never authorize an abandoned proposal.
+
+##### `assistant_conversations`
+
+**Purpose:** Original capture and conversation identity.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| original_input | text | NULL | Original text when available, not AI rewrite; original offline audio remains referenced by offline_voice_notes |
+| original_context | text | NULL | Original screen/context as captured |
+| build_stamp | text | NULL | First-capture app build |
+| captured_at | timestamptz | NOT NULL | First capture |
+| current_intent | text | NULL | Current interpreted intent |
+| feedback_module_pin | text | NOT NULL | Pinned release identity |
+| conversation_runtime_pin | text | NOT NULL | Pinned release identity |
+
+**Design decisions:** Keep module pins separate from app build and submission contract_version. Original capture is preserved when intent changes. Offline capture preserves the original audio through offline_voice_notes without fabricating a transcript before online processing; original_input may be NULL until original text is available.
+
+```sql
+CREATE TABLE assistant_conversations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  original_input text,
+  original_context text,
+  build_stamp text,
+  captured_at timestamptz NOT NULL,
+  current_intent text,
+  feedback_module_pin text NOT NULL,
+  conversation_runtime_pin text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id)
+);
+```
+
+##### `assistant_transcript_turns`
+
+**Purpose:** Ordered user/assistant text and corrections.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| conversation_id | uuid | NOT NULL | Conversation |
+| turn_index | integer | NOT NULL CHECK (turn_index >= 0) | Order within conversation |
+| speaker | text | NOT NULL | Who spoke |
+| text | text | NOT NULL | Transcript text |
+| input_mode | text | NOT NULL | Voice or text provenance |
+| corrects_turn_id | uuid | NULL | Prior turn corrected |
+
+**Design decisions:** Correction references must be within the same conversation. Retained transcripts do not cascade away with finished attempts.
+
+```sql
+CREATE TABLE assistant_transcript_turns (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_id uuid NOT NULL,
+  turn_index integer NOT NULL CHECK (turn_index >= 0),
+  speaker text NOT NULL,
+  text text NOT NULL,
+  input_mode text NOT NULL,
+  corrects_turn_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, conversation_id) REFERENCES assistant_conversations(operation_id, id),
+  FOREIGN KEY (operation_id, corrects_turn_id) REFERENCES assistant_transcript_turns(operation_id, id),
+  UNIQUE (operation_id, conversation_id, turn_index)
+);
+```
+
+##### `assistant_proposals`
+
+**Purpose:** Stable proposal identity; revisions hold changes.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| conversation_id | uuid | NOT NULL | Origin conversation |
+| attempt_id | uuid | NULL | Origin voice-entry attempt; detachable at expiry |
+| destination_entity | text | NOT NULL | Existing entity kind |
+| destination_ui | text | NOT NULL | Matching sheet/wizard kind |
+| existing_record_id | uuid | NULL | Optional existing record, including submission |
+
+**Design decisions:** Existing-record references are resolved by destination_entity and checked against current authorized operation data; never an arbitrary SQL target. New proposals need no existing record.
+
+```sql
+CREATE TABLE assistant_proposals (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_id uuid NOT NULL,
+  attempt_id uuid,
+  destination_entity text NOT NULL,
+  destination_ui text NOT NULL,
+  existing_record_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, conversation_id) REFERENCES assistant_conversations(operation_id, id),
+  FOREIGN KEY (operation_id, attempt_id) REFERENCES voice_entry_attempts(operation_id, id)
+);
+```
+
+##### `assistant_proposal_revisions`
+
+**Purpose:** Immutable content identity for each proposal version.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| proposal_id | uuid | NOT NULL | Stable proposal |
+| revision_number | integer | NOT NULL CHECK (revision_number > 0) | Monotonic proposal revision |
+| destination_field_names | text[] | NOT NULL | Exact destination field identities |
+| superseded_by_id | uuid | NULL | Newer revision of this same proposal |
+
+**Design decisions:** Field values are typed mappings below. Revision content is immutable; only supersession linkage is updated. Corrections cannot reuse an earlier confirmation.
+
+```sql
+CREATE TABLE assistant_proposal_revisions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  proposal_id uuid NOT NULL,
+  revision_number integer NOT NULL CHECK (revision_number > 0),
+  destination_field_names text[] NOT NULL,
+  superseded_by_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, proposal_id) REFERENCES assistant_proposals(operation_id, id),
+  FOREIGN KEY (operation_id, superseded_by_id) REFERENCES assistant_proposal_revisions(operation_id, id),
+  UNIQUE (operation_id, proposal_id, revision_number)
+);
+```
+
+##### `assistant_field_mappings`
+
+**Purpose:** Typed draft values and correction lineage, not a JSONB bag.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| attempt_id | uuid | NOT NULL | Retention owner |
+| revision_id | uuid | NOT NULL | Exact immutable revision |
+| source_turn_id | uuid | NULL | Source transcript turn |
+| destination_field_name | text | NOT NULL | Existing UI/entity field identity |
+| value_type | text | NOT NULL CHECK (value_type IN ('text','number','boolean','date','timestamp','uuid','null')) | Typed scalar discriminator |
+| value_text | text | NULL | Text scalar |
+| value_number | numeric | NULL | Numeric scalar |
+| value_boolean | boolean | NULL | Boolean scalar |
+| value_date | date | NULL | Calendar date scalar |
+| value_timestamp | timestamptz | NULL | Timestamp scalar |
+| value_uuid | uuid | NULL | Reference scalar, authorized by target field |
+| uncertainty | text | NULL | Unresolved interpretation, not a safety gate |
+| correction_predecessor_id | uuid | NULL | Prior mapping corrected |
+
+**Design decisions:** Exactly the typed value slot selected by value_type is populated (none for null); adapter validation must reject mismatches and unknown destination fields. Multi-row/indexed UI fields keep their field identity rather than an opaque envelope. Same-conversation source/revision, same-proposal correction lineage and target-field reference scope are checked. Mappings/corrections expire with their finished attempt, not the retained review evidence.
+
+```sql
+CREATE TABLE assistant_field_mappings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  attempt_id uuid NOT NULL,
+  revision_id uuid NOT NULL,
+  source_turn_id uuid,
+  destination_field_name text NOT NULL,
+  value_type text NOT NULL CHECK (value_type IN ('text','number','boolean','date','timestamp','uuid','null')),
+  value_text text,
+  value_number numeric,
+  value_boolean boolean,
+  value_date date,
+  value_timestamp timestamptz,
+  value_uuid uuid,
+  uncertainty text,
+  correction_predecessor_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, attempt_id) REFERENCES voice_entry_attempts(operation_id, id),
+  FOREIGN KEY (operation_id, revision_id) REFERENCES assistant_proposal_revisions(operation_id, id),
+  FOREIGN KEY (operation_id, source_turn_id) REFERENCES assistant_transcript_turns(operation_id, id),
+  FOREIGN KEY (operation_id, correction_predecessor_id) REFERENCES assistant_field_mappings(operation_id, id),
+  UNIQUE (operation_id, revision_id, destination_field_name),
+  CHECK (num_nonnulls(value_text, value_number, value_boolean, value_date, value_timestamp, value_uuid) = CASE WHEN value_type = 'null' THEN 0 ELSE 1 END),
+  CHECK (value_type = 'null' OR CASE value_type WHEN 'text' THEN value_text IS NOT NULL WHEN 'number' THEN value_number IS NOT NULL WHEN 'boolean' THEN value_boolean IS NOT NULL WHEN 'date' THEN value_date IS NOT NULL WHEN 'timestamp' THEN value_timestamp IS NOT NULL WHEN 'uuid' THEN value_uuid IS NOT NULL ELSE false END)
+);
+```
+
+##### `assistant_review_cards`
+
+**Purpose:** Retained evidence of the normal UI shown, not a separate voice form.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| revision_id | uuid | NOT NULL | Exact revision shown |
+| presented_at | timestamptz | NOT NULL | Presentation time |
+| populated_ui | text | NOT NULL | Normal UI identity |
+| presented_evidence | text | NOT NULL | Faithful record of shown field identities and values |
+
+**Design decisions:** Evidence must preserve what the user actually saw independently of expiring draft mappings. It is presentation evidence, not executable draft storage or a JSONB artifact envelope.
+
+```sql
+CREATE TABLE assistant_review_cards (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  revision_id uuid NOT NULL,
+  presented_at timestamptz NOT NULL,
+  populated_ui text NOT NULL,
+  presented_evidence text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, revision_id) REFERENCES assistant_proposal_revisions(operation_id, id),
+  UNIQUE (operation_id, id, revision_id)
+);
+```
+
+##### `assistant_review_confirmations`
+
+**Purpose:** Authenticated confirmation of the exact presented revision.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| card_id | uuid | NOT NULL | Exact card |
+| revision_id | uuid | NOT NULL | Exact revision |
+| actor_id | uuid | NOT NULL REFERENCES auth.users(id) | Authenticated actor; operation membership still required |
+| confirmed_at | timestamptz | NOT NULL | Confirmation time |
+| channel | text | NOT NULL | Voice/text confirmation channel |
+| evidence_turn_id | uuid | NULL | Relevant transcript evidence |
+
+**Design decisions:** Card/revision must match, evidence must belong to the proposal conversation, and executor must reject superseded revision confirmations. An immutable historical confirmation is not current authorization.
+
+```sql
+CREATE TABLE assistant_review_confirmations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  card_id uuid NOT NULL,
+  revision_id uuid NOT NULL,
+  actor_id uuid NOT NULL REFERENCES auth.users(id),
+  confirmed_at timestamptz NOT NULL,
+  channel text NOT NULL,
+  evidence_turn_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, revision_id) REFERENCES assistant_proposal_revisions(operation_id, id),
+  FOREIGN KEY (operation_id, evidence_turn_id) REFERENCES assistant_transcript_turns(operation_id, id),
+  FOREIGN KEY (operation_id, card_id, revision_id) REFERENCES assistant_review_cards(operation_id, id, revision_id)
+);
+```
+
+##### `assistant_session_checkpoints`
+
+**Purpose:** Durable recoverable progress, not a parallel farm-record store.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| conversation_id | uuid | NOT NULL | Conversation |
+| transcript_position | integer | NOT NULL CHECK (transcript_position >= 0) | Resume position |
+| pending_revision_id | uuid | NULL | Pending review revision |
+| lifecycle_phase | text | NOT NULL | Current durable phase |
+
+**Design decisions:** Resume from transcript and typed proposal; recheck current authorized data and windows before commit. Checkpoint cadence is not specified.
+
+```sql
+CREATE TABLE assistant_session_checkpoints (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_id uuid NOT NULL,
+  transcript_position integer NOT NULL CHECK (transcript_position >= 0),
+  pending_revision_id uuid,
+  lifecycle_phase text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, conversation_id) REFERENCES assistant_conversations(operation_id, id),
+  FOREIGN KEY (operation_id, pending_revision_id) REFERENCES assistant_proposal_revisions(operation_id, id)
+);
+```
+
+##### `voice_entry_attempts`
+
+**Purpose:** Running voice-to-entry log and retention owner.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| conversation_id | uuid | NOT NULL | Conversation |
+| previous_attempt_id | uuid | NULL | Related prior attempt, if applicable |
+| captured_at | timestamptz | NOT NULL | Today filter uses this |
+| status | text | NOT NULL CHECK (status IN ('unfinished','finished','discarded')) | Lifecycle |
+| finished_at | timestamptz | NULL | Required only when finished |
+| purpose | text | NOT NULL CHECK (purpose IN ('write','question','feedback','how-to')) | Separate how-to filter |
+
+**Design decisions:** Unfinished items remain until finished or discarded; discarded attempts remain until user deletion, not a 90-day countdown. Finished attempts and their mappings/corrections expire 90 days from finished_at.
+
+```sql
+CREATE TABLE voice_entry_attempts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_id uuid NOT NULL,
+  previous_attempt_id uuid,
+  captured_at timestamptz NOT NULL,
+  status text NOT NULL CHECK (status IN ('unfinished','finished','discarded')),
+  finished_at timestamptz,
+  purpose text NOT NULL CHECK (purpose IN ('write','question','feedback','how-to')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, conversation_id) REFERENCES assistant_conversations(operation_id, id),
+  FOREIGN KEY (operation_id, previous_attempt_id) REFERENCES voice_entry_attempts(operation_id, id),
+  CHECK ((status = 'finished' AND finished_at IS NOT NULL) OR (status <> 'finished' AND finished_at IS NULL))
+);
+```
+
+##### `assistant_execution_results`
+
+**Purpose:** Separate durable local, sync, server and feedback-handoff outcomes.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| conversation_id | uuid | NOT NULL | Origin conversation |
+| attempt_id | uuid | NULL | Attempt; detachable at expiry |
+| revision_id | uuid | NOT NULL | Executed revision |
+| confirmation_id | uuid | NOT NULL | Exact authorization |
+| destination_entity | text | NOT NULL | Existing target entity |
+| saved_record_id | uuid | NULL | Actual existing-domain record or submission |
+| local_saved_at | timestamptz | NULL | Actual durable local save only |
+| sync_queued_at | timestamptz | NULL | Actual queued sync only |
+| server_acknowledged_at | timestamptz | NULL | Actual server acknowledgement only |
+| feedback_handoff_acknowledged_at | timestamptz | NULL | Separate feedback handoff acknowledgement |
+| failure_stage | text | NULL | Stage that failed |
+| failure_detail | text | NULL | Failure evidence |
+
+**Design decisions:** These are independent outcomes, not one success boolean. Confirmation and revision must match. Retry/recovery must not assert a local save from a queued or server state. Saved references are checked against destination entity and operation.
+
+```sql
+CREATE TABLE assistant_execution_results (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_id uuid NOT NULL,
+  attempt_id uuid,
+  revision_id uuid NOT NULL,
+  confirmation_id uuid NOT NULL,
+  destination_entity text NOT NULL,
+  saved_record_id uuid,
+  local_saved_at timestamptz,
+  sync_queued_at timestamptz,
+  server_acknowledged_at timestamptz,
+  feedback_handoff_acknowledged_at timestamptz,
+  failure_stage text,
+  failure_detail text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, conversation_id) REFERENCES assistant_conversations(operation_id, id),
+  FOREIGN KEY (operation_id, attempt_id) REFERENCES voice_entry_attempts(operation_id, id),
+  FOREIGN KEY (operation_id, revision_id) REFERENCES assistant_proposal_revisions(operation_id, id),
+  FOREIGN KEY (operation_id, confirmation_id) REFERENCES assistant_review_confirmations(operation_id, id)
+);
+```
+
+##### `assistant_testing_consents`
+
+**Purpose:** Actual one-time testing-audio popup decision.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| conversation_id | uuid | NOT NULL | Context in which popup was decided |
+| actor_id | uuid | NOT NULL REFERENCES auth.users(id) | Authenticated deciding user |
+| decision | text | NOT NULL CHECK (decision IN ('accepted','declined')) | Actual decision, never inferred |
+| decided_at | timestamptz | NOT NULL | Popup decision time |
+
+**Design decisions:** Testing-audio consent is separate from offline local recording and from confirmation of a farm write. No later-rollout consent is invented.
+
+```sql
+CREATE TABLE assistant_testing_consents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_id uuid NOT NULL,
+  actor_id uuid NOT NULL REFERENCES auth.users(id),
+  decision text NOT NULL CHECK (decision IN ('accepted','declined')),
+  decided_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, conversation_id) REFERENCES assistant_conversations(operation_id, id)
+);
+```
+
+##### `assistant_testing_audio`
+
+**Purpose:** Consented early-testing audio metadata only.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| conversation_id | uuid | NOT NULL | Conversation |
+| attempt_id | uuid | NULL | Attempt; detachable at expiry |
+| consent_id | uuid | NOT NULL | Actual accepted testing decision |
+| audio_reference | text | NOT NULL | Opaque audio reference |
+| captured_at | timestamptz | NOT NULL | Capture metadata |
+| duration_ms | numeric | CHECK (duration_ms >= 0) | Capture duration if known |
+
+**Design decisions:** Verify accepted consent for the actor/operation before retention. Backend, bucket, codec and storage mechanism remain unspecified. Stop keeping new testing audio at testing end; disposal of already-collected audio is deferred.
+
+```sql
+CREATE TABLE assistant_testing_audio (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_id uuid NOT NULL,
+  attempt_id uuid,
+  consent_id uuid NOT NULL,
+  audio_reference text NOT NULL,
+  captured_at timestamptz NOT NULL,
+  duration_ms numeric CHECK (duration_ms >= 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, conversation_id) REFERENCES assistant_conversations(operation_id, id),
+  FOREIGN KEY (operation_id, attempt_id) REFERENCES voice_entry_attempts(operation_id, id),
+  FOREIGN KEY (operation_id, consent_id) REFERENCES assistant_testing_consents(operation_id, id)
+);
+```
+
+##### `offline_voice_notes`
+
+**Purpose:** Device-local opaque recording reference and processing/deletion evidence.
+
+Common columns above also apply.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| conversation_id | uuid | NOT NULL | Original conversation |
+| attempt_id | uuid | NULL | Attempt; detachable without deleting recording |
+| device_local_reference | text | NOT NULL | Opaque on-device reference, not cloud audio |
+| original_context | text | NULL | Capture context |
+| captured_at | timestamptz | NOT NULL | Capture time |
+| confirmed_execution_result_id | uuid | NULL | Confirmed write/filing and actual local save evidence |
+| deleted_at | timestamptz | NULL | Actual deletion time only |
+
+**Design decisions:** Playback and user deletion remain available before processing; no extra on-device storage permission prompt. Processing/deletion eligibility requires confirmation AND successful durable local save from this note. Confirmation alone, discard, queued sync or server/handoff acknowledgement alone do not authorize processing deletion. Discard without filing keeps audio unless the user deletes it. The physical local audio mechanism is unspecified; this table is scoped metadata, not an audio upload promise.
+
+```sql
+CREATE TABLE offline_voice_notes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_id uuid NOT NULL,
+  attempt_id uuid,
+  device_local_reference text NOT NULL,
+  original_context text,
+  captured_at timestamptz NOT NULL,
+  confirmed_execution_result_id uuid,
+  deleted_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id),
+  FOREIGN KEY (operation_id, conversation_id) REFERENCES assistant_conversations(operation_id, id),
+  FOREIGN KEY (operation_id, attempt_id) REFERENCES voice_entry_attempts(operation_id, id),
+  FOREIGN KEY (operation_id, confirmed_execution_result_id) REFERENCES assistant_execution_results(operation_id, id)
+);
+```
+
+**Relationships, validation and retention.** A conversation has ordered turns and may have multiple proposals and attempts. A proposal has immutable ordered revisions, each with typed mappings and zero or more presentations; a presentation can have confirmation evidence. The executor checks same-conversation/same-proposal relationships beyond operation FKs and executes only the currently confirmed revision through existing entity `validate()` and write paths. New-filing completeness is contract validation, not fabricated historical NOT NULL values.
+
+No deletion cascade is specified from attempts or mappings to ordinary farm records, retained revisions/review-card evidence/confirmations or transcripts, testing consent/audio, execution evidence, checkpoints, or offline recordings. At 90 days from finished_at, explicitly delete the finished attempt and its mapping/correction rows; detach nullable attempt links on retained artifacts (including related-attempt links) and remove mapping predecessor dependencies within the cleanup set. Do not let an FK block cleanup indefinitely or cascade away retained evidence. Discarded attempts/recordings are not in that cleanup set. Transcripts and review evidence remain after testing; no extra retention duration is invented for them here. Today filtering uses capture time, not finish time.
+
+The host 90-day finished mapping-record lock **differs from the shared conversation-runtime CONTRACT’s permanent mapping-record language**. Neither shared CONTRACT is changed; no reconciliation is claimed. How-to-only Get help stays in the same assistant with a matching doc link and no product filing. All new tables and additive submissions columns join the existing CP-55/CP-56 serialization/backup set in the same operation-scoped way as submissions; opaque metadata is not proof that audio bytes are backed up. See `V2_MIGRATION_PLAN.md` §5.3. No schema_version bump, migrations or SQL are applied by this docs pass.
 
 ### 11.3 todos
 
@@ -2532,6 +3176,8 @@ CREATE TABLE release_notes (
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 host physical design specified | Additive submissions columns/fact states/repro steps and operation-scoped artifact table sketches; populated-UI review; typed drafts and safe 90-day cleanup. Open set excludes calves; every recorded birth clears dam confirmed_bred. Design only, adapter unimplemented, not handed to Build; shared CONTRACTs unchanged. |
+| 2026-11-08 | OI-0195 — host adoption design | Added release pins, additive submissions mapping and explicit historical unknowns; logical host artifact inventory, review/capture obligations, how-to routing, offline deletion and consent, 90-day log/mapping retention. Physical layout and tool contracts remain open; not ready for Build. No SQL/schema applied. |
 | 2026-11-08 | OI-0195 — voice/AI schema note | Updated the Domain 11 future-schema note: April transcript/training/script/confidence list is no longer treated as the planned table set. Tables remain undesigned. Pointer to rewritten `V2_INFRASTRUCTURE.md` §8. No schema change. |
 | 2026-04-12 | Session 6 — Infrastructure review | D11.1 app_logs: Added operation_id (nullable, no FK, best-effort) and context (jsonb, dead letter + error metadata). D11 header: Added future schema note for AI/voice tables. Appendix B: Added 2026-04-12 session log entry. |
 | 2026-04-12 | Session 7 — Calculation spec review | D3 animal_classes: excretion_n/p/k_pct → excretion_n/p/k_rate (NRCS unit alignment). Species CHECK updated: 'cattle' → 'beef_cattle' + 'dairy_cattle'. Added dmi_pct_lactating. D9 animal_calving_records: Added dried_off_date for dairy dry-off tracking. |

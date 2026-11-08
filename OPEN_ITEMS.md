@@ -71,9 +71,9 @@ Live repro (Tim's G-5 → K-5): wizard accepted tomorrow's date as `dateOut`. Ti
 
 ### OI-0189 — `new Date().toISOString().slice(0, 10)` is UTC, not local; "Day N" labels and dashboard pasture-% silently skew by one day every evening for non-UTC users
 
-**Added:** 2026-06-24 | **Area:** v2-build / date-utils / dashboard / detail / reports | **Priority:** P2 (silent skew that fires nightly for every user east of UTC; not catastrophic but erodes trust in the numbers, and the fix is mechanical)
+**Added:** 2026-06-24 | **Closed:** 2026-11-08 | **Area:** v2-build / date-utils / dashboard / detail / reports | **Priority:** P2 (silent skew that fires nightly for every user east of UTC; not catastrophic but erodes trust in the numbers, and the fix is mechanical)
 
-**Status:** open — DESIGN LOCKED 2026-11-08, ready for GTHO Build
+**Status:** closed 2026-11-08 — shipped on Forgejo main (PR #3, merge `9f84f3c4083b2c9c3da7196e3a5ed84d9d4651ed`, feature `33b8102ec55fd588ed1946e27ecc23c3404af72b`). `getLocalTodayStr()` is the locked June helper (device-local calendar date via `getFullYear`/`getMonth`/`getDate`). `today(timezone)` still defaults to UTC. Grep contract `new Date().toISOString().slice(0, 10)` under `src/features/` is 0; leftover `.toISOString().slice` sites are other dates (computed calving, audit cursor, chart day labels) and were out of scope. Entity defaults `movedAt` and `adjustmentDate`, and the no-timezone `today()` callers in cull-sheet, feed-entry-inline-form, and edit-feed-check, use `getLocalTodayStr()`. Tests in `tests/unit/date-utils.test.js` cover midnight, noon, and 11:59 PM local across five offsets (America/New_York, America/Los_Angeles, UTC, Asia/Tokyo, Pacific/Auckland), the K-5 Day 1 repro at 8:23 PM EDT on 2026-05-08, and pasture-% day count identical at noon vs late evening the same local day. No schema. GTHO Build's changelog row reports suite 1683 green and lint clean. GitHub publish was not retried; getthehayout.com will not show this until that publish path works. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0189-local-today.md`.
 
 **Bug.** `todayStr = new Date().toISOString().slice(0, 10)` is used as "today's date" in ~20 callsites. ISO strings are UTC. After 8 PM Eastern (or earlier for users further east of UTC), UTC has already rolled to tomorrow, so `todayStr` returns tomorrow's date in the user's local frame.
 
@@ -105,11 +105,11 @@ Sweep every `new Date().toISOString().slice(0, 10)` in `src/features/` and repla
 
 **Acceptance criteria:**
 
-- [ ] `getLocalTodayStr()` exists in `src/utils/date-utils.js` with unit tests covering midnight, noon, and 11:59 PM local across multiple timezone offsets (mock `Date`).
-- [ ] **Grep contract:** `grep -rn "new Date().toISOString().slice(0, 10)" src/features/` returns 0 matches. `src/utils/` and test files are exempt.
-- [ ] Live repro fixed: simulated 8:23 PM EDT on 2026-05-08 with `dateOpened = '2026-05-08'` — card reads "Day 1".
-- [ ] Dashboard pasture-% regression test re-baselined: simulated late-evening local time produces the same value as simulated noon local time on the same day.
-- [ ] Sweep covers `daysSince`-style usage for recovery / rest-period tracking — any surface that computes days since last close consumes `getLocalTodayStr()` too.
+- [x] `getLocalTodayStr()` exists in `src/utils/date-utils.js` with unit tests covering midnight, noon, and 11:59 PM local across multiple timezone offsets (mock `Date`).
+- [x] **Grep contract:** `grep -rn "new Date().toISOString().slice(0, 10)" src/features/` returns 0 matches. `src/utils/` and test files are exempt.
+- [x] Live repro fixed: simulated 8:23 PM EDT on 2026-05-08 with `dateOpened = '2026-05-08'` — card reads "Day 1".
+- [x] Dashboard pasture-% regression test re-baselined: simulated late-evening local time produces the same value as simulated noon local time on the same day.
+- [x] Sweep covers `daysSince`-style usage for recovery / rest-period tracking — any surface that computes days since last close consumes `getLocalTodayStr()` too.
 
 **CP-55/CP-56 spec impact:** None — no schema change. Dates are already stored as date-only strings in local-day semantics; this aligns the runtime "today" with that storage convention.
 
@@ -6135,6 +6135,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0189 closed — shipped on Forgejo main, PR #3 merge `9f84f3c4083b2c9c3da7196e3a5ed84d9d4651ed`, feature `33b8102ec55fd588ed1946e27ecc23c3404af72b`. Device-local `getLocalTodayStr()` as locked 2026-11-08. Grep contract 0 in `src/features/`. GitHub publish not retried. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0189-local-today.md`. | GTHO Design — docs close-out, no code this session |
 | 2026-11-08 | OI-0189 design locked — Tim chose device-local calendar date via `getLocalTodayStr()` as the June note drafted, not the operation timezone. Sweep expanded from the original ~20-callsite file list to every matching UTC-today slice in `src/features/` (80 matches / 42 files as of 2026-11-08) plus entity defaults for `movedAt` and `adjustmentDate` and the three `today()` callers that omit a timezone. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0189-local-today.md`. | GTHO Design — no code this session |
 | 2026-06-24 | OI-0188 filed (P1) — closed events have no in-UI entry point; the events-log item onClick is a no-op (`navigate('#/events')` on the same screen) and there is no `#/event/:id` route, so post-close correction is impossible without dev tools. Surfaced during Tim's K-5 / G-5 reconciliation. Min-viable fix: wire events-log onClick to `openEventDetailSheet`. | Cowork — body in OPEN_ITEMS.md (no spec file yet) |
 | 2026-06-24 | OI-0189 filed (P2) — `new Date().toISOString().slice(0, 10)` is UTC; after 8 PM Eastern, `todayStr` returns tomorrow's date, inflating dashboard pasture-% (`days × dmiKgPerDay` overcounts) and all "Day N" labels by one. Live repro: K-5 card reads "Day 2" at 8:23 PM Eastern when animals went in same day. Fix: `getLocalTodayStr()` helper + sweep ~20 callsites in `src/features/`. Location-card "days remaining" and DMI demand are insulated. | Cowork — body in OPEN_ITEMS.md (no spec file yet) |

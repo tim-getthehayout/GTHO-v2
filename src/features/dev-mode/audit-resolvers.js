@@ -24,7 +24,7 @@ import { getCalcByName } from '../../utils/calc-registry.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { buildDmi8ChartContext } from '../events/dmi-chart-context.js';
 import { getEventStartDate } from '../events/event-start.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 
 // OI-0157-B2 helper: NRC beef-cattle excretion-rate defaults. Used by NPK-1
 // resolver when an animal class doesn't carry its own per-class rates.
@@ -64,7 +64,7 @@ function computeNpk1PerWindow(ctx) {
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalTodayStr();
   const eventStart = getEventStartDate(ctx.eventId) || today;
 
   const rows = [];
@@ -127,7 +127,7 @@ function resolveDMI2(ctx) {
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalTodayStr();
 
   const instances = [];
   for (const gw of groupWindows) {
@@ -315,7 +315,7 @@ function resolveDMI8(ctx) {
   if (!eventStart) {
     return { name: 'DMI-8', applicable: false, reason: 'Event start date is not derivable.' };
   }
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const lastDate = event.dateOut || todayStr;
   if (lastDate < eventStart) {
     return { name: 'DMI-8', applicable: false, reason: 'Event window is empty.' };
@@ -482,7 +482,7 @@ function resolveNPK2(ctx) {
   if (!data || data.groupWindows.length === 0) {
     return { name: 'NPK-2', applicable: false, reason: 'No open group windows on this event.' };
   }
-  const eventStart = getEventStartDate(ctx.eventId) || new Date().toISOString().slice(0, 10);
+  const eventStart = getEventStartDate(ctx.eventId) || getLocalTodayStr();
   const prices = pickNpkPrices(event.farmId, eventStart);
   if (!prices) {
     return {
@@ -546,7 +546,7 @@ function resolveNPK3(ctx) {
   // Build the windows-shape NPK-3.fn expects. `durationHours` uses days
   // since pw open as a coarse proxy (the registered formula is symmetric
   // in any consistent duration unit).
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalTodayStr();
   const windowsPayload = paddockWindows.map(pw => {
     const loc = getById('locations', pw.locationId);
     const days = Math.max(daysBetweenInclusive(pw.dateOpened || today, today), 0);
@@ -604,7 +604,7 @@ function resolveNPK4(ctx) {
   if (!eventStart) {
     return { name: 'NPK-4', applicable: false, reason: 'Event start not derivable.' };
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalTodayStr();
   const lastDate = event.dateOut || today;
   // appliedAt is timestamptz — bound the window inclusive on both ends.
   const startTs = `${eventStart}T00:00:00Z`;
@@ -671,7 +671,7 @@ function resolveCST3(ctx) {
   if (!data || data.groupWindows.length === 0) {
     return { name: 'CST-3', applicable: false, reason: 'No open group windows on this event.' };
   }
-  const eventStart = getEventStartDate(ctx.eventId) || new Date().toISOString().slice(0, 10);
+  const eventStart = getEventStartDate(ctx.eventId) || getLocalTodayStr();
   const prices = pickNpkPrices(event.farmId, eventStart);
   if (!prices) {
     return {
@@ -794,7 +794,7 @@ function resolveANIAU(ctx) {
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalTodayStr();
 
   const instances = [];
   for (const gw of groupWindows) {
@@ -831,7 +831,7 @@ function resolveANIAUD(ctx) {
   if (!auResult || !auResult.applicable) {
     return { name: 'ANI-AUD', applicable: false, reason: 'No ANI-AU instances available.' };
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalTodayStr();
   const eventStart = getEventStartDate(ctx.eventId) || today;
 
   const instances = [];

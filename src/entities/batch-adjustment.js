@@ -1,4 +1,5 @@
 /** @file Entity: batch_adjustments — V2_SCHEMA_DESIGN.md §4.3 */
+import { getLocalTodayStr } from '../utils/date-utils.js';
 
 export const FIELDS = {
   id:             { type: 'uuid',        required: false, sbColumn: 'id' },
@@ -23,7 +24,7 @@ export function create(data = {}) {
     newQty: data.newQty ?? 0,
     delta: data.delta ?? 0,
     reason: data.reason ?? null,
-    adjustmentDate: data.adjustmentDate ?? new Date().toISOString().slice(0, 10),
+    adjustmentDate: data.adjustmentDate ?? getLocalTodayStr(),
     createdAt: data.createdAt ?? new Date().toISOString(),
   };
 }

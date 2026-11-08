@@ -8,6 +8,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { display } from '../../utils/units.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 // ---------------------------------------------------------------------------
 // Group add sheet (CP-18)
@@ -35,7 +36,7 @@ export function openGroupAddSheet(evt, operationId) {
 
   const groups = getAll('groups').filter(g => !g.archivedAt);
   const unitSys = getUnitSystem();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const selection = { groupId: null };
   const inputs = {};
 
@@ -184,7 +185,7 @@ export function openGroupRemoveSheet(groupWindow) {
 
   const group = getById('groups', groupWindow.groupId);
   const groupName = group ? group.name : '';
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const inputs = {};
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.removeGroupTitle')]));

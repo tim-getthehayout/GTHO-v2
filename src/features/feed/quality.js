@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
 import * as BatchNutritionalProfileEntity from '../../entities/batch-nutritional-profile.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let unsubs = [];
 
@@ -111,7 +112,7 @@ function openQualitySheet(existing, operationId) {
   clear(panel);
 
   const isEdit = !!existing;
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const batches = getAll('batches').filter(b => !b.archived && b.operationId === operationId);
   const inputs = {};
 

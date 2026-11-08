@@ -8,6 +8,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel, display } from '../../utils/units.js';
 import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpers.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let weightSheet = null;
 
@@ -29,7 +30,7 @@ export function openWeightSheet(animal, operationId) {
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
   const unitSys = getUnitSystem();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const displayName = animal.tagNum || animal.name || animal.eid || `A-${animal.id.slice(0, 5)}`;
   const wUnit = unitLabel('weight', unitSys);
   const isBulk = animal?.isBulk === true;
@@ -113,7 +114,7 @@ export function openWeightSheet(animal, operationId) {
         // multiple active groups in edge cases — loop to cover them all.
         // OI-0137: pass today's date, never the (possibly backdated) weigh date — a backdated
         // changeDate would close the still-open window with date_left < date_joined.
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = getLocalTodayStr();
         const memberships = getAll('animalGroupMemberships').filter(m =>
           m.animalId === animal.id && !m.dateLeft,
         );

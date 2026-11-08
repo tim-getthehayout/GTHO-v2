@@ -5,7 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActiveFarmId, isCurrentUserDev } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display } from '../../utils/units.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { navigate } from '../../ui/router.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { renderTodoCard } from '../todos/todo-card.js';
@@ -340,7 +340,7 @@ export function computePasturePercent(events) {
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   let totalDmiKg = 0;
   let totalStoredDmKg = 0;
@@ -394,7 +394,7 @@ function computeDesktopMetrics(events, _unitSys) {
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   // Pasture DMI
   let totalDmiKg = 0;
@@ -537,7 +537,7 @@ function computeMobileMetrics(events, _unitSys) {
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   // Pasture % — OI-0075 Bug 7: live compute via the shared helper. Was hard-coded em-dash.
   const pastureMetric = computePasturePercent(events);
@@ -592,7 +592,7 @@ function computeMobileMetrics(events, _unitSys) {
         costPerUnit: batchMap.get(fe.batchId)?.costPerUnit ?? 0,
       }));
       feedCostTotal += cst1.fn({ entries: costEntries });
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = getLocalTodayStr();
       const startDate = getEventStartDate(event.id);
       if (startDate) totalDays += daysBetweenInclusive(startDate, event.dateOut || todayStr);
     }
@@ -728,7 +728,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   const animals = getAll('animals');
   const animalClasses = getAll('animalClasses');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   // Live values for the active open window (OI-0091).
   const activeLiveHead = activeGW
@@ -934,7 +934,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
 
   // Location bar
   if (isOnPasture) {
-    const todayStr3 = new Date().toISOString().slice(0, 10);
+    const todayStr3 = getLocalTodayStr();
     const locBarParts = [`Day ${dayCount}`];
     if (feedCount > 0) locBarParts.push(`${feedCount} feedings`);
     if (feedCost > 0) locBarParts.push(`$${feedCost.toFixed(2)}`);
@@ -1067,7 +1067,7 @@ function renderLocationsView(gridEl) {
 // ---------------------------------------------------------------------------
 
 export function buildLocationCard(event, operationId, farmId, unitSys) {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const allPws = getAll('eventPaddockWindows').filter(w => w.eventId === event.id);
   const openPws = allPws.filter(w => !w.dateClosed);
   const primaryPw = openPws[0];

@@ -10,7 +10,7 @@ import { getAll, getByField } from '../../../data/store.js';
 import { getCalendarState, getViewMode, setJump } from '../calendar-state.js';
 import { getCalcByName } from '../../../utils/calc-registry.js';
 import { getUnitSystem } from '../../../utils/preferences.js';
-import { daysBetweenInclusive } from '../../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
 import { renderPaddockColumn } from './paddock-column.js';
 import { renderTimeline, dateToPx } from './timeline.js';
 import { renderSidebar } from './sidebar.js';
@@ -165,7 +165,7 @@ export function renderCalendarGrid(container) {
         .filter(Boolean)
         .map(g => ({ id: g.id, name: g.name }));
 
-      const days = daysBetweenInclusive(eventStartDate, event.dateOut || new Date().toISOString().slice(0, 10));
+      const days = daysBetweenInclusive(eventStartDate, event.dateOut || getLocalTodayStr());
       const isActive = !event.dateOut;
 
       // Strips for active strip-grazed events
@@ -200,7 +200,7 @@ export function renderCalendarGrid(container) {
           feedPct: 0,
           dmi: 0,
           headCount: eventGroups.length > 0 ? eventGroupWindows.reduce((s, gw) => {
-            const nowStr = gw.dateLeft || event.dateOut || new Date().toISOString().slice(0, 10);
+            const nowStr = gw.dateLeft || event.dateOut || getLocalTodayStr();
             return s + getLiveWindowHeadCount(gw, { memberships: allMemberships, animals: allAnimals, now: nowStr });
           }, 0) : 0,
           isActive,

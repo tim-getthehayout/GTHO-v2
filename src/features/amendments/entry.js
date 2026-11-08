@@ -7,6 +7,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, remove, subscribe } from '../../data/store.js';
 import * as AmendmentEntity from '../../entities/amendment.js';
 import * as AmendmentLocationEntity from '../../entities/amendment-location.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let unsubs = [];
 
@@ -126,7 +127,7 @@ function openAmendmentSheet(existing, operationId) {
   if (!panel) return;
   clear(panel);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const inputProducts = getAll('inputProducts').filter(p => !p.archived);
   const manureBatches = getAll('manureBatches').filter(b => b.operationId === operationId);
   const inputProductUnits = getAll('inputProductUnits').filter(u => !u.archived);

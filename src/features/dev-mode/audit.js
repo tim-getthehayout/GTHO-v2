@@ -28,6 +28,7 @@ import {
   formatAuditDmPerDay, formatAuditDmTotal, VALID_MODES,
 } from './audit-units.js';
 import { navigate } from '../../ui/router.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 function parseEventId() {
   const raw = window.location.hash || '';
@@ -565,7 +566,7 @@ async function renderPaddockWindowBlocks(container, event, groupWindowResultsByG
   const checkIds = new Set(allChecks.map(c => c.id));
   const allCheckItems = getAll('eventFeedCheckItems').filter(ci => checkIds.has(ci.feedCheckId));
   const allBatches = getAll('batches');
-  const isoToday = new Date().toISOString().slice(0, 10);
+  const isoToday = getLocalTodayStr();
 
   // OI-0158: scope-keyed result Maps come from the dispatcher; no local
   // construction or per-calc-name lookup needed.

@@ -6,7 +6,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, update, add, subscribe } from '../../data/store.js';
 import { getFieldMode } from '../../utils/preferences.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { convert } from '../../utils/units.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { navigate } from '../../ui/router.js';
@@ -362,7 +362,7 @@ function renderHeatStep2(opId, animal, eventFilter, groupFilter, query) {
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
   const tag = animal.tagNum || `A-${animal.id.slice(0, 5)}`;
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const nowTime = new Date().toTimeString().slice(0, 5);
 
   // Header with back button
@@ -469,7 +469,7 @@ function openFieldModePickerSheet(_type, events, onSelect) {
 function renderActiveEvents(container) {
   clear(container);
   const events = getAll('events').filter(e => !e.dateOut);
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const unitSys = getUnitSystem();
   const opId = getOperationId();
   const farmId = getFarmId();
@@ -541,7 +541,7 @@ function renderActiveEvents(container) {
 function renderTasks(container) {
   clear(container);
   const todos = getAll('todos').filter(td => td.status !== 'closed');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   container.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: 'var(--space-4) 0 var(--space-2)' } }, [
     el('h3', { className: 'sec', style: { margin: '0' } }, [t('fieldMode.tasks')]),

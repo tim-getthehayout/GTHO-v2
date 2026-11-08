@@ -13,7 +13,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, update, remove } from '../../data/store.js';
-import { today, formatDate } from '../../utils/date-utils.js';
+import { formatDate, getLocalTodayStr } from '../../utils/date-utils.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { openFeedCheckSheet } from '../feed/check.js';
@@ -352,7 +352,7 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
     el('span', { style: { fontSize: '11px', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: '12px', padding: '3px 8px', color: 'var(--text2)' } }, [loc?.name || '?']),
   ]));
 
-  const initialDate = checkDateOf(check) || today();
+  const initialDate = checkDateOf(check) || getLocalTodayStr();
   const dateInput = el('input', { type: 'date', value: initialDate });
   const timeInput = el('input', { type: 'time', value: check.time || '' });
   panel.appendChild(el('div', { className: 'two' }, [
@@ -386,7 +386,7 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
     const evtStart = getEventStartDate(event.id);
     if (evtStart && newDate < evtStart) { statusEl.appendChild(el('span', {}, ['Feed check date must be on or after the event start date.'])); return; }
     if (event.dateOut && newDate > event.dateOut) { statusEl.appendChild(el('span', {}, ['Feed check date must be on or before the event end date.'])); return; }
-    if (newDate > today()) { statusEl.appendChild(el('span', {}, ["Feed check date can't be in the future."])); return; }
+    if (newDate > getLocalTodayStr()) { statusEl.appendChild(el('span', {}, ["Feed check date can't be in the future."])); return; }
     if (isNaN(newRemaining) || newRemaining < 0) { statusEl.appendChild(el('span', {}, ["Remaining amount can't be negative."])); return; }
 
     const allChecks = getAll('eventFeedChecks');

@@ -4,7 +4,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add } from '../../data/store.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { getEventStartDate } from '../events/event-start.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import { positiveBalances, deductDelivery, locationName } from './batch-balances.js';
@@ -39,7 +39,7 @@ export function openDeliverFeedSheet(evt, operationId) {
 
   const batches = getAll('batches').filter(b => !b.archived && b.remaining > 0);
   const activePWs = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const nowTime = new Date().toTimeString().slice(0, 5);
 
   // OI-0140: paddock disambiguation. localStorage insertion order isn't deterministic,

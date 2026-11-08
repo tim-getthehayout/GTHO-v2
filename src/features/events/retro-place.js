@@ -14,6 +14,7 @@ import { getAll, getById, add, update } from '../../data/store.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from './event-start.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let pickerSheet = null;
 
@@ -242,7 +243,7 @@ export function openRetroPlaceFlow(ctx) {
     const paddockNames = pws.map(pw => { const l = getById('locations', pw.locationId); return l?.name || '?'; }).join(', ');
     const memberships = getAll('animalGroupMemberships');
     const animals = getAll('animals');
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getLocalTodayStr();
     const groupChips = gws.map(gw => {
       const g = getById('groups', gw.groupId);
       const now = gw.dateLeft || evt.dateOut || todayStr;

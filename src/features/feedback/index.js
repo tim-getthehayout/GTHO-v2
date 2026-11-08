@@ -8,6 +8,7 @@ import { getAll, getById, add, update, remove, subscribe } from '../../data/stor
 import { getUser } from '../auth/session.js';
 import * as SubmissionEntity from '../../entities/submission.js';
 import { formatShortDate } from '../../utils/date-format.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 // ─── Config ─────────────────────────────────────────────────────────────
 
@@ -174,7 +175,7 @@ function generateBrief() {
   const closed = subs.filter(s => s.status === 'closed').slice(0, 10);
   const testers = [...new Set(subs.map(s => s.submitterName || s.submitterId || 'user').filter(Boolean))];
 
-  let out = `GET THE HAY OUT \u2014 DEV SESSION BRIEF\nGenerated: ${new Date().toISOString().slice(0, 10)}\nVersion: ${buildVer}\nTesters: ${testers.join(', ')}\nOpen: ${open.length} \u00B7 Awaiting: ${awaiting.length} \u00B7 Closed: ${closed.length}\n${'═'.repeat(40)}\n\nOPEN ITEMS (${open.length})\n${'─'.repeat(40)}\n`;
+  let out = `GET THE HAY OUT \u2014 DEV SESSION BRIEF\nGenerated: ${getLocalTodayStr()}\nVersion: ${buildVer}\nTesters: ${testers.join(', ')}\nOpen: ${open.length} \u00B7 Awaiting: ${awaiting.length} \u00B7 Closed: ${closed.length}\n${'═'.repeat(40)}\n\nOPEN ITEMS (${open.length})\n${'─'.repeat(40)}\n`;
 
   const catOrder = ['roadblock', 'bug', 'calc', 'ux', 'feature', 'idea', 'question'];
   for (const cat of catOrder) {

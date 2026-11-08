@@ -1,9 +1,9 @@
 /** @file Date utility tests — edge cases: midnight, DST, date math */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   today, formatDate, formatDateTime, addDays,
   daysBetweenInclusive, startOfDay,
-  isValidDateString, parseDate,
+  isValidDateString, parseDate, getLocalTodayStr,
 } from '../../src/utils/date-utils.js';
 
 describe('date-utils', () => {
@@ -107,5 +107,53 @@ describe('date-utils', () => {
     it('returns null for invalid', () => {
       expect(parseDate('nope')).toBeNull();
     });
+  });
+});
+
+describe('getLocalTodayStr (device-local today)', () => {
+  const origTZ = process.env.TZ;
+  afterEach(() => {
+    vi.useRealTimers();
+    if (origTZ === undefined) delete process.env.TZ; else process.env.TZ = origTZ;
+  });
+
+  function at(tz, isoInstant) {
+    process.env.TZ = tz;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(isoInstant));
+    return getLocalTodayStr();
+  }
+
+  // [timezone, offset label, local midnight, local noon, local 11:59 PM] as UTC instants for 2026-05-08 local
+  const cases = [
+    ['America/New_York', 'EDT -4', '2026-05-08T04:00:00Z', '2026-05-08T16:00:00Z', '2026-05-09T03:59:00Z'],
+    ['America/Los_Angeles', 'PDT -7', '2026-05-08T07:00:00Z', '2026-05-08T19:00:00Z', '2026-05-09T06:59:00Z'],
+    ['UTC', 'UTC 0', '2026-05-08T00:00:00Z', '2026-05-08T12:00:00Z', '2026-05-08T23:59:00Z'],
+    ['Asia/Tokyo', 'JST +9', '2026-05-07T15:00:00Z', '2026-05-08T03:00:00Z', '2026-05-08T14:59:00Z'],
+    ['Pacific/Auckland', 'NZST +12', '2026-05-07T12:00:00Z', '2026-05-08T00:00:00Z', '2026-05-08T11:59:00Z'],
+  ];
+
+  for (const [tz, label, midnight, noon, late] of cases) {
+    it(`returns the local date at midnight, noon, and 11:59 PM in ${tz} (${label})`, () => {
+      expect(at(tz, midnight)).toBe('2026-05-08');
+      expect(at(tz, noon)).toBe('2026-05-08');
+      expect(at(tz, late)).toBe('2026-05-08');
+    });
+  }
+
+  it('K-5 repro: 8:23 PM EDT on 2026-05-08 with dateOpened 2026-05-08 reads Day 1', () => {
+    const todayStr = at('America/New_York', '2026-05-09T00:23:00Z');
+    expect(todayStr).toBe('2026-05-08');
+    expect(daysBetweenInclusive('2026-05-08', todayStr)).toBe(1);
+    // the old UTC slice rolled over to tomorrow and read Day 2
+    expect(new Date().toISOString().slice(0, 10)).toBe('2026-05-09');
+  });
+
+  it('pasture-% day count is identical at noon and late evening on the same local day', () => {
+    const dmiKgPerDay = 250;
+    const noonDays = daysBetweenInclusive('2026-05-01', at('America/New_York', '2026-05-08T16:00:00Z'));
+    const lateDays = daysBetweenInclusive('2026-05-01', at('America/New_York', '2026-05-09T03:30:00Z'));
+    expect(lateDays).toBe(noonDays);
+    expect(dmiKgPerDay * lateDays).toBe(dmiKgPerDay * noonDays);
   });
 });

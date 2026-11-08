@@ -10,6 +10,7 @@ import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 import { openLocationNames } from '../events/open-cohort.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let feedCheckSheet = null;
 
@@ -39,7 +40,7 @@ export function openFeedCheckSheet(evt, operationId) {
   // Handle bar
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const nowTime = new Date().toTimeString().slice(0, 5);
 
   // Get feed entries for this event, grouped by batch×location

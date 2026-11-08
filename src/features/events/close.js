@@ -14,6 +14,7 @@ import { createObservation } from './index.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { checkWindowCloses } from './window-close-guard.js';
 import { openDateConflictDialog } from './date-conflict-dialog.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let closeEventSheet = null;
 
@@ -35,7 +36,7 @@ export function openCloseEventSheet(evt, operationId) {
   if (!panel) return;
   clear(panel);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const inputs = {};
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.closeEventTitle')]));

@@ -24,6 +24,7 @@ import {
 } from './wizard-shared.js';
 import { checkWindowCloses } from './window-close-guard.js';
 import { openDateConflictDialog } from './date-conflict-dialog.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 // ---------------------------------------------------------------------------
 // Move Wizard (CP-19)
@@ -50,7 +51,7 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
   clear(panel);
 
   const unitSys = getUnitSystem();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   // OI-0066: scoped variant — the wizard moves one group off the source event
   // instead of the whole event. The source event stays open as long as any

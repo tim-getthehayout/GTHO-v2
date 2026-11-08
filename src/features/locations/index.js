@@ -9,7 +9,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { formatShortDate } from '../../utils/date-format.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import * as LocationEntity from '../../entities/location.js';
 import * as ForageTypeEntity from '../../entities/forage-type.js'; // eslint-disable-line no-unused-vars
 import * as PaddockObsEntity from '../../entities/paddock-observation.js';
@@ -574,7 +574,7 @@ function openSoilTestSheetFn(loc, operationId) {
   clear(panel);
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Soil test']));
   panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '14px' } }, [loc.name]));
@@ -657,7 +657,7 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   clear(panel);
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const unitSys = getUnitSystem();
   const isSingle = !!locationId;
   const isBulkEdit = !!opts.editSurveyId;
@@ -1201,7 +1201,7 @@ function openApplyInputSheet(operationId) {
   panel.appendChild(el('div', { className: 'sheet-handle' }));
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '14px' } }, ['Apply input / amendment']));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   let sourceType = 'product';
   const selectedLocations = new Set();
 

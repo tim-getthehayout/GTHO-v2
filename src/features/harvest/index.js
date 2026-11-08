@@ -11,6 +11,7 @@ import { navigate } from '../../ui/router.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import * as HarvestEventFieldEntity from '../../entities/harvest-event-field.js';
 import * as BatchEntity from '../../entities/batch.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let unsubs = [];
 let harvestSheet = null;
@@ -225,7 +226,7 @@ function renderFieldPicker(panel, operationId, onSelect) {
 function renderTileGrid(panel, operationId, preSelectedLocationId) {
   const unitSys = getUnitSystem();
   const wUnit = unitSys === 'imperial' ? 'lbs' : 'kg';
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const feedTypes = getAll('feedTypes').filter(ft => ft.harvestActive !== false && !ft.archived);
   const allLocations = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed-use'));
 

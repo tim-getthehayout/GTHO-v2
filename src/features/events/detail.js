@@ -6,7 +6,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, subscribe, add, update, remove, isCurrentUserDev } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { logger } from '../../utils/logger.js';
@@ -243,7 +243,7 @@ function renderSummary(ctx) {
   if (!event) return;
 
   const unitSys = getUnitSystem();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   // OI-0117: event start is derived from the earliest child window.
   const eventStart = getEventStart(ctx.eventId);
   const eventDateIn = eventStart?.date || null;
@@ -453,7 +453,7 @@ function renderPaddocks(ctx) {
   if (!epws.length) return;
 
   const unitSys = getUnitSystem();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
     el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.paddocks')]),
@@ -772,7 +772,7 @@ function renderGroups(ctx) {
 
   const isActive = !event.dateOut;
   const unitSys = getUnitSystem();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const now = event.dateOut || todayStr;
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');
@@ -1081,7 +1081,7 @@ function renderDmiNpk(ctx) {
   const event = getById('events', ctx.eventId);
   if (!event) return;
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const now = event.dateOut || todayStr;
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');

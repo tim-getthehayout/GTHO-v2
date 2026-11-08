@@ -24,6 +24,7 @@ import {
   applyRemainingDelta,
   deleteBatchWithLocations,
 } from './batch-balances.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -44,7 +45,7 @@ const ADJUST_REASONS = [
 ];
 
 function todayDateString() {
-  return new Date().toISOString().slice(0, 10);
+  return getLocalTodayStr();
 }
 
 function reasonLabel(reason) {

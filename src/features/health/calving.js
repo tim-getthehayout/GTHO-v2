@@ -10,6 +10,7 @@ import * as CalvingEntity from '../../entities/animal-calving-record.js';
 import * as AnimalEntity from '../../entities/animal.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
 import * as MembershipEntity from '../../entities/animal-group-membership.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let calvingSheet = null;
 
@@ -30,7 +31,7 @@ export function openCalvingSheet(dam, operationId) {
   clear(panel);
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const unitSys = getUnitSystem();
   const displayName = dam.tagNum || dam.name || dam.eid || dam.id.slice(0, 8);
   const classes = getAll('animalClasses').filter(c => !c.archived);
@@ -166,7 +167,7 @@ export function openCalvingSheet(dam, operationId) {
               // OI-0137: changeDate must be today, never the (possibly backdated) calving date —
               // a backdated date makes maybeSplitForGroup compute 0 head against the still-open
               // window and silently delegate to closeGroupWindow with date_left < date_joined.
-              maybeSplitForGroup(calfGroupSelect.value, new Date().toISOString().slice(0, 10));
+              maybeSplitForGroup(calfGroupSelect.value, getLocalTodayStr());
             }
           }
 

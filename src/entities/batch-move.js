@@ -1,4 +1,5 @@
 /** @file Entity: batch_moves — append-only transfer of a batch between locations. */
+import { getLocalTodayStr } from '../utils/date-utils.js';
 
 export const FIELDS = {
   id:             { type: 'uuid',    required: false, sbColumn: 'id' },
@@ -20,7 +21,7 @@ export function create(data = {}) {
     fromLocationId: data.fromLocationId ?? null,
     toLocationId: data.toLocationId ?? null,
     quantity: data.quantity ?? 0,
-    movedAt: data.movedAt ?? new Date().toISOString().slice(0, 10),
+    movedAt: data.movedAt ?? getLocalTodayStr(),
     notes: data.notes ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
   };

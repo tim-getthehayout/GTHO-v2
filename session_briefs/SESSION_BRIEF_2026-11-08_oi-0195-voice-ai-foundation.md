@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-08  
 **Source:** GTHO Design session  
-**Status:** Design in progress (slice, shared-module, recoverable-exceptions, push-to-talk placement, voice-to-entry log, offline audio notes, and tap-to-start listening locked 2026-11-08; original docs rewritten the same day). Follow-on locks landed as Forgejo PR #7, merge `e44d641`, after the rewrite at PR #6, merge `7d536cb`. Voice-to-entry log landed as Forgejo PR #8, merge `0b9f21e`. Offline audio notes landed as Forgejo PR #9, merge `3aada9c`. Foundation is not fully specified. Shared conversation contract is still unwritten (Chief of Staff). Not ready for GTHO Build.
+**Status:** Design in progress (product-shape locks from the 2026-11-08 step-through recorded below; original docs rewritten the same day). Follow-on locks landed as Forgejo PR #7, merge `e44d641`, after the rewrite at PR #6, merge `7d536cb`. Voice-to-entry log landed as Forgejo PR #8, merge `0b9f21e`. Offline audio notes landed as Forgejo PR #9, merge `3aada9c`. Tap-to-start listening landed as Forgejo PR #10, merge `16bdafd`. Shared conversation contract is still unwritten (Chief of Staff). Schema for the log and offline audio storage remains undesigned. Not ready for GTHO Build.
 
 ## What was decided
 
@@ -18,9 +18,12 @@ On 2026-11-08 Tim locked this slice:
 6. The original April 2026 voice/AI docs should be brought up to current AI practice and reviewed against best practices, not assumed correct. Named models such as Haiku should not remain the design.
 7. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. Successful confirmed writes become ordinary farm records.
 8. Those attempts live in a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain in that log as history; this is not a silent training or audit capture of every conversation.
-9. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop as a floating, movable control.
-10. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. Do not promise offline AI parsing or answers; existing manual entry remains available. No on-device model is committed for launch.
-11. Tap once to start listening. Voice-activity detection should tolerate brief pauses rather than cutting off at the first silence. A designated spoken stop phrase also ends the turn; the exact phrase is not locked. Hold-to-talk is not the launch default and may be a later option.
+9. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop as a floating, movable control that starts at the bottom center.
+10. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. Do not promise offline AI parsing or answers; existing manual entry remains available. No on-device model is committed for launch. The app should ask once before storing recordings. The user can play back or delete a note before it is processed. After it has been processed, the recording is deleted.
+11. Tap once to start listening. Voice-activity detection should tolerate brief pauses rather than cutting off at the first silence. The spoken stop phrase is “over.” Hold-to-talk is not the launch default and may be a later option.
+12. The voice-to-entry log opens as a panel from the push-to-talk control. That control shows a count of unfinished items awaiting review.
+13. Besides unfinished versus all, the log can be filtered by today and by whether an item was a write, a question, or feedback. Finished items stay 90 days. Unfinished items stay until finished or discarded.
+14. First-slice writes cover event-related functions (including moves), feeding, and animal records (examples: treated cow X with Y; cow 13 calved and had a bull calf). The assistant asks follow-up questions and prompts for required information to complete the entry, then shows the review card. Questions are capabilities, not a hardcoded list; the first slice also answers whether a cow is open, how many open cows, and when a paddock was last grazed.
 
 GTHO Build summarized an earlier thread and handed it here. Independently verified on Forgejo main at `0bcc3b7` (2026-11-08): there was no open item, no mention in `PROJECT_STATUS.md`, and no matching code in `src/`, `tests/`, or `supabase/`. The April design lived in `V2_INFRASTRUCTURE.md` §8, reviewed 2026-04-12 in `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md` (Session 6). That April brief stays historical; do not rewrite it as if it were current.
 
@@ -38,7 +41,7 @@ GTHO Build summarized an earlier thread and handed it here. Independently verifi
 - Silent training capture is not a launch phase. Any stored audio or transcript needs consent, retention, deletion, and access rules first.
 - Model-reported confidence is not a safety gate.
 - `source: 'voice' | 'manual'` is too coarse for mixed voice and text correction. Do not treat it as an existing column.
-- A guided-script library is a later candidate, not a prerequisite.
+- A guided-script library is a later candidate, not a prerequisite. Do not hard-code a list of questions; the assistant interprets what was asked and requests clarification when needed.
 - A replaceable provider boundary remains useful; the old `InferenceAdapter` stub (`parse` / `refine` / `getConfidence`) is too narrow and is retired.
 
 `V2_SCHEMA_DESIGN.md` Domain 11 future-schema note no longer treats transcripts, training data, guided scripts, and confidence scores as the planned table set. Tables remain undesigned.
@@ -58,18 +61,14 @@ Do not invent:
 - The shared conversation contract (Chief of Staff)
 - Who maintains the sibling runtime (assign before build)
 - How existing Get help / support submissions map to a shared bug-or-request interview
-- The exact spoken stop phrase that ends a listening turn
-- Supported storage, consent, playback/delete, and retention for offline audio notes
-- Where the voice-to-entry log lives in the app chrome, which columns and filters besides unfinished ship first, how long items persist, and the schema for the log
-- The exact default dock position or screen edge for the desktop floating control
-- Which write types and which questions ship first
-- Schema tables or columns for this capability
+- Schema tables or columns for the voice-to-entry log and offline audio-note storage
+- Storage mechanisms for offline audio notes
 
 ## What to build / change
 
-Nothing in `src/`, `tests/`, or `supabase/` until this foundation is design-locked and handed to GTHO Build. This session’s change is documentation only: file OI-0195, rewrite `V2_INFRASTRUCTURE.md` §8 and the matching schema and migration notes, record recoverable exceptions, push-to-talk placement, the voice-to-entry log, offline audio notes, and tap-to-start listening, and update this brief and `PROJECT_STATUS.md`. The first rewrite landed as Forgejo PR #6 (merge `7d536cbb152a732e012b0a301279eb37f8b32b90`). Recoverable exceptions and push-to-talk placement landed as Forgejo PR #7 (merge `e44d641b3b4e54c8d909005498767b124285a18c`). The voice-to-entry log landed as Forgejo PR #8 (merge `0b9f21e8de55280b63966f3aa6b3d0947fad4213`). Offline audio notes landed as Forgejo PR #9 (merge `3aada9cc77ce5ab94c0202dcd1fc17ea462efac4`).
+Nothing in `src/`, `tests/`, or `supabase/` until this foundation is design-locked and handed to GTHO Build. This session’s change is documentation only. The first rewrite landed as Forgejo PR #6 (merge `7d536cbb152a732e012b0a301279eb37f8b32b90`). Recoverable exceptions and push-to-talk placement landed as Forgejo PR #7 (merge `e44d641b3b4e54c8d909005498767b124285a18c`). The voice-to-entry log landed as Forgejo PR #8 (merge `0b9f21e8de55280b63966f3aa6b3d0947fad4213`). Offline audio notes landed as Forgejo PR #9 (merge `3aada9cc77ce5ab94c0202dcd1fc17ea462efac4`). Tap-to-start listening landed as Forgejo PR #10 (merge `16bdafd0c980433c265caaa3c08b06e0cb865365`).
 
-Follow-on farm-tool contracts (write-entry flows and ask-and-answer bindings, including remaining feed) remain GTHO Design work after the shared contract exists. Do not start implementation from this brief.
+The first-slice farm tools are now named above. Detailed per-tool contracts and schema remain GTHO Design work after the shared conversation contract exists, and must be designed schema-first. Do not start implementation from this brief.
 
 ## Out of scope
 

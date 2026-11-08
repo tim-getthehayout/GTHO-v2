@@ -449,6 +449,7 @@ Tim locked these choices in the GTHO Design chat:
 5. A shared module makes sense: one conversation runtime used by GTHO, not folding the general assistant into `feedback-module`. Spoken feedback should use that same assistant and the existing feedback interview contract, not a second inbox.
 6. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. They live in a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain in that log as history, but confirmed farm data still lives in the ordinary records. This log is not silent training or audit capture.
 7. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop. On desktop it is a floating, movable control.
+8. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. Do not promise offline AI parsing or answers; existing manual entry remains available. No on-device model is committed for launch.
 
 Chief of Staff owns the still-unwritten shared conversation contract and the `feedback-module` interview contract. GTHO Design owns farm questions, write flows, domain rules, GTHO schema, and the review of farm writes. Farm rules never move into the shared runtime.
 
@@ -480,7 +481,7 @@ One shared conversation runtime (a sibling shared module; its contract is still 
 
 **Exceptions.** If a proposal is incomplete, fails validation, is interrupted, or the user walks away mid-review, keep it as a recoverable exception so they can pick it up and finish later. That is in addition to the in-the-moment review card. Discard remains available. These attempts live in a running voice-to-entry log with an easy filter for unfinished items; finished items may stay visible there as history. Do not invent the log’s place in the chrome, extra filters, columns, retention, or schema here.
 
-**Offline.** The app is offline-first for farm data, but a hosted realtime voice session cannot transcribe or run while disconnected. Do not promise offline AI parsing or answers. Existing manual entry remains available. Whether the first release records an offline audio note (that would need supported storage, consent, playback/delete, and retention) versus a typed first note plus resuming voice when back online is still open. No on-device model is committed.
+**Offline.** The app is offline-first for farm data, but a hosted realtime voice session cannot transcribe or run while disconnected. Do not promise offline AI parsing or answers. Existing manual entry remains available. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. Supported storage, consent, playback/delete, and retention for those notes still need to be designed (schema-first); do not invent them here. No on-device model is committed for launch. An on-device model remains a later candidate, not a prerequisite.
 
 **Schema.** No new tables until they are designed and migrated. See `V2_SCHEMA_DESIGN.md` Domain 11. Do not assume the April list (transcripts, training data, guided scripts, confidence scores) is the right shape.
 
@@ -488,7 +489,7 @@ One shared conversation runtime (a sibling shared module; its contract is still 
 
 - Who maintains the sibling runtime contract (assign before build; not established by today’s framework).
 - How existing Get help / support submissions map to a shared bug-or-request interview without losing purpose or history.
-- Offline audio-note recording versus typed first-note capture.
+- Supported storage, consent, playback/delete, and retention for offline audio notes (design schema-first when implementation begins).
 - Where the voice-to-entry log lives in the app chrome, which columns and filters besides unfinished ship first, how long items persist, and the schema for the log (design schema-first when implementation begins).
 - The exact default dock position or screen edge for the desktop floating control, and the first farm-write flows to ship (GTHO Design, after the shared contract exists).
 
@@ -534,6 +535,7 @@ The 15-minute stale threshold is a balance between honesty and noise — short e
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 — offline audio notes | When voice is used while disconnected, record an audio note and process it when back online. The note is an unfinished voice-to-entry log item until then. No offline AI parsing or answers. No on-device model for launch. Storage, consent, playback/delete, and retention remain open. |
 | 2026-11-08 | OI-0195 — voice-to-entry log | The exception inbox is a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain as history; confirmed farm data still lives in ordinary records. Chrome placement, extra filters, columns, retention, and schema remain open. |
 | 2026-11-08 | OI-0195 — exceptions and PTT placement | Locked recoverable exceptions (incomplete, invalid, interrupted, or abandoned proposals stay available to finish later). Locked push-to-talk as prominent in field mode and as a floating, movable control on desktop. Inbox location, retention, schema, and exact desktop dock position remain open. |
 | 2026-11-08 | OI-0195 — voice/AI review | Rewrote §8. Retired the April three-phase Haiku / silent-training / on-device roadmap. Current design: shared conversation runtime plus GTHO farm tools; one push-to-talk; review card; realtime speech-to-speech with ephemeral tokens as current practice; no offline AI promise; confidence is not a safety gate. Not a build target. |

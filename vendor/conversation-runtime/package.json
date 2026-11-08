@@ -1,0 +1,17 @@
+{
+  "name": "conversation-runtime",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./backend": "./src/backend.js",
+    "./voice": "./src/voice.js",
+    "./providers/xai": "./src/xai.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check src/index.js && node --check src/runtime.js && node --check src/backend.js && node --check src/voice.js && node --check src/xai.js && node --check src/shared.js && node --check src/ports.js && node --check supabase/functions/conversation-runtime/index.js"
+  },
+  "engines": { "node": ">=22" }
+}

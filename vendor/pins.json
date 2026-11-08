@@ -1,0 +1,44 @@
+{
+  "feedback-module": {
+    "tag": "v0.1.3",
+    "commit": "f70d0d7d83a0b56ffdcd2a28375b6f746863fecb",
+    "version": "0.1.3",
+    "path": "vendor/feedback-module",
+    "files": {
+      "AGENTS.md": "178106618055fd38d7732c9bef2c36bef982a911e6777102dabff6a97cc5ae0a",
+      "CHANGELOG.md": "cd261e33c526b3ed864fbed910f1811ff5de5c53827d10e39155b20656779bf0",
+      "CONTRACT.md": "62ee71fd2af747ed962c26d02772f50c610aa8ac3fa3a9db091d25e30403acf0",
+      "README.md": "1c2943cd8de8e624b4247cb2ef4afef6974a1f519cfc7e098ea3f1032179b0e6",
+      "package.json": "e4a15b7d5d8c49f0d888e564841ddef4bba7a16e50fe3db5b60f7bdf92b31364",
+      "src/index.js": "6199e4e4c30d26ada05e5d3fe2f199fcc8f0d65d0d01d89c0ba22431d1c70400",
+      "test/interview.test.js": "6b262afb24bd6a90a0968d89d6868cc102b07dbf403f0fa598cd03c4f5b8d3d7"
+    }
+  },
+  "conversation-runtime": {
+    "tag": "v0.1.1",
+    "commit": "aea11f3cdb137a83f0aecaf38e2e60c9d1ba809a",
+    "version": "0.1.1",
+    "path": "vendor/conversation-runtime",
+    "files": {
+      "AGENTS.md": "b45f5b0f4bc0b53aaae6bf74f4bf6ab69cea4e3e71e36d39208a0b1911b379b9",
+      "CHANGELOG.md": "a24f86bcbcb0ab495e5cd8689de6095860f2e19dc1bf9f15f90dbfa55595d16a",
+      "CONTRACT.md": "1532db40546347962e3d6d4c672ca1faf1573b15882d556095ad997f9b255fdd",
+      "README.md": "c8646970a69fd4a6bfbb8d016bfcab9ba19685de9e656b3855d37c50aa092ab9",
+      "package.json": "794c8105a66bd36ba334302c88efc3039a741dbacdb26e9edb03186bd9e23c38",
+      "src/backend.js": "ca9cd472f7823a094f11dfb21e73776747effc553ae04ea5dbe2f22447a32f6f",
+      "src/index.js": "7638d49570643b726f8ef5d91fc898423b84e2798fa5bc3d7d5e8161b4bfc4d6",
+      "src/ports.js": "d92e132f4569188fc9eff3348ec3c70f63a4a23a6651e967430a18eb026bc088",
+      "src/runtime.js": "f66e25273d4c1662b69c1b10290f76514392d85a080cc2e3c66ad218f3e9d8d2",
+      "src/shared.js": "d29e2cb396c7b539721a4a504dedccb150c96959cde949e62e56fd87dd9a19a5",
+      "src/voice.js": "ef8fac02d28ac051e334979487f1ac5e32d432cdd8a7aab63cebed9369d854a0",
+      "src/xai.js": "945e9cd1aa0bb61d9a84d0bd0cae1ef7e37880dea5d2ebed48a72f71d18dc3c6",
+      "supabase/config.toml": "0bceeb43162d07017d87ac808a49a684443930ad94ab2edff89712d312298662",
+      "supabase/functions/conversation-runtime/index.js": "f02a023c9bdc35e884aa31c4f9d753617b18e0207fec93048ba9993f6bedc739",
+      "test/backend.test.js": "5713a68a49a25329b53b69f3e860f4a0cf96dde3caa51e6197acc62727fc098d",
+      "test/provider.test.js": "380ce115a4db457faeaee55fa4bfe566d9d78fc99dac9d511d2f3fa17d47bd7c",
+      "test/runtime.test.js": "173382cf3f484889e50a15ff0aa54feecccbc7aa94a2e018cf6d2ba6d27e4a48",
+      "test/support.js": "61b4bda0b7f5fff19bd9125af4ae96760e4561d1f79a58b3d7371c2f95dff0bc",
+      "test/voice.test.js": "f3296af65cddaac435aff38acda17d0b92d6e23a58296f171f78ae4258a5d287"
+    }
+  }
+}

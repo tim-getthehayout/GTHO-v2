@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-08  
 **Source:** GTHO Design session  
-**Status:** Design in progress (slice and shared-module choice locked 2026-11-08; original docs rewritten the same day). Foundation is not fully specified. Shared conversation contract is still unwritten (Chief of Staff). Not ready for GTHO Build.
+**Status:** Design in progress (slice, shared-module, recoverable-exceptions, and push-to-talk placement locked 2026-11-08; original docs rewritten the same day and landed on Forgejo main as PR #6, merge `7d536cb`). Foundation is not fully specified. Shared conversation contract is still unwritten (Chief of Staff). Not ready for GTHO Build.
 
 ## What was decided
 
@@ -16,6 +16,8 @@ On 2026-11-08 Tim locked this slice:
 4. Ask-and-answer is in scope for the product. It will be designed as a path that uses this foundation, not as a separate voice product.
 5. A shared module makes sense: one conversation runtime used by GTHO, not folding the general assistant into `feedback-module`. Spoken feedback should go through that same assistant and the existing feedback interview contract, not a second inbox.
 6. The original April 2026 voice/AI docs should be brought up to current AI practice and reviewed against best practices, not assumed correct. Named models such as Haiku should not remain the design.
+7. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. Successful confirmed writes become ordinary farm records, not a parallel conversation log.
+8. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop as a floating, movable control.
 
 GTHO Build summarized an earlier thread and handed it here. Independently verified on Forgejo main at `0bcc3b7` (2026-11-08): there was no open item, no mention in `PROJECT_STATUS.md`, and no matching code in `src/`, `tests/`, or `supabase/`. The April design lived in `V2_INFRASTRUCTURE.md` §8, reviewed 2026-04-12 in `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md` (Session 6). That April brief stays historical; do not rewrite it as if it were current.
 
@@ -54,14 +56,15 @@ Do not invent:
 - Who maintains the sibling runtime (assign before build)
 - How existing Get help / support submissions map to a shared bug-or-request interview
 - Whether the first release records an offline audio note
-- Where the single push-to-talk control lives
+- Where the exception inbox lives, how long unfinished items persist, and the schema for recoverable proposals
 - Hold-to-talk versus server voice-activity detection after the button is pressed
+- The exact default dock position or screen edge for the desktop floating control
 - Which write types and which questions ship first
 - Schema tables or columns for this capability
 
 ## What to build / change
 
-Nothing in `src/`, `tests/`, or `supabase/` until this foundation is design-locked and handed to GTHO Build. This session’s change is documentation only: file OI-0195, rewrite `V2_INFRASTRUCTURE.md` §8 and the matching schema and migration notes, and update this brief and `PROJECT_STATUS.md`.
+Nothing in `src/`, `tests/`, or `supabase/` until this foundation is design-locked and handed to GTHO Build. This session’s change is documentation only: file OI-0195, rewrite `V2_INFRASTRUCTURE.md` §8 and the matching schema and migration notes, record recoverable exceptions and push-to-talk placement, and update this brief and `PROJECT_STATUS.md`. The first rewrite landed as Forgejo PR #6 (merge `7d536cbb152a732e012b0a301279eb37f8b32b90`).
 
 Follow-on farm-tool contracts (write-entry flows and ask-and-answer bindings, including remaining feed) remain GTHO Design work after the shared contract exists. Do not start implementation from this brief.
 

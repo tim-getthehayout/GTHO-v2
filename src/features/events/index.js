@@ -7,7 +7,7 @@ import { navigate } from '../../ui/router.js';
 import { getAll, getById, add, subscribe, getVisibleEvents, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert } from '../../utils/units.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import * as EventEntity from '../../entities/event.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import * as ObservationEntity from '../../entities/paddock-observation.js';
@@ -233,7 +233,7 @@ function renderEventCard(evt, operationId) {
   const titleText = titleNames.length ? titleNames.join(', ') : evt.id.slice(0, 8);
 
   // Day count
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const endDate = evt.dateOut || todayStr;
   const start = getEventStart(evt.id);
   const dayCount = start?.date ? daysBetweenInclusive(start.date, endDate) : 0;
@@ -538,7 +538,7 @@ function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-u
     return;
   }
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const inputs = {};
   const selection = { locationId: null, locationIds: [], groupId: null };
 

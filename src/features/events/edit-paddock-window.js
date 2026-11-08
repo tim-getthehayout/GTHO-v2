@@ -10,6 +10,7 @@ import * as PaddockObsEntity from '../../entities/paddock-observation.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getEventStartFloorExcluding } from './event-start.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let editPwSheet = null;
 
@@ -256,7 +257,7 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
     if (!isClosed) {
       const stateChanged = (newAreaPct !== (pw.areaPct ?? 100)) || (newIsStrip !== !!pw.isStripGraze);
       if (stateChanged) {
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = getLocalTodayStr();
         const newState = { areaPct: newAreaPct, isStripGraze: newIsStrip };
         if (newIsStrip && !pw.isStripGraze) {
           // Turning strip-graze on: fresh stripGroupId

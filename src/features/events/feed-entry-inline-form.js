@@ -20,7 +20,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { getAll, getById, add, update } from '../../data/store.js';
-import { today } from '../../utils/date-utils.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as BatchEntity from '../../entities/batch.js';
 
@@ -61,7 +61,7 @@ export function openAddMode(event) {
   state = {
     mode: 'add',
     editingEntryId: null,
-    date: clampDateToEvent(today(), event),
+    date: clampDateToEvent(getLocalTodayStr(), event),
     lines: [],
     error: null,
   };
@@ -200,7 +200,7 @@ export function renderInlineFeedForm(container, { event, operationId, onAfterSav
   // Date field
   const dateInput = el('input', {
     type: 'date',
-    value: state.date || today(),
+    value: state.date || getLocalTodayStr(),
     onChange: (e) => { state.date = e.target.value; },
   });
   card.appendChild(el('div', { className: 'field' }, [
@@ -339,7 +339,7 @@ function buildQtyStepperRows(activeBatches, rerender) {
 
 function handleSave(event, operationId, container, { onAfterSave }) {
   const batches = getAll('batches');
-  const todayStr = today();
+  const todayStr = getLocalTodayStr();
 
   // Read current date input live in case it wasn't onChange-fired
   const dateEl = container.querySelector('input[type="date"]');

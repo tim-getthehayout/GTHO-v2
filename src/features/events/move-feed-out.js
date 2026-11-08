@@ -11,6 +11,7 @@ import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import * as BatchEntity from '../../entities/batch.js';
 import { openLocationNames } from './open-cohort.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let moveFeedSheet = null;
 
@@ -36,7 +37,7 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
   if (!panel) return;
 
   const unitSys = getUnitSystem();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   // Aggregate feed lines: batch × location
   const entries = getAll('eventFeedEntries').filter(fe => fe.eventId === event.id);

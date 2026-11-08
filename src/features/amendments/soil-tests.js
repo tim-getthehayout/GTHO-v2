@@ -6,6 +6,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
 import * as SoilTestEntity from '../../entities/soil-test.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let unsubs = [];
 const NUTRIENT_KEYS = ['n', 'p', 'k', 's', 'ca', 'mg', 'cu', 'fe', 'mn', 'mo', 'zn', 'b', 'cl'];
@@ -90,7 +91,7 @@ function openSoilTestSheet(existing, operationId) {
 
   const isEdit = !!existing;
   const locations = getAll('locations').filter(l => !l.archived && l.type === 'land');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const inputs = {};
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [isEdit ? t('amendment.editSoilTest') : t('amendment.addSoilTest')]));

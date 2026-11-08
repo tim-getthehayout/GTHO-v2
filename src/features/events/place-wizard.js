@@ -24,6 +24,7 @@ import {
   destinationLocationIds, summedPaddockAcres,
 } from './wizard-shared.js';
 import { openLocationNames } from './open-cohort.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let placeWizardSheet = null;
 
@@ -65,7 +66,7 @@ export function openPlaceWizard(groupId, operationId, farmId) {
   clear(panel);
 
   const group = getById('groups', groupId);
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   const state = {
     step: 1,

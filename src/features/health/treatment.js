@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, add } from '../../data/store.js';
 import * as TreatmentEntity from '../../entities/animal-treatment.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let treatmentSheet = null;
 
@@ -25,7 +26,7 @@ export function openTreatmentSheet(animal, operationId) {
   clear(panel);
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const nowTime = new Date().toTimeString().slice(0, 5);
   const displayName = animal.tagNum || animal.name || `A-${animal.id.slice(0, 5)}`;
   const treatmentTypes = getAll('treatmentTypes').filter(tt => !tt.archived);

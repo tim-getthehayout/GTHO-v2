@@ -27,6 +27,7 @@ import { openLocationNames } from '../events/open-cohort.js';
 import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpers.js';
 import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -493,7 +494,7 @@ export function openGroupSheet(existingGroup, operationId) {
   const unitSys = getUnitSystem();
   const colors = ['#639922', '#1D9E75', '#185FA5', '#BA7517', '#E24B4A', '#534AB7'];
   let selectedColor = existingGroup?.color || colors[0];
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   // Track selected animal IDs for the picker
   const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
@@ -694,7 +695,7 @@ function openSplitGroupSheet(group, operationId) {
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
   const unitSys = getUnitSystem();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const memberships = getAll('animalGroupMemberships').filter(m => m.groupId === group.id && !m.dateLeft);
   const allAnimals = getAll('animals');
   const classes = getAll('animalClasses');
@@ -1285,7 +1286,7 @@ function openGroupWeightsSheet(group, operationId) {
   const weightRecords = getAll('animalWeightRecords');
   const groupAnimals = animals.filter(a => memberships.some(m => m.animalId === a.id) && a.isBulk !== true);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const dateInput = el('input', { type: 'date', value: todayStr });
 
   panel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } }, [
@@ -1327,7 +1328,7 @@ function openGroupWeightsSheet(group, operationId) {
       }
       // OI-0094 entry #4: head count unchanged but avg weight shifts → split the group's open window.
       // OI-0137: changeDate is today, never the user-supplied (possibly backdated) weigh date.
-      if (anyChange) maybeSplitForGroup(group.id, new Date().toISOString().slice(0, 10));
+      if (anyChange) maybeSplitForGroup(group.id, getLocalTodayStr());
       wtSheet.close();
     } }, ['Commit all changes']),
     el('button', { className: 'btn btn-outline', onClick: () => wtSheet.close() }, ['Cancel']),
@@ -1782,7 +1783,7 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
     panel.appendChild(el('div', { className: 'div' }));
     const weanedCheck = el('input', { type: 'checkbox', style: { width: '18px', height: '18px', accentColor: 'var(--teal)', flexShrink: '0' } });
     if (existingAnimal.weaned) weanedCheck.checked = true;
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getLocalTodayStr();
     const weanedDateInput = el('input', {
       type: 'date',
       value: existingAnimal.weanedDate || '',
@@ -2067,7 +2068,7 @@ async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId,
   }
 
   const newGroupId = inputs.groupId.value || null;
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   try {
     let animalId;
     const before = existingAnimal

@@ -12,6 +12,7 @@ import { openPaddockWindows, summedPaddockAcres } from './open-cohort.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 // ---------------------------------------------------------------------------
 // Sub-move open sheet (CP-18)
@@ -38,7 +39,7 @@ export function openSubmoveOpenSheet(evt, operationId) {
   clear(panel);
 
   const locations = getAll('locations').filter(l => !l.archived);
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const selection = { locationId: null, locationIds: [] };
   const inputs = {};
 
@@ -158,7 +159,7 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   if (!windows.length) return;
   const first = windows[0];
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const locName = windows
     .map((w) => getById('locations', w.locationId)?.name)
     .filter(Boolean)
@@ -337,7 +338,7 @@ export function openAdvanceStripSheet(evt, operationId) {
   if (!panel) return;
   clear(panel);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   // Find the open strip graze window
   const allPWs = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id);

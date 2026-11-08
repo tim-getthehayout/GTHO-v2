@@ -5,7 +5,7 @@ import { getAll, getById } from '../../data/store.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { display } from '../../utils/units.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { daysBetweenInclusive } from '../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { renderReferenceConsole } from './reference-console.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
@@ -128,7 +128,7 @@ function renderFeedDmiTab() {
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const unitSys = getUnitSystem();
 
   const dmi2 = getCalcByName('DMI-2');
@@ -241,7 +241,7 @@ function renderNpkTab() {
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');
   const animalWeightRecords = getAll('animalWeightRecords');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   const npk1 = getCalcByName('NPK-1');
   const npk2 = getCalcByName('NPK-2');
@@ -524,7 +524,7 @@ function renderSeasonTab() {
     const gws = groupWindows.filter(gw => gw.eventId === event.id);
     const pws = paddockWindows.filter(pw => pw.eventId === event.id);
     const dateIn = getEventStartDate(event.id);
-    const dateOut = event.dateOut ?? new Date().toISOString().slice(0, 10);
+    const dateOut = event.dateOut ?? getLocalTodayStr();
     const totalDays = dateIn ? daysBetweenInclusive(dateIn, dateOut) : 1;
 
     // Total head-days for this event (OI-0091: live recompute for open windows)

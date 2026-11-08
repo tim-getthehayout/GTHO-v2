@@ -10,7 +10,7 @@ import { t } from '../../../i18n/i18n.js';
 import { getAll, getByField, getVisibleEvents } from '../../../data/store.js';
 import { getUnitSystem } from '../../../utils/preferences.js';
 import { display } from '../../../utils/units.js';
-import { daysBetweenInclusive } from '../../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
 import { navigate } from '../../../ui/router.js';
 import { buildGroupLabel } from '../rotation-calendar/past-block.js';
 import { getEventStartDate } from '../event-start.js';
@@ -79,7 +79,7 @@ export function renderEventsLog(container) {
       const windows = allPaddockWindows.filter(w => w.eventId === event.id);
       const groupWindows = allGroupWindows.filter(gw => gw.eventId === event.id);
       const isActive = !event.dateOut;
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getLocalTodayStr();
       const eventStart = startByEvt.get(event.id) || '';
       const days = eventStart ? daysBetweenInclusive(eventStart, event.dateOut || today) : 0;
 

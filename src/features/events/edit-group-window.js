@@ -10,6 +10,7 @@ import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { openResolveDialog } from './resolve-window-change.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getEventStartFloorExcluding } from './event-start.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let editGwSheet = null;
 
@@ -82,7 +83,7 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
     const animals = getAll('animals');
     const animalClasses = getAll('animalClasses');
     const animalWeightRecords = getAll('animalWeightRecords');
-    const nowStr = new Date().toISOString().slice(0, 10);
+    const nowStr = getLocalTodayStr();
     const headCountDisplay = getLiveWindowHeadCount(gw, { memberships, animals, now: nowStr });
     const avgWeightKgDisplay = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: nowStr });
     const weightText = avgWeightKgDisplay > 0 ? display(avgWeightKgDisplay, 'weight', unitSys, 0) : '—';

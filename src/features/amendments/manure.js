@@ -7,6 +7,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, add, update, remove, subscribe } from '../../data/store.js';
 import * as ManureBatchEntity from '../../entities/manure-batch.js';
 import * as ManureBatchTransactionEntity from '../../entities/manure-batch-transaction.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 const NUTRIENT_KEYS = ['nKg', 'pKg', 'kKg', 'sKg', 'caKg', 'mgKg', 'cuKg', 'feKg', 'mnKg', 'moKg', 'znKg', 'bKg', 'clKg'];
 const NUTRIENT_LABELS = {
@@ -134,7 +135,7 @@ function openManureBatchSheet(existing, operationId) {
   clear(panel);
 
   const isEdit = !!existing;
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const locations = getAll('locations').filter(l => !l.archived);
   const inputs = {};
 
@@ -259,7 +260,7 @@ function openManureTxSheet(batch, operationId) {
   if (!panel) return;
   clear(panel);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [
     `${t('amendment.ledger')} — ${batch.label}`,

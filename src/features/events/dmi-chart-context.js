@@ -16,6 +16,7 @@
 
 import { getAll, getById } from '../../data/store.js';
 import { getEventStartDate } from './event-start.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 /**
  * Build the full DMI-8 input context for a single event.
@@ -121,7 +122,7 @@ export function buildDmi8ChartContext(eventId) {
  * @returns {Array<{ date: string, label: string, result: object }>}
  */
 export function computeDmi8Days(event, dmi8, opts = {}) {
-  const todayStr = opts.today || new Date().toISOString().slice(0, 10);
+  const todayStr = opts.today || getLocalTodayStr();
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const days = [];
   const ctxCache = new Map(); // eventId -> context

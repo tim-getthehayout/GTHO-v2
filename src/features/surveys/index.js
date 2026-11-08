@@ -9,6 +9,7 @@ import * as SurveyEntity from '../../entities/survey.js';
 import * as DraftEntryEntity from '../../entities/survey-draft-entry.js';
 import * as ObservationEntity from '../../entities/paddock-observation.js';
 import { renderSurveyCard } from '../observations/survey-card.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let unsubs = [];
 
@@ -180,7 +181,7 @@ export function openCreateSurveySheet(operationId) {
   if (!panel) return;
   clear(panel);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const inputs = {};
   const typeState = { value: 'bulk' };
 

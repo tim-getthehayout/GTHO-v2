@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, add, remove, subscribe } from '../../data/store.js';
 import * as NpkPriceHistoryEntity from '../../entities/npk-price-history.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let unsubs = [];
 
@@ -57,7 +58,7 @@ function renderNpkPriceList(rootContainer, operationId) {
   }
 
   const sorted = [...entries].sort((a, b) => (b.effectiveDate || '').localeCompare(a.effectiveDate || ''));
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   // Current = latest entry with effectiveDate <= today
   const current = sorted.find(e => (e.effectiveDate || '') <= todayStr);
 
@@ -111,7 +112,7 @@ function openNpkPriceSheet(existing, operationId, farmId) {
   if (!panel) return;
   clear(panel);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
 
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('amendment.addNpkPrice')]));
 

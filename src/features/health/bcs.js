@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getById, add } from '../../data/store.js';
 import * as BcsScoreEntity from '../../entities/animal-bcs-score.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let bcsSheet = null;
 
@@ -25,7 +26,7 @@ export function openBcsSheet(animal, operationId) {
   clear(panel);
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const nowTime = new Date().toTimeString().slice(0, 5);
   const displayName = animal.tagNum || animal.name || `A-${animal.id.slice(0, 5)}`;
   const cls = animal.classId ? getById('animalClasses', animal.classId) : null;

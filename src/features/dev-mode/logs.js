@@ -13,6 +13,7 @@ import { supabase } from '../../data/supabase-client.js';
 import { logger } from '../../utils/logger.js';
 import { getOperation } from '../../data/store.js';
 import { renderDevModeBadge } from './index.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 // OI-0150-B: lower default page size from 1000 → 200 and add cursor
 // pagination via "Load more" button. With lazy `<pre>` rendering on each row
@@ -59,7 +60,7 @@ function exportCsv(rows) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `app_logs_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `app_logs_${getLocalTodayStr()}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

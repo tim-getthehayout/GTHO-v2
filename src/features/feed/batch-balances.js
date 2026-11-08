@@ -4,6 +4,7 @@ import { getAll, getById, add, update, remove } from '../../data/store.js';
 import * as BatchEntity from '../../entities/batch.js';
 import * as BalanceEntity from '../../entities/batch-location-balance.js';
 import * as MoveEntity from '../../entities/batch-move.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 export function balancesFor(batchId) {
   return getAll('batchLocationBalances').filter(row => row.batchId === batchId);
@@ -79,7 +80,7 @@ export function placeInitialBalance({ operationId, batchId, locationId, quantity
     fromLocationId: null,
     toLocationId: locationId,
     quantity,
-    movedAt: movedAt || new Date().toISOString().slice(0, 10),
+    movedAt: movedAt || getLocalTodayStr(),
     notes: notes || null,
   });
   add('batchMoves', move, MoveEntity.validate, MoveEntity.toSupabaseShape, 'batch_moves');
@@ -107,7 +108,7 @@ export function moveBatchQuantity({ operationId, batchId, fromLocationId, toLoca
     fromLocationId,
     toLocationId,
     quantity,
-    movedAt: movedAt || new Date().toISOString().slice(0, 10),
+    movedAt: movedAt || getLocalTodayStr(),
     notes: notes || null,
   });
   add('batchMoves', move, MoveEntity.validate, MoveEntity.toSupabaseShape, 'batch_moves');

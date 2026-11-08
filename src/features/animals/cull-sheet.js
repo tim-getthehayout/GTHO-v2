@@ -13,7 +13,7 @@ import { t } from '../../i18n/i18n.js';
 import { getAll, getById, update, splitGroupWindow } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight, latestWeightForAnimal } from '../../calcs/window-helpers.js';
 import { maybeShowEmptyGroupPrompt } from './empty-group-prompt.js';
-import { today } from '../../utils/date-utils.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { display } from '../../utils/units.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { logger } from '../../utils/logger.js';
@@ -116,7 +116,7 @@ export function confirmCull({ animal, cullDate, cullReason, cullNotes }) {
   // close (line 101) and animal update (line 91).
   const splitResults = [];
   for (const groupId of affectedGroupIds) {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getLocalTodayStr();
     const openGWs = getAll('eventGroupWindows').filter(w => w.groupId === groupId && !w.dateLeft);
     const memberships = getAll('animalGroupMemberships');
     const animals = getAll('animals');
@@ -191,7 +191,7 @@ export function openCullSheet(animal, operationId, onCommitted) {
   }, [label]));
 
   // Date + Reason row
-  const dateInput = el('input', { type: 'date', value: today() });
+  const dateInput = el('input', { type: 'date', value: getLocalTodayStr() });
   const reasonSelect = el('select', {},
     CULL_REASONS.map(r => el('option', { value: r }, [r]))
   );

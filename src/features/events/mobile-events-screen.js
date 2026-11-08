@@ -10,6 +10,7 @@ import { t } from '../../i18n/i18n.js';
 import { getAll, getVisibleEvents } from '../../data/store.js';
 import { renderEventsLog } from './list-view/events-log.js';
 import { getEventStartDate } from './event-start.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 /**
  * Render the GRZ-11 active-rotation banner.
@@ -61,7 +62,7 @@ function renderActiveRotationBanner() {
     }
 
     // Detail line under chips for this event
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getLocalTodayStr();
     const startDate = getEventStartDate(event.id);
     const days = startDate ? Math.max(1, Math.round((new Date(today) - new Date(startDate)) / 86400000) + 1) : 1;
 

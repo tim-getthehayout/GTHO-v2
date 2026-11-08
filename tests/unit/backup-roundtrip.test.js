@@ -16,7 +16,7 @@ import fixture from '../fixtures/backup-v14.json';
 const EXPECTED_FIXTURE_TABLE_COUNT = 52;
 // Current export lists 51 tables: 54 entity types minus 3 excluded
 // (operation_members, app_logs, release_notes).
-const EXPECTED_EXPORT_TABLE_COUNT = 51;
+const EXPECTED_EXPORT_TABLE_COUNT = 66;
 
 describe('backup round-trip (CP-55)', () => {
   describe('fixture structure', () => {
@@ -77,10 +77,12 @@ describe('backup round-trip (CP-55)', () => {
       expect(exportTableNames.length).toBe(EXPECTED_EXPORT_TABLE_COUNT);
     });
 
-    it('fixture contains all tables from the export module', () => {
+    it('migrated historical fixture contains all tables from the export module', () => {
+      const migratedFixture = structuredClone(fixture);
+      for (let version = 14; version < 40; version++) BACKUP_MIGRATIONS[version](migratedFixture);
       const exportTableNames = getBackupTableNames();
       for (const name of exportTableNames) {
-        expect(fixture.tables, `missing table: ${name}`).toHaveProperty(name);
+        expect(migratedFixture.tables, `missing table: ${name}`).toHaveProperty(name);
       }
     });
 
@@ -143,8 +145,8 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→39 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(25);
+    it('has migration entries for 14→40 chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(26);
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[34]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[35]).toBe('function');

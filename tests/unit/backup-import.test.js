@@ -78,23 +78,23 @@ describe('backup-import (CP-56)', () => {
 
   describe('migrateBackupForward — §5.7 step 5', () => {
     it('returns no-op when schema_version matches current', () => {
-      const backup = { ...fixture, schema_version: 39 };
+      const backup = { ...structuredClone(fixture), schema_version: 40 };
       const result = migrateBackupForward(backup);
       expect(result.migrated).toBe(false);
-      expect(result.from).toBe(39);
-      expect(result.to).toBe(39);
+      expect(result.from).toBe(40);
+      expect(result.to).toBe(40);
     });
 
-    it('migrates 14 → 39 through the chain', () => {
-      const backup = { ...fixture, schema_version: 14 };
+    it('migrates 14 → 40 through the chain', () => {
+      const backup = { ...structuredClone(fixture), schema_version: 14 };
       const result = migrateBackupForward(backup);
       expect(result.migrated).toBe(true);
       expect(result.from).toBe(14);
-      expect(result.to).toBe(39);
+      expect(result.to).toBe(40);
     });
 
     it('returns error when migration is missing', () => {
-      const backup = { ...fixture, schema_version: 13 };
+      const backup = { ...structuredClone(fixture), schema_version: 13 };
       const result = migrateBackupForward(backup);
       expect(result.error).toContain('Missing migration');
       expect(result.error).toContain('13');
@@ -102,8 +102,8 @@ describe('backup-import (CP-56)', () => {
   });
 
   describe('FK_ORDER — §5.3a ordering', () => {
-    it('has exactly 51 tables', () => {
-      expect(FK_ORDER.length).toBe(51);
+    it('has exactly 66 tables', () => {
+      expect(FK_ORDER.length).toBe(66);
     });
 
     it('matches the export table list', () => {
@@ -158,8 +158,8 @@ describe('backup-import (CP-56)', () => {
       expect(TWO_PASS_TABLES.events).toEqual(['source_event_id']);
     });
 
-    it('only animals and events are two-pass', () => {
-      expect(Object.keys(TWO_PASS_TABLES)).toEqual(['animals', 'events']);
+    it('includes domain and assistant self-link two-pass tables', () => {
+      expect(Object.keys(TWO_PASS_TABLES)).toEqual(['animals', 'events', 'assistant_transcript_turns', 'voice_entry_attempts', 'assistant_proposal_revisions', 'assistant_field_mappings']);
     });
   });
 
@@ -181,7 +181,7 @@ describe('backup-import (CP-56)', () => {
       const reversed = [...backupTableKeys].reverse();
       // FK_ORDER is the canonical insert order — it doesn't depend on JSON key order
       expect(FK_ORDER[0]).toBe('operations');
-      expect(FK_ORDER[FK_ORDER.length - 1]).toBe('submissions');
+      expect(FK_ORDER[FK_ORDER.length - 1]).toBe('offline_voice_notes');
       // The import code iterates FK_ORDER, not Object.keys(backup.tables)
       expect(reversed[0]).not.toBe(FK_ORDER[0]); // proves JSON order differs
     });

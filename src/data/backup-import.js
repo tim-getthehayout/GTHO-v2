@@ -12,7 +12,7 @@ import { pullAllRemote } from './pull-remote.js';
 import { logger } from '../utils/logger.js';
 
 const SUPPORTED_FORMAT_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 39;
+const CURRENT_SCHEMA_VERSION = 40;
 
 const FK_ORDER = [
   'operations',
@@ -65,12 +65,32 @@ const FK_ORDER = [
   'animal_notes',
   'todos',
   'todo_assignments',
+  // Artifact metadata only: audio bytes have no backup/storage contract.
+  'assistant_conversations',
+  'assistant_transcript_turns',
+  'voice_entry_attempts',
+  'assistant_proposals',
+  'assistant_proposal_revisions',
+  'assistant_field_mappings',
+  'assistant_review_cards',
+  'assistant_review_confirmations',
   'submissions',
+  'submission_field_states',
+  'submission_repro_steps',
+  'assistant_session_checkpoints',
+  'assistant_execution_results',
+  'assistant_testing_consents',
+  'assistant_testing_audio',
+  'offline_voice_notes',
 ];
 
 const TWO_PASS_TABLES = {
   animals: ['dam_id', 'sire_animal_id'],
   events: ['source_event_id'],
+  assistant_transcript_turns: ['corrects_turn_id'],
+  voice_entry_attempts: ['previous_attempt_id'],
+  assistant_proposal_revisions: ['superseded_by_id'],
+  assistant_field_mappings: ['correction_predecessor_id'],
 };
 
 const REFERENCE_TABLES = new Set([
@@ -282,6 +302,18 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     const migResult = migrateBackupForward(backup);
     if (migResult.error) {
       return { success: false, error: migResult.error, autoBackupFileName };
+    }
+  }
+
+  // Break only nullable self-links; retained values come from the backup on restore.
+  // This is wholesale restore, NOT finished-at retention cleanup.
+  for (const [table, columns] of Object.entries(TWO_PASS_TABLES)) {
+    try {
+      const changes = Object.fromEntries(columns.map(column => [column, null]));
+      const { error } = await supabase.from(table).update(changes).eq('operation_id', operationId);
+      if (error) throw error;
+    } catch (err) {
+      return { success: false, error: `Detach failed on ${table}: ${err.message}`, autoBackupFileName };
     }
   }
 

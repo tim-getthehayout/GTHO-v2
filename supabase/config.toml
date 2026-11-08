@@ -1,0 +1,4 @@
+# Local composition configuration only. No project link or deployment is made.
+[functions.gtho-assistant]
+entrypoint = './functions/gtho-assistant/index.js'
+verify_jwt = true

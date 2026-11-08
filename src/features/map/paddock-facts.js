@@ -4,8 +4,8 @@ import { getAll } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display } from '../../utils/units.js';
 
-export function lastClosedGraze(locationId) {
-  const windows = getAll('eventPaddockWindows').filter((w) => w.locationId === locationId && w.dateClosed);
+export function lastClosedGraze(locationId, sourceWindows = getAll('eventPaddockWindows')) {
+  const windows = sourceWindows.filter((w) => w.locationId === locationId && w.dateClosed);
   if (!windows.length) return null;
   windows.sort((a, b) => String(b.dateClosed).localeCompare(String(a.dateClosed))
     || String(b.timeClosed || '').localeCompare(String(a.timeClosed || '')));

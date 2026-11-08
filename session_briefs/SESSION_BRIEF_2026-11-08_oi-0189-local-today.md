@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-08  
 **Source:** GTHO Design session  
-**Status:** Ready for GTHO Build
+**Status:** Implemented (Forgejo PR #3, merged 2026-11-08). Main at 9f84f3c. GitHub publish pending; live stamp unchanged.
 
 ## What was decided
 
@@ -109,3 +109,7 @@ The 42 `src/features/` files as of 2026-11-08:
 ## Open questions for the implementer
 
 - None. Tim locked device-local today on 2026-11-08.
+
+## Close-out
+
+Shipped 2026-11-08 on Forgejo main via PR #3 (merge `9f84f3c4083b2c9c3da7196e3a5ed84d9d4651ed`, feature `33b8102ec55fd588ed1946e27ecc23c3404af72b`). `getLocalTodayStr()` matches the locked June helper. `today(timezone)` still defaults to UTC. Grep contract `new Date().toISOString().slice(0, 10)` under `src/features/` is 0. Leftover `.toISOString().slice` sites are other dates and were out of scope. Tests in `tests/unit/date-utils.test.js` cover midnight/noon/11:59 PM across five offsets, the K-5 Day 1 repro, and pasture-% noon vs late evening. GTHO Build's changelog row reports suite 1683 green and lint clean. No schema. GitHub publish was not retried, so getthehayout.com still serves the prior Pages stamp.

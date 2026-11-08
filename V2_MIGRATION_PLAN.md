@@ -586,9 +586,9 @@ Pasture surveys, feed management (transfers, inventory), calculation engine (NPK
 
 ### Phase 4 — Advanced (Checkpoints 22-32)
 
-Voice field mode (5 checkpoints), rotation calendar, season comparison, export/import, v1→v2 migration tool, multi-farm, settings screen with calc reference console.
+Voice and AI assistant (shared conversation module; see `V2_INFRASTRUCTURE.md` §8 and OI-0195), rotation calendar, season comparison, export/import, v1→v2 migration tool, multi-farm, settings screen with calc reference console.
 
-**Gate:** Voice creates a valid event. Migration tool successfully imports Tim's v1 data. Reference console shows all calcs.
+**Gate:** A confirmed voice or text write creates a valid event through the store and sync queue after a review card. (The older “Voice field mode (5 checkpoints)” line never listed those checkpoints and is retired; do not invent them.) Read-only questions and spoken feedback are in product scope but are not this gate by themselves. Migration tool successfully imports Tim's v1 data. Reference console shows all calcs.
 
 ### Phase 5 — Polish
 

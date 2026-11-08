@@ -4,6 +4,45 @@
 
 ---
 
+### OI-0195 — Voice/AI foundation: one shared push-to-talk capability that both write-entry and ask-and-answer will use
+
+**Added:** 2026-11-08 | **Area:** v2-design / voice / ai | **Priority:** P3 (new capability; the app works without it today)
+
+**Status:** open — DESIGN IN PROGRESS 2026-11-08 (slice and shared module locked; original docs rewritten the same day; foundation not fully specified). Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
+
+**Need.** Users should be able to enter farm data by voice with an AI helper instead of typing into small phone fields, and they should also be able to ask questions about farm state ("Is cow X open?", "How many open cows do I have?", "When was paddock X last grazed?"). Before this filing there was no open item, no `PROJECT_STATUS.md` mention, and no matching code in `src/`, `tests/`, or `supabase/`. The April 2026 sketch in `V2_INFRASTRUCTURE.md` §8 (reviewed 2026-04-12 in `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md`) has been rewritten as of 2026-11-08 and is no longer current design. The April session brief stays historical. `V2_SCHEMA_DESIGN.md` Domain 11 no longer treats the April transcript/training/script/confidence list as the planned table set. `V2_MIGRATION_PLAN.md` Phase 4 retires the unnamed “Voice field mode (5 checkpoints)” line.
+
+**Slice locked 2026-11-08 (Tim):**
+
+1. Voice/AI is a shared foundation piece first. Write-entry and ask-and-answer are paths that use that piece and follow after it.
+2. Both paths are accessed from one push-to-talk interface, not separate screens or buttons for writing versus asking.
+3. Write-entry still has an easy check: a review card the user can accept, or correct by voice. That is the meaning of “skip the UI” — voice-first entry plus a card, not no review at all.
+4. Ask-and-answer is in scope for the product. It will be designed as a path that uses this foundation, not as a separate voice product.
+5. A shared module makes sense: one conversation runtime used by GTHO, not folding the general assistant into `feedback-module`. Spoken feedback uses that same assistant and the existing feedback interview contract.
+6. The original April 2026 voice/AI docs were reviewed against current practice rather than assumed correct, and rewritten. Haiku, Phi, Gemma, WebLLM, silent training capture, confidence-as-a-gate, the narrow `InferenceAdapter`, `source: 'voice' | 'manual'`, the guided-script library, and the unnamed “5 checkpoints” are superseded, not unlocked remaining design.
+
+**Constraint already in the calc spec:** `V2_CALCULATION_SPEC.md` says any future voice-input flow that talks about remaining feed must import `getLiveRemainingForMove` from `src/calcs/feed-state.js` rather than recompute it. Carry this into the ask-and-answer path and any write path that mentions remaining feed.
+
+**Out of scope for this item:** implementing either path; schema tables for transcripts, training data, guided scripts, or confidence scores (not in the launch schema; design them when implementation of this capability begins); recreating `CLAUDE.md` or a vendored `project-framework/` copy.
+
+**Still unspecified (do not invent):** the shared conversation contract (Chief of Staff); who maintains the sibling runtime; how existing Get help / support submissions map to a shared bug-or-request interview; whether the first release records an offline audio note; where the single push-to-talk control lives; hold-to-talk versus server voice-activity detection after the button is pressed; which write types and which questions ship first; schema tables or columns.
+
+**Acceptance criteria:**
+
+- [ ] Foundation brief names what the shared piece is responsible for versus what each path owns, without inventing implementation.
+- [ ] One push-to-talk interface is specified enough that Build would not have to guess where it lives or how it is used for both paths.
+- [ ] Follow-on items (or brief sections) exist for the write-entry path and the ask-and-answer path, each depending on this foundation.
+- [x] April §8 is rewritten to current practice (Haiku-era stack removed as architecture; leftover history only in the superseded-sketch section and the April 12 session brief).
+- [ ] No code in this item until the foundation is design-locked and handed to GTHO Build.
+
+**CP-55/CP-56 spec impact:** None yet — no schema designed.
+
+**Related:** `V2_INFRASTRUCTURE.md` §8 (rewritten 2026-11-08); `V2_SCHEMA_DESIGN.md` Domain 11 future-schema note; `V2_MIGRATION_PLAN.md` Phase 4 voice line; `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md` (historical); `V2_CALCULATION_SPEC.md` remaining-feed reader rule.
+
+**Origin:** 2026-11-08. Tim asked GTHO Build to summarize a voice/AI data-entry thread and hand it to GTHO Design. Independently verified on Forgejo main at `0bcc3b7`.
+
+---
+
 ### OI-0190 — Editing a destination event's start datetime should prompt to cascade the matching source-side close timestamps; today the link silently breaks
 
 **Added:** 2026-06-24 | **Area:** v2-build / events / event-start / detail | **Priority:** P2 (workaround exists once OI-0188 ships — open the source event and edit its windows manually; this OI removes the manual round-trip and surfaces the link explicitly)
@@ -6135,6 +6174,8 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 original docs reviewed and rewritten — `V2_INFRASTRUCTURE.md` §8 is no longer the April Haiku / silent-training / on-device roadmap. Shared conversation runtime plus GTHO farm tools; review card; no offline AI promise; confidence is not a safety gate. Schema Domain 11 note and migration Phase 4 voice line updated to match. Still design in progress; shared conversation contract not invented. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`. | GTHO Design — docs only, no code this session |
+| 2026-11-08 | OI-0195 filed — voice/AI foundation. Slice locked: shared piece first, then write-entry and ask-and-answer paths; one push-to-talk interface for both; write path keeps a review card (accept or correct by voice). April `V2_INFRASTRUCTURE.md` §8 remains unlocked roadmap. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`. | GTHO Design — docs only, no code this session |
 | 2026-11-08 | OI-0189 closed — shipped on Forgejo main, PR #3 merge `9f84f3c4083b2c9c3da7196e3a5ed84d9d4651ed`, feature `33b8102ec55fd588ed1946e27ecc23c3404af72b`. Device-local `getLocalTodayStr()` as locked 2026-11-08. Grep contract 0 in `src/features/`. GitHub publish not retried. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0189-local-today.md`. | GTHO Design — docs close-out, no code this session |
 | 2026-11-08 | OI-0189 design locked — Tim chose device-local calendar date via `getLocalTodayStr()` as the June note drafted, not the operation timezone. Sweep expanded from the original ~20-callsite file list to every matching UTC-today slice in `src/features/` (80 matches / 42 files as of 2026-11-08) plus entity defaults for `movedAt` and `adjustmentDate` and the three `today()` callers that omit a timezone. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0189-local-today.md`. | GTHO Design — no code this session |
 | 2026-06-24 | OI-0188 filed (P1) — closed events have no in-UI entry point; the events-log item onClick is a no-op (`navigate('#/events')` on the same screen) and there is no `#/event/:id` route, so post-close correction is impossible without dev tools. Surfaced during Tim's K-5 / G-5 reconciliation. Min-viable fix: wire events-log onClick to `openEventDetailSheet`. | Cowork — body in OPEN_ITEMS.md (no spec file yet) |

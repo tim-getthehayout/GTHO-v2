@@ -450,6 +450,7 @@ Tim locked these choices in the GTHO Design chat:
 6. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. They live in a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain in that log as history, but confirmed farm data still lives in the ordinary records. This log is not silent training or audit capture.
 7. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop. On desktop it is a floating, movable control.
 8. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. Do not promise offline AI parsing or answers; existing manual entry remains available. No on-device model is committed for launch.
+9. Tap once to start listening. The session uses voice-activity detection to hear when the user finishes, and that detection should tolerate brief pauses rather than cutting off at the first silence. A designated spoken stop phrase also ends the turn; the exact phrase is not locked. Hold-to-talk is not the launch default and may be a later option.
 
 Chief of Staff owns the still-unwritten shared conversation contract and the `feedback-module` interview contract. GTHO Design owns farm questions, write flows, domain rules, GTHO schema, and the review of farm writes. Farm rules never move into the shared runtime.
 
@@ -471,7 +472,7 @@ Keep from April: a review card before a write commits; multi-turn correction of 
 
 One shared conversation runtime (a sibling shared module; its contract is still unwritten) plus app-owned GTHO tools.
 
-**Entry.** One push-to-talk control for write, ask, and spoken feedback. A text fallback must use the same intent, review, and confirmation rules — not a separate product. The control is prominent in field mode and is present on desktop as a floating, movable control. Hold-to-talk versus server voice-activity detection after the button is pressed is not locked, nor is the exact default dock position or screen edge.
+**Entry.** One push-to-talk control for write, ask, and spoken feedback. A text fallback must use the same intent, review, and confirmation rules — not a separate product. The control is prominent in field mode and is present on desktop as a floating, movable control. Tap once to start listening. The session uses voice-activity detection to hear when the user finishes, and that detection should tolerate brief pauses rather than cutting off at the first silence. A designated spoken stop phrase also ends the turn; the exact phrase is not locked. Hold-to-talk is not the launch default and may be a later option. Do not invent silence thresholds here. The exact default dock position or screen edge is not locked.
 
 **Online voice (current practice as of 2026-11-08).** Use a realtime speech-to-speech session, not a browser-speech-to-text step followed by a separate chat completion. xAI documents `wss://api.x.ai/v1/realtime` with custom function tools. Browsers cannot attach an `Authorization` header to a WebSocket; the client should authenticate with a short-lived ephemeral token from a GTHO backend (`POST https://api.x.ai/v1/realtime/client_secrets`). The long-lived provider key stays server-side and never ships in the PWA. An ephemeral token is not farm-data authorization: executors must still check the signed-in user and operation membership. Prefer a versioned voice model in production (`grok-voice-latest` is documented as an alias for the current flagship; pin the versioned name when shipping). A Supabase Edge Function is one possible token broker, not a locked deployment choice.
 
@@ -489,6 +490,7 @@ One shared conversation runtime (a sibling shared module; its contract is still 
 
 - Who maintains the sibling runtime contract (assign before build; not established by today’s framework).
 - How existing Get help / support submissions map to a shared bug-or-request interview without losing purpose or history.
+- The exact spoken stop phrase that ends a listening turn.
 - Supported storage, consent, playback/delete, and retention for offline audio notes (design schema-first when implementation begins).
 - Where the voice-to-entry log lives in the app chrome, which columns and filters besides unfinished ship first, how long items persist, and the schema for the log (design schema-first when implementation begins).
 - The exact default dock position or screen edge for the desktop floating control, and the first farm-write flows to ship (GTHO Design, after the shared contract exists).
@@ -535,6 +537,7 @@ The 15-minute stale threshold is a balance between honesty and noise — short e
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 — tap-to-start listening | Tap once to start listening. Voice-activity detection should tolerate brief pauses rather than cutting off at the first silence. A designated spoken stop phrase also ends the turn; the exact phrase is not locked. Hold-to-talk is not the launch default and may be a later option. |
 | 2026-11-08 | OI-0195 — offline audio notes | When voice is used while disconnected, record an audio note and process it when back online. The note is an unfinished voice-to-entry log item until then. No offline AI parsing or answers. No on-device model for launch. Storage, consent, playback/delete, and retention remain open. |
 | 2026-11-08 | OI-0195 — voice-to-entry log | The exception inbox is a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain as history; confirmed farm data still lives in ordinary records. Chrome placement, extra filters, columns, retention, and schema remain open. |
 | 2026-11-08 | OI-0195 — exceptions and PTT placement | Locked recoverable exceptions (incomplete, invalid, interrupted, or abandoned proposals stay available to finish later). Locked push-to-talk as prominent in field mode and as a floating, movable control on desktop. Inbox location, retention, schema, and exact desktop dock position remain open. |

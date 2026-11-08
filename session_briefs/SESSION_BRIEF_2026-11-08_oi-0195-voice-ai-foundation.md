@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-08  
 **Source:** GTHO Design session  
-**Status:** Design in progress (slice, shared-module, recoverable-exceptions, push-to-talk placement, voice-to-entry log, and offline audio notes locked 2026-11-08; original docs rewritten the same day). Follow-on locks landed as Forgejo PR #7, merge `e44d641`, after the rewrite at PR #6, merge `7d536cb`. Voice-to-entry log landed as Forgejo PR #8, merge `0b9f21e`. Foundation is not fully specified. Shared conversation contract is still unwritten (Chief of Staff). Not ready for GTHO Build.
+**Status:** Design in progress (slice, shared-module, recoverable-exceptions, push-to-talk placement, voice-to-entry log, offline audio notes, and tap-to-start listening locked 2026-11-08; original docs rewritten the same day). Follow-on locks landed as Forgejo PR #7, merge `e44d641`, after the rewrite at PR #6, merge `7d536cb`. Voice-to-entry log landed as Forgejo PR #8, merge `0b9f21e`. Offline audio notes landed as Forgejo PR #9, merge `3aada9c`. Foundation is not fully specified. Shared conversation contract is still unwritten (Chief of Staff). Not ready for GTHO Build.
 
 ## What was decided
 
@@ -20,6 +20,7 @@ On 2026-11-08 Tim locked this slice:
 8. Those attempts live in a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain in that log as history; this is not a silent training or audit capture of every conversation.
 9. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop as a floating, movable control.
 10. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. Do not promise offline AI parsing or answers; existing manual entry remains available. No on-device model is committed for launch.
+11. Tap once to start listening. Voice-activity detection should tolerate brief pauses rather than cutting off at the first silence. A designated spoken stop phrase also ends the turn; the exact phrase is not locked. Hold-to-talk is not the launch default and may be a later option.
 
 GTHO Build summarized an earlier thread and handed it here. Independently verified on Forgejo main at `0bcc3b7` (2026-11-08): there was no open item, no mention in `PROJECT_STATUS.md`, and no matching code in `src/`, `tests/`, or `supabase/`. The April design lived in `V2_INFRASTRUCTURE.md` §8, reviewed 2026-04-12 in `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md` (Session 6). That April brief stays historical; do not rewrite it as if it were current.
 
@@ -57,16 +58,16 @@ Do not invent:
 - The shared conversation contract (Chief of Staff)
 - Who maintains the sibling runtime (assign before build)
 - How existing Get help / support submissions map to a shared bug-or-request interview
+- The exact spoken stop phrase that ends a listening turn
 - Supported storage, consent, playback/delete, and retention for offline audio notes
 - Where the voice-to-entry log lives in the app chrome, which columns and filters besides unfinished ship first, how long items persist, and the schema for the log
-- Hold-to-talk versus server voice-activity detection after the button is pressed
 - The exact default dock position or screen edge for the desktop floating control
 - Which write types and which questions ship first
 - Schema tables or columns for this capability
 
 ## What to build / change
 
-Nothing in `src/`, `tests/`, or `supabase/` until this foundation is design-locked and handed to GTHO Build. This session’s change is documentation only: file OI-0195, rewrite `V2_INFRASTRUCTURE.md` §8 and the matching schema and migration notes, record recoverable exceptions, push-to-talk placement, the voice-to-entry log, and offline audio notes, and update this brief and `PROJECT_STATUS.md`. The first rewrite landed as Forgejo PR #6 (merge `7d536cbb152a732e012b0a301279eb37f8b32b90`). Recoverable exceptions and push-to-talk placement landed as Forgejo PR #7 (merge `e44d641b3b4e54c8d909005498767b124285a18c`). The voice-to-entry log landed as Forgejo PR #8 (merge `0b9f21e8de55280b63966f3aa6b3d0947fad4213`).
+Nothing in `src/`, `tests/`, or `supabase/` until this foundation is design-locked and handed to GTHO Build. This session’s change is documentation only: file OI-0195, rewrite `V2_INFRASTRUCTURE.md` §8 and the matching schema and migration notes, record recoverable exceptions, push-to-talk placement, the voice-to-entry log, offline audio notes, and tap-to-start listening, and update this brief and `PROJECT_STATUS.md`. The first rewrite landed as Forgejo PR #6 (merge `7d536cbb152a732e012b0a301279eb37f8b32b90`). Recoverable exceptions and push-to-talk placement landed as Forgejo PR #7 (merge `e44d641b3b4e54c8d909005498767b124285a18c`). The voice-to-entry log landed as Forgejo PR #8 (merge `0b9f21e8de55280b63966f3aa6b3d0947fad4213`). Offline audio notes landed as Forgejo PR #9 (merge `3aada9cc77ce5ab94c0202dcd1fc17ea462efac4`).
 
 Follow-on farm-tool contracts (write-entry flows and ask-and-answer bindings, including remaining feed) remain GTHO Design work after the shared contract exists. Do not start implementation from this brief.
 

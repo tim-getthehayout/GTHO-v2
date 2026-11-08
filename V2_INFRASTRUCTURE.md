@@ -447,7 +447,7 @@ Tim locked these choices in the GTHO Design chat:
 3. A write still has an easy check: a review card the user can accept, or correct by voice (or text). Voice-first means less typing, not no review.
 4. Ask-and-answer is in product scope (examples: “Is cow X open?”, “How many open cows do I have?”, “When was paddock X last grazed?”).
 5. A shared module makes sense: one conversation runtime used by GTHO, not folding the general assistant into `feedback-module`. Spoken feedback should use that same assistant and the existing feedback interview contract, not a second inbox.
-6. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. Successful confirmed writes become ordinary farm records. Do not silently keep every conversation as training or audit data.
+6. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. They live in a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain in that log as history, but confirmed farm data still lives in the ordinary records. This log is not silent training or audit capture.
 7. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop. On desktop it is a floating, movable control.
 
 Chief of Staff owns the still-unwritten shared conversation contract and the `feedback-module` interview contract. GTHO Design owns farm questions, write flows, domain rules, GTHO schema, and the review of farm writes. Farm rules never move into the shared runtime.
@@ -478,7 +478,7 @@ One shared conversation runtime (a sibling shared module; its contract is still 
 
 **Confirmation.** Show a review card before a farm write or a feedback filing. The user can accept, correct by voice or text, or cancel. Switching intent (“that was actually a bug,” “wait, log a move instead”) must not commit an abandoned proposal or file feedback accidentally.
 
-**Exceptions.** If a proposal is incomplete, fails validation, is interrupted, or the user walks away mid-review, keep it as a recoverable exception so they can pick it up and finish later. That is in addition to the in-the-moment review card. Discard remains available. Do not invent the inbox location, retention period, or schema here.
+**Exceptions.** If a proposal is incomplete, fails validation, is interrupted, or the user walks away mid-review, keep it as a recoverable exception so they can pick it up and finish later. That is in addition to the in-the-moment review card. Discard remains available. These attempts live in a running voice-to-entry log with an easy filter for unfinished items; finished items may stay visible there as history. Do not invent the log’s place in the chrome, extra filters, columns, retention, or schema here.
 
 **Offline.** The app is offline-first for farm data, but a hosted realtime voice session cannot transcribe or run while disconnected. Do not promise offline AI parsing or answers. Existing manual entry remains available. Whether the first release records an offline audio note (that would need supported storage, consent, playback/delete, and retention) versus a typed first note plus resuming voice when back online is still open. No on-device model is committed.
 
@@ -489,7 +489,7 @@ One shared conversation runtime (a sibling shared module; its contract is still 
 - Who maintains the sibling runtime contract (assign before build; not established by today’s framework).
 - How existing Get help / support submissions map to a shared bug-or-request interview without losing purpose or history.
 - Offline audio-note recording versus typed first-note capture.
-- Where the exception inbox lives, how long unfinished items persist, and the schema for recoverable proposals (design schema-first when implementation begins).
+- Where the voice-to-entry log lives in the app chrome, which columns and filters besides unfinished ship first, how long items persist, and the schema for the log (design schema-first when implementation begins).
 - The exact default dock position or screen edge for the desktop floating control, and the first farm-write flows to ship (GTHO Design, after the shared contract exists).
 
 Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
@@ -534,6 +534,7 @@ The 15-minute stale threshold is a balance between honesty and noise — short e
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-08 | OI-0195 — voice-to-entry log | The exception inbox is a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain as history; confirmed farm data still lives in ordinary records. Chrome placement, extra filters, columns, retention, and schema remain open. |
 | 2026-11-08 | OI-0195 — exceptions and PTT placement | Locked recoverable exceptions (incomplete, invalid, interrupted, or abandoned proposals stay available to finish later). Locked push-to-talk as prominent in field mode and as a floating, movable control on desktop. Inbox location, retention, schema, and exact desktop dock position remain open. |
 | 2026-11-08 | OI-0195 — voice/AI review | Rewrote §8. Retired the April three-phase Haiku / silent-training / on-device roadmap. Current design: shared conversation runtime plus GTHO farm tools; one push-to-talk; review card; realtime speech-to-speech with ephemeral tokens as current practice; no offline AI promise; confidence is not a safety gate. Not a build target. |
 | 2026-04-12 | Session 6 — Infrastructure review | §3.1: Added A9/A10 exception references. §3.3: Aligned app_logs to schema (+operation_id nullable, +context jsonb, RLS by user_id). §3.4–3.5: Added A10 refs, dead letter context structure. §4.1–4.2: Aligned submissions to schema, added A25 ref. §5.1: Fixed RLS to use operation_members, added user-scoped example. §8: Added roadmap scope note. |

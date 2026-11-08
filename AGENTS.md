@@ -3,7 +3,23 @@
 This file adapts the shared Project Framework for this specific project.
 Shared process rules (roles, ownership, handoff, delivery gates, session protocol) come from `project-framework/AGENTS.md`. Domain content and implementation rules live here.
 
-**Living status document:** `PROJECT_STATUS.md` (read this first at the start of every conversation or Grok Build session).
+**Living status document:** `PROJECT_STATUS.md` (read this first at the start of every conversation or Build session).
+**Framework reference:** `Homelab/project-framework` on Forgejo (`https://git.sarnford.com/Homelab/project-framework`). Shared process lives there; do not copy it into this file.
+
+**Team**
+- Design bot: GTHO Design
+- Build bot: GTHO Build
+- Git Bridge: Homelab Git Bridge
+- Orchestrator: Orchestrator
+
+**Git setup**
+- Mode: B (feature branch and pull request)
+- Writer machine: OmarchyHomelab
+- Clone path: `/home/tim/Work/GTHO-v2`
+- Canonical remote: `https://git.sarnford.com/Homelab/GTHO-v2.git`
+- Publish mirror: GitHub `tim-getthehayout/GTHO-v2` (one-way). After Forgejo `main` updates, Homelab Git Bridge publishes a fast-forward update to GitHub `main` so `.github/workflows/deploy.yml` can deploy GitHub Pages to `https://getthehayout.com/`. Do not develop on GitHub or push GitHub changes back onto Forgejo.
+
+Elevate reusable process improvements to `Homelab/project-framework` by messaging Chief of Staff; do not keep them only in this file.
 
 `CLAUDE.md` is retired. Do not use it. This file replaces it.
 
@@ -19,7 +35,7 @@ Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, G
 - A migration file on disk is not applied. Run it against Supabase in the same session, or hand Tim the SQL if this session cannot reach the project. Verify the columns before calling the work done.
 - Offline-first. Writes go through the store and sync queue. No direct Supabase writes from feature code.
 - No `innerHTML`. Compute on read. Scoped changes only.
-- `main` deploys on push. Do not force-push.
+- `main` deploys after the GitHub mirror publish. Do not force-push.
 
 **Key working notes**
 - Domain specs stay where they are: `V2_SCHEMA_DESIGN.md`, `V2_UX_FLOWS.md`, `V2_APP_ARCHITECTURE.md`, `V2_CALCULATION_SPEC.md`, `V2_INFRASTRUCTURE.md`, `V2_DESIGN_SYSTEM.md`, `V2_MIGRATION_PLAN.md`, `V2_BUILD_INDEX.md`.
@@ -34,12 +50,12 @@ Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, G
 The following process rules apply unless this project explicitly overrides them. Fuller detail is in `project-framework/AGENTS.md`.
 
 ### Roles and ownership
-- **Grok project chat** owns design, prioritization, living status, and session briefs/specs.
-- **Grok Build** owns concrete implementation (files, commands, configs) and does not invent design decisions.
-- **Homelab Git Bridge** lands doc-only changes it is handed, and it also manages and merges pull requests (docs-only pull requests it opens, and implementation pull requests Grok Build or GTHO Build opens). It checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. It does not invent design, never force-pushes, and does not push while Grok Build is editing the repo.
+- **GTHO Design** owns design, prioritization, living status, and session briefs/specs.
+- **GTHO Build** owns concrete implementation (files, commands, configs) and does not invent design decisions.
+- **Homelab Git Bridge** lands doc-only changes it is handed, and it also manages and merges pull requests (docs-only pull requests it opens, and implementation pull requests GTHO Build opens). It checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. It does not invent design, never force-pushes, and does not push while GTHO Build is editing the repo.
 - **Git** is the durable handoff medium between the two and between machines.
 
-Grok Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` unless the handoff says to. A docs-only handoff is not that exception: send docs-only pull requests to Homelab Git Bridge, not Grok Build or GTHO Build. Grok project chat does not treat an unimplemented idea as shipped.
+GTHO Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` unless the handoff says to. A docs-only handoff is not that exception: send docs-only pull requests to Homelab Git Bridge, not GTHO Build. GTHO Design does not treat an unimplemented idea as shipped.
 
 ### Session start
 1. Read the latest `PROJECT_STATUS.md`.
@@ -50,18 +66,18 @@ Grok Build does not edit design docs, `OPEN_ITEMS.md`, or `PROJECT_STATUS.md` un
 If `PROJECT_STATUS.md` is missing or empty, stop and run the scaffold in `project-framework/SKILL.md`. Do not invent the status.
 
 ### Handoff
-Design decisions and requirements are written into `PROJECT_STATUS.md` and/or a session brief or spec, then committed. Grok Build is pointed at those docs with a focused prompt. After implementation, return to the Grok chat to review and update status.
+Design decisions and requirements are written into `PROJECT_STATUS.md` and/or a session brief or spec, then committed. GTHO Build is pointed at those docs with a focused prompt. After implementation, return to the Grok chat to review and update status.
 
 Build prompt shape:
 
 > Read PROJECT_STATUS.md and the latest session brief. Implement the changes described. Follow AGENTS.md. Do not invent design decisions.
 
-#### Handoff to implementation (Grok Build or bot)
+#### Handoff to implementation (GTHO Build)
 
 1. Write or update the session brief before handoff.
 2. Update living status in `PROJECT_STATUS.md` before handoff.
 3. Hand off with an explicit prompt that includes the delivery gates.
-4. After implementation, return the report to the project chat.
+4. After implementation, return the report to GTHO Design.
 5. After a Pages deploy, update living status and name the build stamp.
 6. If the work cites an `OI-NNNN`, update `OPEN_ITEMS.md` in that same commit.
 
@@ -82,7 +98,7 @@ Implementation side, before the task is done:
 - If the change ships to the live app, tell Tim the build stamp to confirm. The header shows `bYYYY-MM-DD.HHMM-<shortsha>` (`data-testid="header-build-stamp"`). The short sha is the commit that deploy built. Do not call the work visible until that stamp is on the device after a hard refresh.
 
 ### Continuous improvement
-Reusable process improvements go back to the framework repository. Project-specific lessons stay here. Refresh `project-framework/` when the upstream framework changes.
+Reusable process improvements are elevated to `Homelab/project-framework` right away by messaging Chief of Staff (and telling Orchestrator if an exclusive edit is needed). Project-specific lessons stay here. Do not copy shared process into this file.
 
 ---
 
@@ -90,9 +106,9 @@ Reusable process improvements go back to the framework repository. Project-speci
 
 These extend the rules above. They do not replace them.
 
-- Grok project chat replaces the old Cowork role. Grok Build replaces the old Claude Code role.
-- Grok project chat edits `V2_*.md`, `OPEN_ITEMS.md`, `github/issues/` specs, `V2_BUILD_INDEX.md`, and `PROJECT_STATUS.md`.
-- Grok Build updates `PROJECT_CHANGELOG.md` (one row per change) and code under `src/`, `tests/`, and `supabase/`.
+- GTHO Design replaces the old Cowork role. GTHO Build replaces the old Claude Code role.
+- GTHO Design edits `V2_*.md`, `OPEN_ITEMS.md`, `github/issues/` specs, `V2_BUILD_INDEX.md`, and `PROJECT_STATUS.md`.
+- GTHO Build updates `PROJECT_CHANGELOG.md` (one row per change) and code under `src/`, `tests/`, and `supabase/`.
 - Homelab Git Bridge never pushes to `main`; its doc-only changes go through a pull request like any other (see Git Workflow). It manages and merges both docs-only and implementation pull requests. It does not edit code.
 - Either role may log in `IMPROVEMENTS.md`. A completed `TASKS.md` item is checked in the same session.
 - A commit that cites `OI-NNNN` must also update `OPEN_ITEMS.md` in that commit. Close sibling items on the same path or symbol in that commit. A schema bump or dropped column closes now-moot items that name the retired symbol.
@@ -106,34 +122,36 @@ Moved here from `CLAUDE.md` on 2026-10-04. The April 2026 UI sprint is retired. 
 
 ## Git Workflow
 
-- **Mode:** framework Mode B (feature branch and pull request).
-- **Writer:** Tim's Mac, clone `~/Github/GTHO-v2`, pushing to GitHub `tim-getthehayout/GTHO-v2`.
-- **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages on every push to main. Site at `https://getthehayout.com/` (`https://tim-getthehayout.github.io/GTHO-v2/` redirects there)
-- **Grok project chat** never pushes. It writes the session brief. Homelab Git Bridge commits doc-only updates (session briefs, living status, schema-stamp notes, design docs) through a pull request. Grok Build commits implementation (code under `src/`, `tests/`, and `supabase/`, plus the matching `PROJECT_CHANGELOG.md` row) on a feature branch. Do not hand Grok Build or GTHO Build a docs-only PR.
-- **Grok Build** commits on a feature branch made from `main` and pushes that branch. Feature branches do not deploy.
-- **Pull request:** each feature gets a GitHub pull request into `main`. Homelab Git Bridge can manage the pull request and merge it.
-- **Homelab Git Bridge** lands doc-only changes, checks that pushed branches are intact when asked, and verifies `main` after a merge with `git ls-remote`. Its doc-only changes also go through a pull request into `main`; it has no bypass and never pushes to `main`.
-- A docs-only pull request is opened and managed by Homelab Git Bridge, not Grok Build or GTHO Build.
-- When Grok Build (or GTHO Build) has opened an implementation pull request and reports it ready to merge, it notifies Homelab Git Bridge automatically. Do not wait for Tim or project chat to request that handoff. Homelab Git Bridge then manages and merges the pull request.
-- **`main` protection (intended setting):** GitHub ruleset on `main`: pull request required (0 approvals), no force-pushes, no deletion, no bypass actors.
+- **Mode:** framework Mode B (feature branch and pull request on Forgejo).
+- **Writer:** OmarchyHomelab, clone `/home/tim/Work/GTHO-v2`. Homelab Git Bridge is the only pusher to Forgejo.
+- **Canonical remote:** `https://git.sarnford.com/Homelab/GTHO-v2.git`
+- **Publish mirror:** GitHub `https://github.com/tim-getthehayout/GTHO-v2.git`. One-way only, after Forgejo `main` updates. Never develop on GitHub. Never push GitHub changes back onto Forgejo.
+- **Deploy:** GitHub Actions workflow (`.github/workflows/deploy.yml`) runs lint → test → build → deploy to GitHub Pages when GitHub `main` is updated by the mirror publish. Site at `https://getthehayout.com/` (`https://tim-getthehayout.github.io/GTHO-v2/` redirects there). Feature branches do not deploy. A Forgejo merge is not live until the GitHub Pages workflow succeeds.
+- **GTHO Design** never pushes. It writes the session brief. Homelab Git Bridge commits doc-only updates (session briefs, living status, schema-stamp notes, design docs) through a Forgejo pull request.
+- **GTHO Build** commits implementation (code under `src/`, `tests/`, and `supabase/`, plus the matching `PROJECT_CHANGELOG.md` row) on a feature branch made from `main`. Do not hand GTHO Build a docs-only PR. Feature branches do not deploy.
+- **Pull request:** each feature gets a Forgejo pull request into `main`. Homelab Git Bridge manages and merges it.
+- **Homelab Git Bridge** lands doc-only changes, checks that pushed branches are intact when asked, and verifies Forgejo `main` after a merge with `git ls-remote`. Its doc-only changes also go through a Forgejo pull request into `main`; it does not push directly to Forgejo `main` and never force-pushes. After a successful Forgejo merge, it publishes a fast-forward update of `main` to the GitHub mirror so Pages can deploy.
+- A docs-only pull request is opened and managed by Homelab Git Bridge, not GTHO Build.
+- When GTHO Build has opened an implementation pull request and reports it ready to merge, it notifies Homelab Git Bridge and Orchestrator automatically. Do not wait for Tim or GTHO Design to request that handoff. Homelab Git Bridge then manages and merges the pull request.
+- **`main` protection (intended setting):** Forgejo requires a pull request into `main` (0 approvals), no force-pushes, and no deletion. GitHub `main` accepts fast-forward mirror publishes from Homelab Git Bridge only; no force-pushes, no deletion, and no GitHub pull request used as a second source of history.
 - Commit after each completed checkpoint or substantive edit
 - **Never use worktree isolation** (`isolation: "worktree"`)
 - After cloning, run `git config core.hooksPath .githooks` once to activate the orphan-flip enforcement hook (OI-0148 — `commit-msg` hook that fails any commit referencing `OI-NNNN` without staging `OPEN_ITEMS.md`; bypass with `--no-verify` when an OI is mentioned but not being closed).
 
 ## Rollback
 
-A bad Pages release is undone the same way a good one ships: through a pull request into `main`. Never force-push and never push directly to `main`.
+A bad Pages release is undone the same way a good one ships: through a Forgejo pull request into `main`, then a one-way mirror publish to GitHub. Never force-push and never push directly to Forgejo `main`.
 
-- Identify the merge that caused the problem. Open a revert of that specific pull request / merge commit. If several stacked changes shipped together, revert that specific merge, not `main` itself.
-- Homelab Git Bridge or Grok Build / GTHO Build may open the revert pull request. Homelab Git Bridge manages and merges it.
-- The revert merge to `main` triggers the existing GitHub Actions deploy workflow (`.github/workflows/deploy.yml`): lint → test → build → deploy to GitHub Pages.
+- Identify the merge that caused the problem. Open a revert of that specific pull request / merge commit on Forgejo. If several stacked changes shipped together, revert that specific merge, not `main` itself.
+- Homelab Git Bridge or GTHO Build may open the revert pull request. Homelab Git Bridge manages and merges it, then publishes the fast-forward to GitHub.
+- The GitHub mirror update of `main` triggers the existing GitHub Actions deploy workflow (`.github/workflows/deploy.yml`): lint → test → build → deploy to GitHub Pages.
 - After the deploy succeeds, confirm the header build stamp (`data-testid="header-build-stamp"`, format `bYYYY-MM-DD.HHMM-<shortsha>`) matches the revert commit's short sha after a hard refresh. Do not call the app rolled back until that stamp is visible.
 - If the deploy workflow fails, GitHub Pages stays on the last successful build, so users keep the previous app until a good `main` deploy finishes.
 - There is no "restore yesterday" button and no way to republish without a new commit on `main`. The revert pull request is the rollback.
 
-## Design Docs (read-only for Grok Build)
+## Design Docs (read-only for GTHO Build)
 
-These are the approved specs. Grok Build reads them during implementation but does not edit them unless the handoff says to. Grok project chat owns design doc changes.
+These are the approved specs. GTHO Build reads them during implementation but does not edit them unless the handoff says to. GTHO Design owns design doc changes.
 
 | Document | Purpose |
 |----------|---------|
@@ -261,7 +279,7 @@ Before committing code, verify these consistency checks:
 1. **Entity ↔ Schema alignment:** Every field in an entity's `FIELDS` must have a matching column in the migration SQL, and vice versa. Column types must match. `sbColumn` names must exactly match SQL column names.
 2. **Shape round-trip:** `toSupabaseShape()` must map every field. `fromSupabaseShape()` must reverse every mapping. Unit tests verify: `fromSupabaseShape(toSupabaseShape(record))` returns the original.
 3. **Store ↔ Entity alignment:** Every entity type in the store's state must have a corresponding entity file. Store actions must use `validate()` before persisting and `toSupabaseShape()` before syncing.
-4. **Doc ↔ Code alignment:** If code deviates from the design docs, flag it — don't silently diverge. If intentional, note it in OPEN_ITEMS.md for Grok project chat to update the spec.
+4. **Doc ↔ Code alignment:** If code deviates from the design docs, flag it — don't silently diverge. If intentional, note it in OPEN_ITEMS.md for GTHO Design to update the spec.
 5. **Calc registry:** Every formula function must have a matching `registerCalc()` call. Registry metadata must match the actual implementation.
 6. **Pure-insert flow invariants (OI-0115):** Some flows must NEVER mutate their parent entity — they're architecturally pure INSERTs. Protect these with grep-based pre-commit contracts:
    - `grep -rn "update('events'" src/features/events/submove.js` — must return 0 matches. Sub-move Open + Sub-move Close + Advance Strip are pure INSERT/UPDATE on `event_paddock_windows`; they must not touch the parent event.
@@ -307,8 +325,8 @@ v2 maintains its own backup/restore format (CP-55 export, CP-56 import). Any cha
 
 **How to apply:**
 
-1. When Grok project chat specs a schema change, it must include a "CP-55/CP-56 spec impact" line in the spec file under `github/issues/`.
-2. When Grok Build implements a schema change, verify that impact line is present and that CP-55/CP-56 specs reflect it. If they do not, add an entry to `OPEN_ITEMS.md` flagging the drift **before** committing the schema change.
+1. When GTHO Design specs a schema change, it must include a "CP-55/CP-56 spec impact" line in the spec file under `github/issues/`.
+2. When GTHO Build implements a schema change, verify that impact line is present and that CP-55/CP-56 specs reflect it. If they do not, add an entry to `OPEN_ITEMS.md` flagging the drift **before** committing the schema change.
 3. Once CP-55 and CP-56 specs exist, they are the authoritative enumeration of what is in a backup. Any subsequent schema change that is not reflected in those specs is a drift and must be corrected in the same commit (or explicitly deferred with an OPEN_ITEMS entry naming the follow-up).
 4. This rule applies from 2026-04-13 forward. Existing pre-CP-55 schema amendments (strip grazing columns, `operations.unit_system`, `user_preferences.active_farm_id`, `events.source_event_id`, `npk_price_history`, `animal_notes`, `animal_classes` rename/splits, `animal_calving_records.dried_off_date`, `farm_settings` forage quality scale, `app_logs` +operation_id/+context) are handled by the initial CP-55 spec write-up — they do not need retroactive flags.
 
@@ -324,28 +342,28 @@ Default to root cause. If you catch yourself mapping new data into a field that 
 
 ## Doc Ownership
 
-**Grok project chat** owns (edits directly):
+**GTHO Design** owns (edits directly):
 - All design docs (V2_*.md, GTHO_V1_FEATURE_AUDIT.md)
 - **OPEN_ITEMS.md** — add/close/update entries
-- **github/issues/** — spec files for Grok Build handoff
+- **github/issues/** — spec files for GTHO Build handoff
 - **V2_BUILD_INDEX.md** — phase status and current focus
 
-**Grok Build** owns (updates during implementation):
+**GTHO Build** owns (updates during implementation):
 - **PROJECT_CHANGELOG.md** — one row per change, every commit
 - **CLAUDE.md** — this file (only when rules need updating)
 - All code in `src/`, `tests/`, `supabase/`
 
 **Shared:**
 - **IMPROVEMENTS.md** — anyone can log discoveries
-- **TASKS.md** — Grok project chat updates design tasks, Grok Build updates build tasks
+- **TASKS.md** — GTHO Design updates design tasks, GTHO Build updates build tasks
 
 ### TASKS.md Completion Rule
 
-When a task tracked in TASKS.md is completed — whether a design task (Grok project chat) or a build task (Grok Build) — update TASKS.md in the same session. Check the box, and if the description needs updating to reflect what was actually delivered, update it. Do not leave completed work unchecked across sessions.
+When a task tracked in TASKS.md is completed — whether a design task (GTHO Design) or a build task (GTHO Build) — update TASKS.md in the same session. Check the box, and if the description needs updating to reflect what was actually delivered, update it. Do not leave completed work unchecked across sessions.
 
-### Spec File Handoff (from Grok project chat)
+### Spec File Handoff (from GTHO Design)
 
-Grok project chat writes spec files to `github/issues/`. Files without a `GH-` prefix are unfiled — Grok Build should:
+GTHO Design writes spec files to `github/issues/`. Files without a `GH-` prefix are unfiled — GTHO Build should:
 1. Create a GitHub issue: `gh issue create --title "TITLE" --body "$(cat github/issues/FILENAME.md)" --label "LABELS"`
 2. Rename the file: `FILENAME.md` → `GH-{number}_FILENAME.md`
 

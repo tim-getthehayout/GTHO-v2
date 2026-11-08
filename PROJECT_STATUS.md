@@ -1,7 +1,7 @@
 # GTHO v2 — Project Status
 
 **Last updated:** 2026-11-07 (custom-domain login session closed; Tim confirmed password reset on the live app; stamp at close-out `b2026-11-07.1612-f9b5948`)
-**Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Grok Build session. Update after every significant decision or change.
+**Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
 
@@ -18,7 +18,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 - Schema first. No UI field without a Supabase column.
 - A migration file is not applied until it has been run and verified.
 - Writes go through the store and sync queue.
-- `main` deploys to GitHub Pages. Do not force-push.
+- Forgejo `main` is canonical. Homelab Git Bridge publishes a one-way update to GitHub so Pages can deploy. Do not force-push.
 - GPS is foreground only. Shapefile import is out of v1.
 
 ## 3. Current State
@@ -36,7 +36,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 - Home Screen update prompt is on `main`. Feature commit `5c2db09` (GH-59). A waiting worker or a `version.json` mismatch shows Update now / Later. No auto-reload. Pages published `5c2db09` as `b2026-10-04.2101-5c2db09`, then the status commit `61472d3` as `b2026-10-04.2104-61472d3`. The header stamp matches the commit Pages last built. The existing Home Screen icon was added without a manifest and will not update itself. Remove it and add it again after the current stamp shows in Safari. The next deploy after that re-add is the one that should show the banner.
 - Feed day goal formula is in `V2_UX_FLOWS.md` §13.2 (DM on hand uses weight per unit; days on hand uses farm-wide active-animal DMI). Shipped `7e4563d` + `f4763d9`.
 - Grazing event card DMI floor is on main (PR #65, aa4ed1e / merge 644511c). Pasture intake = min(FOR-1, max(0, demand − stored consumed)); floors at 0. Days remaining uses FOR-4 (leftover forage + remaining stored DM from latest ordinary check + later deliveries). Ordinary checks update residual. No schema. Pages stamp b2026-11-05.2009-54c2008. Spec: session_briefs/SESSION_BRIEF_2026-11-05_grazing-event-dmi-floor.md.
-- Working rules: root `AGENTS.md` is the session and implementation file. `CLAUDE.md` is a retired pointer. Process reference: `project-framework/AGENTS.md`. A shipped change must name the header build stamp to confirm. A push is not live until the Pages workflow succeeds.
+- Working rules: root `AGENTS.md` is the session and implementation file. `CLAUDE.md` is a retired pointer. Process reference: `Homelab/project-framework`. Canonical remote is Forgejo `Homelab/GTHO-v2`; GitHub `tim-getthehayout/GTHO-v2` is a one-way publish mirror. A shipped change must name the header build stamp to confirm. A push is not live until the Pages workflow succeeds.
 - `V2_SCHEMA_DESIGN.md` §2.1 does not yet list the migration 034 columns. Do not treat that section as the live schema for map fields.
 
 ## 4. Key Decisions / Decision Log

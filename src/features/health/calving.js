@@ -184,6 +184,9 @@ export function openCalvingSheet(dam, operationId) {
           });
           add('animalCalvingRecords', calvingRecord, CalvingEntity.validate,
             CalvingEntity.toSupabaseShape, 'animal_calving_records');
+          // Required even for stillbirths and when the optional class prompt is declined.
+          update('animals', dam.id, { confirmedBred: false },
+            AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
 
           calvingSheet.close();
 

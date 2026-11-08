@@ -21,6 +21,7 @@
 
 import { getAll, add, update, remove } from '../../data/store.js';
 import * as CalvingEntity from '../../entities/animal-calving-record.js';
+import * as AnimalEntity from '../../entities/animal.js';
 import { logger } from '../../utils/logger.js';
 
 /**
@@ -67,6 +68,9 @@ export async function syncCalvingRecordForAnimal({ before, after, operationId, c
     });
     add('animalCalvingRecords', record, CalvingEntity.validate,
       CalvingEntity.toSupabaseShape, 'animal_calving_records');
+    // Recording a birth clears the dam's stored breeding confirmation.
+    update('animals', afterDamId, { confirmedBred: false },
+      AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
     return { action: 'create', calvingRecordId: record.id, aborted: false };
   }
 
@@ -95,6 +99,9 @@ export async function syncCalvingRecordForAnimal({ before, after, operationId, c
       });
       add('animalCalvingRecords', record, CalvingEntity.validate,
         CalvingEntity.toSupabaseShape, 'animal_calving_records');
+      // Recording a birth clears the dam's stored breeding confirmation.
+      update('animals', afterDamId, { confirmedBred: false },
+        AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
       return { action: 'create', calvingRecordId: record.id, aborted: false };
     }
     const changes = { damId: afterDamId };
@@ -151,6 +158,9 @@ export async function syncCalvingRecordForAnimal({ before, after, operationId, c
       });
       add('animalCalvingRecords', record, CalvingEntity.validate,
         CalvingEntity.toSupabaseShape, 'animal_calving_records');
+      // Recording a birth clears the dam's stored breeding confirmation.
+      update('animals', afterDamId, { confirmedBred: false },
+        AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
       return { action: 'create', calvingRecordId: record.id, aborted: false };
     }
     update('animalCalvingRecords', existing.id, {

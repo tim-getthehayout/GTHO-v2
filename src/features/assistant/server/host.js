@@ -6,7 +6,8 @@ import { RuntimeError, feedback } from '../shared.js';
 import * as ProposalEntity from '../../../entities/assistant-proposals.js';
 import * as RevisionEntity from '../../../entities/assistant-proposal-revisions.js';
 import { createFarmReadPort, FARM_READ_TOOLS } from '../farm-reads.js';
-import { FARM_ENTRY_UIS, FARM_ENTRY_INSTRUCTIONS, FARM_ENTRY_FIELD_HINTS, FARM_ENTRY_TARGET_TABLE } from '../farm-entry-contract.js';
+import { FARM_ENTRY_UIS, FARM_ENTRY_INSTRUCTIONS, FARM_ENTRY_FIELD_HINTS } from '../farm-entry-contract.js';
+import { resolveEntryTarget, ENTRY_TARGET_KEY, ENTRY_TARGET_NAMES, CHOOSE_ENTRY_QUESTION, RESOLVE_ENTRY_TARGET_TOOL } from '../entry-targets.js';
 
 export const FEEDBACK_EDITABLE = Object.freeze(['title', 'type', 'expected', 'actual', 'reproSteps', 'severity', 'impact', 'needsDecision', 'unknowns']);
 export const CLIENT_APPLY_PENDING = 'client-apply-pending';
@@ -51,14 +52,12 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
     if (incoming?.operationId !== scope.operationId || incoming?.actorId !== scope.actorId || await authorize(incoming) !== true) throw new Error('unauthorized');
   }
   const readPort = createFarmReadPort({ authorize: async incoming => { await auth(incoming); return true; }, getAll });
-  async function entryTarget(session, destination) {
-    const target = session?.capture?.context?.target;
-    if (!object(target) || target.ui !== destination || !UUID.test(target.id ?? '')) fail('entry-target-required');
-    const table = FARM_ENTRY_TARGET_TABLE[destination];
-    if (!(await getAll(table)).some(row => row.id === target.id)) fail('entry-target-outside-operation');
-    if (['move', 'place'].includes(destination) && !(await getAll('farms')).some(row => row.id === target.farmId)) fail('entry-farm-outside-operation');
-    if (target.scopedGroupWindowId != null && !(await getAll('eventGroupWindows')).some(row => row.id === target.scopedGroupWindowId && row.eventId === target.id && !row.dateLeft)) fail('invalid-scoped-window');
-    return target;
+  const operationRows = async table => (await getAll(table)).filter(row => row.operationId === scope.operationId);
+  /** IDs come only from resolving the names the user said; never from the model. */
+  async function resolveTarget(proposal) {
+    const resolved = await resolveEntryTarget({ ui: proposal.destination, names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields, rows: operationRows });
+    if (resolved.status !== 'resolved') fail('entry-target-unresolved');
+    return resolved;
   }
   async function normalize(proposal) {
     const session = current();
@@ -72,8 +71,8 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
     }
     if (proposal.intent === 'data-entry') {
       if (!FARM_ENTRY_UIS.includes(proposal.destination)) fail('entry-ui-not-allowed');
-      await entryTarget(session, proposal.destination);
-      return proposal;
+      const { fill } = await resolveTarget(proposal);
+      return { ...proposal, fields: { ...proposal.fields, ...fill } };
     }
     return fail('read-only-intent');
   }
@@ -114,18 +113,27 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
         // Derived hints always; the exact open-sheet field set (dynamic fields
         // included) once the browser has that sheet open for the pending proposal.
         const open = openSheet && session?.pending?.destination === openSheet.ui ? globalThis.structuredClone(openSheet) : null;
-        return { instructions: FARM_ENTRY_INSTRUCTIONS, data: { entryUis: [...FARM_ENTRY_UIS], fieldHints: globalThis.structuredClone(FARM_ENTRY_FIELD_HINTS), openSheet: open, target: session?.capture?.context?.target ?? null }, readTools: FARM_READ_TOOLS.map(tool => ({ ...tool })) };
+        return { instructions: FARM_ENTRY_INSTRUCTIONS, data: { entryUis: [...FARM_ENTRY_UIS], chooseEntryQuestion: CHOOSE_ENTRY_QUESTION, targetNames: globalThis.structuredClone(ENTRY_TARGET_NAMES), fieldHints: globalThis.structuredClone(FARM_ENTRY_FIELD_HINTS), openSheet: open }, readTools: [{ ...RESOLVE_ENTRY_TARGET_TOOL }, ...FARM_READ_TOOLS.map(tool => ({ ...tool }))] };
       }
       if (intent === 'data-questions') return { instructions: INSTRUCTIONS['data-questions'], data: {}, readTools: FARM_READ_TOOLS.map(tool => ({ ...tool })) };
       if (intent === 'how-to') return { instructions: INSTRUCTIONS['how-to'], data: {}, readTools: [] };
       return fail('invalid-intent');
     },
-    async read(incoming, name, args) { await auth(incoming); return readPort(incoming, name, args); },
+    async read(incoming, name, args) {
+      await auth(incoming);
+      if (name !== RESOLVE_ENTRY_TARGET_TOOL.name) return readPort(incoming, name, args);
+      if (current()?.intent !== 'data-entry' || !object(args) || Object.keys(args).some(key => !['ui', ENTRY_TARGET_KEY].includes(key))) fail('read-tool-denied');
+      const resolved = await resolveEntryTarget({ ui: args.ui, names: args[ENTRY_TARGET_KEY], rows: operationRows });
+      // The model sees the question or a plain summary; IDs stay host-side.
+      return resolved.status === 'resolved' ? { status: 'resolved', ui: args.ui, summary: resolved.summary } : resolved;
+    },
     async createProposal(incoming, candidate) { await auth(incoming); return normalize(candidate); },
     async validate(incoming, proposal) {
       await auth(incoming);
       const normalized = await normalize(proposal);
       if (normalized.destination !== proposal.destination) fail('proposal-destination-mismatch');
+      // A pending entry's resolved IDs must still match the operation's rows.
+      if (JSON.stringify(normalized.fields) !== JSON.stringify(proposal.fields)) fail('entry-target-changed');
     },
     // The browser renders session.pending through its existing UI; the server only re-verifies.
     async renderReview(incoming, proposal) { await host.validate(incoming, proposal); await ensureReviewRows(proposal); },

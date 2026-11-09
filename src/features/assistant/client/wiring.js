@@ -9,8 +9,9 @@ import { CONTRACT_VERSION } from '../feedback-facts.js';
 import { createAssistantApi } from './api.js';
 import { createServerRowWaiter } from './conversation.js';
 import { mountAssistantControl } from './panel.js';
+import { mountPushToTalk, unmountPushToTalk } from './push-to-talk.js';
 
-export function createAssistantDeps({ operationId, getUser, openFeedbackSheet, screen, buildStamp, online = () => globalThis.navigator?.onLine !== false, launchTarget = null }) {
+export function createAssistantDeps({ operationId, getUser, openFeedbackSheet, screen, buildStamp, online = () => globalThis.navigator?.onLine !== false }) {
   if (!supabase) return null;
   // Local guard only; every backend call re-verifies JWT, membership and allowlist.
   const authorize = async scope => {
@@ -28,7 +29,7 @@ export function createAssistantDeps({ operationId, getUser, openFeedbackSheet, s
     scope: () => ({ operationId, actorId: getUser()?.id }),
     persist: createArtifactStore({ authorize }),
     awaitServerRows: createServerRowWaiter({ flush, exists: async (table, id) => { const { data, error } = await supabase.from(table).select('id').eq('id', id).maybeSingle(); return !error && !!data; } }),
-    flush, getAll, getById, add, runDurableWrite, pullReviewRows, authorize, createFarmUiPorts, openFeedbackSheet, online, launchTarget, buildStamp,
+    flush, getAll, getById, add, runDurableWrite, pullReviewRows, authorize, createFarmUiPorts, openFeedbackSheet, online, buildStamp,
     storage: supabase.storage,
     async revisionIdFor(pending) {
       await pullReviewRows();
@@ -40,8 +41,12 @@ export function createAssistantDeps({ operationId, getUser, openFeedbackSheet, s
   };
 }
 
-export function mountHeaderAssistant(button, options) {
+/** Header control (feedback, questions, how-to) plus the one global push-to-talk
+ * for farm voice entry. Both stay hidden unless the backend returns config. */
+export async function mountHeaderAssistant(button, options) {
   const deps = createAssistantDeps(options);
-  if (!deps) { button.hidden = true; return Promise.resolve(null); }
-  return mountAssistantControl(button, deps);
+  if (!deps) { button.hidden = true; unmountPushToTalk(); return null; }
+  const config = await mountAssistantControl(button, deps);
+  mountPushToTalk(deps, config);
+  return config;
 }

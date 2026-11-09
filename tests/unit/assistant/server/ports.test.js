@@ -22,13 +22,32 @@ function host(session, tables = {}) {
 }
 
 describe('server host ports', () => {
-  it('data-entry proposals need a host-resolved target inside the operation', async () => {
-    const session = { intent: 'data-entry', capture: { context: { target: { ui: 'treatment', id: ANIMAL } } }, transcript: [] };
-    const proposal = { id: 'p', itemRef: 'i', revision: 1, intent: 'data-entry', destination: 'treatment', fields: { product: 'Ivomec' } };
-    await expect(host(session, { animals: [{ id: ANIMAL, operation_id: OTHER_OP }] }).createProposal(scope, proposal)).rejects.toMatchObject({ code: 'entry-target-outside-operation' });
-    await expect(host(session, { animals: [{ id: ANIMAL, operation_id: OP }] }).createProposal(scope, proposal)).resolves.toEqual(proposal);
-    await expect(host({ ...session, capture: { context: {} } }).createProposal(scope, proposal)).rejects.toMatchObject({ code: 'entry-target-required' });
-    await expect(host(session, { animals: [{ id: ANIMAL, operation_id: OP }] }).createProposal(scope, { ...proposal, destination: 'harvest' })).rejects.toMatchObject({ code: 'entry-ui-not-allowed' });
+  it('data-entry targets resolve only from names the user said, inside the operation', async () => {
+    const session = { intent: 'data-entry', capture: { context: {} }, transcript: [] };
+    const proposal = { id: 'p', itemRef: 'i', revision: 1, intent: 'data-entry', destination: 'treatment', fields: { product: 'Ivomec', entryTarget: { animal: '42' } } };
+    const animals = operation_id => ({ animals: [{ id: ANIMAL, operation_id, tag_num: '42', active: true }] });
+    await expect(host(session, animals(OTHER_OP)).createProposal(scope, proposal)).rejects.toMatchObject({ code: 'entry-target-unresolved' });
+    await expect(host(session, animals(OP)).createProposal(scope, proposal)).resolves.toEqual(proposal);
+    await expect(host(session, animals(OP)).createProposal(scope, { ...proposal, fields: { product: 'Ivomec' } })).rejects.toMatchObject({ code: 'entry-target-unresolved' });
+    await expect(host(session, animals(OP)).createProposal(scope, { ...proposal, destination: 'harvest' })).rejects.toMatchObject({ code: 'entry-ui-not-allowed' });
+  });
+  it('fills paddock IDs from resolved names, overriding any model-supplied ID', async () => {
+    const LOC = '00000000-0000-4000-8000-0000000000e1', EVT = '00000000-0000-4000-8000-0000000000e2';
+    const tables = { locations: [{ id: LOC, operation_id: OP, name: 'North 40', farm_id: 'f' }], events: [{ id: EVT, operation_id: OP, farm_id: 'f' }], event_paddock_windows: [{ id: 'w', operation_id: OP, event_id: EVT, location_id: LOC, date_closed: null }] };
+    const h = host({ intent: 'data-entry', capture: { context: {} }, transcript: [] }, tables);
+    const created = await h.createProposal(scope, { id: 'p', itemRef: 'i', revision: 1, intent: 'data-entry', destination: 'feeding', fields: { date: '2026-11-09', locationId: 'model-guess', entryTarget: { paddock: 'north 40' } } });
+    expect(created.fields.locationId).toBe(LOC);
+    await expect(h.validate(scope, created)).resolves.toBeUndefined();
+    await expect(h.validate(scope, { ...created, fields: { ...created.fields, locationId: 'stale' } })).rejects.toMatchObject({ code: 'entry-target-changed' });
+  });
+  it('offers the resolve-entry-target read tool that returns one question and never IDs', async () => {
+    const h = host({ intent: 'data-entry', capture: { context: {} }, transcript: [] }, { groups: [{ id: 'g1', operation_id: OP, name: 'Heifers' }, { id: 'g2', operation_id: OP, name: 'heifers' }] });
+    const context = await h.context(scope, 'data-entry');
+    expect(context.readTools[0].name).toBe('resolve-entry-target');
+    expect(context.data.chooseEntryQuestion).toBe('Which entry did you mean: treatment, calving, feeding, move or place?');
+    expect(await h.read(scope, 'resolve-entry-target', { ui: 'move', entryTarget: {} })).toEqual({ status: 'question', question: 'Which group are you moving?' });
+    expect(await h.read(scope, 'resolve-entry-target', { ui: 'move', entryTarget: { group: 'heifers', to: 'North' } })).toEqual({ status: 'question', question: 'Which group did you mean: Heifers or heifers?' });
+    await expect(h.read(scope, 'resolve-entry-target', { ui: 'move', operationId: OTHER_OP })).rejects.toMatchObject({ code: 'read-tool-denied' });
   });
   it('rejects scopes other than the verified caller', async () => {
     await expect(host(null).context({ operationId: OTHER_OP, actorId: USER }, 'how-to')).rejects.toThrow('unauthorized');

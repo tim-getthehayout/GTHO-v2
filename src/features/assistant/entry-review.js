@@ -1,6 +1,10 @@
 /** Normal entry UI bridge. This module never imports the feedback interview. */
 import { getAll, runDurableWrite } from '../../data/store.js';
 import { createArtifactStore } from './artifact-store.js';
+import { ENTRY_TARGET_KEY } from './entry-fields.js';
+
+/** The resolved-names key travels with the proposal, not into the sheet. */
+const sheetFields = fields => Object.fromEntries(Object.entries(fields).filter(([key]) => key !== ENTRY_TARGET_KEY));
 
 export const reviewSave = (review, save) => review ? () => review.requestConfirmation(save) : save;
 const normalized = value => Array.isArray(value) ? value.map(normalized) : value !== null && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key,normalized(value[key])])) : value;
@@ -21,11 +25,11 @@ export function createEntryReview({ scope, conversationRef, authorize, onConfirm
         revision = await persist(scope,'assistantProposalRevisions',{ operationId: scope.operationId, proposalId: proposal.id, revisionNumber: proposal.revision, destinationFieldNames: Object.keys(proposal.fields) });
         for (const prior of old.filter(row => !row.supersededById)) await persist(scope,'assistantProposalRevisions',{ ...prior,supersededById: revision.id });
       }
-      open(review,proposal.fields);
+      open(review,sheetFields(proposal.fields));
       if (!binding) throw new Error('normal-entry-ui-binding-required');
-      const extra = Object.keys(proposal.fields).filter(key => !binding.fields[key]);
+      const extra = Object.keys(sheetFields(proposal.fields)).filter(key => !binding.fields[key]);
       if (extra.length) throw new Error('unknown-entry-field');
-      for (const [key,value] of Object.entries(proposal.fields)) binding.fields[key].set(value);
+      for (const [key,value] of Object.entries(sheetFields(proposal.fields))) binding.fields[key].set(value);
       // Normal UI remains the review; this card is retained evidence only.
       card = await persist(scope,'assistantReviewCards',{ operationId: scope.operationId, revisionId: revision.id, presentedAt: new Date().toISOString(), populatedUi: binding.ui, presentedEvidence: Object.entries(read()).map(([key,value]) => `${key}: ${typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '')}`).join('\n') });
     },
@@ -68,7 +72,10 @@ export function createEntryReview({ scope, conversationRef, authorize, onConfirm
     },
     fields() { return binding ? Object.entries(binding.fields).map(([name,field]) => ({ name, required: field.required, label: field.label || name })) : []; },
   };
-  function read() { return Object.fromEntries(Object.entries(binding.fields).map(([key,field]) => [key,field.get()])); }
+  function read() {
+    const values = Object.fromEntries(Object.entries(binding.fields).map(([key,field]) => [key,field.get()]));
+    return current && Object.hasOwn(current.fields,ENTRY_TARGET_KEY) ? { ...values,[ENTRY_TARGET_KEY]: globalThis.structuredClone(current.fields[ENTRY_TARGET_KEY]) } : values;
+  }
   return review;
 }
 export function inputField(input, required = false, label) {

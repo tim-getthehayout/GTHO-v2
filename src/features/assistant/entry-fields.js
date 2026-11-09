@@ -2,6 +2,9 @@
  * definition module next to it and binds its review fields THROUGH that
  * definition (bindEntryFields), so the definition cannot drift from the sheet.
  * Dynamic names ending in ':*' match any suffix (e.g. 'feed:*'). */
+/** Proposal key carrying the names the user said; it never binds to a sheet field. */
+export const ENTRY_TARGET_KEY = 'entryTarget';
+
 export function defineEntryFields(ui, statics, dynamics = {}) {
   const freeze = specs => Object.freeze(Object.fromEntries(Object.entries(specs).map(([name, spec]) => [name, Object.freeze({ required: spec.required === true, ...(spec.when ? { when: spec.when } : {}) })])));
   return Object.freeze({ ui, static: freeze(statics), dynamic: freeze(dynamics) });

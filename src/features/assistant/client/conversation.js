@@ -5,6 +5,7 @@ import { feedback } from '../shared.js';
 import { mapFeedbackFacts } from '../feedback-facts.js';
 import * as SubmissionEntity from '../../../entities/submission.js';
 import { ASSISTANT_ENTITIES } from '../entities.js';
+import { resolveEntryTarget, ENTRY_TARGET_KEY } from '../entry-targets.js';
 
 export const LIBRARY_PINS = Object.freeze({ feedbackModule: '0.1.3', conversationRuntime: '0.1.1' });
 const TABLES = { assistantConversations: 'assistant_conversations', assistantTestingConsents: 'assistant_testing_consents', assistantReviewCards: 'assistant_review_cards', assistantReviewConfirmations: 'assistant_review_confirmations', submissions: 'submissions' };
@@ -155,12 +156,17 @@ export function createFeedbackFiling({ conversation, persist, awaitServerRows, g
 }
 
 /** Farm review: existing normal UI via farm-ui ports, then the same handshake. */
-export function createFarmReviewFlow({ conversation, createFarmUiPorts, authorize, awaitServerRows, getById, flush, pullReviewRows, onResult = () => {}, onError = () => {} }) {
+export function createFarmReviewFlow({ conversation, createFarmUiPorts, authorize, awaitServerRows, getAll, getById, flush, pullReviewRows, onResult = () => {}, onError = () => {} }) {
   const { scope } = conversation;
   let ports;
   ports = createFarmUiPorts({
     scope, conversationRef: conversation.ref, authorize,
-    resolveTarget: async () => conversation.capture.context.target,
+    // Same host resolution the backend validated, over this device's synced rows.
+    resolveTarget: async (incoming, proposal) => {
+      const resolved = await resolveEntryTarget({ ui: proposal.destination, names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields, rows: async table => getAll(table).filter(row => row.operationId === scope.operationId) });
+      if (resolved.status !== 'resolved') throw new Error(resolved.question ?? 'entry-target-unresolved');
+      return resolved.target;
+    },
     onCorrect: async ({ revision, fields }) => {
       const session = await conversation.correct({ revision, fields, modality: 'text' });
       await render(session.pending);

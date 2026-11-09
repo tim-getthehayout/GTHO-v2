@@ -108,7 +108,9 @@ describe('feedback filing through the existing sheet', () => {
 describe('farm review through the existing normal UI', () => {
   it('pulls server review rows before rendering and applies through the normal UI write after confirm', async () => {
     const { createFarmReviewFlow } = await import('../../../../src/features/assistant/client/conversation.js');
-    const farmPending = { id: 'p2', itemRef: 'i2', revision: 1, intent: 'data-entry', destination: 'treatment', fields: { product: 'Ivomec' } };
+    const ANIMAL = '00000000-0000-4000-8000-0000000000d1';
+    const rowsFor = table => table === 'animals' ? [{ id: ANIMAL, operationId: OP, tagNum: '42', active: true }, { id: 'x', operationId: 'other-op', tagNum: '42', active: true }] : [];
+    const farmPending = { id: 'p2', itemRef: 'i2', revision: 1, intent: 'data-entry', destination: 'treatment', fields: { product: 'Ivomec', entryTarget: { animal: '42' } } };
     const order = [];
     let hooks;
     const ports = {
@@ -116,13 +118,14 @@ describe('farm review through the existing normal UI', () => {
       recordConfirmation: vi.fn(async () => 'conf-2'),
       applyConfirmedWrite: vi.fn(async () => ({ savedRecordId: 'treatment-1', localSavedAt: 'L' })),
     };
-    const conversation = { scope, ref: REF, capture: { context: { target: { ui: 'treatment', id: 'animal' } } }, session: { pending: farmPending }, correct: vi.fn(), confirmAndApply: vi.fn(async ({ applyLocal }) => ({ receipt: await applyLocal('key'), result: { state: 'local-save' } })) };
+    const conversation = { scope, ref: REF, capture: { context: {} }, session: { pending: farmPending }, correct: vi.fn(), confirmAndApply: vi.fn(async ({ applyLocal }) => ({ receipt: await applyLocal('key'), result: { state: 'local-save' } })) };
     const awaitServerRows = vi.fn(async () => { order.push('await'); });
     const onResult = vi.fn();
-    const flow = createFarmReviewFlow({ conversation, createFarmUiPorts: options => { hooks = options; return ports; }, authorize: async () => true, awaitServerRows, getById: () => ({ id: 'conf-2', cardId: 'card-2' }), flush: vi.fn(), pullReviewRows: async () => { order.push('pull'); }, onResult });
+    const flow = createFarmReviewFlow({ conversation, createFarmUiPorts: options => { hooks = options; return ports; }, authorize: async () => true, awaitServerRows, getAll: rowsFor, getById: () => ({ id: 'conf-2', cardId: 'card-2' }), flush: vi.fn(), pullReviewRows: async () => { order.push('pull'); }, onResult });
     await flow.render(farmPending);
     expect(order).toEqual(['pull', 'render']);
-    expect(await hooks.resolveTarget()).toEqual({ ui: 'treatment', id: 'animal' });
+    expect(await hooks.resolveTarget(scope, farmPending)).toEqual({ ui: 'treatment', id: ANIMAL });
+    await expect(hooks.resolveTarget(scope, { ...farmPending, fields: { entryTarget: { animal: '43' } } })).rejects.toThrow("I couldn't find an animal");
     await hooks.onConfirm({ proposalId: 'p2', revision: 1, evidence: { reviewCardId: 'card-2', clickId: 'x' } });
     expect(ports.recordConfirmation).toHaveBeenCalledWith(scope, farmPending, { reviewCardId: 'card-2', clickId: 'x' });
     expect(awaitServerRows).toHaveBeenCalledWith([{ entityType: 'assistantReviewCards', id: 'card-2' }, { entityType: 'assistantReviewConfirmations', id: 'conf-2' }]);

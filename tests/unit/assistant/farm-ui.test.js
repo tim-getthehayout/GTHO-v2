@@ -184,7 +184,7 @@ describe('assistant uses populated normal entry UIs', () => {
   it('Treatment saves the populated normal date, product and dose via its entity',async () => {
     const type = TreatmentTypeEntity.create({ operationId: OP,name: 'Treatment',categoryId: crypto.randomUUID() });
     add('treatmentTypes',type,TreatmentTypeEntity.validate,TreatmentTypeEntity.toSupabaseShape,'treatment_types');
-    const review = await reviewEntry({ ui: 'treatment',id: getAll('animals')[0].id },{ date: '2026-11-07',time: '09:15',treatmentTypeId: type.id,doseAmount: '2.5',product: 'Test product' });
+    const review = await reviewEntry({ ui: 'treatment',id: getAll('animals')[0].id },{ date: '2026-11-07',time: '09:15',treatmentTypeId: type.id,doseAmount: '2.5',product: 'Test product',entryTarget: { animal: 'tag 1' } });
     expect(getAll('animalTreatments')).toHaveLength(0);await confirm('#treatment-sheet-panel .btn-green',review);
     expect(getAll('animalTreatments')[0]).toMatchObject({ product: 'Test product',doseAmount: 2.5,treatedAt: new Date('2026-11-07T09:15').toISOString() });
   });

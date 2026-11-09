@@ -10,7 +10,12 @@ import { PLACE_ENTRY_FIELDS } from '../events/place-wizard-entry-fields.js';
  * authoritative: unknown fields are rejected when the normal UI is populated.
  */
 export const FARM_ENTRY_UIS = Object.freeze(['treatment', 'calving', 'feeding', 'move', 'place']);
-export const FARM_ENTRY_INSTRUCTIONS = 'Match intent to an existing entry UI. Use its required/optional fields as prompts. Present that normal UI populated; correction needs a new revision and confirmation. Missing evidence is not no.';
+export const FARM_ENTRY_INSTRUCTIONS = [
+  'Pick exactly one entry surface from data.entryUis (the only voice-entry surfaces). If the request fits none or more than one, answer with exactly data.chooseEntryQuestion and nothing else.',
+  'Put the farm, paddock, group or animal names exactly as the user said them in fields.entryTarget using only the keys in data.targetNames for that surface (move: group or from, plus to). Never add a name the user did not say and never put record IDs there.',
+  'Before proposing, call resolve-entry-target with {ui, entryTarget}. If it returns a question, answer with exactly that one question and nothing else; never guess or default.',
+  'Use data.fieldHints (and data.openSheet once the sheet is open) for the other fields. The host fills paddock/event IDs from resolved names. Present that normal UI populated; correction needs a new revision and confirmation. Missing evidence is not no.',
+].join(' ');
 /** Record each UI opens on; target IDs come from host resolution, never model output. */
 export const FARM_ENTRY_TARGET_TABLE = Object.freeze({ treatment: 'animals', calving: 'animals', feeding: 'events', move: 'events', place: 'groups' });
 /** Field definitions owned by each sheet; the sheets bind their review fields

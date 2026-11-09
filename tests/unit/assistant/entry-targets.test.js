@@ -12,6 +12,14 @@ const data = {
 const resolve = (ui, names, fields) => resolveEntryTarget({ ui, names, fields, rows: async table => data[table] ?? [] });
 
 describe('entry target resolution (names -> host IDs, one question otherwise)', () => {
+  it('matches exactly after case, surrounding punctuation and spoken numbers only; never fuzzy', async () => {
+    expect(await resolve('treatment', { animal: 'forty-two' })).toMatchObject({ status: 'resolved', target: { id: 'a1' } });
+    expect(await resolve('treatment', { animal: 'Tag Forty Two.' })).toMatchObject({ status: 'resolved', target: { id: 'a1' } });
+    expect(await resolve('treatment', { animal: 'daisy' })).toMatchObject({ status: 'resolved', target: { id: 'a1' } });
+    expect(await resolve('treatment', { animal: 'Daisey' })).toMatchObject({ status: 'question' });
+    expect(await resolve('treatment', { animal: 'four two' })).toMatchObject({ status: 'question' });
+    expect(await resolve('treatment', { animal: '420' })).toMatchObject({ status: 'question' });
+  });
   it('treatment and calving resolve an animal by tag or name', async () => {
     expect(await resolve('treatment', { animal: 'tag 42' })).toMatchObject({ status: 'resolved', target: { ui: 'treatment', id: 'a1' } });
     expect(await resolve('calving', { animal: 'daisy' })).toMatchObject({ status: 'resolved', target: { ui: 'calving', id: 'a1' } });

@@ -5,6 +5,7 @@
  * Shared by the backend (validation, read tool) and the browser (opening the sheet).
  */
 import { FARM_ENTRY_UIS } from './farm-entry-contract.js';
+import { normalizeSpokenName } from './spoken-numbers.js';
 
 export { ENTRY_TARGET_KEY } from './entry-fields.js';
 export const RESOLVE_ENTRY_TARGET_TOOL = Object.freeze({
@@ -17,7 +18,8 @@ export const CHOOSE_ENTRY_QUESTION = `Which entry did you mean: ${FARM_ENTRY_UIS
 /** Names each surface needs from the user. move takes group OR from (source paddock). */
 export const ENTRY_TARGET_NAMES = Object.freeze({ treatment: ['animal'], calving: ['animal'], feeding: ['paddock'], move: ['group', 'from', 'to'], place: ['group', 'to'] });
 
-const norm = value => String(value ?? '').toLowerCase().replace(/^(tag|number|no\.?|#)\s*/, '').replace(/[#’'"]/g, '').replace(/\s+/g, ' ').trim();
+/** Exact matching only: no fuzzy, phonetic or nearest-name matching. */
+const norm = normalizeSpokenName;
 const named = value => typeof value === 'string' && norm(value) !== '';
 const quote = value => `“${String(value).trim()}”`;
 const list = names => names.length === 2 ? `${names[0]} or ${names[1]}` : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
@@ -25,7 +27,7 @@ const question = text => ({ status: 'question', question: text });
 
 function pick(rows, said, keys, labelOf, kind, ask) {
   const wanted = norm(said);
-  const hits = rows.filter(row => keys.some(key => row[key] != null && norm(row[key]) === wanted));
+  const hits = rows.filter(row => keys.some(key => { const value = typeof key === 'function' ? key(row) : row[key]; return value != null && norm(value) === wanted; }));
   if (hits.length === 1) return { row: hits[0] };
   if (!hits.length) return { ask: question(`I couldn't find ${kind} called ${quote(said)}. ${ask}`) };
   return { ask: question(`Which ${kind.replace(/^an? /, '')} did you mean: ${list(hits.slice(0, 5).map(labelOf))}?`) };
@@ -69,7 +71,7 @@ export async function resolveEntryTarget({ ui, names, fields = {}, rows }) {
   if (ui === 'treatment' || ui === 'calving') {
     const ask = ui === 'treatment' ? 'Which animal was treated?' : 'Which cow calved?';
     if (!named(said.animal)) return question(ask);
-    const animal = pick(await animals(), said.animal, ['tagNum', 'name', 'eid'], animalLabel, 'an animal', ask);
+    const animal = pick(await animals(), said.animal, ['tagNum', 'name', 'eid', row => row.tagNum ? `tag ${row.tagNum}` : null], animalLabel, 'an animal', ask);
     if (animal.ask) return animal.ask;
     return { status: 'resolved', target: { ui, id: animal.row.id }, fill: {}, summary: `${ui} for ${animalLabel(animal.row)}` };
   }

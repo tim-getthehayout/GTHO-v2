@@ -46,7 +46,8 @@ function gthoPwaStampPlugin(stamp) {
 
 const buildStamp = getBuildStamp();
 
-export default defineConfig({
+export default defineConfig(({ mode,isSsrBuild }) => ({
+  resolve: { alias: mode === 'test' || isSsrBuild ? [] : [{ find: /^node:crypto$/, replacement: path.resolve(rootDir,'src/platform/node-crypto-browser.js') }] },
   base: '/',
   define: {
     __BUILD_STAMP__: JSON.stringify(buildStamp),
@@ -55,10 +56,11 @@ export default defineConfig({
   build: {
     target: 'es2022',
     outDir: 'dist',
+    ...(mode === 'assistant-e2e' ? { rolldownOptions: { input: { app: path.resolve(rootDir,'index.html'),review: path.resolve(rootDir,'tests/e2e/fixtures/feedback-platform.html') } } } : {}),
   },
   test: {
     globals: false,
     environment: 'jsdom',
     include: ['tests/**/*.test.js'],
   },
-});
+}));

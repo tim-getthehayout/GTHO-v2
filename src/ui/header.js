@@ -1,3 +1,4 @@
+import { mountFeedbackReview } from '../features/assistant/feedback-review.js';
 /* global __BUILD_STAMP__ */
 /** @file App header — operation name, farm picker, sync, build stamp, user menu — GH-5 §17.2 */
 
@@ -659,7 +660,7 @@ function getScreenFromHash() {
   return map[hash.split('?')[0]] || 'other';
 }
 
-function openFeedbackSheet(type, operationId) {
+export function openFeedbackSheet(type, operationId, options = {}) {
   ensureFeedbackSheetDOM();
   if (!feedbackSheet) feedbackSheet = new Sheet('fb-sheet-wrap');
   const panel = document.getElementById('fb-sheet-panel');
@@ -734,10 +735,24 @@ function openFeedbackSheet(type, operationId) {
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
 
+  const structured = options.feedbackSession ? mountFeedbackReview(panel,options.feedbackSession,{ ...options,onSession: async snapshot => { noteTextarea.readOnly = !!snapshot.item.firstNote;await options.onSession?.(snapshot); } }) : null;
+  if (structured) { noteTextarea.value = options.feedbackSession.item.firstNote?.value || '';noteTextarea.readOnly = !!options.feedbackSession.item.firstNote; }
   // Buttons
   panel.appendChild(el('div', { className: 'btn-row' }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
+    el('button', { className: 'btn btn-green', onClick: async () => {
       clear(statusEl);
+      if (structured) {
+        try {
+          const handoff = await structured.confirm(noteTextarea.value);
+          if (!handoff) { statusEl.textContent = 'Review the populated fields, then confirm this revision.'; return; }
+          if (typeof options.fileConfirmed !== 'function') throw new Error('confirmed-feedback-filing-binding-required');
+          const reports = await options.fileConfirmed(handoff);
+          if (!Array.isArray(reports) || !reports.some(report => report.state === 'local_save')) throw new Error('confirmed-local-save-evidence-required');
+          for (const report of reports || []) await structured.delivery(report);
+          feedbackSheet.close();
+        } catch (error) { statusEl.textContent = error.message; }
+        return;
+      }
       if (!selectedCategory) { statusEl.appendChild(el('span', {}, ['Select a category'])); return; }
       if (!noteTextarea.value.trim()) { statusEl.appendChild(el('span', {}, ['Note is required'])); return; }
       try {
@@ -758,4 +773,5 @@ function openFeedbackSheet(type, operationId) {
   ]));
 
   feedbackSheet.open();
+  return structured;
 }

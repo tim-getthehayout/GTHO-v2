@@ -5,7 +5,7 @@ import { createVoiceAuthorization } from '../../../../src/features/assistant/ser
 import { createTestingAudioHandler } from '../../../../src/features/assistant/server/testing-audio.js';
 import { createTranscribeHandler } from '../../../../src/features/assistant/server/transcribe.js';
 import { createServerFarmData } from '../../../../src/features/assistant/server/farm-data.js';
-import { FARM_ENTRY_FIELD_HINTS, FARM_ENTRY_DEFINITIONS } from '../../../../src/features/assistant/farm-entry-contract.js';
+import { FARM_ENTRY_FIELD_HINTS, FARM_ENTRY_DEFINITIONS, FARM_ENTRY_INSTRUCTIONS } from '../../../../src/features/assistant/farm-entry-contract.js';
 import { entryFieldHints } from '../../../../src/features/assistant/entry-fields.js';
 import { ROUTING_INSTRUCTION, parseRoute, INTENT_PURPOSE } from '../../../../src/features/assistant/intent-routing.js';
 import { fakeSupabase, env, OP, OTHER_OP, USER } from './fake-supabase.js';
@@ -69,6 +69,57 @@ describe('server host ports', () => {
   });
   it('field hints are derived from the sheet field definitions', () => {
     for (const ui of Object.keys(FARM_ENTRY_FIELD_HINTS)) expect(FARM_ENTRY_FIELD_HINTS[ui]).toEqual(entryFieldHints(FARM_ENTRY_DEFINITIONS[ui]));
+  });
+});
+
+
+describe('natural follow-up instead of entry menu (real host path)', () => {
+  const CORRAL = '00000000-0000-4000-8000-0000000000c5';
+  const EVT = '00000000-0000-4000-8000-0000000000c6';
+  const feedingTables = {
+    locations: [{ id: CORRAL, operation_id: OP, name: 'Corral', farm_id: 'f1' }],
+    events: [{ id: EVT, operation_id: OP, farm_id: 'f1' }],
+    event_paddock_windows: [{ id: 'pw-corral', operation_id: OP, event_id: EVT, location_id: CORRAL, date_closed: null }],
+  };
+
+  it('a feeding proposal with paddock Corral resolves to review with no menu and no unresolved error', async () => {
+    const h = host({ intent: 'data-entry', capture: { context: {} }, transcript: [] }, feedingTables);
+    // Stubbed model reply: picked feeding with paddock "corral" (exact name match).
+    const created = await h.createProposal(scope, {
+      id: 'p-feed', itemRef: 'i', revision: 1, intent: 'data-entry', destination: 'feeding',
+      fields: { date: '2026-11-09', lines: [{ feedTypeId: 'ft', quantity: 2 }], entryTarget: { paddock: 'corral' } },
+    });
+    expect(created.destination).toBe('feeding');
+    expect(created.fields.locationId).toBe(CORRAL);
+    expect(created.fields.entryTarget.paddock).toBe('corral');
+    await expect(h.validate(scope, created)).resolves.toBeUndefined();
+    // resolve-entry-target also reports resolved (no menu question).
+    expect(await h.read(scope, 'resolve-entry-target', { ui: 'feeding', entryTarget: { paddock: 'Corral' } }))
+      .toEqual({ status: 'resolved', ui: 'feeding', summary: 'feeding at Corral' });
+  });
+
+  it('a feeding proposal with no paddock throws entry-target-unresolved carrying the plain-words question', async () => {
+    const h = host({ intent: 'data-entry', capture: { context: {} }, transcript: [] }, feedingTables);
+    await expect(h.createProposal(scope, {
+      id: 'p-feed', itemRef: 'i', revision: 1, intent: 'data-entry', destination: 'feeding',
+      fields: { date: '2026-11-09', entryTarget: {} },
+    })).rejects.toMatchObject({
+      code: 'entry-target-unresolved',
+      question: 'How many bales, and which paddock?',
+    });
+    expect(await h.read(scope, 'resolve-entry-target', { ui: 'feeding', entryTarget: {} }))
+      .toEqual({ status: 'question', question: 'How many bales, and which paddock?' });
+  });
+
+  it('instructions prefer a clear surface and keep chooseEntryQuestion as last resort; menu string still offered', async () => {
+    expect(FARM_ENTRY_INSTRUCTIONS).toMatch(/clearly name one surface/i);
+    expect(FARM_ENTRY_INSTRUCTIONS).toMatch(/chooseEntryQuestion only when no surface fits/i);
+    expect(FARM_ENTRY_INSTRUCTIONS).toMatch(/how many bales, and which paddock/i);
+    const context = await host({ intent: 'data-entry', capture: { context: {} }, transcript: [] }).context(scope, 'data-entry');
+    expect(context.data.chooseEntryQuestion).toBe('Which entry did you mean: treatment, calving, feeding, move or place?');
+    // Unknown surface still yields the menu through resolve-entry-target.
+    expect(await host({ intent: 'data-entry', capture: { context: {} }, transcript: [] }).read(scope, 'resolve-entry-target', { ui: 'harvest', entryTarget: {} }))
+      .toEqual({ status: 'question', question: context.data.chooseEntryQuestion });
   });
 });
 

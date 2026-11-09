@@ -86,6 +86,28 @@ describe('one push-to-talk routes every intent through the runtime intent comman
     expect(calls.filter(call => call.command === 'turn')).toHaveLength(1);
     expect(JSON.stringify(calls)).not.toContain(UNRESOLVED_TARGET_QUESTION);
   });
+
+  it('speaks the host natural missing-field question when entry-target-unresolved carries one', async () => {
+    const refused = Object.assign(new Error('entry-target-unresolved'), {
+      code: 'entry-target-unresolved',
+      status: 400,
+      question: 'How many bales, and which paddock?',
+    });
+    const { deps } = harness([refused]);
+    const voiceLog = createVoiceLog({ operationId: OP });
+    const say = vi.fn();
+    const session = createAssistantSession({ deps, config: {}, intent: 'data-entry', say, voiceLog });
+    await session.text('Feeding');
+    expect(say).toHaveBeenCalledWith('How many bales, and which paddock?');
+    expect(voiceLog.events()).toEqual([expect.objectContaining({
+      kind: 'host-event',
+      type: 'entry-target-question',
+      purpose: 'write',
+      text: 'How many bales, and which paddock?',
+      conversationRef: session.conversation.ref,
+    })]);
+  });
+
 });
 
 describe('durable local-save evidence', () => {

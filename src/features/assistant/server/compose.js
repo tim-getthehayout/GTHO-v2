@@ -43,7 +43,7 @@ function guarded(deps, run) {
       return await run(request, identity);
     } catch (error) {
       if (Number.isInteger(error?.status)) return json({ error: error.code ?? error.message }, error.status);
-      if (error instanceof RuntimeError) return json({ error: error.code }, 400);
+      if (error instanceof RuntimeError) return json({ error: error.code, ...(error.question ? { question: error.question } : {}) }, 400);
       contentFreeLog(deps.log)({ type: 'assistant-function-error' });
       return json({ error: 'backend-unavailable' }, 503);
     }
@@ -103,9 +103,21 @@ export function createAssistantFunction(deps) {
         voiceUsage: voiceUsageDeferred,
       };
       const response = await createBackendHandler(ports, TECHNICAL_BUDGETS)(request);
+      // Vendor backend returns only {error: code}. Reattach the host's plain-words
+      // question so the client can speak it instead of UNRESOLVED_TARGET_QUESTION.
+      if (!response.ok) {
+        if (session.unresolvedQuestion && response.status === 400) {
+          const body = await response.json();
+          if (body.error === 'entry-target-unresolved') {
+            return json({ ...body, question: session.unresolvedQuestion }, 400);
+          }
+          return json(body, response.status);
+        }
+        return response;
+      }
       // A route-intent suggestion travels back as body.route; the browser then
       // switches through the runtime intent / resolve-intent commands.
-      if (!session.route || !response.ok) return response;
+      if (!session.route) return response;
       return json({ ...(await response.json()), route: session.route }, response.status);
     } finally { await context.database.close(); }
   });

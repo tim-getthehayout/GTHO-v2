@@ -78,9 +78,10 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       await afterSession();
     } catch (error) {
       if (error.code !== 'entry-target-unresolved') throw error;
-      // Never default: ask one question instead. A host event, not a transcript turn.
-      say(UNRESOLVED_TARGET_QUESTION); speak(UNRESOLVED_TARGET_QUESTION);
-      voiceLog?.hostEvent({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, type: 'entry-target-question', text: UNRESOLVED_TARGET_QUESTION });
+      // Never default: ask the host's plain-words missing-field question (fallback only if none).
+      const ask = typeof error.question === 'string' && error.question.trim() ? error.question.trim() : UNRESOLVED_TARGET_QUESTION;
+      say(ask); speak(ask);
+      voiceLog?.hostEvent({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, type: 'entry-target-question', text: ask });
     }
   }
   async function stopVoice() {

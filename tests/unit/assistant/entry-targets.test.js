@@ -28,7 +28,7 @@ describe('entry target resolution (names -> host IDs, one question otherwise)', 
     expect(await resolve('treatment', {})).toEqual({ status: 'question', question: 'Which animal was treated?' });
     expect(await resolve('calving', { animal: 'Gone' })).toEqual({ status: 'question', question: "I couldn't find an animal called “Gone”. Which cow calved?" });
     expect(await resolve('treatment', { animal: 'Rosie' })).toEqual({ status: 'question', question: 'Which animal did you mean: tag 43 (Rosie) or tag 44 (Rosie)?' });
-    expect(await resolve('feeding', {})).toEqual({ status: 'question', question: 'Which paddock did you feed?' });
+    expect(await resolve('feeding', {})).toEqual({ status: 'question', question: 'How many bales, and which paddock?' });
     expect(await resolve('move', { group: 'Heifers' })).toEqual({ status: 'question', question: 'Where are they moving to?' });
     expect(await resolve('place', { group: 'Bulls' })).toEqual({ status: 'question', question: 'Which paddock are you placing them in?' });
   });

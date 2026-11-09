@@ -172,6 +172,73 @@ describe('gtho-assistant composition', () => {
     expect(client.tables.assistant_execution_results[0].feedback_handoff_acknowledged_at).toBeTruthy();
     expect((await apply(post({ ...receipt, savedRecordId: '00000000-0000-4000-8000-0000000000b2' }))).status).toBe(409);
   });
+
+  it('feeding proposal without paddock returns 400 entry-target-unresolved with the plain-words question', async () => {
+    const proposal = {
+      type: 'proposal',
+      destination: 'feeding',
+      fields: { date: '2026-11-09', entryTarget: {} },
+      mappings: [],
+    };
+    const fetch = vi.fn(async () => Response.json({
+      usage: { input_tokens: 1, output_tokens: 1 },
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(proposal) }] }],
+    }));
+    const { deps } = setup({ fetch });
+    const handler = createAssistantFunction(deps);
+    await handler(post({
+      command: 'start', conversationRef: REF, requestRef: 'r1', intent: 'data-entry',
+      capture: { capturedAt: '2026-11-09T10:00:00Z', source: 'voice', context: {} },
+    }));
+    const response = await handler(post({
+      command: 'turn', conversationRef: REF, requestRef: 'r2',
+      turn: { id: 't1', role: 'user', modality: 'voice', text: 'Feeding' },
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'entry-target-unresolved',
+      question: 'How many bales, and which paddock?',
+    });
+  });
+
+  it('feeding proposal with paddock Corral reaches review (stubbed model picked feeding)', async () => {
+    const CORRAL = '00000000-0000-4000-8000-0000000000c5';
+    const EVT = '00000000-0000-4000-8000-0000000000c6';
+    const proposal = {
+      type: 'proposal',
+      destination: 'feeding',
+      fields: {
+        date: '2026-11-09',
+        lines: [{ feedTypeId: 'ft', quantity: 2 }],
+        entryTarget: { paddock: 'Corral' },
+      },
+      mappings: [],
+    };
+    const fetch = vi.fn(async () => Response.json({
+      usage: { input_tokens: 1, output_tokens: 1 },
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(proposal) }] }],
+    }));
+    const { deps, client } = setup({ fetch });
+    client.tables.locations = [{ id: CORRAL, operation_id: OP, name: 'Corral', farm_id: 'f1' }];
+    client.tables.events = [{ id: EVT, operation_id: OP, farm_id: 'f1' }];
+    client.tables.event_paddock_windows = [{ id: 'pw-c', operation_id: OP, event_id: EVT, location_id: CORRAL, date_closed: null }];
+    const handler = createAssistantFunction(deps);
+    await handler(post({
+      command: 'start', conversationRef: REF, requestRef: 'r1', intent: 'data-entry',
+      capture: { capturedAt: '2026-11-09T10:00:00Z', source: 'voice', context: {} },
+    }));
+    const turned = await (await handler(post({
+      command: 'turn', conversationRef: REF, requestRef: 'r2',
+      turn: { id: 't1', role: 'user', modality: 'voice', text: 'I fed two bales of grass hay in the corral' },
+    }))).json();
+    expect(turned.error).toBeUndefined();
+    expect(turned.session.phase).toBe('review');
+    expect(turned.session.pending).toMatchObject({
+      intent: 'data-entry',
+      destination: 'feeding',
+      fields: expect.objectContaining({ locationId: CORRAL, entryTarget: { paddock: 'Corral' } }),
+    });
+  });
   it('apply refuses a receipt with no durable claim', async () => {
     const { deps } = setup();
     const handler = createAssistantFunction(deps);

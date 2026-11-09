@@ -13,7 +13,7 @@ export const RESOLVE_ENTRY_TARGET_TOOL = Object.freeze({
   description: 'Resolve the names the user said for a first-slice entry. Args: {ui, entryTarget}. Returns {status:"resolved", summary} or {status:"question", question}.',
 });
 const LABELS = Object.freeze({ move: 'move', place: 'place', feeding: 'feeding', treatment: 'treatment', calving: 'calving' });
-/** Asked when the entry surface is ambiguous; lists only the first-slice surfaces. */
+/** Asked only when no entry surface can be inferred; lists the first-slice surfaces. */
 export const CHOOSE_ENTRY_QUESTION = `Which entry did you mean: ${FARM_ENTRY_UIS.map(ui => LABELS[ui]).slice(0, -1).join(', ')} or ${LABELS[FARM_ENTRY_UIS.at(-1)]}?`;
 /** Names each surface needs from the user. move takes group OR from (source paddock). */
 export const ENTRY_TARGET_NAMES = Object.freeze({ treatment: ['animal'], calving: ['animal'], feeding: ['paddock'], move: ['group', 'from', 'to'], place: ['group', 'to'] });
@@ -24,6 +24,45 @@ const named = value => typeof value === 'string' && norm(value) !== '';
 const quote = value => `“${String(value).trim()}”`;
 const list = names => names.length === 2 ? `${names[0]} or ${names[1]}` : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
 const question = text => ({ status: 'question', question: text });
+
+/** Plain-words prompts for missing targets / required sheet fields (use the UI's own fields). */
+const MISSING_PROMPTS = Object.freeze({
+  feeding: Object.freeze({ paddock: 'which paddock', lines: 'how many bales' }),
+  treatment: Object.freeze({ animal: 'which animal was treated' }),
+  calving: Object.freeze({ animal: 'which cow calved' }),
+  move: Object.freeze({ group: 'which group', from: 'which paddock they are leaving', to: 'where they are going' }),
+  place: Object.freeze({ group: 'which group', to: 'which paddock' }),
+});
+
+/** One plain-words question for whatever the chosen UI still needs. */
+function missingFieldsQuestion(ui, names = {}, fields = {}) {
+  const prompts = MISSING_PROMPTS[ui];
+  if (!prompts) return CHOOSE_ENTRY_QUESTION;
+  const said = names && typeof names === 'object' && !Array.isArray(names) ? names : {};
+  const needed = [];
+  for (const key of ENTRY_TARGET_NAMES[ui] ?? []) {
+    // move: group OR from satisfies the source side.
+    if (ui === 'move' && key === 'from' && named(said.group)) continue;
+    if (ui === 'move' && key === 'group' && named(said.from)) continue;
+    if (!named(said[key])) needed.push(prompts[key] ?? key);
+  }
+  if (ui === 'feeding' && (fields.lines == null || fields.lines === '')) {
+    if (!needed.includes(prompts.lines)) needed.unshift(prompts.lines);
+  }
+  if (!needed.length) {
+    if (ui === 'feeding') return 'Which paddock did you feed?';
+    return `What else do you need for this ${LABELS[ui] ?? ui}?`;
+  }
+  if (needed.length === 1) {
+    const only = needed[0];
+    return only.startsWith('which') || only.startsWith('what') || only.startsWith('how') || only.startsWith('where')
+      ? `${only.charAt(0).toUpperCase()}${only.slice(1)}?`
+      : `Which ${only}?`;
+  }
+  const [first, ...rest] = needed;
+  const head = first.charAt(0).toUpperCase() + first.slice(1);
+  return `${head}, and ${rest.join(' and ')}?`;
+}
 
 function pick(rows, said, keys, labelOf, kind, ask) {
   const wanted = norm(said);
@@ -76,7 +115,8 @@ export async function resolveEntryTarget({ ui, names, fields = {}, rows }) {
     return { status: 'resolved', target: { ui, id: animal.row.id }, fill: {}, summary: `${ui} for ${animalLabel(animal.row)}` };
   }
   if (ui === 'feeding') {
-    const where = await paddock(said.paddock, 'Which paddock did you feed?');
+    const ask = missingFieldsQuestion('feeding', said, fields);
+    const where = await paddock(said.paddock, ask);
     if (where.ask) return where.ask;
     const event = await openEventAt(where.row);
     if (!event) return question(`Nothing is grazing ${where.row.name} right now. Which paddock did you feed?`);

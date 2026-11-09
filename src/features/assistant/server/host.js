@@ -58,9 +58,13 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
   async function resolveTarget(proposal) {
     const resolved = await resolveEntryTarget({ ui: proposal.destination, names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields, rows: operationRows });
     if (resolved.status !== 'resolved') {
-      // Host event: the device asks its fallback question; it never enters the model transcript.
+      // Host event: the device asks the natural missing-field question; it never enters the model transcript.
       log({ type: 'entry-target-question', conversationRef: holder.ref });
-      fail('entry-target-unresolved');
+      // Stash for compose: vendor createBackendHandler serializes only error.code.
+      holder.unresolvedQuestion = resolved.question;
+      const err = new RuntimeError('entry-target-unresolved');
+      err.question = resolved.question;
+      throw err;
     }
     return resolved;
   }

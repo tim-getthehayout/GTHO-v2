@@ -48,6 +48,25 @@ END $$;
 ROLLBACK;
 BEGIN;
 DO $$
+-- Unknown usage: never blocks, still one request against rate/monthly caps, adds no audio.
+DECLARE op uuid := '00000000-0000-4000-8000-000000000001'; lease_id uuid;
+BEGIN
+  SELECT lease INTO lease_id FROM assistant_billing_reserve(op,'feedback','unknown-1','request');
+  PERFORM assistant_billing_finish(op,lease_id,'fixture',NULL,0,0,0,1,true,true,true);
+  ASSERT (SELECT input_tokens IS NULL AND output_tokens IS NULL AND audio_minutes IS NULL AND request_count = 1 FROM assistant_billing_usage WHERE lease = lease_id), 'unknown, never zero';
+  UPDATE assistant_billing_policies SET monthly_audio_minutes = 0.001, rate_requests = 3, monthly_requests = 1000 WHERE operation_id = op;
+  PERFORM assistant_billing_reserve(op,'feedback','unknown-2','request'); -- unknown audio adds nothing to the audio cap
+  PERFORM assistant_billing_reserve(op,'feedback','unknown-3','request');
+  BEGIN PERFORM assistant_billing_reserve(op,'feedback','unknown-4','request'); RAISE EXCEPTION 'rate window ignored unknown request';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'billing-cap-reached' THEN RAISE; END IF; END;
+  UPDATE assistant_billing_policies SET rate_requests = 1000, monthly_requests = 3 WHERE operation_id = op;
+  BEGIN PERFORM assistant_billing_reserve(op,'feedback','unknown-5','request'); RAISE EXCEPTION 'monthly cap ignored unknown request';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'billing-cap-reached' THEN RAISE; END IF; END;
+  ASSERT (SELECT count(*) FROM assistant_billing_unreconciled_usage WHERE operation_id = op) = 1, 'listed for reconciliation';
+END $$;
+ROLLBACK;
+BEGIN;
+DO $$
 DECLARE op uuid := '00000000-0000-4000-8000-000000000001'; lease_id uuid;
 BEGIN
   SELECT lease INTO lease_id FROM assistant_billing_reserve(op,'feedback','audio','request');
@@ -68,10 +87,15 @@ BEGIN
   SELECT lease INTO lease_id FROM assistant_billing_reserve(op,'feedback','failure','request');
   PERFORM assistant_billing_finish(op,lease_id,NULL,NULL,0,0,0,1,true,true);
   ASSERT (SELECT input_tokens IS NULL AND output_tokens IS NULL AND audio_minutes IS NULL FROM assistant_billing_usage WHERE lease = lease_id), 'failure is not inferred zero usage';
-  BEGIN PERFORM assistant_billing_reserve(op,'feedback','unreconciled','request'); RAISE EXCEPTION 'unknown usage accepted';
-  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'usage-reconciliation-required' THEN RAISE; END IF; END;
+  -- Unknown usage stays unknown, is listed for reconciliation, and does not block reserve.
+  ASSERT (SELECT count(*) FROM assistant_billing_unreconciled_usage WHERE operation_id = op AND lease = lease_id) = 1, 'unknown usage is listed as unreconciled';
+  ASSERT (SELECT request_count = 1 FROM assistant_billing_unreconciled_usage WHERE lease = lease_id), 'unknown usage still counts one request';
+  PERFORM assistant_billing_reserve(op,'feedback','unreconciled','request');
+  ASSERT NOT has_table_privilege('authenticated','assistant_billing_unreconciled_usage','SELECT'), 'no client grant on the unreconciled list';
+  ASSERT NOT has_table_privilege('anon','assistant_billing_unreconciled_usage','SELECT'), 'no anon grant on the unreconciled list';
   PERFORM assistant_billing_reserve(op,'feedback','reconcile','settlement');
   PERFORM assistant_billing_reconcile(op,lease_id,'fixture','verified',0,0,0,1);
+  ASSERT NOT EXISTS (SELECT 1 FROM assistant_billing_unreconciled_usage WHERE lease = lease_id), 'reconciled usage leaves the list';
   PERFORM assistant_billing_reserve(op,'feedback','after-verification','request');
   -- A failure that never reached a metered provider measured zero usage.
   SELECT lease INTO lease_id FROM assistant_billing_reserve(op,'feedback','pre-provider-failure','request');

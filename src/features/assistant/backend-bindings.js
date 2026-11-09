@@ -120,6 +120,14 @@ export function createBillingPorts({ client, authorize, authorizeControl, isUnme
       if (typeof authorizeControl !== 'function' || await authorizeControl(scope) !== true) throw new Error('central-billing-role-required');
       return requireResult(await client.from('assistant_billing_usage').select('*'));
     },
+    /** Unknown provider usage awaiting the deferred server-side reconciliation.
+     * Server-only (service role, central billing role); unknown usage never blocks
+     * reserve and is never recorded as zero or an estimate. */
+    async unreconciled(scope) {
+      await auth(scope);
+      if (typeof authorizeControl !== 'function' || await authorizeControl(scope) !== true) throw new Error('central-billing-role-required');
+      return requireResult(await client.from('assistant_billing_unreconciled_usage').select('*').eq('operation_id', scope.operationId));
+    },
   };
 }
 

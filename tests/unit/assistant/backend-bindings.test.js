@@ -107,6 +107,16 @@ describe('billing ports are backed by atomic SQL, never no-op hooks', () => {
     expect(await billing.own(scope)).toEqual([{ operation_id: scope.operationId, input_tokens: 2 }]);
     await expect(billing.control(scope)).rejects.toThrow('central-billing');
   });
+  it('lists unknown usage for reconciliation (central billing role only) and records unknown, never zero', async () => {
+    const { client, tables } = database();
+    const plain = createBillingPorts({ client, authorize: async () => true });
+    await expect(plain.unreconciled(scope)).rejects.toThrow('central-billing');
+    const billing = createBillingPorts({ client, authorize: async () => true, authorizeControl: async () => true });
+    await billing.finish(scope, id(9), { model: 'configured', inputTokens: 0, outputTokens: 0, audioMinutes: 0, requestCount: 1 }, true, true);
+    expect(client.rpc).toHaveBeenCalledWith('assistant_billing_finish', expect.objectContaining({ p_failed: true, p_unmeasured: true, p_requests: 1 }));
+    tables.assistant_billing_unreconciled_usage = [{ operation_id: scope.operationId, lease: id(9), input_tokens: null, audio_minutes: null, request_count: 1 }, { operation_id: id(99), lease: id(8) }];
+    expect(await billing.unreconciled(scope)).toEqual([{ operation_id: scope.operationId, lease: id(9), input_tokens: null, audio_minutes: null, request_count: 1 }]);
+  });
 });
 
 describe('server/provider usage verification', () => {

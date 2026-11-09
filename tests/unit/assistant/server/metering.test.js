@@ -72,6 +72,20 @@ describe('a started provider fetch is unknown usage, never zero', () => {
     expect(fetch).toHaveBeenCalledOnce();
     expect(lastFinish(client)).toMatchObject({ p_failed: true, p_unmeasured: true, p_requests: 1 });
   });
+  it('unknown usage does not stop the next request from reserving and running', async () => {
+    let calls = 0;
+    const fetch = vi.fn(async () => {
+      if (++calls === 1) throw new TypeError('network');
+      return Response.json({ usage: { input_tokens: 3, output_tokens: 2 }, output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ type: 'answer', text: 'Open the Feed tab.' }) }] }] });
+    });
+    const { deps, client } = setup(fetch);
+    const handler = createAssistantFunction(deps);
+    await handler(post(START));
+    expect((await handler(post({ command: 'turn', conversationRef: REF, requestRef: 'r2', turn: { id: 't1', role: 'user', modality: 'text', text: 'Help' } }))).status).toBe(503);
+    expect(lastFinish(client)).toMatchObject({ p_unmeasured: true });
+    expect((await handler(post({ command: 'turn', conversationRef: REF, requestRef: 'r3', turn: { id: 't2', role: 'user', modality: 'text', text: 'Help again' } }))).status).toBe(200);
+    expect(lastFinish(client)).toMatchObject({ p_failed: false, p_unmeasured: false, p_input: 3, p_output: 2 });
+  });
   it('text: a timeout abort after dispatch', async () => {
     const { deps, client } = setup(hang);
     const handler = createAssistantFunction(deps);

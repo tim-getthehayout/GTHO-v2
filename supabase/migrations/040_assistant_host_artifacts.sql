@@ -714,6 +714,15 @@ ALTER TABLE assistant_billing_usage ADD FOREIGN KEY (operation_id, lease) REFERE
 ALTER TABLE assistant_billing_settlements ADD FOREIGN KEY (operation_id, lease) REFERENCES assistant_billing_reservations(operation_id, lease);
 CREATE INDEX assistant_billing_reservations_time_idx ON assistant_billing_reservations (operation_id, created_at);
 CREATE INDEX assistant_billing_usage_time_idx ON assistant_billing_usage (operation_id, created_at);
+-- Unreconciled (unknown) provider usage, for the deferred server-side reconciliation.
+CREATE INDEX assistant_billing_usage_unreconciled_idx ON assistant_billing_usage (operation_id, created_at)
+  WHERE input_tokens IS NULL OR output_tokens IS NULL OR audio_minutes IS NULL OR request_count IS NULL;
+CREATE VIEW assistant_billing_unreconciled_usage WITH (security_invoker = true) AS
+  SELECT id, operation_id, lease, purpose, model, voice_session, input_tokens, output_tokens, audio_minutes, request_count, bill_shared, failed, created_at, updated_at
+  FROM assistant_billing_usage
+  WHERE input_tokens IS NULL OR output_tokens IS NULL OR audio_minutes IS NULL OR request_count IS NULL;
+REVOKE ALL ON assistant_billing_unreconciled_usage FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON assistant_billing_unreconciled_usage TO service_role;
 -- A durable CP-56 fence, not assistant backup/restore or conversation content.
 -- Deliberately NO operations FK: replace must not be blocked by its own fence.
 CREATE TABLE assistant_restore_fences (
@@ -892,12 +901,14 @@ BEGIN
   IF p_kind = 'request' THEN
     IF policy.billing_timezone IS NULL THEN RAISE EXCEPTION 'billing-calendar-timezone-required'; END IF;
     monthly_start := date_trunc('month', now() AT TIME ZONE policy.billing_timezone) AT TIME ZONE policy.billing_timezone;
-    IF EXISTS (SELECT 1 FROM assistant_billing_usage WHERE operation_id = p_operation AND
-       (input_tokens IS NULL OR output_tokens IS NULL OR audio_minutes IS NULL OR request_count IS NULL))
-    THEN RAISE EXCEPTION 'usage-reconciliation-required'; END IF;
+    -- Unknown provider usage does not block new requests. It stays unknown (NULL,
+    -- never zero or estimated) in assistant_billing_unreconciled_usage until the
+    -- deferred server-side reconciliation fills it. Meanwhile the request still
+    -- counts once toward the rate window and monthly request cap (below), and its
+    -- unknown audio/tokens add nothing to the caps (sum ignores NULL).
     SELECT count(*) INTO rate_count FROM assistant_billing_reservations WHERE operation_id = p_operation
       AND kind = 'request' AND created_at > now() - make_interval(secs => policy.rate_window_seconds);
-    SELECT coalesce(sum(greatest(CASE WHEN r.kind = 'request' THEN 1 ELSE 0 END, u.request_count)),0) INTO used_requests
+    SELECT coalesce(sum(greatest(CASE WHEN r.kind = 'request' THEN 1 ELSE 0 END, coalesce(u.request_count, 0))),0) INTO used_requests
       FROM assistant_billing_reservations r LEFT JOIN assistant_billing_usage u ON u.operation_id = r.operation_id AND u.lease = r.lease
       WHERE r.operation_id = p_operation AND r.created_at >= monthly_start;
     SELECT coalesce(sum(audio_minutes),0) INTO used_audio FROM assistant_billing_usage WHERE operation_id = p_operation AND created_at >= monthly_start;

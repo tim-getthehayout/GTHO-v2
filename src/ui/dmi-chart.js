@@ -188,7 +188,7 @@ export function renderDmiChart(days, unitSys, opts = {}) {
   }
 
   const rightLabel = el('div', { style: { textAlign: 'right', minWidth: compact ? '60px' : '80px', paddingLeft: '8px' } }, [
-    el('div', { style: { fontSize: compact ? '18px' : '26px', fontWeight: '700', color: 'var(--text1)' } }, [todayDmi]),
+    el('div', { style: { fontSize: compact ? '18px' : '26px', fontWeight: '700', color: 'var(--text)' } }, [todayDmi]),
     el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${unit} DMI today`]),
     el('div', { style: { display: 'flex', gap: '8px', marginTop: '6px', fontSize: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' } }, legendChildren),
   ]);

@@ -227,9 +227,9 @@ export function renderAnimalsScreen(container) {
 
       // OI-0164: 2-column tile (no `\u00D7` delete affordance \u2014 Edit \u2192 Archive/Delete is the only path).
       const tile = el('div', {
-        className: 'groups-grid-tile',
+        className: `groups-grid-tile${isFiltered ? ' groups-grid-tile--selected' : ''}`,
         'data-testid': `group-tile-${g.id}`,
-        style: { borderLeft: `3px solid ${g.color || 'var(--green)'}`, background: isFiltered ? 'var(--green-l)' : 'transparent' },
+        style: { borderLeft: `3px solid ${g.color || 'var(--green)'}` },
         onClick: () => { selectedFilter = isFiltered ? null : g.id; renderAll(); },
       }, [
         el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [

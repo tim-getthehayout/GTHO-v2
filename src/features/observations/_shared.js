@@ -258,7 +258,7 @@ export function renderConditionChips(initialValue) {
     for (const v of CONDITION_VALUES) {
       const isActive = active === v;
       chipEls[v].style.background = isActive ? 'var(--color-green-base, #43a047)' : 'transparent';
-      chipEls[v].style.color = isActive ? '#fff' : 'var(--text1)';
+      chipEls[v].style.color = isActive ? '#fff' : 'var(--text)';
       chipEls[v].style.borderColor = isActive ? 'var(--color-green-base, #43a047)' : 'var(--border)';
       chipEls[v].dataset.active = isActive ? 'true' : 'false';
     }

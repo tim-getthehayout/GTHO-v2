@@ -1,6 +1,8 @@
 /* Design system tokens — V2_DESIGN_SYSTEM.md */
 
 :root {
+  color-scheme: light dark;
+
   /* Color families */
   --color-green-base: #639922;
   --color-green-dark: #3B6D11;
@@ -65,6 +67,9 @@
   --border: rgba(0, 0, 0, 0.12);
   --border2: rgba(0, 0, 0, 0.2);
 
+  /* Selected surfaces (Animals group tile, etc.) — light keeps green-l */
+  --surface-selected: var(--color-green-light);
+
   /* Spacing scale (8px-based) */
   --space-1: 2px;
   --space-2: 4px;
@@ -107,6 +112,7 @@
     --text3: #6b6b67;
     --border: rgba(255, 255, 255, 0.1);
     --border2: rgba(255, 255, 255, 0.18);
+    --surface-selected: var(--bg3);
   }
 }
 
@@ -128,6 +134,21 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Form controls: native widgets do not inherit color; theme them once. */
+input,
+textarea,
+select,
+button {
+  color: var(--text);
+  font: inherit;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text2);
+  opacity: 1;
+}
+
 
 /* App shell — mobile-first */
 #app {
@@ -1279,8 +1300,8 @@ body.field-mode .auth-overlay .header-build-stamp {
   padding: 9px 11px;
   border: 1px solid var(--border-strong, var(--border));
   border-radius: var(--radius-sm);
-  background: #fff;
-  color: var(--text1);
+  background: var(--bg);
+  color: var(--text);
   -webkit-appearance: none;
   -moz-appearance: textfield;
   appearance: none;
@@ -3070,7 +3091,7 @@ body:has(.auth-overlay) .pwa-update-banner {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  background: #fff;
+  background: var(--bg);
   border-radius: var(--radius-full);
   font-size: 0.8125rem;
   border: 1px solid var(--border);
@@ -3200,6 +3221,7 @@ body:has(.auth-overlay) .pwa-update-banner {
 /* OI-0164: Animals screen — 2-column groups tile grid (all viewports ≥ 320px) */
 .groups-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch; }
 .groups-grid-tile { padding: 12px; border-radius: var(--radius); cursor: pointer; display: flex; flex-direction: column; min-width: 0; }
+.groups-grid-tile--selected { background: var(--surface-selected); }
 
 /* BCS chip */
 .bcs-chip { display: inline-block; width: auto; padding: 8px 14px; font-size: 14px; border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text); border-radius: var(--radius); cursor: pointer; }
@@ -3251,8 +3273,8 @@ body:has(.auth-overlay) .pwa-update-banner {
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 14px;
-  background: var(--bg1, #fff);
-  color: var(--text1);
+  background: var(--bg);
+  color: var(--text);
 }
 .obs-input:disabled {
   opacity: 0.6;
@@ -3267,7 +3289,7 @@ body:has(.auth-overlay) .pwa-update-banner {
   padding: 4px 10px;
   font-size: 12px;
   background: transparent;
-  color: var(--text1);
+  color: var(--text);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }

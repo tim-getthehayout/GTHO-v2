@@ -42,6 +42,8 @@ describe('trusted runtime persistence bindings', () => {
     const saved = snapshot({ reviewReady: false, switchRequested: 'question', logs: [{ field: 'x' }] });
     await expect(a.withSession(scope, ref, async () => { await a.checkpoint(scope, saved); throw new Error('interrupted'); })).rejects.toThrow('interrupted');
     tables.assistant_session_checkpoints[0].lifecycle_phase = 'incorrect-pointer';
+    // PostgreSQL JSONB reorders object keys, but never array elements.
+    tables.assistant_session_checkpoints[0].trusted_snapshot.scope = { actorId: scope.actorId, operationId: scope.operationId };
     const b = createBackendPersistence({ client, authorize: async () => true });
     await b.withSession(scope, ref, async existing => expect(existing).toEqual(saved));
     await expect(a.checkpoint(scope, saved)).rejects.toThrow('lock-required');
@@ -73,6 +75,7 @@ describe('trusted runtime persistence bindings', () => {
     const key = JSON.stringify([scope.operationId, ref, proposal.id, proposal.revision]);
     await p.withSession(scope, ref, async () => {
       await p.checkpoint(scope, snapshot({ phase: 'executing', pending: proposal, confirmation: id(6), reviewReady: true }));
+      tables.assistant_session_checkpoints[0].trusted_snapshot.pending = Object.fromEntries(Object.entries(proposal).reverse());
       const a = await p.execute(scope, proposal, id(6), key);
       expect(await p.execute(scope, proposal, id(6), key)).toEqual(a);
       expect(apply).toHaveBeenCalledOnce();

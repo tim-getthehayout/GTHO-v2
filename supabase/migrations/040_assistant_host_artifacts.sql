@@ -14,7 +14,7 @@ CREATE TABLE submission_field_states (
   state text NOT NULL CHECK (state IN ('known','unknown','unavailable','not_applicable','not_reproducible')),
   reason text,
   source text CHECK (source IN ('user','host')),
-  CHECK (field_name NOT IN ('affectedWork','workaround','dataRisk') OR state IN ('known','unknown')),
+  CHECK (field_name NOT IN ('affectedWork','workaround','dataRisk') OR (state IN ('known','unknown') AND source IS NOT NULL)),
   CHECK (field_name <> 'reproSteps' OR state IN ('known','unknown','not_reproducible','not_applicable')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -851,8 +851,8 @@ REVOKE ALL ON FUNCTION assistant_cleanup_finished(uuid) FROM PUBLIC, anon, authe
 GRANT EXECUTE ON FUNCTION assistant_cleanup_finished(uuid) TO service_role;
 
 -- Historical submissions remain historical: no inferred facts, timestamps or consent.
-INSERT INTO submission_field_states (operation_id, submission_id, field_name, state)
-SELECT s.operation_id, s.id, fact.field_name, 'unknown'
+INSERT INTO submission_field_states (operation_id, submission_id, field_name, state, source)
+SELECT s.operation_id, s.id, fact.field_name, 'unknown', 'host'
 FROM submissions s CROSS JOIN (VALUES ('type'), ('contractVersion'), ('title'), ('firstNote'), ('expected'), ('actual'), ('severity'), ('affectedWork'), ('workaround'), ('dataRisk'), ('capturedAt'), ('filedAt'), ('conversationId'), ('reproSteps'), ('reviewConfirmation')) AS fact(field_name)
 ON CONFLICT (operation_id, submission_id, field_name) DO NOTHING;
 

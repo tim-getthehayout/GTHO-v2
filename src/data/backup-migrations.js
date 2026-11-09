@@ -206,7 +206,7 @@ export const BACKUP_MIGRATIONS = {
         if (b.tables.submission_field_states.some(state => state.submission_id === row.id && state.field_name === fieldName)) continue;
         b.tables.submission_field_states.push({
           id: crypto.randomUUID(), operation_id: row.operation_id, submission_id: row.id,
-          field_name: fieldName, state: 'unknown', reason: null, source: null,
+          field_name: fieldName, state: 'unknown', reason: null, source: 'host',
         });
       }
     }

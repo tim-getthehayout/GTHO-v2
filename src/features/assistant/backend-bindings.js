@@ -3,7 +3,13 @@
  * Deployment remains fail-closed until authenticated review/write/provider ports exist.
  */
 import * as Checkpoint from '../../entities/assistant-session-checkpoints.js';
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// JSONB may reorder object keys. Compare envelope values structurally without
+// changing the object that is persisted/resumed; array/transcript order matters.
+const comparable = value => Array.isArray(value) ? value.map(comparable)
+  : value !== null && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, comparable(value[key])]))
+    : value;
+const same = (a, b) => JSON.stringify(comparable(a)) === JSON.stringify(comparable(b));
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const requireResult = ({ data, error }) => { if (error) throw new Error(error.code === '23505' ? 'duplicate-durable-identity' : 'assistant-persistence-failed'); return data; };
 

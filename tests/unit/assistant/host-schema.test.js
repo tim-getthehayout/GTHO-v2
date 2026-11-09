@@ -66,7 +66,7 @@ describe('historical submissions remain unknown, not new confirmed filings', () 
     expect(backup.tables.submission_repro_steps).toEqual([]);
     const states = backup.tables.submission_field_states;
     expect(states.map(s => s.field_name).sort()).toEqual([...HISTORICAL_FEEDBACK_FACTS].sort());
-    expect(states.every(s => s.state === 'unknown' && s.submission_id === row.id && s.operation_id === 'op')).toBe(true);
+    expect(states.every(s => s.state === 'unknown' && s.source === 'host' && s.submission_id === row.id && s.operation_id === 'op')).toBe(true);
     const again = JSON.stringify(backup);
     BACKUP_MIGRATIONS[39](backup);
     expect(JSON.stringify(backup)).toBe(again);

@@ -4,6 +4,7 @@ BEGIN;
 DO $$
 DECLARE op uuid := '00000000-0000-4000-8000-000000000001'; lease_id uuid; repeated uuid; n integer; policy assistant_billing_policies;
 BEGIN
+  ASSERT (SELECT count(*) FROM submission_field_states WHERE field_name IN ('affectedWork','workaround','dataRisk') AND state = 'unknown' AND source = 'host') = 3, 'historical impact unknowns carry explicit host provenance';
   SELECT * INTO STRICT policy FROM assistant_billing_policies WHERE operation_id = op;
   ASSERT policy.rate_requests = 30 AND policy.rate_window_seconds = 600 AND policy.monthly_requests = 2000 AND policy.monthly_audio_minutes = 600, 'initial mutable policy';
   FOR n IN 1..30 LOOP

@@ -15,6 +15,7 @@ try {
     GRANT USAGE ON SCHEMA auth TO authenticated;
     GRANT SELECT ON operation_members TO authenticated;
     INSERT INTO operations VALUES ('00000000-0000-4000-8000-000000000001','America/New_York',39);
+    INSERT INTO submissions VALUES ('00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000001','feedback','high','build','historical');
   `);
   await db.exec(readFileSync(new URL('../../supabase/migrations/040_assistant_host_artifacts.sql',import.meta.url),'utf8'));
   await db.exec(readFileSync(new URL('./assistant-host-artifacts.sql',import.meta.url),'utf8'));

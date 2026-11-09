@@ -60,6 +60,7 @@ export const FIELDS = {
 };
 export const { create, validate, toSupabaseShape, fromSupabaseShape } = defineAssistantEntity(FIELDS, record => {
   if (['affectedWork','workaround','dataRisk'].includes(record.fieldName) && !['known','unknown'].includes(record.state)) return ['impact fact state must be known or unknown'];
+  if (['affectedWork','workaround','dataRisk'].includes(record.fieldName) && !['user','host'].includes(record.source)) return ['impact fact source must be user or host'];
   if (record.fieldName === 'reproSteps' && !['known','unknown','not_reproducible','not_applicable'].includes(record.state)) return ['invalid whole-list reproSteps state'];
   return [];
 });

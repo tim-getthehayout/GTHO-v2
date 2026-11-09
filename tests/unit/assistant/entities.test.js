@@ -22,6 +22,12 @@ describe('artifact entity/store bindings', () => {
     expect(() => step.create({ state: 'unknown' })).toThrow('Unknown artifact field');
     expect(step.validate(step.create({ operationId: id, submissionId: id, position: 0, stepText: '' })).valid).toBe(false);
   });
+  it('requires impact source provenance even when the historical fact is unknown', () => {
+    const entity = ASSISTANT_ENTITIES.submissionFieldStates.entity;
+    const record = entity.create({ operationId: id, submissionId: id, fieldName: 'affectedWork', state: 'unknown' });
+    expect(entity.validate(record).valid).toBe(false);
+    expect(entity.validate({ ...record, source: 'host' }).valid).toBe(true);
+  });
   it('coerces database numeric strings and rejects slot mismatch', () => {
     const entity = ASSISTANT_ENTITIES.assistantFieldMappings.entity;
     expect(entity.fromSupabaseShape({ value_number: '2.5' }).valueNumber).toBe(2.5);

@@ -3,8 +3,8 @@
 // environment and never logged. Missing/disabled configuration serves 503.
 import { createClient } from 'npm:@supabase/supabase-js@2.103.0';
 import postgres from 'npm:postgres@3.4.9';
-import { readConfig } from '../../../src/features/assistant/server/config.js';
-import { unconfigured } from '../../../src/features/assistant/server/http.js';
+import { readConfig, readOrigins } from '../../../src/features/assistant/server/config.js';
+import { unconfiguredWithCors } from '../../../src/features/assistant/server/http.js';
 
 /** One connection per request (max 1, released in finally); each lock transaction
  * stays on that one reserved connection. prepare:false keeps transaction-mode
@@ -26,7 +26,8 @@ export function serveConfigured(factory) {
   if (!loaded.ok) {
     // Only the secret NAME or 'disabled' is logged, never a value.
     console.log(JSON.stringify({ type: 'assistant-unconfigured', reason: loaded.reason }));
-    return Deno.serve(() => unconfigured());
+    const env = Deno.env.toObject();
+    return Deno.serve(unconfiguredWithCors(readOrigins(env)));
   }
   const { config } = loaded;
   const client = createClient(config.supabaseUrl, config.serviceKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });

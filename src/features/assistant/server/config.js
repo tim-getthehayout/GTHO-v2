@@ -48,6 +48,13 @@ function serviceKey(env) {
   } catch { return null; }
 }
 
+/** The configured browser origins when GTHO_ASSISTANT_ORIGINS is valid, else [].
+ * Lets an unconfigured (503) function still answer allowed origins with CORS. */
+export function readOrigins(env = {}) {
+  const origins = present(env.GTHO_ASSISTANT_ORIGINS) ? list(env.GTHO_ASSISTANT_ORIGINS) : [];
+  return origins.length && origins.every(origin) ? Object.freeze(origins) : Object.freeze([]);
+}
+
 /** Returns {ok:true, config} or {ok:false, reason} with only a secret NAME as reason. */
 export function readConfig(env = {}) {
   for (const name of FUNCTION_SECRETS) if (!present(env[name])) return { ok: false, reason: `missing:${name}` };

@@ -6,6 +6,8 @@ export function json(body, status = 200, headers = {}) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...headers } });
 }
 export const unconfigured = () => json({ error: 'gtho-host-bindings-required' }, 503);
+/** The unconfigured 503 (and OPTIONS) with the same origin-checked CORS headers as a configured function. */
+export const unconfiguredWithCors = origins => withCors(origins, async () => unconfigured());
 
 export function corsHeaders(request, origins) {
   const origin = request.headers.get('origin');

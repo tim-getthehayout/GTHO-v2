@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { readConfig, FUNCTION_SECRETS, publicVoiceConfig, TECHNICAL_BUDGETS, PROVIDER_TIMEOUT_MS } from '../../../../src/features/assistant/server/config.js';
-import { withCors, readJson, readBytes } from '../../../../src/features/assistant/server/http.js';
+import { readConfig, readOrigins, FUNCTION_SECRETS, publicVoiceConfig, TECHNICAL_BUDGETS, PROVIDER_TIMEOUT_MS } from '../../../../src/features/assistant/server/config.js';
+import { withCors, readJson, readBytes, unconfiguredWithCors, ALLOWED_HEADERS } from '../../../../src/features/assistant/server/http.js';
 import { env, OP } from './fake-supabase.js';
 
 describe('function configuration (exactly eight GTHO secrets)', () => {
@@ -66,5 +66,34 @@ describe('bounded bodies', () => {
   });
   it('requires JSON content type', async () => {
     await expect(readJson(new Request('https://fn.invalid', { method: 'POST', body: '{}' }), 10)).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('unconfigured functions keep the configured CORS grant', () => {
+  const ORIGIN = 'https://getthehayout.com';
+  const handler = unconfiguredWithCors(readOrigins({ GTHO_ASSISTANT_ORIGINS: ORIGIN }));
+  it('OPTIONS from an allowed origin gets the same CORS headers', async () => {
+    const response = await handler(new Request('https://fn.invalid', { method: 'OPTIONS', headers: { origin: ORIGIN } }));
+    expect(response.status).toBe(204);
+    expect(response.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+    expect(response.headers.get('access-control-allow-headers')).toBe(ALLOWED_HEADERS);
+    expect(response.headers.get('access-control-allow-methods')).toBe('GET, POST, OPTIONS');
+  });
+  it('the 503 carries the CORS grant for an allowed origin and refuses others', async () => {
+    const ok = await handler(new Request('https://fn.invalid', { method: 'POST', headers: { origin: ORIGIN } }));
+    expect(ok.status).toBe(503);
+    expect(await ok.json()).toEqual({ error: 'gtho-host-bindings-required' });
+    expect(ok.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+    expect(ok.headers.get('vary')).toBe('Origin');
+    const other = await handler(new Request('https://fn.invalid', { method: 'POST', headers: { origin: 'https://evil.example' } }));
+    expect(other.status).toBe(403);
+    expect(other.headers.get('access-control-allow-origin')).toBeNull();
+  });
+  it('without valid origins there is no grant and the plain 503 stays', async () => {
+    expect(readOrigins({})).toEqual([]);
+    expect(readOrigins({ GTHO_ASSISTANT_ORIGINS: 'not a url' })).toEqual([]);
+    const plain = await unconfiguredWithCors([])(new Request('https://fn.invalid', { method: 'POST' }));
+    expect(plain.status).toBe(503);
+    expect(plain.headers.get('access-control-allow-origin')).toBeNull();
   });
 });

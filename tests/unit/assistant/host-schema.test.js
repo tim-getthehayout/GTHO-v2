@@ -26,7 +26,7 @@ describe('prepared host schema (static checks, not a live migration)', () => {
       expect(sql).toContain(`REVOKE ALL ON ${table} FROM anon, authenticated;`);
       if (SERVER_ASSISTANT_TABLES.has(table)) {
         expect(sql).not.toContain(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO authenticated`);
-        expect(sql).toContain(`CREATE POLICY ${table}_member_scope`);
+        if (table !== 'assistant_restore_fences') expect(sql).toContain(`CREATE POLICY ${table}_member_scope`);
         return;
       }
       for (const action of ['select', 'insert', 'update', 'delete']) {
@@ -34,6 +34,31 @@ describe('prepared host schema (static checks, not a live migration)', () => {
       }
     });
   }
+  it('keeps the durable restore fence server-only without an operations FK or expiry',() => {
+    const fence = sql.split('CREATE TABLE assistant_restore_fences (')[1].split('\n);')[0];
+    expect(fence).toContain('operation_id uuid PRIMARY KEY');expect(fence).toContain('fence_token uuid NOT NULL UNIQUE');
+    expect(fence).not.toMatch(/REFERENCES|FOREIGN KEY|expires|lease/i);
+    expect(sql).not.toMatch(/ALTER TABLE assistant_restore_fences ADD FOREIGN KEY/);
+  });
+  it('creates billing policy only on first admitted reserve, never as a blanket seed',() => {
+    expect([...sql.matchAll(/INSERT INTO assistant_billing_policies/g)]).toHaveLength(1);
+    const reserve = sql.split('CREATE FUNCTION assistant_billing_reserve(')[1].split('CREATE FUNCTION assistant_billing_finish(')[0];
+    expect(reserve).toContain('PERFORM public.assistant_assert_restore_unfenced(p_operation)');
+    expect(reserve).toMatch(/INSERT INTO assistant_billing_policies[\s\S]*FROM operations WHERE id = p_operation/);
+  });
+  it('serializes admission and all seven table write guards through the same transaction mutex',() => {
+    const guarded = sql.split('DO $restore_triggers$')[1].split('$restore_triggers$;')[0];
+    for (const table of SERVER_ASSISTANT_TABLES) if (table !== 'assistant_restore_fences') expect(guarded).toContain(`'${table}'`);
+    expect(guarded).toContain('BEFORE INSERT OR UPDATE OR DELETE');expect(guarded).toContain('ENABLE ALWAYS TRIGGER');
+    expect(guarded).toContain('REVOKE TRUNCATE');
+    const helper = sql.split('CREATE FUNCTION assistant_assert_restore_unfenced(')[1].split('CREATE FUNCTION assistant_restore_write_guard(')[0];
+    const prepare = sql.split('CREATE FUNCTION assistant_restore_prepare(')[1].split('CREATE FUNCTION assistant_restore_finish(')[0];
+    // Runtime persistence uses separate connections under a held conversation
+    // transaction: shared writer admission must not deadlock those nested RPCs.
+    expect(helper).toContain("pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended('gtho-assistant-restore:' || p_operation::text, 0))");
+    expect(prepare).toContain("pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('gtho-assistant-restore:' || p_operation::text, 0))");
+    expect(prepare).toContain("USING ERRCODE = '55P03'");
+  });
   it('has no cascade, artifact JSONB, duplicate index names or unscoped artifact FKs', () => {
     expect(sql).not.toMatch(/ON DELETE CASCADE/i);
     expect([...sql.matchAll(/\w+ jsonb/g)].map(m => m[0])).toEqual(['trusted_snapshot jsonb']);

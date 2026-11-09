@@ -14,10 +14,15 @@ try {
     CREATE TABLE submissions (id uuid PRIMARY KEY, operation_id uuid REFERENCES operations, type text, priority text, version text, note text);
     GRANT USAGE ON SCHEMA auth TO authenticated;
     GRANT SELECT ON operation_members TO authenticated;
+    GRANT SELECT ON operations TO service_role;
     INSERT INTO operations VALUES ('00000000-0000-4000-8000-000000000001','America/New_York',39);
     INSERT INTO submissions VALUES ('00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000001','feedback','high','build','historical');
   `);
   await db.exec(readFileSync(new URL('../../supabase/migrations/040_assistant_host_artifacts.sql',import.meta.url),'utf8'));
-  await db.exec(readFileSync(new URL('./assistant-host-artifacts.sql',import.meta.url),'utf8'));
-  console.log('Migration 040 and all six disposable SQL regression blocks passed (isolated PostgreSQL only)');
+  const assertions = readFileSync(new URL('./assistant-host-artifacts.sql',import.meta.url),'utf8');
+  await db.exec(assertions);
+  console.log(`Migration 040 and all ${assertions.match(/^ROLLBACK;/gm).length} disposable SQL regression blocks passed (isolated PostgreSQL only)`);
+} catch (error) {
+  console.error('Isolated SQL regression failed:',error.message,error.where || '');
+  process.exitCode = 1;
 } finally { await db.close(); }

@@ -7,7 +7,7 @@ export const ASSISTANT_TABLES = Object.freeze([
   'assistant_testing_consents', 'assistant_testing_audio', 'offline_voice_notes',
   'submission_field_states', 'submission_repro_steps',
   'assistant_session_locks', 'assistant_billing_policies', 'assistant_billing_reservations',
-  'assistant_billing_usage', 'assistant_billing_settlements',
+  'assistant_billing_usage', 'assistant_billing_settlements', 'assistant_restore_fences',
 ]);
 export const HISTORICAL_FEEDBACK_FACTS = Object.freeze(["type", "contractVersion", "title", "firstNote", "expected", "actual", "severity", "affectedWork", "workaround", "dataRisk", "capturedAt", "filedAt", "conversationId", "reproSteps", "reviewConfirmation"]);
 export const SUBMISSION_EXTENSION_COLUMNS = Object.freeze([
@@ -18,5 +18,5 @@ export const SUBMISSION_EXTENSION_COLUMNS = Object.freeze([
 // Backend-only persistence: never trust a client-synced runtime envelope, lock or meter.
 export const SERVER_ASSISTANT_TABLES = new Set([
   'assistant_session_checkpoints', 'assistant_execution_results', 'assistant_session_locks',
-  'assistant_billing_policies', 'assistant_billing_reservations', 'assistant_billing_usage', 'assistant_billing_settlements',
+  'assistant_billing_policies', 'assistant_billing_reservations', 'assistant_billing_usage', 'assistant_billing_settlements', 'assistant_restore_fences',
 ]);

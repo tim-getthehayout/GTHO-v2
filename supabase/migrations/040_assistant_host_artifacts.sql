@@ -714,16 +714,163 @@ ALTER TABLE assistant_billing_usage ADD FOREIGN KEY (operation_id, lease) REFERE
 ALTER TABLE assistant_billing_settlements ADD FOREIGN KEY (operation_id, lease) REFERENCES assistant_billing_reservations(operation_id, lease);
 CREATE INDEX assistant_billing_reservations_time_idx ON assistant_billing_reservations (operation_id, created_at);
 CREATE INDEX assistant_billing_usage_time_idx ON assistant_billing_usage (operation_id, created_at);
-INSERT INTO assistant_billing_policies (operation_id, billing_timezone) SELECT id, timezone FROM operations;
+-- A durable CP-56 fence, not assistant backup/restore or conversation content.
+-- Deliberately NO operations FK: replace must not be blocked by its own fence.
+CREATE TABLE assistant_restore_fences (
+  operation_id uuid PRIMARY KEY,
+  fence_token uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE assistant_restore_fences ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON assistant_restore_fences FROM anon, authenticated;
+REVOKE ALL ON assistant_restore_fences FROM PUBLIC;
+GRANT ALL ON assistant_restore_fences TO service_role;
+
+-- Writers take shared admission; prepare/finish/abort take exclusive admission.
+-- Shared writers permit checkpoint/billing RPCs on separate connections while
+-- the dedicated conversation transaction holds its session row lock.
+-- A committed fence is NEVER waited out: writes raise, not queue for restore.
+-- Probe admission is nonblocking: a queued exclusive probe could otherwise
+-- starve a separate checkpoint RPC awaited by the session transaction. Busy
+-- admission is unknown (RPC error), never proof of absence or a new fence.
+-- READ COMMITTED is required so a waiter rechecks newly committed authority;
+-- stale repeatable-read snapshots must fail closed rather than bypass a fence.
+CREATE FUNCTION assistant_assert_restore_unfenced(p_operation uuid)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'restore-read-committed-required';
+  END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended('gtho-assistant-restore:' || p_operation::text, 0));
+  IF EXISTS (SELECT 1 FROM public.assistant_restore_fences WHERE operation_id = p_operation) THEN
+    RAISE EXCEPTION 'assistant-restore-in-progress';
+  END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION assistant_assert_restore_unfenced(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_assert_restore_unfenced(uuid) TO service_role;
+
+CREATE FUNCTION assistant_restore_write_guard()
+RETURNS trigger LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = '' AS $$
+DECLARE old_operation uuid; new_operation uuid; scoped_operation uuid;
+BEGIN
+  IF TG_OP <> 'INSERT' THEN old_operation := OLD.operation_id; END IF;
+  IF TG_OP <> 'DELETE' THEN new_operation := NEW.operation_id; END IF;
+  -- Check both scopes on an operation-id change; deterministic order avoids
+  -- opposite-scope updates acquiring their operation mutexes in reverse order.
+  FOR scoped_operation IN SELECT DISTINCT value FROM pg_catalog.unnest(ARRAY[old_operation,new_operation]) value
+    WHERE value IS NOT NULL ORDER BY value LOOP
+    PERFORM public.assistant_assert_restore_unfenced(scoped_operation);
+  END LOOP;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION assistant_restore_write_guard() FROM PUBLIC, anon, authenticated;
+DO $restore_triggers$
+DECLARE table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY['assistant_session_checkpoints','assistant_execution_results','assistant_session_locks','assistant_billing_policies','assistant_billing_reservations','assistant_billing_usage','assistant_billing_settlements'] LOOP
+    EXECUTE pg_catalog.format('CREATE TRIGGER assistant_restore_fence_guard BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.assistant_restore_write_guard()', table_name);
+    EXECUTE pg_catalog.format('ALTER TABLE public.%I ENABLE ALWAYS TRIGGER assistant_restore_fence_guard', table_name);
+    -- TRUNCATE bypasses row guards; it is not an authorized backend write path.
+    EXECUTE pg_catalog.format('REVOKE TRUNCATE ON public.%I FROM service_role', table_name);
+  END LOOP;
+END;
+$restore_triggers$;
+
+-- Minimal membership-checked browser RPCs. No table rows or authority details
+-- are returned; the fence token is not a substitute for authenticated membership.
+CREATE FUNCTION assistant_restore_prepare(p_operation uuid)
+RETURNS TABLE(outcome text, fence_token uuid)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = '' AS $$
+DECLARE installed_token uuid;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.operation_members WHERE operation_id = p_operation
+    AND user_id = auth.uid() AND accepted_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'restore-operation-membership-required' USING ERRCODE = '42501';
+  END IF;
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'restore-read-committed-required';
+  END IF;
+  IF NOT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('gtho-assistant-restore:' || p_operation::text, 0)) THEN
+    RAISE EXCEPTION 'restore-authority-check-unavailable' USING ERRCODE = '55P03';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.assistant_restore_fences WHERE operation_id = p_operation) THEN
+    RETURN QUERY SELECT 'restore-in-progress'::text, NULL::uuid; RETURN;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.assistant_session_checkpoints WHERE operation_id = p_operation)
+    OR EXISTS (SELECT 1 FROM public.assistant_execution_results WHERE operation_id = p_operation)
+    OR EXISTS (SELECT 1 FROM public.assistant_session_locks WHERE operation_id = p_operation)
+    OR EXISTS (SELECT 1 FROM public.assistant_billing_policies WHERE operation_id = p_operation)
+    OR EXISTS (SELECT 1 FROM public.assistant_billing_reservations WHERE operation_id = p_operation)
+    OR EXISTS (SELECT 1 FROM public.assistant_billing_usage WHERE operation_id = p_operation)
+    OR EXISTS (SELECT 1 FROM public.assistant_billing_settlements WHERE operation_id = p_operation) THEN
+    RETURN QUERY SELECT 'retained-authority'::text, NULL::uuid; RETURN;
+  END IF;
+  INSERT INTO public.assistant_restore_fences(operation_id) VALUES (p_operation)
+    RETURNING assistant_restore_fences.fence_token INTO installed_token;
+  RETURN QUERY SELECT 'prepared'::text, installed_token;
+END;
+$$;
+REVOKE ALL ON FUNCTION assistant_restore_prepare(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_restore_prepare(uuid) TO authenticated;
+
+CREATE FUNCTION assistant_restore_finish(p_operation uuid, p_fence_token uuid)
+RETURNS TABLE(outcome text)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.operation_members WHERE operation_id = p_operation
+    AND user_id = auth.uid() AND accepted_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'restore-operation-membership-required' USING ERRCODE = '42501';
+  END IF;
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'restore-read-committed-required';
+  END IF;
+  IF NOT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('gtho-assistant-restore:' || p_operation::text, 0)) THEN
+    RAISE EXCEPTION 'restore-authority-check-unavailable' USING ERRCODE = '55P03';
+  END IF;
+  DELETE FROM public.assistant_restore_fences WHERE operation_id = p_operation AND fence_token = p_fence_token;
+  IF FOUND THEN RETURN QUERY SELECT 'finished'::text;
+  ELSE RETURN QUERY SELECT 'token-mismatch'::text; END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION assistant_restore_finish(uuid,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_restore_finish(uuid,uuid) TO authenticated;
+
+CREATE FUNCTION assistant_restore_abort(p_operation uuid, p_fence_token uuid)
+RETURNS TABLE(outcome text)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.operation_members WHERE operation_id = p_operation
+    AND user_id = auth.uid() AND accepted_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'restore-operation-membership-required' USING ERRCODE = '42501';
+  END IF;
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'restore-read-committed-required';
+  END IF;
+  IF NOT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('gtho-assistant-restore:' || p_operation::text, 0)) THEN
+    RAISE EXCEPTION 'restore-authority-check-unavailable' USING ERRCODE = '55P03';
+  END IF;
+  DELETE FROM public.assistant_restore_fences WHERE operation_id = p_operation AND fence_token = p_fence_token;
+  IF FOUND THEN RETURN QUERY SELECT 'aborted'::text;
+  ELSE RETURN QUERY SELECT 'token-mismatch'::text; END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION assistant_restore_abort(uuid,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_restore_abort(uuid,uuid) TO authenticated;
+
 
 -- Callable backend bindings. No automatic lock expiry or cleanup schedule.
 CREATE FUNCTION assistant_lock_acquire(p_operation uuid, p_ref text, p_owner uuid)
 RETURNS SETOF assistant_session_locks LANGUAGE sql SECURITY INVOKER SET search_path = public AS $$
+  SELECT public.assistant_assert_restore_unfenced(p_operation);
   INSERT INTO assistant_session_locks (operation_id, conversation_ref, owner_token)
   VALUES (p_operation, p_ref, p_owner) ON CONFLICT (operation_id, conversation_ref) DO NOTHING RETURNING *;
 $$;
 CREATE FUNCTION assistant_lock_release(p_operation uuid, p_ref text, p_owner uuid)
 RETURNS void LANGUAGE sql SECURITY INVOKER SET search_path = public AS $$
+  SELECT public.assistant_assert_restore_unfenced(p_operation);
   DELETE FROM assistant_session_locks WHERE operation_id = p_operation AND conversation_ref = p_ref AND owner_token = p_owner;
 $$;
 CREATE FUNCTION assistant_billing_reserve(p_operation uuid, p_purpose text, p_request text, p_kind text)
@@ -731,6 +878,7 @@ RETURNS SETOF assistant_billing_reservations LANGUAGE plpgsql SECURITY INVOKER S
 DECLARE policy assistant_billing_policies; existing assistant_billing_reservations;
   monthly_start timestamptz; used_requests bigint; used_audio numeric; rate_count bigint;
 BEGIN
+  PERFORM public.assistant_assert_restore_unfenced(p_operation);
   INSERT INTO assistant_billing_policies (operation_id, billing_timezone) SELECT id, timezone FROM operations WHERE id = p_operation ON CONFLICT (operation_id) DO NOTHING;
   SELECT * INTO policy FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'billing-policy-required'; END IF;
@@ -765,6 +913,7 @@ CREATE FUNCTION assistant_billing_finish(p_operation uuid, p_lease uuid, p_model
 RETURNS SETOF assistant_billing_usage LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE reservation assistant_billing_reservations;
 BEGIN
+  PERFORM public.assistant_assert_restore_unfenced(p_operation);
   PERFORM 1 FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
   SELECT * INTO STRICT reservation FROM assistant_billing_reservations WHERE operation_id = p_operation AND lease = p_lease;
   IF p_bill_shared IS DISTINCT FROM (reservation.routing = 'shared') THEN RAISE EXCEPTION 'billing-routing-mismatch'; END IF;
@@ -784,6 +933,7 @@ CREATE FUNCTION assistant_billing_reconcile(p_operation uuid, p_lease uuid, p_mo
 RETURNS SETOF assistant_billing_usage LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE existing assistant_billing_usage;
 BEGIN
+  PERFORM public.assistant_assert_restore_unfenced(p_operation);
   PERFORM 1 FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
   SELECT * INTO STRICT existing FROM assistant_billing_usage WHERE operation_id = p_operation AND lease = p_lease FOR UPDATE;
   IF p_input IS NULL OR p_output IS NULL OR p_audio IS NULL OR p_requests IS NULL THEN RAISE EXCEPTION 'verified-usage-required'; END IF;
@@ -804,6 +954,7 @@ CREATE FUNCTION assistant_billing_settle(p_operation uuid, p_lease uuid, p_provi
 RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE reservation assistant_billing_reservations; claimed uuid;
 BEGIN
+  PERFORM public.assistant_assert_restore_unfenced(p_operation);
   PERFORM 1 FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
   SELECT * INTO STRICT reservation FROM assistant_billing_reservations WHERE operation_id = p_operation AND lease = p_lease;
   IF reservation.kind <> 'settlement' THEN RAISE EXCEPTION 'settlement-reservation-required'; END IF;
@@ -822,6 +973,7 @@ CREATE FUNCTION assistant_cleanup_finished(p_operation uuid)
 RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 DECLARE attempts uuid[]; mappings uuid[];
 BEGIN
+  PERFORM public.assistant_assert_restore_unfenced(p_operation);
   SELECT array_agg(id) INTO attempts FROM (SELECT id FROM voice_entry_attempts WHERE operation_id = p_operation
     AND status = 'finished' AND finished_at <= now() - make_interval(hours => 90 * 24) FOR UPDATE) expired;
   SELECT array_agg(id) INTO mappings FROM assistant_field_mappings WHERE operation_id = p_operation AND attempt_id = ANY(attempts);

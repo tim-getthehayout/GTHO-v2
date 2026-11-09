@@ -5,6 +5,8 @@ DO $$
 DECLARE op uuid := '00000000-0000-4000-8000-000000000001'; lease_id uuid; repeated uuid; n integer; policy assistant_billing_policies;
 BEGIN
   ASSERT (SELECT count(*) FROM submission_field_states WHERE field_name IN ('affectedWork','workaround','dataRisk') AND state = 'unknown' AND source = 'host') = 3, 'historical impact unknowns carry explicit host provenance';
+  ASSERT NOT EXISTS(SELECT 1 FROM assistant_billing_policies), 'unused operations have no blanket policy seed';
+  SELECT lease INTO lease_id FROM assistant_billing_reserve(op,'feedback','first-policy','settlement');
   SELECT * INTO STRICT policy FROM assistant_billing_policies WHERE operation_id = op;
   ASSERT policy.rate_requests = 30 AND policy.rate_window_seconds = 600 AND policy.monthly_requests = 2000 AND policy.monthly_audio_minutes = 600, 'initial mutable policy';
   FOR n IN 1..30 LOOP
@@ -125,4 +127,131 @@ DO $$ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END $$;
 RESET ROLE;
+ROLLBACK;
+
+-- Narrow definer RPC ACLs, accepted membership, durable/token-matched protocol.
+BEGIN;
+INSERT INTO auth.users VALUES ('00000000-0000-4000-8000-000000000020'),('00000000-0000-4000-8000-000000000021');
+INSERT INTO operation_members VALUES ('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000020',now()),('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000021',NULL);
+DO $$
+DECLARE table_name text; privilege_name text; fn text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY['assistant_session_checkpoints','assistant_execution_results','assistant_session_locks','assistant_billing_policies','assistant_billing_reservations','assistant_billing_usage','assistant_billing_settlements','assistant_restore_fences'] LOOP
+    FOREACH privilege_name IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE'] LOOP
+      ASSERT NOT has_table_privilege('authenticated',table_name,privilege_name), 'authenticated table access remains revoked';
+      ASSERT NOT has_table_privilege('anon',table_name,privilege_name), 'anon table access remains revoked';
+    END LOOP;
+  END LOOP;
+  FOREACH fn IN ARRAY ARRAY['assistant_restore_prepare(uuid)','assistant_restore_finish(uuid,uuid)','assistant_restore_abort(uuid,uuid)'] LOOP
+    ASSERT has_function_privilege('authenticated',fn,'EXECUTE');
+    ASSERT NOT has_function_privilege('anon',fn,'EXECUTE');
+    ASSERT (SELECT prosecdef AND provolatile = 'v' AND proconfig = ARRAY['search_path=""'] FROM pg_proc WHERE oid = fn::regprocedure), 'fixed empty path, volatile, security definer';
+  END LOOP;
+  ASSERT NOT has_function_privilege('authenticated','assistant_assert_restore_unfenced(uuid)','EXECUTE');
+  ASSERT NOT has_function_privilege('authenticated','assistant_restore_write_guard()','EXECUTE');
+  ASSERT pg_get_function_result('assistant_restore_prepare(uuid)'::regprocedure) = 'TABLE(outcome text, fence_token uuid)', 'no row contents in probe';
+  ASSERT pg_get_function_result('assistant_restore_finish(uuid,uuid)'::regprocedure) = 'TABLE(outcome text)';
+  ASSERT pg_get_function_result('assistant_restore_abort(uuid,uuid)'::regprocedure) = 'TABLE(outcome text)';
+  ASSERT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid = 'assistant_restore_fences'::regclass AND contype = 'p' AND pg_get_constraintdef(oid) = 'PRIMARY KEY (operation_id)');
+  ASSERT NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid = 'assistant_restore_fences'::regclass AND contype = 'f'), 'fence must not block parent operation replace';
+END $$;
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE op uuid := '00000000-0000-4000-8000-000000000001'; token uuid; newer uuid; probe record;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  BEGIN PERFORM assistant_restore_prepare(op); RAISE EXCEPTION 'missing auth accepted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000021',true);
+  BEGIN PERFORM assistant_restore_prepare(op); RAISE EXCEPTION 'pending membership accepted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN PERFORM assistant_restore_finish(op,gen_random_uuid()); RAISE EXCEPTION 'pending finish accepted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN PERFORM assistant_restore_abort(op,gen_random_uuid()); RAISE EXCEPTION 'pending abort accepted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000020',true);
+  BEGIN PERFORM assistant_restore_prepare(gen_random_uuid()); RAISE EXCEPTION 'unrelated operation accepted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  SELECT * INTO STRICT probe FROM assistant_restore_prepare(op); ASSERT probe.outcome = 'prepared' AND probe.fence_token IS NOT NULL; token := probe.fence_token;
+  SELECT * INTO STRICT probe FROM assistant_restore_prepare(op); ASSERT probe.outcome = 'restore-in-progress' AND probe.fence_token IS NULL;
+  ASSERT (SELECT outcome FROM assistant_restore_finish(op,gen_random_uuid())) = 'token-mismatch';
+  ASSERT (SELECT outcome FROM assistant_restore_abort(op,gen_random_uuid())) = 'token-mismatch';
+  ASSERT (SELECT outcome FROM assistant_restore_prepare(op)) = 'restore-in-progress', 'wrong token never releases fence';
+  ASSERT (SELECT outcome FROM assistant_restore_abort(op,token)) = 'aborted';
+  SELECT fence_token INTO newer FROM assistant_restore_prepare(op); ASSERT newer IS NOT NULL AND newer <> token;
+  ASSERT (SELECT outcome FROM assistant_restore_finish(op,token)) = 'token-mismatch', 'old token cannot release a new restore';
+  ASSERT (SELECT outcome FROM assistant_restore_finish(op,newer)) = 'finished';
+END $$;
+RESET ROLE;
+DO $$ BEGIN ASSERT NOT EXISTS(SELECT 1 FROM assistant_restore_fences), 'successful finish removes exactly its fence'; END $$;
+ROLLBACK;
+
+-- Service writes cannot bypass the durable operation fence, even for first use.
+BEGIN;
+INSERT INTO auth.users VALUES ('00000000-0000-4000-8000-000000000020');
+INSERT INTO operations VALUES ('00000000-0000-4000-8000-000000000002','America/New_York',40);
+INSERT INTO operation_members VALUES ('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000020',now()),('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000020',now());
+DO $$ BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000020',true);
+  PERFORM assistant_restore_prepare('00000000-0000-4000-8000-000000000001');
+END $$;
+SET LOCAL ROLE service_role;
+DO $$
+DECLARE op uuid := '00000000-0000-4000-8000-000000000001'; table_name text; statement text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY['assistant_session_checkpoints','assistant_execution_results','assistant_session_locks','assistant_billing_policies','assistant_billing_reservations','assistant_billing_usage','assistant_billing_settlements'] LOOP
+    ASSERT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = table_name::regclass AND tgname = 'assistant_restore_fence_guard' AND tgenabled = 'A' AND tgtype = 31), 'always-enabled insert/update/delete guard on every authority table';
+    ASSERT NOT has_table_privilege('service_role',table_name,'TRUNCATE'), 'truncate cannot bypass row guards';
+    BEGIN EXECUTE format('INSERT INTO %I(operation_id) VALUES ($1)',table_name) USING op; RAISE EXCEPTION 'unguarded authority insert';
+    EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'assistant-restore-in-progress' THEN RAISE; END IF; END;
+  END LOOP;
+  FOREACH statement IN ARRAY ARRAY[
+    'SELECT assistant_lock_acquire($1,''ref'',gen_random_uuid())',
+    'SELECT assistant_lock_release($1,''missing'',gen_random_uuid())',
+    'SELECT assistant_billing_reserve($1,''feedback'',''first-use'',''request'')',
+    'SELECT assistant_billing_reserve($1,''feedback'',''settlement'',''settlement'')',
+    'SELECT assistant_billing_finish($1,gen_random_uuid(),''fixture'',NULL,0,0,0,1,true,false)',
+    'SELECT assistant_billing_reconcile($1,gen_random_uuid(),''fixture'',NULL,0,0,0,1)',
+    'SELECT assistant_billing_settle($1,gen_random_uuid(),''provider'',''settlement'',''fixture'',0,0,0,0)',
+    'SELECT assistant_cleanup_finished($1)'
+  ] LOOP
+    BEGIN EXECUTE statement USING op; RAISE EXCEPTION 'unguarded callable write';
+    EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'assistant-restore-in-progress' THEN RAISE; END IF; END;
+  END LOOP;
+  ASSERT NOT EXISTS(SELECT 1 FROM assistant_billing_policies WHERE operation_id = op), 'fenced first reserve cannot seed a policy';
+  PERFORM assistant_billing_reserve('00000000-0000-4000-8000-000000000002','feedback','other-operation','request');
+END $$;
+RESET ROLE;
+DO $$
+DECLARE token uuid; probe record; op uuid := '00000000-0000-4000-8000-000000000001';
+BEGIN
+  SELECT * INTO STRICT probe FROM assistant_restore_prepare('00000000-0000-4000-8000-000000000002');
+  ASSERT probe.outcome = 'retained-authority' AND probe.fence_token IS NULL, 'first reserve blocks browser restore while authority retained';
+  ASSERT NOT EXISTS(SELECT 1 FROM assistant_restore_fences WHERE operation_id = '00000000-0000-4000-8000-000000000002');
+  SELECT fence_token INTO token FROM assistant_restore_fences WHERE operation_id = op;
+  PERFORM assistant_restore_abort(op,token);
+  PERFORM assistant_billing_reserve(op,'feedback','after-restore','request');
+  ASSERT EXISTS(SELECT 1 FROM assistant_billing_policies WHERE operation_id = op), 'policy created only on first admitted reserve';
+  -- Privileged test fixture only: no API prepares a fence over retained rows.
+  INSERT INTO assistant_restore_fences(operation_id) VALUES(op);
+END $$;
+SET LOCAL ROLE service_role;
+DO $$
+DECLARE statement text; op uuid := '00000000-0000-4000-8000-000000000001';
+BEGIN
+  FOREACH statement IN ARRAY ARRAY[
+    'UPDATE assistant_billing_policies SET rate_requests = rate_requests WHERE operation_id = $1',
+    'DELETE FROM assistant_billing_policies WHERE operation_id = $1',
+    'UPDATE assistant_billing_policies SET operation_id = ''00000000-0000-4000-8000-000000000003'' WHERE operation_id = $1',
+    'UPDATE assistant_billing_policies SET operation_id = $1 WHERE operation_id = ''00000000-0000-4000-8000-000000000002'''
+  ] LOOP
+    BEGIN EXECUTE statement USING op; RAISE EXCEPTION 'unguarded authority update/delete/scope change';
+    EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'assistant-restore-in-progress' THEN RAISE; END IF; END;
+  END LOOP;
+END $$;
+RESET ROLE;
+ROLLBACK;
+
+-- Non-default stale snapshot isolation must fail closed, not skip a fence.
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+DO $$ BEGIN
+  BEGIN PERFORM assistant_billing_reserve('00000000-0000-4000-8000-000000000001','feedback','stale-snapshot','request'); RAISE EXCEPTION 'stale snapshot accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'restore-read-committed-required' THEN RAISE; END IF; END;
+  ASSERT NOT EXISTS(SELECT 1 FROM assistant_billing_policies), 'isolation rejection precedes policy creation';
+END $$;
 ROLLBACK;

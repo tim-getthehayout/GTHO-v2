@@ -297,7 +297,12 @@ export class CustomSync extends SyncAdapter {
           }
         }
 
-        writeQueue(remaining);
+        // A confirmed multi-record save may journal NEW commands while this
+        // flush is awaiting a server response. Never overwrite those receipts'
+        // pending commands with the earlier flush snapshot.
+        const claimed = new Set(queue.map(entry => entry.durable_key).filter(Boolean));
+        const newlyJournalled = readQueue().filter(entry => entry.durable_key && !claimed.has(entry.durable_key));
+        writeQueue([...remaining,...newlyJournalled]);
       }
 
       // OI-0184: drain the DLQ after the main queue. A transient-failure

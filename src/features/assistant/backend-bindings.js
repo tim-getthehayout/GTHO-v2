@@ -13,7 +13,7 @@ const same = (a, b) => JSON.stringify(comparable(a)) === JSON.stringify(comparab
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const requireResult = ({ data, error }) => { if (error) throw new Error(error.code === '23505' ? 'duplicate-durable-identity' : 'assistant-persistence-failed'); return data; };
 
-export function createBackendPersistence({ client, authorize, applyConfirmedWrite }) {
+export function createBackendPersistence({ client, authorize, applyConfirmedWrite, sessionDatabase }) {
   const held = new Map(); // Local proof of ownership only; exclusivity lives in SQL.
   async function auth(scope) {
     if (!scope?.operationId || !scope?.actorId || await authorize(scope) !== true) throw new Error('unauthorized');
@@ -49,16 +49,13 @@ export function createBackendPersistence({ client, authorize, applyConfirmedWrit
   }
   async function withSession(scope, ref, work) {
     await auth(scope);
-    const owner = crypto.randomUUID();
-    const locks = requireResult(await client.rpc('assistant_lock_acquire', { p_operation: scope.operationId, p_ref: ref, p_owner: owner }));
-    if (locks?.length !== 1) throw new Error('session-busy-no-automatic-expiry');
-    const key = lockKey(scope, ref);
-    held.set(key, owner);
-    try { return await work(await load(scope, ref)); }
-    finally {
-      held.delete(key);
-      requireResult(await client.rpc('assistant_lock_release', { p_operation: scope.operationId, p_ref: ref, p_owner: owner }));
-    }
+    if (!sessionDatabase) throw new Error('crash-recoverable-session-database-required');
+    return sessionDatabase.withSessionLock(scope,ref,async owner => {
+      const key = lockKey(scope,ref);
+      held.set(key,owner);
+      try { return await work(await load(scope,ref)); }
+      finally { held.delete(key); }
+    });
   }
   async function execute(scope, proposal, receipt, idempotencyKey) {
     await auth(scope);

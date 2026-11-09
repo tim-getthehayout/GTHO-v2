@@ -4,6 +4,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add } from '../../data/store.js';
+import { reviewSave, inputField } from '../assistant/entry-review.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { getEventStartDate } from '../events/event-start.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
@@ -26,7 +27,7 @@ function unitLabel(unit) {
   return map[unit] || (unit ? unit + 's' : 'units');
 }
 
-export function openDeliverFeedSheet(evt, operationId) {
+export function openDeliverFeedSheet(evt, operationId, options = {}) {
   ensureSheetDOM();
   if (!deliverFeedSheet) deliverFeedSheet = new Sheet('deliver-feed-sheet-wrap');
 
@@ -303,7 +304,7 @@ export function openDeliverFeedSheet(evt, operationId) {
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [
     el('button', {
       className: 'btn btn-green',
-      onClick: () => {
+      onClick: reviewSave(options.review, () => {
         clear(statusEl);
         const linesToSave = selectedLines.filter(l => l.qty > 0);
         if (!linesToSave.length) {
@@ -334,14 +335,26 @@ export function openDeliverFeedSheet(evt, operationId) {
             });
             add('eventFeedEntries', entry, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
           }
-          deliverFeedSheet.close();
+          if (!options.review) deliverFeedSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));
         }
-      },
+      }),
     }, [t('feed.saveFeeding')]),
     el('button', { className: 'btn btn-outline', onClick: () => deliverFeedSheet.close() }, [t('action.cancel')]),
   ]));
 
+  options.review?.bind({ ui: 'Log feeding sheet', close: () => deliverFeedSheet.close(), entityType: 'eventFeedEntries', status: statusEl, fields: {
+    date: inputField(dateInput,true),time: inputField(timeInput),
+    locationId: { required: true,get: () => selectedLocationId,set: value => {
+      if (!sortedActivePWs.some(window => window.locationId === value)) throw new Error('invalid-feeding-paddock');
+      selectedLocationId = value; updateChip();
+      const picker = panel.querySelector('[data-testid="feed-delivery-paddock-picker"]'); if (picker) picker.value = value;
+    } },
+    lines: { required: true,get: () => globalThis.structuredClone(selectedLines),set: value => {
+      if (!Array.isArray(value) || value.some(line => !batches.some(batch => batch.id === line.batchId && batch.operationId === operationId) || !Number.isFinite(line.qty) || line.qty < 0)) throw new Error('invalid-feeding-lines');
+      selectedLines = value.map(({ batchId,qty,sourceLocationId }) => ({ batchId,qty,sourceLocationId: sourceLocationId || null })); renderBatches();renderSummary();
+    } },
+  } });
   deliverFeedSheet.open();
 }

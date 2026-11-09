@@ -34,24 +34,33 @@ function database() {
   }) };
   return { client, tables, locks };
 }
+function persistence(options) {
+  const sessionDatabase = { async withSessionLock(scope,ref,work) {
+    const owner = crypto.randomUUID();
+    const row = await options.client.rpc('assistant_lock_acquire',{ p_operation: scope.operationId,p_ref: ref,p_owner: owner });
+    if (!row.data.length) throw new Error('session-busy');
+    try { return await work(owner); } finally { await options.client.rpc('assistant_lock_release',{ p_operation: scope.operationId,p_ref: ref,p_owner: owner }); }
+  } };
+  return createBackendPersistence({ ...options,sessionDatabase });
+}
 function snapshot(extra = {}) { return { version: 1, scope, conversationRef: ref, transcript: [], phase: 'converse', preserved: [], answered: [], capture: { context: { screen: 'original' } }, ...extra }; }
 describe('trusted runtime persistence bindings', () => {
   it('round-trips the exact snapshot even on errors, not inspection-pointer reconstruction', async () => {
     const { client, tables } = database();
-    const a = createBackendPersistence({ client, authorize: async () => true });
+    const a = persistence({ client, authorize: async () => true });
     const saved = snapshot({ reviewReady: false, switchRequested: 'question', logs: [{ field: 'x' }] });
     await expect(a.withSession(scope, ref, async () => { await a.checkpoint(scope, saved); throw new Error('interrupted'); })).rejects.toThrow('interrupted');
     tables.assistant_session_checkpoints[0].lifecycle_phase = 'incorrect-pointer';
     // PostgreSQL JSONB reorders object keys, but never array elements.
     tables.assistant_session_checkpoints[0].trusted_snapshot.scope = { actorId: scope.actorId, operationId: scope.operationId };
-    const b = createBackendPersistence({ client, authorize: async () => true });
+    const b = persistence({ client, authorize: async () => true });
     await b.withSession(scope, ref, async existing => expect(existing).toEqual(saved));
     await expect(a.checkpoint(scope, saved)).rejects.toThrow('lock-required');
   });
   it('serializes separate adapter instances through the durable lock, including start, with no expiry takeover', async () => {
     const { client } = database();
-    const a = createBackendPersistence({ client, authorize: async () => true });
-    const b = createBackendPersistence({ client, authorize: async () => true });
+    const a = persistence({ client, authorize: async () => true });
+    const b = persistence({ client, authorize: async () => true });
     await a.withSession(scope, ref, async () => {
       await expect(b.withSession(scope, ref, async () => {})).rejects.toThrow('session-busy');
     });
@@ -59,10 +68,10 @@ describe('trusted runtime persistence bindings', () => {
   });
   it('rejects authorization and stored scope forgery', async () => {
     const { client, tables } = database();
-    const denied = createBackendPersistence({ client, authorize: async () => false });
+    const denied = persistence({ client, authorize: async () => false });
     await expect(denied.withSession(scope, ref, async () => {})).rejects.toThrow('unauthorized');
     tables.assistant_session_checkpoints = [{ operation_id: scope.operationId, conversation_id: ref, trusted_snapshot: snapshot({ scope: { ...scope, actorId: id(77) } }) }];
-    const p = createBackendPersistence({ client, authorize: async () => true });
+    const p = persistence({ client, authorize: async () => true });
     await expect(p.withSession(scope, ref, async () => {})).rejects.toThrow('untrusted-snapshot');
   });
   it('persists the exact execution key before writes, replays stored outcomes and never reapplies ambiguous claims', async () => {
@@ -71,7 +80,7 @@ describe('trusted runtime persistence bindings', () => {
     tables.assistant_proposal_revisions = [{ id: id(5), operation_id: scope.operationId, proposal_id: proposal.id, revision_number: 1 }];
     tables.assistant_review_confirmations = [{ id: id(6), operation_id: scope.operationId, revision_id: id(5), actor_id: scope.actorId }];
     const apply = vi.fn(async () => ({ savedRecordId: id(7), localSavedAt: '2026-11-08T19:00:00-05:00' }));
-    const p = createBackendPersistence({ client, authorize: async () => true, applyConfirmedWrite: apply });
+    const p = persistence({ client, authorize: async () => true, applyConfirmedWrite: apply });
     const key = JSON.stringify([scope.operationId, ref, proposal.id, proposal.revision]);
     await p.withSession(scope, ref, async () => {
       await p.checkpoint(scope, snapshot({ phase: 'executing', pending: proposal, confirmation: id(6), reviewReady: true }));

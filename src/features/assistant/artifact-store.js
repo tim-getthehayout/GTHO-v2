@@ -20,7 +20,7 @@ export function createArtifactStore({ authorize, store = Store }) {
     return existing
       ? store.update(entityType, record.id, record, binding.entity.validate, binding.entity.toSupabaseShape, binding.table)
       : store.add(entityType, record, binding.entity.validate, binding.entity.toSupabaseShape, binding.table);
-    // An add/update return is NOT a durable-local-save receipt: the existing
-    // localStorage wrapper currently swallows persistence errors.
+    // An ordinary add/update return is not the multi-record execution receipt.
+    // A durable receipt also binds the entire confirmed multi-record execution.
   };
 }

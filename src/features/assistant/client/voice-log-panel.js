@@ -25,11 +25,20 @@ function ensureSheet() {
   return { sheet: new Sheet('voice-log-sheet-wrap'), panel: document.getElementById('voice-log-sheet-panel'), wrap };
 }
 
-/** The operation's timezone; the device's own when the operation has none. */
-export function operationTimezone(deps) {
+/** True for a zone Intl accepts (IANA names such as America/New_York). */
+export function validTimezone(zone) {
+  if (typeof zone !== 'string' || !zone.trim()) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: zone }); return true; } catch { return false; }
+}
+
+/** The current operation's timezone from the local store when it is set and
+ * valid; the device's timezone only when it is null or invalid. */
+export function operationTimezone(deps, deviceZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone) {
   const operationId = deps.scope?.().operationId;
   const row = typeof deps.getAll === 'function' ? deps.getAll('operations').find(op => op.id === operationId) : null;
-  return row?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  if (validTimezone(row?.timezone)) return row.timezone;
+  const device = deviceZone();
+  return validTimezone(device) ? device : 'UTC';
 }
 
 /** Log rows for this operation: attempts and not-yet-used device notes. */

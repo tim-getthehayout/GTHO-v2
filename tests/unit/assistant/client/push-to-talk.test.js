@@ -201,3 +201,23 @@ describe('voice log filters and rows', () => {
     await vi.waitFor(() => expect(d.persist).toHaveBeenCalledWith(expect.anything(), 'voiceEntryAttempts', expect.objectContaining({ id: 'a1', status: 'discarded', finishedAt: null })));
   });
 });
+
+describe('voice log Today uses the operation timezone', () => {
+  const zoneDeps = timezone => ({ scope: () => ({ operationId: OP }), getAll: table => table === 'operations' ? [{ id: OP, timezone }, { id: 'other', timezone: 'Asia/Tokyo' }] : [] });
+  it('uses the operation timezone when set and valid', async () => {
+    const { operationTimezone, matchesFilter } = await import('../../../../src/features/assistant/client/voice-log-panel.js');
+    expect(operationTimezone(zoneDeps('America/Denver'), () => 'Asia/Tokyo')).toBe('America/Denver');
+    // 2026-11-09 05:00 UTC is still Nov 8 in Denver; "now" is Nov 9 there.
+    const row = { capturedAt: '2026-11-09T05:00:00.000Z', status: 'finished' };
+    expect(matchesFilter(row, 'today', operationTimezone(zoneDeps('America/Denver')), new Date('2026-11-09T18:00:00.000Z'))).toBe(false);
+    expect(matchesFilter(row, 'today', 'UTC', new Date('2026-11-09T18:00:00.000Z'))).toBe(true);
+  });
+  it.each([[null], [''], ['Not/AZone'], ['EST5EDT-bogus']])('falls back to the device timezone when the operation timezone is %s', async zone => {
+    const { operationTimezone } = await import('../../../../src/features/assistant/client/voice-log-panel.js');
+    expect(operationTimezone(zoneDeps(zone), () => 'Asia/Tokyo')).toBe('Asia/Tokyo');
+  });
+  it('uses UTC only when the device timezone is also unusable', async () => {
+    const { operationTimezone } = await import('../../../../src/features/assistant/client/voice-log-panel.js');
+    expect(operationTimezone(zoneDeps(null), () => undefined)).toBe('UTC');
+  });
+});

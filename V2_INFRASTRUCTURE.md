@@ -199,7 +199,7 @@ Every submission auto-captures context via the `screen` and `version` columns pl
 
 ### 4.2 submissions Table
 
-**OI-0195 adoption (2026-11-08): HOST-ADAPTER DESIGN SPECIFIED — unimplemented, not handed to Build.** New shared-interview items go to this existing Feedback store (`submissions`), additively normalized as specified in `V2_SCHEMA_DESIGN.md` §11.2a. Capture the first note, build stamp and context before AI interpretation; require the normal Feedback/Get Help sheet populated for review and confirmation before filing (stored review card = evidence only). `version` remains the app build stamp, not `contractVersion`. Keep feedback/support purpose distinct from bug/request classification, and support urgency distinct from severity. Historical IDs/history remain; add missing fields with explicit unknowns now and ask only on reopening, without inventing classification or filing consent. How-to-only Get help stays in the same assistant with a matching doc link and no product filing. The table below is the pre-adoption field inventory, not applied adoption DDL.
+**OI-0195 adoption (2026-11-08; implemented on Forgejo main as PR #38 on 2026-11-09, not live).** New shared-interview items go to this existing Feedback store (`submissions`), additively normalized as specified in `V2_SCHEMA_DESIGN.md` §11.2a. Capture the first note, build stamp and context before AI interpretation; require the normal Feedback/Get Help sheet populated for review and confirmation before filing (stored review card = evidence only). `version` remains the app build stamp, not `contractVersion`. Keep feedback/support purpose distinct from bug/request classification, and support urgency distinct from severity. Historical IDs/history remain; add missing fields with explicit unknowns now and ask only on reopening, without inventing classification or filing consent. How-to-only Get help stays in the same assistant with a matching doc link and no product filing. Feedback counts as handed off once the server has the `submissions` row (P10, 2026-11-09); filing destination comes from feedback-module `routeDestination`. The table below is the pre-adoption field inventory, not applied adoption DDL.
 
 Aligned with schema D11.2. Thread field is JSONB — an intentional exception to normalization principle #6 for append-only conversation data (A25).
 
@@ -438,7 +438,7 @@ Vite loads this file automatically. The app code references these via `import.me
 
 ## 8. Voice and AI Integration
 
-> **Status (2026-11-08): HOST-ADAPTER DESIGN SPECIFIED — unimplemented, not handed to Build.** Shared contracts and released implementations exist. Physical host schema is specified in Domain 11; the populated-UI farm-tool method and first-slice write attachments are specified in §8.3a. Testing-end audio disposal and later-rollout consent remain deferred/non-blocking. Chief of Staff owns both shared contracts. GTHO is first host adopter, not module owner; reusable runtime/interview changes go back to Chief of Staff, not into GTHO-v2.
+> **Status (2026-11-09): HOST ADAPTER ON FORGEJO MAIN, NOT LIVE.** Merged as Forgejo PR #38, merge `eb04c197`. Migration 040 is not applied, the assistant is not enabled, and the GitHub publish is held until 040 is live. Shared contracts and released implementations exist. Physical host schema is in Domain 11; the populated-UI farm-tool method and first-slice write attachments are in §8.3a; the ready-for-build gate locks, go-live order and live unknowns are in §8.3b. Deferred items are listed in §8.4. Chief of Staff owns both shared contracts. GTHO is first host adopter, not module owner; reusable runtime/interview changes go back to Chief of Staff, not into GTHO-v2.
 
 ### 8.1 Product shape (locked 2026-11-08)
 
@@ -450,9 +450,9 @@ Tim locked these choices in the GTHO Design chat:
 4. Ask-and-answer is in scope as capabilities grounded in authorized current data, not a hardcoded catalog of questions.
 5. A shared module makes sense: one conversation runtime used by GTHO, not folding the general assistant into `feedback-module`. Spoken feedback should use that same assistant and the existing feedback interview contract, not a second inbox.
 6. Incomplete, invalid, interrupted, or abandoned voice or text proposals are kept as recoverable exceptions so the user can intercept and complete them later. They live in a running voice-to-entry log that can be filtered easily to expose unfinished items. Finished items may remain in that log as history, but confirmed farm data still lives in the ordinary records. This log is not silent training or audit capture.
-7. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop. On desktop it is a floating, movable control that starts at the bottom center.
+7. The push-to-talk control is prominent in field mode (mobile) and is also present on desktop. On desktop it is a floating, movable control that starts at the bottom center. It is one global control and the only voice entry: it routes writes, questions, feedback and how-to, and the Assistant sheet has no Talk button (Design ruling, 2026-11-09).
 8. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. Do not promise offline AI parsing or answers; existing manual entry remains available. No on-device model is committed for launch. No extra permission prompt is shown for storing offline recordings on the user’s own device: record them as part of using voice while offline, with playback and delete still available before processing. An offline recording counts as processed, and can be deleted, only after the user confirms a write or filing from that note AND it has actually saved durably on the device. Confirmation alone is not enough. If the attempt is discarded without filing, the recording stays unless the user deletes it. The one-time testing-audio consent popup is separate and remains.
-9. Tap once to start listening. The session uses voice-activity detection to hear when the user finishes, and that detection should tolerate brief pauses rather than cutting off at the first silence. The spoken stop phrase is “over.” Hold-to-talk is not the launch default and may be a later option.
+9. Tap once to start listening. The turn ends when the user says “over” or taps the control again (Design, Tim 👍 2026-11-09); brief pauses do not end it. This is bound as manual commit (`turn_detection` null, §8.3b T5), with a `server_vad` fallback behind config. Hold-to-talk is not the launch default and may be a later option.
 10. The voice-to-entry log opens as a panel from the push-to-talk control. That control shows a count of unfinished items awaiting review.
 11. Besides unfinished versus all, the log can be filtered by today and by write, question, feedback, or a separate how-to filter. Today uses capture time. Both the visible finished attempt history and the structured field-mapping/correction record stay 90 days from when the item is finished. Unfinished items stay until finished or discarded.
 12. First-slice write surfaces are Move wizard, Place, feeding, treatment and Calving sheet; this is launch wiring, not an exhaustive scenario list. The assistant asks follow-up questions and prompts for required information to complete the entry, then populates the matching normal UI for review. Questions are capabilities grounded in authorized current records, not a hardcoded list. First-slice read coverage is reproductive evidence, open-set assessment/counts and paddock grazing history.
@@ -475,7 +475,7 @@ Keep from April: the populated normal UI for review before a write commits; mult
 
 ### 8.3 Current intended architecture
 
-One shared conversation runtime (a sibling shared module with a locked contract) plus app-owned GTHO tools. The shared implementations are released separately from the unimplemented GTHO host adapter.
+One shared conversation runtime (a sibling shared module with a locked contract) plus app-owned GTHO tools. The shared implementations are released separately from the GTHO host adapter (merged on Forgejo main as PR #38, 2026-11-09; not live).
 
 | Shared module | GTHO release pin | Annotated tag peels to | Package version |
 |---|---|---|---|
@@ -484,11 +484,11 @@ One shared conversation runtime (a sibling shared module with a locked contract)
 
 These are the independently verified release targets for GTHO adoption; nothing auto-spreads. Older tags are unchanged and are **not** adoption pins: feedback-module `v0.1.2` → `f22b58af728594ee5c59edeb362b17467fe6e549`, `v0.1.1` → `eb7fc8010bf5173549db14382411c6386a7e09f2`, `v0.1.0` → `16a68aa94626eaa9f7f4b49754a6616cd0555af9`; conversation-runtime `v0.1.0` → `1a1d1e7b29680d724755f82384b475f1e4b6601f`.
 
-The first backend deployment is a **Supabase Edge Function**. xAI is the current provider choice, behind an interchangeable provider boundary; a provider is not the architecture.
+The first backend deployment is a **Supabase Edge Function**. xAI is the current provider choice, behind an interchangeable provider boundary; a provider is not the architecture. The PWA imports the pinned feedback-module `src/index.js` exactly; its Node `createHash` (`sha256` / `update` / `digest('hex')`) is supplied only by host build configuration, a Vite alias of `node:crypto` to an `@noble/hashes` shim. Do not edit the vendor snapshot or reimplement `itemRevision`; if hashes cannot match, escalate to Chief of Staff for a separately pinned release. Both modules are held as in-repo vendor copies with per-file hashes in `vendor/pins.json`.
 
-**Entry.** One push-to-talk control for write, ask, and spoken feedback. A text fallback must use the same intent, review, and confirmation rules — not a separate product. The control is prominent in field mode and is present on desktop as a floating, movable control that starts at the bottom center. Tap once to start listening. The session uses voice-activity detection to hear when the user finishes, and that detection should tolerate brief pauses rather than cutting off at the first silence. The spoken stop phrase is “over.” Hold-to-talk is not the launch default and may be a later option. Do not invent silence thresholds here.
+**Entry.** One push-to-talk control for write, ask, and spoken feedback. A text fallback must use the same intent, review, and confirmation rules — not a separate product. The control is prominent in field mode and is present on desktop as a floating, movable control that starts at the bottom center. It is the only voice entry; the Assistant sheet has no Talk button. Tap once to start listening. The turn ends when the user says “over” or taps the control again; brief pauses do not end it (manual commit, §8.3b T5). Hold-to-talk is not the launch default and may be a later option.
 
-**Online voice (current practice as of 2026-11-08).** Use a realtime speech-to-speech session, not a browser-speech-to-text step followed by a separate chat completion. xAI documents `wss://api.x.ai/v1/realtime` with custom function tools. Browsers cannot attach an `Authorization` header to a WebSocket; the client should authenticate with a short-lived ephemeral token from a GTHO backend (`POST https://api.x.ai/v1/realtime/client_secrets`). The long-lived provider key stays server-side and never ships in the PWA. An ephemeral token is not farm-data authorization: executors must still check the signed-in user and operation membership. Prefer a versioned voice model in production (`grok-voice-latest` is documented as an alias for the current flagship; pin the versioned name when shipping). The first GTHO backend deployment is a Supabase Edge Function (Tim-locked), importing the shared runtime library; provider credentials remain server-side.
+**Online voice (locked 2026-11-09).** Realtime voice only listens and speaks (P1). The server-side conversation runtime decides every turn through the Edge Function; realtime function tools are not the brain, and there is no shared-runtime change. xAI `wss://api.x.ai/v1/realtime` carries the audio. Browsers cannot attach an `Authorization` header to a WebSocket, so the client authenticates with a short-lived ephemeral token from the GTHO backend (`POST https://api.x.ai/v1/realtime/client_secrets`; binding in §8.3b T4). The long-lived provider key stays server-side and never ships in the PWA. An ephemeral token is not farm-data authorization: executors still check the signed-in user and operation membership. Models are pinned dated names, never aliases: text `grok-4.20-0309-non-reasoning` (P5) and voice `grok-voice-3.0` with voice Eve and reasoning `none` (P6). A model value containing `latest` is rejected.
 
 **Tools and trust.** The model may propose function calls. GTHO executors validate arguments independently of the model, enforce operation membership, and recheck a write proposal against current data before commit. Farm-write tools produce proposals — not an unrestricted database or SQL interface. Read tools answer from authorized app data, not model memory, and must not mutate while answering. If a record is missing, say so; do not treat absence as a definitive negative. Do not hard-code a list of questions; the assistant interprets what was asked and requests clarification when needed. First-slice write attachments are specified in §8.3a. First-slice read capabilities cover reproductive evidence, open-set assessment/counts and paddock grazing history; these are not per-question scripts. Remaining-feed questions and any write path that mentions remaining feed must import `getLiveRemainingForMove` from `src/calcs/feed-state.js` rather than recompute it (`V2_CALCULATION_SPEC.md`). Treat transcripts, retrieved records, and model output as untrusted data.
 
@@ -498,11 +498,11 @@ The first backend deployment is a **Supabase Edge Function**. xAI is the current
 
 **Exceptions.** If a proposal is incomplete, fails validation, is interrupted, or the user walks away mid-review, keep it as a recoverable exception so they can pick it up and finish later. That is in addition to the in-the-moment review card. Discard remains available. These attempts live in a running voice-to-entry log that opens as a panel from the push-to-talk control. That control shows a count of unfinished items awaiting review. The log filters unfinished versus all, today by capture time, and write, question, feedback, or separate how-to. Both visible finished attempt history and structured field-mapping/correction records stay 90 days from finished time; unfinished items stay until finished or discarded. See Domain 11 §11.2a–b for the physical design. Discarded attempts remain until user deletion; the finished countdown never applies to them. Cleanup must not cascade into retained evidence, transcripts, testing audio, farm records or discarded offline audio.
 
-**Offline.** The app is offline-first for farm data, but a hosted realtime voice session cannot transcribe or run while disconnected. Do not promise offline AI parsing or answers. Existing manual entry remains available. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. No extra permission prompt is shown for storing offline recordings on the user’s own device: record them as part of using voice while offline, with playback and delete still available before processing. An offline recording counts as processed, and can be deleted, only after the user confirms a write or filing from that note AND it has actually saved durably on the device. Confirmation alone is not enough. If the attempt is discarded without filing, the recording stays unless the user deletes it. The one-time testing-audio consent popup is separate and remains. Discarding an unfinished log attempt does not itself process or delete its offline recording. Do not invent the storage mechanism here (schema-first). No on-device model is committed for launch. An on-device model remains a later candidate, not a prerequisite.
+**Offline.** The app is offline-first for farm data, but a hosted realtime voice session cannot transcribe or run while disconnected. Do not promise offline AI parsing or answers. Existing manual entry remains available. When voice is used while disconnected, the first release records an audio note rather than requiring a typed first note. That note is an unfinished item in the voice-to-entry log until it can be processed online. No extra permission prompt is shown for storing offline recordings on the user’s own device: record them as part of using voice while offline, with playback and delete still available before processing. An offline recording counts as processed, and can be deleted, only after the user confirms a write or filing from that note AND it has actually saved durably on the device. Confirmation alone is not enough. If the attempt is discarded without filing, the recording stays unless the user deletes it. The testing-audio consent popup is separate and remains. Discarding an unfinished log attempt does not itself process or delete its offline recording. Offline notes are stored in IndexedDB with a 3-minute cap per note, transcribed once online and reviewed before saving (P9, 2026-11-09). A note is deleted only after a confirmed write or filing saves locally. No on-device model is committed for launch. An on-device model remains a later candidate, not a prerequisite.
 
-**Artifacts and testing.** Required concepts are normalized items, transcripts, review cards, voice-to-entry logs and structured mapping/correction provenance, testing audio, offline notes, and session drafts/checkpoints as applicable, not every artifact for every conversation. Keep spoken interview audio during early testing with a one-time consent popup, then stop keeping new testing audio. Decide disposal of collected testing audio at testing end. After testing keep transcript, review card and structured log without audio; finished log and field-mapping retention is still 90 days from finished time. Later-rollout consent waits until more users than Tim and a friend. The shared contract’s permanent mapping-record language is not reconciled by changing its CONTRACT here; Tim’s host retention lock is recorded explicitly.
+**Artifacts and testing.** Required concepts are normalized items, transcripts, review cards, voice-to-entry logs and structured mapping/correction provenance, testing audio, offline notes, and session drafts/checkpoints as applicable, not every artifact for every conversation. Keep spoken interview audio during early testing with a consent popup asked once per tester per operation (exact copy in §8.3b), then stop keeping new testing audio. Declining still allows voice, and no audio is kept for that tester (P7). Kept audio is the user’s mic only and goes to the private Supabase Storage bucket `assistant-testing-audio` via signed upload (P8). Decide disposal of collected testing audio at testing end. After testing keep transcript, review card and structured log without audio; finished log and field-mapping retention is still 90 days from finished time. Later-rollout consent waits until more users than Tim and a friend. The shared contract’s permanent mapping-record language is not reconciled by changing its CONTRACT here; Tim’s host retention lock is recorded explicitly.
 
-**Schema.** Physical design is specified in `V2_SCHEMA_DESIGN.md` §11.2a–b: additive nullable submissions facts with child fact-state/repro-step tables and operation-scoped artifact tables. Design DDL only, no migration applied or schema_version bump. No audio backend/bucket/codec is selected. The April transcript/training/script/confidence list is not the table design.
+**Schema.** Physical design is specified in `V2_SCHEMA_DESIGN.md` §11.2a–b: additive nullable submissions facts with child fact-state/repro-step tables and operation-scoped artifact tables. Implemented as migration `040_assistant_host_artifacts.sql` (on Forgejo main via PR #38, **not applied**; schema stamp stays 39 until Tim approves the apply). 040 also adds the server-authoritative session-lock and billing tables and the restore fence (`V2_SCHEMA_DESIGN.md` §11.2c). Audio storage is locked in §8.3b (P8, P9). The April transcript/training/script/confidence list is not the table design.
 
 ### 8.3a Host farm-tool method and launch wiring (locked 2026-11-08)
 
@@ -516,20 +516,131 @@ The first backend deployment is a **Supabase Edge Function**. xAI is the current
 | Place mode | Existing sibling UI when a group has no current placement, §1.8; same populated-UI confirmation and existing save path. |
 | Feeding | Existing `event_feed_entries`: required operationId, eventId, batchId, locationId (receiving paddock), date and positive quantity. Time and other existing destination/source fields are optional. If multiple paddock windows are open, use the UI’s required receiving-paddock selection prompt. No invented batch/inventory writes. |
 | Treatment | Existing `animal_treatments`: required operationId, animalId, treatedAt. Optional treatmentTypeId, product, doseAmount, doseUnitId, withdrawalDate, notes. Resolve the named animal and treatment without guessing medicine or dose. |
-| Calving sheet | Existing §14.7 / live `src/features/health/calving.js`; entity-required operationId, damId, calvedAt. Sheet includes sex (defaults female), tag, class, group, birth weight, sire, stillbirth, dried-off date and notes. Dried-off stays optional despite older dairy-required schema prose. Live calf-creation guard is `!stillbirthCheck.checked || calfTagInput.value.trim()`; older stillbirth prose is not a new rule. Existing calf creation when applicable, optional weight with source='calving', group membership, calving record and optional A27 heifer→cow prompt remain. Every path creating a calving row must also explicitly clear the dam’s confirmedBred. |
+| Calving sheet | Existing §14.7 / live `src/features/health/calving.js`; entity-required operationId, damId, calvedAt. Sheet includes sex (defaults female), tag, class, group, birth weight, sire, stillbirth, dried-off date and notes. Dried-off stays optional despite older dairy-required schema prose. Live calf-creation guard is `!stillbirthCheck.checked || calfTagInput.value.trim()`; older stillbirth prose is not a new rule. Existing calf creation when applicable, optional weight with source='calving', group membership, calving record and optional A27 heifer→cow prompt remain. Every path creating a calving row must also explicitly clear the dam’s confirmedBred (implemented; see Domain definitions). |
 
 **Dates.** A spoken date without a time uses the matching UI’s own date/time default. The current Calving sheet uses `new Date(dateInput.value + 'T12:00:00Z')`. Device-local calendar dates remain per OI-0189; do not invent a universal voice timestamp.
 
 **Read capabilities, not a list of questions.** Interpret what was asked using authorized current app data and the real UI/entity contracts; clarify when unsure. First-slice reads cover named-animal reproductive evidence, the open-animal set/count, and paddock last-grazed evidence. These name capabilities, not example phrases or an exhaustive scenario list. Missing evidence is not a definitive negative; reading never mutates records.
 
-**Domain definitions (Tim, 2026-11-08).** Open means an active (not culled) female in a cow or heifer class with `confirmed_bred === false`; do not count calves. Named-animal assessment and counts use the same definition; males, calves and inactive/culled animals are not open cows. The stored checkbox is NOT NULL DEFAULT false and written by Edit Animal (OI-0099), so unchecked alone was insufficient to define this set. No separate confirmed-open column. Recording a birth must automatically set the dam’s `confirmed_bred` / `confirmedBred` to false on every path creating an `animal_calving_records` row, including the normal sheet, voice using that save, and calf-to-dam linking. The live Calving save and calving-sync do not currently clear it; this is a required side effect, not an implementation claim.
+**Domain definitions (Tim, 2026-11-08).** Open means an active (not culled) female in a cow or heifer class with `confirmed_bred === false`; do not count calves. Named-animal assessment and counts use the same definition; males, calves and inactive/culled animals are not open cows. The stored checkbox is NOT NULL DEFAULT false and written by Edit Animal (OI-0099), so unchecked alone was insufficient to define this set. No separate confirmed-open column. Recording a birth must automatically set the dam’s `confirmed_bred` / `confirmedBred` to false on every path creating an `animal_calving_records` row, including the normal sheet, voice using that save, and calf-to-dam linking. Done: the live Calving save and calving-sync clear it (`src/features/health/calving.js`, `src/features/animals/calving-sync.js`; verified in the PR #38 review).
 
-**Familiarization and testing.** Runtime grounding is in live UI/entity contracts plus user corrections at populated-UI review. Early testing retains audio only with the already-locked one-time testing-audio popup decision. This is not silent training capture and not a promise to fine-tune on farm conversations; no new ML training pipeline is specified.
+**Familiarization and testing.** Runtime grounding is in live UI/entity contracts plus user corrections at populated-UI review. Early testing retains audio only with the locked testing-audio popup decision (once per tester per operation). This is not silent training capture and not a promise to fine-tune on farm conversations; no new ML training pipeline is specified.
+
+### 8.3b Ready-for-build gate locks after PR #12 (2026-11-09)
+
+Tim said “ok yes lets complete the rest of design” (via Orchestrator, 2026-11-09 4:41 AM ET). Design ran the ready-for-build gate (Homelab/project-framework `598b5c7b`, AGENTS.md:71-75), brought the product choices to Tim in Design chat, and locked or deferred every in-scope item below. The host adapter was then implemented by GTHO Build and merged on Forgejo as PR #38, merge `eb04c1973b4621d728f2a9ec760aa70b259f10f8` (tree equals reviewed head `72fd678`). Locks are Tim’s unless marked Design. These locks supersede any older text in this brief that conflicts with them.
+
+#### Earlier post-PR-#12 locks
+
+- **Install / createHash.** The PWA supplies a browser implementation of Node `createHash` (`sha256` / `update` / `digest('hex')`) through host build configuration only: a Vite alias of `node:crypto` to an `@noble/hashes` shim. The PWA then imports pinned feedback-module v0.1.3 `src/index.js` exactly. Do not edit the vendor snapshot or reimplement `itemRevision`. If hashes cannot match, escalate to Chief of Staff for a separately pinned release.
+- **Pins.** feedback-module `v0.1.3` (`f70d0d7d`, item contract `0.1.2`) and conversation-runtime `v0.1.1` (`aea11f3c`), held as in-repo vendor copies with per-file hashes in `vendor/pins.json`.
+- **Backup exception (testing scope).** Browser CP-55/CP-56 backup and restore exclude seven server-authoritative tables plus `assistant_restore_fences`. The seven are `assistant_session_checkpoints`, `assistant_execution_results`, `assistant_session_locks`, `assistant_billing_policies`, `assistant_billing_reservations`, `assistant_billing_usage` and `assistant_billing_settlements`. CP-55/CP-56 is therefore not complete assistant recovery. The backend-authorized backup/recovery path is deferred.
+- **Restore fence.** A membership-checked SECURITY DEFINER probe and fence: prepare, finish and abort. It reveals only whether the operation has rows in those tables, and it holds a durable fence so new protected rows cannot appear during a restore. No GRANT loosening, no `service_role` in the PWA, no row contents, no expiry or takeover. A restore that would conflict with retained server authority is refused before anything destructive happens.
+- **Billing.** No blanket billing-policy seed; the policy row is created on the first reserve. Caps are 30 requests per 10 minutes, 2000 requests per month and 600 audio minutes per month, stored as policy parameters (unchanged by P12).
+
+#### Tim’s gate locks (2026-11-09)
+
+- **P1.** Realtime voice only listens and speaks. The server-side conversation runtime decides. No shared-runtime change.
+- **P2.** Testing runs on the live app (production project, real data), limited to our operations, with review before every save.
+- **P3.** An operation allowlist Tim controls (secret `GTHO_ASSISTANT_OPERATIONS`). Operations not on it get 403 before any reserve, and the control stays hidden.
+- **P4.** One voice session is capped at 10 minutes.
+- **P5.** The text model is `grok-4.20-0309-non-reasoning`, kept as a setting/secret (`GTHO_XAI_TEXT_MODEL`). Switch to a dated reasoning model if data answers fall short. App code computes data answers; the model does not.
+- **P6.** Voice is `grok-voice-3.0` with voice Eve, reasoning `none`.
+- **P7.** Declining testing-audio consent still allows voice, and no audio is kept for that tester.
+- **P8.** Kept testing audio goes to the private Supabase Storage bucket `assistant-testing-audio` via signed upload.
+- **P9.** Offline voice notes ship now: stored in IndexedDB, 3-minute cap per note, transcribed once online and reviewed before saving. A note is deleted only after a confirmed write or filing saves locally.
+- **P10.** Feedback counts as handed off once the server has the `submissions` row.
+- **P11.** Tim personally approves applying migration 040 live, creates the xAI key, and flips the enable flag.
+- **P12.** The central usage view is for Tim only (`GTHO_BILLING_CONTROL_USERS`). Caps unchanged.
+- **Unknown usage after an xAI timeout or failure.** The assistant stays usable, because unknown usage does not block reserve. The request still counts once against request caps, nothing is recorded as zero, and the usage is listed as unreconciled for later server-side reconciliation. A failure before any provider fetch is a measured zero (Design).
+
+#### Design-filled items (Tim 👍)
+
+- Tapping the control again also ends a voice turn, the same as saying “over”.
+- Consent popup copy, exact: “During early testing, GTHO can keep recordings of what you say to the assistant so we can improve it. Keep my recordings? You can still use voice if you say no.” Buttons: “Keep recordings” / “Don't keep”. It is asked once per tester per operation.
+
+#### Design technical bindings
+
+- **T1.** Client-apply handshake through the GTHO-owned `gtho-assistant-apply` endpoint: `execute` throws `client-apply-pending`; the browser applies through the existing save path and reports the local save; a re-confirm replays the stored outcome.
+- **T2.** `maxReadRounds` 3, `maxBodyBytes` 65536.
+- **T3.** 25 s provider timeout via `AbortSignal.any` combined with `request.signal`. It covers the whole request.
+- **T4.** Voice token from xAI `client_secrets`: 60 s lifetime; `validateLifetime` rejects anything over 120 s; `expiresAt` is in ms; WebSocket subprotocol `xai-client-secret.<token>`; 3 connection attempts, 5 s apart; `?model=` fallback if `session` is not accepted.
+- **T5.** `turn_detection` null with manual commit (tap or “over”). A `server_vad` fallback sits behind config.
+- **T6.** Voice settles the worst case (the 10-minute cap) at token issue, and later client usage reports are refused.
+- **T7.** JWT auth via `auth.getUser`. The operation is the user’s only membership, or the `X-GTHO-Operation` header checked against membership. Never the request body.
+- **T8.** CORS: OPTIONS returns 204, with origins from `GTHO_ASSISTANT_ORIGINS`. The unconfigured 503 and OPTIONS responses also carry CORS.
+- **T9.** One pinned Postgres driver on `SUPABASE_DB_URL`.
+- **T10.** `getAll` runs server-side for backend reads and validation; the browser re-validates at apply.
+- **T11.** Per-intent context. `routeDestination` decides feedback filing, and `matchingDoc` returns `undefined`.
+- **T12.** `earlyTesting` comes from a secret, and the client writes the consent row.
+- **T13.** Eight secrets: `XAI_API_KEY`, `GTHO_XAI_TEXT_MODEL`, `GTHO_XAI_VOICE_MODEL`, `GTHO_ASSISTANT_ENABLED`, `GTHO_ASSISTANT_OPERATIONS`, `GTHO_ASSISTANT_EARLY_TESTING`, `GTHO_ASSISTANT_ORIGINS` and `GTHO_BILLING_CONTROL_USERS`. Every function serves 503 unless all are present and `ENABLED=true`; a model value containing `latest` is rejected. The PWA flag is `VITE_GTHO_ASSISTANT=1`, and a flag-off build ships no assistant feature or feedback-module code. The Supabase CLI is pinned.
+
+#### Design rulings
+
+- **Push-to-talk.** One global push-to-talk routes writes, questions, feedback and how-to. It is the only voice entry; the Assistant sheet has no Talk button.
+- **Matching** is exact after deterministic normalization, including spoken numbers to digits. No fuzzy matching.
+- **Moves** follow the existing UI launch semantics.
+- **Fallback question** is a host event, kept out of the model transcript and stored device-local. No 040 amendment.
+- **Field hints** are derived from the sheet field definitions.
+- **`voice_entry_attempts` lifecycle.** A row is created when an utterance starts an entry; `captured_at` is the capture or recording time. A reroute updates `purpose` on the same row, and the reroute replay is marked with a host event. The row becomes finished (with `finished_at`) when a write or feedback item saves locally, or when a question or how-to is answered; the 90-day expiry runs from `finished_at`. A user discard sets discarded, with no expiry. Log filters: Today (operation timezone), Write, Question, Feedback, How-to, Unfinished, All, plus the unfinished badge.
+- **Retry chains, ruling (a).** The badge and the Unfinished filter count only the newest non-discarded attempt in a retry chain. Finishing a retry finishes its unfinished predecessors with the same `finished_at`. Discarding the retry makes its predecessor count again.
+- **Ruling (b).** The replay turn being duplicated in the vendor runtime transcript is a reusable gap, raised with Chief of Staff. No library change.
+- **Ruling (c).** The device-local preview fallback is accepted.
+- **Calving** save clears Confirmed bred on the dam. Done: implemented in the live Calving save and calving-sync (`src/features/health/calving.js`, `src/features/animals/calving-sync.js`), verified in the PR #38 review.
+
+#### Deferred (the slice ships without these)
+
+- The scheduled 90-day cleanup runner (the callable cleanup RPC ships; lock a cadence before the first expiry).
+- Billing UI (own-usage and central views); the backend commands ship.
+- Operation-owned billing; shared routing ships.
+- Get-help doc links; how-to answers ship with no link and no filing.
+- xAI usage reconciliation; the worst-case voice settlement and the unreconciled list ship.
+- Bot pickup of filed feedback; filing to `submissions` ships.
+- Testing-audio disposal at testing end.
+- Later-rollout consent.
+- The backend-authorized backup/recovery path for the excluded server tables.
+
+#### Open live unknowns (verify at smoke time)
+
+- Whether `client_secrets` accepts `session` (T4 falls back to `?model=`).
+- Whether input transcription streams with `turn_detection` null (T5).
+- The realtime transcription model name `grok-transcribe` (`src/features/assistant/client/realtime.js:60`).
+- Reusing the token across connection retries (T4).
+- The operation timezone is set; otherwise reserve fails with `billing-calendar-timezone-required` (migration 040 :902).
+- The Supabase plan wall clock (150 s Free vs 400 s Paid).
+- The pooler behind `SUPABASE_DB_URL` (T9).
+- Supabase CLI bundling of `../../../vendor` imports.
+
+#### Go-live order and approvals
+
+1. Tim approves applying migration 040 to the live project (schema 39 → 40). GTHO Build applies and verifies it.
+2. Secrets. Tim creates `XAI_API_KEY`; the other seven are set with `GTHO_ASSISTANT_ENABLED` not yet `true`.
+3. GTHO Build deploys the functions with the pinned Supabase CLI.
+4. Smoke tests, including the open live unknowns above.
+5. Tim flips `GTHO_ASSISTANT_ENABLED=true`.
+6. The PWA lands (flag-on build). The GitHub publish needs Tim’s separate approval. Publishing `main` to GitHub before 040 is live would break backup and restore.
+
+State at this docs pass: PR #38 is merged on Forgejo `main`. Orchestrator reports Tim set `XAI_API_KEY` (reported, not verified by Design). The other seven secrets are not set. Migration 040 is not applied. The GitHub publish is held until 040 is live.
+
+#### Accepted nits (non-blocking follow-ups)
+
+- A turn with several provider calls counts as more than one request against the monthly cap.
+- `acknowledged_handoff` is determined only at apply time; a `submissions` row that reaches the server later does not upgrade the outcome.
+- After a successful provider call, a later failure lists the turn in the unreconciled view (noise in that view).
 
 ### 8.4 Still open (deferred, non-blocking)
 
+The testing slice ships without these; each is listed with what still ships in §8.3b “Deferred”:
+
+- Scheduled 90-day cleanup runner.
+- Billing UI.
+- Operation-owned billing.
+- Get-help doc links.
+- xAI usage reconciliation.
+- Bot pickup of filed feedback.
 - Disposal of already-collected testing audio at testing end.
 - Later-rollout consent, to be decided when there are more users than Tim and a friend.
+- Backend-authorized backup/recovery path for the excluded server-authoritative tables.
 
 Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md`.
 
@@ -573,6 +684,7 @@ The 15-minute stale threshold is a balance between honesty and noise — short e
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-09 | OI-0195 — ready-for-build gate locks | Host adapter merged on Forgejo as PR #38 (`eb04c197`); not live. New §8.3b records the post-PR-#12 locks: createHash via Vite alias, pins, backup exception and restore fence, billing caps, Tim’s P1–P12, unknown-usage handling, consent copy, T1–T13, Design rulings (single global push-to-talk, exact matching, attempt lifecycle, retry chains), deferred list, live unknowns and go-live order. §8.1/§8.3 updated to match: turn ends on “over” or a second tap (manual commit, not pause-tolerant VAD); realtime is voice I/O only; dated text/voice model pins; testing audio in a private bucket; offline notes in IndexedDB; calving dam clear implemented. |
 | 2026-11-08 | OI-0195 — final host locks | Physical host schema, populated-UI review and field-set method specified; first-slice attachments are launch wiring, not question scripts. Open set excludes calves; birth clears dam confirmed_bred. Runtime familiarization is not fine-tuning. Unimplemented/not handed to Build; testing-end audio disposal and later-rollout consent deferred/non-blocking. |
 | 2026-11-08 | OI-0195 — host adoption | Recorded released pins, existing-store additive mapping, capture-before-AI/review-before-filing, locked how-to routing, Edge Function first backend and replaceable provider. Updated offline consent/deletion and log filters/timing/90-day mapping retention; testing rules and remaining physical/tool design gaps. Not ready for Build; no implementation. |
 | 2026-11-08 | OI-0195 — step-through locks | Spoken stop phrase is “over.” Desktop floating control starts at bottom center. Voice-to-entry log opens as a panel from push-to-talk, which shows a count of unfinished items. Extra filters: today, and write vs question vs feedback. Finished items stay 90 days. First-slice writes: events including moves, feeding, and animal records, with follow-up prompts for required fields. Questions are capabilities, not a hardcoded list; first slice includes open-cow and last-grazed questions. Offline recordings: ask once before storing; playback and delete before processing; delete the recording after it is processed. |

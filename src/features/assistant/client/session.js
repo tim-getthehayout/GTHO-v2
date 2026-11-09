@@ -55,8 +55,9 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   async function turn(entry) {
     try {
       // One attempt per entry an utterance starts (an offline note keeps its recording time).
-      const first = !attempts.current;
-      await attempts.ensure({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, ...(first ? origin : {}) });
+      const first = !attempts.current, before = attempts.current;
+      const attempt = await attempts.ensure({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, ...(first ? origin : {}) });
+      if (attempt !== before) voiceLog?.setPreview?.(attempt.id, entry.text);
       let answer = await conversation.turn(entry);
       const route = conversation.route;
       if (route) {

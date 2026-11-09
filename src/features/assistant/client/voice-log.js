@@ -21,6 +21,13 @@ export function createVoiceLog({ operationId, storage = globalThis.localStorage,
       try { storage?.setItem(key, JSON.stringify(list)); } catch { /* shown this session only */ }
       return entry;
     },
-    events() { return read(); },
+    events() { return read().filter(entry => entry.kind === 'host-event'); },
+    /** Device-local preview of an attempt's first words (no preview column exists). */
+    setPreview(attemptId, text) {
+      const list = read().filter(entry => !(entry.kind === 'preview' && entry.attemptId === attemptId));
+      list.push({ kind: 'preview', attemptId, text: String(text ?? '').slice(0, 140) });
+      try { storage?.setItem(key, JSON.stringify(list)); } catch { /* preview not kept */ }
+    },
+    preview(attemptId) { return read().find(entry => entry.kind === 'preview' && entry.attemptId === attemptId)?.text ?? null; },
   };
 }

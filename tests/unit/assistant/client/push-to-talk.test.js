@@ -156,3 +156,48 @@ describe('voice log from the push-to-talk: offline notes stay unfinished and ret
     expect(document.querySelector('#voice-log-sheet-panel [data-status="host-event"]').textContent).toContain('GTHO asked: Which farm, paddock, group or animal did you mean?');
   });
 });
+
+describe('voice log filters and rows', () => {
+  const at = iso => iso;
+  const attempts = [
+    { id: 'a1', operationId: OP, conversationId: 'c1', capturedAt: at('2026-11-09T14:00:00.000Z'), status: 'unfinished', finishedAt: null, purpose: 'write' },
+    { id: 'a2', operationId: OP, conversationId: 'c2', capturedAt: at('2026-11-09T15:00:00.000Z'), status: 'finished', finishedAt: '2026-11-09T15:01:00.000Z', purpose: 'question' },
+    { id: 'a3', operationId: OP, conversationId: 'c3', capturedAt: at('2026-11-08T15:00:00.000Z'), status: 'finished', finishedAt: '2026-11-08T15:01:00.000Z', purpose: 'feedback' },
+    // 2026-11-09 03:00 UTC is still 2026-11-08 in America/New_York.
+    { id: 'a4', operationId: OP, conversationId: 'c4', capturedAt: at('2026-11-09T03:00:00.000Z'), status: 'discarded', finishedAt: null, purpose: 'how-to' },
+    { id: 'x', operationId: 'other', conversationId: 'c5', capturedAt: at('2026-11-09T15:00:00.000Z'), status: 'unfinished', finishedAt: null, purpose: 'write' },
+  ];
+  const tables = { operations: [{ id: OP, timezone: 'America/New_York' }], voiceEntryAttempts: attempts, offlineVoiceNotes: [], assistantTranscriptTurns: [{ operationId: OP, conversationId: 'c2', speaker: 'user', turnIndex: 0, text: 'How many open cows?' }] };
+  const logDeps = () => ({ ...deps(), getAll: table => tables[table] ?? [], persist: vi.fn(async (scope, type, row) => row), offlineNotes: { list: async () => [{ id: 'n9', capturedAt: '2026-11-09T16:00:00.000Z', blob: new Blob(['x']) }], save: vi.fn() } });
+  const shown = () => [...document.querySelectorAll('#voice-log-sheet-panel [data-testid="voice-log-item"]')].map(item => item.dataset.kind === 'note' ? 'note' : item.dataset.purpose + ':' + item.dataset.status);
+  it.each([
+    ['unfinished', ['note', 'write:unfinished']],
+    ['today', ['note', 'question:finished', 'write:unfinished']],
+    ['write', ['write:unfinished']],
+    ['question', ['question:finished']],
+    ['feedback', ['feedback:finished']],
+    ['how-to', ['how-to:discarded']],
+    ['all', ['note', 'question:finished', 'write:unfinished', 'how-to:discarded', 'feedback:finished']],
+  ])('%s', async (filter, expected) => {
+    const { openVoiceLog } = await import('../../../../src/features/assistant/client/voice-log-panel.js');
+    const d = logDeps();
+    const log = openVoiceLog({ deps: d, notes: d.offlineNotes, log: { events: () => [], preview: () => null }, use: vi.fn(), now: () => new Date('2026-11-09T17:00:00.000Z') });
+    await log.render(filter);
+    expect(shown()).toEqual(expected);
+  });
+  it('rows show time, preview, status and type; the badge counts unfinished attempts plus unused notes; discard sets discarded', async () => {
+    const { openVoiceLog } = await import('../../../../src/features/assistant/client/voice-log-panel.js');
+    const d = logDeps();
+    const control = mountPushToTalk(d, {});
+    expect(await control.refreshBadge()).toBe(2);
+    const log = openVoiceLog({ deps: d, notes: d.offlineNotes, log: { events: () => [], preview: () => null }, use: vi.fn(), now: () => new Date('2026-11-09T17:00:00.000Z') });
+    await log.render('question');
+    const item = document.querySelector('#voice-log-sheet-panel [data-testid="voice-log-item"]');
+    expect(item.querySelector('[data-testid="voice-log-meta"]').textContent).toMatch(/Question · Finished$/);
+    expect(item.querySelector('[data-testid="voice-log-meta"]').textContent).toContain(new Date('2026-11-09T15:00:00.000Z').toLocaleString());
+    expect(item.querySelector('[data-testid="voice-log-preview"]').textContent).toBe('How many open cows?');
+    await log.render('write');
+    document.querySelector('#voice-log-sheet-panel [data-testid="voice-log-discard"]').click();
+    await vi.waitFor(() => expect(d.persist).toHaveBeenCalledWith(expect.anything(), 'voiceEntryAttempts', expect.objectContaining({ id: 'a1', status: 'discarded', finishedAt: null })));
+  });
+});

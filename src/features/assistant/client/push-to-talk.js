@@ -10,7 +10,7 @@ import { el, clear } from '../../../ui/dom.js';
 import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
 import { createVoiceLog } from './voice-log.js';
-import { openVoiceLog } from './voice-log-panel.js';
+import { openVoiceLog, voiceLogRows } from './voice-log-panel.js';
 import { recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
 
 export const PTT_ID = 'gtho-push-to-talk';
@@ -52,7 +52,8 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
   let session = null;
   async function refreshBadge() {
     let count = 0;
-    try { count = (await notes.list()).length; } catch { /* count unknown */ }
+    // Unfinished attempts plus device notes not yet used in an attempt.
+    try { count = voiceLogRows({ deps, notes: await notes.list(), log: voiceLog }).unfinished; } catch { /* count unknown */ }
     badge.textContent = String(count);
     badge.hidden = count === 0;
     logButton.setAttribute('aria-label', count ? `Voice log, ${count} unfinished` : 'Voice log');
@@ -83,7 +84,7 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
     button.setAttribute('aria-label', listening ? 'End turn' : 'Talk to GTHO');
     button.classList.toggle('gtho-ptt-button--live', listening);
   };
-  const onTranscript = turns => { const last = turns.filter(turn => turn.role === 'assistant').at(-1); if (last) say(last.text); };
+  const onTranscript = turns => { const last = turns.filter(turn => turn.role === 'assistant').at(-1); if (last) say(last.text); void refreshBadge(); };
 
   async function tap() {
     if (!deps.online()) { await offline.toggle(null); setListening(offline.recording); if (!offline.recording) await refreshBadge(); return; }

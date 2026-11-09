@@ -3,11 +3,11 @@ import { resolveEntryTarget, CHOOSE_ENTRY_QUESTION } from '../../../src/features
 
 const data = {
   animals: [{ id: 'a1', tagNum: '42', name: 'Daisy', active: true }, { id: 'a2', tagNum: '43', name: 'Rosie', active: true }, { id: 'a3', tagNum: '44', name: 'Rosie', active: true }, { id: 'a4', tagNum: '45', name: 'Gone', active: false }],
-  groups: [{ id: 'g1', name: 'Heifers' }, { id: 'g2', name: 'Cows' }, { id: 'g3', name: 'Bulls' }, { id: 'g4', name: 'Old', archivedAt: '2026-01-01' }],
+  groups: [{ id: 'g1', name: 'Heifers' }, { id: 'g2', name: 'Cows' }, { id: 'g3', name: 'Bulls' }, { id: 'g4', name: 'Old', archivedAt: '2026-01-01' }, { id: 'g5', name: 'Steers' }],
   locations: [{ id: 'l1', name: 'North 40', farmId: 'f1' }, { id: 'l2', name: 'South', farmId: 'f1' }, { id: 'l3', name: 'River', farmId: 'f2' }, { id: 'l4', name: 'Hill', farmId: 'f1' }],
   events: [{ id: 'e1', farmId: 'f1' }, { id: 'e2', farmId: 'f1' }],
   eventPaddockWindows: [{ id: 'pw1', eventId: 'e1', locationId: 'l1', dateClosed: null }, { id: 'pw2', eventId: 'e2', locationId: 'l2', dateClosed: null }],
-  eventGroupWindows: [{ id: 'gw1', eventId: 'e1', groupId: 'g1', dateLeft: null }, { id: 'gw2', eventId: 'e1', groupId: 'g2', dateLeft: null }],
+  eventGroupWindows: [{ id: 'gw1', eventId: 'e1', groupId: 'g1', dateLeft: null }, { id: 'gw2', eventId: 'e1', groupId: 'g2', dateLeft: null }, { id: 'gw5', eventId: 'e2', groupId: 'g5', dateLeft: null }],
 };
 const resolve = (ui, names, fields) => resolveEntryTarget({ ui, names, fields, rows: async table => data[table] ?? [] });
 
@@ -40,9 +40,14 @@ describe('entry target resolution (names -> host IDs, one question otherwise)', 
     expect(await resolve('feeding', { paddock: 'North 40' })).toMatchObject({ status: 'resolved', target: { ui: 'feeding', id: 'e1' }, fill: { locationId: 'l1' } });
     expect(await resolve('feeding', { paddock: 'River' })).toEqual({ status: 'question', question: 'Nothing is grazing River right now. Which paddock did you feed?' });
   });
-  it('move by a group sharing an event is scoped to that group; by source paddock it is the whole event', async () => {
+  it('move by a group is scoped to that group like the UI group launch; by source paddock it is the whole event', async () => {
     expect(await resolve('move', { group: 'heifers', to: 'Hill' }, { destType: 'new' })).toMatchObject({ status: 'resolved', target: { ui: 'move', id: 'e1', farmId: 'f1', scopedGroupWindowId: 'gw1' }, fill: { locationId: 'l4' } });
     expect(await resolve('move', { from: 'North 40', to: 'Hill' })).toMatchObject({ target: { id: 'e1', scopedGroupWindowId: null } });
+    // Like the UI group Move buttons, a group alone on its event is still a scoped (scoped-last) move.
+    expect(await resolve('move', { group: 'Steers', to: 'Hill' })).toMatchObject({ target: { id: 'e2', scopedGroupWindowId: 'gw5' } });
+    expect(await resolve('move', { from: 'South', to: 'Hill' })).toMatchObject({ target: { id: 'e2', scopedGroupWindowId: null } });
+    // Cross-farm destination: the destination farm is left for the sheet.
+    expect(await resolve('move', { group: 'Steers', to: 'River' })).toMatchObject({ status: 'resolved', target: { farmId: 'f1' }, fill: { locationId: 'l3' } });
     expect(await resolve('move', { group: 'Heifers', to: 'South' }, { destType: 'join' })).toMatchObject({ fill: { existingEventId: 'e2' } });
     expect(await resolve('move', { group: 'Bulls', to: 'Hill' })).toEqual({ status: 'question', question: "Bulls isn't in a paddock right now. Which group are you moving?" });
   });

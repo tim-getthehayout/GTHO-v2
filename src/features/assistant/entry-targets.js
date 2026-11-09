@@ -91,8 +91,10 @@ export async function resolveEntryTarget({ ui, names, fields = {}, rows }) {
       const mine = open.filter(row => row.groupId === group.row.id);
       if (mine.length !== 1) return question(`${group.row.name} isn't in a paddock right now. Which group are you moving?`);
       event = (await rows('events')).find(row => row.id === mine[0].eventId);
-      // Naming one group of a shared event moves only that group.
-      if (open.some(row => row.eventId === mine[0].eventId && row.id !== mine[0].id)) scopedGroupWindowId = mine[0].id;
+      // Mirrors the UI group launch (dashboard group card/strip, event detail
+      // group row): the group's move is always scoped to its own window, so the
+      // wizard picks scoped-remaining or scoped-last itself.
+      scopedGroupWindowId = mine[0].id;
       from = group.row.name;
     } else if (named(said.from)) {
       const source = await paddock(said.from, 'Which paddock are they moving from?');

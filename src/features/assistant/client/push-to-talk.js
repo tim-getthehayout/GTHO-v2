@@ -6,7 +6,7 @@
  * Sessions start as data-entry and switch intent through the runtime intent
  * command when the request is a question, feedback or how-to. The voice log opens
  * as a panel from this control, which shows the unfinished count. */
-import { el, clear } from '../../../ui/dom.js';
+import { el } from '../../../ui/dom.js';
 import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
 import { createVoiceLog } from './voice-log.js';
@@ -38,13 +38,29 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
   if (config && existing?.dataset.operation === operationId && handles.has(existing)) return handles.get(existing).handle;
   unmountPushToTalk(root);
   if (!config) return null;
-  const status = el('div', { className: 'gtho-ptt-status', 'data-testid': 'ptt-status', role: 'status', hidden: true });
+  const statusText = el('span', { className: 'gtho-ptt-status-text', 'data-testid': 'ptt-status-text', role: 'status' });
+  const dismiss = el('button', {
+    type: 'button',
+    className: 'gtho-ptt-status-dismiss',
+    'data-testid': 'ptt-status-dismiss',
+    'aria-label': 'Dismiss',
+    hidden: true,
+  }, ['×']);
+  const status = el('div', { className: 'gtho-ptt-status', 'data-testid': 'ptt-status', hidden: true }, [statusText, dismiss]);
   const end = el('button', { className: 'gtho-ptt-end', 'data-testid': 'ptt-end', 'aria-label': 'End voice entry', hidden: true }, ['×']);
   const button = el('button', { className: 'gtho-ptt-button', 'data-testid': 'ptt-button', 'aria-label': 'Talk to GTHO', 'aria-pressed': 'false' }, ['\uD83C\uDF99']);
   const badge = el('span', { className: 'gtho-ptt-badge', 'data-testid': 'ptt-badge', hidden: true }, ['0']);
   const logButton = el('button', { className: 'gtho-ptt-log', 'data-testid': 'ptt-log', 'aria-label': 'Voice log' }, ['Log', badge]);
   const wrap = el('div', { id: PTT_ID, 'data-operation': operationId, className: `gtho-ptt ${compact ? 'gtho-ptt--compact' : 'gtho-ptt--floating'}`, 'data-testid': 'ptt' }, [status, el('div', { className: 'gtho-ptt-row' }, [logButton, button, end])]);
-  const say = text => { status.textContent = text; status.hidden = !text; };
+  // Show or hide the status bubble. Dismiss clears only this message; a later
+  // say() brings the bubble back. Never ends a live turn or session.
+  const say = message => {
+    statusText.textContent = message || '';
+    const show = !!message;
+    status.hidden = !show;
+    dismiss.hidden = !show;
+  };
+  const dismissStatus = () => { say(''); };
   const notes = deps.offlineNotes ?? createOfflineNoteStore({ onQuota: () => say('This device is out of storage. Your voice note was not saved; free up space and record it again.') });
   // Offline notes carry no intent: routing decides once the note is used online.
   const offline = createOfflineNoteRecorder({ notes, say, intent: null });
@@ -78,7 +94,23 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
         record = await recordNoteUse({ deps, note, conversation, attemptId: started.attempt?.id ?? null });
       } });
   }
-  const newSession = (extra = {}) => createAssistantSession({ deps, config, intent: 'data-entry', say, onTranscript, onListening: setListening, voiceLog, ...extra });
+  // Reusable terminal path (session cap, voice-ending errors; OI-0196 no-mic later).
+  // Clears transport / mic / timer via session.end(), hides End, and optionally
+  // leaves a terminal message for the status dismiss control.
+  async function endLiveSession({ statusMessage } = {}) {
+    const current = session;
+    session = null;
+    await current?.end();
+    setListening(false);
+    end.hidden = true;
+    if (statusMessage !== undefined) say(statusMessage);
+    else say('');
+  }
+  const newSession = (extra = {}) => createAssistantSession({
+    deps, config, intent: 'data-entry', say, onTranscript, onListening: setListening, voiceLog,
+    onVoiceTerminal: message => { void endLiveSession({ statusMessage: message }); },
+    ...extra,
+  });
   const setListening = listening => {
     button.setAttribute('aria-pressed', String(listening));
     button.setAttribute('aria-label', listening ? 'End turn' : 'Talk to GTHO');
@@ -93,10 +125,13 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
     await session.talk();
   }
   async function stop() {
-    await session?.end(); session = null;
-    setListening(false); say(''); end.hidden = true;
+    await endLiveSession();
   }
   end.addEventListener('click', () => { stop().catch(error => say(error.message)); });
+  dismiss.addEventListener('click', event => {
+    event.stopPropagation();
+    dismissStatus();
+  });
   logButton.addEventListener('click', () => { openLog(); });
 
   // Desktop: drag to move, remembered on this device; a drag is never a tap.
@@ -140,7 +175,7 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
   });
 
   root.appendChild(wrap);
-  const handle = { element: wrap, tap, stop, openLog, refreshBadge, get session() { return session; }, clearStatus: () => clear(status) };
+  const handle = { element: wrap, tap, stop, endLiveSession, openLog, refreshBadge, get session() { return session; }, clearStatus: dismissStatus };
   void refreshBadge();
   handles.set(wrap, { handle, cleanup: () => { globalThis.removeEventListener?.('pointermove', onMove); globalThis.removeEventListener?.('pointerup', onUp); void session?.end(); } });
   return handle;

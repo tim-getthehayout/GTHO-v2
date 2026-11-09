@@ -25,7 +25,7 @@ export const UNRESOLVED_TARGET_QUESTION = 'Which farm, paddock, group or animal 
  * through the runtime intent command (onIntent reports the new intent). */
 /** onDurableSave(outcome, conversation): called only after a confirmed write or
  * filing from this conversation has durably saved on this device. */
-export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null, onDurableSave = async () => {} }) {
+export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null, onDurableSave = async () => {}, onVoiceTerminal = null }) {
   let conversation, transport, driver, mic, player, recorder, consent, attempts, origin = {};
   // Reroute replays are host-marked so the log shows the user's words once.
   const replays = new Set();
@@ -116,7 +116,11 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       if (mic) { driver.endTurn(); say('Thinking…'); return 'turn-ended'; }
       if (!conversation) await session.begin();
       player ??= createPcmPlayer();
-      driver = createXaiRealtimeDriver({ config, onStatus: state => { if (state === 'session-cap') { say('Voice session ended at 10 minutes. Tap to start a new one.'); void stopVoice(); } } });
+      const terminal = message => {
+        if (onVoiceTerminal) onVoiceTerminal(message);
+        else { say(message); void stopVoice(); }
+      };
+      driver = createXaiRealtimeDriver({ config, onStatus: state => { if (state === 'session-cap') terminal('Voice session ended at 10 minutes. Tap to start a new one.'); } });
       transport = new VoiceTransport({
         broker: () => conversation.voiceAuthorization(), driver,
         getSession: () => conversation.session,
@@ -124,7 +128,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         onAudio: bytes => player.play(bytes),
       });
       await transport.connect();
-      if (transport.state !== 'connected') { say('Voice is unavailable right now; you can type instead.'); return 'unavailable'; }
+      if (transport.state !== 'connected') { terminal('Voice is unavailable right now; you can type instead.'); return 'unavailable'; }
       mic = await startMicrophone({ onChunk: bytes => { void transport.stream(bytes); } });
       if (consent === 'accepted') recorder = createTestingRecorder({ stream: mic.stream });
       onListening(true);

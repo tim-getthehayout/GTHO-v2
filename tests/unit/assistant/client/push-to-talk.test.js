@@ -256,3 +256,91 @@ describe('voice log Unfinished matches the chain-aware badge', () => {
     expect(document.querySelectorAll('#voice-log-sheet-panel [data-kind="attempt"]')).toHaveLength(2);
   });
 });
+
+
+describe('push-to-talk status dismiss and terminal end path', () => {
+  async function sessionMock() {
+    const { createAssistantSession } = await import('../../../../src/features/assistant/client/session.js');
+    return createAssistantSession;
+  }
+  beforeEach(async () => {
+    const createAssistantSession = await sessionMock();
+    createAssistantSession.mockImplementation(options => {
+      let live = false;
+      const session = {
+        options,
+        talk: vi.fn(async () => { if (live) return 'turn-ended'; live = true; options.onListening?.(true); return 'listening'; }),
+        end: vi.fn(async () => {}),
+        begin: vi.fn(async firstTurn => ({ ref: 'c1', scope: { operationId: OP, actorId: 'u' }, firstTurn })),
+      };
+      sessions.push(session);
+      return session;
+    });
+  });
+
+  it('after a session-cap terminal, End is hidden with no transport or timer left', async () => {
+    const transport = { alive: true };
+    const timer = { alive: true };
+    const createAssistantSession = await sessionMock();
+    createAssistantSession.mockImplementation(options => {
+      const session = {
+        options,
+        talk: vi.fn(async () => {
+          options.onListening?.(true);
+          options.say?.('Listening…');
+          queueMicrotask(() => options.onVoiceTerminal?.('Voice session ended at 10 minutes. Tap to start a new one.'));
+          return 'listening';
+        }),
+        end: vi.fn(async () => { transport.alive = false; timer.alive = false; }),
+        begin: vi.fn(async () => ({ ref: 'c1' })),
+      };
+      sessions.push(session);
+      return session;
+    });
+    const control = mountPushToTalk(deps(), { earlyTesting: false });
+    await control.tap();
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
+    });
+    expect(sessions[0].end).toHaveBeenCalled();
+    expect(transport.alive).toBe(false);
+    expect(timer.alive).toBe(false);
+    expect(control.session).toBeNull();
+    expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toContain('10 minutes');
+    expect(document.querySelector('[data-testid="ptt-status"]').hidden).toBe(false);
+    expect(document.querySelector('[data-testid="ptt-status-dismiss"]').hidden).toBe(false);
+  });
+
+  it('Dismiss clears only the status message and never ends a live turn', async () => {
+    const control = mountPushToTalk(deps(), { earlyTesting: false });
+    await control.tap();
+    const started = sessions[0];
+    started.options.say('Listening… say "over" or tap again when done.');
+    const status = document.querySelector('[data-testid="ptt-status"]');
+    const dismiss = document.querySelector('[data-testid="ptt-status-dismiss"]');
+    expect(status.hidden).toBe(false);
+    expect(dismiss.getAttribute('aria-label')).toBe('Dismiss');
+    dismiss.click();
+    expect(status.hidden).toBe(true);
+    expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toBe('');
+    expect(started.end).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="ptt-button"]').getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(false);
+    expect(control.session).toBe(started);
+    // A later status brings the bubble back.
+    started.options.say('Thinking…');
+    expect(status.hidden).toBe(false);
+    expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toBe('Thinking…');
+  });
+
+  it('exposes endLiveSession for later no-mic reuse and keeps a terminal message', async () => {
+    const control = mountPushToTalk(deps(), {});
+    await control.tap();
+    expect(typeof control.endLiveSession).toBe('function');
+    await control.endLiveSession({ statusMessage: 'No microphone found. Type instead?' });
+    expect(sessions[0].end).toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
+    expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toBe('No microphone found. Type instead?');
+    expect(control.session).toBeNull();
+  });
+});

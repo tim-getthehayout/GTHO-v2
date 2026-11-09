@@ -1,3 +1,4 @@
+import { getLocalTodayStr } from '../../../../src/utils/date-utils.js';
 /** @file Feed day goal banner uses farm-wide active animal DMI. */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { _reset, add, update, setSyncAdapter } from '../../../../src/data/store.js';
@@ -31,8 +32,8 @@ const HEIFER = '00000000-0000-0000-0000-0000000000a2';
 const CULLED = '00000000-0000-0000-0000-0000000000a3';
 const UNCLASSED = '00000000-0000-0000-0000-0000000000a4';
 
-function utcDay(offset) {
-  const now = new Date();
+function localDay(offset) {
+  const now = new Date(`${getLocalTodayStr()}T12:00:00Z`);
   const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   base.setUTCDate(base.getUTCDate() + offset);
   return base.toISOString().slice(0, 10);
@@ -68,7 +69,7 @@ function addInventory() {
   }), BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
   add('eventFeedEntries', FeedEntryEntity.create({
     operationId: OP, eventId: EVT, batchId: BATCH, locationId: LOC,
-    date: utcDay(0), quantity: 10000,
+    date: localDay(0), quantity: 10000,
   }), FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
 }
 
@@ -89,7 +90,7 @@ function addWeight(animalId, weightKg, dayOffset) {
     operationId: OP,
     animalId,
     weightKg,
-    recordedAt: `${utcDay(dayOffset)}T12:00:00.000Z`,
+    recordedAt: `${localDay(dayOffset)}T12:00:00.000Z`,
     source: 'manual',
   }), WeightEntity.validate, WeightEntity.toSupabaseShape, 'animal_weight_records');
 }
@@ -227,7 +228,7 @@ describe('feed day goal DMI denominator', () => {
 
     add('eventFeedEntries', FeedEntryEntity.create({
       operationId: OP, eventId: EVT, batchId: BATCH, locationId: LOC,
-      date: utcDay(0), quantity: 10000,
+      date: localDay(0), quantity: 10000,
     }), FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
     await flush();
     expect(cell('feed-days-on-hand')).toContain('5');

@@ -1,3 +1,4 @@
+import { getLocalTodayStr } from '../../../../src/utils/date-utils.js';
 /** @file Batch locations: create, move, card summary, details, delivery source. */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll, getById, setSyncAdapter } from '../../../../src/data/store.js';
@@ -123,7 +124,7 @@ describe('feed batch locations', () => {
     const transfer = getAll('batchMoves').find(row => row.fromLocationId === BARN);
     expect(transfer.toLocationId).toBe(PAD);
     expect(transfer.quantity).toBe(4);
-    expect(transfer.movedAt).toBe(new Date().toISOString().slice(0, 10));
+    expect(transfer.movedAt).toBe(getLocalTodayStr());
 
     const summary = document.querySelector(`[data-testid="feed-batch-locations-${batch.id}"]`).textContent;
     expect(summary).toContain('Field Pad (4)');

@@ -1,3 +1,4 @@
+import { getLocalTodayStr } from '../../../../src/utils/date-utils.js';
 /** @file Batch card activity list, adjustment date, and archive pill. */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll, getById, setSyncAdapter } from '../../../../src/data/store.js';
@@ -95,7 +96,7 @@ describe('feed batch activity, adjustment date, and archive', () => {
   it('saves the chosen adjustment date and opens that row for edit', async () => {
     document.querySelector(`[data-testid="feed-batch-adjust-${BATCH}"]`).click();
     const dateInput = document.querySelector('[data-testid="batch-adjust-date"]');
-    expect(dateInput.value).toBe(new Date().toISOString().slice(0, 10));
+    expect(dateInput.value).toBe(getLocalTodayStr());
     const reason = document.querySelector('[data-testid="batch-adjust-reason"]');
     expect(dateInput.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 

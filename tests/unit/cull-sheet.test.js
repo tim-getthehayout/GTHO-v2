@@ -1,3 +1,4 @@
+import { getLocalTodayStr } from '../../src/utils/date-utils.js';
 /** @file Tests for the Cull Sheet save/reactivate flow (OI-0086 / GH-13). */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
@@ -171,7 +172,7 @@ describe('cull-sheet: confirmCull', () => {
   it('backdated cull does not stamp the open event_group_window with the backdated date', () => {
     const EVT_ID = '00000000-0000-0000-0000-0000000000d1';
     const SECOND_ANIMAL = '00000000-0000-0000-0000-0000000000e1';
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getLocalTodayStr();
 
     // Two animals in GROUP_A, both with open memberships.
     const culled = mkAnimal();

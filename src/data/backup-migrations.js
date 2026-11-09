@@ -1,3 +1,4 @@
+import { INITIAL_BILLING_POLICY } from '../features/assistant/billing-policy.js';
 import { ASSISTANT_TABLES, HISTORICAL_FEEDBACK_FACTS, SUBMISSION_EXTENSION_COLUMNS } from '../features/assistant/schema.js';
 
 /**
@@ -207,6 +208,11 @@ export const BACKUP_MIGRATIONS = {
           id: crypto.randomUUID(), operation_id: row.operation_id, submission_id: row.id,
           field_name: fieldName, state: 'unknown', reason: null, source: null,
         });
+      }
+    }
+    for (const op of b.tables.operations || []) {
+      if (!b.tables.assistant_billing_policies.some(policy => policy.operation_id === op.id)) {
+        b.tables.assistant_billing_policies.push({ id: crypto.randomUUID(), operation_id: op.id, ...INITIAL_BILLING_POLICY, billing_timezone: op.timezone ?? null });
       }
     }
     b.schema_version = 40;

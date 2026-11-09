@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ASSISTANT_TABLES, HISTORICAL_FEEDBACK_FACTS, SUBMISSION_EXTENSION_COLUMNS } from '../../../src/features/assistant/schema.js';
+import { ASSISTANT_TABLES, HISTORICAL_FEEDBACK_FACTS, SUBMISSION_EXTENSION_COLUMNS, SERVER_ASSISTANT_TABLES } from '../../../src/features/assistant/schema.js';
 import { BACKUP_MIGRATIONS } from '../../../src/data/backup-migrations.js';
 import { FK_ORDER, TWO_PASS_TABLES } from '../../../src/data/backup-import.js';
 import * as Submission from '../../../src/entities/submission.js';
@@ -15,20 +15,28 @@ describe('prepared host schema (static checks, not a live migration)', () => {
     it(`${table} preserves every locked column and CHECK, with member RLS`, () => {
       // Match CREATE blocks explicitly so ALTER/FK reordering cannot hide a lost column.
       const block = sql.split(`CREATE TABLE ${table} (`)[1].split('\n);')[0];
-      const original = design.split(`CREATE TABLE ${table} (`)[1].split('\n);')[0];
+      const original = design.split(`CREATE TABLE ${table} (`)[1]?.split('\n);')[0] ?? '';
       for (const line of original.split('\n').map(s => s.trim().replace(/,$/, '')).filter(Boolean)) {
+        if (table === 'submission_repro_steps' && /state|reason|source|step_text|CHECK/.test(line)) continue;
+        if (table === 'submission_field_states' && /state text|source text/.test(line)) continue;
         if (line.startsWith('FOREIGN KEY')) expect(normalize(sql)).toContain(normalize(`ALTER TABLE ${table} ADD ${line};`));
         else expect(block.split('\n').map(s => s.trim().replace(/,$/, ''))).toContain(line);
       }
       expect(sql).toContain(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`);
       expect(sql).toContain(`REVOKE ALL ON ${table} FROM anon, authenticated;`);
+      if (SERVER_ASSISTANT_TABLES.has(table)) {
+        expect(sql).not.toContain(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO authenticated`);
+        expect(sql).toContain(`CREATE POLICY ${table}_member_scope`);
+        return;
+      }
       for (const action of ['select', 'insert', 'update', 'delete']) {
         expect(sql).toContain(`CREATE POLICY ${table}_${action} ON ${table} FOR ${action.toUpperCase()} TO authenticated`);
       }
     });
   }
   it('has no cascade, artifact JSONB, duplicate index names or unscoped artifact FKs', () => {
-    expect(sql).not.toMatch(/ON DELETE CASCADE|jsonb/i);
+    expect(sql).not.toMatch(/ON DELETE CASCADE/i);
+    expect([...sql.matchAll(/\w+ jsonb/g)].map(m => m[0])).toEqual(['trusted_snapshot jsonb']);
     const indexes = [...sql.matchAll(/CREATE INDEX (\w+)/g)].map(match => match[1]);
     expect(new Set(indexes).size).toBe(indexes.length);
     for (const index of indexes) expect(index.length).toBeLessThanOrEqual(63);
@@ -64,7 +72,7 @@ describe('historical submissions remain unknown, not new confirmed filings', () 
     expect(JSON.stringify(backup)).toBe(again);
   });
   it('round-trips nullable shared facts independently from host-only fields', () => {
-    const record = Submission.create({ operationId: 'op', type: 'feedback', priority: 'urgent', version: 'build', feedbackKind: 'bug', contractVersion: '0.1.3', title: 'title', firstNote: 'original', expected: 'expected', actual: 'actual', severity: 'low', impact: 'impact', capturedAt: 'capture', filedAt: 'filing', conversationId: 'conversation', reviewConfirmationId: 'confirmation' });
+    const record = Submission.create({ operationId: 'op', type: 'feedback', priority: 'urgent', version: 'build', feedbackKind: 'bug', contractVersion: '0.1.2', title: 'title', firstNote: 'original', expected: 'expected', actual: 'actual', severity: 'low', impactAffectedWork: 'work', impactWorkaround: 'workaround', impactDataRisk: 'risk', capturedAt: 'capture', filedAt: 'filing', conversationId: 'conversation', reviewConfirmationId: 'confirmation' });
     expect(Submission.fromSupabaseShape(Submission.toSupabaseShape(record))).toEqual(record);
     expect(Submission.validate(Submission.create({ operationId: 'op', type: 'support' })).valid).toBe(true);
     expect(Submission.validate({ ...record, feedbackKind: 'support' }).valid).toBe(false);

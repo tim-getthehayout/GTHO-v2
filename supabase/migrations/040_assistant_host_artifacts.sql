@@ -11,9 +11,11 @@ CREATE TABLE submission_field_states (
   operation_id uuid NOT NULL REFERENCES operations(id),
   submission_id uuid NOT NULL,
   field_name text NOT NULL,
-  state text NOT NULL CHECK (state IN ('known','unknown','unavailable','not_applicable')),
+  state text NOT NULL CHECK (state IN ('known','unknown','unavailable','not_applicable','not_reproducible')),
   reason text,
-  source text,
+  source text CHECK (source IN ('user','host')),
+  CHECK (field_name NOT IN ('affectedWork','workaround','dataRisk') OR state IN ('known','unknown')),
+  CHECK (field_name <> 'reproSteps' OR state IN ('known','unknown','not_reproducible','not_applicable')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (operation_id, id),
@@ -23,6 +25,7 @@ CREATE TABLE submission_field_states (
 
 ALTER TABLE submission_field_states ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON submission_field_states FROM anon, authenticated;
+GRANT ALL ON submission_field_states TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON submission_field_states TO authenticated;
 
 CREATE POLICY submission_field_states_select ON submission_field_states FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -40,20 +43,17 @@ CREATE TABLE submission_repro_steps (
   operation_id uuid NOT NULL REFERENCES operations(id),
   submission_id uuid NOT NULL,
   position integer NOT NULL CHECK (position >= 0),
-  step_text text,
-  state text NOT NULL CHECK (state IN ('known','unknown','unavailable','not_applicable')),
-  reason text,
-  source text,
+  step_text text NOT NULL CHECK (length(btrim(step_text)) > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (operation_id, id),
-  UNIQUE (operation_id, submission_id, position),
-  CHECK ((state = 'known' AND step_text IS NOT NULL) OR (state <> 'known' AND step_text IS NULL))
+  UNIQUE (operation_id, submission_id, position)
 );
 
 
 ALTER TABLE submission_repro_steps ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON submission_repro_steps FROM anon, authenticated;
+GRANT ALL ON submission_repro_steps TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON submission_repro_steps TO authenticated;
 
 CREATE POLICY submission_repro_steps_select ON submission_repro_steps FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -84,6 +84,7 @@ CREATE TABLE assistant_conversations (
 
 ALTER TABLE assistant_conversations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_conversations FROM anon, authenticated;
+GRANT ALL ON assistant_conversations TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_conversations TO authenticated;
 
 CREATE POLICY assistant_conversations_select ON assistant_conversations FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -114,6 +115,7 @@ CREATE TABLE assistant_transcript_turns (
 
 ALTER TABLE assistant_transcript_turns ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_transcript_turns FROM anon, authenticated;
+GRANT ALL ON assistant_transcript_turns TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_transcript_turns TO authenticated;
 
 CREATE POLICY assistant_transcript_turns_select ON assistant_transcript_turns FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -142,6 +144,7 @@ CREATE TABLE assistant_proposals (
 
 ALTER TABLE assistant_proposals ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_proposals FROM anon, authenticated;
+GRANT ALL ON assistant_proposals TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_proposals TO authenticated;
 
 CREATE POLICY assistant_proposals_select ON assistant_proposals FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -170,6 +173,7 @@ CREATE TABLE assistant_proposal_revisions (
 
 ALTER TABLE assistant_proposal_revisions ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_proposal_revisions FROM anon, authenticated;
+GRANT ALL ON assistant_proposal_revisions TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_proposal_revisions TO authenticated;
 
 CREATE POLICY assistant_proposal_revisions_select ON assistant_proposal_revisions FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -209,6 +213,7 @@ CREATE TABLE assistant_field_mappings (
 
 ALTER TABLE assistant_field_mappings ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_field_mappings FROM anon, authenticated;
+GRANT ALL ON assistant_field_mappings TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_field_mappings TO authenticated;
 
 CREATE POLICY assistant_field_mappings_select ON assistant_field_mappings FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -237,6 +242,7 @@ CREATE TABLE assistant_review_cards (
 
 ALTER TABLE assistant_review_cards ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_review_cards FROM anon, authenticated;
+GRANT ALL ON assistant_review_cards TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_review_cards TO authenticated;
 
 CREATE POLICY assistant_review_cards_select ON assistant_review_cards FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -266,6 +272,7 @@ CREATE TABLE assistant_review_confirmations (
 
 ALTER TABLE assistant_review_confirmations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_review_confirmations FROM anon, authenticated;
+GRANT ALL ON assistant_review_confirmations TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_review_confirmations TO authenticated;
 
 CREATE POLICY assistant_review_confirmations_select ON assistant_review_confirmations FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -285,6 +292,8 @@ CREATE TABLE assistant_session_checkpoints (
   transcript_position integer NOT NULL CHECK (transcript_position >= 0),
   pending_revision_id uuid,
   lifecycle_phase text NOT NULL,
+  UNIQUE (operation_id, conversation_id),
+  trusted_snapshot jsonb NOT NULL CHECK (jsonb_typeof(trusted_snapshot) = 'object' AND trusted_snapshot->'version' IS NOT DISTINCT FROM '1'::jsonb),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (operation_id, id)
@@ -293,15 +302,15 @@ CREATE TABLE assistant_session_checkpoints (
 
 ALTER TABLE assistant_session_checkpoints ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_session_checkpoints FROM anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_session_checkpoints TO authenticated;
+GRANT ALL ON assistant_session_checkpoints TO service_role;
 
-CREATE POLICY assistant_session_checkpoints_select ON assistant_session_checkpoints FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
 
-CREATE POLICY assistant_session_checkpoints_insert ON assistant_session_checkpoints FOR INSERT TO authenticated WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
 
-CREATE POLICY assistant_session_checkpoints_update ON assistant_session_checkpoints FOR UPDATE TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
 
-CREATE POLICY assistant_session_checkpoints_delete ON assistant_session_checkpoints FOR DELETE TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+
+
+
+
 
 
 
@@ -323,6 +332,7 @@ CREATE TABLE voice_entry_attempts (
 
 ALTER TABLE voice_entry_attempts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON voice_entry_attempts FROM anon, authenticated;
+GRANT ALL ON voice_entry_attempts TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON voice_entry_attempts TO authenticated;
 
 CREATE POLICY voice_entry_attempts_select ON voice_entry_attempts FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -336,6 +346,10 @@ CREATE POLICY voice_entry_attempts_delete ON voice_entry_attempts FOR DELETE TO 
 
 
 CREATE TABLE assistant_execution_results (
+  conversation_ref text NOT NULL CHECK (length(btrim(conversation_ref)) > 0),
+  proposal_id uuid NOT NULL,
+  proposal_revision integer NOT NULL CHECK (proposal_revision > 0),
+  UNIQUE (operation_id, conversation_ref, proposal_id, proposal_revision),
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   operation_id uuid NOT NULL REFERENCES operations(id),
   conversation_id uuid NOT NULL,
@@ -358,15 +372,15 @@ CREATE TABLE assistant_execution_results (
 
 ALTER TABLE assistant_execution_results ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_execution_results FROM anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_execution_results TO authenticated;
+GRANT ALL ON assistant_execution_results TO service_role;
 
-CREATE POLICY assistant_execution_results_select ON assistant_execution_results FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
 
-CREATE POLICY assistant_execution_results_insert ON assistant_execution_results FOR INSERT TO authenticated WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
 
-CREATE POLICY assistant_execution_results_update ON assistant_execution_results FOR UPDATE TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
 
-CREATE POLICY assistant_execution_results_delete ON assistant_execution_results FOR DELETE TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+
+
+
+
 
 
 
@@ -385,6 +399,7 @@ CREATE TABLE assistant_testing_consents (
 
 ALTER TABLE assistant_testing_consents ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_testing_consents FROM anon, authenticated;
+GRANT ALL ON assistant_testing_consents TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_testing_consents TO authenticated;
 
 CREATE POLICY assistant_testing_consents_select ON assistant_testing_consents FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -414,6 +429,7 @@ CREATE TABLE assistant_testing_audio (
 
 ALTER TABLE assistant_testing_audio ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON assistant_testing_audio FROM anon, authenticated;
+GRANT ALL ON assistant_testing_audio TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON assistant_testing_audio TO authenticated;
 
 CREATE POLICY assistant_testing_audio_select ON assistant_testing_audio FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -444,6 +460,7 @@ CREATE TABLE offline_voice_notes (
 
 ALTER TABLE offline_voice_notes ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON offline_voice_notes FROM anon, authenticated;
+GRANT ALL ON offline_voice_notes TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON offline_voice_notes TO authenticated;
 
 CREATE POLICY offline_voice_notes_select ON offline_voice_notes FOR SELECT TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
@@ -526,7 +543,9 @@ ALTER TABLE submissions
   ADD COLUMN expected text,
   ADD COLUMN actual text,
   ADD COLUMN severity text CHECK (severity IN ('critical','high','normal','low')),
-  ADD COLUMN impact text,
+  ADD COLUMN impact_affected_work text CHECK (length(btrim(impact_affected_work)) > 0),
+  ADD COLUMN impact_workaround text CHECK (length(btrim(impact_workaround)) > 0),
+  ADD COLUMN impact_data_risk text CHECK (length(btrim(impact_data_risk)) > 0),
   ADD COLUMN captured_at timestamptz,
   ADD COLUMN filed_at timestamptz,
   ADD COLUMN conversation_id uuid,
@@ -596,10 +615,245 @@ CREATE INDEX voice_entry_attempts_finished_expiry_idx ON voice_entry_attempts (o
 
 CREATE INDEX voice_entry_attempts_captured_at_idx ON voice_entry_attempts (operation_id, captured_at);
 
+CREATE TABLE assistant_session_locks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  conversation_ref text NOT NULL CHECK (length(btrim(conversation_ref)) > 0),
+  owner_token uuid NOT NULL,
+  UNIQUE (operation_id, conversation_ref),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id)
+);
+ALTER TABLE assistant_session_locks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON assistant_session_locks FROM anon, authenticated;
+GRANT ALL ON assistant_session_locks TO service_role;
+
+CREATE TABLE assistant_billing_policies (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  rate_requests integer NOT NULL DEFAULT 30 CHECK (rate_requests > 0),
+  rate_window_seconds integer NOT NULL DEFAULT 600 CHECK (rate_window_seconds > 0),
+  monthly_requests integer NOT NULL DEFAULT 2000 CHECK (monthly_requests > 0),
+  monthly_audio_minutes numeric NOT NULL DEFAULT 600 CHECK (monthly_audio_minutes > 0),
+  billing_timezone text,
+  UNIQUE (operation_id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id)
+);
+ALTER TABLE assistant_billing_policies ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON assistant_billing_policies FROM anon, authenticated;
+GRANT ALL ON assistant_billing_policies TO service_role;
+
+CREATE TABLE assistant_billing_reservations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  purpose text NOT NULL CHECK (length(btrim(purpose)) > 0),
+  request_ref text NOT NULL CHECK (length(btrim(request_ref)) > 0),
+  kind text NOT NULL CHECK (kind IN ('request','settlement')),
+  lease uuid NOT NULL DEFAULT gen_random_uuid(),
+  routing text NOT NULL CHECK (routing IN ('shared','operation-owned')),
+  UNIQUE (operation_id, request_ref),
+  UNIQUE (operation_id, lease),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id)
+);
+ALTER TABLE assistant_billing_reservations ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON assistant_billing_reservations FROM anon, authenticated;
+GRANT ALL ON assistant_billing_reservations TO service_role;
+
+CREATE TABLE assistant_billing_usage (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  lease uuid NOT NULL,
+  purpose text NOT NULL,
+  model text,
+  voice_session text,
+  input_tokens numeric CHECK (input_tokens >= 0),
+  output_tokens numeric CHECK (output_tokens >= 0),
+  audio_minutes numeric CHECK (audio_minutes >= 0),
+  request_count integer CHECK (request_count >= 0),
+  bill_shared boolean NOT NULL,
+  failed boolean NOT NULL,
+  UNIQUE (operation_id, lease),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id)
+);
+ALTER TABLE assistant_billing_usage ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON assistant_billing_usage FROM anon, authenticated;
+GRANT ALL ON assistant_billing_usage TO service_role;
+
+CREATE TABLE assistant_billing_settlements (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  lease uuid NOT NULL,
+  provider_session_ref text NOT NULL CHECK (length(btrim(provider_session_ref)) > 0),
+  settlement_ref text NOT NULL CHECK (length(btrim(settlement_ref)) > 0),
+  UNIQUE (operation_id, provider_session_ref, settlement_ref),
+  UNIQUE (operation_id, lease),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (operation_id, id)
+);
+ALTER TABLE assistant_billing_settlements ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON assistant_billing_settlements FROM anon, authenticated;
+GRANT ALL ON assistant_billing_settlements TO service_role;
+
+CREATE POLICY assistant_session_checkpoints_member_scope ON assistant_session_checkpoints FOR ALL TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+CREATE POLICY assistant_execution_results_member_scope ON assistant_execution_results FOR ALL TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+CREATE POLICY assistant_session_locks_member_scope ON assistant_session_locks FOR ALL TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+CREATE POLICY assistant_billing_policies_member_scope ON assistant_billing_policies FOR ALL TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+CREATE POLICY assistant_billing_reservations_member_scope ON assistant_billing_reservations FOR ALL TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+CREATE POLICY assistant_billing_usage_member_scope ON assistant_billing_usage FOR ALL TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+CREATE POLICY assistant_billing_settlements_member_scope ON assistant_billing_settlements FOR ALL TO authenticated USING (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL)) WITH CHECK (operation_id IN (SELECT operation_id FROM operation_members WHERE user_id = (SELECT auth.uid()) AND accepted_at IS NOT NULL));
+ALTER TABLE assistant_execution_results ADD FOREIGN KEY (operation_id, proposal_id) REFERENCES assistant_proposals(operation_id, id);
+ALTER TABLE assistant_billing_usage ADD FOREIGN KEY (operation_id, lease) REFERENCES assistant_billing_reservations(operation_id, lease);
+ALTER TABLE assistant_billing_settlements ADD FOREIGN KEY (operation_id, lease) REFERENCES assistant_billing_reservations(operation_id, lease);
+CREATE INDEX assistant_billing_reservations_time_idx ON assistant_billing_reservations (operation_id, created_at);
+CREATE INDEX assistant_billing_usage_time_idx ON assistant_billing_usage (operation_id, created_at);
+INSERT INTO assistant_billing_policies (operation_id, billing_timezone) SELECT id, timezone FROM operations;
+
+-- Callable backend bindings. No automatic lock expiry or cleanup schedule.
+CREATE FUNCTION assistant_lock_acquire(p_operation uuid, p_ref text, p_owner uuid)
+RETURNS SETOF assistant_session_locks LANGUAGE sql SECURITY INVOKER SET search_path = public AS $$
+  INSERT INTO assistant_session_locks (operation_id, conversation_ref, owner_token)
+  VALUES (p_operation, p_ref, p_owner) ON CONFLICT (operation_id, conversation_ref) DO NOTHING RETURNING *;
+$$;
+CREATE FUNCTION assistant_lock_release(p_operation uuid, p_ref text, p_owner uuid)
+RETURNS void LANGUAGE sql SECURITY INVOKER SET search_path = public AS $$
+  DELETE FROM assistant_session_locks WHERE operation_id = p_operation AND conversation_ref = p_ref AND owner_token = p_owner;
+$$;
+CREATE FUNCTION assistant_billing_reserve(p_operation uuid, p_purpose text, p_request text, p_kind text)
+RETURNS SETOF assistant_billing_reservations LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE policy assistant_billing_policies; existing assistant_billing_reservations;
+  monthly_start timestamptz; used_requests bigint; used_audio numeric; rate_count bigint;
+BEGIN
+  INSERT INTO assistant_billing_policies (operation_id, billing_timezone) SELECT id, timezone FROM operations WHERE id = p_operation ON CONFLICT (operation_id) DO NOTHING;
+  SELECT * INTO policy FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'billing-policy-required'; END IF;
+  SELECT * INTO existing FROM assistant_billing_reservations WHERE operation_id = p_operation AND request_ref = p_request;
+  -- A replayed reservation is not a second grant of provider access.
+  IF FOUND THEN
+    IF p_kind = 'settlement' AND existing.kind = 'settlement' AND existing.purpose = p_purpose THEN RETURN NEXT existing; RETURN; END IF;
+    RAISE EXCEPTION 'billing-request-already-reserved';
+  END IF;
+  IF p_kind NOT IN ('request','settlement') THEN RAISE EXCEPTION 'invalid-reservation-kind'; END IF;
+  IF p_kind = 'request' THEN
+    IF policy.billing_timezone IS NULL THEN RAISE EXCEPTION 'billing-calendar-timezone-required'; END IF;
+    monthly_start := date_trunc('month', now() AT TIME ZONE policy.billing_timezone) AT TIME ZONE policy.billing_timezone;
+    IF EXISTS (SELECT 1 FROM assistant_billing_usage WHERE operation_id = p_operation AND
+       (input_tokens IS NULL OR output_tokens IS NULL OR audio_minutes IS NULL OR request_count IS NULL))
+    THEN RAISE EXCEPTION 'usage-reconciliation-required'; END IF;
+    SELECT count(*) INTO rate_count FROM assistant_billing_reservations WHERE operation_id = p_operation
+      AND kind = 'request' AND created_at > now() - make_interval(secs => policy.rate_window_seconds);
+    SELECT coalesce(sum(greatest(CASE WHEN r.kind = 'request' THEN 1 ELSE 0 END, u.request_count)),0) INTO used_requests
+      FROM assistant_billing_reservations r LEFT JOIN assistant_billing_usage u ON u.operation_id = r.operation_id AND u.lease = r.lease
+      WHERE r.operation_id = p_operation AND r.created_at >= monthly_start;
+    SELECT coalesce(sum(audio_minutes),0) INTO used_audio FROM assistant_billing_usage WHERE operation_id = p_operation AND created_at >= monthly_start;
+    IF rate_count >= policy.rate_requests OR used_requests >= policy.monthly_requests OR used_audio >= policy.monthly_audio_minutes
+    THEN RAISE EXCEPTION 'billing-cap-reached'; END IF;
+  END IF;
+  RETURN QUERY INSERT INTO assistant_billing_reservations (operation_id,purpose,request_ref,kind,routing)
+    VALUES (p_operation,p_purpose,p_request,p_kind,'shared') RETURNING *;
+END;
+$$;
+CREATE FUNCTION assistant_billing_finish(p_operation uuid, p_lease uuid, p_model text, p_voice text,
+  p_input numeric, p_output numeric, p_audio numeric, p_requests integer, p_bill_shared boolean, p_failed boolean)
+RETURNS SETOF assistant_billing_usage LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE reservation assistant_billing_reservations;
+BEGIN
+  PERFORM 1 FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
+  SELECT * INTO STRICT reservation FROM assistant_billing_reservations WHERE operation_id = p_operation AND lease = p_lease;
+  IF p_bill_shared IS DISTINCT FROM (reservation.routing = 'shared') THEN RAISE EXCEPTION 'billing-routing-mismatch'; END IF;
+  -- Failure without a positive measured counter is unknown, never an invented zero.
+  RETURN QUERY INSERT INTO assistant_billing_usage (operation_id,lease,purpose,model,voice_session,input_tokens,output_tokens,audio_minutes,request_count,bill_shared,failed)
+    VALUES (p_operation,p_lease,reservation.purpose,p_model,p_voice,
+      CASE WHEN p_failed AND p_input = 0 THEN NULL ELSE p_input END,
+      CASE WHEN p_failed AND p_output = 0 THEN NULL ELSE p_output END,
+      CASE WHEN p_failed AND p_audio = 0 THEN NULL ELSE p_audio END,
+      p_requests,p_bill_shared,p_failed)
+    ON CONFLICT (operation_id,lease) DO NOTHING RETURNING *;
+END;
+$$;
+-- Only server-verified final counters may fill unknown failed-request usage.
+CREATE FUNCTION assistant_billing_reconcile(p_operation uuid, p_lease uuid, p_model text, p_voice text,
+  p_input numeric, p_output numeric, p_audio numeric, p_requests integer)
+RETURNS SETOF assistant_billing_usage LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE existing assistant_billing_usage;
+BEGIN
+  PERFORM 1 FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
+  SELECT * INTO STRICT existing FROM assistant_billing_usage WHERE operation_id = p_operation AND lease = p_lease FOR UPDATE;
+  IF p_input IS NULL OR p_output IS NULL OR p_audio IS NULL OR p_requests IS NULL THEN RAISE EXCEPTION 'verified-usage-required'; END IF;
+  IF (existing.input_tokens IS NOT NULL AND existing.input_tokens <> p_input)
+    OR (existing.output_tokens IS NOT NULL AND existing.output_tokens <> p_output)
+    OR (existing.audio_minutes IS NOT NULL AND existing.audio_minutes <> p_audio)
+    OR (existing.request_count IS NOT NULL AND existing.request_count <> p_requests)
+  THEN RAISE EXCEPTION 'verified-usage-conflicts-with-known-counter'; END IF;
+  RETURN QUERY UPDATE assistant_billing_usage SET model = coalesce(model,p_model), voice_session = coalesce(voice_session,p_voice),
+    input_tokens = p_input, output_tokens = p_output, audio_minutes = p_audio, request_count = p_requests, updated_at = now()
+    WHERE operation_id = p_operation AND lease = p_lease RETURNING *;
+END;
+$$;
+-- A verified provider event and its usage delta commit atomically. No crash window
+-- can consume the dedup marker without retaining the measured billing usage.
+CREATE FUNCTION assistant_billing_settle(p_operation uuid, p_lease uuid, p_provider text, p_settlement text,
+  p_model text, p_input numeric, p_output numeric, p_audio numeric, p_requests integer)
+RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE reservation assistant_billing_reservations; claimed uuid;
+BEGIN
+  PERFORM 1 FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
+  SELECT * INTO STRICT reservation FROM assistant_billing_reservations WHERE operation_id = p_operation AND lease = p_lease;
+  IF reservation.kind <> 'settlement' THEN RAISE EXCEPTION 'settlement-reservation-required'; END IF;
+  IF p_input IS NULL OR p_output IS NULL OR p_audio IS NULL OR p_requests IS NULL THEN RAISE EXCEPTION 'verified-usage-required'; END IF;
+  INSERT INTO assistant_billing_settlements (operation_id,lease,provider_session_ref,settlement_ref)
+    VALUES (p_operation,p_lease,p_provider,p_settlement)
+    ON CONFLICT (operation_id,provider_session_ref,settlement_ref) DO NOTHING RETURNING lease INTO claimed;
+  IF NOT FOUND THEN RETURN false; END IF;
+  -- finish must not have run before the verified delta for a fresh settlement.
+  IF EXISTS (SELECT 1 FROM assistant_billing_usage WHERE operation_id = p_operation AND lease = p_lease) THEN RAISE EXCEPTION 'settlement-usage-already-recorded'; END IF;
+  PERFORM assistant_billing_finish(p_operation,p_lease,p_model,p_provider,p_input,p_output,p_audio,p_requests,true,false);
+  RETURN true;
+END;
+$$;
+CREATE FUNCTION assistant_cleanup_finished(p_operation uuid)
+RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE attempts uuid[]; mappings uuid[];
+BEGIN
+  SELECT array_agg(id) INTO attempts FROM (SELECT id FROM voice_entry_attempts WHERE operation_id = p_operation
+    AND status = 'finished' AND finished_at <= now() - make_interval(hours => 90 * 24) FOR UPDATE) expired;
+  SELECT array_agg(id) INTO mappings FROM assistant_field_mappings WHERE operation_id = p_operation AND attempt_id = ANY(attempts);
+  UPDATE assistant_proposals SET attempt_id = NULL WHERE operation_id = p_operation AND attempt_id = ANY(attempts);
+  UPDATE assistant_execution_results SET attempt_id = NULL WHERE operation_id = p_operation AND attempt_id = ANY(attempts);
+  UPDATE assistant_testing_audio SET attempt_id = NULL WHERE operation_id = p_operation AND attempt_id = ANY(attempts);
+  UPDATE offline_voice_notes SET attempt_id = NULL WHERE operation_id = p_operation AND attempt_id = ANY(attempts);
+  UPDATE voice_entry_attempts SET previous_attempt_id = NULL WHERE operation_id = p_operation AND previous_attempt_id = ANY(attempts);
+  UPDATE assistant_field_mappings SET correction_predecessor_id = NULL WHERE operation_id = p_operation AND correction_predecessor_id = ANY(mappings);
+  DELETE FROM assistant_field_mappings WHERE operation_id = p_operation AND id = ANY(mappings);
+  DELETE FROM voice_entry_attempts WHERE operation_id = p_operation AND id = ANY(attempts);
+END;
+$$;
+REVOKE ALL ON FUNCTION assistant_lock_acquire(uuid,text,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_lock_acquire(uuid,text,uuid) TO service_role;
+REVOKE ALL ON FUNCTION assistant_lock_release(uuid,text,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_lock_release(uuid,text,uuid) TO service_role;
+REVOKE ALL ON FUNCTION assistant_billing_reserve(uuid,text,text,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_billing_reserve(uuid,text,text,text) TO service_role;
+REVOKE ALL ON FUNCTION assistant_billing_finish(uuid,uuid,text,text,numeric,numeric,numeric,integer,boolean,boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_billing_finish(uuid,uuid,text,text,numeric,numeric,numeric,integer,boolean,boolean) TO service_role;
+REVOKE ALL ON FUNCTION assistant_billing_reconcile(uuid,uuid,text,text,numeric,numeric,numeric,integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_billing_reconcile(uuid,uuid,text,text,numeric,numeric,numeric,integer) TO service_role;
+REVOKE ALL ON FUNCTION assistant_billing_settle(uuid,uuid,text,text,text,numeric,numeric,numeric,integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_billing_settle(uuid,uuid,text,text,text,numeric,numeric,numeric,integer) TO service_role;
+REVOKE ALL ON FUNCTION assistant_cleanup_finished(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_cleanup_finished(uuid) TO service_role;
+
 -- Historical submissions remain historical: no inferred facts, timestamps or consent.
 INSERT INTO submission_field_states (operation_id, submission_id, field_name, state)
 SELECT s.operation_id, s.id, fact.field_name, 'unknown'
-FROM submissions s CROSS JOIN (VALUES ('type'), ('contractVersion'), ('title'), ('firstNote'), ('expected'), ('actual'), ('severity'), ('impact'), ('capturedAt'), ('filedAt'), ('conversationId'), ('reproSteps'), ('reviewConfirmation')) AS fact(field_name)
+FROM submissions s CROSS JOIN (VALUES ('type'), ('contractVersion'), ('title'), ('firstNote'), ('expected'), ('actual'), ('severity'), ('affectedWork'), ('workaround'), ('dataRisk'), ('capturedAt'), ('filedAt'), ('conversationId'), ('reproSteps'), ('reviewConfirmation')) AS fact(field_name)
 ON CONFLICT (operation_id, submission_id, field_name) DO NOTHING;
 
 -- No SQL in this file has been applied by this implementation session.

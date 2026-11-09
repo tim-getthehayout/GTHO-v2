@@ -1,3 +1,4 @@
+import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
 /** @file Store — single data access point. See V2_APP_ARCHITECTURE.md §4. */
 
 import { saveToStorage, loadFromStorage } from './local-storage.js';
@@ -43,6 +44,7 @@ export const ENTITY_TYPES = [
   'batchNutritionalProfiles',
   // D11: App Infrastructure
   'appLogs', 'submissions', 'todos', 'todoAssignments', 'releaseNotes',
+  ...Object.keys(ASSISTANT_ENTITIES).filter(key => !ASSISTANT_ENTITIES[key].serverOnly),
 ];
 
 /** In-memory state */

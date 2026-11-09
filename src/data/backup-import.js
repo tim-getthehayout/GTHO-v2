@@ -66,6 +66,11 @@ const FK_ORDER = [
   'todos',
   'todo_assignments',
   // Artifact metadata only: audio bytes have no backup/storage contract.
+  'assistant_session_locks',
+  'assistant_billing_policies',
+  'assistant_billing_reservations',
+  'assistant_billing_usage',
+  'assistant_billing_settlements',
   'assistant_conversations',
   'assistant_transcript_turns',
   'voice_entry_attempts',

@@ -1,7 +1,9 @@
 # AGENTS.md — GTHO v2
 
 This file adapts the shared Project Framework for this specific project.
-Shared process rules (roles, ownership, handoff, delivery gates, session protocol) come from Homelab/project-framework (`https://git.sarnford.com/Homelab/project-framework`) AGENTS.md. Domain content and implementation rules live here.
+Shared process rules (roles, ownership, handoff, delivery gates, session protocol) come from Homelab/project-framework (`https://git.sarnford.com/Homelab/project-framework`) AGENTS.md. Team roster and instance values live in `Homelab/project-team` (`TEAM.md`, `PLATFORM.md`). Domain content and implementation rules live here.
+
+Implementation handoffs follow that framework’s ready-for-build gate: GTHO Design does not present an increment as ready, and Orchestrator does not start a build, until GTHO Build can implement it without inventing anything in scope.
 
 **Living status document:** `PROJECT_STATUS.md` (read this first at the start of every conversation or Build session).
 **Framework reference:** `Homelab/project-framework` on Forgejo (`https://git.sarnford.com/Homelab/project-framework`). Shared process lives there; do not copy it into this file.

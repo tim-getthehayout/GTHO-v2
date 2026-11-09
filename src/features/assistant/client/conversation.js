@@ -29,11 +29,11 @@ export function createAssistantConversation({ api, scope, persist, awaitServerRo
     ref, scope, capture,
     get session() { return session; },
     /** P7/T12: the consent decision is stored and server-acknowledged before start. */
-    async begin({ consent = null } = {}) {
+    async begin({ consent = null, decidedAt = new Date().toISOString() } = {}) {
       await persist(scope, 'assistantConversations', { id: ref, operationId: scope.operationId, capturedAt: capture.capturedAt, currentIntent: intent, originalContext: JSON.stringify(capture.context), buildStamp, feedbackModulePin: LIBRARY_PINS.feedbackModule, conversationRuntimePin: LIBRARY_PINS.conversationRuntime });
       const rows = [{ entityType: 'assistantConversations', id: ref }];
       if (consent) {
-        const decision = await persist(scope, 'assistantTestingConsents', { operationId: scope.operationId, conversationId: ref, actorId: scope.actorId, decision: consent, decidedAt: new Date().toISOString() });
+        const decision = await persist(scope, 'assistantTestingConsents', { operationId: scope.operationId, conversationId: ref, actorId: scope.actorId, decision: consent, decidedAt });
         rows.push({ entityType: 'assistantTestingConsents', id: decision.id });
       }
       await awaitServerRows(rows);

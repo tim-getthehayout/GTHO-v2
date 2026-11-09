@@ -23,9 +23,9 @@ describe('client conversation', () => {
     const awaitServerRows = vi.fn(async rows => { order.push(`await:${rows.map(r => r.entityType).join(',')}`); });
     const api = fakeApi(command => { order.push(command); return { session: { phase: 'converse', transcript: [] } }; });
     const conversation = createAssistantConversation({ api, scope, persist, awaitServerRows, intent: 'how-to', capture: { capturedAt: 'now', source: 'assistant', context: {} }, randomUUID: () => REF });
-    await conversation.begin({ consent: 'declined' });
+    await conversation.begin({ consent: 'declined', decidedAt: '2026-11-01T10:00:00.000Z' });
     expect(order).toEqual(['persist:assistantConversations', 'persist:assistantTestingConsents', 'await:assistantConversations,assistantTestingConsents', 'start']);
-    expect(persist.mock.calls[1][2]).toMatchObject({ conversationId: REF, actorId: USER, decision: 'declined' });
+    expect(persist.mock.calls[1][2]).toMatchObject({ conversationId: REF, actorId: USER, decision: 'declined', decidedAt: '2026-11-01T10:00:00.000Z' });
     expect(api.calls[0].payload).toMatchObject({ intent: 'how-to' });
   });
   it('confirm -> client-apply-pending -> local apply -> receipt -> confirm replay', async () => {

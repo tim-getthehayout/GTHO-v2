@@ -163,7 +163,8 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
     /** Only reads the stored decision; the browser asks and writes the row. */
     async ensureTestingConsent(incoming) {
       await auth(incoming);
-      // The popup is answered before every start, so the decision is per conversation.
+      // The tester decides once per operation; every conversation still carries its
+      // own row, written by the browser from the stored decision before start.
       const rows = requireData(await client.from('assistant_testing_consents').select('decision, decided_at').eq('operation_id', scope.operationId).eq('actor_id', scope.actorId).eq('conversation_id', holder.ref).order('decided_at', { ascending: false }).limit(1));
       if (!rows?.length) fail('testing-consent-decision-required');
       return rows[0].decision === 'accepted';

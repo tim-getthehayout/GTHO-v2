@@ -49,6 +49,15 @@ function guarded(deps, run) {
   });
 }
 
+/** P7: one decision per tester per operation. The latest stored decision for this
+ * authenticated user in this operation; later conversations reuse it (no popup). */
+async function storedTestingConsent({ client, config }, scope) {
+  if (config.earlyTesting !== true) return null;
+  const { data, error } = await client.from('assistant_testing_consents').select('decision, decided_at').eq('operation_id', scope.operationId).eq('actor_id', scope.actorId).order('decided_at', { ascending: false }).limit(1);
+  if (error) throw new Error('assistant-persistence-failed');
+  return data?.[0] ? { decision: data[0].decision, decidedAt: data[0].decided_at } : null;
+}
+
 /** Client voice-usage reports are refused before any reservation: worst case was
  * settled once at token issue. Peeks a clone so the handler still reads the body. */
 async function isVoiceUsageReport(request) {
@@ -61,7 +70,7 @@ export function createAssistantFunction(deps) {
   return guarded(deps, async (request, identity) => {
     // GET: non-secret realtime settings (model for ?model=, voice, caps). Also the
     // PWA's allowlist probe: 403 here hides the control.
-    if (request.method === 'GET') return json({ config: publicVoiceConfig(deps.config) });
+    if (request.method === 'GET') return json({ config: publicVoiceConfig(deps.config), testingConsent: await storedTestingConsent(deps, identity.identity.scope) });
     if (await isVoiceUsageReport(request)) return json(VOICE_USAGE_REFUSAL);
     const context = requestContext(deps, identity);
     const session = { ref: null, loaded: null, live: null };

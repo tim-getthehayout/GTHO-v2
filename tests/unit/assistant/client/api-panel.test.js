@@ -67,3 +67,24 @@ describe('offline voice notes', () => {
     expect(isQuotaError(new Error('other'))).toBe(false);
   });
 });
+
+describe('one-time testing consent', () => {
+  it('merges the stored decision into config', async () => {
+    const api = createAssistantApi({ supabaseUrl: 'https://p.invalid', anonKey: 'a', getAccessToken: async () => 'jwt', fetch: async () => Response.json({ config: { earlyTesting: true }, testingConsent: { decision: 'accepted', decidedAt: 'D' } }) });
+    expect(await api.config()).toEqual({ earlyTesting: true, testingConsent: { decision: 'accepted', decidedAt: 'D' } });
+  });
+  it('asks once, then reuses the decision with no popup; a stored decision never asks', async () => {
+    const { resolveTestingConsent } = await import('../../../../src/features/assistant/client/panel.js');
+    const ask = vi.fn(async () => 'declined');
+    const config = { earlyTesting: true, testingConsent: null };
+    const first = await resolveTestingConsent(config, ask);
+    const second = await resolveTestingConsent(config, ask);
+    expect(ask).toHaveBeenCalledOnce();
+    expect(second).toEqual(first);
+    expect(first.decision).toBe('declined');
+    const stored = vi.fn();
+    expect(await resolveTestingConsent({ earlyTesting: true, testingConsent: { decision: 'accepted', decidedAt: 'D' } }, stored)).toEqual({ decision: 'accepted', decidedAt: 'D' });
+    expect(stored).not.toHaveBeenCalled();
+    expect(await resolveTestingConsent({ earlyTesting: false }, stored)).toBeNull();
+  });
+});

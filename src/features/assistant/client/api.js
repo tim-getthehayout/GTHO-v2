@@ -23,7 +23,7 @@ export function createAssistantApi({ supabaseUrl, anonKey, getAccessToken, opera
   return {
     /** Non-secret realtime config; null when this operation is not allowlisted (403 hides the control). */
     async config() {
-      try { return (await call('gtho-assistant', { method: 'GET', headers: await headers() })).config; }
+      try { const body = await call('gtho-assistant', { method: 'GET', headers: await headers() }); return body.config ? { ...body.config, testingConsent: body.testingConsent ?? null } : null; }
       catch (error) { if (error.status === 403 || error.status === 401) return null; throw error; }
     },
     /** Every POST gets a fresh requestRef: each is its own metered reservation. */

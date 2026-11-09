@@ -13,7 +13,7 @@ export const CONSENT_KEEP = 'Keep recordings';
 export const CONSENT_DECLINE = "Don't keep";
 const INTENTS = [['feedback', 'Leave feedback'], ['data-questions', 'Ask about my farm'], ['how-to', 'How do I…']];
 
-/** P7: shown before every start; declining still allows full voice. */
+/** P7 popup; declining still allows full voice. */
 export function askTestingConsent(root = document.body) {
   return new Promise(resolve => {
     const dialog = el('div', { className: 'sheet-wrap open', 'data-testid': 'assistant-consent', style: { zIndex: '320' } }, [
@@ -28,6 +28,14 @@ export function askTestingConsent(root = document.body) {
     ]);
     root.appendChild(dialog);
   });
+}
+
+/** P7: asked once per tester per operation. A stored decision (read server-side,
+ * scoped to the signed-in user and operation) is reused without a popup. */
+export async function resolveTestingConsent(config, ask = askTestingConsent) {
+  if (!config.earlyTesting) return null;
+  if (!config.testingConsent) config.testingConsent = { decision: await ask(), decidedAt: new Date().toISOString() };
+  return { ...config.testingConsent };
 }
 
 /** Reveals the control only when the backend returns config (not 403). */
@@ -131,11 +139,12 @@ export function openAssistant(deps, config) {
     catch (error) { if (!/storage/.test(status.textContent)) say(`Voice note not saved: ${error.message}`); }
   }
   async function begin(intent, firstTurn) {
-    consent = config.earlyTesting ? await askTestingConsent() : null;
+    const stored = await resolveTestingConsent(config);
+    consent = stored?.decision ?? null;
     const context = intent === 'feedback' ? { feedbackHost: deps.feedbackHost() } : intent === 'data-entry' ? { target: deps.launchTarget } : {};
     conversation = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });
     say('Starting…');
-    await conversation.begin({ consent });
+    await conversation.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
     clear(body);
     const input = el('input', { type: 'text', placeholder: 'Type instead…', 'data-testid': 'assistant-text' });
     body.append(

@@ -4,6 +4,161 @@
 
 ---
 
+### OI-0199 — Desktop nav: selecting Feedback also highlights Feed
+
+**Added:** 2026-11-09 | **Area:** v2-build / header / nav / a11y | **Priority:** P2 (wrong active chrome on Feedback; Feed looks selected at the same time)
+
+**Status:** open — ready for build (2026-11-09). Reported by Tim from live testing on build `aa2f48b`. No product choice.
+
+**Bug.** Active-state matching uses a raw prefix check. `#/feedback` starts with `#/feed`, so the Feed item lights up on the Feedback route.
+
+Verified on `aa2f48bf` in `src/ui/header.js`:
+
+- Feed registrations: sidebar `sidebarNavItem('#/feed', …)` at **:62**; mobile `navLink('#/feed', …)` at **:79**; bottom nav `{ hash: '#/feed', … }` at **:514**. Feedback is `sidebarNavItemBadge('#/feedback', …)` at **:66**.
+- Matching sites that share the broken prefix rule:
+  - `updateActiveSidebarItem` **:446** — `hash === itemHash || (itemHash !== '#/' && hash.startsWith(itemHash))`
+  - `updateActiveBottomNavItem` **:464** — same expression
+  - `sidebarNavItem` **:593** — `currentHash === href || (href !== '#/' && currentHash.startsWith(href))`
+  - `sidebarNavItemBadge` **:603** — `currentHash === href || currentHash.startsWith(href)` (also lacks the `#/` root guard the other three have)
+
+**Fix.** One shared helper used at all four sites. An item is active when the hash equals its href, or — for non-root hrefs — when the hash starts with that href followed by `'/'` or `'?'`. Root `'#/'` matches only exactly. Example shape:
+
+```js
+function navHrefIsActive(hash, href) {
+  if (hash === href) return true;
+  if (href === '#/') return false;
+  return hash.startsWith(href + '/') || hash.startsWith(href + '?');
+}
+```
+
+**Acceptance criteria:**
+
+- [ ] On `#/feedback` only Feedback is active; on `#/feed` only Feed is active.
+- [ ] Sub-routes such as `#/feed/...` still highlight Feed.
+- [ ] Bottom-nav and sidebar hashchange sync (`updateActiveBottomNavItem` / `updateActiveSidebarItem`) agree with the initial render helpers.
+- [ ] Unit tests cover feed vs feedback and a root / sub-route case (exact `#/`, `#/feed`, `#/feed/…`, `#/feedback`).
+
+**CP-55/CP-56 spec impact:** None — nav chrome only.
+
+**Related:** OI-0154 (sidebar/bottom-nav active sync that introduced the shared startsWith pattern). Live repro on getthehayout.com build `aa2f48b`.
+
+**Origin:** 2026-11-09 Tim live testing; Design confirmed the prefix collision in `src/ui/header.js` on `aa2f48bf`.
+
+---
+
+### OI-0198 — Metric mode shows acres labelled "ha" (or hardcoded "ac") on six screens
+
+**Added:** 2026-11-09 | **Area:** v2-build / locations / harvest / field-mode / units | **Priority:** P2 (wrong unit shown in metric; numbers are acres while the label may say ha)
+
+**Status:** open — ready for build (2026-11-09). Found during Design's review of PR #42 (areaHectares fix). No product choice; match `src/features/events/detail.js:488-491`.
+
+**Bug.** Several screens convert location area to acres unconditionally (`convert(..., 'area', 'toImperial')`) and then either (a) pair that acres number with `areaUnit = unitSys === 'imperial' ? 'ac' : 'ha'`, so metric shows acres labelled "ha", or (b) hardcode the literal `"ac"`, so metric still shows acres. Canonical correct pattern is already in Event Detail:
+
+- `src/features/events/detail.js:490` — `const areaDisplay = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(2) : '';`
+- `src/features/events/detail.js:491` — `const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';`
+
+**Sites (verified on `aa2f48bf`):**
+
+1. Locations card — `src/features/locations/index.js:296-298` (always `toImperial` at 298; `areaUnit` at 296; rendered at 344).
+2. Survey sheet list — `src/features/locations/index.js:927-929` (always `toImperial` at 928; `areaUnit2` at 929; rendered at 936).
+3. Apply-input location picker — `src/features/locations/index.js:1275-1276` (always `toImperial`); display hardcodes `` `${areaVal} ac` `` at **1284**.
+4. Harvest field picker — `src/features/harvest/index.js:203-205` (always `toImperial` at 204; `areaUnit` at 205; rendered at 214).
+5. Field-mode survey-single paddock picker — `src/features/field-mode/index.js:183-184` (always `toImperial` at 184); display hardcodes `` `${areaVal} ac` `` at **190**.
+6. Field-mode active-events total — `src/features/field-mode/index.js:491` (always `toImperial` into `locAcres`); display hardcodes `` `${locAcres.toFixed(1)} ac` `` at **512**.
+
+**Fix.** At each site, convert to acres only when `unitSys === 'imperial'`; otherwise show hectares. Use `ac` / `ha` to match Event Detail. Do not invent a shared helper unless Build already has one in reach; copy the detail.js ternary.
+
+**Acceptance criteria:**
+
+- [ ] Each of the six screens shows hectares with "ha" when the unit system is metric, and acres with "ac" when imperial.
+- [ ] Unit tests (or existing screen tests extended) cover metric and imperial for each site.
+- [ ] Light/dark and other unit displays are unchanged.
+
+**CP-55/CP-56 spec impact:** None — display-only; stored `areaHectares` unchanged.
+
+**Related:** PR #42 / merge `aa2f48bf` (areaHectares read fix). OI-0124 (areaHa field-name drift class).
+
+**Origin:** 2026-11-09 Design review of PR #42; filed with OI-0196 / OI-0197 live-test docs.
+
+---
+
+### OI-0197 — Push-to-talk side buttons unreadable in dark mode
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / push-to-talk / a11y | **Priority:** P1 (unreadable controls on the only voice entry; Tim hit it on first live test)
+
+**Status:** open — ready for build (2026-11-09). Orchestrator: build this first among the 2026-11-09 live bugs. No product choice.
+
+**Bug.** The End button (left) and the log pill (right) beside the global push-to-talk, plus the status bubble under them, set `background: var(--bg)` but no `color`. Native `<button>` elements do not inherit text color, so they keep the browser default black text. Under `prefers-color-scheme: dark`, `--bg` is `#1a1a18` (`src/styles/main.css:102`) and `--text` is `#e8e6de` (`:105`), so black-on-dark is unreadable.
+
+Verified on `aa2f48bf`:
+
+- `.gtho-ptt-end` — `src/styles/main.css:3310` — `background: var(--bg, #fff)`; border `var(--border, #ccc)`; no `color`.
+- `.gtho-ptt-log` — `:3311` — same gap.
+- `.gtho-ptt-status` — `:3314` — same gap (div, but still no explicit color against `--bg`).
+
+**Fix.** Add `color: var(--text)` to all three. Switch their border to `var(--border2)` (dark token at `:109` is `rgba(255, 255, 255, 0.18)`). Do not change the green PTT mic button (`.gtho-ptt-button` already sets `color: #fff`).
+
+**Acceptance criteria:**
+
+- [ ] In dark mode, text and icons on End, the log pill, and the status bubble meet at least 4.5:1 contrast against their background.
+- [ ] Light mode appearance is unchanged aside from using `--border2` if that token already matches.
+- [ ] A unit/snapshot or computed-style test checks `color` resolves to `var(--text)` (or the dark/light computed value) for all three classes in both schemes.
+
+**CP-55/CP-56 spec impact:** None — CSS only.
+
+**Related:** OI-0195 (global PTT). Live repro on getthehayout.com build `aa2f48b`.
+
+**Origin:** 2026-11-09 Tim first live assistant test; Orchestrator filed to Design.
+
+---
+
+### OI-0196 — No-microphone fallback for push-to-talk (typed path is a full peer of voice)
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / push-to-talk / typed-entry | **Priority:** P1 (PTT dead-ends with no way to type on machines without a mic; stranded realtime session can sit until the 10-minute cap)
+
+**Status:** open — ready for build (2026-11-09). Spec locked including Tim's typed-path decision and the mic-first / Type-instead? prompt the same day. Orchestrator: after OI-0197.
+
+**Bug.** On a computer with no microphone, push-to-talk fails with "Requested device not found", the conversation never starts, and there is no way to type. Tim's live follow-up (2026-11-09 **5:49 PM ET**): after the no-mic failure he later saw **"Voice session ended at 10 minutes. Tap to start a new one."** — the stranded realtime session stayed open until the 10-minute cap. Cause (verified on `aa2f48bf`):
+
+- `src/features/assistant/client/session.js:128` awaits `startMicrophone` **after** the realtime transport is already connected (`:126`). A missing or denied mic therefore leaves a connected xAI session and its voice timer running with no turn and no typed escape.
+- `startMicrophone` in `src/features/assistant/client/realtime.js:126-127` calls `mediaDevices.getUserMedia(...)` with no guard when `mediaDevices` is missing and no caller-side catch for `NotFoundError` / permission failures.
+- The text box ("Type instead…") only renders after `session.begin` inside the Assistant sheet (`src/features/assistant/client/panel.js:61-75`), so a PTT mic failure that never opens the sheet leaves Tim with no typed entry.
+
+**LOCKED (Tim, 2026-11-09 5:41 PM ET) — typed path is a full peer of voice:** Typing goes through the same routing (writes, questions, feedback, how-to) and the same conversation runtime as voice, and nothing saves until the same review card is approved. This applies to the mic-failure Yes path and also to typing from the header Assistant sheet. Tim's words: "Typing should do everything voice can, including recording entries like moves, feeding and animal records, with the same review before save."
+
+Product consequence: the header sheet's `PANEL_INTENTS` today only offers feedback / data-questions / how-to (`panel.js:14`). Build must extend typed entry so write intents (first-slice Move / Place / feeding / treatment / Calving per OI-0195) are reachable by typing the same way voice reaches them — same runtime, same review-before-save. Do not invent a parallel typed-only form.
+
+**LOCKED (Tim, 2026-11-09) — mic-first and Type instead? prompt.** Tim's words: "When a mic is not present that should automatically end that session if the user didnt convert to typing. After no mic is fine maybe prompt the user if they want to type, if no, close and delete the session, if yes take them to type and stop the voice timer."
+
+**Binding fix.**
+
+1. **Check the microphone first.** Call `getUserMedia` **before** minting the realtime client secret or connecting the transport, so a missing or denied mic never opens an xAI session or starts the 10-minute voice timer. Catch every mic failure: missing `navigator.mediaDevices`, plus `NotFoundError`, `NotAllowedError`, `NotReadableError`, `OverconstrainedError`, and `SecurityError`.
+2. **On any mic failure, show a prompt.** Message: **"No microphone found."** or, for denied permission, **"Microphone access is blocked."** Then ask **"Type instead?"** with Yes and No.
+   - **Yes:** open the Assistant sheet with the text box focused. The conversation continues as typed (a full peer of voice, per the earlier lock). No voice timer runs.
+   - **No, or dismissing the prompt:** close the session and delete it. Discard the empty conversation and its voice attempt so nothing is left as Unfinished in the voice log, and release any server-side session lock or checkpoint.
+3. **Guard:** if a realtime transport or timer already exists when a mic error happens (any code path), close it and clear the timer immediately. A session must never sit until the 10-minute cap because of a mic failure.
+4. **Design ruling — billing / usage ledger:** Billing and usage ledger rows are **not** deleted. "Delete" covers the empty conversation and voice attempt only. Any reservation is settled under the existing OI-0195 rules (a failure before any provider fetch counts as measured zero).
+5. **Offline voice-note recorder** (`session.js:155`, `createOfflineNoteRecorder`): keep the earlier no-mic message — **"No microphone found, so the voice note wasn't recorded. You can use the normal screens."** No Yes/No prompt there, because offline has no typed assistant. Do not leave a stuck recording.
+6. Typing from the header Assistant button must never need the mic. `PANEL_INTENTS` at `panel.js:14`; intent buttons at `:97-102` call `begin()`. `begin()` / `session.text()` on that path must never call `getUserMedia`. Add a unit test that runs the header typed path with `mediaDevices` missing.
+
+**Acceptance criteria:**
+
+- [ ] On a machine with no mic, tapping PTT opens **no** realtime connection, **no** xAI client secret is minted, and the Type-instead? prompt appears.
+- [ ] **Yes** leaves the Assistant sheet open with the text box focused and **no** voice timer running; typed turns use the same conversation runtime and review-before-save as voice (including first-slice write intents).
+- [ ] **No** (or dismiss) leaves no conversation, no unfinished voice-log entry, and no open connection; any server-side session lock/checkpoint is released.
+- [ ] Nothing ever reaches the "Voice session ended at 10 minutes…" message because of a mic failure (including any path where a transport already existed — it is closed and the timer cleared immediately).
+- [ ] Unit tests cover each named error (`NotFoundError`, `NotAllowedError`, `NotReadableError`, `OverconstrainedError`, `SecurityError`) plus missing `mediaDevices`, and both Yes and No answers.
+- [ ] Offline note recorder: same catch and message; no stuck recording; no Type-instead? prompt.
+- [ ] Header Assistant typed path never calls `getUserMedia` (test with `mediaDevices` missing).
+
+**CP-55/CP-56 spec impact:** None for the fallback itself. Typed writes still go through existing entity `validate()` and durable write paths after review (OI-0195 host method). Billing/usage rows stay; empty conversation/attempt delete is client + server session cleanup only.
+
+**Related:** OI-0195 (shared PTT + review-before-save + reservation settle-as-measured-zero). OI-0197 (PTT chrome contrast, build first).
+
+**Origin:** 2026-11-09 Tim first live assistant test on getthehayout.com (build `aa2f48b`); Orchestrator filed to Design. Typed-path lock 5:41 PM ET; stranded 10-minute-cap finding and mic-first / Type-instead? lock later the same afternoon (5:49 PM ET finding).
+
+---
+
 ### OI-0195 — Voice/AI foundation: one shared push-to-talk capability that both write-entry and ask-and-answer will use
 
 **Added:** 2026-11-08 | **Area:** v2-design / voice / ai | **Priority:** P3 (new capability; the app works without it today)

@@ -6,7 +6,7 @@ import { el, clear } from '../../../ui/dom.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
-import { renderNoteReview, useNoteInConversation } from './offline-note-review.js';
+import { renderNoteReview, recordNoteUse, settleNoteAfterSave } from './offline-note-review.js';
 import { createVoiceLog } from './voice-log.js';
 export { CONSENT_TEXT, CONSENT_KEEP, CONSENT_DECLINE, askTestingConsent, resolveTestingConsent } from './consent.js';
 
@@ -58,8 +58,8 @@ export function openAssistant(deps, config) {
   let session = null;
   const offline = createOfflineNoteRecorder({ notes, say, intent: null });
 
-  async function begin(intent, firstTurn) {
-    session = createAssistantSession({ deps, config, intent, say, onTranscript: turns => renderTranscript(transcript, turns), voiceLog });
+  async function begin(intent, firstTurn, extra = {}) {
+    session = createAssistantSession({ deps, config, intent, say, onTranscript: turns => renderTranscript(transcript, turns), voiceLog, ...extra });
     await session.begin(firstTurn);
     clear(body);
     const input = el('input', { type: 'text', placeholder: 'Type instead…', 'data-testid': 'assistant-text' });
@@ -82,8 +82,14 @@ export function openAssistant(deps, config) {
     const section = el('div', { 'data-testid': 'assistant-offline-notes' }, [el('div', {}, ['Voice notes saved on this device'])]);
     for (const note of list) {
       section.appendChild(renderNoteReview(note, { deps, say, use: async (picked, text) => {
-        const started = await begin(picked.context?.intent ?? 'feedback', { id: crypto.randomUUID(), role: 'user', modality: 'voice', text });
-        await useNoteInConversation({ deps, notes, note: picked, conversation: started.conversation });
+        // Deleted from the device only after a durable local save from this conversation.
+        let record = null, settled = false;
+        const started = await begin(picked.context?.intent ?? 'feedback', { id: crypto.randomUUID(), role: 'user', modality: 'voice', text }, { onDurableSave: async (outcome, conversation) => {
+          if (settled) return;
+          settled = true;
+          await settleNoteAfterSave({ deps, notes, note: picked, record, conversation, outcome });
+        } });
+        record = await recordNoteUse({ deps, note: picked, conversation: started.conversation });
       } }));
     }
     body.appendChild(section);

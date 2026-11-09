@@ -161,7 +161,7 @@ describe('gtho-assistant composition', () => {
     const receipt = { conversationRef: REF, proposalId: pending.id, proposalRevision: 1, savedRecordId: SUB, localSavedAt: '2026-11-09T10:05:00.000Z' };
     const applied = await apply(post(receipt));
     expect(applied.status).toBe(200);
-    expect(await applied.json()).toMatchObject({ state: 'local-save', savedRecordId: SUB, destination: 'design' });
+    expect(await applied.json()).toMatchObject({ state: 'local-save', savedRecordId: SUB, executionResultId: expect.any(String), destination: 'design' });
     const replay = await confirm('r6');
     expect(replay.status).toBe(200);
     const replayed = await replay.json();

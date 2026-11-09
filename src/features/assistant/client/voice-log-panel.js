@@ -25,16 +25,18 @@ export function openVoiceLog({ deps, notes, log, use, onChange = () => {} }) {
   const status = el('div', { className: 'auth-error', 'data-testid': 'voice-log-status', role: 'status' });
   const list = el('div', { 'data-testid': 'voice-log-list' });
   const say = text => { status.textContent = text; };
-  let filter = 'unfinished';
+  let filter = 'unfinished', renders = 0;
   const tab = (value, label) => el('button', { className: 'btn btn-outline btn-xs', 'data-testid': `voice-log-filter-${value}`, onClick: () => { void render(value); } }, [label]);
   clear(panel);
   panel.append(el('div', { className: 'sheet-handle' }), el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '10px' } }, ['Voice log']),
     el('div', { className: 'btn-row' }, [tab('unfinished', 'Unfinished'), tab('all', 'All')]), list, status);
   async function render(next = filter) {
     filter = next;
-    clear(list);
+    const token = ++renders;
     let saved = [];
     try { saved = await notes.list(); } catch { say('Voice notes on this device could not be read.'); }
+    if (token !== renders) return; // a later render owns the list
+    clear(list);
     for (const note of saved) {
       list.appendChild(el('div', { 'data-testid': 'voice-log-item', 'data-status': 'unfinished' }, [
         el('div', {}, ['Unfinished · voice note on this device']),

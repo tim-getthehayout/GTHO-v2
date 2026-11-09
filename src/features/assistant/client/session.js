@@ -9,12 +9,21 @@ import { recordNote } from './offline-notes.js';
 import { createTestingRecorder, uploadTestingAudio } from './testing-audio.js';
 import { resolveTestingConsent } from './consent.js';
 
+/** True only with durable local-save evidence: the local receipt from the
+ * existing durable write, or a replayed server outcome that records one. */
+export function durableLocalSave(outcome) {
+  if (outcome?.receipt?.savedRecordId && outcome.receipt.localSavedAt) return true;
+  return ['local-save', 'sync-queue', 'acknowledged-delivery'].includes(outcome?.result?.state) && !!outcome.result.result?.savedRecordId;
+}
+
 /** Fallback when the backend refused an entry whose names did not resolve. */
 export const UNRESOLVED_TARGET_QUESTION = 'Which farm, paddock, group or animal did you mean?';
 
 /** intent is where the session starts; a route-intent suggestion switches it
  * through the runtime intent command (onIntent reports the new intent). */
-export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null }) {
+/** onDurableSave(outcome, conversation): called only after a confirmed write or
+ * filing from this conversation has durably saved on this device. */
+export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null, onDurableSave = async () => {} }) {
   let conversation, transport, driver, mic, player, recorder, consent;
   const speak = text => driver?.speak(text);
   async function afterSession() {
@@ -26,13 +35,17 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       const persistDraft = async snapshot => { globalThis.localStorage.setItem(draftKey, JSON.stringify(snapshot)); return { saved: true, savedAt: new Date().toISOString() }; };
       deps.openFeedbackSheet('feedback', conversation.scope.operationId, {
         feedbackSession: await feedbackSheetSession({ session, persistDraft }), persistDraft,
-        fileConfirmed: createFeedbackFiling({ conversation, persist: deps.persist, awaitServerRows: deps.awaitServerRows, getAll: deps.getAll, runDurableWrite: deps.runDurableWrite, add: deps.add, flush: deps.flush, revisionIdFor: deps.revisionIdFor }),
+        fileConfirmed: createFeedbackFiling({ conversation, persist: deps.persist, awaitServerRows: deps.awaitServerRows, getAll: deps.getAll, runDurableWrite: deps.runDurableWrite, add: deps.add, flush: deps.flush, revisionIdFor: deps.revisionIdFor, onLocalSave: outcome => settle(outcome) }),
       });
     } else if (session.intent === 'data-entry') {
       // Opens the existing sheet populated from its own fields; saves through its existing path.
       await createFarmReviewFlow({ conversation, createFarmUiPorts: deps.createFarmUiPorts, authorize: deps.authorize, awaitServerRows: deps.awaitServerRows, getAll: deps.getAll, getById: deps.getById, flush: deps.flush, pullReviewRows: deps.pullReviewRows,
-        onResult: () => { say('Saved.'); onTranscript(conversation.session?.transcript ?? []); }, onError: error => say(error.message) }).render(session.pending);
+        onResult: outcome => { say('Saved.'); onTranscript(conversation.session?.transcript ?? []); void settle(outcome); }, onError: error => say(error.message) }).render(session.pending);
     }
+  }
+  async function settle(outcome) {
+    if (!durableLocalSave(outcome)) return;
+    try { await onDurableSave(outcome, conversation); } catch (error) { say(error.message); }
   }
   async function turn(entry) {
     try {

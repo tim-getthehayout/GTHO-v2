@@ -24,8 +24,20 @@ export function renderNoteReview(note, { deps, say, use }) {
   return row;
 }
 
-/** Persists the note's server record for the conversation it started, then removes the device copy. */
-export async function useNoteInConversation({ deps, notes, note, conversation }) {
-  await deps.persist(conversation.scope, 'offlineVoiceNotes', { operationId: conversation.scope.operationId, conversationId: conversation.ref, deviceLocalReference: note.id, originalContext: JSON.stringify(note.context ?? {}), capturedAt: note.capturedAt });
+/** Starting a conversation from a note records the existing local reference;
+ * the note stays on this device, unfinished, until a confirmed write or filing
+ * from that conversation has durably saved locally (see settleNoteAfterSave). */
+export async function recordNoteUse({ deps, note, conversation }) {
+  return deps.persist(conversation.scope, 'offlineVoiceNotes', { operationId: conversation.scope.operationId, conversationId: conversation.ref, deviceLocalReference: note.id, originalContext: JSON.stringify(note.context ?? {}), capturedAt: note.capturedAt });
+}
+
+/** After a durable local save from the note's conversation: link the execution
+ * result when the server reported it, then delete the device copy. An abandoned
+ * conversation never gets here, so its note stays and can be retried. */
+export async function settleNoteAfterSave({ deps, notes, note, record, conversation, outcome }) {
+  const executionResultId = outcome?.applied?.executionResultId;
+  if (record && typeof executionResultId === 'string') {
+    await deps.persist(conversation.scope, 'offlineVoiceNotes', { ...record, confirmedExecutionResultId: executionResultId });
+  }
   await notes.remove(note.id);
 }

@@ -110,7 +110,7 @@ describe('voice log from the push-to-talk: offline notes stay unfinished and ret
     await vi.waitFor(() => expect(panel.querySelector('[data-testid="assistant-note-transcript"]').value).toBe('Moved heifers to Hill'));
     expect(transcribe).toHaveBeenCalledTimes(2);
   });
-  it('using a reviewed transcript starts the push-to-talk session with it, then clears the badge', async () => {
+  it('using a reviewed transcript keeps the note until a durable local save from that conversation, then links and deletes it', async () => {
     const d = noteDeps({ transcribe: vi.fn(async () => ({ text: 'Moved heifers to Hill' })) });
     const control = mountPushToTalk(d, {});
     control.openLog();
@@ -119,11 +119,34 @@ describe('voice log from the push-to-talk: offline notes stay unfinished and ret
     panel.querySelector('[data-testid="offline-note-transcribe"]').click();
     await vi.waitFor(() => expect(panel.querySelector('[data-testid="assistant-note-transcript"]').value).toBe('Moved heifers to Hill'));
     panel.querySelector('[data-testid="offline-note-use"]').click();
-    await vi.waitFor(() => expect(d.offlineNotes.remove).toHaveBeenCalledWith('n1'));
-    expect(sessions.at(-1).options.intent).toBe('data-entry');
-    expect(sessions.at(-1).begin.mock.calls[0][0]).toMatchObject({ role: 'user', modality: 'voice', text: 'Moved heifers to Hill' });
-    expect(d.persist).toHaveBeenCalledWith(expect.anything(), 'offlineVoiceNotes', expect.objectContaining({ deviceLocalReference: 'n1', conversationId: 'c1' }));
-    await vi.waitFor(() => expect(document.querySelector('[data-testid="ptt-badge"]').hidden).toBe(true));
+    await vi.waitFor(() => expect(d.persist).toHaveBeenCalledWith(expect.anything(), 'offlineVoiceNotes', expect.objectContaining({ deviceLocalReference: 'n1', conversationId: 'c1' })));
+    const started = sessions.at(-1);
+    expect(started.options.intent).toBe('data-entry');
+    expect(started.begin.mock.calls[0][0]).toMatchObject({ role: 'user', modality: 'voice', text: 'Moved heifers to Hill' });
+    // Starting the conversation does not delete it: still unfinished and counted.
+    expect(d.offlineNotes.remove).not.toHaveBeenCalled();
+    expect(await control.refreshBadge()).toBe(1);
+    // A durable local save from that conversation links the execution result, then deletes the note.
+    await started.options.onDurableSave({ receipt: { savedRecordId: 'evt', localSavedAt: 'L' }, applied: { state: 'local-save', executionResultId: '00000000-0000-4000-8000-0000000000aa' } }, { scope: { operationId: OP, actorId: 'u' }, ref: 'c1' });
+    expect(d.persist).toHaveBeenLastCalledWith(expect.anything(), 'offlineVoiceNotes', expect.objectContaining({ deviceLocalReference: 'n1', confirmedExecutionResultId: '00000000-0000-4000-8000-0000000000aa' }));
+    expect(d.offlineNotes.remove).toHaveBeenCalledWith('n1');
+    expect(document.querySelector('[data-testid="ptt-badge"]').hidden).toBe(true);
+  });
+  it('an abandoned conversation leaves the note on the device, unfinished and retryable', async () => {
+    const d = noteDeps({ transcribe: vi.fn(async () => ({ text: 'Fed the cows' })) });
+    const control = mountPushToTalk(d, {});
+    control.openLog();
+    const panel = document.querySelector('#voice-log-sheet-panel');
+    await vi.waitFor(() => expect(panel.querySelector('[data-testid="offline-note-transcribe"]')).not.toBeNull());
+    panel.querySelector('[data-testid="offline-note-transcribe"]').click();
+    await vi.waitFor(() => expect(panel.querySelector('[data-testid="assistant-note-transcript"]').value).toBe('Fed the cows'));
+    panel.querySelector('[data-testid="offline-note-use"]').click();
+    await vi.waitFor(() => expect(sessions.at(-1).begin).toHaveBeenCalled());
+    await control.stop();
+    expect(d.offlineNotes.remove).not.toHaveBeenCalled();
+    expect(await control.refreshBadge()).toBe(1);
+    await control.openLog().render();
+    expect(document.querySelectorAll('#voice-log-sheet-panel [data-testid="offline-note-use"]')).toHaveLength(1);
   });
   it('the All filter shows what the device asked, from host events', async () => {
     localStorage.setItem(`gtho-voice-log:${OP}`, JSON.stringify([{ id: 'e', kind: 'host-event', conversationRef: 'c', purpose: 'write', type: 'entry-target-question', text: 'Which farm, paddock, group or animal did you mean?', at: '2026-11-09T10:00:00Z' }]));

@@ -49,7 +49,8 @@ export function createApplyHandler({ client, persistence, maxBodyBytes = 4096, n
       };
       requireData(await client.from('assistant_execution_results').update(update).eq('operation_id', scope.operationId).eq('id', claim.id));
       const state = update.server_acknowledged_at ? 'acknowledged-delivery' : 'local-save';
-      return json({ state, savedRecordId: receipt.savedRecordId, ...(pending.intent === 'feedback' ? { destination: pending.destination, contractVersion: feedback.CONTRACT_VERSION } : {}) });
+      // executionResultId lets the device link an offline note it used (offline_voice_notes.confirmed_execution_result_id).
+      return json({ state, savedRecordId: receipt.savedRecordId, executionResultId: claim.id, ...(pending.intent === 'feedback' ? { destination: pending.destination, contractVersion: feedback.CONTRACT_VERSION } : {}) });
     });
   };
 }

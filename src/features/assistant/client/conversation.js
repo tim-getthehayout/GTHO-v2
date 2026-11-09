@@ -141,7 +141,7 @@ const comparable = value => JSON.stringify(value, (key, inner) => inner && typeo
  * options.fileConfirmed for the existing feedback sheet. Returns P10 delivery reports:
  * local_save (local submission), sync_queue (queued sync), acknowledged_handoff (server row).
  */
-export function createFeedbackFiling({ conversation, persist, awaitServerRows, getAll, runDurableWrite, add, flush, revisionIdFor, presentedAt = new Date().toISOString() }) {
+export function createFeedbackFiling({ conversation, persist, awaitServerRows, getAll, runDurableWrite, add, flush, revisionIdFor, presentedAt = new Date().toISOString(), onLocalSave = async () => {} }) {
   const { scope } = conversation;
   return async handoff => {
     const pending = conversation.session.pending;
@@ -162,6 +162,7 @@ export function createFeedbackFiling({ conversation, persist, awaitServerRows, g
     const receipt = outcome.receipt ?? { savedRecordId: outcome.result?.result?.savedRecordId, localSavedAt: getAll('submissions').find(row => row.id === handoff.itemId)?.createdAt };
     const base = { itemId: handoff.itemId, revision: handoff.revision };
     const reports = [{ ...base, state: 'local_save', evidence: `submission:${receipt.savedRecordId}@${receipt.localSavedAt}` }];
+    if (receipt.savedRecordId && receipt.localSavedAt) await onLocalSave({ ...outcome, receipt });
     if (outcome.receipt?.syncQueuedAt) reports.push({ ...base, state: 'sync_queue', destination: handoff.destination, evidence: `queued@${outcome.receipt.syncQueuedAt}` });
     if (outcome.result?.state === 'acknowledged-delivery' || outcome.applied?.state === 'acknowledged-delivery') reports.push({ ...base, state: 'acknowledged_handoff', destination: handoff.destination, evidence: `server-row:${receipt.savedRecordId}` });
     return reports;

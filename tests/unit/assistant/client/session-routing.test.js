@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createAssistantSession, UNRESOLVED_TARGET_QUESTION } from '../../../../src/features/assistant/client/session.js';
+import { createAssistantSession, durableLocalSave, UNRESOLVED_TARGET_QUESTION } from '../../../../src/features/assistant/client/session.js';
 import { createVoiceLog } from '../../../../src/features/assistant/client/voice-log.js';
 import { CONTRACT_VERSION } from '../../../../src/features/assistant/feedback-facts.js';
 
@@ -85,5 +85,15 @@ describe('one push-to-talk routes every intent through the runtime intent comman
     expect(voiceLog.events()).toEqual([expect.objectContaining({ kind: 'host-event', type: 'entry-target-question', purpose: 'write', text: UNRESOLVED_TARGET_QUESTION, conversationRef: session.conversation.ref })]);
     expect(calls.filter(call => call.command === 'turn')).toHaveLength(1);
     expect(JSON.stringify(calls)).not.toContain(UNRESOLVED_TARGET_QUESTION);
+  });
+});
+
+describe('durable local-save evidence', () => {
+  it('needs the durable local receipt or a replayed outcome that records a local save', () => {
+    expect(durableLocalSave({ receipt: { savedRecordId: 'r', localSavedAt: 'L' } })).toBe(true);
+    expect(durableLocalSave({ result: { state: 'local-save', result: { savedRecordId: 'r' } } })).toBe(true);
+    expect(durableLocalSave({ receipt: { savedRecordId: 'r' } })).toBe(false);
+    expect(durableLocalSave({ result: { state: 'local-save', result: {} } })).toBe(false);
+    expect(durableLocalSave(null)).toBe(false);
   });
 });

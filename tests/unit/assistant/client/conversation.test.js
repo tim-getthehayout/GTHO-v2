@@ -87,8 +87,10 @@ describe('feedback filing through the existing sheet', () => {
     const conversation = { scope, ref: REF, session: { pending }, correct: vi.fn(), confirmAndApply: vi.fn(async () => ({ receipt: { savedRecordId: host.itemId, localSavedAt: 'L', syncQueuedAt: 'Q' }, applied: { state: 'acknowledged-delivery' }, result: { state: 'acknowledged-delivery' } })) };
     const persist = vi.fn(async (s, type, data) => ({ id: `${type}-id`, ...data }));
     const awaitServerRows = vi.fn();
-    const file = createFeedbackFiling({ conversation, persist, awaitServerRows, getAll, runDurableWrite, add, flush: vi.fn(), revisionIdFor: async () => 'rev-1' });
+    const onLocalSave = vi.fn();
+    const file = createFeedbackFiling({ conversation, persist, awaitServerRows, getAll, runDurableWrite, add, flush: vi.fn(), revisionIdFor: async () => 'rev-1', onLocalSave });
     const reports = await file(handoff);
+    expect(onLocalSave).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ savedRecordId: host.itemId, localSavedAt: 'L' }) }));
     expect(reports.map(r => r.state)).toEqual(['local_save', 'sync_queue', 'acknowledged_handoff']);
     expect(persist.mock.calls.map(c => c[1])).toEqual(['assistantReviewCards', 'assistantReviewConfirmations']);
     expect(persist.mock.calls[1][2]).toMatchObject({ actorId: USER, revisionId: 'rev-1', channel: 'text', cardId: 'assistantReviewCards-id' });

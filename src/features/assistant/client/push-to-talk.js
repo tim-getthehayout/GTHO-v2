@@ -11,7 +11,7 @@ import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
 import { createVoiceLog } from './voice-log.js';
 import { openVoiceLog } from './voice-log-panel.js';
-import { useNoteInConversation } from './offline-note-review.js';
+import { recordNoteUse, settleNoteAfterSave } from './offline-note-review.js';
 
 export const PTT_ID = 'gtho-push-to-talk';
 export const PTT_POSITION_KEY = 'gtho-ptt-position';
@@ -62,13 +62,21 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
     return openVoiceLog({ deps, notes, log: voiceLog, onChange: () => { void refreshBadge(); },
       use: async (note, text) => {
         await stop();
-        session = newSession();
+        // The note stays on this device (unfinished, counted) until a confirmed
+        // write or filing from this conversation has durably saved locally.
+        let record = null, settled = false;
+        session = newSession({ onDurableSave: async (outcome, conversation) => {
+          if (settled) return;
+          settled = true;
+          await settleNoteAfterSave({ deps, notes, note, record, conversation, outcome });
+          await refreshBadge();
+        } });
         end.hidden = false;
         const conversation = await session.begin({ id: crypto.randomUUID(), role: 'user', modality: 'voice', text });
-        await useNoteInConversation({ deps, notes, note, conversation });
+        record = await recordNoteUse({ deps, note, conversation });
       } });
   }
-  const newSession = () => createAssistantSession({ deps, config, intent: 'data-entry', say, onTranscript, onListening: setListening, voiceLog });
+  const newSession = (extra = {}) => createAssistantSession({ deps, config, intent: 'data-entry', say, onTranscript, onListening: setListening, voiceLog, ...extra });
   const setListening = listening => {
     button.setAttribute('aria-pressed', String(listening));
     button.setAttribute('aria-label', listening ? 'End turn' : 'Talk to GTHO');

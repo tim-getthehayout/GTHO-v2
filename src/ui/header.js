@@ -140,7 +140,8 @@ export function renderHeader(container) {
         'data-testid': 'header-help-btn',
         onClick: () => openFeedbackSheet('support', operations[0]?.id),
       }, ['\uD83C\uDD98 Get Help']),
-    ]),
+      renderAssistantControl(operations[0]?.id),
+    ].filter(Boolean)),
     nav,
   ]);
 
@@ -645,6 +646,22 @@ function updateBadges() {
 // ---------------------------------------------------------------------------
 
 let feedbackSheet = null;
+
+/** Build flag VITE_GTHO_ASSISTANT=1 includes the control; it stays hidden until the
+ * backend answers with config (a 403 for a non-allowlisted operation keeps it hidden). */
+function renderAssistantControl(operationId) {
+  if (import.meta.env.VITE_GTHO_ASSISTANT !== '1' || !operationId) return null;
+  const button = el('button', {
+    className: 'btn btn-outline btn-xs',
+    style: { fontSize: '11px', fontWeight: '500', padding: '3px 10px' },
+    'data-testid': 'header-assistant-btn',
+  }, ['\uD83C\uDF99 Assistant']);
+  button.hidden = true;
+  import('../features/assistant/client/wiring.js')
+    .then(module => module.mountHeaderAssistant(button, { operationId, getUser, openFeedbackSheet, screen: getScreenFromHash, buildStamp: typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : null }))
+    .catch(() => { button.hidden = true; });
+  return button;
+}
 
 function ensureFeedbackSheetDOM() {
   if (document.getElementById('fb-sheet-wrap')) return;

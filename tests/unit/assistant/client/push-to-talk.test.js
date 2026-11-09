@@ -74,6 +74,23 @@ describe('header assistant sheet', () => {
     expect([...document.querySelectorAll('[data-testid^="assistant-intent-"]')].map(node => node.dataset.testid)).toEqual(['assistant-intent-feedback', 'assistant-intent-data-questions', 'assistant-intent-how-to']);
     expect(document.body.textContent).not.toContain('Enter data');
   });
+  it('has no voice control of its own: the global push-to-talk is the one voice entry point', async () => {
+    const { createOfflineNoteRecorder } = await import('../../../../src/features/assistant/client/session.js');
+    const before = createOfflineNoteRecorder.mock.calls.length;
+    const sheet = openAssistant(deps(), {});
+    const started = await sheet.begin('how-to');
+    expect(document.querySelector('[data-testid="assistant-talk"]')).toBeNull();
+    expect([...document.querySelectorAll('#assistant-sheet-panel button')].map(button => button.textContent)).not.toContain('Talk');
+    expect(document.querySelector('[data-testid="assistant-text"]')).not.toBeNull();
+    for (const button of document.querySelectorAll('#assistant-sheet-panel button')) button.click();
+    expect(started.talk).not.toHaveBeenCalled();
+    // Offline, the sheet points to the push-to-talk instead of recording.
+    document.body.innerHTML = '';
+    openAssistant(deps(false), {});
+    document.querySelector('[data-testid="assistant-intent-how-to"]').click();
+    expect(document.querySelector('[data-testid="assistant-status"]').textContent).toContain('push-to-talk');
+    expect(createOfflineNoteRecorder.mock.calls.length).toBe(before);
+  });
 });
 
 describe('voice log from the push-to-talk: offline notes stay unfinished and retryable', () => {

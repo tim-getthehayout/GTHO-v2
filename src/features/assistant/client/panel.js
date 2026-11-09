@@ -5,11 +5,12 @@
 import { el, clear } from '../../../ui/dom.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { createOfflineNoteStore } from './offline-notes.js';
-import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
+import { createAssistantSession } from './session.js';
 import { renderNoteReview, recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
 import { createVoiceLog } from './voice-log.js';
 export { CONSENT_TEXT, CONSENT_KEEP, CONSENT_DECLINE, askTestingConsent, resolveTestingConsent } from './consent.js';
 
+export const OFFLINE_TEXT = 'You are offline. Tap the push-to-talk to record a voice note, or use the normal screens.';
 export const PANEL_INTENTS = Object.freeze([['feedback', 'Leave feedback'], ['data-questions', 'Ask about my farm'], ['how-to', 'How do I…']]);
 
 /** Reveals the control only when the backend returns config (not 403). */
@@ -56,7 +57,6 @@ export function openAssistant(deps, config) {
   const notes = deps.offlineNotes ?? createOfflineNoteStore({ onQuota: () => say('This device is out of storage. Your voice note was not saved; free up space and record it again.') });
   const voiceLog = deps.voiceLog ?? createVoiceLog({ operationId: deps.scope().operationId });
   let session = null;
-  const offline = createOfflineNoteRecorder({ notes, say, intent: null });
 
   async function begin(intent, firstTurn, extra = {}, from = {}) {
     session = createAssistantSession({ deps, config, intent, say, onTranscript: turns => renderTranscript(transcript, turns), voiceLog, ...extra });
@@ -64,8 +64,8 @@ export function openAssistant(deps, config) {
     clear(body);
     const input = el('input', { type: 'text', placeholder: 'Type instead…', 'data-testid': 'assistant-text' });
     body.append(
+      // Text/tap only: the one voice entry point is the global push-to-talk.
       el('div', { className: 'btn-row' }, [
-        el('button', { className: 'btn btn-green', 'data-testid': 'assistant-talk', onClick: () => session.talk().catch(error => say(error.message)) }, ['Talk']),
         el('button', { className: 'btn btn-outline', 'data-testid': 'assistant-end', onClick: async () => { await session.end(); sheet.close(); } }, ['End']),
       ]),
       el('div', { className: 'field' }, [input, el('button', { className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-send', onClick: async () => {
@@ -96,7 +96,8 @@ export function openAssistant(deps, config) {
   }
   for (const [intent, label] of PANEL_INTENTS) {
     body.appendChild(el('button', { className: 'btn btn-outline', 'data-testid': `assistant-intent-${intent}`, onClick: () => {
-      if (!deps.online()) return offline.toggle(intent).catch(error => say(error.message));
+      // Offline voice notes are recorded from the push-to-talk, never here.
+      if (!deps.online()) return say(OFFLINE_TEXT);
       begin(intent).catch(error => say(error.message));
     } }, [label]));
   }

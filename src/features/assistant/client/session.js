@@ -9,6 +9,7 @@ import { recordNote } from './offline-notes.js';
 import { createTestingRecorder, uploadTestingAudio } from './testing-audio.js';
 import { resolveTestingConsent } from './consent.js';
 import { createAttemptTracker } from './attempts.js';
+import { mountFeedbackReview } from '../feedback-review.js';
 
 /** True only with durable local-save evidence: the local receipt from the
  * existing durable write, or a replayed server outcome that records one. */
@@ -38,7 +39,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       const draftKey = `gtho-assistant-feedback-draft:${conversation.ref}`;
       const persistDraft = async snapshot => { globalThis.localStorage.setItem(draftKey, JSON.stringify(snapshot)); return { saved: true, savedAt: new Date().toISOString() }; };
       deps.openFeedbackSheet('feedback', conversation.scope.operationId, {
-        feedbackSession: await feedbackSheetSession({ session, persistDraft }), persistDraft,
+        feedbackSession: await feedbackSheetSession({ session, persistDraft }), persistDraft, mountFeedbackReview,
         fileConfirmed: createFeedbackFiling({ conversation, persist: deps.persist, awaitServerRows: deps.awaitServerRows, getAll: deps.getAll, runDurableWrite: deps.runDurableWrite, add: deps.add, flush: deps.flush, revisionIdFor: deps.revisionIdFor, onLocalSave: outcome => settle(outcome) }),
       });
     } else if (session.intent === 'data-entry') {

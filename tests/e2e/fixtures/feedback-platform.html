@@ -1,6 +1,7 @@
 <!doctype html><html><head><meta charset="UTF-8"></head><body><script type="module">
 import { openFeedbackSheet } from '/src/ui/header.js';
 import { feedback } from '/src/features/assistant/shared.js';
+import { mountFeedbackReview } from '/src/features/assistant/feedback-review.js';
 import * as Store from '/src/data/store.js';
 import * as Submission from '/src/entities/submission.js';
 import { mapFeedbackFacts } from '/src/features/assistant/feedback-facts.js';
@@ -10,7 +11,7 @@ const fact = value => ({ state: 'known',value,source: 'host' });
 window.fixture = { feedback,sessions: [],handoffs: [],open(type = 'feedback') {
   const context = { itemId: crypto.randomUUID(),contractVersion: '0.1.2',appId: 'gtho-v2',scope: op,sourcePurpose: type,capturedAt: '2026-11-08T19:00:00-05:00',screen: fact('animals'),buildStamp: fact('fixture-build'),legacy: { z: ['🐄','é漢字'],a: { second: 2,first: 'é' } } };
   const session = feedback.createSession(context,{ scoped: true,adapted: true });
-  this.controller = openFeedbackSheet(type,op,{ feedbackSession: session,
+  this.controller = openFeedbackSheet(type,op,{ mountFeedbackReview,feedbackSession: session,
     persistDraft: async snapshot => { localStorage.setItem('isolated-feedback-draft',JSON.stringify(snapshot));return { saved: true }; },
     onSession: snapshot => this.sessions.push(snapshot),
     fileConfirmed: async payload => {

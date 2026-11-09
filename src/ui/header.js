@@ -1,4 +1,3 @@
-import { mountFeedbackReview } from '../features/assistant/feedback-review.js';
 /* global __BUILD_STAMP__ */
 /** @file App header — operation name, farm picker, sync, build stamp, user menu — GH-5 §17.2 */
 
@@ -752,7 +751,10 @@ export function openFeedbackSheet(type, operationId, options = {}) {
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
 
-  const structured = options.feedbackSession ? mountFeedbackReview(panel,options.feedbackSession,{ ...options,onSession: async snapshot => { noteTextarea.readOnly = !!snapshot.item.firstNote;await options.onSession?.(snapshot); } }) : null;
+  // The structured review binding is injected by the flag-gated assistant wiring
+  // (options.mountFeedbackReview), so a flag-off build ships no feedback-module code.
+  if (options.feedbackSession && typeof options.mountFeedbackReview !== 'function') throw new Error('feedback-review-binding-required');
+  const structured = options.feedbackSession ? options.mountFeedbackReview(panel,options.feedbackSession,{ ...options,onSession: async snapshot => { noteTextarea.readOnly = !!snapshot.item.firstNote;await options.onSession?.(snapshot); } }) : null;
   if (structured) { noteTextarea.value = options.feedbackSession.item.firstNote?.value || '';noteTextarea.readOnly = !!options.feedbackSession.item.firstNote; }
   // Buttons
   panel.appendChild(el('div', { className: 'btn-row' }, [

@@ -346,3 +346,75 @@ describe('OI-0154 — sidebar + bottom-nav active-class follows hashchange', () 
     }
   });
 });
+
+
+describe('nav active state — feed vs feedback and root / sub-routes', () => {
+  async function mountAt(hash) {
+    window.location.hash = hash;
+    const { renderHeader } = await import('../../../src/ui/header.js');
+    const app = document.createElement('div');
+    app.id = 'app';
+    document.body.appendChild(app);
+    renderHeader(app);
+    return app;
+  }
+
+  function isActive(app, testid) {
+    const el = app.querySelector(`[data-testid="${testid}"]`);
+    expect(el, `${testid} should be present`).toBeTruthy();
+    return el.classList.contains('active');
+  }
+
+  function navigateTo(hash) {
+    window.location.hash = hash;
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }
+
+  it('on #/feedback only Feedback is active; Feed is not', async () => {
+    flagDev(TIM, false);
+    const app = await mountAt('#/feedback');
+    expect(isActive(app, 'nav-feedback')).toBe(true);
+    expect(isActive(app, 'nav-feed')).toBe(false);
+    expect(isActive(app, 'nav-dashboard')).toBe(false);
+  });
+
+  it('on #/feed only Feed is active; Feedback is not', async () => {
+    flagDev(TIM, false);
+    const app = await mountAt('#/feed');
+    expect(isActive(app, 'nav-feed')).toBe(true);
+    expect(isActive(app, 'nav-feedback')).toBe(false);
+  });
+
+  it('exact #/ activates only Dashboard; #/feed/... still highlights Feed', async () => {
+    flagDev(TIM, false);
+    const app = await mountAt('#/');
+    expect(isActive(app, 'nav-dashboard')).toBe(true);
+    expect(isActive(app, 'nav-feed')).toBe(false);
+    expect(isActive(app, 'nav-feedback')).toBe(false);
+
+    navigateTo('#/feed/inventory');
+    expect(isActive(app, 'nav-feed')).toBe(true);
+    expect(isActive(app, 'nav-feedback')).toBe(false);
+    expect(isActive(app, 'nav-dashboard')).toBe(false);
+  });
+
+  it('hashchange sync agrees with initial render for feed and feedback', async () => {
+    flagDev(TIM, false);
+    const app = await mountAt('#/');
+    expect(isActive(app, 'nav-dashboard')).toBe(true);
+
+    navigateTo('#/feed');
+    expect(isActive(app, 'nav-feed')).toBe(true);
+    expect(isActive(app, 'nav-feedback')).toBe(false);
+    expect(app.querySelector('[data-testid="bnav-feed"]').classList.contains('active')).toBe(true);
+
+    navigateTo('#/feedback');
+    expect(isActive(app, 'nav-feedback')).toBe(true);
+    expect(isActive(app, 'nav-feed')).toBe(false);
+    expect(app.querySelector('[data-testid="bnav-feed"]').classList.contains('active')).toBe(false);
+
+    navigateTo('#/feed?tab=hay');
+    expect(isActive(app, 'nav-feed')).toBe(true);
+    expect(isActive(app, 'nav-feedback')).toBe(false);
+  });
+});

@@ -430,11 +430,26 @@ function updateDevChip(container) {
 }
 
 /**
+ * Whether a nav item's href is active for the current location hash.
+ * Exact match always wins. Non-root hrefs also match a hash that continues
+ * with '/' or '?' (sub-routes / query), so `#/feed` does not light up on
+ * `#/feedback`. Root `#/` matches only exactly.
+ *
+ * @param {string} hash
+ * @param {string} href
+ * @returns {boolean}
+ */
+function navHrefIsActive(hash, href) {
+  if (hash === href) return true;
+  if (href === '#/') return false;
+  return hash.startsWith(href + '/') || hash.startsWith(href + '?');
+}
+
+/**
  * OI-0154: toggle the `active` class on the sidebar nav-item whose `data-href`
  * matches the current hash. Mirrors the build-time logic in `sidebarNavItem`
- * (exact match OR — for non-root hrefs — startsWith for sub-route highlights)
- * so navigation, browser back/forward, and direct hash typing all keep the
- * sidebar in sync without rebuilding the chrome.
+ * via `navHrefIsActive` so navigation, browser back/forward, and direct hash
+ * typing all keep the sidebar in sync without rebuilding the chrome.
  *
  * @param {HTMLElement} container
  */
@@ -443,8 +458,7 @@ function updateActiveSidebarItem(container) {
   const items = container.querySelectorAll('.dsk-nav-item[data-href]');
   for (const item of items) {
     const itemHash = item.getAttribute('data-href') || '';
-    const isActive = hash === itemHash || (itemHash !== '#/' && hash.startsWith(itemHash));
-    item.classList.toggle('active', isActive);
+    item.classList.toggle('active', navHrefIsActive(hash, itemHash));
   }
 }
 
@@ -461,8 +475,7 @@ function updateActiveBottomNavItem(container) {
   const items = container.querySelectorAll('.bnav-item[data-href]');
   for (const item of items) {
     const itemHash = item.getAttribute('data-href') || '';
-    const isActive = hash === itemHash || (itemHash !== '#/' && hash.startsWith(itemHash));
-    item.classList.toggle('active', isActive);
+    item.classList.toggle('active', navHrefIsActive(hash, itemHash));
   }
 }
 
@@ -590,7 +603,7 @@ function renderFieldModePill() {
 // rebuild; OI-0153 made that surgical, surfacing the latent gap that the
 // active-class state had no other update path.
 function sidebarNavItem(href, label, currentHash, testId) {
-  const isActive = currentHash === href || (href !== '#/' && currentHash.startsWith(href));
+  const isActive = navHrefIsActive(currentHash, href);
   return el('button', {
     className: `dsk-nav-item${isActive ? ' active' : ''}`,
     'data-testid': testId,
@@ -600,7 +613,7 @@ function sidebarNavItem(href, label, currentHash, testId) {
 }
 
 function sidebarNavItemBadge(href, label, count, currentHash, testId) {
-  const isActive = currentHash === href || currentHash.startsWith(href);
+  const isActive = navHrefIsActive(currentHash, href);
   const children = [label];
   if (count > 0) children.push(el('span', { className: 'dsk-nav-badge' }, [String(count)]));
   return el('button', {

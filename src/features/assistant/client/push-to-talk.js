@@ -1,11 +1,17 @@
-/** The one global push-to-talk for farm voice entry, on every screen. Prominent
- * at the bottom center on mobile; a floating button on desktop that starts at the
- * bottom center and can be dragged. Mounted only when the build flag is on and the
- * backend returned config (403 = never mounted). Tap to talk; tap again ends the
- * turn, the same as saying "over". */
+/** The one global push-to-talk for farm entries, farm questions, spoken feedback
+ * and how-to, on every screen. Prominent at the bottom center on mobile; a
+ * floating button on desktop that starts at the bottom center and can be dragged.
+ * Mounted only when the build flag is on and the backend returned config (403 =
+ * never mounted). Tap to talk; tap again ends the turn, the same as saying "over".
+ * Sessions start as data-entry and switch intent through the runtime intent
+ * command when the request is a question, feedback or how-to. The voice log opens
+ * as a panel from this control, which shows the unfinished count. */
 import { el, clear } from '../../../ui/dom.js';
 import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
+import { createVoiceLog } from './voice-log.js';
+import { openVoiceLog } from './voice-log-panel.js';
+import { useNoteInConversation } from './offline-note-review.js';
 
 export const PTT_ID = 'gtho-push-to-talk';
 export const PTT_POSITION_KEY = 'gtho-ptt-position';
@@ -35,11 +41,34 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
   const status = el('div', { className: 'gtho-ptt-status', 'data-testid': 'ptt-status', role: 'status', hidden: true });
   const end = el('button', { className: 'gtho-ptt-end', 'data-testid': 'ptt-end', 'aria-label': 'End voice entry', hidden: true }, ['×']);
   const button = el('button', { className: 'gtho-ptt-button', 'data-testid': 'ptt-button', 'aria-label': 'Talk to GTHO', 'aria-pressed': 'false' }, ['\uD83C\uDF99']);
-  const wrap = el('div', { id: PTT_ID, 'data-operation': operationId, className: `gtho-ptt ${compact ? 'gtho-ptt--compact' : 'gtho-ptt--floating'}`, 'data-testid': 'ptt' }, [status, el('div', { className: 'gtho-ptt-row' }, [button, end])]);
+  const badge = el('span', { className: 'gtho-ptt-badge', 'data-testid': 'ptt-badge', hidden: true }, ['0']);
+  const logButton = el('button', { className: 'gtho-ptt-log', 'data-testid': 'ptt-log', 'aria-label': 'Voice log' }, ['Log', badge]);
+  const wrap = el('div', { id: PTT_ID, 'data-operation': operationId, className: `gtho-ptt ${compact ? 'gtho-ptt--compact' : 'gtho-ptt--floating'}`, 'data-testid': 'ptt' }, [status, el('div', { className: 'gtho-ptt-row' }, [logButton, button, end])]);
   const say = text => { status.textContent = text; status.hidden = !text; };
   const notes = deps.offlineNotes ?? createOfflineNoteStore({ onQuota: () => say('This device is out of storage. Your voice note was not saved; free up space and record it again.') });
-  const offline = createOfflineNoteRecorder({ notes, say, intent: 'data-entry' });
+  // Offline notes carry no intent: routing decides once the note is used online.
+  const offline = createOfflineNoteRecorder({ notes, say, intent: null });
+  const voiceLog = deps.voiceLog ?? createVoiceLog({ operationId, storage });
   let session = null;
+  async function refreshBadge() {
+    let count = 0;
+    try { count = (await notes.list()).length; } catch { /* count unknown */ }
+    badge.textContent = String(count);
+    badge.hidden = count === 0;
+    logButton.setAttribute('aria-label', count ? `Voice log, ${count} unfinished` : 'Voice log');
+    return count;
+  }
+  function openLog() {
+    return openVoiceLog({ deps, notes, log: voiceLog, onChange: () => { void refreshBadge(); },
+      use: async (note, text) => {
+        await stop();
+        session = newSession();
+        end.hidden = false;
+        const conversation = await session.begin({ id: crypto.randomUUID(), role: 'user', modality: 'voice', text });
+        await useNoteInConversation({ deps, notes, note, conversation });
+      } });
+  }
+  const newSession = () => createAssistantSession({ deps, config, intent: 'data-entry', say, onTranscript, onListening: setListening, voiceLog });
   const setListening = listening => {
     button.setAttribute('aria-pressed', String(listening));
     button.setAttribute('aria-label', listening ? 'End turn' : 'Talk to GTHO');
@@ -48,8 +77,8 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
   const onTranscript = turns => { const last = turns.filter(turn => turn.role === 'assistant').at(-1); if (last) say(last.text); };
 
   async function tap() {
-    if (!deps.online()) { await offline.toggle('data-entry'); setListening(offline.recording); return; }
-    session ??= createAssistantSession({ deps, config, intent: 'data-entry', say, onTranscript, onListening: setListening });
+    if (!deps.online()) { await offline.toggle(null); setListening(offline.recording); if (!offline.recording) await refreshBadge(); return; }
+    session ??= newSession();
     end.hidden = false;
     await session.talk();
   }
@@ -58,6 +87,7 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
     setListening(false); say(''); end.hidden = true;
   }
   end.addEventListener('click', () => { stop().catch(error => say(error.message)); });
+  logButton.addEventListener('click', () => { openLog(); });
 
   // Desktop: drag to move, remembered on this device; a drag is never a tap.
   if (!compact) {
@@ -100,7 +130,8 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
   });
 
   root.appendChild(wrap);
-  const handle = { element: wrap, tap, stop, get session() { return session; }, clearStatus: () => clear(status) };
+  const handle = { element: wrap, tap, stop, openLog, refreshBadge, get session() { return session; }, clearStatus: () => clear(status) };
+  void refreshBadge();
   handles.set(wrap, { handle, cleanup: () => { globalThis.removeEventListener?.('pointermove', onMove); globalThis.removeEventListener?.('pointerup', onUp); void session?.end(); } });
   return handle;
 }

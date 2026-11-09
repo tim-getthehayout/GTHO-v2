@@ -85,7 +85,7 @@ export function createAssistantFunction(deps) {
     // case was settled once at token issue.
     if (peeked?.command === 'voice-usage') return json(VOICE_USAGE_REFUSAL);
     const context = requestContext(deps, identity);
-    const session = { ref: null, loaded: null, live: null };
+    const session = { ref: null, loaded: null, live: null, route: null };
     try {
       const getAll = createServerFarmData({ client: deps.client, operationId: context.scope.operationId });
       const host = createServerHost({ client: deps.client, scope: context.scope, config: deps.config, persistence: context.persistence, getAll, authorize: context.authorize, session, log: contentFreeLog(deps.log), openSheet: parseOpenSheet(peeked?.openSheet) });
@@ -98,7 +98,11 @@ export function createAssistantFunction(deps) {
         voiceAuthorization: createVoiceAuthorization({ config: deps.config, client: deps.client, fetch: fetcher, meter: context.meter }),
         voiceUsage: voiceUsageDeferred,
       };
-      return await createBackendHandler(ports, TECHNICAL_BUDGETS)(request);
+      const response = await createBackendHandler(ports, TECHNICAL_BUDGETS)(request);
+      // A route-intent suggestion travels back as body.route; the browser then
+      // switches through the runtime intent / resolve-intent commands.
+      if (!session.route || !response.ok) return response;
+      return json({ ...(await response.json()), route: session.route }, response.status);
     } finally { await context.database.close(); }
   });
 }

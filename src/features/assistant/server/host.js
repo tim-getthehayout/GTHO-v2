@@ -8,6 +8,7 @@ import * as RevisionEntity from '../../../entities/assistant-proposal-revisions.
 import { createFarmReadPort, FARM_READ_TOOLS } from '../farm-reads.js';
 import { FARM_ENTRY_UIS, FARM_ENTRY_INSTRUCTIONS, FARM_ENTRY_FIELD_HINTS } from '../farm-entry-contract.js';
 import { resolveEntryTarget, ENTRY_TARGET_KEY, ENTRY_TARGET_NAMES, CHOOSE_ENTRY_QUESTION, RESOLVE_ENTRY_TARGET_TOOL } from '../entry-targets.js';
+import { ROUTE_INTENT_TOOL, ROUTING_INSTRUCTION, parseRoute } from '../intent-routing.js';
 
 export const FEEDBACK_EDITABLE = Object.freeze(['title', 'type', 'expected', 'actual', 'reproSteps', 'severity', 'impact', 'needsDecision', 'unknowns']);
 export const CLIENT_APPLY_PENDING = 'client-apply-pending';
@@ -56,7 +57,11 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
   /** IDs come only from resolving the names the user said; never from the model. */
   async function resolveTarget(proposal) {
     const resolved = await resolveEntryTarget({ ui: proposal.destination, names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields, rows: operationRows });
-    if (resolved.status !== 'resolved') fail('entry-target-unresolved');
+    if (resolved.status !== 'resolved') {
+      // Host event: the device asks its fallback question; it never enters the model transcript.
+      log({ type: 'entry-target-question', conversationRef: holder.ref });
+      fail('entry-target-unresolved');
+    }
     return resolved;
   }
   async function normalize(proposal) {
@@ -99,6 +104,19 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
       requireData(await client.from('assistant_proposal_revisions').update({ superseded_by_id: revision.id, updated_at: new Date().toISOString() }).eq('operation_id', scope.operationId).eq('id', prior.id));
     }
   }
+  function intentContext(intent) {
+    if (intent === 'feedback') return { instructions: INSTRUCTIONS.feedback, data: { contractVersion: feedback.CONTRACT_VERSION, editableFields: [...FEEDBACK_EDITABLE] }, readTools: [] };
+    if (intent === 'data-entry') {
+      const session = current();
+      // Derived hints always; the exact open-sheet field set (dynamic fields
+      // included) once the browser has that sheet open for the pending proposal.
+      const open = openSheet && session?.pending?.destination === openSheet.ui ? globalThis.structuredClone(openSheet) : null;
+      return { instructions: FARM_ENTRY_INSTRUCTIONS, data: { entryUis: [...FARM_ENTRY_UIS], chooseEntryQuestion: CHOOSE_ENTRY_QUESTION, targetNames: globalThis.structuredClone(ENTRY_TARGET_NAMES), fieldHints: globalThis.structuredClone(FARM_ENTRY_FIELD_HINTS), openSheet: open }, readTools: [{ ...RESOLVE_ENTRY_TARGET_TOOL }, ...FARM_READ_TOOLS.map(tool => ({ ...tool }))] };
+    }
+    if (intent === 'data-questions') return { instructions: INSTRUCTIONS['data-questions'], data: {}, readTools: FARM_READ_TOOLS.map(tool => ({ ...tool })) };
+    if (intent === 'how-to') return { instructions: INSTRUCTIONS['how-to'], data: {}, readTools: [] };
+    return fail('invalid-intent');
+  }
   const host = {
     async authorize(incoming, ref) {
       await auth(incoming);
@@ -107,20 +125,21 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
     },
     async context(incoming, intent) {
       await auth(incoming);
-      if (intent === 'feedback') return { instructions: INSTRUCTIONS.feedback, data: { contractVersion: feedback.CONTRACT_VERSION, editableFields: [...FEEDBACK_EDITABLE] }, readTools: [] };
-      if (intent === 'data-entry') {
-        const session = current();
-        // Derived hints always; the exact open-sheet field set (dynamic fields
-        // included) once the browser has that sheet open for the pending proposal.
-        const open = openSheet && session?.pending?.destination === openSheet.ui ? globalThis.structuredClone(openSheet) : null;
-        return { instructions: FARM_ENTRY_INSTRUCTIONS, data: { entryUis: [...FARM_ENTRY_UIS], chooseEntryQuestion: CHOOSE_ENTRY_QUESTION, targetNames: globalThis.structuredClone(ENTRY_TARGET_NAMES), fieldHints: globalThis.structuredClone(FARM_ENTRY_FIELD_HINTS), openSheet: open }, readTools: [{ ...RESOLVE_ENTRY_TARGET_TOOL }, ...FARM_READ_TOOLS.map(tool => ({ ...tool }))] };
-      }
-      if (intent === 'data-questions') return { instructions: INSTRUCTIONS['data-questions'], data: {}, readTools: FARM_READ_TOOLS.map(tool => ({ ...tool })) };
-      if (intent === 'how-to') return { instructions: INSTRUCTIONS['how-to'], data: {}, readTools: [] };
-      return fail('invalid-intent');
+      const base = intentContext(intent);
+      // Every intent may suggest a switch; only the client's intent command switches.
+      return { ...base, instructions: `${base.instructions}\n${ROUTING_INSTRUCTION}`, readTools: [...base.readTools, { ...ROUTE_INTENT_TOOL }] };
     },
     async read(incoming, name, args) {
       await auth(incoming);
+      if (name === ROUTE_INTENT_TOOL.name) {
+        const intent = parseRoute(args, current()?.intent);
+        if (!intent) fail('read-tool-denied');
+        // A suggestion only: the composition returns it as body.route and the
+        // browser switches through the runtime intent / resolve-intent commands.
+        holder.route = intent;
+        log({ type: 'intent-route-suggested', conversationRef: holder.ref, intent });
+        return { status: 'switch-requested', intent };
+      }
       if (name !== RESOLVE_ENTRY_TARGET_TOOL.name) return readPort(incoming, name, args);
       if (current()?.intent !== 'data-entry' || !object(args) || Object.keys(args).some(key => !['ui', ENTRY_TARGET_KEY].includes(key))) fail('read-tool-denied');
       const resolved = await resolveEntryTarget({ ui: args.ui, names: args[ENTRY_TARGET_KEY], rows: operationRows });

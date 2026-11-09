@@ -12,7 +12,9 @@ import { resolveTestingConsent } from './consent.js';
 /** Fallback when the backend refused an entry whose names did not resolve. */
 export const UNRESOLVED_TARGET_QUESTION = 'Which farm, paddock, group or animal did you mean?';
 
-export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {} }) {
+/** intent is where the session starts; a route-intent suggestion switches it
+ * through the runtime intent command (onIntent reports the new intent). */
+export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null }) {
   let conversation, transport, driver, mic, player, recorder, consent;
   const speak = text => driver?.speak(text);
   async function afterSession() {
@@ -34,13 +36,22 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   }
   async function turn(entry) {
     try {
-      const answer = await conversation.turn(entry);
+      let answer = await conversation.turn(entry);
+      const route = conversation.route;
+      if (route) {
+        // One push-to-talk: switch through the runtime intent command, then send
+        // the same words once under the routed intent (never more than one reroute).
+        await conversation.switchIntent(route);
+        onIntent(route);
+        answer = await conversation.turn({ ...entry, id: crypto.randomUUID() });
+      }
       if (answer) speak(answer);
       await afterSession();
     } catch (error) {
       if (error.code !== 'entry-target-unresolved') throw error;
-      // Never default: ask one question instead.
+      // Never default: ask one question instead. A host event, not a transcript turn.
       say(UNRESOLVED_TARGET_QUESTION); speak(UNRESOLVED_TARGET_QUESTION);
+      voiceLog?.hostEvent({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, type: 'entry-target-question', text: UNRESOLVED_TARGET_QUESTION });
     }
   }
   async function stopVoice() {
@@ -54,7 +65,9 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   const session = {
     get conversation() { return conversation; },
     get listening() { return !!mic; },
-    async begin(firstTurn, context = intent === 'feedback' ? { feedbackHost: deps.feedbackHost() } : {}) {
+    // Feedback host facts are captured before AI for every session, so a routed
+    // switch to feedback can still open the pinned interview.
+    async begin(firstTurn, context = typeof deps.feedbackHost === 'function' ? { feedbackHost: deps.feedbackHost() } : {}) {
       const stored = await resolveTestingConsent(config);
       consent = stored?.decision ?? null;
       conversation = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });

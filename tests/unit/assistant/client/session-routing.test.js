@@ -1,0 +1,89 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createAssistantSession, UNRESOLVED_TARGET_QUESTION } from '../../../../src/features/assistant/client/session.js';
+import { createVoiceLog } from '../../../../src/features/assistant/client/voice-log.js';
+import { CONTRACT_VERSION } from '../../../../src/features/assistant/feedback-facts.js';
+
+const OP = '00000000-0000-4000-8000-000000000001';
+const fact = value => ({ state: 'known', value, source: 'host' });
+const feedbackHost = () => ({ itemId: crypto.randomUUID(), contractVersion: CONTRACT_VERSION, appId: 'gtho', screen: fact('dashboard'), buildStamp: fact('test'), capturedAt: '2026-11-09T11:00:00Z' });
+
+function harness(script) {
+  const calls = [];
+  let capture = null;
+  const api = { command: vi.fn(async (ref, command, payload = {}) => {
+    calls.push({ command, payload });
+    if (command === 'start') { capture = payload.capture; return { session: { intent: payload.intent, phase: 'converse', capture, transcript: [] } }; }
+    const next = script.shift();
+    if (next instanceof Error) throw next;
+    return typeof next === 'function' ? next(capture, payload) : next;
+  }) };
+  const deps = { api, scope: () => ({ operationId: OP, actorId: 'u' }), persist: vi.fn(async (scope, type, data) => ({ id: crypto.randomUUID(), ...data })), awaitServerRows: vi.fn(async () => true), buildStamp: 'test', feedbackHost, openFeedbackSheet: vi.fn() };
+  return { api, calls, deps };
+}
+const user = text => ({ id: crypto.randomUUID(), role: 'user', modality: 'voice', text });
+beforeEach(() => { localStorage.clear(); });
+
+describe('one push-to-talk routes every intent through the runtime intent command', () => {
+  it('a farm question starts as data-entry, switches to data-questions and is answered there', async () => {
+    const { calls, deps } = harness([
+      capture => ({ session: { intent: 'data-entry', phase: 'converse', capture, transcript: [user('How many open cows?'), { role: 'assistant', text: 'Let me check.' }] }, route: 'data-questions' }),
+      capture => ({ session: { intent: 'data-questions', phase: 'converse', capture, transcript: [] }, value: { needsDraftDecision: false, intent: 'data-questions' } }),
+      capture => ({ session: { intent: 'data-questions', phase: 'converse', capture, transcript: [{ role: 'assistant', text: 'Three open cows.' }] } }),
+    ]);
+    const onIntent = vi.fn();
+    const session = createAssistantSession({ deps, config: { earlyTesting: false }, intent: 'data-entry', onIntent });
+    await session.text('How many open cows?');
+    expect(calls.map(call => call.command)).toEqual(['start', 'turn', 'intent', 'turn']);
+    expect(calls[0].payload.intent).toBe('data-entry');
+    expect(calls[2].payload).toEqual({ intent: 'data-questions' });
+    expect(calls[3].payload.turn.text).toBe('How many open cows?');
+    expect(calls[3].payload.turn.id).not.toBe(calls[1].payload.turn.id);
+    expect(onIntent).toHaveBeenCalledWith('data-questions');
+  });
+  it('a review in progress is preserved through resolve-intent, never confirmed by the switch', async () => {
+    const { calls, deps } = harness([
+      capture => ({ session: { intent: 'data-entry', phase: 'review', capture, transcript: [] }, route: 'how-to' }),
+      capture => ({ session: { intent: 'data-entry', phase: 'review', capture, transcript: [] }, value: { needsDraftDecision: true, choices: ['preserve', 'discard'], intent: 'how-to' } }),
+      capture => ({ session: { intent: 'how-to', phase: 'converse', capture, transcript: [] } }),
+      capture => ({ session: { intent: 'how-to', phase: 'converse', capture, transcript: [{ role: 'assistant', text: 'Open Feed.' }] } }),
+    ]);
+    const session = createAssistantSession({ deps, config: {}, intent: 'data-entry' });
+    await session.text('How do I add feed?');
+    expect(calls.map(call => call.command)).toEqual(['start', 'turn', 'intent', 'resolve-intent', 'turn']);
+    expect(calls[3].payload).toEqual({ decision: 'preserve' });
+    expect(calls.some(call => call.command === 'confirm')).toBe(false);
+  });
+  it('spoken feedback switches to feedback and opens the existing Feedback sheet from the pinned interview', async () => {
+    const { calls, deps } = harness([
+      capture => ({ session: { intent: 'data-entry', phase: 'converse', capture, transcript: [] }, route: 'feedback' }),
+      capture => ({ session: { intent: 'feedback', phase: 'converse', capture, transcript: [] }, value: { needsDraftDecision: false } }),
+      capture => ({ session: { intent: 'feedback', phase: 'review', reviewReady: true, capture, transcript: [user('The totals look wrong'), { role: 'assistant', text: 'Is this a bug?' }], pending: { id: 'p', revision: 1, intent: 'feedback', fields: {} } } }),
+    ]);
+    const session = createAssistantSession({ deps, config: {}, intent: 'data-entry' });
+    await session.text('The totals look wrong');
+    expect(calls[0].payload.capture.context.feedbackHost.appId).toBe('gtho');
+    expect(deps.openFeedbackSheet).toHaveBeenCalledWith('feedback', OP, expect.objectContaining({ feedbackSession: expect.any(Object), fileConfirmed: expect.any(Function) }));
+    expect(deps.openFeedbackSheet.mock.calls[0][2].feedbackSession.item.firstNote.value).toBe('The totals look wrong');
+  });
+  it('only one reroute per utterance', async () => {
+    const { calls, deps } = harness([
+      capture => ({ session: { intent: 'data-entry', phase: 'converse', capture, transcript: [] }, route: 'how-to' }),
+      capture => ({ session: { intent: 'how-to', phase: 'converse', capture, transcript: [] }, value: { needsDraftDecision: false } }),
+      capture => ({ session: { intent: 'how-to', phase: 'converse', capture, transcript: [] }, route: 'feedback' }),
+    ]);
+    await createAssistantSession({ deps, config: {}, intent: 'data-entry' }).text('help');
+    expect(calls.map(call => call.command)).toEqual(['start', 'turn', 'intent', 'turn']);
+  });
+  it('the fallback entry question is a device host event in the voice log, not a transcript turn', async () => {
+    const refused = Object.assign(new Error('entry-target-unresolved'), { code: 'entry-target-unresolved', status: 400 });
+    const { calls, deps } = harness([refused]);
+    const voiceLog = createVoiceLog({ operationId: OP });
+    const say = vi.fn();
+    const session = createAssistantSession({ deps, config: {}, intent: 'data-entry', say, voiceLog });
+    await session.text('Treat Bessie');
+    expect(say).toHaveBeenCalledWith(UNRESOLVED_TARGET_QUESTION);
+    expect(voiceLog.events()).toEqual([expect.objectContaining({ kind: 'host-event', type: 'entry-target-question', purpose: 'write', text: UNRESOLVED_TARGET_QUESTION, conversationRef: session.conversation.ref })]);
+    expect(calls.filter(call => call.command === 'turn')).toHaveLength(1);
+    expect(JSON.stringify(calls)).not.toContain(UNRESOLVED_TARGET_QUESTION);
+  });
+});

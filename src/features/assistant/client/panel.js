@@ -1,10 +1,13 @@
-/** Header assistant sheet for feedback, farm questions and how-to. Flag-gated
- * (VITE_GTHO_ASSISTANT=1) by the header; hidden whenever the backend answers 403.
- * Farm voice entry launches from the global push-to-talk, not from here. */
+/** Header assistant sheet: the text/tap entry for feedback, farm questions and
+ * how-to. Flag-gated (VITE_GTHO_ASSISTANT=1) by the header; hidden whenever the
+ * backend answers 403. Voice for every intent launches from the global
+ * push-to-talk; both use the same session, routing and review rules. */
 import { el, clear } from '../../../ui/dom.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
+import { renderNoteReview, useNoteInConversation } from './offline-note-review.js';
+import { createVoiceLog } from './voice-log.js';
 export { CONSENT_TEXT, CONSENT_KEEP, CONSENT_DECLINE, askTestingConsent, resolveTestingConsent } from './consent.js';
 
 export const PANEL_INTENTS = Object.freeze([['feedback', 'Leave feedback'], ['data-questions', 'Ask about my farm'], ['how-to', 'How do I…']]);
@@ -51,11 +54,12 @@ export function openAssistant(deps, config) {
   panel.append(el('div', { className: 'sheet-handle' }), el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '10px' } }, ['Assistant']), body, transcript, status);
   const say = text => { status.textContent = text; };
   const notes = deps.offlineNotes ?? createOfflineNoteStore({ onQuota: () => say('This device is out of storage. Your voice note was not saved; free up space and record it again.') });
+  const voiceLog = deps.voiceLog ?? createVoiceLog({ operationId: deps.scope().operationId });
   let session = null;
   const offline = createOfflineNoteRecorder({ notes, say, intent: null });
 
   async function begin(intent, firstTurn) {
-    session = createAssistantSession({ deps, config, intent, say, onTranscript: turns => renderTranscript(transcript, turns) });
+    session = createAssistantSession({ deps, config, intent, say, onTranscript: turns => renderTranscript(transcript, turns), voiceLog });
     await session.begin(firstTurn);
     clear(body);
     const input = el('input', { type: 'text', placeholder: 'Type instead…', 'data-testid': 'assistant-text' });
@@ -77,21 +81,10 @@ export function openAssistant(deps, config) {
     if (!list.length) return;
     const section = el('div', { 'data-testid': 'assistant-offline-notes' }, [el('div', {}, ['Voice notes saved on this device'])]);
     for (const note of list) {
-      const text = el('textarea', { rows: '3', 'data-testid': 'assistant-note-transcript', placeholder: 'Transcribe, then check the words before using them.' });
-      section.appendChild(el('div', { className: 'field' }, [
-        el('div', {}, [new Date(note.capturedAt).toLocaleString()]), text,
-        el('button', { className: 'btn btn-outline btn-xs', onClick: async () => { if (!deps.online()) return say('Transcription needs a connection.'); try { text.value = (await deps.api.transcribe(note.blob)).text; } catch (error) { say(error.message); } } }, ['Transcribe']),
-        // P9: the reviewed transcript becomes the first turn only after the user checks it.
-        el('button', { className: 'btn btn-green btn-xs', onClick: async () => {
-          if (!text.value.trim()) return say('Transcribe and review the note first.');
-          try {
-            const started = await begin(note.context?.intent ?? 'feedback', { id: crypto.randomUUID(), role: 'user', modality: 'voice', text: text.value.trim() });
-            const conversation = started.conversation;
-            await deps.persist(conversation.scope, 'offlineVoiceNotes', { operationId: conversation.scope.operationId, conversationId: conversation.ref, deviceLocalReference: note.id, originalContext: JSON.stringify(note.context ?? {}), capturedAt: note.capturedAt });
-            await notes.remove(note.id);
-          } catch (error) { say(error.message); }
-        } }, ['Use reviewed transcript']),
-      ]));
+      section.appendChild(renderNoteReview(note, { deps, say, use: async (picked, text) => {
+        const started = await begin(picked.context?.intent ?? 'feedback', { id: crypto.randomUUID(), role: 'user', modality: 'voice', text });
+        await useNoteInConversation({ deps, notes, note: picked, conversation: started.conversation });
+      } }));
     }
     body.appendChild(section);
   }

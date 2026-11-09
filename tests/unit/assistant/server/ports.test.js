@@ -7,6 +7,7 @@ import { createTranscribeHandler } from '../../../../src/features/assistant/serv
 import { createServerFarmData } from '../../../../src/features/assistant/server/farm-data.js';
 import { FARM_ENTRY_FIELD_HINTS, FARM_ENTRY_DEFINITIONS } from '../../../../src/features/assistant/farm-entry-contract.js';
 import { entryFieldHints } from '../../../../src/features/assistant/entry-fields.js';
+import { ROUTING_INSTRUCTION, parseRoute, INTENT_PURPOSE } from '../../../../src/features/assistant/intent-routing.js';
 import { fakeSupabase, env, OP, OTHER_OP, USER } from './fake-supabase.js';
 
 const { config } = readConfig(env());
@@ -54,9 +55,11 @@ describe('server host ports', () => {
   });
   it('gives each intent its own context: read tools only for farm questions/entry, answer-only how-to', async () => {
     const h = host({ intent: 'how-to', capture: { context: {} }, transcript: [] });
-    expect((await h.context(scope, 'how-to')).readTools).toEqual([]);
-    expect((await h.context(scope, 'data-questions')).readTools.map(tool => tool.name)).toEqual(['animal-reproductive-evidence', 'open-animal-set', 'paddock-grazing-evidence']);
-    expect((await h.context(scope, 'feedback')).readTools).toEqual([]);
+    // Every intent only adds the route-intent suggestion tool.
+    expect((await h.context(scope, 'how-to')).readTools.map(tool => tool.name)).toEqual(['route-intent']);
+    expect((await h.context(scope, 'data-questions')).readTools.map(tool => tool.name)).toEqual(['animal-reproductive-evidence', 'open-animal-set', 'paddock-grazing-evidence', 'route-intent']);
+    expect((await h.context(scope, 'feedback')).readTools.map(tool => tool.name)).toEqual(['route-intent']);
+    for (const intent of ['how-to', 'data-questions', 'feedback', 'data-entry']) expect((await h.context(scope, intent)).instructions).toContain(ROUTING_INSTRUCTION);
     expect(await h.matchingDoc(scope, 'anything')).toBeUndefined();
     await expect(h.createProposal(scope, { id: 'p', itemRef: 'i', revision: 1, intent: 'how-to', destination: 'x', fields: {} })).rejects.toMatchObject({ code: 'read-only-intent' });
   });
@@ -133,5 +136,33 @@ describe('data-entry context', () => {
     expect((await make({ destination: 'calving' }, open).context(scope, 'data-entry')).data.openSheet).toEqual(open);
     expect((await make({ destination: 'move' }, open).context(scope, 'data-entry')).data.openSheet).toBeNull();
     expect((await make(undefined, null).context(scope, 'data-entry')).data.fieldHints.move.dynamicFields.map(field => field.name)).toContain('feed:*');
+  });
+});
+
+describe('one push-to-talk: intent routing is a suggestion, fallback question is a host event', () => {
+  const make = (intent, log = vi.fn()) => {
+    const holder = { ref: REF, loaded: { intent, capture: { context: {} }, transcript: [] }, live: null, route: null };
+    return { holder, log, h: createServerHost({ client: fakeSupabase(), scope, config, persistence: {}, getAll: async () => [], authorize: async () => true, session: holder, log }) };
+  };
+  it('route-intent records only another valid intent and never switches by itself', async () => {
+    const { h, holder, log } = make('data-entry');
+    expect(await h.read(scope, 'route-intent', { intent: 'data-questions' })).toEqual({ status: 'switch-requested', intent: 'data-questions' });
+    expect(holder.route).toBe('data-questions');
+    expect(holder.loaded.intent).toBe('data-entry');
+    expect(log).toHaveBeenCalledWith({ type: 'intent-route-suggested', conversationRef: REF, intent: 'data-questions' });
+    await expect(h.read(scope, 'route-intent', { intent: 'data-entry' })).rejects.toMatchObject({ code: 'read-tool-denied' });
+    await expect(h.read(scope, 'route-intent', { intent: 'admin' })).rejects.toMatchObject({ code: 'read-tool-denied' });
+    await expect(h.read(scope, 'route-intent', { intent: 'feedback', extra: 1 })).rejects.toMatchObject({ code: 'read-tool-denied' });
+  });
+  it('parseRoute and purposes cover exactly the four runtime intents', () => {
+    expect(Object.entries(INTENT_PURPOSE)).toEqual([['data-entry', 'write'], ['data-questions', 'question'], ['feedback', 'feedback'], ['how-to', 'how-to']]);
+    expect(parseRoute({ intent: 'how-to' }, 'feedback')).toBe('how-to');
+    expect(parseRoute(['how-to'], 'feedback')).toBeNull();
+  });
+  it('an unresolved entry is refused and logged as a content-free host event, not a transcript turn', async () => {
+    const { h, holder, log } = make('data-entry');
+    await expect(h.createProposal(scope, { id: 'p', itemRef: 'i', revision: 1, intent: 'data-entry', destination: 'treatment', fields: { entryTarget: { animal: 'Nobody' } } })).rejects.toMatchObject({ code: 'entry-target-unresolved' });
+    expect(log).toHaveBeenCalledWith({ type: 'entry-target-question', conversationRef: REF });
+    expect(holder.loaded.transcript).toEqual([]);
   });
 });

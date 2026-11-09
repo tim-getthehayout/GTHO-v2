@@ -25,10 +25,12 @@ export function createServerRowWaiter({ flush, exists, attempts = 6, delay = att
 
 export function createAssistantConversation({ api, scope, persist, awaitServerRows, intent, capture, buildStamp = null, randomUUID = () => crypto.randomUUID() }) {
   const ref = randomUUID();
-  let session = null;
+  let session = null, route = null;
   const conversation = {
     ref, scope, capture,
     get session() { return session; },
+    /** Intent the model suggested on the last turn (host route-intent), if any. */
+    get route() { return route; },
     /** P7/T12: the consent decision is stored and server-acknowledged before start. */
     async begin({ consent = null, decidedAt = new Date().toISOString() } = {}) {
       await persist(scope, 'assistantConversations', { id: ref, operationId: scope.operationId, capturedAt: capture.capturedAt, currentIntent: intent, originalContext: JSON.stringify(capture.context), buildStamp, feedbackModulePin: LIBRARY_PINS.feedbackModule, conversationRuntimePin: LIBRARY_PINS.conversationRuntime });
@@ -45,9 +47,20 @@ export function createAssistantConversation({ api, scope, persist, awaitServerRo
     /** Sends one user turn (final voice transcript or typed text); returns any new assistant answer. */
     async turn(turn) {
       const before = session?.transcript?.length ?? 0;
-      session = (await api.command(ref, 'turn', { turn })).session;
+      const response = await api.command(ref, 'turn', { turn });
+      session = response.session;
+      route = typeof response.route === 'string' && response.route !== session.intent ? response.route : null;
       const added = session.transcript.slice(before).filter(entry => entry.role === 'assistant');
       return added.map(entry => entry.text).join('\n') || null;
+    },
+    /** Switches through the runtime's own intent command. A pending review is kept
+     * as a recoverable draft (preserve), never confirmed or filed by the switch. */
+    async switchIntent(intent) {
+      const asked = await api.command(ref, 'intent', { intent });
+      session = asked.session;
+      if (asked.value?.needsDraftDecision) session = (await api.command(ref, 'resolve-intent', { decision: 'preserve' })).session;
+      route = null;
+      return session;
     },
     async correct(correction) { session = (await api.command(ref, 'correct', { correction })).session; return session; },
     async cancel() { session = (await api.command(ref, 'cancel')).session; return session; },

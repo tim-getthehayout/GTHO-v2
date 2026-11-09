@@ -148,3 +148,18 @@ describe('client voice-usage reports', () => {
     expect(log.mock.calls.length).toBe(logged);
   });
 });
+
+describe('push-to-talk routing travels back as body.route', () => {
+  it('a route-intent suggestion is returned with the session; the intent is unchanged until the client switches', async () => {
+    const replies = [{ type: 'read', tool: 'route-intent', args: { intent: 'data-questions' } }, { type: 'answer', text: 'I can look that up.' }];
+    const fetch = vi.fn(async () => Response.json({ usage: { input_tokens: 1, output_tokens: 1 }, output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(replies.shift()) }] }] }));
+    const { deps } = setup(fetch);
+    const handler = createAssistantFunction(deps);
+    await handler(post(START));
+    const response = await handler(post({ command: 'turn', conversationRef: REF, requestRef: 'r2', turn: { id: 't1', role: 'user', modality: 'text', text: 'How many open cows?' } }));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.route).toBe('data-questions');
+    expect(body.session.intent).toBe('how-to');
+  });
+});

@@ -3308,4 +3308,7 @@ body:has(.auth-overlay) .pwa-update-banner {
 .gtho-ptt--floating .gtho-ptt-button { width: 56px; height: 56px; font-size: 24px; cursor: grab; }
 .gtho-ptt-button--live { background: var(--red, #c62828); }
 .gtho-ptt-end { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border, #ccc); background: var(--bg, #fff); cursor: pointer; }
+.gtho-ptt-log { position: relative; min-width: 44px; height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid var(--border, #ccc); background: var(--bg, #fff); cursor: pointer; font-size: 13px; }
+.gtho-ptt-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--red, #c62828); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.gtho-ptt-badge[hidden] { display: none; }
 .gtho-ptt-status { max-width: min(90vw, 360px); padding: 8px 12px; border-radius: 12px; background: var(--bg, #fff); box-shadow: 0 2px 10px rgba(0,0,0,.2); font-size: 14px; }

@@ -45,9 +45,10 @@ export function createAssistantConversation({ api, scope, persist, awaitServerRo
     },
     async resume() { session = (await api.command(ref, 'resume')).session; return session; },
     /** Sends one user turn (final voice transcript or typed text); returns any new assistant answer. */
-    async turn(turn) {
+    async turn(turn, { replayOf = null } = {}) {
       const before = session?.transcript?.length ?? 0;
-      const response = await api.command(ref, 'turn', { turn });
+      // replayOf marks a reroute replay for the host (content-free server event).
+      const response = await api.command(ref, 'turn', { turn, ...(replayOf ? { replayOf } : {}) });
       session = response.session;
       route = typeof response.route === 'string' && response.route !== session.intent ? response.route : null;
       const added = session.transcript.slice(before).filter(entry => entry.role === 'assistant');

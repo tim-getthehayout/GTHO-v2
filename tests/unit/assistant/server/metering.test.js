@@ -163,3 +163,15 @@ describe('push-to-talk routing travels back as body.route', () => {
     expect(body.session.intent).toBe('how-to');
   });
 });
+
+describe('reroute replay host event', () => {
+  it('a replayed turn is logged content-free with both turn ids', async () => {
+    const fetch = vi.fn(async () => Response.json({ usage: { input_tokens: 1, output_tokens: 1 }, output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ type: 'answer', text: 'Three.' }) }] }] }));
+    const { deps, log } = setup(fetch);
+    const handler = createAssistantFunction(deps);
+    await handler(post(START));
+    expect((await handler(post({ command: 'turn', conversationRef: REF, requestRef: 'r2', replayOf: 't0', turn: { id: 't1', role: 'user', modality: 'text', text: 'How many open cows?' } }))).status).toBe(200);
+    expect(log).toHaveBeenCalledWith({ type: 'reroute-replay', conversationRef: REF, turnId: 't1', replayOf: 't0' });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('open cows');
+  });
+});

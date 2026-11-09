@@ -85,6 +85,10 @@ export function createAssistantFunction(deps) {
     // case was settled once at token issue.
     if (peeked?.command === 'voice-usage') return json(VOICE_USAGE_REFUSAL);
     const context = requestContext(deps, identity);
+    // Host event: a reroute replay of an earlier user turn (ids only, no content).
+    if (peeked?.command === 'turn' && typeof peeked.replayOf === 'string' && typeof peeked.turn?.id === 'string') {
+      contentFreeLog(deps.log)({ type: 'reroute-replay', conversationRef: peeked.conversationRef, turnId: peeked.turn.id, replayOf: peeked.replayOf });
+    }
     const session = { ref: null, loaded: null, live: null, route: null };
     try {
       const getAll = createServerFarmData({ client: deps.client, operationId: context.scope.operationId });

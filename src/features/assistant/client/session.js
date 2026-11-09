@@ -26,7 +26,9 @@ export const UNRESOLVED_TARGET_QUESTION = 'Which farm, paddock, group or animal 
  * filing from this conversation has durably saved on this device. */
 export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null, onDurableSave = async () => {} }) {
   let conversation, transport, driver, mic, player, recorder, consent, attempts, origin = {};
-  const visible = () => conversation?.session?.transcript ?? [];
+  // Reroute replays are host-marked so the log shows the user's words once.
+  const replays = new Set();
+  const visible = () => (conversation?.session?.transcript ?? []).filter(entry => !replays.has(entry.id));
   const speak = text => driver?.speak(text);
   async function afterSession() {
     onTranscript(visible());
@@ -63,7 +65,10 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         await conversation.switchIntent(route);
         onIntent(route);
         await attempts.reroute(route);
-        answer = await conversation.turn({ ...entry, id: crypto.randomUUID() });
+        const replay = { ...entry, id: crypto.randomUUID() };
+        replays.add(replay.id);
+        voiceLog?.hostEvent({ conversationRef: conversation.ref, intent: route, type: 'reroute-replay', text: `Replayed turn ${entry.id} as ${replay.id}` });
+        answer = await conversation.turn(replay, { replayOf: entry.id });
       }
       if (answer) speak(answer);
       // A question or how-to is finished once answered.

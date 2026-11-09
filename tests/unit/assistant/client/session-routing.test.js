@@ -155,3 +155,23 @@ describe('attempt tracker', async () => {
     expect(unfinishedCount({ attempts: [{ status: 'unfinished' }, { status: 'finished' }], notes: [{ id: 'n1' }, { id: 'n2' }], noteRows: [{ deviceLocalReference: 'n1', attemptId: 'a1' }] })).toBe(2);
   });
 });
+
+describe('reroute replay is host-marked', () => {
+  it('the resent utterance carries replayOf, is logged as a host event and is shown once', async () => {
+    let replayId;
+    const { calls, deps } = harness([
+      capture => ({ session: { intent: 'data-entry', phase: 'converse', capture, transcript: [{ id: 'u1', role: 'user', text: 'How many open cows?' }] }, route: 'data-questions' }),
+      capture => ({ session: { intent: 'data-questions', phase: 'converse', capture, transcript: [{ id: 'u1', role: 'user', text: 'How many open cows?' }] }, value: { needsDraftDecision: false } }),
+      (capture, payload) => { replayId = payload.turn.id; return { session: { intent: 'data-questions', phase: 'converse', capture, transcript: [{ id: 'u1', role: 'user', text: 'How many open cows?' }, { id: replayId, role: 'user', text: 'How many open cows?' }, { id: 'a1', role: 'assistant', text: 'Three.' }] } }; },
+    ]);
+    const voiceLog = createVoiceLog({ operationId: OP });
+    const onTranscript = vi.fn();
+    const session = createAssistantSession({ deps, config: {}, intent: 'data-entry', voiceLog, onTranscript });
+    await session.begin({ id: 'u1', role: 'user', modality: 'voice', text: 'How many open cows?' });
+    expect(calls[3].payload).toMatchObject({ replayOf: 'u1', turn: { id: replayId } });
+    expect(voiceLog.events()).toEqual([expect.objectContaining({ type: 'reroute-replay', purpose: 'question', conversationRef: session.conversation.ref })]);
+    expect(voiceLog.events()[0].text).not.toContain('open cows');
+    const shown = onTranscript.mock.calls.at(-1)[0];
+    expect(shown.filter(turn => turn.role === 'user').map(turn => turn.id)).toEqual(['u1']);
+  });
+});

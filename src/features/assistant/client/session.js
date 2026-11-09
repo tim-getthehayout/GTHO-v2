@@ -105,7 +105,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       conversation = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });
       say('Starting…');
       await conversation.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
-      attempts = createAttemptTracker({ persist: deps.persist, scope: conversation.scope });
+      attempts = createAttemptTracker({ persist: deps.persist, scope: conversation.scope, getAll: typeof deps.getAll === 'function' ? deps.getAll : () => [] });
       say('');
       if (firstTurn) await turn(firstTurn);
       onTranscript(visible());

@@ -238,3 +238,21 @@ describe('voice log Today uses the operation timezone', () => {
     expect(operationTimezone(zoneDeps(null), () => undefined)).toBe('UTC');
   });
 });
+
+describe('voice log Unfinished matches the chain-aware badge', () => {
+  it('lists only the newest attempt of a chain; All still lists both', async () => {
+    const { openVoiceLog } = await import('../../../../src/features/assistant/client/voice-log-panel.js');
+    const rows = [
+      { id: 'a1', operationId: OP, conversationId: 'c1', capturedAt: '2026-11-09T10:00:00.000Z', status: 'unfinished', finishedAt: null, purpose: 'write', previousAttemptId: null },
+      { id: 'a2', operationId: OP, conversationId: 'c2', capturedAt: '2026-11-09T11:00:00.000Z', status: 'unfinished', finishedAt: null, purpose: 'write', previousAttemptId: 'a1' },
+    ];
+    const d = { ...deps(), getAll: table => table === 'voiceEntryAttempts' ? rows : [], offlineNotes: { list: async () => [], save: vi.fn() } };
+    const control = mountPushToTalk(d, {});
+    expect(await control.refreshBadge()).toBe(1);
+    const log = openVoiceLog({ deps: d, notes: d.offlineNotes, log: { events: () => [], preview: () => null }, use: vi.fn() });
+    await log.render('unfinished');
+    expect(document.querySelectorAll('#voice-log-sheet-panel [data-kind="attempt"]')).toHaveLength(1);
+    await log.render('all');
+    expect(document.querySelectorAll('#voice-log-sheet-panel [data-kind="attempt"]')).toHaveLength(2);
+  });
+});

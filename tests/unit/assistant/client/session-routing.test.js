@@ -175,3 +175,29 @@ describe('reroute replay is host-marked', () => {
     expect(shown.filter(turn => turn.role === 'user').map(turn => turn.id)).toEqual(['u1']);
   });
 });
+
+describe('retry chains (previous_attempt_id)', async () => {
+  const { createAttemptTracker, unfinishedCount, supersededAttempts } = await import('../../../../src/features/assistant/client/attempts.js');
+  const row = (id, status, previousAttemptId = null) => ({ id, operationId: OP, conversationId: `c-${id}`, capturedAt: '2026-11-09T10:00:00.000Z', status, finishedAt: status === 'finished' ? '2026-11-09T10:05:00.000Z' : null, purpose: 'write', previousAttemptId });
+  it('the badge counts only the newest attempt of a chain', () => {
+    const attempts = [row('a1', 'unfinished'), row('a2', 'unfinished', 'a1'), row('a3', 'unfinished', 'a2'), row('b1', 'unfinished')];
+    expect([...supersededAttempts(attempts)].sort()).toEqual(['a1', 'a2']);
+    expect(unfinishedCount({ attempts, notes: [], noteRows: [] })).toBe(2);
+  });
+  it('discarding the retry makes the predecessor count again', () => {
+    expect(unfinishedCount({ attempts: [row('a1', 'unfinished'), row('a2', 'discarded', 'a1')], notes: [], noteRows: [] })).toBe(1);
+  });
+  it('finishing a retry finishes every unfinished predecessor with the same finished_at', async () => {
+    const store = [row('a0', 'discarded'), row('a1', 'unfinished', 'a0'), row('a2', 'unfinished', 'a1'), row('other', 'unfinished')];
+    const persist = vi.fn(async (scope, type, data) => { const id = data.id ?? 'a3'; const saved = { ...data, id }; const i = store.findIndex(r => r.id === id); if (i >= 0) store[i] = saved; else store.push(saved); return saved; });
+    const tracker = createAttemptTracker({ persist, scope: { operationId: OP }, getAll: () => store, now: () => '2026-11-09T12:00:00.000Z' });
+    await tracker.ensure({ conversationRef: 'c3', intent: 'data-entry', previousAttemptId: 'a2' });
+    expect(unfinishedCount({ attempts: store, notes: [], noteRows: [] })).toBe(2);
+    await tracker.finish();
+    const byId = Object.fromEntries(store.map(r => [r.id, r]));
+    for (const id of ['a3', 'a2', 'a1']) expect(byId[id]).toMatchObject({ status: 'finished', finishedAt: '2026-11-09T12:00:00.000Z' });
+    expect(byId.a0).toMatchObject({ status: 'discarded', finishedAt: null });
+    expect(byId.other.status).toBe('unfinished');
+    expect(unfinishedCount({ attempts: store, notes: [], noteRows: [] })).toBe(1);
+  });
+});

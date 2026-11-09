@@ -7,7 +7,7 @@ import { el, clear } from '../../../ui/dom.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { formatDate } from '../../../utils/date-utils.js';
 import { renderNoteReview } from './offline-note-review.js';
-import { discardAttempt, unfinishedCount } from './attempts.js';
+import { discardAttempt, unfinishedCount, supersededAttempts } from './attempts.js';
 
 export const VOICE_LOG_PURPOSE_LABELS = Object.freeze({ write: 'Write', question: 'Question', feedback: 'Feedback', 'how-to': 'How-to' });
 export const VOICE_LOG_FILTERS = Object.freeze([['today', 'Today'], ['write', 'Write'], ['question', 'Question'], ['feedback', 'Feedback'], ['how-to', 'How-to'], ['unfinished', 'Unfinished'], ['all', 'All']]);
@@ -52,8 +52,9 @@ export function voiceLogRows({ deps, notes, log }) {
     ?? turns.filter(turn => turn.conversationId === attempt.conversationId && turn.speaker === 'user').sort((a, b) => a.turnIndex - b.turnIndex)[0]?.text
     ?? '';
   const used = new Set(noteRows.filter(row => row.attemptId).map(row => row.deviceLocalReference));
+  const superseded = supersededAttempts(attempts);
   return {
-    attempts: attempts.map(attempt => ({ kind: 'attempt', attempt, capturedAt: attempt.capturedAt, status: attempt.status, purpose: attempt.purpose, preview: preview(attempt) })),
+    attempts: attempts.map(attempt => ({ kind: 'attempt', attempt, capturedAt: attempt.capturedAt, status: attempt.status, purpose: attempt.purpose, preview: preview(attempt), superseded: superseded.has(attempt.id) })),
     notes: notes.filter(note => !used.has(note.id)).map(note => ({ kind: 'note', note, capturedAt: note.capturedAt, status: 'unfinished', purpose: null, preview: 'Voice note saved on this device' })),
     unfinished: unfinishedCount({ attempts, notes, noteRows }),
   };
@@ -61,7 +62,8 @@ export function voiceLogRows({ deps, notes, log }) {
 
 export function matchesFilter(row, filter, timezone, now = new Date()) {
   if (filter === 'all') return true;
-  if (filter === 'unfinished') return row.status === 'unfinished';
+  // Matches the badge: only the newest attempt of a retry chain is unfinished work.
+  if (filter === 'unfinished') return row.status === 'unfinished' && !row.superseded;
   if (filter === 'today') return formatDate(row.capturedAt, timezone) === formatDate(now, timezone);
   return row.purpose === filter;
 }

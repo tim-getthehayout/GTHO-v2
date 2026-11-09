@@ -1,15 +1,12 @@
 /** @file Acreage and last closed grazing for a paddock. */
 
 import { getAll } from '../../data/store.js';
+import { lastClosedGraze as lastClosedGrazeFrom } from './grazing-evidence.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display } from '../../utils/units.js';
 
-export function lastClosedGraze(locationId) {
-  const windows = getAll('eventPaddockWindows').filter((w) => w.locationId === locationId && w.dateClosed);
-  if (!windows.length) return null;
-  windows.sort((a, b) => String(b.dateClosed).localeCompare(String(a.dateClosed))
-    || String(b.timeClosed || '').localeCompare(String(a.timeClosed || '')));
-  return windows[0];
+export function lastClosedGraze(locationId, sourceWindows = getAll('eventPaddockWindows')) {
+  return lastClosedGrazeFrom(locationId, sourceWindows);
 }
 
 export function paddockFacts(loc) {

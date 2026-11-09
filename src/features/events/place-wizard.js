@@ -1,3 +1,6 @@
+import { reviewSave, inputField, stateField, observationField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { PLACE_ENTRY_FIELDS } from './place-wizard-entry-fields.js';
 /** @file Place wizard — OI-0163.
  *
  * Entry point for placing an unplaced group on a destination paddock or
@@ -44,7 +47,8 @@ function ensureSheetDOM() {
  * @param {string} farmId - operation's active farm; used as the Step 2
  *   farm-chip default
  */
-export function openPlaceWizard(groupId, operationId, farmId) {
+export function openPlaceWizard(groupId, operationId, farmId, options = {}) {
+  if (options.review && getAll('eventGroupWindows').some(window => window.groupId === groupId && !window.dateLeft)) throw new Error('group-already-placed');
   // Pre-open empty-group guard. A group with zero active memberships has
   // nothing to place; surface a toast and abort instead of letting the
   // wizard open onto a no-op Save (the destination GW write would skip
@@ -85,6 +89,10 @@ export function openPlaceWizard(groupId, operationId, farmId) {
     // timeOut / dateInTouched / timeInTouched do not exist on this state.
   };
 
+  state.assistantReview = !!options.review;
+  const seed = options.initialFields || {};
+  for (const key of ['destType','locationId','locationIds','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount','dateIn','timeIn']) if (Object.hasOwn(seed,key)) state[key] = seed[key];
+  if (options.review && ['new','join'].includes(state.destType)) state.step = 3;
   function render() {
     clear(panel);
 
@@ -106,7 +114,7 @@ export function openPlaceWizard(groupId, operationId, farmId) {
       // exclude from the candidate list).
       renderStep2(panel, state, render, operationId, null);
     } else {
-      renderStep3(panel, state, group, operationId, farmId, render);
+      renderStep3(panel, state, group, operationId, farmId, render, options);
     }
   }
 
@@ -114,7 +122,7 @@ export function openPlaceWizard(groupId, operationId, farmId) {
   placeWizardSheet.open();
 }
 
-function renderStep3(panel, state, group, operationId, farmId, parentRender) {
+function renderStep3(panel, state, group, operationId, farmId, parentRender, options = {}) {
   const inputs = {};
 
   const destIds = state.destType === 'new' ? destinationLocationIds(state) : [];
@@ -166,7 +174,7 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender) {
     preGraze = renderPreGrazeCard({
       farmSettings,
       paddockAcres: summedPaddockAcres(destIds),
-      initialValues: {},
+      initialValues: options.initialFields?.preGraze || {},
     });
     preGraze.container.setAttribute('data-testid', 'place-wizard-pre-graze-card');
     openSection.appendChild(preGraze.container);
@@ -181,9 +189,9 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender) {
     className: 'btn btn-green',
     'data-testid': 'place-wizard-save',
   }, [t('action.done')]);
-  saveBtn.addEventListener('click', () => {
+  saveBtn.addEventListener('click', reviewSave(options.review, () => {
     executePlaceWizard(state, inputs, group, operationId, farmId, statusEl, preGraze, saveBtn);
-  });
+  }));
 
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
     el('button', {
@@ -192,6 +200,11 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender) {
     }, [t('action.back')]),
     saveBtn,
   ]));
+  const fields = { dateIn: inputField(inputs.dateIn),timeIn: inputField(inputs.timeIn) };
+  for (const key of ['destType','locationId','locationIds','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount']) fields[key] = stateField(state,key);
+  if (preGraze) fields.preGraze = observationField(preGraze);
+  options.review?.bind({ ui: 'Place wizard',close: () => placeWizardSheet.close(),onError: () => { saveBtn.disabled = false; },entityType: 'events',status: statusEl,fields: bindEntryFields(PLACE_ENTRY_FIELDS, fields),savedRecordId: () => state.destType === 'join' ? state.existingEventId : null });
+
 }
 
 function executePlaceWizard(state, inputs, group, operationId, farmId, statusEl, preGraze, saveBtn) {
@@ -274,7 +287,7 @@ function executePlaceWizard(state, inputs, group, operationId, farmId, statusEl,
       });
     }
 
-    placeWizardSheet?.close();
+    if (!state.assistantReview) placeWizardSheet?.close();
   } catch (err) {
     logger.error('place-wizard', 'Save failed', {
       error: err && err.message ? err.message : String(err),

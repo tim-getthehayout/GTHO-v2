@@ -21,6 +21,20 @@ export const FIELDS = {
   resolutionNote:     { type: 'text',        required: false, sbColumn: 'resolution_note' },
   oiNumber:           { type: 'text',        required: false, sbColumn: 'oi_number' },
   linkedTo:           { type: 'uuid',        required: false, sbColumn: 'linked_to' },
+  feedbackKind: { type: 'text', required: false, sbColumn: 'feedback_kind' },
+  contractVersion: { type: 'text', required: false, sbColumn: 'contract_version' },
+  title: { type: 'text', required: false, sbColumn: 'title' },
+  firstNote: { type: 'text', required: false, sbColumn: 'first_note' },
+  expected: { type: 'text', required: false, sbColumn: 'expected' },
+  actual: { type: 'text', required: false, sbColumn: 'actual' },
+  severity: { type: 'text', required: false, sbColumn: 'severity' },
+  impactAffectedWork: { type: 'text', required: false, sbColumn: 'impact_affected_work' },
+  impactWorkaround: { type: 'text', required: false, sbColumn: 'impact_workaround' },
+  impactDataRisk: { type: 'text', required: false, sbColumn: 'impact_data_risk' },
+  capturedAt: { type: 'timestamptz', required: false, sbColumn: 'captured_at' },
+  filedAt: { type: 'timestamptz', required: false, sbColumn: 'filed_at' },
+  conversationId: { type: 'uuid', required: false, sbColumn: 'conversation_id' },
+  reviewConfirmationId: { type: 'uuid', required: false, sbColumn: 'review_confirmation_id' },
   createdAt:          { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:          { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -47,6 +61,20 @@ export function create(data = {}) {
     resolutionNote:    data.resolutionNote    ?? null,
     oiNumber:          data.oiNumber          ?? null,
     linkedTo:          data.linkedTo          ?? null,
+    feedbackKind: data.feedbackKind ?? null,
+    contractVersion: data.contractVersion ?? null,
+    title: data.title ?? null,
+    firstNote: data.firstNote ?? null,
+    expected: data.expected ?? null,
+    actual: data.actual ?? null,
+    severity: data.severity ?? null,
+    impactAffectedWork: data.impactAffectedWork ?? null,
+    impactWorkaround: data.impactWorkaround ?? null,
+    impactDataRisk: data.impactDataRisk ?? null,
+    capturedAt: data.capturedAt ?? null,
+    filedAt: data.filedAt ?? null,
+    conversationId: data.conversationId ?? null,
+    reviewConfirmationId: data.reviewConfirmationId ?? null,
     createdAt:         data.createdAt         ?? new Date().toISOString(),
     updatedAt:         data.updatedAt         ?? new Date().toISOString(),
   };
@@ -58,6 +86,10 @@ export function validate(record) {
   if (!record.type || typeof record.type !== 'string' || record.type.trim() === '') {
     errors.push('type is required');
   }
+  // Historical rows can remain explicitly unknown. New filing completeness belongs
+  // to the pinned interview validator, not legacy purpose/priority/build fields.
+  if (record.feedbackKind != null && !['bug', 'request'].includes(record.feedbackKind)) errors.push('feedbackKind is invalid');
+  if (record.severity != null && !['critical', 'high', 'normal', 'low'].includes(record.severity)) errors.push('severity is invalid');
   return { valid: errors.length === 0, errors };
 }
 
@@ -83,6 +115,20 @@ export function toSupabaseShape(record) {
     resolution_note:      record.resolutionNote,
     oi_number:            record.oiNumber,
     linked_to:            record.linkedTo,
+    feedback_kind: record.feedbackKind ?? null,
+    contract_version: record.contractVersion ?? null,
+    title: record.title ?? null,
+    first_note: record.firstNote ?? null,
+    expected: record.expected ?? null,
+    actual: record.actual ?? null,
+    severity: record.severity ?? null,
+    impact_affected_work: record.impactAffectedWork ?? null,
+    impact_workaround: record.impactWorkaround ?? null,
+    impact_data_risk: record.impactDataRisk ?? null,
+    captured_at: record.capturedAt ?? null,
+    filed_at: record.filedAt ?? null,
+    conversation_id: record.conversationId ?? null,
+    review_confirmation_id: record.reviewConfirmationId ?? null,
     created_at:           record.createdAt,
     updated_at:           record.updatedAt,
   };
@@ -110,6 +156,20 @@ export function fromSupabaseShape(row) {
     resolutionNote:    row.resolution_note,
     oiNumber:          row.oi_number,
     linkedTo:          row.linked_to,
+    feedbackKind: row.feedback_kind ?? null,
+    contractVersion: row.contract_version ?? null,
+    title: row.title ?? null,
+    firstNote: row.first_note ?? null,
+    expected: row.expected ?? null,
+    actual: row.actual ?? null,
+    severity: row.severity ?? null,
+    impactAffectedWork: row.impact_affected_work ?? null,
+    impactWorkaround: row.impact_workaround ?? null,
+    impactDataRisk: row.impact_data_risk ?? null,
+    capturedAt: row.captured_at ?? null,
+    filedAt: row.filed_at ?? null,
+    conversationId: row.conversation_id ?? null,
+    reviewConfirmationId: row.review_confirmation_id ?? null,
     createdAt:         row.created_at,
     updatedAt:         row.updated_at,
   };

@@ -10,6 +10,9 @@ import * as CalvingEntity from '../../entities/animal-calving-record.js';
 import * as AnimalEntity from '../../entities/animal.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
 import * as MembershipEntity from '../../entities/animal-group-membership.js';
+import { reviewSave, inputField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { CALVING_ENTRY_FIELDS } from './calving-entry-fields.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let calvingSheet = null;
@@ -22,7 +25,7 @@ function ensureSheetDOM() {
   ]));
 }
 
-export function openCalvingSheet(dam, operationId) {
+export function openCalvingSheet(dam, operationId, options = {}) {
   if (dam?.isBulk) return;
   ensureSheetDOM();
   if (!calvingSheet) calvingSheet = new Sheet('calving-sheet-wrap');
@@ -121,7 +124,7 @@ export function openCalvingSheet(dam, operationId) {
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
     el('button', {
       className: 'btn btn-green', 'data-testid': 'calving-sheet-save',
-      onClick: () => {
+      onClick: reviewSave(options.review, () => {
         clear(statusEl);
         try {
           const calvedAt = new Date(dateInput.value + 'T12:00:00Z').toISOString();
@@ -184,8 +187,11 @@ export function openCalvingSheet(dam, operationId) {
           });
           add('animalCalvingRecords', calvingRecord, CalvingEntity.validate,
             CalvingEntity.toSupabaseShape, 'animal_calving_records');
+          // Required even for stillbirths and when the optional class prompt is declined.
+          update('animals', dam.id, { confirmedBred: false },
+            AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
 
-          calvingSheet.close();
+          if (!options.review) calvingSheet.close();
 
           // A27: Class reassignment prompt (non-blocking)
           if (cls && cls.role === 'heifer') {
@@ -198,11 +204,15 @@ export function openCalvingSheet(dam, operationId) {
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));
         }
-      },
+      }),
     }, [t('action.save')]),
     el('button', { className: 'btn btn-outline', onClick: () => calvingSheet.close() }, [t('action.cancel')]),
   ]));
 
+  const fields = { date: inputField(dateInput), stillbirth: inputField(stillbirthCheck), calfTag: inputField(calfTagInput), calfSex: { required: false, get: () => calfSexState.value, set: value => { calfSexState.value = value; renderSex(); } }, calfWeight: inputField(calfWeightInput), calfClassId: inputField(calfClassSelect), calfGroupId: inputField(calfGroupSelect), notes: inputField(notesInput) };
+  const dried = panel.querySelector('[data-testid="calving-sheet-dried-off"]');
+  if (dried) fields.driedOffDate = inputField(dried);
+  options.review?.bind({ ui: 'Calving sheet', close: () => calvingSheet.close(), entityType: 'animalCalvingRecords', status: statusEl, fields: bindEntryFields(CALVING_ENTRY_FIELDS, fields) });
   calvingSheet.open();
 }
 

@@ -1,6 +1,7 @@
+import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
 /** @file Store — single data access point. See V2_APP_ARCHITECTURE.md §4. */
 
-import { saveToStorage, loadFromStorage } from './local-storage.js';
+import { saveToStorage, loadFromStorage, recoverDurableWrite, getDurableWriteReceipt, commitDurableWrite, hasPendingDurableWrite } from './local-storage.js';
 import { getUser } from '../features/auth/session.js';
 import { validate as validateOperation, toSupabaseShape as operationToSb } from '../entities/operation.js';
 import { validate as validateUserPref, toSupabaseShape as userPrefToSb } from '../entities/user-preference.js';
@@ -43,6 +44,7 @@ export const ENTITY_TYPES = [
   'batchNutritionalProfiles',
   // D11: App Infrastructure
   'appLogs', 'submissions', 'todos', 'todoAssignments', 'releaseNotes',
+  ...Object.keys(ASSISTANT_ENTITIES).filter(key => !ASSISTANT_ENTITIES[key].serverOnly),
 ];
 
 /** In-memory state */
@@ -53,6 +55,57 @@ const subscribers = {};
 
 /** Current sync adapter instance */
 let syncAdapter = null;
+let durableWrite = null;
+
+/** Execute existing synchronous validate/add/update paths as one recoverable write.
+ * A journalled retry returns its receipt without invoking the UI write again. */
+export function runDurableWrite(key, write) {
+  const parts = JSON.parse(key);
+  if (!Array.isArray(parts) || parts.length !== 4 || !parts.slice(0,3).every(value => typeof value === 'string' && value.trim()) || !Number.isInteger(parts[3]) || parts[3] < 1) throw new Error('invalid-execution-key');
+  if (durableWrite) throw new Error('nested-durable-write');
+  const existing = getDurableWriteReceipt(key);
+  // Recovery may have completed a previously journalled multi-record write.
+  init();
+  if (existing) return existing;
+  const before = globalThis.structuredClone(state);
+  const tx = { operationId: parts[0],types: new Set(), commands: [], failed: null };
+  durableWrite = tx;
+  try {
+    const savedRecordId = write();
+    if (tx.failed) throw tx.failed;
+    if (savedRecordId?.then) throw new Error('durable-write-must-be-synchronous');
+    if (!savedRecordId || !tx.types.size) throw new Error('no-confirmed-write');
+    const writes = Object.fromEntries([...tx.types].map(type => [type,state[type]]));
+    const receipt = commitDurableWrite(key,writes,tx.commands,savedRecordId);
+    durableWrite = null;
+    for (const type of tx.types) notify(type);
+    // Queue bytes are already durable. Never infer server acknowledgement.
+    return receipt;
+  } catch (error) {
+    Object.assign(state,before);
+    throw error;
+  } finally { durableWrite = null; }
+}
+
+function recoverBeforeMutation() { if (!durableWrite && hasPendingDurableWrite()) init(); }
+function requireWriteScope(record) {
+  if (durableWrite && record.operationId !== durableWrite.operationId) {
+    durableWrite.failed = new Error('durable-write-operation-mismatch'); throw durableWrite.failed;
+  }
+}
+function persistMutation(entityType, command) {
+  if (durableWrite) {
+    durableWrite.types.add(entityType);
+    if (command) durableWrite.commands.push(command);
+    return;
+  }
+  saveToStorage(entityType,state[entityType]);
+  if (command && syncAdapter) {
+    if (command.operation === 'delete') syncAdapter.delete(command.table,command.record.id);
+    else syncAdapter.push(command.table,command.record,command.operation);
+  }
+  notify(entityType);
+}
 
 /**
  * Initialize store state arrays for all entity types.
@@ -71,6 +124,7 @@ initState();
  * Load all entity types from localStorage into state.
  */
 export function init() {
+  recoverDurableWrite();
   for (const type of ENTITY_TYPES) {
     state[type] = loadFromStorage(type);
   }
@@ -137,25 +191,21 @@ export function getByField(entityType, field, value) {
  * @returns {object} The added record
  */
 export function add(entityType, record, validateFn, toSupabaseFn, table) {
+  recoverBeforeMutation();
   // 1. Validate
   const result = validateFn(record);
   if (!result.valid) {
-    throw new Error(`Validation failed for ${entityType}: ${result.errors.join(', ')}`);
+    const error = new Error(`Validation failed for ${entityType}: ${result.errors.join(', ')}`);
+    if (durableWrite) durableWrite.failed = error;
+    throw error;
   }
 
-  // 2. Mutate state
-  state[entityType].push(record);
-
-  // 3. Persist to localStorage
-  saveToStorage(entityType, state[entityType]);
-
-  // 4. Queue sync (insert for new records)
-  if (syncAdapter && toSupabaseFn && table) {
-    syncAdapter.push(table, toSupabaseFn(record), 'insert');
-  }
-
-  // 5. Notify subscribers
-  notify(entityType);
+  requireWriteScope(record);
+  // Persist before publishing memory/sync/subscriber success.
+  const previous = state[entityType];
+  state[entityType] = [...previous,record];
+  try { persistMutation(entityType, toSupabaseFn && table ? { table,record: toSupabaseFn(record),operation: 'insert' } : null); }
+  catch (error) { state[entityType] = previous; throw error; }
 
   return record;
 }
@@ -171,6 +221,7 @@ export function add(entityType, record, validateFn, toSupabaseFn, table) {
  * @returns {object} The updated record
  */
 export function update(entityType, id, changes, validateFn, toSupabaseFn, table) {
+  recoverBeforeMutation();
   const index = state[entityType].findIndex(r => r.id === id);
   if (index === -1) {
     throw new Error(`${entityType} record not found: ${id}`);
@@ -181,22 +232,16 @@ export function update(entityType, id, changes, validateFn, toSupabaseFn, table)
   // 1. Validate
   const result = validateFn(updated);
   if (!result.valid) {
-    throw new Error(`Validation failed for ${entityType}: ${result.errors.join(', ')}`);
+    const error = new Error(`Validation failed for ${entityType}: ${result.errors.join(', ')}`);
+    if (durableWrite) durableWrite.failed = error;
+    throw error;
   }
 
-  // 2. Mutate state
-  state[entityType][index] = updated;
-
-  // 3. Persist
-  saveToStorage(entityType, state[entityType]);
-
-  // 4. Queue sync (update for existing records)
-  if (syncAdapter && toSupabaseFn && table) {
-    syncAdapter.push(table, toSupabaseFn(updated), 'update');
-  }
-
-  // 5. Notify
-  notify(entityType);
+  requireWriteScope(updated);
+  const previous = state[entityType];
+  state[entityType] = previous.map((row,i) => i === index ? updated : row);
+  try { persistMutation(entityType, toSupabaseFn && table ? { table,record: toSupabaseFn(updated),operation: 'update' } : null); }
+  catch (error) { state[entityType] = previous; throw error; }
 
   return updated;
 }
@@ -208,22 +253,15 @@ export function update(entityType, id, changes, validateFn, toSupabaseFn, table)
  * @param {string} [table] - Supabase table name for sync
  */
 export function remove(entityType, id, table) {
+  recoverBeforeMutation();
   const index = state[entityType].findIndex(r => r.id === id);
   if (index === -1) return;
 
-  // Mutate
-  state[entityType].splice(index, 1);
-
-  // Persist
-  saveToStorage(entityType, state[entityType]);
-
-  // Queue sync
-  if (syncAdapter && table) {
-    syncAdapter.delete(table, id);
-  }
-
-  // Notify
-  notify(entityType);
+  requireWriteScope(state[entityType][index]);
+  const previous = state[entityType];
+  state[entityType] = previous.filter((row,i) => i !== index);
+  try { persistMutation(entityType, table ? { table,record: { id },operation: 'delete' } : null); }
+  catch (error) { state[entityType] = previous; throw error; }
 }
 
 // --- Convenience Getters ---
@@ -246,6 +284,7 @@ export function getOperation() {
  * @returns {object} The updated operation
  */
 export function setUnitSystem(value) {
+  recoverBeforeMutation();
   const index = state.operations.findIndex(() => true);
   if (index === -1) {
     throw new Error('No operation exists to set unit system on');
@@ -319,6 +358,7 @@ export function isCurrentUserOwnerOrAdmin(operationId) {
  * @param {string|null} farmId
  */
 export function setActiveFarm(farmId) {
+  recoverBeforeMutation();
   const index = state.userPreferences.findIndex(() => true);
   if (index === -1) return;
 
@@ -528,6 +568,7 @@ function drainNotifications(dirtyTypes) {
  * @returns {{ added: number, updated: number }}
  */
 export function mergeRemote(entityType, remoteRecords) {
+  recoverBeforeMutation();
   let added = 0;
   let updated = 0;
 
@@ -595,6 +636,7 @@ export function captureEventSnapshot(eventId) {
  * @param {object} snapshot — from captureEventSnapshot
  */
 export function restoreEventSnapshot(snapshot) {
+  recoverBeforeMutation();
   if (!snapshot) return;
   try {
     localStorage.setItem(ROLLBACK_FLAG, 'true');

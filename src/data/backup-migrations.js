@@ -1,3 +1,5 @@
+import { ASSISTANT_TABLES, SERVER_ASSISTANT_TABLES, HISTORICAL_FEEDBACK_FACTS, SUBMISSION_EXTENSION_COLUMNS } from '../features/assistant/schema.js';
+
 /**
  * @file Backup migration chain registry — CP-55.
  * See V2_MIGRATION_PLAN.md §5.9.
@@ -192,6 +194,24 @@ export const BACKUP_MIGRATIONS = {
       }
     }
     b.schema_version = 39;
+    return b;
+  },
+  // 039 → 040: additive host facts with explicit unknowns, preserving legacy history.
+  39: (b) => {
+    for (const table of ASSISTANT_TABLES) if (!SERVER_ASSISTANT_TABLES.has(table)) b.tables[table] ??= [];
+    for (const row of b.tables.submissions || []) {
+      for (const column of SUBMISSION_EXTENSION_COLUMNS) row[column] ??= null;
+      for (const fieldName of HISTORICAL_FEEDBACK_FACTS) {
+        if (b.tables.submission_field_states.some(state => state.submission_id === row.id && state.field_name === fieldName)) continue;
+        b.tables.submission_field_states.push({
+          id: crypto.randomUUID(), operation_id: row.operation_id, submission_id: row.id,
+          field_name: fieldName, state: 'unknown', reason: null, source: 'host',
+        });
+      }
+    }
+
+    b.schema_version = 40;
+    for (const op of b.tables.operations || []) op.schema_version = 40;
     return b;
   },
 };

@@ -22,6 +22,7 @@
     "vitest": "^4.1.4"
   },
   "dependencies": {
+    "@noble/hashes": "2.0.1",
     "@supabase/supabase-js": "^2.103.0"
   }
 }

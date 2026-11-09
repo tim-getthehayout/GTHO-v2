@@ -5,6 +5,7 @@
  * wholesale-replaces operation data in FK-dependency order per §5.3a.
  */
 
+import { SERVER_ASSISTANT_TABLES } from '../features/assistant/schema.js';
 import { supabase } from './supabase-client.js';
 import { canExport, exportOperationBackup, downloadBackup } from './backup-export.js';
 import { BACKUP_MIGRATIONS } from './backup-migrations.js';
@@ -12,7 +13,7 @@ import { pullAllRemote } from './pull-remote.js';
 import { logger } from '../utils/logger.js';
 
 const SUPPORTED_FORMAT_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 39;
+const CURRENT_SCHEMA_VERSION = 40;
 
 const FK_ORDER = [
   'operations',
@@ -65,12 +66,40 @@ const FK_ORDER = [
   'animal_notes',
   'todos',
   'todo_assignments',
+  // Artifact metadata only: audio bytes have no backup/storage contract.
+  'assistant_session_locks',
+  'assistant_billing_policies',
+  'assistant_billing_reservations',
+  'assistant_billing_usage',
+  'assistant_billing_settlements',
+  'assistant_conversations',
+  'assistant_transcript_turns',
+  'voice_entry_attempts',
+  'assistant_proposals',
+  'assistant_proposal_revisions',
+  'assistant_field_mappings',
+  'assistant_review_cards',
+  'assistant_review_confirmations',
   'submissions',
+  'submission_field_states',
+  'submission_repro_steps',
+  'assistant_session_checkpoints',
+  'assistant_execution_results',
+  'assistant_testing_consents',
+  'assistant_testing_audio',
+  'assistant_restore_fences', // server-only metadata; no operations FK
+  'offline_voice_notes',
 ];
+
+export const BROWSER_FK_ORDER = FK_ORDER.filter(table => !SERVER_ASSISTANT_TABLES.has(table));
 
 const TWO_PASS_TABLES = {
   animals: ['dam_id', 'sire_animal_id'],
   events: ['source_event_id'],
+  assistant_transcript_turns: ['corrects_turn_id'],
+  voice_entry_attempts: ['previous_attempt_id'],
+  assistant_proposal_revisions: ['superseded_by_id'],
+  assistant_field_mappings: ['correction_predecessor_id'],
 };
 
 const REFERENCE_TABLES = new Set([
@@ -217,7 +246,7 @@ async function insertTableRows(table, rows, operationId) {
 async function parityCheck(backup, operationId) {
   const mismatches = [];
 
-  for (const table of FK_ORDER) {
+  for (const table of BROWSER_FK_ORDER) {
     const backupRows = backup.tables[table] || [];
     const expected = backupRows.length;
 
@@ -246,6 +275,35 @@ async function parityCheck(backup, operationId) {
   return { pass: mismatches.length === 0, mismatches };
 }
 
+/** SQL owns authority visibility and race-safe admission. No direct table reads. */
+export async function preflightAssistantRestore(backup,operationId,client = supabase) {
+  // The fence protects exactly this operation, never cross-operation writes
+  // smuggled through a file. Global reference tables remain unscoped.
+  if (backup.operation_id && backup.operation_id !== operationId) return { success: false,error: 'Restore refused: backup operation does not match the target operation.' };
+  for (const table of BROWSER_FK_ORDER) {
+    if (REFERENCE_TABLES.has(table)) continue;
+    const rows = backup.tables?.[table];
+    if (rows != null && (!Array.isArray(rows) || rows.some(row => !row || (table === 'operations' ? row.id !== operationId : row.operation_id != null && row.operation_id !== operationId)))) return { success: false,error: 'Restore refused: client rows do not match the fenced operation.' };
+  }
+  if ((backup.tables?.offline_voice_notes || []).some(row => row.confirmed_execution_result_id != null)) return { success: false,error: 'Restore refused: offline voice notes reference retained server execution results.' };
+  try {
+    const { data,error } = await client.rpc('assistant_restore_prepare',{ p_operation: operationId });
+    const prepared = Array.isArray(data) && data.length === 1 ? data[0] : null;
+    if (!error && prepared?.outcome === 'prepared' && typeof prepared.fence_token === 'string' && prepared.fence_token.trim()) return { success: true,fenceToken: prepared.fence_token };
+    const reason = !error && prepared?.outcome === 'retained-authority' ? 'retained backend authority exists'
+      : !error && prepared?.outcome === 'restore-in-progress' ? 'another restore is in progress'
+        : 'authoritative assistant state cannot be verified';
+    return { success: false,error: `Restore refused: ${reason}.` };
+  } catch { return { success: false,error: 'Restore refused: authoritative assistant preflight unavailable.' }; }
+}
+async function releaseRestoreFence(operationId,token,action) {
+  try {
+    const { data,error } = await supabase.rpc(`assistant_restore_${action}`,{ p_operation: operationId,p_fence_token: token });
+    return !error && Array.isArray(data) && data.length === 1 && data[0].outcome === (action === 'finish' ? 'finished' : 'aborted');
+  } catch { return false; }
+}
+function checkRestoreCancelled(options) { if (options.signal?.aborted) throw new Error('Restore cancelled.'); }
+
 export async function importOperationBackup(backup, operationId, onProgress, options = {}) {
   const progress = (phase, detail, pct) => {
     if (onProgress) onProgress(phase, detail, pct);
@@ -262,12 +320,37 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     return { success: false, error: 'Sync pending — retry when sync completes.' };
   }
 
+  if (options.signal?.aborted) return { success: false,error: 'Restore cancelled.' };
+  const authority = await preflightAssistantRestore(backup,operationId);
+  if (!authority.success) return authority;
+
+  let result,finished = false;
+  try {
+    result = await restoreBrowserTables(backup,operationId,progress,options,validation);
+    if (result.success) {
+      finished = await releaseRestoreFence(operationId,authority.fenceToken,'finish');
+      if (!finished) result = { ...result,success: false,error: 'Restore completed but fence finish could not be verified.' };
+    }
+  } catch (error) { result = { success: false,error: error.message || 'Restore halted.' }; }
+  finally {
+    if (!finished && !await releaseRestoreFence(operationId,authority.fenceToken,'abort')) {
+      // A network/auth failure cannot be treated as proof of release. Keep the
+      // operation protected; never print its token or invent stale-fence expiry.
+      result = { ...result,success: false,fenceReleaseFailed: true,error: `${result?.error || 'Restore halted.'} Restore fence abort could not be verified; the operation may remain fenced.` };
+    }
+  }
+  return result;
+}
+
+async function restoreBrowserTables(backup,operationId,progress,options,validation) {
   let autoBackupFileName;
+  checkRestoreCancelled(options);
   if (options.skipAutoBackup) {
     logger.info('backup', 'auto-backup skipped (empty operation)', { operation_id: operationId });
   } else {
     progress('Saving current data (auto-backup)', '', 10);
     try {
+      checkRestoreCancelled(options);
       const { json, fileName } = await exportOperationBackup(operationId);
       autoBackupFileName = fileName.replace('gtho-v2-backup__', 'gtho-v2-auto-backup-before-restore__');
       downloadBackup(json, autoBackupFileName);
@@ -277,6 +360,7 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     }
   }
 
+  checkRestoreCancelled(options);
   if (backup.schema_version < CURRENT_SCHEMA_VERSION) {
     progress('Migrating', `v${backup.schema_version} → v${CURRENT_SCHEMA_VERSION}`, 20);
     const migResult = migrateBackupForward(backup);
@@ -285,13 +369,28 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     }
   }
 
-  const deleteOrder = [...FK_ORDER].reverse();
-  const totalSteps = deleteOrder.length + FK_ORDER.length;
+  // Break only nullable self-links; retained values come from the backup on restore.
+  // This is wholesale restore, NOT finished-at retention cleanup.
+  for (const [table, columns] of Object.entries(TWO_PASS_TABLES)) {
+    checkRestoreCancelled(options);
+    try {
+      const changes = Object.fromEntries(columns.map(column => [column, null]));
+      const { error } = await supabase.from(table).update(changes).eq('operation_id', operationId);
+      if (error) throw error;
+    } catch (err) {
+      return { success: false, error: `Detach failed on ${table}: ${err.message}`, autoBackupFileName };
+    }
+  }
+
+  const deleteOrder = [...BROWSER_FK_ORDER].reverse();
+  const totalSteps = deleteOrder.length + BROWSER_FK_ORDER.length;
   let stepsDone = 0;
 
   for (const table of deleteOrder) {
+    checkRestoreCancelled(options);
     progress('Replacing data', `Deleting ${table}`, 25 + Math.round((stepsDone / totalSteps) * 50));
     try {
+      checkRestoreCancelled(options);
       await deleteTableRows(table, operationId);
     } catch (err) {
       logger.error('backup', 'import failed', { stage: 'delete', table, error: err.message });
@@ -301,10 +400,12 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  for (const table of FK_ORDER) {
+  for (const table of BROWSER_FK_ORDER) {
+    checkRestoreCancelled(options);
     const rows = backup.tables[table] || [];
     progress('Replacing data', `Inserting ${table} (${rows.length} rows)`, 25 + Math.round((stepsDone / totalSteps) * 50));
     try {
+      checkRestoreCancelled(options);
       await insertTableRows(table, rows, operationId);
     } catch (err) {
       logger.error('backup', 'import failed', { stage: 'insert', table, error: err.message });
@@ -314,17 +415,19 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 
+  checkRestoreCancelled(options);
   progress('Refreshing', '', 85);
   try {
     await pullAllRemote();
   } catch (err) {
     logger.error('backup', 'store re-hydrate failed after import', { error: err.message });
+    return { success: false,error: 'Store refresh failed after import.',autoBackupFileName };
   }
 
   progress('Verifying', '', 90);
   const parityResult = await parityCheck(backup, operationId);
 
-  const totalRows = FK_ORDER.reduce((sum, t) => sum + (backup.tables[t] || []).length, 0);
+  const totalRows = BROWSER_FK_ORDER.reduce((sum, t) => sum + (backup.tables[t] || []).length, 0);
   if (parityResult.pass) {
     logger.info('backup', 'import complete', {
       operation_id: operationId,
@@ -338,6 +441,7 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     });
   }
 
+  checkRestoreCancelled(options);
   progress('Done', '', 100);
 
   return {

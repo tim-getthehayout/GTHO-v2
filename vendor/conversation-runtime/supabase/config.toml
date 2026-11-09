@@ -1,0 +1,5 @@
+# Pure JavaScript entrypoint; gateway JWT checks stay enabled.
+# The backend ALSO authenticates identity and checks operation membership via host ports.
+[functions.conversation-runtime]
+entrypoint = './functions/conversation-runtime/index.js'
+verify_jwt = true

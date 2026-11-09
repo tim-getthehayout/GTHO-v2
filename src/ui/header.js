@@ -139,7 +139,8 @@ export function renderHeader(container) {
         'data-testid': 'header-help-btn',
         onClick: () => openFeedbackSheet('support', operations[0]?.id),
       }, ['\uD83C\uDD98 Get Help']),
-    ]),
+      renderAssistantControl(operations[0]?.id),
+    ].filter(Boolean)),
     nav,
   ]);
 
@@ -645,6 +646,22 @@ function updateBadges() {
 
 let feedbackSheet = null;
 
+/** Build flag VITE_GTHO_ASSISTANT=1 includes the control; it stays hidden until the
+ * backend answers with config (a 403 for a non-allowlisted operation keeps it hidden). */
+function renderAssistantControl(operationId) {
+  if (import.meta.env.VITE_GTHO_ASSISTANT !== '1' || !operationId) return null;
+  const button = el('button', {
+    className: 'btn btn-outline btn-xs',
+    style: { fontSize: '11px', fontWeight: '500', padding: '3px 10px' },
+    'data-testid': 'header-assistant-btn',
+  }, ['\uD83C\uDF99 Assistant']);
+  button.hidden = true;
+  import('../features/assistant/client/wiring.js')
+    .then(module => module.mountHeaderAssistant(button, { operationId, getUser, openFeedbackSheet, screen: getScreenFromHash, buildStamp: typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : null }))
+    .catch(() => { button.hidden = true; });
+  return button;
+}
+
 function ensureFeedbackSheetDOM() {
   if (document.getElementById('fb-sheet-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'fb-sheet-wrap', style: { zIndex: '210' } }, [
@@ -659,7 +676,7 @@ function getScreenFromHash() {
   return map[hash.split('?')[0]] || 'other';
 }
 
-function openFeedbackSheet(type, operationId) {
+export function openFeedbackSheet(type, operationId, options = {}) {
   ensureFeedbackSheetDOM();
   if (!feedbackSheet) feedbackSheet = new Sheet('fb-sheet-wrap');
   const panel = document.getElementById('fb-sheet-panel');
@@ -734,10 +751,27 @@ function openFeedbackSheet(type, operationId) {
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
 
+  // The structured review binding is injected by the flag-gated assistant wiring
+  // (options.mountFeedbackReview), so a flag-off build ships no feedback-module code.
+  if (options.feedbackSession && typeof options.mountFeedbackReview !== 'function') throw new Error('feedback-review-binding-required');
+  const structured = options.feedbackSession ? options.mountFeedbackReview(panel,options.feedbackSession,{ ...options,onSession: async snapshot => { noteTextarea.readOnly = !!snapshot.item.firstNote;await options.onSession?.(snapshot); } }) : null;
+  if (structured) { noteTextarea.value = options.feedbackSession.item.firstNote?.value || '';noteTextarea.readOnly = !!options.feedbackSession.item.firstNote; }
   // Buttons
   panel.appendChild(el('div', { className: 'btn-row' }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
+    el('button', { className: 'btn btn-green', onClick: async () => {
       clear(statusEl);
+      if (structured) {
+        try {
+          const handoff = await structured.confirm(noteTextarea.value);
+          if (!handoff) { statusEl.textContent = 'Review the populated fields, then confirm this revision.'; return; }
+          if (typeof options.fileConfirmed !== 'function') throw new Error('confirmed-feedback-filing-binding-required');
+          const reports = await options.fileConfirmed(handoff);
+          if (!Array.isArray(reports) || !reports.some(report => report.state === 'local_save')) throw new Error('confirmed-local-save-evidence-required');
+          for (const report of reports || []) await structured.delivery(report);
+          feedbackSheet.close();
+        } catch (error) { statusEl.textContent = error.message; }
+        return;
+      }
       if (!selectedCategory) { statusEl.appendChild(el('span', {}, ['Select a category'])); return; }
       if (!noteTextarea.value.trim()) { statusEl.appendChild(el('span', {}, ['Note is required'])); return; }
       try {
@@ -758,4 +792,5 @@ function openFeedbackSheet(type, operationId) {
   ]));
 
   feedbackSheet.open();
+  return structured;
 }

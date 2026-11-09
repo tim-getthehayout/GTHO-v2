@@ -1,3 +1,6 @@
+import { reviewSave, inputField, stateField, observationField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { MOVE_ENTRY_FIELDS } from './move-wizard-entry-fields.js';
 /** @file Move wizard — CP-19. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -88,6 +91,9 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
     scopedGroupWindowId,
   };
 
+  const seed = opts.initialFields || {};
+  for (const key of ['destType','locationId','locationIds','feedLocationId','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount','dateOut','timeOut','dateIn','timeIn']) if (Object.hasOwn(seed,key)) state[key] = seed[key];
+  if (opts.review && ['new','join'].includes(state.destType)) state.step = 3;
   function render() {
     clear(panel);
 
@@ -100,7 +106,7 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
 
     if (state.step === 1) renderStep1(panel, state, render, () => moveWizardSheet?.close());
     else if (state.step === 2) renderStep2(panel, state, render, operationId, sourceEvent);
-    else renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys);
+    else renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, opts,render);
   }
 
   render();
@@ -108,7 +114,7 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
 }
 
 // Step 3: Close & Move
-function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
+function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, opts = {},parentRender) {
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.step3Title')]));
 
   const inputs = {};
@@ -217,7 +223,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   const farmSettings = getAll('farmSettings')[0] || null;
   let postGraze = null;
   if ((mode === 'full-event' || mode === 'scoped-last') && sourceLocationType === 'land') {
-    postGraze = renderPostGrazeCard({ farmSettings });
+    postGraze = renderPostGrazeCard({ farmSettings,initialValues: opts.initialFields?.postGraze || {} });
     postGraze.container.setAttribute('data-testid', 'move-wizard-post-graze-card');
     closeSection.appendChild(postGraze.container);
   }
@@ -264,7 +270,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
       preGraze = renderPreGrazeCard({
         farmSettings,
         paddockAcres: summedPaddockAcres(destIds),
-        initialValues: {},
+        initialValues: opts.initialFields?.preGraze || {},
       });
       preGraze.container.setAttribute('data-testid', 'move-wizard-pre-graze-card');
       openSection.appendChild(preGraze.container);
@@ -381,6 +387,10 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
           residualInputWrap.style.display = '';
         }
       });
+      toggle.setChoice = choice => {
+        if (!['move','residual'].includes(choice)) throw new Error('invalid-feed-transfer-choice');
+        const radio = choice === 'move' ? moveRadio : residualRadio; radio.checked = true; radio.dispatchEvent(new Event('change'));
+      };
       transferToggles.push(toggle);
 
       feedSection.appendChild(el('div', {
@@ -443,27 +453,32 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys) {
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
     el('button', {
       className: 'btn btn-outline',
-      onClick: () => { state.step = 2; panel.parentElement && openMoveWizard.__rerender && openMoveWizard.__rerender(); },
+      onClick: () => { state.step = 2; parentRender(); },
     }, [t('action.back')]),
     el('button', {
       className: 'btn btn-green',
       'data-testid': 'move-wizard-save',
-      onClick: () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl, transferToggles, postGraze, preGraze),
+      onClick: reviewSave(opts.review, () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl, transferToggles, postGraze, preGraze, opts.review)),
     }, [t('action.done')]),
   ]));
 
-  // Override back button to re-render properly
-  const backBtn = panel.querySelector('.btn-outline');
-  if (backBtn) {
-    backBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      state.step = 2;
-      openMoveWizard(sourceEvent, operationId, farmId);
-    }, { once: true });
+  const fields = Object.fromEntries(Object.entries(inputs).map(([key,input]) => [key,inputField(input)]));
+  for (const key of ['destType','locationId','locationIds','feedLocationId','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount']) fields[key] = stateField(state,key);
+  if (postGraze) fields.postGraze = observationField(postGraze);
+  if (preGraze) fields.preGraze = observationField(preGraze);
+  for (const toggle of transferToggles || []) {
+    const key = `feed:${toggle.key}`;
+    fields[key] = { get: () => ({ choice: toggle.choice,residual: toggle.residualInput?.value || null }),set: value => {
+      // These are normal wizard follow-up controls, not inferred feed quantities.
+      toggle.setChoice(value.choice);
+      if (toggle.residualInput) toggle.residualInput.value = value.residual ?? '';
+    } };
   }
+  opts.review?.bind({ ui: 'Move wizard',close: () => moveWizardSheet.close(),entityType: 'events',status: statusEl,fields: bindEntryFields(MOVE_ENTRY_FIELDS, fields),savedRecordId: () => state.destType === 'join' ? state.existingEventId : null });
+
 }
 
-function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze) {
+function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze, review = null) {
   clear(statusEl);
   statusEl.className = 'auth-error';
 
@@ -572,7 +587,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       conflicts,
       operationId,
       event: sourceEvent,
-      onResume: () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze),
+      onResume: () => review ? review.requestConfirmation(() => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze, review)) : executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze),
     });
     return;
   }
@@ -790,7 +805,8 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       scopedGroupWindowId: state.scopedGroupWindowId,
     });
     showToast(t('event.moveWizardSaveErrorToast'), 'move-wizard-save-error-toast');
+    if (review) throw err;
   } finally {
-    moveWizardSheet.close();
+    if (!review) moveWizardSheet.close();
   }
 }

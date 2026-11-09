@@ -1,3 +1,4 @@
+import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
 /** @file Sync registry — maps entity types to Supabase table names + shape functions.
  *  Used by pull/merge to convert remote rows into local records.
  */
@@ -61,6 +62,7 @@ import { fromSupabaseShape as fromReleaseNote } from '../entities/release-note.j
  * Excludes appLogs (direct-write, no pull needed — A24).
  */
 export const SYNC_REGISTRY = {
+  ...Object.fromEntries(Object.entries(ASSISTANT_ENTITIES).filter(([, binding]) => !binding.serverOnly).map(([key, binding]) => [key, { table: binding.table, from: binding.entity.fromSupabaseShape }])),
   operations:               { table: 'operations',                from: fromOperation },
   farms:                    { table: 'farms',                     from: fromFarm },
   farmSettings:             { table: 'farm_settings',             from: fromFarmSetting },

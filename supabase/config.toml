@@ -1,0 +1,16 @@
+# Local composition configuration only. No project link or deployment is made.
+[functions.gtho-assistant]
+entrypoint = './functions/gtho-assistant/index.js'
+verify_jwt = true
+
+[functions.gtho-assistant-apply]
+entrypoint = './functions/gtho-assistant-apply/index.js'
+verify_jwt = true
+
+[functions.gtho-assistant-audio]
+entrypoint = './functions/gtho-assistant-audio/index.js'
+verify_jwt = true
+
+[functions.gtho-assistant-transcribe]
+entrypoint = './functions/gtho-assistant-transcribe/index.js'
+verify_jwt = true

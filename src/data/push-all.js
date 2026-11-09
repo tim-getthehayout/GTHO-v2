@@ -1,3 +1,4 @@
+import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
 /**
  * @file Push all local state to Supabase — recovery path for OI-0049.
  * Re-queues every record from localStorage through the sync adapter.
@@ -63,6 +64,7 @@ import { toSupabaseShape as todoToSb } from '../entities/todo.js';
 import { toSupabaseShape as todoAssignToSb } from '../entities/todo-assignment.js';
 
 const TO_SB_MAP = {
+  ...Object.fromEntries(Object.entries(ASSISTANT_ENTITIES).filter(([, binding]) => !binding.serverOnly).map(([key, binding]) => [key, binding.entity.toSupabaseShape])),
   operations: opToSb, farms: farmToSb, farmSettings: fsToSb,
   operationMembers: memberToSb, userPreferences: prefToSb,
   locations: locToSb, forageTypes: forageToSb, animalClasses: classToSb,

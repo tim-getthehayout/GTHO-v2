@@ -5,6 +5,9 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, add } from '../../data/store.js';
 import * as TreatmentEntity from '../../entities/animal-treatment.js';
+import { reviewSave, inputField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { TREATMENT_ENTRY_FIELDS } from './treatment-entry-fields.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let treatmentSheet = null;
@@ -17,7 +20,7 @@ function ensureSheetDOM() {
   ]));
 }
 
-export function openTreatmentSheet(animal, operationId) {
+export function openTreatmentSheet(animal, operationId, options = {}) {
   if (animal?.isBulk) return;
   ensureSheetDOM();
   if (!treatmentSheet) treatmentSheet = new Sheet('treatment-sheet-wrap');
@@ -52,7 +55,9 @@ export function openTreatmentSheet(animal, operationId) {
 
   // Product/drug + dose
   const productInput = el('input', { type: 'text', placeholder: 'e.g. Draxxin' });
-  const doseInput = el('input', { type: 'text', placeholder: 'e.g. 3ml' });
+  const doseInput = el('input', { type: 'number', min: '0', step: 'any', placeholder: 'Dose amount' });
+  const doseUnit = el('select', {}, [el('option', { value: '' }, ['—']), ...getAll('doseUnits').map(unit => el('option', { value: unit.id }, [unit.name || unit.label || unit.abbreviation || unit.id]))]);
+  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Dose unit (optional)']),doseUnit]));
   panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['Product / drug ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), productInput]),
     el('div', { className: 'field' }, [el('label', {}, ['Dose ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), doseInput]),
@@ -70,18 +75,19 @@ export function openTreatmentSheet(animal, operationId) {
   panel.appendChild(statusEl);
 
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
+    el('button', { className: 'btn btn-green', onClick: reviewSave(options.review, () => {
       clear(statusEl);
       if (!typeSelect.value) { statusEl.appendChild(el('span', {}, ['Select a treatment type'])); return; }
       try {
-        const record = TreatmentEntity.create({ operationId, animalId: animal.id, treatmentTypeId: typeSelect.value, date: dateInput.value, time: timeInput.value || null, product: productInput.value.trim() || null, dose: doseInput.value.trim() || null, withdrawalDate: withdrawalInput.value || null, notes: notesInput.value.trim() || null });
+        const record = TreatmentEntity.create({ operationId, animalId: animal.id, treatmentTypeId: typeSelect.value, treatedAt: new Date(`${dateInput.value}T${timeInput.value || '12:00'}`).toISOString(), product: productInput.value.trim() || null, doseAmount: doseInput.value === '' ? null : Number(doseInput.value), doseUnitId: doseUnit.value || null, withdrawalDate: withdrawalInput.value || null, notes: notesInput.value.trim() || null });
         add('animalTreatments', record, TreatmentEntity.validate, TreatmentEntity.toSupabaseShape, 'animal_treatments');
-        treatmentSheet.close();
+        if (!options.review) treatmentSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
-    } }, ['Save']),
+    }) }, ['Save']),
     el('button', { className: 'btn btn-outline', onClick: () => treatmentSheet.close() }, ['Cancel']),
   ]));
 
+  options.review?.bind({ ui: 'Treatment sheet', close: () => treatmentSheet.close(), entityType: 'animalTreatments', status: statusEl, fields: bindEntryFields(TREATMENT_ENTRY_FIELDS, { date: inputField(dateInput), time: inputField(timeInput), treatmentTypeId: inputField(typeSelect), product: inputField(productInput), doseAmount: inputField(doseInput), doseUnitId: inputField(doseUnit), withdrawalDate: inputField(withdrawalInput), notes: inputField(notesInput) }) });
   treatmentSheet.open();
 }
 

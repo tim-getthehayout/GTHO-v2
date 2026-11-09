@@ -7,6 +7,7 @@
 import { supabase } from './supabase-client.js';
 import { getSyncAdapter } from './store.js';
 import { REFERENCE_TABLES } from './backup-import.js';
+import { ASSISTANT_TABLES, SERVER_ASSISTANT_TABLES } from '../features/assistant/schema.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -75,6 +76,7 @@ export const BACKUP_TABLES = {
   batch_nutritional_profiles: { paginate: false },
   // D11
   submissions:               { paginate: false },
+  ...Object.fromEntries(ASSISTANT_TABLES.filter(table => !SERVER_ASSISTANT_TABLES.has(table)).map(table => [table, { paginate: true }])),
   todos:                     { paginate: false },
   todo_assignments:          { paginate: false },
 };

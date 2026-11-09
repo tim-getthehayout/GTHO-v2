@@ -4,12 +4,12 @@ import { createBackendHandler } from '../shared.js';
 import { createBackendPersistence, createBillingPorts } from '../backend-bindings.js';
 import { createSessionDatabase } from '../session-database.js';
 import { TECHNICAL_BUDGETS, publicVoiceConfig } from './config.js';
-import { withCors, json } from './http.js';
+import { withCors, json, readJson } from './http.js';
 import { createIdentity } from './identity.js';
 import { createServerHost, CLIENT_APPLY_PENDING } from './host.js';
 import { createServerFarmData } from './farm-data.js';
 import { createProviderPort } from './provider.js';
-import { createVoiceAuthorization, voiceUsageDeferred } from './voice.js';
+import { createVoiceAuthorization, voiceUsageDeferred, VOICE_USAGE_REFUSAL } from './voice.js';
 import { createApplyHandler } from './apply.js';
 import { createTestingAudioHandler } from './testing-audio.js';
 import { createTranscribeHandler } from './transcribe.js';
@@ -49,12 +49,20 @@ function guarded(deps, run) {
   });
 }
 
+/** Client voice-usage reports are refused before any reservation: worst case was
+ * settled once at token issue. Peeks a clone so the handler still reads the body. */
+async function isVoiceUsageReport(request) {
+  try { return (await readJson(request.clone(), TECHNICAL_BUDGETS.maxBodyBytes))?.command === 'voice-usage'; }
+  catch { return false; }
+}
+
 export function createAssistantFunction(deps) {
   const fetcher = deps.fetch ?? globalThis.fetch;
   return guarded(deps, async (request, identity) => {
     // GET: non-secret realtime settings (model for ?model=, voice, caps). Also the
     // PWA's allowlist probe: 403 here hides the control.
     if (request.method === 'GET') return json({ config: publicVoiceConfig(deps.config) });
+    if (await isVoiceUsageReport(request)) return json(VOICE_USAGE_REFUSAL);
     const context = requestContext(deps, identity);
     const session = { ref: null, loaded: null, live: null };
     try {
@@ -66,7 +74,7 @@ export function createAssistantFunction(deps) {
         host,
         billing: context.billing,
         provider: createProviderPort({ config: deps.config, fetch: fetcher, signal: request.signal, meter: context.meter, session, timeoutMs: deps.providerTimeoutMs }),
-        voiceAuthorization: createVoiceAuthorization({ config: deps.config, client: deps.client, fetch: fetcher }),
+        voiceAuthorization: createVoiceAuthorization({ config: deps.config, client: deps.client, fetch: fetcher, meter: context.meter }),
         voiceUsage: voiceUsageDeferred,
       };
       return await createBackendHandler(ports, TECHNICAL_BUDGETS)(request);
@@ -93,7 +101,8 @@ export function createTestingAudioFunction(deps) {
 export function createTranscribeFunction(deps) {
   return guarded(deps, async (request, identity) => {
     if (request.method !== 'POST') return json({ error: 'post-required' }, 405);
-    const billing = createBillingPorts({ client: deps.client, authorize: incoming => identity.authorize(incoming) });
-    return createTranscribeHandler({ config: deps.config, billing, fetch: deps.fetch ?? globalThis.fetch })(identity.identity.scope, request);
+    const meter = { providerInvoked: false };
+    const billing = createBillingPorts({ client: deps.client, authorize: incoming => identity.authorize(incoming), isUnmeasured: () => meter.providerInvoked });
+    return createTranscribeHandler({ config: deps.config, billing, meter, fetch: deps.fetch ?? globalThis.fetch, timeoutMs: deps.providerTimeoutMs })(identity.identity.scope, request);
   });
 }

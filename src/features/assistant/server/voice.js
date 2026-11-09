@@ -7,12 +7,14 @@ import { BIND_SESSION_IN_CLIENT_SECRET, CLIENT_SECRET_TTL_SECONDS, MAX_CLIENT_SE
 export const WORST_CASE_SETTLEMENT = 'session-cap-worst-case';
 const requireData = ({ data, error }) => { if (error) throw new Error('assistant-persistence-failed'); return data; };
 
-export function createVoiceAuthorization({ config, client, fetch = globalThis.fetch, now = () => Date.now(), randomUUID = () => crypto.randomUUID(), bindSession = BIND_SESSION_IN_CLIENT_SECRET }) {
+export function createVoiceAuthorization({ config, client, fetch = globalThis.fetch, meter = { providerInvoked: false }, now = () => Date.now(), randomUUID = () => crypto.randomUUID(), bindSession = BIND_SESSION_IN_CLIENT_SECRET }) {
   const broker = createVoiceBroker({
     async exchange() {
       const body = { expires_after: { seconds: CLIENT_SECRET_TTL_SECONDS } };
       // Unverified variant, default off: bind model/reasoning in the secret itself.
       if (bindSession) body.session = { model: config.voiceModel, reasoning: { effort: VOICE_REASONING } };
+      // From dispatch on, a failure is unknown provider usage, never measured zero.
+      meter.providerInvoked = true;
       const response = await fetch(`${XAI_BASE_URL}/realtime/client_secrets`, {
         method: 'POST', signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
         headers: { Authorization: `Bearer ${config.xaiApiKey}`, 'Content-Type': 'application/json' },
@@ -42,5 +44,9 @@ export function createVoiceAuthorization({ config, client, fetch = globalThis.fe
   };
 }
 
-/** Worst case is already settled at issue; xAI usage reconciliation is deferred. */
+/** Worst case is already settled at issue; xAI usage reconciliation is deferred.
+ * The composition answers client voice-usage reports before this port with a
+ * stable, idempotent refusal (VOICE_USAGE_REFUSAL), with no reservation and no
+ * log; this port only guards any other path into the runtime handler. */
+export const VOICE_USAGE_REFUSAL = Object.freeze({ voiceUsage: Object.freeze({ accepted: false, reason: 'settled-at-token-issue' }) });
 export async function voiceUsageDeferred() { throw new RuntimeError('voice-usage-settled-at-token-issue'); }

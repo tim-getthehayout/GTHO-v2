@@ -7,7 +7,10 @@ import { AUDIO_MIME_TYPES, MAX_AUDIO_BYTES, PROVIDER_TIMEOUT_MS, STT_MODEL, XAI_
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function createTranscribeHandler({ config, billing, fetch = globalThis.fetch, timeoutMs = PROVIDER_TIMEOUT_MS }) {
+/** billing must be built with isUnmeasured: () => meter.providerInvoked for this
+ * same meter. A missing/invalid xAI duration after dispatch is unknown usage:
+ * never zero, never estimated. */
+export function createTranscribeHandler({ config, billing, meter = { providerInvoked: false }, fetch = globalThis.fetch, timeoutMs = PROVIDER_TIMEOUT_MS }) {
   return async (scope, request) => {
     const requestRef = new URL(request.url).searchParams.get('requestRef');
     if (!UUID.test(requestRef ?? '')) throw httpError(400, 'request-ref-required');
@@ -23,10 +26,12 @@ export function createTranscribeHandler({ config, billing, fetch = globalThis.fe
       const form = new FormData();
       form.append('model', STT_MODEL); // Option fields precede file per xAI docs.
       form.append('file', new Blob([audio], { type: mimeType }), mimeType === 'audio/mp4' ? 'note.mp4' : 'note.webm');
+      meter.providerInvoked = true;
       const response = await fetch(`${XAI_BASE_URL}/stt`, { method: 'POST', body: form, signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)].filter(Boolean)), headers: { Authorization: `Bearer ${config.xaiApiKey}` } });
       if (!response.ok) throw new RuntimeError('provider-request-failed');
       const body = await response.json();
-      if (typeof body?.text !== 'string' || !Number.isFinite(body?.duration) || body.duration < 0) throw new RuntimeError('invalid-provider-output');
+      if (!Number.isFinite(body?.duration) || body.duration < 0) throw new RuntimeError('provider-duration-missing');
+      if (typeof body?.text !== 'string') throw new RuntimeError('invalid-provider-output');
       usage.audioMinutes = body.duration / 60;
       failed = false;
       // Only the transcript; the user reviews it before it becomes the first turn.

@@ -1,19 +1,19 @@
-// Composition only: host identity, durable runtime persistence/locking, billing,
-// UI review and provider bindings must be supplied before this is operational.
-// This is the SAME tagged library copy consumed by the frontend shared.js facade.
+// Conversation runtime endpoint. Serves 503 unless all eight GTHO secrets are
+// present and GTHO_ASSISTANT_ENABLED=true. This is the SAME tagged library copy
+// consumed by the frontend shared.js facade.
 import { createBackendHandler } from '../../../vendor/conversation-runtime/src/index.js';
+import { createAssistantFunction } from '../../../src/features/assistant/server/compose.js';
+import { unconfigured } from '../../../src/features/assistant/server/http.js';
 export * as feedback from '../../../vendor/feedback-module/src/index.js';
+export { createAssistantFunction };
 
 export function createGthoAssistantHandler(ports, budgets) {
   return createBackendHandler(ports, budgets);
 }
 
-export function unconfiguredHandler() {
-  return Response.json({ error: 'gtho-host-bindings-required' }, {
-    status: 503, headers: { 'Cache-Control': 'no-store' },
-  });
-}
+export const unconfiguredHandler = unconfigured;
 
-// No in-memory production store, fake membership, provider keys or fabricated billing.
-// Do not deploy this fallback as a working assistant.
-if (import.meta.main) globalThis.Deno.serve(unconfiguredHandler);
+if (import.meta.main) {
+  const { serveConfigured } = await import('../_shared/live.js');
+  serveConfigured(createAssistantFunction);
+}

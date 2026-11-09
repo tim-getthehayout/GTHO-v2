@@ -7,11 +7,13 @@ import { openMoveWizard } from '../events/move-wizard.js';
 import { openPlaceWizard } from '../events/place-wizard.js';
 import { createEntryReview } from './entry-review.js';
 import { createFarmReadPort, FARM_READ_TOOLS } from './farm-reads.js';
-export const FARM_ENTRY_UIS = Object.freeze(['treatment','calving','feeding','move','place']);
+import { FARM_ENTRY_UIS, FARM_ENTRY_INSTRUCTIONS, FARM_ENTRY_TARGET_TABLE } from './farm-entry-contract.js';
+export { FARM_ENTRY_UIS };
 
 /** Target comes from authorized host resolution, never unvalidated model IDs. */
 export function openFarmEntry(scope, target, review, fields) {
-  const table = ['treatment','calving'].includes(target.ui) ? 'animals' : target.ui === 'place' ? 'groups' : 'events';
+  const table = FARM_ENTRY_TARGET_TABLE[target.ui];
+  if (!table) throw new Error('entry-ui-not-allowed');
   const record = getById(table,target.id);
   if (!record || record.operationId !== scope.operationId) throw new Error('entry-target-outside-operation');
   const options = { review,initialFields: fields };
@@ -34,7 +36,7 @@ export function createFarmUiPorts({ scope,conversationRef,authorize,onConfirm,on
   return {
     async context(incoming) {
       await auth(incoming);
-      return { instructions: 'Match intent to an existing entry UI. Use its required/optional fields as prompts. Present that normal UI populated; correction needs a new revision and confirmation. Missing evidence is not no.', data: { entryUis: FARM_ENTRY_UIS,fields: review.fields() },readTools: FARM_READ_TOOLS };
+      return { instructions: FARM_ENTRY_INSTRUCTIONS, data: { entryUis: FARM_ENTRY_UIS,fields: review.fields() },readTools: FARM_READ_TOOLS };
     },
     async read(incoming,...args) { await auth(incoming);return read(incoming,...args); },
     async renderReview(incoming,proposal) { await auth(incoming); const target = await resolveTarget(incoming,proposal); return review.render(proposal,(ui,fields) => openFarmEntry(scope,target,ui,fields)); },

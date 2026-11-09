@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createGthoAssistantHandler, unconfiguredHandler } from '../../../supabase/functions/gtho-assistant/index.js';
 
-describe('Edge composition, not a configured or deployed host backend', () => {
+describe('Edge composition, gated until configured and never deployed from here', () => {
   it('fails closed without production bindings and disables caching', async () => {
     const response = unconfiguredHandler();
     expect(response.status).toBe(503);
@@ -32,5 +32,20 @@ describe('Edge composition, not a configured or deployed host backend', () => {
     const config = readFileSync(resolve(root, 'supabase/config.toml'), 'utf8');
     expect(config).toContain('verify_jwt = true');
     expect(config).not.toContain('project_id');
+  });
+  it('serves the live composition only through the gated, pinned entry and keeps JWT verification on every function', () => {
+    const root = resolve(import.meta.dirname, '../../..');
+    const live = readFileSync(resolve(root, 'supabase/functions/_shared/live.js'), 'utf8');
+    expect(live).toContain("from 'npm:postgres@3.4.9'");
+    expect(live).toContain("from 'npm:@supabase/supabase-js@2.103.0'");
+    expect(live).toContain('readConfig(Deno.env.toObject())');
+    expect(live).toContain('max: 1');
+    const config = readFileSync(resolve(root, 'supabase/config.toml'), 'utf8');
+    for (const name of ['gtho-assistant', 'gtho-assistant-apply', 'gtho-assistant-audio', 'gtho-assistant-transcribe']) {
+      expect(config).toContain(`[functions.${name}]\nentrypoint = './functions/${name}/index.js'\nverify_jwt = true`);
+      const entry = readFileSync(resolve(root, `supabase/functions/${name}/index.js`), 'utf8');
+      expect(entry).toContain("await import('../_shared/live.js')");
+      expect(entry).not.toMatch(/XAI_API_KEY|Deno\.env/);
+    }
   });
 });

@@ -1,6 +1,6 @@
 /** GTHO-owned read capabilities. No utterance catalog, writes or model-memory answers. */
 import { animalHeadCount } from '../../calcs/window-helpers.js';
-import { lastClosedGraze } from '../map/paddock-facts.js';
+import { lastClosedGraze } from '../map/grazing-evidence.js';
 
 export const FARM_READ_TOOLS = Object.freeze([
   { name: 'animal-reproductive-evidence', description: 'Read one resolved animal ID, stored open-set assessment and reproductive evidence.' },

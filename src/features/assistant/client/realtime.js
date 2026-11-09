@@ -1,11 +1,19 @@
 /** xAI realtime voice driver for the pinned VoiceTransport. Voice I/O only: the
  * final input transcript becomes a backend `turn`; the backend's answer is spoken
  * verbatim. No realtime function tools. The token is never logged or stored.
+ *
+ * One user turn (ended by spoken "over" or a tap) becomes exactly one runtime
+ * turn: transcriptions accumulate per item_id (latest text wins) until the turn
+ * ends, then a short wait collects finals and a single onTurn fires with a
+ * client-minted UUID. Manual commit only — no server_vad.
  */
 export const REALTIME_URL = 'wss://api.x.ai/v1/realtime';
 export const SESSION_CREATED_TIMEOUT_MS = 5000;
 export const CONNECT_ATTEMPTS = 3;
 export const SAMPLE_RATE = 24000;
+/** After "over"/tap + commit, wait this long for final transcription.completed
+ * events before emitting the one runtime turn. Conservative short window. */
+export const TURN_FINALIZE_TIMEOUT_MS = 1500;
 const SPEAK_INSTRUCTIONS = 'Read the text in the latest user message aloud exactly as written. Do not add, remove, reorder or change any words. Do not answer it.';
 
 /** Trailing spoken "over" (with punctuation) ends a turn and is not part of it. */
@@ -26,11 +34,12 @@ export function fromBase64(text) {
 
 /**
  * config: server-returned {model, voice, reasoning, turnDetection, sessionCapSeconds}.
- * Returns a VoiceTransport driver plus endTurn() (tap) and speak(text).
+ * turnDetection from the server is ignored for the wire session: this driver always
+ * sends turn_detection null (manual commit). Returns a VoiceTransport driver plus
+ * endTurn() (tap) and speak(text).
  */
-export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.WebSocket, setTimer = (fn, ms) => globalThis.setTimeout(fn, ms), clearTimer = id => globalThis.clearTimeout(id), onStatus = () => {} }) {
+export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.WebSocket, setTimer = (fn, ms) => globalThis.setTimeout(fn, ms), clearTimer = id => globalThis.clearTimeout(id), onStatus = () => {}, randomId = () => globalThis.crypto.randomUUID() }) {
   if (!config?.model || /latest/i.test(config.model)) throw new Error('pinned-voice-model-required');
-  const vad = config.turnDetection === 'server_vad';
   let active = null;
 
   function open(token) {
@@ -56,12 +65,21 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
     const send = message => socket.readyState === 1 && socket.send(JSON.stringify(message));
     send({ type: 'session.update', session: {
       voice: config.voice, instructions: SPEAK_INSTRUCTIONS, reasoning: { effort: config.reasoning },
-      turn_detection: vad ? { type: 'server_vad' } : { type: null },
+      // Manual commit only (OI-0202). server_vad is out of scope regardless of config.turnDetection.
+      turn_detection: { type: null },
       audio: { input: { format: { type: 'audio/pcm', rate: SAMPLE_RATE }, transcription: { model: 'grok-transcribe' } }, output: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } } },
     } });
     let closed = false, committed = false, ownResponses = 0, buffered = false;
+    // One user turn → one runtime turn. item_id text accumulates until over/tap.
+    let turnId = null;
+    const itemOrder = [];
+    const itemText = new Map();
+    let finalizing = false;
+    let emitted = null; // { id, text } after the one onTurn; reused for retry replay
+    let finalizeTimer = null;
+
     const close = () => {
-      if (closed) return; closed = true; clearTimer(cap);
+      if (closed) return; closed = true; clearTimer(cap); clearTimer(finalizeTimer); finalizeTimer = null;
       socket.onmessage = socket.onclose = null;
       try { socket.close(); } catch { /* ignore */ }
       if (active?.socket === socket) active = null;
@@ -69,18 +87,70 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
     // P4: hang up at the session cap; a new session needs a new token.
     const cap = setTimer(() => { close(); onStatus('session-cap'); onDisconnect(); }, (config.sessionCapSeconds ?? 600) * 1000);
     const commit = () => { if (!committed && buffered) { committed = true; buffered = false; send({ type: 'input_audio_buffer.commit' }); } };
+
+    function beginUserTurn() {
+      turnId = randomId();
+      itemOrder.length = 0;
+      itemText.clear();
+      finalizing = false;
+      emitted = null;
+      clearTimer(finalizeTimer); finalizeTimer = null;
+    }
+
+    function noteItem(itemId, rawText) {
+      if (emitted) return; // late after send: do not revise or re-emit
+      if (!turnId) beginUserTurn();
+      const id = itemId || randomId();
+      if (!itemText.has(id)) itemOrder.push(id);
+      itemText.set(id, rawText ?? '');
+    }
+
+    function joinedText() {
+      return itemOrder.map(id => stripOver(itemText.get(id) ?? '')).filter(Boolean).join(' ').trim();
+    }
+
+    function emitTurn() {
+      clearTimer(finalizeTimer); finalizeTimer = null;
+      if (emitted) {
+        // Retry replay: same id + identical text (vendor allows identical replay).
+        onTurn({ id: emitted.id, role: 'user', modality: 'voice', text: emitted.text });
+        return;
+      }
+      const text = joinedText();
+      finalizing = false;
+      if (!text) { turnId = null; itemOrder.length = 0; itemText.clear(); return; }
+      const id = turnId || randomId();
+      emitted = { id, text };
+      onTurn({ id, role: 'user', modality: 'voice', text });
+    }
+
+    function finalizeTurn() {
+      if (emitted) { emitTurn(); return; } // retry
+      if (finalizing) return;
+      if (!turnId) beginUserTurn();
+      finalizing = true;
+      commit();
+      clearTimer(finalizeTimer);
+      finalizeTimer = setTimer(() => { finalizeTimer = null; emitTurn(); }, TURN_FINALIZE_TIMEOUT_MS);
+    }
+
     socket.onclose = () => { if (!closed) { close(); onDisconnect(); } };
     socket.onmessage = event => {
       let message; try { message = JSON.parse(event.data); } catch { return; }
       switch (message.type) {
-        case 'conversation.item.input_audio_transcription.updated':
-          // Streaming transcript (unverified with manual commit): "over" ends the turn.
-          if (endsWithOver(message.transcript ?? message.text)) commit();
+        case 'conversation.item.input_audio_transcription.updated': {
+          const raw = message.transcript ?? message.text ?? '';
+          if (message.item_id) noteItem(message.item_id, raw);
+          // Spoken "over" ends the user turn (then commit + wait for finals).
+          if (endsWithOver(raw)) finalizeTurn();
           break;
+        }
         case 'conversation.item.input_audio_transcription.completed': {
           committed = false;
-          const text = stripOver(message.transcript ?? message.text);
-          if (text) onTurn({ id: message.item_id ?? crypto.randomUUID(), role: 'user', modality: 'voice', text });
+          const raw = message.transcript ?? message.text ?? '';
+          noteItem(message.item_id, raw);
+          // "over" may land only on the final completed.
+          if (!finalizing && !emitted && endsWithOver(raw)) finalizeTurn();
           break;
         }
         case 'input_audio_buffer.committed': committed = false; buffered = false; break;
@@ -96,13 +166,17 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
     };
     const connection = {
       socket,
-      async sendAudio(bytes) { buffered = true; send({ type: 'input_audio_buffer.append', audio: toBase64(bytes) }); },
+      async sendAudio(bytes) {
+        if (emitted || !turnId) beginUserTurn();
+        buffered = true;
+        send({ type: 'input_audio_buffer.append', audio: toBase64(bytes) });
+      },
       // Typed text goes to the backend only; the realtime session never answers it.
       async sendText() {},
       async interrupt() { send({ type: 'response.cancel' }); },
       async cancel() { send({ type: 'response.cancel' }); },
       async close() { close(); },
-      endTurn: commit,
+      endTurn: finalizeTurn,
       speak(text) {
         ownResponses++;
         send({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
@@ -114,7 +188,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
   }
   return {
     connect,
-    /** Second tap ends the turn in both manual and server_vad modes. */
+    /** Tap ends the current user turn (same as saying "over"). */
     endTurn() { active?.endTurn(); },
     speak(text) { if (!active) return false; active.speak(text); return true; },
     get connected() { return !!active; },

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createXaiRealtimeDriver, endsWithOver, stripOver, CONNECT_ATTEMPTS } from '../../../../src/features/assistant/client/realtime.js';
+import { createXaiRealtimeDriver, endsWithOver, stripOver, CONNECT_ATTEMPTS, TURN_FINALIZE_TIMEOUT_MS } from '../../../../src/features/assistant/client/realtime.js';
 
 class FakeSocket {
   static instances = [];
@@ -14,10 +14,17 @@ function timers() {
   const pending = new Map(); let id = 0;
   return { pending, setTimer: (fn, ms) => { pending.set(++id, { fn, ms }); return id; }, clearTimer: key => pending.delete(key), fire(ms) { for (const [key, timer] of [...pending]) if (timer.ms === ms) { pending.delete(key); timer.fn(); } } };
 }
+let idSeq = 0;
 async function connected(overrides = {}, handlers = {}) {
-  FakeSocket.instances = []; FakeSocket.autoCreate = true;
+  FakeSocket.instances = []; FakeSocket.autoCreate = true; idSeq = 0;
   const clock = timers();
-  const driver = createXaiRealtimeDriver({ config: { ...config, ...overrides }, WebSocketImpl: FakeSocket, ...clock, onStatus: handlers.onStatus });
+  const driver = createXaiRealtimeDriver({
+    config: { ...config, ...overrides },
+    WebSocketImpl: FakeSocket,
+    ...clock,
+    onStatus: handlers.onStatus,
+    randomId: () => `turn-${++idSeq}`,
+  });
   const onTurn = vi.fn(), onAudio = vi.fn(), onDisconnect = vi.fn();
   const connection = await driver.connect({ authorization: { provider: 'xai', token: 'ephemeral', expiresAt: Date.now() + 60000 }, onTurn, onAudio, onDisconnect });
   return { driver, connection, socket: FakeSocket.instances.at(-1), onTurn, onAudio, onDisconnect, clock };
@@ -30,6 +37,10 @@ describe('xAI realtime driver', () => {
     expect(socket.protocols).toEqual(['xai-client-secret.ephemeral']);
     expect(socket.sent[0]).toMatchObject({ type: 'session.update', session: { voice: 'eve', reasoning: { effort: 'none' }, turn_detection: { type: null } } });
   });
+  it('always sends turn_detection null even when config asks for server_vad', async () => {
+    const { socket } = await connected({ turnDetection: 'server_vad' });
+    expect(socket.sent[0].session.turn_detection).toEqual({ type: null });
+  });
   it('retries when session.created does not arrive within 5 s, up to 3 attempts', async () => {
     FakeSocket.instances = []; FakeSocket.autoCreate = false;
     const clock = timers();
@@ -39,29 +50,24 @@ describe('xAI realtime driver', () => {
     await expect(attempt).rejects.toThrow('session-created-timeout');
     expect(FakeSocket.instances).toHaveLength(3);
   });
-  it('a second tap commits the turn; the final transcript (minus trailing "over") becomes a voice turn', async () => {
-    const { driver, connection, socket, onTurn } = await connected();
+  it('a tap commits, waits for finals, then emits one client-UUID turn (strips trailing over)', async () => {
+    const { driver, connection, socket, onTurn, clock } = await connected();
     await connection.sendAudio(new Uint8Array([1, 2]));
     expect(socket.sent.at(-1)).toEqual({ type: 'input_audio_buffer.append', audio: 'AQI=' });
     driver.endTurn();
     expect(socket.sent.at(-1)).toEqual({ type: 'input_audio_buffer.commit' });
+    expect(onTurn).not.toHaveBeenCalled();
     socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'Move the heifers, over.' });
-    expect(onTurn).toHaveBeenCalledWith({ id: 'item-1', role: 'user', modality: 'voice', text: 'Move the heifers' });
+    expect(onTurn).not.toHaveBeenCalled();
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    expect(onTurn).toHaveBeenCalledWith({ id: 'turn-1', role: 'user', modality: 'voice', text: 'Move the heifers' });
   });
-  it('saying "over" ends the turn in manual and server_vad modes', async () => {
-    for (const mode of ['manual', 'server_vad']) {
-      const { connection, socket } = await connected({ turnDetection: mode });
-      if (mode === 'server_vad') expect(socket.sent[0].session.turn_detection).toEqual({ type: 'server_vad' });
-      await connection.sendAudio(new Uint8Array([1]));
-      socket.emit({ type: 'conversation.item.input_audio_transcription.updated', transcript: 'that is all over' });
-      expect(socket.sent.filter(m => m.type === 'input_audio_buffer.commit')).toHaveLength(1);
-    }
-  });
-  it('tapping also ends the turn in server_vad mode', async () => {
-    const { driver, connection, socket } = await connected({ turnDetection: 'server_vad' });
+  it('saying "over" commits the buffer (manual only)', async () => {
+    const { connection, socket } = await connected();
     await connection.sendAudio(new Uint8Array([1]));
-    driver.endTurn();
-    expect(socket.sent.at(-1)).toEqual({ type: 'input_audio_buffer.commit' });
+    socket.emit({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'item-1', transcript: 'that is all over' });
+    expect(socket.sent.filter(m => m.type === 'input_audio_buffer.commit')).toHaveLength(1);
   });
   it('speaks backend answers verbatim and cancels responses it did not request', async () => {
     const { driver, socket, onAudio } = await connected();
@@ -91,5 +97,61 @@ describe('xAI realtime driver', () => {
     expect(endsWithOver('turn it over now')).toBe(false);
     expect(endsWithOver('Done. Over!')).toBe(true);
     expect(stripOver('Hand it over, over.')).toBe('Hand it over');
+  });
+});
+
+describe('one user turn → one runtime turn', () => {
+  it('joins multiple item_ids in order into one turn after the finalize timeout', async () => {
+    const { driver, connection, socket, onTurn, clock } = await connected();
+    await connection.sendAudio(new Uint8Array([1]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'a', transcript: 'I fed two' });
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'b', transcript: 'bales of grass hay' });
+    expect(onTurn).not.toHaveBeenCalled();
+    driver.endTurn();
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    expect(onTurn.mock.calls[0][0]).toEqual({ id: 'turn-1', role: 'user', modality: 'voice', text: 'I fed two bales of grass hay' });
+  });
+
+  it('a revised completed for the same item_id keeps the latest text only', async () => {
+    const { driver, connection, socket, onTurn, clock } = await connected();
+    await connection.sendAudio(new Uint8Array([1]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'I fed two' });
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'I fed two bales of grass hay in the corral' });
+    driver.endTurn();
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    expect(onTurn.mock.calls[0][0].text).toBe('I fed two bales of grass hay in the corral');
+    expect(onTurn.mock.calls[0][0].id).toBe('turn-1');
+  });
+
+  it('a late completed after the turn was sent does not produce a second turn or change the id/text', async () => {
+    const { driver, connection, socket, onTurn, clock } = await connected();
+    await connection.sendAudio(new Uint8Array([1]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'I fed two' });
+    driver.endTurn();
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    const first = onTurn.mock.calls[0][0];
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'I fed two bales of grass hay' });
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    expect(onTurn.mock.calls[0][0]).toEqual(first);
+  });
+
+  it('a retry replay re-sends the same id and identical text', async () => {
+    const { driver, connection, socket, onTurn, clock } = await connected();
+    await connection.sendAudio(new Uint8Array([1]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'Move the heifers over' });
+    // "over" on completed starts finalize
+    expect(socket.sent.some(m => m.type === 'input_audio_buffer.commit')).toBe(true);
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    const first = onTurn.mock.calls[0][0];
+    expect(first).toEqual({ id: 'turn-1', role: 'user', modality: 'voice', text: 'Move the heifers' });
+    // Retry (second endTurn after emit) replays identical payload.
+    driver.endTurn();
+    expect(onTurn).toHaveBeenCalledTimes(2);
+    expect(onTurn.mock.calls[1][0]).toEqual(first);
   });
 });

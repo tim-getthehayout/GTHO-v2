@@ -11,6 +11,8 @@ import * as AnimalEntity from '../../entities/animal.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
 import * as MembershipEntity from '../../entities/animal-group-membership.js';
 import { reviewSave, inputField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { CALVING_ENTRY_FIELDS } from './calving-entry-fields.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let calvingSheet = null;
@@ -207,10 +209,10 @@ export function openCalvingSheet(dam, operationId, options = {}) {
     el('button', { className: 'btn btn-outline', onClick: () => calvingSheet.close() }, [t('action.cancel')]),
   ]));
 
-  const fields = { date: inputField(dateInput,true), stillbirth: inputField(stillbirthCheck), calfTag: inputField(calfTagInput), calfSex: { required: false, get: () => calfSexState.value, set: value => { calfSexState.value = value; renderSex(); } }, calfWeight: inputField(calfWeightInput), calfClassId: inputField(calfClassSelect), calfGroupId: inputField(calfGroupSelect), notes: inputField(notesInput) };
+  const fields = { date: inputField(dateInput), stillbirth: inputField(stillbirthCheck), calfTag: inputField(calfTagInput), calfSex: { required: false, get: () => calfSexState.value, set: value => { calfSexState.value = value; renderSex(); } }, calfWeight: inputField(calfWeightInput), calfClassId: inputField(calfClassSelect), calfGroupId: inputField(calfGroupSelect), notes: inputField(notesInput) };
   const dried = panel.querySelector('[data-testid="calving-sheet-dried-off"]');
   if (dried) fields.driedOffDate = inputField(dried);
-  options.review?.bind({ ui: 'Calving sheet', close: () => calvingSheet.close(), entityType: 'animalCalvingRecords', status: statusEl, fields });
+  options.review?.bind({ ui: 'Calving sheet', close: () => calvingSheet.close(), entityType: 'animalCalvingRecords', status: statusEl, fields: bindEntryFields(CALVING_ENTRY_FIELDS, fields) });
   calvingSheet.open();
 }
 

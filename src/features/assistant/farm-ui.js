@@ -32,6 +32,7 @@ export function openFarmEntry(scope, target, review, fields) {
 export function createFarmUiPorts({ scope,conversationRef,authorize,onConfirm,onCorrect,resolveTarget }) {
   const review = createEntryReview({ scope,conversationRef,authorize,onConfirm,onCorrect });
   const read = createFarmReadPort({ authorize,getAll });
+  let openUi = null;
   async function auth(incoming) { if (incoming.operationId !== scope.operationId || incoming.actorId !== scope.actorId || await authorize(incoming) !== true) throw new Error('unauthorized'); }
   return {
     async context(incoming) {
@@ -39,7 +40,9 @@ export function createFarmUiPorts({ scope,conversationRef,authorize,onConfirm,on
       return { instructions: FARM_ENTRY_INSTRUCTIONS, data: { entryUis: FARM_ENTRY_UIS,fields: review.fields() },readTools: FARM_READ_TOOLS };
     },
     async read(incoming,...args) { await auth(incoming);return read(incoming,...args); },
-    async renderReview(incoming,proposal) { await auth(incoming); const target = await resolveTarget(incoming,proposal); return review.render(proposal,(ui,fields) => openFarmEntry(scope,target,ui,fields)); },
+    async renderReview(incoming,proposal) { await auth(incoming); const target = await resolveTarget(incoming,proposal); await review.render(proposal,(ui,fields) => openFarmEntry(scope,target,ui,fields)); openUi = target.ui; },
+    /** The open normal sheet's live field names (dynamic fields included). */
+    openSheet() { return openUi ? { ui: openUi,fields: review.fields().map(field => field.name) } : null; },
     async recordConfirmation(incoming,proposal,evidence) { await auth(incoming); return review.recordConfirmation(proposal,evidence); },
     async execute(incoming,proposal,receipt,key) { await auth(incoming); const saved = await review.execute(proposal,receipt,key); return { state: saved.syncQueuedAt ? 'sync-queue' : 'local-save',result: { savedRecordId: saved.savedRecordId } }; },
     async applyConfirmedWrite(incoming,proposal,receipt,key) { await auth(incoming); return review.execute(proposal,receipt,key); },

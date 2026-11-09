@@ -5,6 +5,8 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add } from '../../data/store.js';
 import { reviewSave, inputField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { FEEDING_ENTRY_FIELDS } from './delivery-entry-fields.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { getEventStartDate } from '../events/event-start.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
@@ -344,8 +346,8 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     el('button', { className: 'btn btn-outline', onClick: () => deliverFeedSheet.close() }, [t('action.cancel')]),
   ]));
 
-  options.review?.bind({ ui: 'Log feeding sheet', close: () => deliverFeedSheet.close(), entityType: 'eventFeedEntries', status: statusEl, fields: {
-    date: inputField(dateInput,true),time: inputField(timeInput),
+  options.review?.bind({ ui: 'Log feeding sheet', close: () => deliverFeedSheet.close(), entityType: 'eventFeedEntries', status: statusEl, fields: bindEntryFields(FEEDING_ENTRY_FIELDS, {
+    date: inputField(dateInput),time: inputField(timeInput),
     locationId: { required: true,get: () => selectedLocationId,set: value => {
       if (!sortedActivePWs.some(window => window.locationId === value)) throw new Error('invalid-feeding-paddock');
       selectedLocationId = value; updateChip();
@@ -355,6 +357,6 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
       if (!Array.isArray(value) || value.some(line => !batches.some(batch => batch.id === line.batchId && batch.operationId === operationId) || !Number.isFinite(line.qty) || line.qty < 0)) throw new Error('invalid-feeding-lines');
       selectedLines = value.map(({ batchId,qty,sourceLocationId }) => ({ batchId,qty,sourceLocationId: sourceLocationId || null })); renderBatches();renderSummary();
     } },
-  } });
+  }) });
   deliverFeedSheet.open();
 }

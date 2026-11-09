@@ -8,6 +8,7 @@ import { withCors, json, readJson } from './http.js';
 import { createIdentity } from './identity.js';
 import { createServerHost, CLIENT_APPLY_PENDING } from './host.js';
 import { createServerFarmData } from './farm-data.js';
+import { openEntryFields } from '../farm-entry-contract.js';
 import { createProviderPort } from './provider.js';
 import { createVoiceAuthorization, voiceUsageDeferred, VOICE_USAGE_REFUSAL } from './voice.js';
 import { createApplyHandler } from './apply.js';
@@ -49,6 +50,15 @@ function guarded(deps, run) {
   });
 }
 
+/** Field names of the normal sheet open in the browser for this conversation
+ * (dynamic fields included), sent as body.openSheet. Hints only: every name must
+ * be declared by that sheet's definition or the whole value is ignored. */
+export function parseOpenSheet(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const fields = openEntryFields(value.ui, value.fields);
+  return fields ? { ui: value.ui, fields } : null;
+}
+
 /** P7: one decision per tester per operation. The latest stored decision for this
  * authenticated user in this operation; later conversations reuse it (no popup). */
 async function storedTestingConsent({ client, config }, scope) {
@@ -58,11 +68,10 @@ async function storedTestingConsent({ client, config }, scope) {
   return data?.[0] ? { decision: data[0].decision, decidedAt: data[0].decided_at } : null;
 }
 
-/** Client voice-usage reports are refused before any reservation: worst case was
- * settled once at token issue. Peeks a clone so the handler still reads the body. */
-async function isVoiceUsageReport(request) {
-  try { return (await readJson(request.clone(), TECHNICAL_BUDGETS.maxBodyBytes))?.command === 'voice-usage'; }
-  catch { return false; }
+/** Peeks a clone so the runtime handler still reads (and validates) the body. */
+async function peekBody(request) {
+  try { return await readJson(request.clone(), TECHNICAL_BUDGETS.maxBodyBytes); }
+  catch { return null; }
 }
 
 export function createAssistantFunction(deps) {
@@ -71,12 +80,15 @@ export function createAssistantFunction(deps) {
     // GET: non-secret realtime settings (model for ?model=, voice, caps). Also the
     // PWA's allowlist probe: 403 here hides the control.
     if (request.method === 'GET') return json({ config: publicVoiceConfig(deps.config), testingConsent: await storedTestingConsent(deps, identity.identity.scope) });
-    if (await isVoiceUsageReport(request)) return json(VOICE_USAGE_REFUSAL);
+    const peeked = await peekBody(request);
+    // Client voice-usage reports are refused before any reservation: the worst
+    // case was settled once at token issue.
+    if (peeked?.command === 'voice-usage') return json(VOICE_USAGE_REFUSAL);
     const context = requestContext(deps, identity);
     const session = { ref: null, loaded: null, live: null };
     try {
       const getAll = createServerFarmData({ client: deps.client, operationId: context.scope.operationId });
-      const host = createServerHost({ client: deps.client, scope: context.scope, config: deps.config, persistence: context.persistence, getAll, authorize: context.authorize, session, log: contentFreeLog(deps.log) });
+      const host = createServerHost({ client: deps.client, scope: context.scope, config: deps.config, persistence: context.persistence, getAll, authorize: context.authorize, session, log: contentFreeLog(deps.log), openSheet: parseOpenSheet(peeked?.openSheet) });
       const ports = {
         authenticate: async () => identity.identity,
         withSession: (scope, ref, work) => context.persistence.withSession(scope, ref, existing => { session.ref = ref; session.loaded = existing; session.live = null; return work(existing); }),

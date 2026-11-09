@@ -5,9 +5,8 @@ import { createVoiceAuthorization } from '../../../../src/features/assistant/ser
 import { createTestingAudioHandler } from '../../../../src/features/assistant/server/testing-audio.js';
 import { createTranscribeHandler } from '../../../../src/features/assistant/server/transcribe.js';
 import { createServerFarmData } from '../../../../src/features/assistant/server/farm-data.js';
-import { FARM_ENTRY_FIELD_HINTS } from '../../../../src/features/assistant/farm-entry-contract.js';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { FARM_ENTRY_FIELD_HINTS, FARM_ENTRY_DEFINITIONS } from '../../../../src/features/assistant/farm-entry-contract.js';
+import { entryFieldHints } from '../../../../src/features/assistant/entry-fields.js';
 import { fakeSupabase, env, OP, OTHER_OP, USER } from './fake-supabase.js';
 
 const { config } = readConfig(env());
@@ -46,12 +45,8 @@ describe('server host ports', () => {
     const session = { intent: 'feedback', capture: { context: { feedbackHost: { itemId: 'i', contractVersion: '0.1.2', appId: 'gtho', screen: { state: 'known', value: 's', source: 'host' }, buildStamp: { state: 'known', value: 'b', source: 'host' }, capturedAt: '2026-11-09T10:00:00Z' } } }, transcript: [{ id: 't', role: 'user', modality: 'voice', text: 'Totals look off' }] };
     expect(feedbackInterview(session)).toEqual({ nextQuestion: { field: 'type', text: expect.any(String) }, destination: 'design' });
   });
-  it('field hints name fields the normal UIs actually bind', () => {
-    const files = { treatment: 'health/treatment.js', calving: 'health/calving.js', feeding: 'feed/delivery.js', move: 'events/move-wizard.js', place: 'events/place-wizard.js' };
-    for (const [ui, names] of Object.entries(FARM_ENTRY_FIELD_HINTS)) {
-      const source = readFileSync(resolve(import.meta.dirname, '../../../../src/features', files[ui]), 'utf8');
-      for (const name of names) expect(source, `${ui}.${name}`).toMatch(new RegExp(`\\b${name}\\b`));
-    }
+  it('field hints are derived from the sheet field definitions', () => {
+    for (const ui of Object.keys(FARM_ENTRY_FIELD_HINTS)) expect(FARM_ENTRY_FIELD_HINTS[ui]).toEqual(entryFieldHints(FARM_ENTRY_DEFINITIONS[ui]));
   });
 });
 
@@ -108,5 +103,16 @@ describe('offline note transcription', () => {
     await expect(createTranscribeHandler({ config, billing: meter, fetch: async () => new Response('', { status: 500 }) })(scope, audio(REF))).rejects.toMatchObject({ code: 'provider-request-failed' });
     expect(meter.finish.mock.calls[0][4]).toBe(true);
     await expect(createTranscribeHandler({ config, billing: meter, fetch })(scope, audio('nope'))).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('data-entry context', () => {
+  it('includes the open sheet fields only for the pending destination', async () => {
+    const { createServerHost } = await import('../../../../src/features/assistant/server/host.js');
+    const make = (pending, openSheet) => createServerHost({ client: fakeSupabase(), scope, config, persistence: {}, getAll: async () => [], authorize: async () => true, session: { ref: REF, loaded: { intent: 'data-entry', pending, capture: { context: {} } }, live: null }, openSheet });
+    const open = { ui: 'calving', fields: [{ name: 'date', required: true }, { name: 'driedOffDate', required: false }] };
+    expect((await make({ destination: 'calving' }, open).context(scope, 'data-entry')).data.openSheet).toEqual(open);
+    expect((await make({ destination: 'move' }, open).context(scope, 'data-entry')).data.openSheet).toBeNull();
+    expect((await make(undefined, null).context(scope, 'data-entry')).data.fieldHints.move.dynamicFields.map(field => field.name)).toContain('feed:*');
   });
 });

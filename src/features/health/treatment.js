@@ -6,6 +6,8 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, add } from '../../data/store.js';
 import * as TreatmentEntity from '../../entities/animal-treatment.js';
 import { reviewSave, inputField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { TREATMENT_ENTRY_FIELDS } from './treatment-entry-fields.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let treatmentSheet = null;
@@ -85,7 +87,7 @@ export function openTreatmentSheet(animal, operationId, options = {}) {
     el('button', { className: 'btn btn-outline', onClick: () => treatmentSheet.close() }, ['Cancel']),
   ]));
 
-  options.review?.bind({ ui: 'Treatment sheet', close: () => treatmentSheet.close(), entityType: 'animalTreatments', status: statusEl, fields: { date: inputField(dateInput,true), time: inputField(timeInput), treatmentTypeId: inputField(typeSelect,true), product: inputField(productInput), doseAmount: inputField(doseInput), doseUnitId: inputField(doseUnit), withdrawalDate: inputField(withdrawalInput), notes: inputField(notesInput) } });
+  options.review?.bind({ ui: 'Treatment sheet', close: () => treatmentSheet.close(), entityType: 'animalTreatments', status: statusEl, fields: bindEntryFields(TREATMENT_ENTRY_FIELDS, { date: inputField(dateInput), time: inputField(timeInput), treatmentTypeId: inputField(typeSelect), product: inputField(productInput), doseAmount: inputField(doseInput), doseUnitId: inputField(doseUnit), withdrawalDate: inputField(withdrawalInput), notes: inputField(notesInput) }) });
   treatmentSheet.open();
 }
 

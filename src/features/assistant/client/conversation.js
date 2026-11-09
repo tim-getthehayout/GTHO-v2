@@ -50,6 +50,7 @@ export function createAssistantConversation({ api, scope, persist, awaitServerRo
     },
     async correct(correction) { session = (await api.command(ref, 'correct', { correction })).session; return session; },
     async cancel() { session = (await api.command(ref, 'cancel')).session; return session; },
+    setOpenSheet(value) { api.setOpenSheet?.(value); },
     async voiceAuthorization() { return (await api.command(ref, 'voice-authorization')).value; },
     /**
      * confirm -> client-apply-pending -> local apply (runDurableWrite, idempotent by key)
@@ -170,7 +171,9 @@ export function createFarmReviewFlow({ conversation, createFarmUiPorts, authoriz
         const confirmationId = await ports.recordConfirmation(scope, pending, evidence);
         const confirmation = getById('assistantReviewConfirmations', confirmationId);
         await awaitServerRows([{ entityType: 'assistantReviewCards', id: confirmation.cardId }, { entityType: 'assistantReviewConfirmations', id: confirmationId }]);
-        onResult(await conversation.confirmAndApply({ pending, confirmationId, flush, applyLocal: key => ports.applyConfirmedWrite(scope, pending, confirmationId, key) }));
+        const outcome = await conversation.confirmAndApply({ pending, confirmationId, flush, applyLocal: key => ports.applyConfirmedWrite(scope, pending, confirmationId, key) });
+        conversation.setOpenSheet?.(null);
+        onResult(outcome);
       } catch (error) { onError(error); throw error; }
     },
   });
@@ -178,6 +181,7 @@ export function createFarmReviewFlow({ conversation, createFarmUiPorts, authoriz
     // Server-recorded proposal/revision identity must be local before the UI binds to it.
     await pullReviewRows();
     await ports.renderReview(scope, pending);
+    conversation.setOpenSheet?.(ports.openSheet?.() ?? null);
   }
   return { render };
 }

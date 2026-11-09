@@ -7,6 +7,7 @@ export class AssistantApiError extends Error {
 export function createAssistantApi({ supabaseUrl, anonKey, getAccessToken, operationId, fetch = (...args) => globalThis.fetch(...args), randomUUID = () => crypto.randomUUID() }) {
   if (!supabaseUrl || !anonKey || typeof getAccessToken !== 'function') throw new Error('assistant-api-config-required');
   const base = `${supabaseUrl.replace(/\/$/, '')}/functions/v1`;
+  let openSheet = null;
   async function headers(extra = {}) {
     const token = await getAccessToken();
     if (!token) throw new AssistantApiError(401, 'unauthenticated');
@@ -21,6 +22,8 @@ export function createAssistantApi({ supabaseUrl, anonKey, getAccessToken, opera
   }
   const postJson = async (name, body) => call(name, { method: 'POST', headers: await headers({ 'content-type': 'application/json' }), body: JSON.stringify(body) });
   return {
+    /** Field names of the normal sheet currently open for review (body hint). */
+    setOpenSheet(value) { openSheet = value?.ui && Array.isArray(value.fields) ? { ui: value.ui, fields: [...value.fields] } : null; },
     /** Non-secret realtime config; null when this operation is not allowlisted (403 hides the control). */
     async config() {
       try { const body = await call('gtho-assistant', { method: 'GET', headers: await headers() }); return body.config ? { ...body.config, testingConsent: body.testingConsent ?? null } : null; }
@@ -28,7 +31,7 @@ export function createAssistantApi({ supabaseUrl, anonKey, getAccessToken, opera
     },
     /** Every POST gets a fresh requestRef: each is its own metered reservation. */
     command(conversationRef, command, payload = {}) {
-      return postJson('gtho-assistant', { ...payload, command, conversationRef, requestRef: randomUUID() });
+      return postJson('gtho-assistant', { ...payload, ...(openSheet ? { openSheet } : {}), command, conversationRef, requestRef: randomUUID() });
     },
     apply(receipt) { return postJson('gtho-assistant-apply', receipt); },
     testingAudioUpload(conversationRef, mimeType) { return postJson('gtho-assistant-audio', { conversationRef, mimeType }); },

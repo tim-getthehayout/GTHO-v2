@@ -44,7 +44,7 @@ export function feedbackInterview(session) {
 }
 
 /** session: {ref, loaded, live} filled by the composition (withSession + provider). */
-export function createServerHost({ client, scope, config, persistence, getAll, authorize, session: holder, log = () => {} }) {
+export function createServerHost({ client, scope, config, persistence, getAll, authorize, session: holder, log = () => {}, openSheet = null }) {
   if (!client || !scope || !config || !persistence || !getAll || !authorize || !holder) throw new Error('server-host-bindings-required');
   const current = () => holder.live ?? holder.loaded ?? null;
   async function auth(incoming) {
@@ -111,7 +111,10 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
       if (intent === 'feedback') return { instructions: INSTRUCTIONS.feedback, data: { contractVersion: feedback.CONTRACT_VERSION, editableFields: [...FEEDBACK_EDITABLE] }, readTools: [] };
       if (intent === 'data-entry') {
         const session = current();
-        return { instructions: FARM_ENTRY_INSTRUCTIONS, data: { entryUis: [...FARM_ENTRY_UIS], fieldHints: globalThis.structuredClone(FARM_ENTRY_FIELD_HINTS), target: session?.capture?.context?.target ?? null }, readTools: FARM_READ_TOOLS.map(tool => ({ ...tool })) };
+        // Derived hints always; the exact open-sheet field set (dynamic fields
+        // included) once the browser has that sheet open for the pending proposal.
+        const open = openSheet && session?.pending?.destination === openSheet.ui ? globalThis.structuredClone(openSheet) : null;
+        return { instructions: FARM_ENTRY_INSTRUCTIONS, data: { entryUis: [...FARM_ENTRY_UIS], fieldHints: globalThis.structuredClone(FARM_ENTRY_FIELD_HINTS), openSheet: open, target: session?.capture?.context?.target ?? null }, readTools: FARM_READ_TOOLS.map(tool => ({ ...tool })) };
       }
       if (intent === 'data-questions') return { instructions: INSTRUCTIONS['data-questions'], data: {}, readTools: FARM_READ_TOOLS.map(tool => ({ ...tool })) };
       if (intent === 'how-to') return { instructions: INSTRUCTIONS['how-to'], data: {}, readTools: [] };

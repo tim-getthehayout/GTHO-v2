@@ -1,4 +1,6 @@
 import { reviewSave, inputField, stateField, observationField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { PLACE_ENTRY_FIELDS } from './place-wizard-entry-fields.js';
 /** @file Place wizard — OI-0163.
  *
  * Entry point for placing an unplaced group on a destination paddock or
@@ -198,10 +200,10 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender, opt
     }, [t('action.back')]),
     saveBtn,
   ]));
-  const fields = { dateIn: inputField(inputs.dateIn,true),timeIn: inputField(inputs.timeIn) };
-  for (const key of ['destType','locationId','locationIds','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount']) fields[key] = stateField(state,key,key === 'destType');
+  const fields = { dateIn: inputField(inputs.dateIn),timeIn: inputField(inputs.timeIn) };
+  for (const key of ['destType','locationId','locationIds','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount']) fields[key] = stateField(state,key);
   if (preGraze) fields.preGraze = observationField(preGraze);
-  options.review?.bind({ ui: 'Place wizard',close: () => placeWizardSheet.close(),onError: () => { saveBtn.disabled = false; },entityType: 'events',status: statusEl,fields,savedRecordId: () => state.destType === 'join' ? state.existingEventId : null });
+  options.review?.bind({ ui: 'Place wizard',close: () => placeWizardSheet.close(),onError: () => { saveBtn.disabled = false; },entityType: 'events',status: statusEl,fields: bindEntryFields(PLACE_ENTRY_FIELDS, fields),savedRecordId: () => state.destType === 'join' ? state.existingEventId : null });
 
 }
 

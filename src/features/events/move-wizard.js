@@ -1,4 +1,6 @@
 import { reviewSave, inputField, stateField, observationField } from '../assistant/entry-review.js';
+import { bindEntryFields } from '../assistant/entry-fields.js';
+import { MOVE_ENTRY_FIELDS } from './move-wizard-entry-fields.js';
 /** @file Move wizard — CP-19. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -460,19 +462,19 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
     }, [t('action.done')]),
   ]));
 
-  const fields = Object.fromEntries(Object.entries(inputs).map(([key,input]) => [key,inputField(input,key === 'dateOut' || key === 'dateIn')]));
-  for (const key of ['destType','locationId','locationIds','feedLocationId','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount']) fields[key] = stateField(state,key,key === 'destType');
+  const fields = Object.fromEntries(Object.entries(inputs).map(([key,input]) => [key,inputField(input)]));
+  for (const key of ['destType','locationId','locationIds','feedLocationId','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount']) fields[key] = stateField(state,key);
   if (postGraze) fields.postGraze = observationField(postGraze);
   if (preGraze) fields.preGraze = observationField(preGraze);
   for (const toggle of transferToggles || []) {
     const key = `feed:${toggle.key}`;
-    fields[key] = { required: true,get: () => ({ choice: toggle.choice,residual: toggle.residualInput?.value || null }),set: value => {
+    fields[key] = { get: () => ({ choice: toggle.choice,residual: toggle.residualInput?.value || null }),set: value => {
       // These are normal wizard follow-up controls, not inferred feed quantities.
       toggle.setChoice(value.choice);
       if (toggle.residualInput) toggle.residualInput.value = value.residual ?? '';
     } };
   }
-  opts.review?.bind({ ui: 'Move wizard',close: () => moveWizardSheet.close(),entityType: 'events',status: statusEl,fields,savedRecordId: () => state.destType === 'join' ? state.existingEventId : null });
+  opts.review?.bind({ ui: 'Move wizard',close: () => moveWizardSheet.close(),entityType: 'events',status: statusEl,fields: bindEntryFields(MOVE_ENTRY_FIELDS, fields),savedRecordId: () => state.destType === 'join' ? state.existingEventId : null });
 
 }
 

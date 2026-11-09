@@ -148,6 +148,10 @@ describe('assistant uses populated normal entry UIs', () => {
   for (const choice of ['move','residual']) it(`Move normal ${choice} follow-up uses live remaining, retains post-graze observations and commits one durable receipt`,async () => {
     const batch = seedDeliveredFeed();
     const review = await reviewEntry({ ui: 'move',id: EVT,farmId: FARM },{ destType: 'new',locationId: DST_LOC,dateOut: '2026-11-08',timeOut: '09:00',dateIn: '2026-11-08',timeIn: '09:00',postGraze: { notes: 'Checked after grazing' },[`feed:${batch.id}|${SRC_LOC}`]: { choice,residual: '2' } });
+    // The live open-sheet field set includes the dynamic follow-ups, all declared by the sheet's definition.
+    const open = review.ports.openSheet();
+    expect(open.ui).toBe('move');
+    expect(open.fields).toEqual(expect.arrayContaining(['dateIn','postGraze',`feed:${batch.id}|${SRC_LOC}`]));
     expect(getAll('events')).toHaveLength(1);await confirm('[data-testid="move-wizard-save"]',review);
     const transferred = getAll('eventFeedEntries').filter(row => row.eventId !== EVT);
     if (choice === 'move') { expect(transferred).toHaveLength(1);expect(transferred[0].quantity).toBe(3); } else expect(transferred).toHaveLength(0);

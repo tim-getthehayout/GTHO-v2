@@ -11,7 +11,7 @@ import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
 import { createVoiceLog } from './voice-log.js';
 import { openVoiceLog } from './voice-log-panel.js';
-import { recordNoteUse, settleNoteAfterSave } from './offline-note-review.js';
+import { recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
 
 export const PTT_ID = 'gtho-push-to-talk';
 export const PTT_POSITION_KEY = 'gtho-ptt-position';
@@ -72,8 +72,9 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
           await refreshBadge();
         } });
         end.hidden = false;
-        const conversation = await session.begin({ id: crypto.randomUUID(), role: 'user', modality: 'voice', text });
-        record = await recordNoteUse({ deps, note, conversation });
+        const started = session;
+        const conversation = await started.begin({ id: crypto.randomUUID(), role: 'user', modality: 'voice', text }, undefined, noteOrigin({ deps, note }));
+        record = await recordNoteUse({ deps, note, conversation, attemptId: started.attempt?.id ?? null });
       } });
   }
   const newSession = (extra = {}) => createAssistantSession({ deps, config, intent: 'data-entry', say, onTranscript, onListening: setListening, voiceLog, ...extra });

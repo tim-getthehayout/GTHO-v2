@@ -97,3 +97,61 @@ describe('durable local-save evidence', () => {
     expect(durableLocalSave(null)).toBe(false);
   });
 });
+
+describe('voice_entry_attempts rows (existing columns only, existing durable write path)', () => {
+  const attemptsOf = deps => deps.persist.mock.calls.filter(call => call[1] === 'voiceEntryAttempts').map(call => call[2]);
+  it('one row per entry; a reroute updates that row purpose; an answered question finishes it', async () => {
+    const { deps } = harness([
+      capture => ({ session: { intent: 'data-entry', phase: 'converse', capture, transcript: [] }, route: 'data-questions' }),
+      capture => ({ session: { intent: 'data-questions', phase: 'converse', capture, transcript: [] }, value: { needsDraftDecision: false } }),
+      capture => ({ session: { intent: 'data-questions', phase: 'converse', capture, transcript: [{ role: 'assistant', text: 'Three.' }] } }),
+    ]);
+    const session = createAssistantSession({ deps, config: {}, intent: 'data-entry' });
+    await session.text('How many open cows?');
+    const rows = attemptsOf(deps);
+    expect(rows.map(row => [row.purpose, row.status])).toEqual([['write', 'unfinished'], ['question', 'unfinished'], ['question', 'finished']]);
+    expect(new Set(rows.slice(1).map(row => row.id)).size).toBe(1);
+    expect(rows[1].id).toBe(rows[2].id);
+    expect(rows[0]).toMatchObject({ operationId: OP, conversationId: session.conversation.ref, previousAttemptId: null, finishedAt: null });
+    expect(rows[2].finishedAt).toEqual(expect.any(String));
+    expect(Object.keys(rows[0]).sort()).toEqual(['capturedAt', 'conversationId', 'finishedAt', 'operationId', 'previousAttemptId', 'purpose', 'status']);
+  });
+  it('a write stays unfinished until the confirmed write has durably saved locally', async () => {
+    let hooks;
+    const { deps } = harness([
+      capture => ({ session: { intent: 'data-entry', phase: 'review', reviewReady: true, capture, transcript: [], pending: { id: 'p', revision: 1, intent: 'data-entry', destination: 'treatment', fields: {} } } }),
+      capture => ({ session: { intent: 'data-entry', phase: 'completed', capture, transcript: [] }, value: { state: 'local-save', result: { savedRecordId: 'rec' } } }),
+    ]);
+    Object.assign(deps, {
+      createFarmUiPorts: options => { hooks = options; return { renderReview: async () => {}, openSheet: () => null, recordConfirmation: async () => 'conf', applyConfirmedWrite: async () => ({}) }; },
+      pullReviewRows: async () => {}, getById: () => ({ id: 'conf', cardId: 'card' }), flush: async () => {}, authorize: async () => true, getAll: () => [],
+    });
+    const onDurableSave = vi.fn();
+    const session = createAssistantSession({ deps, config: {}, intent: 'data-entry', onDurableSave });
+    await session.text('Treated tag 42');
+    expect(attemptsOf(deps).at(-1)).toMatchObject({ purpose: 'write', status: 'unfinished' });
+    await hooks.onConfirm({ evidence: {} });
+    await vi.waitFor(() => expect(onDurableSave).toHaveBeenCalled());
+    expect(attemptsOf(deps).at(-1)).toMatchObject({ purpose: 'write', status: 'finished', finishedAt: expect.any(String) });
+  });
+  it('an offline note keeps its recording time and links an explicit retry', async () => {
+    const { deps } = harness([capture => ({ session: { intent: 'data-entry', phase: 'converse', capture, transcript: [] } })]);
+    const session = createAssistantSession({ deps, config: {}, intent: 'data-entry' });
+    await session.begin(user('Fed the cows'), undefined, { capturedAt: '2026-11-08T22:00:00.000Z', previousAttemptId: '00000000-0000-4000-8000-0000000000a1' });
+    expect(attemptsOf(deps)[0]).toMatchObject({ capturedAt: '2026-11-08T22:00:00.000Z', previousAttemptId: '00000000-0000-4000-8000-0000000000a1', status: 'unfinished' });
+  });
+});
+
+describe('attempt tracker', async () => {
+  const { createAttemptTracker, discardAttempt, unfinishedCount } = await import('../../../../src/features/assistant/client/attempts.js');
+  it('discard has no finished countdown; finish is idempotent; count adds unused device notes', async () => {
+    const persist = vi.fn(async (scope, type, row) => ({ id: row.id ?? 'a1', ...row }));
+    const tracker = createAttemptTracker({ persist, scope: { operationId: OP } });
+    const row = await tracker.ensure({ conversationRef: 'c', intent: 'how-to' });
+    expect(await tracker.ensure({ conversationRef: 'c', intent: 'how-to' })).toBe(row);
+    expect(await discardAttempt({ persist, scope: { operationId: OP }, attempt: row })).toMatchObject({ status: 'discarded', finishedAt: null });
+    await tracker.finish(); await tracker.finish();
+    expect(persist.mock.calls.filter(call => call[2].status === 'finished')).toHaveLength(1);
+    expect(unfinishedCount({ attempts: [{ status: 'unfinished' }, { status: 'finished' }], notes: [{ id: 'n1' }, { id: 'n2' }], noteRows: [{ deviceLocalReference: 'n1', attemptId: 'a1' }] })).toBe(2);
+  });
+});

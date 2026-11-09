@@ -8,6 +8,7 @@ import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer } from './rea
 import { recordNote } from './offline-notes.js';
 import { createTestingRecorder, uploadTestingAudio } from './testing-audio.js';
 import { resolveTestingConsent } from './consent.js';
+import { createAttemptTracker } from './attempts.js';
 
 /** True only with durable local-save evidence: the local receipt from the
  * existing durable write, or a replayed server outcome that records one. */
@@ -24,10 +25,11 @@ export const UNRESOLVED_TARGET_QUESTION = 'Which farm, paddock, group or animal 
 /** onDurableSave(outcome, conversation): called only after a confirmed write or
  * filing from this conversation has durably saved on this device. */
 export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null, onDurableSave = async () => {} }) {
-  let conversation, transport, driver, mic, player, recorder, consent;
+  let conversation, transport, driver, mic, player, recorder, consent, attempts, origin = {};
+  const visible = () => conversation?.session?.transcript ?? [];
   const speak = text => driver?.speak(text);
   async function afterSession() {
-    onTranscript(conversation.session?.transcript ?? []);
+    onTranscript(visible());
     const session = conversation.session;
     if (session.phase !== 'review' || !session.reviewReady) return;
     if (session.intent === 'feedback') {
@@ -40,15 +42,19 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     } else if (session.intent === 'data-entry') {
       // Opens the existing sheet populated from its own fields; saves through its existing path.
       await createFarmReviewFlow({ conversation, createFarmUiPorts: deps.createFarmUiPorts, authorize: deps.authorize, awaitServerRows: deps.awaitServerRows, getAll: deps.getAll, getById: deps.getById, flush: deps.flush, pullReviewRows: deps.pullReviewRows,
-        onResult: outcome => { say('Saved.'); onTranscript(conversation.session?.transcript ?? []); void settle(outcome); }, onError: error => say(error.message) }).render(session.pending);
+        onResult: outcome => { say('Saved.'); onTranscript(visible()); void settle(outcome); }, onError: error => say(error.message) }).render(session.pending);
     }
   }
   async function settle(outcome) {
     if (!durableLocalSave(outcome)) return;
-    try { await onDurableSave(outcome, conversation); } catch (error) { say(error.message); }
+    // The same point that deletes a used offline note finishes the attempt.
+    try { await attempts?.finish(); await onDurableSave(outcome, conversation); } catch (error) { say(error.message); }
   }
   async function turn(entry) {
     try {
+      // One attempt per entry an utterance starts (an offline note keeps its recording time).
+      const first = !attempts.current;
+      await attempts.ensure({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, ...(first ? origin : {}) });
       let answer = await conversation.turn(entry);
       const route = conversation.route;
       if (route) {
@@ -56,9 +62,12 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         // the same words once under the routed intent (never more than one reroute).
         await conversation.switchIntent(route);
         onIntent(route);
+        await attempts.reroute(route);
         answer = await conversation.turn({ ...entry, id: crypto.randomUUID() });
       }
       if (answer) speak(answer);
+      // A question or how-to is finished once answered.
+      if (answer && ['data-questions', 'how-to'].includes(conversation.session?.intent)) await attempts.finish();
       await afterSession();
     } catch (error) {
       if (error.code !== 'entry-target-unresolved') throw error;
@@ -77,18 +86,22 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   }
   const session = {
     get conversation() { return conversation; },
+    get attempt() { return attempts?.current ?? null; },
     get listening() { return !!mic; },
     // Feedback host facts are captured before AI for every session, so a routed
     // switch to feedback can still open the pinned interview.
-    async begin(firstTurn, context = typeof deps.feedbackHost === 'function' ? { feedbackHost: deps.feedbackHost() } : {}) {
+    // origin: {capturedAt, previousAttemptId} when the first turn is an offline note.
+    async begin(firstTurn, context = typeof deps.feedbackHost === 'function' ? { feedbackHost: deps.feedbackHost() } : {}, from = {}) {
+      origin = { ...(from.capturedAt ? { capturedAt: from.capturedAt } : {}), ...(from.previousAttemptId ? { previousAttemptId: from.previousAttemptId } : {}) };
       const stored = await resolveTestingConsent(config);
       consent = stored?.decision ?? null;
       conversation = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });
       say('Starting…');
       await conversation.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
+      attempts = createAttemptTracker({ persist: deps.persist, scope: conversation.scope });
       say('');
       if (firstTurn) await turn(firstTurn);
-      onTranscript(conversation.session?.transcript ?? []);
+      onTranscript(visible());
       return conversation;
     },
     /** First tap starts listening; every later tap ends the current turn (same as "over"). */

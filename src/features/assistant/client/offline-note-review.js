@@ -27,8 +27,18 @@ export function renderNoteReview(note, { deps, say, use }) {
 /** Starting a conversation from a note records the existing local reference;
  * the note stays on this device, unfinished, until a confirmed write or filing
  * from that conversation has durably saved locally (see settleNoteAfterSave). */
-export async function recordNoteUse({ deps, note, conversation }) {
-  return deps.persist(conversation.scope, 'offlineVoiceNotes', { operationId: conversation.scope.operationId, conversationId: conversation.ref, deviceLocalReference: note.id, originalContext: JSON.stringify(note.context ?? {}), capturedAt: note.capturedAt });
+export async function recordNoteUse({ deps, note, conversation, attemptId = null }) {
+  return deps.persist(conversation.scope, 'offlineVoiceNotes', { operationId: conversation.scope.operationId, conversationId: conversation.ref, attemptId, deviceLocalReference: note.id, originalContext: JSON.stringify(note.context ?? {}), capturedAt: note.capturedAt });
+}
+
+/** Where a note's attempt starts: its recording time, and on an explicit retry
+ * the latest attempt this note already started (previous_attempt_id). */
+export function noteOrigin({ deps, note }) {
+  const operationId = deps.scope?.().operationId;
+  const prior = (typeof deps.getAll === 'function' ? deps.getAll('offlineVoiceNotes') : [])
+    .filter(row => row.operationId === operationId && row.deviceLocalReference === note.id && row.attemptId)
+    .sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? ''))).at(-1);
+  return { capturedAt: note.capturedAt, previousAttemptId: prior?.attemptId ?? null };
 }
 
 /** After a durable local save from the note's conversation: link the execution

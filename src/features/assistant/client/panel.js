@@ -6,7 +6,7 @@ import { el, clear } from '../../../ui/dom.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
-import { renderNoteReview, recordNoteUse, settleNoteAfterSave } from './offline-note-review.js';
+import { renderNoteReview, recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
 import { createVoiceLog } from './voice-log.js';
 export { CONSENT_TEXT, CONSENT_KEEP, CONSENT_DECLINE, askTestingConsent, resolveTestingConsent } from './consent.js';
 
@@ -58,9 +58,9 @@ export function openAssistant(deps, config) {
   let session = null;
   const offline = createOfflineNoteRecorder({ notes, say, intent: null });
 
-  async function begin(intent, firstTurn, extra = {}) {
+  async function begin(intent, firstTurn, extra = {}, from = {}) {
     session = createAssistantSession({ deps, config, intent, say, onTranscript: turns => renderTranscript(transcript, turns), voiceLog, ...extra });
-    await session.begin(firstTurn);
+    await session.begin(firstTurn, undefined, from);
     clear(body);
     const input = el('input', { type: 'text', placeholder: 'Type instead…', 'data-testid': 'assistant-text' });
     body.append(
@@ -88,8 +88,8 @@ export function openAssistant(deps, config) {
           if (settled) return;
           settled = true;
           await settleNoteAfterSave({ deps, notes, note: picked, record, conversation, outcome });
-        } });
-        record = await recordNoteUse({ deps, note: picked, conversation: started.conversation });
+        } }, noteOrigin({ deps, note: picked }));
+        record = await recordNoteUse({ deps, note: picked, conversation: started.conversation, attemptId: started.attempt?.id ?? null });
       } }));
     }
     body.appendChild(section);

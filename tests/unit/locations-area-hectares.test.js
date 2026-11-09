@@ -6,6 +6,8 @@
  * no area, and an area typed into the sheet was lost on save.
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { _reset, add, getAll, getById } from '../../src/data/store.js';
 import * as OperationEntity from '../../src/entities/operation.js';
 import * as FarmEntity from '../../src/entities/farm.js';
@@ -68,5 +70,27 @@ describe('Locations screen area uses areaHectares', () => {
     const created = getAll('locations').find(l => l.name === 'South');
     expect(created.areaHectares).toBeCloseTo(2.0234, 3);
     expect(LocationEntity.toSupabaseShape(created).area_hectares).toBeCloseTo(2.0234, 3);
+  });
+});
+
+function featureFiles(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    return statSync(path).isDirectory() ? featureFiles(path) : (path.endsWith('.js') ? [path] : []);
+  });
+}
+
+describe('feature code reads location area through areaHectares', () => {
+  it('has no direct .areaHa read without the areaHectares fallback', () => {
+    const offenders = [];
+    for (const file of featureFiles('src/features')) {
+      readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+        const code = line.replace(/\/\/.*$/, '');
+        const reads = code.match(/[\w$]+\??\.areaHa\b/g) || [];
+        const guarded = code.match(/areaHectares \?\? [\w$]+\??\.areaHa\b/g) || [];
+        if (reads.length > guarded.length) offenders.push(`${file}:${i + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

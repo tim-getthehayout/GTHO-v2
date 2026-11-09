@@ -485,7 +485,9 @@ function renderPaddocks(ctx) {
   function appendPaddockRow(parent, pw) {
     const loc = getById('locations', pw.locationId);
     const locName = loc?.name || '?';
-    const areaDisplay = loc?.areaHa ? display(loc.areaHa, 'area', unitSys, 2) : '';
+    const locHa = loc?.areaHectares ?? loc?.areaHa;
+    // Number only: the row appends its own short unit (ac/ha); display() would add 'acres' too.
+    const areaDisplay = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(2) : '';
     const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
     const dayCount = daysBetweenInclusive(pw.dateOpened, todayStr);
 

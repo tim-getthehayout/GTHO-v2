@@ -200,7 +200,8 @@ function renderFieldPicker(panel, operationId, onSelect) {
     }
 
     for (const loc of locs) {
-      const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(1) : '';
+      const locHa = loc.areaHectares ?? loc.areaHa;
+      const areaVal = locHa ? convert(locHa, 'area', 'toImperial').toFixed(1) : '';
       const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
       const farm = loc.farmId ? getById('farms', loc.farmId) : null;
       contentEl.appendChild(el('div', {

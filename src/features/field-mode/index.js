@@ -180,7 +180,8 @@ function handleSurveySingle(opId) {
   clear(panel);
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '10px' } }, ['Select paddock']));
   for (const loc of locs) {
-    const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(1) : '';
+    const locHa = loc.areaHectares ?? loc.areaHa;
+    const areaVal = locHa ? convert(locHa, 'area', 'toImperial').toFixed(1) : '';
     panel.appendChild(el('div', {
       style: { padding: '12px', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', marginBottom: '6px' },
       onClick: () => { pickerSheet.close(); openSurveySheet(loc.id, opId); },
@@ -487,7 +488,7 @@ function renderActiveEvents(container) {
     const pws = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
     const gws = getAll('eventGroupWindows').filter(w => w.eventId === evt.id && !w.dateLeft);
     const locNames = pws.map(w => { const loc = getById('locations', w.locationId); return loc?.name || '?'; }).join(', ');
-    const locAcres = pws.reduce((sum, w) => { const loc = getById('locations', w.locationId); return sum + (loc?.areaHa ? convert(loc.areaHa, 'area', 'toImperial') : 0); }, 0);
+    const locAcres = pws.reduce((sum, w) => { const loc = getById('locations', w.locationId); const locHa = loc?.areaHectares ?? loc?.areaHa; return sum + (locHa ? convert(locHa, 'area', 'toImperial') : 0); }, 0);
     const groupNames = gws.map(w => { const g = getById('groups', w.groupId); return g?.name || '?'; }).join(' \u00B7 ');
     const evtStartDate = getEventStartDate(evt.id);
     const dayCount = evtStartDate ? daysBetweenInclusive(evtStartDate, todayStr) : 0;

@@ -93,7 +93,9 @@ export function createBackendPersistence({ client, authorize, applyConfirmedWrit
   return { withSession, checkpoint, execute, cleanupFinished };
 }
 
-export function createBillingPorts({ client, authorize, authorizeControl }) {
+/** isUnmeasured(failed): true only when a failed request reached a metered provider.
+ * A failure before any provider call has measured zero usage, not unknown usage. */
+export function createBillingPorts({ client, authorize, authorizeControl, isUnmeasured = failed => failed }) {
   async function auth(scope) { if (await authorize(scope) !== true) throw new Error('unauthorized'); }
   return {
     async reserve(scope, purpose, requestRef, { kind }) {
@@ -109,7 +111,7 @@ export function createBillingPorts({ client, authorize, authorizeControl }) {
       requireResult(await client.rpc('assistant_billing_finish', {
         p_operation: scope.operationId, p_lease: lease, p_model: usage.model || null, p_voice: usage.voiceSession || null,
         p_input: usage.inputTokens ?? null, p_output: usage.outputTokens ?? null, p_audio: usage.audioMinutes ?? null, p_requests: usage.requestCount ?? null,
-        p_bill_shared: billShared, p_failed: failed,
+        p_bill_shared: billShared, p_failed: failed, p_unmeasured: failed === true && isUnmeasured(failed) === true,
       }));
     },
     async own(scope) { await auth(scope); return requireResult(await client.from('assistant_billing_usage').select('*').eq('operation_id', scope.operationId)); },

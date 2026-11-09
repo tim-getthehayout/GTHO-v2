@@ -73,9 +73,23 @@ BEGIN
   PERFORM assistant_billing_reserve(op,'feedback','reconcile','settlement');
   PERFORM assistant_billing_reconcile(op,lease_id,'fixture','verified',0,0,0,1);
   PERFORM assistant_billing_reserve(op,'feedback','after-verification','request');
+  -- A failure that never reached a metered provider measured zero usage.
+  SELECT lease INTO lease_id FROM assistant_billing_reserve(op,'feedback','pre-provider-failure','request');
+  PERFORM assistant_billing_finish(op,lease_id,NULL,NULL,0,0,0,1,true,true,false);
+  ASSERT (SELECT input_tokens = 0 AND output_tokens = 0 AND audio_minutes = 0 AND request_count = 1 AND failed FROM assistant_billing_usage WHERE lease = lease_id), 'pre-provider failure is measured zero';
+  PERFORM assistant_billing_reserve(op,'feedback','after-pre-provider-failure','request');
+  SELECT lease INTO lease_id FROM assistant_billing_reserve(op,'feedback','unmeasured-success','request');
+  BEGIN PERFORM assistant_billing_finish(op,lease_id,NULL,NULL,0,0,0,1,true,false,true); RAISE EXCEPTION 'unmeasured success accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'unmeasured-usage-requires-failure' THEN RAISE; END IF; END;
+  -- Worst-case voice session settled at token issue: audio cap, no request count.
+  SELECT lease INTO lease_id FROM assistant_billing_reserve(op,'voice-session','voice-session:token-record','settlement');
+  ASSERT assistant_billing_settle(op,lease_id,'token-record','session-cap-worst-case','voice-model',0,0,10,0), 'worst-case settlement recorded';
+  ASSERT (SELECT audio_minutes = 10 AND request_count = 0 FROM assistant_billing_usage WHERE lease = lease_id), 'worst-case audio minutes';
+  ASSERT NOT assistant_billing_settle(op,lease_id,'token-record','session-cap-worst-case','voice-model',0,0,10,0), 'token record settles once';
   ASSERT NOT has_table_privilege('authenticated','assistant_session_checkpoints','INSERT'), 'browser cannot forge trusted snapshots';
   ASSERT NOT has_table_privilege('authenticated','assistant_execution_results','INSERT'), 'browser cannot forge receipts';
   ASSERT NOT has_function_privilege('authenticated','assistant_billing_reserve(uuid,text,text,text)','EXECUTE'), 'client cannot grant provider access';
+  ASSERT NOT has_function_privilege('authenticated','assistant_billing_finish(uuid,uuid,text,text,numeric,numeric,numeric,integer,boolean,boolean,boolean)','EXECUTE'), 'client cannot record usage';
 END $$;
 ROLLBACK;
 BEGIN;

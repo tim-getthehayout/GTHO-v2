@@ -909,20 +909,24 @@ BEGIN
 END;
 $$;
 CREATE FUNCTION assistant_billing_finish(p_operation uuid, p_lease uuid, p_model text, p_voice text,
-  p_input numeric, p_output numeric, p_audio numeric, p_requests integer, p_bill_shared boolean, p_failed boolean)
+  p_input numeric, p_output numeric, p_audio numeric, p_requests integer, p_bill_shared boolean, p_failed boolean,
+  p_unmeasured boolean DEFAULT NULL)
 RETURNS SETOF assistant_billing_usage LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
-DECLARE reservation assistant_billing_reservations;
+DECLARE reservation assistant_billing_reservations; unmeasured boolean := coalesce(p_unmeasured, p_failed);
 BEGIN
   PERFORM public.assistant_assert_restore_unfenced(p_operation);
   PERFORM 1 FROM assistant_billing_policies WHERE operation_id = p_operation FOR UPDATE;
   SELECT * INTO STRICT reservation FROM assistant_billing_reservations WHERE operation_id = p_operation AND lease = p_lease;
   IF p_bill_shared IS DISTINCT FROM (reservation.routing = 'shared') THEN RAISE EXCEPTION 'billing-routing-mismatch'; END IF;
-  -- Failure without a positive measured counter is unknown, never an invented zero.
+  -- A failure after provider work without a positive measured counter is unknown,
+  -- never an invented zero. A failure that never reached a metered provider
+  -- (p_unmeasured false) measured zero provider usage. Omitted = p_failed.
+  IF p_unmeasured AND NOT p_failed THEN RAISE EXCEPTION 'unmeasured-usage-requires-failure'; END IF;
   RETURN QUERY INSERT INTO assistant_billing_usage (operation_id,lease,purpose,model,voice_session,input_tokens,output_tokens,audio_minutes,request_count,bill_shared,failed)
     VALUES (p_operation,p_lease,reservation.purpose,p_model,p_voice,
-      CASE WHEN p_failed AND p_input = 0 THEN NULL ELSE p_input END,
-      CASE WHEN p_failed AND p_output = 0 THEN NULL ELSE p_output END,
-      CASE WHEN p_failed AND p_audio = 0 THEN NULL ELSE p_audio END,
+      CASE WHEN unmeasured AND p_input = 0 THEN NULL ELSE p_input END,
+      CASE WHEN unmeasured AND p_output = 0 THEN NULL ELSE p_output END,
+      CASE WHEN unmeasured AND p_audio = 0 THEN NULL ELSE p_audio END,
       p_requests,p_bill_shared,p_failed)
     ON CONFLICT (operation_id,lease) DO NOTHING RETURNING *;
 END;
@@ -993,8 +997,8 @@ REVOKE ALL ON FUNCTION assistant_lock_release(uuid,text,uuid) FROM PUBLIC, anon,
 GRANT EXECUTE ON FUNCTION assistant_lock_release(uuid,text,uuid) TO service_role;
 REVOKE ALL ON FUNCTION assistant_billing_reserve(uuid,text,text,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION assistant_billing_reserve(uuid,text,text,text) TO service_role;
-REVOKE ALL ON FUNCTION assistant_billing_finish(uuid,uuid,text,text,numeric,numeric,numeric,integer,boolean,boolean) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION assistant_billing_finish(uuid,uuid,text,text,numeric,numeric,numeric,integer,boolean,boolean) TO service_role;
+REVOKE ALL ON FUNCTION assistant_billing_finish(uuid,uuid,text,text,numeric,numeric,numeric,integer,boolean,boolean,boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION assistant_billing_finish(uuid,uuid,text,text,numeric,numeric,numeric,integer,boolean,boolean,boolean) TO service_role;
 REVOKE ALL ON FUNCTION assistant_billing_reconcile(uuid,uuid,text,text,numeric,numeric,numeric,integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION assistant_billing_reconcile(uuid,uuid,text,text,numeric,numeric,numeric,integer) TO service_role;
 REVOKE ALL ON FUNCTION assistant_billing_settle(uuid,uuid,text,text,text,numeric,numeric,numeric,integer) FROM PUBLIC, anon, authenticated;
@@ -1007,6 +1011,18 @@ INSERT INTO submission_field_states (operation_id, submission_id, field_name, st
 SELECT s.operation_id, s.id, fact.field_name, 'unknown', 'host'
 FROM submissions s CROSS JOIN (VALUES ('type'), ('contractVersion'), ('title'), ('firstNote'), ('expected'), ('actual'), ('severity'), ('affectedWork'), ('workaround'), ('dataRisk'), ('capturedAt'), ('filedAt'), ('conversationId'), ('reproSteps'), ('reviewConfirmation')) AS fact(field_name)
 ON CONFLICT (operation_id, submission_id, field_name) DO NOTHING;
+
+-- Private early-testing audio bucket: user-mic recordings only, native codec,
+-- 25 MB per object. No storage.objects policies are granted: bytes arrive only
+-- through server-minted signed upload URLs after a stored accepted consent.
+-- Guarded so non-Supabase test databases without the storage schema still load.
+DO $$ BEGIN
+  IF to_regclass('storage.buckets') IS NOT NULL THEN
+    INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    VALUES ('assistant-testing-audio', 'assistant-testing-audio', false, 26214400, ARRAY['audio/webm','audio/mp4'])
+    ON CONFLICT (id) DO UPDATE SET public = false, file_size_limit = EXCLUDED.file_size_limit, allowed_mime_types = EXCLUDED.allowed_mime_types;
+  END IF;
+END $$;
 
 -- No SQL in this file has been applied by this implementation session.
 UPDATE operations SET schema_version = 40 WHERE schema_version < 40;

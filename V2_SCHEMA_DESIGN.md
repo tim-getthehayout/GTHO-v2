@@ -2124,7 +2124,7 @@ CREATE TABLE animal_heat_records (
 2. Record birth weight as weight record on calf (source='calving') if provided
 3. Auto-assign calf to dam's current group via membership ledger
 4. Prompt class reassignment on dam if heifer/ewe/doe role (A27) — e.g., heifer → "First-Calf Heifer" class
-5. **Locked 2026-11-08:** recording a birth must explicitly set the dam’s `confirmed_bred` / `confirmedBred` to false. This is stored state, not a natural/derived reset (A29 was reversed by OI-0099). Every path creating an `animal_calving_records` row must do this, including the Calving sheet, voice using the same save, and linking a calf to a dam to create a calving record. The live Calving save and `src/features/animals/calving-sync.js` do not currently clear it; this is a required side effect, not an implemented claim.
+5. **Locked 2026-11-08:** recording a birth must explicitly set the dam’s `confirmed_bred` / `confirmedBred` to false. This is stored state, not a natural/derived reset (A29 was reversed by OI-0099). Every path creating an `animal_calving_records` row must do this, including the Calving sheet, voice using the same save, and linking a calf to a dam to create a calving record. Implemented: the live Calving save (`src/features/health/calving.js`) and `src/features/animals/calving-sync.js` clear it (verified in the PR #38 review, 2026-11-09).
 
 **UI/entity authority for voice (2026-11-08).** Populate the live Calving sheet (§14.7), not a parallel questionnaire. Entity-required fields are operationId, damId and calvedAt. Dried-off remains optional in the sheet/entity; the older dairy-required prose above is not a voice/UI requirement. The live sheet defaults calf sex to female and creates a calf iff `!stillbirthCheck.checked || calfTagInput.value.trim()`; do not invent a different stillbirth rule from older UX prose. Date-only calving uses the sheet’s `new Date(dateInput.value + 'T12:00:00Z')`; other surfaces use their own date/time defaults. Device-local calendar dates remain per OI-0189. Existing calf, optional calving-weight, group membership, calving record and optional A27 class prompt side effects remain, plus the explicit dam clear above. DMI-2 is not rewritten by this lock.
 
@@ -2554,7 +2554,9 @@ CREATE TABLE submission_repro_steps (
 );
 ```
 
-#### 11.2b Physical host artifacts — OI-0195 (locked 2026-11-08; design DDL only)
+#### 11.2b Physical host artifacts — OI-0195 (locked 2026-11-08; design DDL)
+
+> **2026-11-09:** These tables are implemented in `supabase/migrations/040_assistant_host_artifacts.sql`, merged on Forgejo main as PR #38 (`eb04c197`) and **not applied**. The schema stamp stays 39 until Tim approves the apply. Server-authoritative tables added by 040, the backup exception and the restore fence are in §11.2c.
 
 Capture original input/context/build stamp before AI interpretation. Artifact presence follows purpose, not every artifact on every conversation. The common UUID, operation, timestamp and RLS conventions above apply. The typed mappings are the draft; there are no shadow draft copies of farm domain tables.
 
@@ -2857,13 +2859,22 @@ Common columns above also apply.
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | conversation_id | uuid | NOT NULL | Conversation |
-| previous_attempt_id | uuid | NULL | Related prior attempt, if applicable |
+| previous_attempt_id | uuid | NULL | Prior attempt in a retry chain, if any |
 | captured_at | timestamptz | NOT NULL | Today filter uses this |
 | status | text | NOT NULL CHECK (status IN ('unfinished','finished','discarded')) | Lifecycle |
 | finished_at | timestamptz | NULL | Required only when finished |
 | purpose | text | NOT NULL CHECK (purpose IN ('write','question','feedback','how-to')) | Separate how-to filter |
 
 **Design decisions:** Unfinished items remain until finished or discarded; discarded attempts remain until user deletion, not a 90-day countdown. Finished attempts and their mappings/corrections expire 90 days from finished_at.
+
+**Lifecycle (Design ruling, 2026-11-09).**
+- A row is created when an utterance starts an entry. `captured_at` is the capture or recording time (for an offline note, when it was recorded).
+- A reroute updates `purpose` on the same row; the reroute replay is marked with a host event, not a new attempt.
+- The row becomes `finished` (with `finished_at`) when a write or feedback item saves locally, or when a question or how-to is answered. The 90-day expiry runs from `finished_at`.
+- A user discard sets `discarded`, with no expiry.
+- Log filters: Today (operation timezone), Write, Question, Feedback, How-to, Unfinished, All, plus the unfinished badge on the push-to-talk control.
+- **Retry chains, ruling (a).** `previous_attempt_id` links a retry to the attempt it retries. The badge and the Unfinished filter count only the newest non-discarded attempt in a chain. Finishing a retry finishes its unfinished predecessors with the same `finished_at`. Discarding the retry makes its predecessor count again.
+- The fallback question is a host event stored device-local and kept out of the model transcript; it needs no 040 amendment.
 
 ```sql
 CREATE TABLE voice_entry_attempts (
@@ -2935,7 +2946,7 @@ CREATE TABLE assistant_execution_results (
 
 ##### `assistant_testing_consents`
 
-**Purpose:** Actual one-time testing-audio popup decision.
+**Purpose:** Actual testing-audio popup decision, asked once per tester per operation.
 
 Common columns above also apply.
 
@@ -2946,7 +2957,7 @@ Common columns above also apply.
 | decision | text | NOT NULL CHECK (decision IN ('accepted','declined')) | Actual decision, never inferred |
 | decided_at | timestamptz | NOT NULL | Popup decision time |
 
-**Design decisions:** Testing-audio consent is separate from offline local recording and from confirmation of a farm write. No later-rollout consent is invented.
+**Design decisions:** Testing-audio consent is separate from offline local recording and from confirmation of a farm write. No later-rollout consent is invented. The client shows the popup and writes this row; the backend only reads the stored decision. `earlyTesting` comes from the secret `GTHO_ASSISTANT_EARLY_TESTING` (T12). Declining still allows voice, and no audio is kept for that tester (P7). Popup copy (exact): “During early testing, GTHO can keep recordings of what you say to the assistant so we can improve it. Keep my recordings? You can still use voice if you say no.” Buttons: “Keep recordings” / “Don't keep”.
 
 ```sql
 CREATE TABLE assistant_testing_consents (
@@ -2978,7 +2989,7 @@ Common columns above also apply.
 | captured_at | timestamptz | NOT NULL | Capture metadata |
 | duration_ms | numeric | CHECK (duration_ms >= 0) | Capture duration if known |
 
-**Design decisions:** Verify accepted consent for the actor/operation before retention. Backend, bucket, codec and storage mechanism remain unspecified. Stop keeping new testing audio at testing end; disposal of already-collected audio is deferred.
+**Design decisions:** Verify accepted consent for the actor/operation before retention. Bytes go to the private Supabase Storage bucket `assistant-testing-audio` via a server-minted signed upload (P8, 2026-11-09); `audio_reference` points there. Only the user’s mic is kept, never assistant output. Stop keeping new testing audio at testing end; disposal of already-collected audio is deferred.
 
 ```sql
 CREATE TABLE assistant_testing_audio (
@@ -3015,7 +3026,7 @@ Common columns above also apply.
 | confirmed_execution_result_id | uuid | NULL | Confirmed write/filing and actual local save evidence |
 | deleted_at | timestamptz | NULL | Actual deletion time only |
 
-**Design decisions:** Playback and user deletion remain available before processing; no extra on-device storage permission prompt. Processing/deletion eligibility requires confirmation AND successful durable local save from this note. Confirmation alone, discard, queued sync or server/handoff acknowledgement alone do not authorize processing deletion. Discard without filing keeps audio unless the user deletes it. The physical local audio mechanism is unspecified; this table is scoped metadata, not an audio upload promise.
+**Design decisions:** Playback and user deletion remain available before processing; no extra on-device storage permission prompt. Processing/deletion eligibility requires confirmation AND successful durable local save from this note. Confirmation alone, discard, queued sync or server/handoff acknowledgement alone do not authorize processing deletion. Discard without filing keeps audio unless the user deletes it. Recordings are stored on the device in IndexedDB, capped at 3 minutes per note, transcribed once online and reviewed before saving (P9, 2026-11-09). This table is scoped metadata, not an audio upload promise.
 
 ```sql
 CREATE TABLE offline_voice_notes (
@@ -3041,7 +3052,29 @@ CREATE TABLE offline_voice_notes (
 
 No deletion cascade is specified from attempts or mappings to ordinary farm records, retained revisions/review-card evidence/confirmations or transcripts, testing consent/audio, execution evidence, checkpoints, or offline recordings. At 90 days from finished_at, explicitly delete the finished attempt and its mapping/correction rows; detach nullable attempt links on retained artifacts (including related-attempt links) and remove mapping predecessor dependencies within the cleanup set. Do not let an FK block cleanup indefinitely or cascade away retained evidence. Discarded attempts/recordings are not in that cleanup set. Transcripts and review evidence remain after testing; no extra retention duration is invented for them here. Today filtering uses capture time, not finish time.
 
-The host 90-day finished mapping-record lock **differs from the shared conversation-runtime CONTRACT’s permanent mapping-record language**. Neither shared CONTRACT is changed; no reconciliation is claimed. How-to-only Get help stays in the same assistant with a matching doc link and no product filing. All new tables and additive submissions columns join the existing CP-55/CP-56 serialization/backup set in the same operation-scoped way as submissions; opaque metadata is not proof that audio bytes are backed up. See `V2_MIGRATION_PLAN.md` §5.3. No schema_version bump, migrations or SQL are applied by this docs pass.
+The host 90-day finished mapping-record lock **differs from the shared conversation-runtime CONTRACT’s permanent mapping-record language**. Neither shared CONTRACT is changed; no reconciliation is claimed. How-to-only Get help stays in the same assistant with a matching doc link and no product filing. The new tables in this section and the additive submissions columns join the existing CP-55/CP-56 serialization/backup set in the same operation-scoped way as submissions, except `assistant_session_checkpoints` and `assistant_execution_results`, which are server-authoritative and excluded (§11.2c). Opaque metadata is not proof that audio bytes are backed up. See `V2_MIGRATION_PLAN.md` §5.3. Migration 040 is on Forgejo main and not applied; schema_version stays 39 until Tim approves the apply.
+
+#### 11.2c Server-authoritative assistant tables, backup exception and restore fence — OI-0195 (locked 2026-11-09)
+
+Migration 040 also adds server-side coordination and billing state. Physical DDL is in `supabase/migrations/040_assistant_host_artifacts.sql`; this section records the locks, not a second copy of the DDL.
+
+**Server-authoritative tables.** Seven tables are written only by the backend (`service_role`); the browser has no table privileges on them:
+
+| Table | Role |
+|---|---|
+| `assistant_session_checkpoints` | Trusted runtime snapshot (§11.2b) |
+| `assistant_execution_results` | Execution claim and outcome (§11.2b) |
+| `assistant_session_locks` | Durable exclusive operation/conversation lock; no expiry or takeover |
+| `assistant_billing_policies` | Per-operation caps and billing timezone |
+| `assistant_billing_reservations` | One reservation per request or settlement |
+| `assistant_billing_usage` | Measured or unknown usage per reservation |
+| `assistant_billing_settlements` | Voice settlement identities |
+
+**Backup exception (Tim, testing scope).** Browser CP-55/CP-56 backup and restore exclude these seven tables plus `assistant_restore_fences`. CP-55/CP-56 is therefore not complete assistant recovery. The backend-authorized backup/recovery path is deferred.
+
+**Restore fence (Tim).** A membership-checked SECURITY DEFINER probe and fence: `assistant_restore_prepare`, `assistant_restore_finish` and `assistant_restore_abort`. It reveals only whether the operation has rows in the protected tables, and it holds a durable fence (`assistant_restore_fences`) so new protected rows cannot appear during a restore. No GRANT loosening, no `service_role` in the PWA, no row contents, no expiry or takeover. A restore that would conflict with retained server authority is refused before anything destructive happens.
+
+**Billing (Tim).** No blanket billing-policy seed: the policy row is created on the first reserve. Caps are 30 requests per 10 minutes, 2000 requests per month and 600 audio minutes per month, stored as policy parameters. The billing calendar uses the operation timezone; reserve fails with `billing-calendar-timezone-required` if it is not set. Unknown usage after a provider timeout or failure does not block reserve, still counts once against request caps, is never recorded as zero (counters stay NULL), and is listed in the `service_role`-only `assistant_billing_unreconciled_usage` view for later server-side reconciliation (deferred). A failure before any provider fetch is a measured zero (Design). Voice settles the worst case (the 10-minute session cap) at token issue; later client usage reports are refused. The central usage view is for Tim only (`GTHO_BILLING_CONTROL_USERS`); billing UI and operation-owned billing are deferred.
 
 ### 11.3 todos
 
@@ -3176,6 +3209,7 @@ CREATE TABLE release_notes (
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-09 | OI-0195 — ready-for-build gate locks | §11.2b notes migration 040 (on Forgejo main via PR #38, not applied). `voice_entry_attempts` lifecycle and retry-chain ruling (a); consent asked once per tester per operation with exact copy and decline behavior; testing audio in the private `assistant-testing-audio` bucket; offline notes in IndexedDB with a 3-minute cap. New §11.2c: seven server-authoritative tables, testing-scope CP-55/CP-56 exception, restore fence and billing locks. Calving dam clear marked implemented. |
 | 2026-11-08 | OI-0195 host physical design specified | Additive submissions columns/fact states/repro steps and operation-scoped artifact table sketches; populated-UI review; typed drafts and safe 90-day cleanup. Open set excludes calves; every recorded birth clears dam confirmed_bred. Design only, adapter unimplemented, not handed to Build; shared CONTRACTs unchanged. |
 | 2026-11-08 | OI-0195 — host adoption design | Added release pins, additive submissions mapping and explicit historical unknowns; logical host artifact inventory, review/capture obligations, how-to routing, offline deletion and consent, 90-day log/mapping retention. Physical layout and tool contracts remain open; not ready for Build. No SQL/schema applied. |
 | 2026-11-08 | OI-0195 — voice/AI schema note | Updated the Domain 11 future-schema note: April transcript/training/script/confidence list is no longer treated as the planned table set. Tables remain undesigned. Pointer to rewritten `V2_INFRASTRUCTURE.md` §8. No schema change. |

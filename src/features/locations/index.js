@@ -51,6 +51,12 @@ function fmtNum(n) { return Math.round(n).toLocaleString('en-US'); }
 
 // ─── Main Entry ─────────────────────────────────────────────────────────
 
+/** Location entities store area as `areaHectares`; `areaHa` is read only as a
+ * legacy fallback for records written before this fix. */
+function locationAreaHa(loc) {
+  return loc?.areaHectares ?? loc?.areaHa ?? null;
+}
+
 export function renderLocationsScreen(container) {
   unsubs.forEach(fn => fn());
   unsubs = [];
@@ -260,7 +266,7 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
     locs.sort((a, b) => {
       let va, vb;
       if (sortColumn === 'name') { va = a.name || ''; vb = b.name || ''; }
-      else if (sortColumn === 'acres') { va = a.areaHa || 0; vb = b.areaHa || 0; return sortAsc ? va - vb : vb - va; }
+      else if (sortColumn === 'acres') { va = locationAreaHa(a) || 0; vb = locationAreaHa(b) || 0; return sortAsc ? va - vb : vb - va; }
       else if (sortColumn === 'survey') {
         const oa = observations.filter(o => o.locationId === a.id).sort((x, y) => (y.observedAt || '').localeCompare(x.observedAt || ''))[0];
         const ob = observations.filter(o => o.locationId === b.id).sort((x, y) => (y.observedAt || '').localeCompare(x.observedAt || ''))[0];
@@ -288,7 +294,8 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
 
 function buildLocationCard(loc, operationId, farmId, unitSys) {
   const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
-  const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(2) : '';
+  const locHa = locationAreaHa(loc);
+  const areaVal = locHa ? convert(locHa, 'area', 'toImperial').toFixed(2) : '';
   const isConfinement = loc.type === 'confinement';
   const landUse = loc.type === 'storage'
     ? t('location.type.storage')
@@ -356,14 +363,14 @@ function buildLocationCard(loc, operationId, farmId, unitSys) {
   }
 
   // Est. available DM (pasture/mixed-use only)
-  if (!isConfinement && latestObs?.forageHeightCm && forageType && loc.areaHa) {
+  if (!isConfinement && latestObs?.forageHeightCm && forageType && locHa) {
     const for1 = getCalcByName('FOR-1');
     if (for1) {
       const residual = forageType.minResidualHeightCm ?? 5;
       // OI-0095: prefer the areaPct of the currently-open PW on this location (if any) over a literal 100.
       const openPwForArea = epws.find(pw => { const evt = getById('events', pw.eventId); return evt && !evt.dateOut; });
       const areaPctForCalc = openPwForArea?.areaPct ?? 100;
-      const dmAvail = for1.fn({ forageHeightCm: latestObs.forageHeightCm, residualHeightCm: residual, areaHectares: loc.areaHa, areaPct: areaPctForCalc, coverPct: latestObs.forageCoverPct ?? 80, dmKgPerCmPerHa: forageType.dmKgPerCmPerHa ?? 110 });
+      const dmAvail = for1.fn({ forageHeightCm: latestObs.forageHeightCm, residualHeightCm: residual, areaHectares: locHa, areaPct: areaPctForCalc, coverPct: latestObs.forageCoverPct ?? 80, dmKgPerCmPerHa: forageType.dmKgPerCmPerHa ?? 110 });
       const dmLbs = fmtNum(convert(dmAvail, 'weight', 'toImperial'));
       const auds = (dmAvail / 11).toFixed(0);
       const heightDisplay = display(latestObs.forageHeightCm, 'length', unitSys, 1);
@@ -420,7 +427,8 @@ export function openLocationSheet(existingLoc, operationId, farmId, opts = {}) {
 
   // Name + Acres
   inputs.name = el('input', { type: 'text', placeholder: 'North paddock', value: existingLoc?.name || '' });
-  const areaVal = existingLoc?.areaHa ? (unitSys === 'imperial' ? convert(existingLoc.areaHa, 'area', 'toImperial').toFixed(2) : existingLoc.areaHa.toFixed(2)) : '';
+  const existingHa = locationAreaHa(existingLoc);
+  const areaVal = existingHa ? (unitSys === 'imperial' ? convert(existingHa, 'area', 'toImperial').toFixed(2) : existingHa.toFixed(2)) : '';
   inputs.area = el('input', { type: 'number', step: '0.5', placeholder: '20', value: areaVal });
   panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['Name']), inputs.name]),
@@ -528,16 +536,16 @@ function saveLocation(existingLoc, typeState, inputs, operationId, farmId, unitS
   const name = inputs.name.value.trim();
   if (!name) { statusEl.appendChild(el('span', {}, ['Name is required'])); return; }
 
-  let areaHa = null;
+  let areaHectares = null;
   if (type === 'land' && inputs.area.value !== '') {
     const areaVal = parseFloat(inputs.area.value);
-    areaHa = unitSys === 'imperial' ? convert(areaVal, 'area', 'toMetric') : areaVal;
+    areaHectares = unitSys === 'imperial' ? convert(areaVal, 'area', 'toMetric') : areaVal;
   }
 
   const data = {
     operationId, farmId: inputs.farmId.value || farmId, name, type,
     landUse: type === 'land' ? inputs.landUse.value : null,
-    areaHa, fieldCode: inputs.fieldCode.value.trim() || null,
+    areaHectares, fieldCode: inputs.fieldCode.value.trim() || null,
     soilType: type === 'land' ? (inputs.soilType.value || null) : null,
     forageTypeId: type === 'land' ? (inputs.forageTypeId.value || null) : null,
     capturePercent: type === 'confinement' && inputs.capturePercent.value !== '' ? parseFloat(inputs.capturePercent.value) : null,
@@ -916,7 +924,8 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
 
     for (const loc2 of filtered) {
       const r = readings[loc2.id];
-      const areaVal = loc2.areaHa ? convert(loc2.areaHa, 'area', 'toImperial').toFixed(2) : '';
+      const loc2Ha = locationAreaHa(loc2);
+      const areaVal = loc2Ha ? convert(loc2Ha, 'area', 'toImperial').toFixed(2) : '';
       const areaUnit2 = unitSys === 'imperial' ? 'ac' : 'ha';
       const isExpanded = expandedCards.has(loc2.id);
       const isComplete = r.forageQuality != null && r.forageHeightCm != null && r.forageCoverPct != null && r.forageCondition != null;
@@ -1263,7 +1272,8 @@ function openApplyInputSheet(operationId) {
     clear(locListEl);
     for (const loc of allLocs) {
       const isChecked = selectedLocations.has(loc.id);
-      const areaVal = loc.areaHa ? convert(loc.areaHa, 'area', 'toImperial').toFixed(2) : '';
+      const locHa = locationAreaHa(loc);
+      const areaVal = locHa ? convert(locHa, 'area', 'toImperial').toFixed(2) : '';
       locListEl.appendChild(el('div', {
         style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', cursor: 'pointer', background: isChecked ? 'var(--green-l)' : 'transparent' },
         onClick: () => { if (isChecked) selectedLocations.delete(loc.id); else selectedLocations.add(loc.id); renderLocCheckboxes(); },

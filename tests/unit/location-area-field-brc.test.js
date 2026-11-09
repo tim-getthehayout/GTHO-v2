@@ -134,6 +134,11 @@ describe('OI-0124 Phase 1 — paddockAcres wiring on pre-graze surfaces', () => 
     expect(helper.textContent).toMatch(/2\.47 ac/);
   });
 
+  it('Event Detail paddock row shows the location area from areaHectares', () => {
+    openEventDetailSheet({ id: EVT }, OP, FARM);
+    expect(document.body.textContent).toMatch(/2\.47 ac \u00B7 Day \d+ on paddock/);
+  });
+
   it('Edit Paddock Window dialog pre-graze card is BRC-active', () => {
     const pw = getById('eventPaddockWindows', PW);
     const event = getById('events', EVT);

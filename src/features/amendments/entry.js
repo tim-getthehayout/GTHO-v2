@@ -364,7 +364,7 @@ function openAmendmentSheet(existing, operationId) {
           if (locCount > 0) {
             for (const locationId of locationArr) {
               const loc = getById('locations', locationId);
-              const locAreaHa = loc?.areaHa ?? null;
+              const locAreaHa = loc?.areaHectares ?? loc?.areaHa ?? null;
 
               // Split qty evenly across paddocks
               const locQty = qty != null ? qty / locCount : null;

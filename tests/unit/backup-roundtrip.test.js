@@ -16,7 +16,7 @@ import fixture from '../fixtures/backup-v14.json';
 const EXPECTED_FIXTURE_TABLE_COUNT = 52;
 // Current export lists 51 tables: 54 entity types minus 3 excluded
 // (operation_members, app_logs, release_notes).
-const EXPECTED_EXPORT_TABLE_COUNT = 71;
+const EXPECTED_EXPORT_TABLE_COUNT = 64;
 
 describe('backup round-trip (CP-55)', () => {
   describe('fixture structure', () => {

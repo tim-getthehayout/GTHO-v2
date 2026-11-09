@@ -9,6 +9,7 @@ import {
   getBackupPreview,
   migrateBackupForward,
   FK_ORDER,
+  BROWSER_FK_ORDER,
   REFERENCE_TABLES,
   TWO_PASS_TABLES,
 } from '../../src/data/backup-import.js';
@@ -108,7 +109,7 @@ describe('backup-import (CP-56)', () => {
 
     it('matches the export table list', () => {
       const exportTables = getBackupTableNames().sort();
-      const importTables = [...FK_ORDER].sort();
+      const importTables = [...BROWSER_FK_ORDER].sort();
       expect(importTables).toEqual(exportTables);
     });
 

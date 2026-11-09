@@ -1,5 +1,4 @@
-import { INITIAL_BILLING_POLICY } from '../features/assistant/billing-policy.js';
-import { ASSISTANT_TABLES, HISTORICAL_FEEDBACK_FACTS, SUBMISSION_EXTENSION_COLUMNS } from '../features/assistant/schema.js';
+import { ASSISTANT_TABLES, SERVER_ASSISTANT_TABLES, HISTORICAL_FEEDBACK_FACTS, SUBMISSION_EXTENSION_COLUMNS } from '../features/assistant/schema.js';
 
 /**
  * @file Backup migration chain registry — CP-55.
@@ -199,7 +198,7 @@ export const BACKUP_MIGRATIONS = {
   },
   // 039 → 040: additive host facts with explicit unknowns, preserving legacy history.
   39: (b) => {
-    for (const table of ASSISTANT_TABLES) b.tables[table] ??= [];
+    for (const table of ASSISTANT_TABLES) if (!SERVER_ASSISTANT_TABLES.has(table)) b.tables[table] ??= [];
     for (const row of b.tables.submissions || []) {
       for (const column of SUBMISSION_EXTENSION_COLUMNS) row[column] ??= null;
       for (const fieldName of HISTORICAL_FEEDBACK_FACTS) {
@@ -210,11 +209,7 @@ export const BACKUP_MIGRATIONS = {
         });
       }
     }
-    for (const op of b.tables.operations || []) {
-      if (!b.tables.assistant_billing_policies.some(policy => policy.operation_id === op.id)) {
-        b.tables.assistant_billing_policies.push({ id: crypto.randomUUID(), operation_id: op.id, ...INITIAL_BILLING_POLICY, billing_timezone: op.timezone ?? null });
-      }
-    }
+
     b.schema_version = 40;
     for (const op of b.tables.operations || []) op.schema_version = 40;
     return b;

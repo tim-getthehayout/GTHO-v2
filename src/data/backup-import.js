@@ -5,6 +5,7 @@
  * wholesale-replaces operation data in FK-dependency order per §5.3a.
  */
 
+import { SERVER_ASSISTANT_TABLES } from '../features/assistant/schema.js';
 import { supabase } from './supabase-client.js';
 import { canExport, exportOperationBackup, downloadBackup } from './backup-export.js';
 import { BACKUP_MIGRATIONS } from './backup-migrations.js';
@@ -88,6 +89,8 @@ const FK_ORDER = [
   'assistant_testing_audio',
   'offline_voice_notes',
 ];
+
+export const BROWSER_FK_ORDER = FK_ORDER.filter(table => !SERVER_ASSISTANT_TABLES.has(table));
 
 const TWO_PASS_TABLES = {
   animals: ['dam_id', 'sire_animal_id'],
@@ -242,7 +245,7 @@ async function insertTableRows(table, rows, operationId) {
 async function parityCheck(backup, operationId) {
   const mismatches = [];
 
-  for (const table of FK_ORDER) {
+  for (const table of BROWSER_FK_ORDER) {
     const backupRows = backup.tables[table] || [];
     const expected = backupRows.length;
 
@@ -271,6 +274,21 @@ async function parityCheck(backup, operationId) {
   return { pass: mismatches.length === 0, mismatches };
 }
 
+/** No destructive browser restore without proof that retained authority is absent.
+ * Existing grants intentionally deny these reads. Permission/visibility failure
+ * is UNKNOWN, never empty. No new backend transport or grants are invented. */
+export async function preflightAssistantRestore(backup,operationId,client = supabase) {
+  if ((backup.tables?.offline_voice_notes || []).some(row => row.confirmed_execution_result_id != null)) return { success: false,error: 'Restore refused: offline voice notes reference retained server execution results.' };
+  for (const table of SERVER_ASSISTANT_TABLES) {
+    try {
+      const { count,error } = await client.from(table).select('id',{ head: true,count: 'exact' }).eq('operation_id',operationId);
+      if (error || !Number.isInteger(count) || count < 0) return { success: false,error: 'Restore refused: authoritative assistant state cannot be verified. Backend-authorized preflight visibility is not configured.' };
+      if (count > 0) return { success: false,error: `Restore refused: retained backend authority in ${table} may depend on browser-restored parents.` };
+    } catch { return { success: false,error: 'Restore refused: authoritative assistant preflight unavailable.' }; }
+  }
+  return { success: true };
+}
+
 export async function importOperationBackup(backup, operationId, onProgress, options = {}) {
   const progress = (phase, detail, pct) => {
     if (onProgress) onProgress(phase, detail, pct);
@@ -286,6 +304,9 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
   if (!exportCheck.ok) {
     return { success: false, error: 'Sync pending — retry when sync completes.' };
   }
+
+  const authority = await preflightAssistantRestore(backup,operationId);
+  if (!authority.success) return authority;
 
   let autoBackupFileName;
   if (options.skipAutoBackup) {
@@ -322,8 +343,8 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     }
   }
 
-  const deleteOrder = [...FK_ORDER].reverse();
-  const totalSteps = deleteOrder.length + FK_ORDER.length;
+  const deleteOrder = [...BROWSER_FK_ORDER].reverse();
+  const totalSteps = deleteOrder.length + BROWSER_FK_ORDER.length;
   let stepsDone = 0;
 
   for (const table of deleteOrder) {
@@ -338,7 +359,7 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  for (const table of FK_ORDER) {
+  for (const table of BROWSER_FK_ORDER) {
     const rows = backup.tables[table] || [];
     progress('Replacing data', `Inserting ${table} (${rows.length} rows)`, 25 + Math.round((stepsDone / totalSteps) * 50));
     try {
@@ -361,7 +382,7 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
   progress('Verifying', '', 90);
   const parityResult = await parityCheck(backup, operationId);
 
-  const totalRows = FK_ORDER.reduce((sum, t) => sum + (backup.tables[t] || []).length, 0);
+  const totalRows = BROWSER_FK_ORDER.reduce((sum, t) => sum + (backup.tables[t] || []).length, 0);
   if (parityResult.pass) {
     logger.info('backup', 'import complete', {
       operation_id: operationId,

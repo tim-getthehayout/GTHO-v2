@@ -33,6 +33,6 @@ export function acceptPendingClarification(value) {
   }
   let serialized;
   try { serialized = JSON.stringify(value); } catch { return null; }
-  if (serialized.length > PENDING_CLARIFICATION_MAX_BYTES) return null;
+  if (new TextEncoder().encode(serialized).length > PENDING_CLARIFICATION_MAX_BYTES) return null;
   return value;
 }

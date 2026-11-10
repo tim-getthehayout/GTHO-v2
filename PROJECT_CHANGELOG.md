@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | fix(assistant): measure pendingClarification against 16 KB of UTF-8 bytes (TextEncoder), so a 6000-character CJK payload (18040 bytes) is rejected, and accept a value at the 16384-byte boundary. | `src/entities/assistant-pending-clarification.js`, `tests/unit/entities/assistant-pending-clarification.test.js` |
 | 2026-11-10 | fix(feeding): drop the unused paddock-list helper left after short disambiguating answers replace the old alias, so lint stays at the existing warning baseline. | `src/features/assistant/feeding-clarification.js` |
 | 2026-11-10 | fix: drop the extra blank line at the end of window-helpers so the branch diff has no whitespace errors. | `src/calcs/window-helpers.js` |
 | 2026-11-10 | fix(confinement): render the actual pre-graze and post-graze forage fields on confinement locations in the sub-move and close sheets, greyed out and inactive (disabled, aria-disabled, no writes, no observations). Hidden does not count. | `src/features/events/{submove,close}.js`, `tests/unit/events/mixed-forage-observations.test.js` |

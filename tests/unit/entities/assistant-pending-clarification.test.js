@@ -52,4 +52,23 @@ describe('pendingClarification schema', () => {
     const result = validate(record({ field: 'paddock', names: { paddock: 'e1' }, fields: { date: '2026-11-09' } }));
     expect(result.valid).toBe(true);
   });
+
+  it('rejects 6000 CJK characters that exceed 16 KB of UTF-8 bytes, and honors the byte boundary', () => {
+    const cjk = { field: 'paddock', fields: { note: '一'.repeat(6000) } };
+    const cjkUtf16 = JSON.stringify(cjk).length;
+    const cjkUtf8 = new TextEncoder().encode(JSON.stringify(cjk)).length;
+    expect(cjkUtf16).toBeLessThan(PENDING_CLARIFICATION_MAX_BYTES);
+    expect(cjkUtf8).toBe(18040);
+    expect(acceptPendingClarification(cjk)).toBeNull();
+    expect(validate(record(cjk)).valid).toBe(false);
+
+    const utf8Bytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
+    const overhead = utf8Bytes({ field: 'paddock', fields: { note: '' } });
+    const atCap = { field: 'paddock', fields: { note: 'a'.repeat(PENDING_CLARIFICATION_MAX_BYTES - overhead) } };
+    const overCap = { field: 'paddock', fields: { note: 'a'.repeat(PENDING_CLARIFICATION_MAX_BYTES - overhead + 1) } };
+    expect(utf8Bytes(atCap)).toBe(PENDING_CLARIFICATION_MAX_BYTES);
+    expect(utf8Bytes(overCap)).toBe(PENDING_CLARIFICATION_MAX_BYTES + 1);
+    expect(acceptPendingClarification(atCap)).toEqual(atCap);
+    expect(acceptPendingClarification(overCap)).toBeNull();
+  });
 });

@@ -86,6 +86,15 @@
   --tint-tan: var(--color-tan-light);
   --on-tint-tan: var(--color-tan-dark);
 
+  /* Surface-specific chips: preserve aa2f48bf light hex; dark uses tint tokens */
+  --chip-now-bg: #ffffff;
+  --chip-now-fg: var(--color-green-dark);
+  --dash-chip-green-bg: #F4F8EC;
+  --dash-chip-green-fg: #3B6D11;
+  --dash-btn-amber-bg: #FDF6EA;
+  --dash-btn-amber-fg: #8B6914;
+  --dash-btn-amber-border: #E5C76B;
+
   /* Spacing scale (8px-based) */
   --space-1: 2px;
   --space-2: 4px;
@@ -143,6 +152,13 @@
     --on-tint-blue: color-mix(in srgb, var(--color-blue-base) 45%, var(--text));
     --tint-tan: color-mix(in srgb, var(--color-tan-base) 22%, var(--bg));
     --on-tint-tan: color-mix(in srgb, var(--color-tan-base) 45%, var(--text));
+    --chip-now-bg: var(--tint-green);
+    --chip-now-fg: var(--on-tint-green);
+    --dash-chip-green-bg: var(--tint-green);
+    --dash-chip-green-fg: var(--on-tint-green);
+    --dash-btn-amber-bg: var(--tint-amber);
+    --dash-btn-amber-fg: var(--on-tint-amber);
+    --dash-btn-amber-border: var(--color-amber-base);
   }
 }
 
@@ -2767,17 +2783,17 @@ body:has(.auth-overlay) .pwa-update-banner {
 
 /* Dashboard event-type / feed-check chips (was inline hex in dashboard/index.js) */
 .dash-chip-green {
-  background: var(--tint-green);
-  color: var(--on-tint-green);
+  background: var(--dash-chip-green-bg);
+  color: var(--dash-chip-green-fg);
   font-size: 12px;
   border-radius: 4px;
   padding: 2px 6px;
   margin-right: 6px;
 }
 .dash-btn-amber {
-  background: var(--tint-amber);
-  color: var(--on-tint-amber);
-  border: 1px solid var(--color-amber-base);
+  background: var(--dash-btn-amber-bg);
+  color: var(--dash-btn-amber-fg);
+  border: 1px solid var(--dash-btn-amber-border);
   padding: 10px 8px;
   font-size: 13px;
   font-weight: 600;
@@ -2787,8 +2803,8 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 
 .now-chip {
-  background: var(--tint-green);
-  color: var(--on-tint-green);
+  background: var(--chip-now-bg);
+  color: var(--chip-now-fg);
   font-size: 0.625rem;
   font-weight: 700;
   padding: 1px 6px;
@@ -3357,6 +3373,8 @@ body:has(.auth-overlay) .pwa-update-banner {
   .cat-pill.cp-idea.sel,
   .cat-pill.cp-roadblock.sel,
   .cat-pill.cp-question.sel {
+    background: var(--surface-selected);
+    color: var(--text);
     border-width: 2px;
     border-color: var(--color-green-base);
   }

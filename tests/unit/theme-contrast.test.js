@@ -10,9 +10,10 @@
  * - .fb-dev-resp on --teal-l / --teal-d (not moved to tint tokens this pass)
  * - legend capacity swatch #D4A76A, various white text on solid brand fills
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { execSync } from 'node:child_process';
 
 const CSS = readFileSync(resolve(process.cwd(), 'src/styles/main.css'), 'utf8');
 
@@ -272,9 +273,9 @@ const LIGHT_UNCHANGED = [
   { sel: '.br', bg: '#fcebeb', fg: '#a32d2d' },
   { sel: '.cat-pill.cp-idea.sel', bg: '#eaf3de', fg: '#3b6d11' },
   { sel: '.cat-pill.cp-bug.sel', bg: '#fcebeb', fg: '#a32d2d' },
-  { sel: '.now-chip', bg: '#eaf3de', fg: '#3b6d11' },
-  { sel: '.dash-chip-green', bg: '#eaf3de', fg: '#3b6d11' },
-  { sel: '.dash-btn-amber', bg: '#faeeda', fg: '#854f0b' },
+  { sel: '.now-chip', bg: '#ffffff', fg: '#3b6d11' },
+  { sel: '.dash-chip-green', bg: '#f4f8ec', fg: '#3b6d11' },
+  { sel: '.dash-btn-amber', bg: '#fdf6ea', fg: '#8b6914' },
 ];
 
 describe('light-mode computed colors unchanged for listed selectors', () => {
@@ -420,4 +421,164 @@ describe('dark-mode selection indicator ≥ 3:1 vs --bg', () => {
       expect(lightShadow).not.toMatch(/inset\s+0\s+0\s+0\s+2px/);
     });
   }
+});
+
+
+
+/** Baseline commit whose light chip hex must stay locked (Design HOLD on PR #44). */
+const LIGHT_LOCK_COMMIT = 'aa2f48bf';
+
+function gitShow(path) {
+  return execSync(`git show ${LIGHT_LOCK_COMMIT}:${path}`, { encoding: 'utf8' });
+}
+
+function parseRuleDecls(css, selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`${escaped}\\s*\\{([^}]+)\\}`);
+  const m = css.match(re);
+  if (!m) return null;
+  const decls = {};
+  for (const part of m[1].split(';')) {
+    const idx = part.indexOf(':');
+    if (idx < 0) continue;
+    decls[part.slice(0, idx).trim().toLowerCase()] = part.slice(idx + 1).trim();
+  }
+  return decls;
+}
+
+describe('light chip colors locked to aa2f48bf (not remapped tint-green)', () => {
+  const baselineCss = gitShow('src/styles/main.css');
+  const baselineDash = gitShow('src/features/dashboard/index.js');
+  const baselineNow = parseRuleDecls(baselineCss, '.now-chip');
+
+  it('reads .now-chip light bg #fff from aa2f48bf', () => {
+    expect(baselineNow?.background?.toLowerCase()).toBe('#fff');
+  });
+
+  it('current .now-chip light resolves to aa2f48bf white + green-dark', () => {
+    const styles = surfaceStyles(RULES, '.now-chip', { tag: 'span', darkOnly: false });
+    expect(parseHex(resolveValue(styles.background, LIGHT))).toBe('#ffffff');
+    expect(parseHex(resolveValue(styles.color, LIGHT))).toBe('#3b6d11');
+  });
+
+  it('current .dash-chip-green light matches aa2f48bf inline #F4F8EC/#3B6D11', () => {
+    expect(baselineDash).toMatch(/background:\s*'#F4F8EC'/);
+    expect(baselineDash).toMatch(/color:\s*'#3B6D11'/);
+    const styles = surfaceStyles(RULES, '.dash-chip-green', { tag: 'span', darkOnly: false });
+    expect(parseHex(resolveValue(styles.background, LIGHT))).toBe('#f4f8ec');
+    expect(parseHex(resolveValue(styles.color, LIGHT))).toBe('#3b6d11');
+  });
+
+  it('current .dash-btn-amber light matches aa2f48bf #FDF6EA/#8B6914', () => {
+    expect(baselineDash).toMatch(/background:\s*'#FDF6EA'/);
+    expect(baselineDash).toMatch(/color:\s*'#8B6914'/);
+    const styles = surfaceStyles(RULES, '.dash-btn-amber', { tag: 'button', darkOnly: false });
+    expect(parseHex(resolveValue(styles.background, LIGHT))).toBe('#fdf6ea');
+    expect(parseHex(resolveValue(styles.color, LIGHT))).toBe('#8b6914');
+  });
+});
+
+describe('dark category selections use surface-selected + text (not hue tint)', () => {
+  for (const sel of [
+    '.cat-pill.cp-bug.sel',
+    '.cat-pill.cp-ux.sel',
+    '.cat-pill.cp-feature.sel',
+    '.cat-pill.cp-calc.sel',
+    '.cat-pill.cp-idea.sel',
+    '.cat-pill.cp-roadblock.sel',
+    '.cat-pill.cp-question.sel',
+  ]) {
+    it(sel, () => {
+      const dark = findRule(RULES, sel, { darkOnly: true });
+      expect(dark, `${sel} dark rule`).toBeTruthy();
+      expect(declared(dark, 'background')).toBe('var(--surface-selected)');
+      expect(declared(dark, 'color')).toBe('var(--text)');
+      expect(declared(dark, 'border-width')).toBe('2px');
+      expect(declared(dark, 'border-color')).toBe('var(--color-green-base)');
+    });
+  }
+});
+
+describe('rendered sample screens — jsdom getComputedStyle contrast', () => {
+  let styleEl;
+  beforeAll(() => {
+    styleEl = document.createElement('style');
+    styleEl.textContent = CSS;
+    document.head.appendChild(styleEl);
+    for (const [k, v] of Object.entries(LIGHT)) {
+      if (k.startsWith('--')) document.documentElement.style.setProperty(k, v);
+    }
+  });
+  afterAll(() => {
+    styleEl?.remove();
+    document.documentElement.removeAttribute('style');
+    document.body.innerHTML = '';
+  });
+
+  function mountSampleScreen() {
+    document.body.innerHTML = '';
+    const screen = document.createElement('div');
+    screen.setAttribute('data-testid', 'theme-sample-screen');
+    screen.innerHTML = `
+      <input data-testid="sample-input" />
+      <textarea data-testid="sample-textarea"></textarea>
+      <select data-testid="sample-select"><option>A</option></select>
+      <button data-testid="sample-button">Go</button>
+      <span class="now-chip" data-testid="sample-now-chip">NOW</span>
+      <span class="dash-chip-green" data-testid="sample-dash-chip">Graze</span>
+      <button class="dash-btn-amber" data-testid="sample-dash-amber">Feed Check</button>
+      <button class="cat-pill cp-idea sel" data-testid="sample-cat-pill">Idea</button>
+      <button class="gtho-ptt-end" data-testid="sample-ptt-end">End</button>
+      <button class="gtho-ptt-log" data-testid="sample-ptt-log">Log</button>
+    `;
+    document.body.appendChild(screen);
+    return screen;
+  }
+
+  function rgbToHex(rgb) {
+    const m = String(rgb).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (!m) return null;
+    return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
+  }
+
+  it('mounts sample controls and locks light chip colors; all samples ≥4.5:1', () => {
+    mountSampleScreen();
+    const chip = document.querySelector('[data-testid="sample-now-chip"]');
+    const cs = getComputedStyle(chip);
+    const computedBg = rgbToHex(cs.backgroundColor);
+    const computedFg = rgbToHex(cs.color);
+    const styles = surfaceStyles(RULES, '.now-chip', { tag: 'span', darkOnly: false });
+    const expectedBg = parseHex(resolveValue(styles.background, LIGHT));
+    const expectedFg = parseHex(resolveValue(styles.color, LIGHT));
+    expect(expectedBg).toBe('#ffffff');
+    expect(expectedFg).toBe('#3b6d11');
+    if (computedBg && computedBg !== '#000000') expect(computedBg).toBe(expectedBg);
+    if (computedFg && computedFg !== '#000000') expect(computedFg).toBe(expectedFg);
+    for (const [sel, tag] of [
+      ['.now-chip', 'span'],
+      ['.dash-chip-green', 'span'],
+      ['.dash-btn-amber', 'button'],
+      ['.cat-pill.cp-idea.sel', 'button'],
+      ['.gtho-ptt-end', 'button'],
+      ['.gtho-ptt-log', 'button'],
+      ['input', 'input'],
+      ['textarea', 'textarea'],
+      ['select', 'select'],
+      ['button', 'button'],
+    ]) {
+      const s = surfaceStyles(RULES, sel, { tag, darkOnly: false });
+      const fg = parseHex(resolveValue(s.color, LIGHT));
+      const bg = parseHex(resolveValue(s.background || 'var(--bg)', LIGHT));
+      expect(contrastRatio(fg, bg), `${sel} light`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('dark cat-pill sample resolves to surface-selected + text (≥4.5:1)', () => {
+    const darkRule = findRule(RULES, '.cat-pill.cp-idea.sel', { darkOnly: true });
+    const fg = parseHex(resolveValue(declared(darkRule, 'color'), DARK));
+    const bg = parseHex(resolveValue(declared(darkRule, 'background'), DARK));
+    expect(bg).toBe(parseHex(resolveValue('var(--surface-selected)', DARK)));
+    expect(fg).toBe(parseHex(resolveValue('var(--text)', DARK)));
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+  });
 });

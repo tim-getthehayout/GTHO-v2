@@ -66,7 +66,7 @@ export function openSubmoveOpenSheet(evt, operationId) {
   // confinement location stays visible but inactive and gets no observation.
   const farmSettings = getAll('farmSettings')[0] || null;
   const preGraze = renderPreGrazeCard({ farmSettings, paddockAcres: null, initialValues: {} });
-  const preGrazeWrap = el('div', { 'data-testid': 'submove-open-pregraze' });
+  const preGrazeWrap = el('div', { 'data-testid': 'submove-open-pregraze' }, [preGraze.container]);
   function selectedIds() {
     return selection.locationIds.length ? selection.locationIds : (selection.locationId ? [selection.locationId] : []);
   }
@@ -74,11 +74,13 @@ export function openSubmoveOpenSheet(evt, operationId) {
     return selectedIds().filter(id => !isConfinementLocation(getById('locations', id)));
   }
   function renderPreGrazeCards() {
-    clear(preGrazeWrap);
+    preGrazeWrap.querySelectorAll('.confinement-forage-inactive').forEach(node => node.remove());
     const confinement = selectedIds().filter(id => isConfinementLocation(getById('locations', id)));
-    if (landIds().length) {
-      preGraze.setPaddockAcres(summedPaddockAcres(landIds()));
-      preGrazeWrap.appendChild(preGraze.container);
+    if (landIds().length || !selectedIds().length) {
+      if (!preGraze.container.isConnected) preGrazeWrap.insertBefore(preGraze.container, preGrazeWrap.firstChild);
+      if (landIds().length) preGraze.setPaddockAcres(summedPaddockAcres(landIds()));
+    } else if (preGraze.container.parentNode === preGrazeWrap) {
+      preGraze.container.remove();
     }
     for (const id of confinement) {
       const loc = getById('locations', id);

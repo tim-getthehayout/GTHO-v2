@@ -149,13 +149,6 @@ export function applyPendingClarification(pending, names = {}, fields = {}, utte
   return { names: said, fields: merged };
 }
 
-function parseSaidList(said) {
-  const raw = said?.paddock ?? said?.paddocks ?? null;
-  if (Array.isArray(raw)) return raw.map(value => String(value).trim()).filter(Boolean);
-  if (typeof raw !== 'string') return [];
-  return raw.split(',').map(value => value.trim()).filter(Boolean);
-}
-
 export function carryoverTimingQuestion() {
   return 'Was the remaining feed checked before the new delivery, after it, or at the same time?';
 }

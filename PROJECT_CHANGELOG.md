@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | fix(feeding): drop the unused paddock-list helper left after short disambiguating answers replace the old alias, so lint stays at the existing warning baseline. | \`src/features/assistant/feeding-clarification.js\` |
 | 2026-11-10 | fix: drop the extra blank line at the end of window-helpers so the branch diff has no whitespace errors. | `src/calcs/window-helpers.js` |
 | 2026-11-10 | fix(confinement): render the actual pre-graze and post-graze forage fields on confinement locations in the sub-move and close sheets, greyed out and inactive (disabled, aria-disabled, no writes, no observations). Hidden does not count. | `src/features/events/{submove,close}.js`, `tests/unit/events/mixed-forage-observations.test.js` |
 | 2026-11-10 | fix(assistant): when empty-start cleanup fails after close has already returned, still show the dismissible cleanup-failure banner from the late discard path. | `src/features/assistant/client/session.js`, `tests/unit/assistant/client/entry-controller.test.js` |

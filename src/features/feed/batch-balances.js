@@ -150,10 +150,16 @@ export function availableDeliveryStock(batchId, sourceLocationId) {
   const batch = getById('batches', batchId);
   if (!batch) return { status: 'missing' };
   const rows = balancesFor(batchId);
-  if (!rows.length) return { status: 'ok', available: Number(batch.remaining) };
+  if (!rows.length) {
+    return { status: 'ok', available: Number(batch.remaining), poolKey: batchId };
+  }
   const source = rows.find(row => row.locationId === sourceLocationId && Number(row.quantity) > 0);
   if (!source) return { status: 'location' };
-  return { status: 'ok', available: Number(source.quantity) };
+  return {
+    status: 'ok',
+    available: Number(source.quantity),
+    poolKey: `${batchId}\0${source.locationId}`,
+  };
 }
 
 /** True when requested stock is short of available, using the deduction's comparison. */
@@ -165,6 +171,7 @@ export function exceedsAvailableStock(requested, available) {
 export function deductDelivery(batchId, sourceLocationId, quantity) {
   const stock = availableDeliveryStock(batchId, sourceLocationId);
   if (stock.status !== 'ok') return stock.status;
+  if (exceedsAvailableStock(quantity, stock.available)) return 'tooMuch';
   const batch = getById('batches', batchId);
   const rows = balancesFor(batchId);
   if (!rows.length) {
@@ -172,7 +179,6 @@ export function deductDelivery(batchId, sourceLocationId, quantity) {
       BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
     return null;
   }
-  if (exceedsAvailableStock(quantity, stock.available)) return 'tooMuch';
   upsertBalance(batch.operationId, batchId, sourceLocationId, Math.max(0, stock.available - quantity));
   syncRemaining(batchId);
   return null;

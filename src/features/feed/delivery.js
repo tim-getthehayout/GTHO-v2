@@ -525,19 +525,21 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               return;
             }
           }
-          const requestedBySource = new Map();
+          const requestedByPool = new Map();
           for (const row of plannedEntries) {
-            const key = `${row.batchId}\0${row.sourceLocationId ?? ''}`;
-            const prev = requestedBySource.get(key);
-            requestedBySource.set(key, {
-              batchId: row.batchId,
-              sourceLocationId: row.sourceLocationId,
+            const stock = availableDeliveryStock(row.batchId, row.sourceLocationId);
+            if (stock.status !== 'ok') {
+              statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
+              return;
+            }
+            const prev = requestedByPool.get(stock.poolKey);
+            requestedByPool.set(stock.poolKey, {
+              available: stock.available,
               qty: (prev?.qty ?? 0) + row.qty,
             });
           }
-          for (const { batchId, sourceLocationId, qty } of requestedBySource.values()) {
-            const stock = availableDeliveryStock(batchId, sourceLocationId);
-            if (stock.status !== 'ok' || exceedsAvailableStock(qty, stock.available)) {
+          for (const { available, qty } of requestedByPool.values()) {
+            if (exceedsAvailableStock(qty, available)) {
               statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
               return;
             }

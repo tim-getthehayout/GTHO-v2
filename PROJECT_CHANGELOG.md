@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | fix(feeding): sum unplaced delivery lines against one remaining pool even when they name different sources, matching how deduction draws stock, and write nothing if that pool is short. | `src/features/feed/{delivery,batch-balances}.js`, `tests/unit/features/feed/delivery-stock-preflight.test.js` |
 | 2026-11-10 | fix(feeding): check requested delivery quantity against the selected store balance deduction uses, write nothing if any store is short, and compare with a small epsilon so 0.1 + 0.2 is not treated as more than 0.3. | `src/features/feed/{delivery,batch-balances}.js`, `tests/unit/features/feed/delivery-stock-preflight.test.js` |
 | 2026-11-10 | fix(feeding): check remaining stock per batch in the delivery preflight, totaling requested quantity across every planned line, and write nothing if any batch is short. | `src/features/feed/delivery.js`, `tests/unit/features/feed/delivery-stock-preflight.test.js` |
 | 2026-11-10 | fix(feeding): run the exact entity validation used on write for every delivery, feed check and check item, and reject non-numeric, string-numeric, negative, and duplicate batch+location leftovers, before any stock deduction or record is written. | `src/features/feed/delivery.js`, `tests/unit/features/feed/delivery-carryover.test.js` |

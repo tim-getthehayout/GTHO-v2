@@ -143,6 +143,22 @@ describe('delivery stock is checked in preflight', () => {
     expect(getAll('batches').find(row => row.id === BATCH_B).remaining).toBe(10);
   });
 
+  it('writes nothing when two unplaced same-batch lines with different sources exceed remaining together', () => {
+    let binding;
+    const panel = openSheet({
+      review: { bind(value) { binding = value; }, requestConfirmation: save => save() },
+    });
+    binding.fields.lines.set([
+      { batchId: BATCH_A, qty: 6, sourceLocationId: STORE_1 },
+      { batchId: BATCH_A, qty: 6, sourceLocationId: STORE_9 },
+    ]);
+    binding.fields.locationIds.set([LOC_G1]);
+    clickSave(panel);
+    expect(panel.textContent).toContain(t('feed.moveTooMuch'));
+    expect(getAll('eventFeedEntries')).toHaveLength(0);
+    expect(getAll('batches').find(row => row.id === BATCH_A).remaining).toBe(10);
+  });
+
   it('saves 0.1 plus 0.2 against a remaining of 0.3, but still blocks a clear overage', () => {
     update('batches', BATCH_A, { quantity: 0.3, remaining: 0.3 },
       BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');

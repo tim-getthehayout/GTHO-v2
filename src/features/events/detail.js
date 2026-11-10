@@ -1058,7 +1058,7 @@ function renderFeedChecks(ctx) {
   for (const { check, item } of pairs) {
     const batch = getById('batches', item.batchId);
     const loc = getById('locations', item.locationId);
-    const dateStr = formatShortDate(check.date || check.checkDate || check.createdAt);
+    const dateStr = `${formatShortDate(check.date || check.checkDate || check.createdAt)}${check.time ? ` ${check.time}` : ''}`;
     const remStr = `${item.remainingQuantity} ${batch?.unit || ''}`.trim();
     const batchName = batch?.name || '?';
     const locName = loc?.name || '?';

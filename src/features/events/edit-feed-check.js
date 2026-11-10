@@ -356,7 +356,7 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
   const timeInput = el('input', { type: 'time', value: check.time || '' });
   panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['Date']), dateInput]),
-    el('div', { className: 'field' }, [el('label', {}, ['Time ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), timeInput]),
+    el('div', { className: 'field' }, [el('label', {}, ['Time']), timeInput]),
   ]));
 
   const observation = { date: initialDate, time: check.time || '', explicitTimeDate: null };

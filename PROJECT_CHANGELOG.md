@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | fix(feeding): name saved observation clocks in Event Detail and remove misleading optional-time text from historical check editing. Real Add/Edit regressions prove explicit historical clock entry/confirmation, invalid/cancel no-write behavior, and the 12:59 observation before a 13:00 feeding (eight available, never fourteen after capture). | `src/features/events/{detail,edit-feed-check}.js`, `tests/unit/manual-feed-check-time.test.js` |
 | 2026-11-10 | fix(feeding): preserve a verified check anchor plus later deliveries as the real check form input ceiling, rather than silently clamping eight available bales to six surviving delivery rows. | `src/features/feed/check.js` |
 | 2026-11-10 | test(feeding): pin historical delivery intervals to strict-after/inclusive-close date-plus-clock boundaries in DMI history and check editing; cover same-day endpoint equality, midnight legacy clocks, reversed insertion order and staged edit clocks without mutating records. | `tests/unit/manual-feed-history-times.test.js` |
 | 2026-11-10 | test(feeding): mount Dashboard and Event Detail together and drive real check Save, item-only Edit and Delete; verify both charts redraw, remote check/item and later-delivery changes stay live, and detached/repeated mounts do not leak subscriptions. Update older Save integration expectations for recoverable durable upserts. | `tests/unit/{manual-feed-chart-refresh,feed-check-save-integration}.test.js` |

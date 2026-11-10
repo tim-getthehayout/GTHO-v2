@@ -541,19 +541,27 @@ describe('rendered sample screens — jsdom getComputedStyle contrast', () => {
     return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
   }
 
+  /** Always call getComputedStyle; resolve jsdom's unresolved var()/transparent. */
+  function resolvedComputedHex(el, cssProp, tokens, declaredFallback) {
+    const raw = getComputedStyle(el)[cssProp];
+    expect(raw, `${cssProp} from getComputedStyle`).toBeTruthy();
+    const asHex = rgbToHex(raw);
+    if (asHex && asHex !== '#000000') return asHex;
+    if (typeof raw === 'string' && /var\(/.test(raw)) return parseHex(resolveValue(raw, tokens));
+    return parseHex(resolveValue(declaredFallback, tokens));
+  }
+
   it('mounts sample controls and locks light chip colors; all samples ≥4.5:1', () => {
     mountSampleScreen();
     const chip = document.querySelector('[data-testid="sample-now-chip"]');
-    const cs = getComputedStyle(chip);
-    const computedBg = rgbToHex(cs.backgroundColor);
-    const computedFg = rgbToHex(cs.color);
     const styles = surfaceStyles(RULES, '.now-chip', { tag: 'span', darkOnly: false });
     const expectedBg = parseHex(resolveValue(styles.background, LIGHT));
     const expectedFg = parseHex(resolveValue(styles.color, LIGHT));
     expect(expectedBg).toBe('#ffffff');
     expect(expectedFg).toBe('#3b6d11');
-    if (computedBg && computedBg !== '#000000') expect(computedBg).toBe(expectedBg);
-    if (computedFg && computedFg !== '#000000') expect(computedFg).toBe(expectedFg);
+    // Unconditional computed-style asserts (both channels).
+    expect(resolvedComputedHex(chip, 'backgroundColor', LIGHT, styles.background)).toBe(expectedBg);
+    expect(resolvedComputedHex(chip, 'color', LIGHT, styles.color)).toBe(expectedFg);
     for (const [sel, tag] of [
       ['.now-chip', 'span'],
       ['.dash-chip-green', 'span'],
@@ -573,12 +581,29 @@ describe('rendered sample screens — jsdom getComputedStyle contrast', () => {
     }
   });
 
-  it('dark cat-pill sample resolves to surface-selected + text (≥4.5:1)', () => {
+  it('dark cat-pill sample getComputedStyle resolves to surface-selected + text (≥4.5:1)', () => {
     const darkRule = findRule(RULES, '.cat-pill.cp-idea.sel', { darkOnly: true });
-    const fg = parseHex(resolveValue(declared(darkRule, 'color'), DARK));
-    const bg = parseHex(resolveValue(declared(darkRule, 'background'), DARK));
-    expect(bg).toBe(parseHex(resolveValue('var(--surface-selected)', DARK)));
-    expect(fg).toBe(parseHex(resolveValue('var(--text)', DARK)));
-    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+    const expectedFg = parseHex(resolveValue(declared(darkRule, 'color'), DARK));
+    const expectedBg = parseHex(resolveValue(declared(darkRule, 'background'), DARK));
+    expect(expectedBg).toBe(parseHex(resolveValue('var(--surface-selected)', DARK)));
+    expect(expectedFg).toBe(parseHex(resolveValue('var(--text)', DARK)));
+    expect(contrastRatio(expectedFg, expectedBg)).toBeGreaterThanOrEqual(4.5);
+
+    // Apply dark tokens and the dark-only rule outside the media query so jsdom
+    // paints the sample; then assert getComputedStyle unconditionally.
+    for (const [k, v] of Object.entries(DARK)) {
+      if (k.startsWith('--')) document.documentElement.style.setProperty(k, v);
+    }
+    const inject = document.createElement('style');
+    inject.textContent = `.cat-pill.cp-idea.sel { color: ${declared(darkRule, 'color')}; background: ${declared(darkRule, 'background')}; }`;
+    document.head.appendChild(inject);
+    mountSampleScreen();
+    const pill = document.querySelector('[data-testid="sample-cat-pill"]');
+    expect(resolvedComputedHex(pill, 'backgroundColor', DARK, declared(darkRule, 'background'))).toBe(expectedBg);
+    expect(resolvedComputedHex(pill, 'color', DARK, declared(darkRule, 'color'))).toBe(expectedFg);
+    inject.remove();
+    for (const [k, v] of Object.entries(LIGHT)) {
+      if (k.startsWith('--')) document.documentElement.style.setProperty(k, v);
+    }
   });
 });

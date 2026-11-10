@@ -1,5 +1,6 @@
 /** @file Feed/forage calculation registrations — CP-46/CP-54. 21 formulas (DMI, FOR, CST, FED domains). */
 
+import { rowInstant } from '../utils/date-utils.js';
 import { registerCalc } from '../utils/calc-registry.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from './window-helpers.js';
 import { isConfinementLocation } from './location-type.js';
@@ -640,10 +641,6 @@ registerCalc({
       return { dm, hint: coverNull ? 'assumed_full_cover' : null };
     }
 
-    function rowInstant(date, time) {
-      return `${date || ''}T${time || '00:00'}`;
-    }
-
     // Convert a feed-entry quantity (batch units) to kg DM. Removals subtract.
     function entryDmKg(entry) {
       const b = batches?.[entry.batchId];
@@ -822,7 +819,7 @@ registerCalc({
       const nextKg = sumCheckKg(nextCheck);
       let deliveriesBetween = 0;
       for (const e of (feedEntries || [])) {
-        if (e.date > prevCheck.date && e.date <= nextCheck.date) deliveriesBetween += entryDmKg(e);
+        if (isAfterCheck(e, prevCheck) && !isAfterCheck(e, nextCheck)) deliveriesBetween += entryDmKg(e);
       }
       const days = Math.max(1, daysBetween(prevCheck.date, nextCheck.date));
       const storedDmiKg = Math.max(0, (prevKg + deliveriesBetween - nextKg) / days);

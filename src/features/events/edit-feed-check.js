@@ -10,10 +10,11 @@
  * the farmer to enter a new check to re-snap the line.
  */
 
+import { explicitObservationTime, validateObservationTime } from '../../ui/explicit-observation-time.js';
 import { el, clear } from '../../ui/dom.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, update, remove } from '../../data/store.js';
-import { formatDate, getLocalTodayStr } from '../../utils/date-utils.js';
+import { formatDate, getLocalTodayStr, rowInstant } from '../../utils/date-utils.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { openFeedCheckSheet } from '../feed/check.js';
@@ -76,7 +77,7 @@ function checkDateOf(check) {
 export function buildLineSequence({
   eventId, batchId, locationId,
   allChecks, allItems,
-  editedItemId, stagedRemaining, stagedDate,
+  editedItemId, stagedRemaining, stagedDate, stagedTime,
   insertCheck,
 }) {
   const checksOnEvent = allChecks.filter(c => c.eventId === eventId);
@@ -94,7 +95,7 @@ export function buildLineSequence({
       itemId: item.id,
       checkId: parent.id,
       date: isEdited && stagedDate ? stagedDate : checkDateOf(parent),
-      time: parent.time || '',
+      time: isEdited && stagedTime !== undefined ? stagedTime || '' : parent.time || '',
       remaining: isEdited && stagedRemaining != null ? stagedRemaining : item.remainingQuantity,
       isEdited,
     };
@@ -112,9 +113,7 @@ export function buildLineSequence({
   }
 
   seq.sort((a, b) => {
-    const cmpDate = (a.date || '').localeCompare(b.date || '');
-    if (cmpDate !== 0) return cmpDate;
-    return (a.time || '').localeCompare(b.time || '');
+    return rowInstant(a.date, a.time).localeCompare(rowInstant(b.date, b.time));
   });
 
   return seq;
@@ -141,7 +140,7 @@ export function computeIntervals({ sequence, entries }) {
     let removals = 0;
     for (const e of entries) {
       if (!e.date) continue;
-      if (e.date > a.date && e.date <= b.date) {
+      if (rowInstant(e.date, e.time) > rowInstant(a.date, a.time) && rowInstant(e.date, e.time) <= rowInstant(b.date, b.time)) {
         if (e.entryType === 'removal') removals += e.quantity;
         else deliveries += e.quantity;
       }
@@ -360,6 +359,9 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
     el('div', { className: 'field' }, [el('label', {}, ['Time ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), timeInput]),
   ]));
 
+  const observation = { date: initialDate, time: check.time || '', explicitTimeDate: null };
+  panel.appendChild(explicitObservationTime(observation, dateInput, timeInput));
+
   const remainingInput = el('input', { type: 'number', min: '0', step: '0.01', value: String(item.remainingQuantity ?? 0) });
   panel.appendChild(el('div', { className: 'field' }, [
     el('label', {}, [`Remaining (${unit})`]),
@@ -379,6 +381,8 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
     clear(statusEl);
     const newDate = dateInput.value;
     const newTime = timeInput.value || null;
+    observation.date = newDate; observation.time = newTime;
+    try { validateObservationTime(observation); } catch (error) { statusEl.textContent = error.message; return; }
     const newNotes = notesInput.value || null;
     const newRemaining = parseFloat(remainingInput.value);
 
@@ -402,7 +406,7 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
       allChecks, allItems,
       editedItemId: item.id,
       stagedRemaining: newRemaining,
-      stagedDate: newDate,
+      stagedDate: newDate, stagedTime: newTime,
     });
     const intervals = computeIntervals({ sequence, entries: allEntries });
     const verdict = classifyInvariant({ sequence, intervals });

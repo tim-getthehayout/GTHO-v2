@@ -154,9 +154,13 @@ export function openEventDetailSheet(event, operationId, farmId) {
     renderDmiNpk(ctx);
     renderSummary(ctx);
   }));
-  unsubs.push(subscribe('eventFeedChecks', () => {
+  const refreshChecks = () => {
+    if (!wrapper.isConnected) return;
     renderFeedChecks(ctx);
-  }));
+    renderDmiChart(ctx);
+  };
+  unsubs.push(subscribe('eventFeedChecks', refreshChecks));
+  unsubs.push(subscribe('eventFeedCheckItems', refreshChecks));
   unsubs.push(subscribe('eventGroupWindows', () => {
     renderGroups(ctx);
     renderSummary(ctx);

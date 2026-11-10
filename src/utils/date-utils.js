@@ -124,3 +124,6 @@ export function getLocalTodayStr() {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+/** Feed/check ordering: a missing clock is midnight; equality is captured by the check. */
+export function rowInstant(date, time) { return `${date || ''}T${time || '00:00'}`; }

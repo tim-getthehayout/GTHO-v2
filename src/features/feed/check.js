@@ -3,13 +3,14 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add } from '../../data/store.js';
+import { getAll, getById, add, runDurableWrite } from '../../data/store.js';
 import { getFieldMode } from '../../utils/preferences.js';
 import { navigate } from '../../ui/router.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 import { openLocationNames } from '../events/open-cohort.js';
+import { explicitObservationTime, validateObservationTime } from '../../ui/explicit-observation-time.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let feedCheckSheet = null;
@@ -136,6 +137,10 @@ export function openFeedCheckSheet(evt, operationId) {
       timeInput,
     ]),
   ]));
+
+  const observation = { date: todayStr, time: nowTime, explicitTimeDate: todayStr };
+  panel.appendChild(explicitObservationTime(observation, dateInput, timeInput));
+  const status = el('div', { className: 'auth-error' }); panel.appendChild(status);
 
   // --- Sync functions ---
   function updateUI(idx, skipUnits, skipPct) {
@@ -275,23 +280,19 @@ export function openFeedCheckSheet(evt, operationId) {
     style: { width: '100%', padding: '12px', fontSize: '14px', fontWeight: '600', borderRadius: '8px', border: 'none', background: 'var(--amber)', color: 'white', cursor: 'pointer', fontFamily: 'inherit', marginTop: '10px' },
     type: 'button',
     onClick: () => {
-      const check = FeedCheckEntity.create({
-        operationId, eventId: evt.id,
-        // OI-0103: entity FIELDS key is `date` (see src/entities/event-feed-check.js:7).
-        // Previously passed `checkDate:` — silent drop on create(), row persisted with
-        // date=null, Save button appeared to no-op (v1-trap class).
-        date: dateInput.value, time: timeInput.value || null,
-      });
-      add('eventFeedChecks', check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
-
-      for (const item of items) {
-        const checkItem = FeedCheckItemEntity.create({
-          operationId, feedCheckId: check.id,
-          batchId: item.batchId, locationId: item.locationId,
-          remainingQuantity: item.remaining,
+      try {
+        observation.date = dateInput.value; observation.time = timeInput.value;
+        validateObservationTime(observation);
+        const check = FeedCheckEntity.create({ operationId, eventId: evt.id, date: observation.date, time: observation.time || null });
+        const rows = items.map(item => FeedCheckItemEntity.create({ operationId, feedCheckId: check.id, batchId: item.batchId, locationId: item.locationId, remainingQuantity: item.remaining }));
+        const validation = [FeedCheckEntity.validate(check), ...rows.map(FeedCheckItemEntity.validate)];
+        if (validation.some(result => !result.valid)) throw new Error(validation.flatMap(result => result.errors || []).join(', '));
+        runDurableWrite(JSON.stringify([operationId, 'feed-check', check.id, 1]), () => {
+          add('eventFeedChecks', check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
+          for (const row of rows) add('eventFeedCheckItems', row, FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+          return check.id;
         });
-        add('eventFeedCheckItems', checkItem, FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
-      }
+      } catch (error) { status.textContent = error.message; return; }
 
       feedCheckSheet.close();
       if (getFieldMode()) navigate('#/field');

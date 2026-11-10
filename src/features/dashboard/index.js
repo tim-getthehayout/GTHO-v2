@@ -113,6 +113,7 @@ export function renderDashboard(container) {
 
   // Subscribe to relevant entity changes
   const rerender = () => {
+    if (!screenEl.isConnected) return;
     renderStatsRow(container);
     renderCardGrid(container);
     renderTasksSection(container);
@@ -125,6 +126,8 @@ export function renderDashboard(container) {
   unsubs.push(subscribe('eventGroupWindows', rerender));
   unsubs.push(subscribe('animalGroupMemberships', rerender));
   unsubs.push(subscribe('eventFeedEntries', rerender));
+  unsubs.push(subscribe('eventFeedChecks', rerender));
+  unsubs.push(subscribe('eventFeedCheckItems', rerender));
   unsubs.push(subscribe('todos', () => renderTasksSection(container)));
   unsubs.push(subscribe('surveys', () => renderSurveyDraft(container)));
 }

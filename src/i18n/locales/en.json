@@ -1,4 +1,9 @@
 {
+  "dmi": {
+    "forecast": "Forecast",
+    "actual": "Actual",
+    "targetForecast": "DMI target (forecast)"
+  },
   "pool": {
     "feedType": "Feed type",
     "timing": "Choose a check time that matches before or after the feeding.",
@@ -269,7 +274,7 @@
     "auditHintReason": "hint / reason",
     "auditDmi8Status": {
       "actual": "actual",
-      "estimated": "estimated",
+      "estimated": "Forecast",
       "needs_check": "needs_check",
       "no_animals": "no_animals",
       "no_pasture_data": "no_pasture_data"

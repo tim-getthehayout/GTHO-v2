@@ -7,6 +7,7 @@
  */
 
 import { el } from './dom.js';
+import { t } from '../i18n/i18n.js';
 import { convert } from '../utils/units.js';
 
 const COLOR_PASTURE = '#A5C56B';
@@ -135,7 +136,7 @@ export function renderDmiChart(days, unitSys, opts = {}) {
     // Fallback zero-height container to keep layout consistent.
     if (stackChildren.length === 0) stackChildren.push(el('div', { style: { height: '0px' } }));
 
-    const labelText = d.label + (isEstimated ? ' (est.)' : '');
+    const labelText = d.label + (isEstimated ? ` (est.) · ${t('dmi.forecast')}` : ` · ${t('dmi.actual')}`);
     const labelChildren = [labelText];
     if (deficitDisplay) {
       labelChildren.push(' ');
@@ -166,7 +167,7 @@ export function renderDmiChart(days, unitSys, opts = {}) {
       barContent.push(el('div', chipProps, ['(Fix cover)']));
     }
 
-    barsEl.appendChild(el('div', { style: { flex: '1', textAlign: 'center' } }, barContent));
+    barsEl.appendChild(el('div', { 'data-dmi-date': d.date, 'data-dmi-status': r.status, style: { flex: '1', textAlign: 'center' } }, barContent));
   }
 
   // Legend — always-on swatches + deficit only when present.
@@ -190,6 +191,7 @@ export function renderDmiChart(days, unitSys, opts = {}) {
   const rightLabel = el('div', { style: { textAlign: 'right', minWidth: compact ? '60px' : '80px', paddingLeft: '8px' } }, [
     el('div', { style: { fontSize: compact ? '18px' : '26px', fontWeight: '700', color: 'var(--text)' } }, [todayDmi]),
     el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${unit} DMI today`]),
+    ...(['actual','estimated'].includes(todayResult?.status) ? [el('div', { 'data-testid': 'dmi-today-status', style: { fontSize: '11px', color: 'var(--text2)' } }, [t(todayResult.status === 'estimated' ? 'dmi.forecast' : 'dmi.actual')])] : []),
     el('div', { style: { display: 'flex', gap: '8px', marginTop: '6px', fontSize: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' } }, legendChildren),
   ]);
 

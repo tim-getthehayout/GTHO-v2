@@ -103,3 +103,16 @@ it('the mounted inline delivery clock editor refreshes DMI without touching inve
   update('eventFeedEntries', 'delivery', { time: '09:01' }, Entry.validate, Entry.toSupabaseShape, 'event_feed_entries'); await flush();
   expect(rendered.mock.calls).toHaveLength(count);
 });
+
+it('mounted Dashboard and Detail label partial pool brackets Forecast and complete brackets Actual, keeping target summaries explicit',async()=>{
+ seed('feedTypes',FeedType,{id:'straw-type',name:'Straw',category:'forage',unit:'bale'});
+ seed('batches',Batch,{id:'straw',name:'Straw',feedTypeId:'straw-type',unit:'bale',quantity:10,remaining:7,weightPerUnitKg:100,dmPct:100});
+ seed('eventFeedEntries',Entry,{eventId:event.id,locationId:'pasture',batchId:'straw',feedTypeId:'straw-type',kind:'inventory_feeding',date:'2026-11-05',time:'10:00',quantity:3,unitSnapshot:'bale',weightPerUnitKgSnapshot:100,dmPctSnapshot:100});
+ const opening=getAll('eventFeedChecks').find(row=>row.date==='2026-11-05');seed('eventFeedCheckItems',Item,{feedCheckId:opening.id,locationId:'pasture',feedTypeId:'straw-type',remainingQuantity:2,unitSnapshot:'bale',weightPerUnitKgSnapshot:100,dmPctSnapshot:100});await flush();
+ const saveType=(type,quantity)=>{openFeedCheckSheet(event,OP);const panel=document.querySelector('#feed-check-sheet-panel');fill(panel,'[data-testid="pool-date"]','2026-11-09','change');fill(panel,'[data-testid="pool-time"]','13:00');for(const id of ['type','straw-type'])panel.querySelector(`[data-testid="pool-select-${id}-pasture"]`).checked=id===type;fill(panel,`[data-testid="pool-remaining-${type}-pasture"]`,String(quantity));button(panel,'Save').click();expect(panel.querySelector('.auth-error').textContent).toBe('');};
+ saveType('type',7);await flush();
+ for(const root of [dashboard,document.querySelector('[data-testid="detail-dmi-chart"]')]){const bar=root.querySelector('[data-dmi-date="2026-11-08"]');expect(bar.dataset.dmiStatus).toBe('estimated');expect(bar.textContent).toContain('Forecast');expect(root.querySelector('[data-testid="dmi-today-status"]').textContent).toBe('Forecast');}
+ expect(document.querySelector('[data-testid="detail-hero-line"]').textContent).toContain('DMI target (forecast)');expect(document.querySelector('[data-testid="detail-dmi-npk"]').textContent).toContain('DMI target (forecast)');expect(dashboard.querySelector('[data-testid="dashboard-loc-card-event"]').textContent).toContain('DMI target (forecast)');
+ saveType('straw-type',2);await flush();
+ for(const root of [dashboard,document.querySelector('[data-testid="detail-dmi-chart"]')]){const bar=root.querySelector('[data-dmi-date="2026-11-08"]');expect(bar.dataset.dmiStatus).toBe('actual');expect(bar.textContent).toContain('Actual');expect(bar.textContent).not.toContain('Forecast');}
+});

@@ -950,7 +950,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   // DMI + NPK block
   if (isOnPasture && dmiTargetDisplay) {
     const dmiBlock = el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '10px' } }, [
-      `DMI target ${dmiTargetDisplay} lbs/day`,
+      `${t('dmi.targetForecast')} ${dmiTargetDisplay} lbs/day`,
     ]);
     dmiBlock.appendChild(el('div', { className: 'prog', style: { marginTop: '4px' } }, [
       el('div', { className: 'prog-fill', style: { width: '0%', background: 'var(--amber)' } }),
@@ -1433,7 +1433,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     const fmtNum = (n) => Math.round(n).toLocaleString('en-US');
     let breakdownParts = [`Pasture: ${fmtNum(convert(pastureDmKg, 'weight', 'toImperial'))} lbs DM`];
     if (hasStoredFeed) breakdownParts.push(`Stored feed: ${fmtNum(convert(storedDmKg, 'weight', 'toImperial'))} lbs DM`);
-    breakdownParts.push(`DMI demand: ${fmtNum(convert(dailyDmiKg, 'weight', 'toImperial'))} lbs/day`);
+    breakdownParts.push(`${t('dmi.targetForecast')}: ${fmtNum(convert(dailyDmiKg, 'weight', 'toImperial'))} lbs/day`);
     children.push(el('div', { style: { fontSize: '12px', color: 'var(--text3, var(--text2))', marginBottom: 'var(--space-2)' } }, [breakdownParts.join(' \u00B7 ')]));
   }
 
@@ -1555,7 +1555,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   // §15: DMI/NPK summary
   const summaryParts = [];
   if (dailyDmiDisplay) {
-    let dmiLine = `DMI ${dailyDmiDisplay} lbs/day`;
+    let dmiLine = `${t('dmi.targetForecast')} ${dailyDmiDisplay} lbs/day`;
     if (storedPct > 0) dmiLine += ` \u00B7 ${storedPct}% stored \u00B7 ${pasturePct}% est. pasture`;
     summaryParts.push(el('div', { style: { fontSize: '12px', marginBottom: '2px' } }, [dmiLine]));
   }

@@ -318,7 +318,7 @@ function renderSummary(ctx) {
 
   // Hero line tokens
   const heroTokens = [`Day ${dayCount}`, `${totalHead} head`, `${totalWeightDisplay}`];
-  if (dmiDisplay) heroTokens.push(`${dmiDisplay} DMI`);
+  if (dmiDisplay) heroTokens.push(`${dmiDisplay} ${t('dmi.targetForecast')}`);
   heroTokens.push(`${auValue.toFixed(1)} AU`);
 
   // Sub-line
@@ -1145,7 +1145,7 @@ function renderDmiNpk(ctx) {
       const dmiStr = display(dailyDmi, 'weight', unitSys, 1);
       const unit = unitLabel('weight', unitSys);
       card.appendChild(el('div', { style: { fontSize: '13px', padding: '4px 0' } }, [
-        `DMI: ${dmiStr} ${unit}/day`,
+        `${t('dmi.targetForecast')}: ${dmiStr} ${unit}/day`,
       ]));
     }
   }

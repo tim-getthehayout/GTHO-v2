@@ -944,11 +944,12 @@ registerCalc({
 
     // ---- Emit --------------------------------------------------------------
 
-    // status=actual when a prev check anchor exists for the walk (we're
+    // Legacy status=actual when a prev check anchor exists for the walk (we're
     // projecting forward from ground truth); estimated otherwise. Bracketing
     // checks keep their interpolated bar values but still expose remaining
-    // buckets from the walk.
-    const status = actualBars?.status || (prevCheck ? 'actual' : 'estimated');
+    // buckets from the walk. Pool mode requires every active pool bracketed;
+    // a partial anchor must not inherit the legacy whole-event actual label.
+    const status = actualBars?.status || (!poolMode && prevCheck ? 'actual' : 'estimated');
     const out = {
       status,
       totalDmiKg,

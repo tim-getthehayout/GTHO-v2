@@ -110,7 +110,8 @@ export function reconcileAllocatedLines(allocated, { lines, locationIds } = {}) 
       locationId,
       lines: rows.map(line => {
         const part = (byTarget.get(locationId) ?? []).find(item => item.batchId === line.batchId);
-        const { allocations: _ignored, ...rest } = line;
+        const rest = { ...line };
+        delete rest.allocations;
         return { ...rest, qty: qty(part), quantity: qty(part) };
       }),
     })),

@@ -41,7 +41,7 @@ export const DISCARD_EMPTY_FAILED_MESSAGE = "Voice closed, but the empty session
 export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null, onDurableSave = async () => {}, onVoiceTerminal = null, onVoiceState = () => {} }) {
   let conversation, transport, driver, mic, player, recorder, consent, attempts, origin = {};
   let outbound = null, outboundGeneration = 0;
-  const retiringQueues = new Set();
+  const retiringQueues = new Map();
   const visible = (owner = outbound) => (owner?.conversation?.session?.transcript ?? []).filter(entry => !owner.replays.has(entry.id));
   const speak = (text, owner) => { if (owner === outbound && owner.queue?.state !== 'expired') driver?.speak(text); };
   async function afterSession(owner) {
@@ -173,7 +173,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   function retireOutbound(owner) {
     if (!owner?.queue) return;
     const done = owner.queue.retire();
-    retiringQueues.add(done);
+    retiringQueues.set(done, owner);
     void done.then(() => { retiringQueues.delete(done); return discardEmptyStart(owner); }).catch(() => {});
     return done;
   }
@@ -577,10 +577,15 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         if (connectAbort === budget) connectAbort = null;
       }
     },
-    async text(text) {
+    async text(text, { onEnqueued = () => {} } = {}) {
+      // The user's submission starts the budget, including startup and retirement.
+      const submittedAt = Date.now();
+      const deadline = submittedAt + OUTBOUND_TURN_BUDGET_MS;
+      const handoffAt = submittedAt + OUTBOUND_PRE_DISPATCH_BUDGET_MS;
       typedTakeover = true;
       talkGeneration += 1;
       startupOwner = talkGeneration;
+      const textGeneration = talkGeneration;
       let owner = outbound?.queue?.state === 'open' ? outbound : null;
       let release = owner?.queue?.reserveText();
       const ownedTransport = transport, ownedDriver = driver, ownedBudget = connectAbort, ownedMic = mic;
@@ -593,29 +598,29 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           if (driver) {
             // Finalization is independently bounded in the real driver. The
             // callback enqueues its final BEFORE this text, even after close.
-            try { await driver.endTurn({ replay: false }); } catch { /* mid-teardown */ }
+            try { await withinOutboundDeadline(driver.endTurn({ replay: false }), deadline); } catch (error) { if (error.code === 'outbound-dropped') throw error; /* mid-teardown */ }
           }
-          if (!ownedDriver) await closeOwnedVoice();
+          if (!ownedDriver) await withinOutboundDeadline(closeOwnedVoice(), deadline);
           say('');
         }
-        if (beginWork) await beginWork;
+        if (beginWork) await withinOutboundDeadline(beginWork, deadline);
         // A terminal end may have detached the old generation. Drain its
         // bounded jobs before starting text in a replacement conversation.
         if (!owner?.queue) {
-          await Promise.all([...retiringQueues]);
+          for (const retiring of retiringQueues.values()) retiring.queue.retire({ deadline: handoffAt });
+          await withinOutboundDeadline(Promise.all([...retiringQueues.keys()]), deadline);
           if (!outbound || outbound.queue?.state !== 'open') {
             clearCurrent(outbound);
             emptyStartCleanup = null;
-            await session.begin();
+            await withinOutboundDeadline(session.begin(), deadline);
           }
           owner = outbound;
           release?.(); release = owner?.queue?.reserveText();
         }
         if (!owner?.queue) return null;
         const entry = { id: crypto.randomUUID(), role: 'user', modality: 'text', text };
-        // The send owns this absolute deadline, not either conversation queue.
-        const deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS;
-        let result = await owner.queue.enqueue(entry, { reserved: true, beforeDeliver: closeOwnedVoice, deadline, handoffAt: Date.now() + OUTBOUND_PRE_DISPATCH_BUDGET_MS });
+        onEnqueued();
+        let result = await owner.queue.enqueue(entry, { reserved: true, beforeDeliver: closeOwnedVoice, deadline, handoffAt });
         void closeOwnedVoice().catch(() => {});
         if (result.status === 'dropped' && !result.started && Date.now() < deadline) {
           // A hung predecessor poisoned its old generation. Do not append to
@@ -629,6 +634,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         return result.status === 'dropped' ? result : undefined;
       } catch (error) {
         if (error.code !== 'outbound-dropped') throw error;
+        // A late startup must not revive a timed-out submission or clear its failure.
+        if (!owner?.queue && talkGeneration === textGeneration) void session.end().catch(() => {});
         say(OUTBOUND_DROPPED_MESSAGE);
         return { status: 'dropped', started: false };
       } finally { release?.(); typedTakeover = false; }
@@ -646,7 +653,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       // being retired. Captured final callbacks still address their old owner.
       clearCurrent(owner); emptyStartCleanup = null;
       const retired = owner.queue.retire({ closing });
-      retiringQueues.add(retired);
+      retiringQueues.set(retired, owner);
       void retired.then(() => { retiringQueues.delete(retired); return discardEmptyStart(owner); }).catch(() => {});
       if (owner.queue.busy) return;
       await retired;

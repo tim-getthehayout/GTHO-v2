@@ -9,12 +9,12 @@ export const OUTBOUND_DROPPED_MESSAGE = 'A pending turn could not be sent. Pleas
 
 export function createOutboundQueue({ conversation, generation, deliver, onDrop = () => {} }) {
   const jobs = new Map();
-  let tail = Promise.resolve(), state = 'open', reservations = 0, finishRetirement, retirementTimer, retiring = false, closeReady = false;
+  let tail = Promise.resolve(), state = 'open', reservations = 0, finishRetirement, retirementTimer, retirementDeadline = Infinity, retiring = false, retirementFinished = false, closeReady = false;
   const retired = new Promise(resolve => { finishRetirement = resolve; });
   const pending = () => [...jobs.values()].filter(job => !job.finished);
   function finishIfDrained() {
     if (retiring && closeReady && !pending().length && !reservations) {
-      globalThis.clearTimeout(retirementTimer); finishRetirement();
+      globalThis.clearTimeout(retirementTimer); retirementFinished = true; finishRetirement();
     }
   }
   function complete(job, result) {
@@ -72,14 +72,20 @@ export function createOutboundQueue({ conversation, generation, deliver, onDrop 
       });
       return done;
     },
-    retire({ closing } = {}) {
+    retire({ closing, deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS } = {}) {
+      if (retirementFinished) return retired;
+      // A waiting user send can tighten retirement, never restart its budget.
+      if (deadline < retirementDeadline) {
+        retirementDeadline = deadline;
+        globalThis.clearTimeout(retirementTimer);
+        retirementTimer = globalThis.setTimeout(() => expire('outbound-timeout'), Math.max(0, deadline - Date.now()));
+      }
       if (retiring) return retired;
       retiring = true;
       closeReady = closing === undefined || state === 'expired';
       if (state === 'open') state = closeReady ? 'retiring' : 'closing';
       // Closing may still produce one collected final. Its queue remains on
       // this owner, and retirement as a whole has the same bounded budget.
-      retirementTimer = globalThis.setTimeout(() => expire('outbound-timeout'), OUTBOUND_TURN_BUDGET_MS);
       if (closing) void Promise.resolve(closing).catch(() => {}).then(() => {
         closeReady = true;
         if (state === 'closing') state = 'retiring';

@@ -83,6 +83,7 @@ export function openAssistant(deps, config, options = {}) {
   const invoker = options.invoker ?? null;
   clear(panel);
   const status = el('div', { className: 'auth-error', 'data-testid': 'assistant-status', role: 'status' });
+  const retry = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-retry', 'aria-label': 'Retry failed submission', hidden: true, onClick: () => { void submit(failedSubmission); } }, ['Retry']);
   const transcript = el('div', { 'data-testid': 'assistant-transcript' });
   const body = el('div', { 'data-testid': 'assistant-body' });
   const cancel = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-cancel', onClick: () => { void close(); } }, ['Cancel']);
@@ -92,7 +93,7 @@ export function openAssistant(deps, config, options = {}) {
       el('div', { style: { fontSize: '16px', fontWeight: '600' } }, ['Assistant']),
       cancel,
     ]),
-    body, transcript, status,
+    body, transcript, status, retry,
   );
   const say = text => { status.textContent = text ?? ''; };
   const notes = deps.offlineNotes ?? createOfflineNoteStore({ onQuota: () => say('This device is out of storage. Your voice note was not saved; free up space and record it again.') });
@@ -100,10 +101,12 @@ export function openAssistant(deps, config, options = {}) {
   let session = null;
   let closed = false;
   let starting = false;
+  let failedSubmission = null, draftRevision = 0;
   const owner = { handle: null };
   const stale = () => closed || activeEntry !== owner.handle;
 
   const input = el('input', { type: 'text', placeholder: COMPOSER_PLACEHOLDER, 'data-testid': 'assistant-text' });
+  input.addEventListener('input', () => { draftRevision++; });
   const send = el('button', { className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-send', onClick: () => { void submit(); } }, ['Send']);
   const endTurn = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-end', hidden: true, onClick: () => { void requestEndTurn(); } }, ['End']);
   body.append(el('div', { className: 'field' }, [input, send, endTurn]));
@@ -170,40 +173,34 @@ export function openAssistant(deps, config, options = {}) {
     input.focus();
   }
 
-  async function ensureSession(extra = {}, from = {}) {
-    if (session) return session;
-    if (offline(deps)) { say(OFFLINE_TEXT); return null; }
-    starting = true;
-    say('Starting…');
-    session = createAssistantSession(sessionOptions(extra));
-    await session.begin(undefined, undefined, from);
-    if (stale()) {
-      try { await session.end(); } catch { /* late begin still cleans up once */ }
-      session = null;
-      return null;
-    }
-    say('');
-    starting = false;
-    return session;
+  function recoverSubmission(text, kept, { revision, expectedDraft, restoreAllowed }, message) {
+    if (stale()) return;
+    const restored = restoreAllowed && draftRevision === revision && input.value === expectedDraft;
+    if (restored) input.value = kept;
+    failedSubmission = { text, kept, restored, revision: draftRevision };
+    retry.hidden = false;
+    setVoiceState('idle'); say(message);
   }
 
-  async function submit() {
-    const text = input.value.trim();
-    if (!text || starting) return;
-    const kept = input.value;
+  async function submit(retrying = null) {
+    const text = retrying?.text ?? input.value.trim();
+    if (!text || starting || stale()) return;
+    const kept = retrying?.kept ?? input.value;
     if (offline(deps)) { say(OFFLINE_TEXT); return; }
-    starting = true;
-    say('Starting…');
+    const preserveDraft = !!retrying && !(retrying.restored && retrying.revision === draftRevision && input.value === kept);
+    const recovery = { revision: draftRevision, expectedDraft: input.value, restoreAllowed: !preserveDraft };
+    failedSubmission = null; retry.hidden = true;
+    starting = true; say('Starting…');
     try {
-      const current = await ensureSession();
-      if (!current) { input.value = kept; starting = false; return; }
-      input.value = '';
-      const delivery = await current.text(text);
-      if (delivery?.status === 'dropped') { input.value = kept; say(OUTBOUND_DROPPED_MESSAGE); }
-      if (!status.textContent) say('');
+      // text() owns startup as well as queueing: no pre-submit begin wait outside its budget.
+      const delivery = await bindSession().text(text, { onEnqueued: () => {
+        if (!stale() && !preserveDraft && draftRevision === recovery.revision && input.value === recovery.expectedDraft) {
+          input.value = ''; recovery.expectedDraft = '';
+        }
+      } });
+      if (delivery?.status === 'dropped') recoverSubmission(text, kept, recovery, OUTBOUND_DROPPED_MESSAGE);
     } catch (error) {
-      input.value = kept;
-      say(error.message);
+      recoverSubmission(text, kept, recovery, error.message);
     } finally {
       starting = false;
     }
@@ -211,6 +208,7 @@ export function openAssistant(deps, config, options = {}) {
 
   async function begin(intent, firstTurn, extra = {}, from = {}) {
     if (offline(deps)) { say(OFFLINE_TEXT); return session; }
+    const recovery = { revision: draftRevision, expectedDraft: input.value, restoreAllowed: input.value === '' };
     starting = true;
     say('Starting…');
     try {
@@ -222,14 +220,15 @@ export function openAssistant(deps, config, options = {}) {
         return null;
       }
       if (firstTurn && started === null) {
-        if (firstTurn.modality === 'text') input.value = firstTurn.text;
-        setVoiceState('idle'); say(OUTBOUND_DROPPED_MESSAGE); return null;
+        if (firstTurn.modality === 'text') recoverSubmission(firstTurn.text, firstTurn.text, recovery, OUTBOUND_DROPPED_MESSAGE);
+        else { setVoiceState('idle'); say(OUTBOUND_DROPPED_MESSAGE); }
+        return null;
       }
       say('');
       return session;
     } catch (error) {
       // Match ordinary Send: keep a dropped typed first turn for an explicit retry.
-      if (firstTurn?.modality === 'text') input.value = firstTurn.text;
+      if (firstTurn?.modality === 'text') recoverSubmission(firstTurn.text, firstTurn.text, recovery, error.message);
       setVoiceState('idle');
       say(error.message);
       throw error;

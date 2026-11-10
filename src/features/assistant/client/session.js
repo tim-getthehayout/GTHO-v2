@@ -117,6 +117,10 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   /** After a successful connect, unexpected transport drop must tear down like stop(). */
   let liveTeardownArmed = false;
   let endingLive = false;
+  /** Bumped by end() / a new talk() so in-flight begin/auth/connect aborts. */
+  let talkGeneration = 0;
+  /** Second tap while Listening but before driver exists — flush then endTurn when ready. */
+  let pendingEndTurn = false;
   const session = {
     get conversation() { return conversation; },
     get attempt() { return attempts?.current ?? null; },
@@ -145,15 +149,31 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
      * aborts any in-flight begin and never calls voiceAuthorization or opens a socket.
      */
     async talk() {
-      if (mic) { driver.endTurn(); say('Thinking…'); return 'turn-ended'; }
+      // Second tap ends the turn. If Listening is already showing but the driver
+      // is not ready yet, queue the end until connect finishes (never call
+      // driver.endTurn on undefined).
+      if (mic) {
+        if (driver) {
+          driver.endTurn();
+          say('Thinking…');
+          return 'turn-ended';
+        }
+        pendingEndTurn = true;
+        say('Thinking…');
+        return 'turn-ended';
+      }
+      const gen = ++talkGeneration;
+      pendingEndTurn = false;
+      endingLive = false;
       micFailure = null;
       const tapAt = voiceStartTap();
       const buffer = createAudioChunkBuffer();
       let abandoned = false;
+      const aborted = () => gen !== talkGeneration || endingLive;
       // begin() does not mint; safe to overlap with mic. Mint stays gated on mic OK.
       const beginWork = (async () => {
         if (!conversation) await session.begin();
-        if (abandoned) await discardEmptyStart();
+        if (abandoned || aborted()) await discardEmptyStart();
       })();
 
       let stream;
@@ -177,11 +197,20 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         say('Listening… say "over" or tap again when done.');
         voiceStartMark('tap→Listening', tapAt);
 
-        await beginWork;
-        if (abandoned) {
+        if (aborted()) {
           buffer.discard();
+          await beginWork.catch(() => {});
+          await discardEmptyStart();
           await abandonLiveVoice();
-          return 'no-mic';
+          return 'aborted';
+        }
+
+        await beginWork;
+        if (abandoned || aborted()) {
+          buffer.discard();
+          await discardEmptyStart();
+          await abandonLiveVoice();
+          return abandoned ? 'no-mic' : 'aborted';
         }
         if (consent === 'accepted') recorder = createTestingRecorder({ stream: mic.stream });
 
@@ -211,6 +240,12 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         });
         await transport.connect();
         voiceStartMark('tap→WS ready', tapAt);
+        if (aborted()) {
+          buffer.discard();
+          await abandonLiveVoice();
+          await discardEmptyStart();
+          return 'aborted';
+        }
         if (transport.state !== 'connected') {
           buffer.discard();
           micFailure = { name: 'VoiceUnavailable', message: VOICE_UNAVAILABLE_MESSAGE };
@@ -220,11 +255,18 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         liveTeardownArmed = true;
         endingLive = false;
         await buffer.flushTo(bytes => transport.stream(bytes));
+        if (pendingEndTurn) {
+          pendingEndTurn = false;
+          driver.endTurn();
+          say('Thinking…');
+          return 'turn-ended';
+        }
         return 'listening';
       } catch (error) {
         buffer.discard();
         try { stream.getTracks().forEach(track => track.stop()); } catch { /* ignore */ }
         await abandonLiveVoice();
+        if (aborted()) return 'aborted';
         throw error;
       }
     },
@@ -233,7 +275,15 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       if (transport) return transport.text(text);
       return turn({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
     },
-    async end() { await abandonLiveVoice(); },
+    async end() {
+      // Invalidate any in-flight talk() (begin / auth / connect). Discards the
+      // PCM buffer via abandonLiveVoice's mic stop + transport cancel, and drops
+      // an empty conversation (minted reservation settles under existing rules).
+      talkGeneration += 1;
+      pendingEndTurn = false;
+      await abandonLiveVoice();
+      await discardEmptyStart();
+    },
     get micFailure() { return micFailure; },
   };
   return session;

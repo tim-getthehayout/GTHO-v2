@@ -6,6 +6,7 @@ import { el, clear } from '../../../ui/dom.js';
 import { showDismissibleBanner } from '../../../ui/toast.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { createOfflineNoteStore } from './offline-notes.js';
+import { OUTBOUND_DROPPED_MESSAGE } from './outbound-queue.js';
 import { createAssistantSession, DISCARD_EMPTY_FAILED_MESSAGE } from './session.js';
 import { renderNoteReview, recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
 import { createVoiceLog } from './voice-log.js';
@@ -197,7 +198,8 @@ export function openAssistant(deps, config, options = {}) {
       const current = await ensureSession();
       if (!current) { input.value = kept; starting = false; return; }
       input.value = '';
-      await current.text(text);
+      const delivery = await current.text(text);
+      if (delivery?.status === 'dropped') { input.value = kept; say(OUTBOUND_DROPPED_MESSAGE); }
       if (!status.textContent) say('');
     } catch (error) {
       input.value = kept;
@@ -213,11 +215,15 @@ export function openAssistant(deps, config, options = {}) {
     say('Starting…');
     try {
       session = createAssistantSession(sessionOptions(extra));
-      await session.begin(firstTurn, undefined, from);
+      const started = await session.begin(firstTurn, undefined, from);
       if (stale()) {
         try { await session.end(); } catch { /* closed while starting */ }
         session = null;
         return null;
+      }
+      if (firstTurn && started === null) {
+        if (firstTurn.modality === 'text') input.value = firstTurn.text;
+        setVoiceState('idle'); say(OUTBOUND_DROPPED_MESSAGE); return null;
       }
       say('');
       return session;

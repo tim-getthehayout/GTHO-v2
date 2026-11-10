@@ -2,6 +2,9 @@
  * A poisoned/retired generation can never dispatch into a replacement session.
  * The old two-stage 10s receipt/work budget is one bounded 20s queue wait. */
 export const OUTBOUND_TURN_BUDGET_MS = 20000;
+// Preserve the existing 10s finalization/backstop interleavings, while reserving
+// the final 5s for recovery if predecessors or teardown still cannot complete.
+export const OUTBOUND_PRE_DISPATCH_BUDGET_MS = OUTBOUND_TURN_BUDGET_MS * 3 / 4;
 export const OUTBOUND_DROPPED_MESSAGE = 'A pending turn could not be sent. Please try again.';
 
 export function createOutboundQueue({ conversation, generation, deliver, onDrop = () => {} }) {
@@ -16,7 +19,7 @@ export function createOutboundQueue({ conversation, generation, deliver, onDrop 
   }
   function complete(job, result) {
     if (job.finished) return;
-    job.finished = true; globalThis.clearTimeout(job.timer); job.resolve({ ...result, started: job.started });
+    job.finished = true; globalThis.clearTimeout(job.timer); globalThis.clearTimeout(job.handoffTimer); job.resolve({ ...result, started: job.started });
     finishIfDrained();
   }
   function expire(reason) {
@@ -38,7 +41,7 @@ export function createOutboundQueue({ conversation, generation, deliver, onDrop 
         finishIfDrained();
       };
     },
-    enqueue(entry, { reserved = false, beforeDeliver = async () => {}, deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS } = {}) {
+    enqueue(entry, { reserved = false, beforeDeliver = async () => {}, deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS, handoffAt = deadline } = {}) {
       if (jobs.has(entry.id)) return jobs.get(entry.id).done;
       if (state === 'expired' || (state === 'retiring' && !reserved)) {
         onDrop({ reason: 'outbound-retired', count: 1 });
@@ -53,13 +56,16 @@ export function createOutboundQueue({ conversation, generation, deliver, onDrop 
       const job = { entry: { ...entry }, conversation, generation, done, resolve, started: false, finished: false, deadline };
       jobs.set(entry.id, job);
       job.timer = globalThis.setTimeout(() => expire('outbound-timeout'), Math.max(0, job.deadline - Date.now()));
+      if (handoffAt < deadline) job.handoffTimer = globalThis.setTimeout(() => {
+        if (!job.finished && !job.started) expire('outbound-timeout');
+      }, Math.max(0, handoffAt - Date.now()));
       tail = tail.then(async () => {
         if (job.finished) return;
         try {
           await beforeDeliver();
           if (job.finished) return;
           if (Date.now() >= job.deadline) { expire('outbound-timeout'); return; }
-          job.started = true;
+          job.started = true; globalThis.clearTimeout(job.handoffTimer);
           await deliver(job.entry, { conversation: job.conversation, generation: job.generation });
           complete(job, { status: 'delivered' });
         } catch { expire('outbound-failed'); }

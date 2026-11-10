@@ -401,8 +401,8 @@ describe('per-conversation outbound ownership', () => {
   });
   it('an already-dispatched typed request is bounded without replaying it on timeout', async () => {
     const held = gate(); conversation.turn.mockReturnValue(held.promise);
-    const session = makeSession(); let finished = false; const typing = session.text('only once').catch(error => { finished = true; return error; });
-    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); expect((await typing).message).toBe(OUTBOUND_DROPPED_MESSAGE);
+    const session = makeSession(); let finished = false; const typing = session.text('only once').then(result => { finished = true; return result; });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); expect((await typing).status).toBe('dropped');
     expect(finished).toBe(true); expect(conversation.turn).toHaveBeenCalledTimes(1);
     held.resolve(null); await flush(); expect(conversation.turn).toHaveBeenCalledTimes(1);
   });
@@ -411,10 +411,10 @@ describe('per-conversation outbound ownership', () => {
     const session = makeSession(); await connect(session.talk());
     const original = contexts[0].close; contexts[0].close = () => new Promise(() => {});
     try {
-      const typing = session.text('typed after hung close').catch(error => error); await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS); await flush();
-      await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); expect((await typing).message).toBe(OUTBOUND_DROPPED_MESSAGE);
+      const typing = session.text('typed after hung close'); await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS); await flush();
+      await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); expect(await typing).toBeUndefined();
       expect(conversation.turn).not.toHaveBeenCalled();
-      expect(next.turn).not.toHaveBeenCalled();
+      expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'typed after hung close' }));
       expect(tracks[0].stop).toHaveBeenCalled();
     } finally { contexts[0].close = original; }
   });
@@ -468,10 +468,10 @@ describe('per-conversation outbound ownership', () => {
     createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
     const session = makeSession(); const first = await pendingFinals(session); sockets[0].close(); await flush();
     const enqueued = Date.now(); let settledAt;
-    const typing = session.text('one bounded send').then(() => { settledAt = Date.now(); }, error => { settledAt = Date.now(); return error; });
+    const typing = session.text('one bounded send').then(result => { settledAt = Date.now(); return result; }, error => { settledAt = Date.now(); return error; });
     await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS - 1);
     expect(settledAt).toBeUndefined(); expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'one bounded send' }));
-    await vi.advanceTimersByTimeAsync(1); expect((await typing).message).toBe(OUTBOUND_DROPPED_MESSAGE);
+    await vi.advanceTimersByTimeAsync(1); expect((await typing).status).toBe('dropped');
     expect(settledAt - enqueued).toBe(OUTBOUND_TURN_BUDGET_MS);
     first.resolve(null); nextWork.resolve(null); await flush(); expect(next.turn).toHaveBeenCalledTimes(1);
   });
@@ -493,9 +493,9 @@ describe('per-conversation outbound ownership', () => {
     createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
     const say = vi.fn(), session = makeSession({ say }); const first = await pendingFinals(session);
     sockets[0].close(); await flush(); const started = Date.now(); let settled;
-    const typing = session.text('bounded startup too').catch(error => { settled = Date.now(); return error; });
+    const typing = session.text('bounded startup too').then(result => { settled = Date.now(); return result; });
     await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS);
-    expect((await typing).message).toBe(OUTBOUND_DROPPED_MESSAGE); expect(settled - started).toBe(OUTBOUND_TURN_BUDGET_MS);
+    expect((await typing).status).toBe('dropped'); expect(settled - started).toBe(OUTBOUND_TURN_BUDGET_MS);
     expect(next.begin).toHaveBeenCalledTimes(1); begin.resolve(); first.resolve(null); await flush();
     expect(next.turn).not.toHaveBeenCalled(); expect(say.mock.calls.at(-1)).toEqual([OUTBOUND_DROPPED_MESSAGE]);
   });

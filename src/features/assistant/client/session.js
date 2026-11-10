@@ -2,7 +2,7 @@
  * (feedback, questions, how-to) and the global push-to-talk (farm voice entry).
  * Voice is I/O only: final transcripts go to the backend turn; the backend answer
  * is spoken verbatim. Tapping again ends the turn, the same as saying "over". */
-import { createOutboundQueue, OUTBOUND_DROPPED_MESSAGE, OUTBOUND_TURN_BUDGET_MS } from './outbound-queue.js';
+import { createOutboundQueue, OUTBOUND_DROPPED_MESSAGE, OUTBOUND_TURN_BUDGET_MS, OUTBOUND_PRE_DISPATCH_BUDGET_MS } from './outbound-queue.js';
 import { VoiceTransport } from '../shared.js';
 import { createAssistantConversation, createFarmReviewFlow, createFeedbackFiling, feedbackSheetSession } from './conversation.js';
 import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, createAudioChunkBuffer, voiceStartTap, voiceStartMark, prepareCaptureContext, closeCaptureContext, anySignal, waitForAbort, SAMPLE_RATE, VOICE_CONNECT_BUDGET_MS, OFFLINE_NO_MIC_MESSAGE, VOICE_UNAVAILABLE_MESSAGE } from './realtime.js';
@@ -15,7 +15,6 @@ import { showDismissibleBanner } from '../../../ui/toast.js';
 import { mountFeedbackReview } from '../feedback-review.js';
 
 const outboundFailure = () => Object.assign(new Error(OUTBOUND_DROPPED_MESSAGE), { code: 'outbound-dropped' });
-function requireDelivery(result) { if (result.status === 'dropped') throw outboundFailure(); }
 async function withinOutboundDeadline(work, deadline) {
   let timer;
   try {
@@ -253,7 +252,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         owner.attempts = attempts;
         owner.queue = makeQueue(owner);
         if (!connectAbort && !from.quiet) say('');
-        if (firstTurn) requireDelivery(await owner.queue.enqueue(firstTurn));
+        if (firstTurn && (await owner.queue.enqueue(firstTurn)).status === 'dropped') return null;
         onTranscript(visible());
         return started;
       })();
@@ -616,7 +615,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         const entry = { id: crypto.randomUUID(), role: 'user', modality: 'text', text };
         // The send owns this absolute deadline, not either conversation queue.
         const deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS;
-        let result = await owner.queue.enqueue(entry, { reserved: true, beforeDeliver: closeOwnedVoice, deadline });
+        let result = await owner.queue.enqueue(entry, { reserved: true, beforeDeliver: closeOwnedVoice, deadline, handoffAt: Date.now() + OUTBOUND_PRE_DISPATCH_BUDGET_MS });
         void closeOwnedVoice().catch(() => {});
         if (result.status === 'dropped' && !result.started && Date.now() < deadline) {
           // A hung predecessor poisoned its old generation. Do not append to
@@ -626,11 +625,12 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           if (!outbound) await withinOutboundDeadline(session.begin(undefined, undefined, { quiet: true }), deadline);
           if (outbound?.queue && outbound.queue.state === 'open') result = await outbound.queue.enqueue(entry, { deadline });
         }
-        requireDelivery(result);
-        return undefined;
+        // A drop is a handled receipt, not a rejected fire-and-forget send.
+        return result.status === 'dropped' ? result : undefined;
       } catch (error) {
-        if (error.code === 'outbound-dropped') say(OUTBOUND_DROPPED_MESSAGE);
-        throw error;
+        if (error.code !== 'outbound-dropped') throw error;
+        say(OUTBOUND_DROPPED_MESSAGE);
+        return { status: 'dropped', started: false };
       } finally { release?.(); typedTakeover = false; }
     },
     async end() {

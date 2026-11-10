@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { createOutboundQueue, OUTBOUND_TURN_BUDGET_MS } from '../../../../src/features/assistant/client/outbound-queue.js';
+import { createOutboundQueue, OUTBOUND_TURN_BUDGET_MS, OUTBOUND_PRE_DISPATCH_BUDGET_MS } from '../../../../src/features/assistant/client/outbound-queue.js';
 const gate = () => { let resolve; const promise = new Promise(finish => { resolve = finish; }); return { promise, resolve }; };
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 const entry = (id, modality = 'voice') => ({ id, role: 'user', modality, text: id });
@@ -73,4 +73,25 @@ it('an exhausted send deadline cannot dispatch or buy a new queue budget', async
   expect(await queue.enqueue(entry('expired', 'text'), { deadline: Date.now() })).toEqual({ status: 'dropped', started: false });
   await flush(); expect(deliver).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
   expect(onDrop).toHaveBeenCalledWith({ reason: 'outbound-timeout', count: 1 });
+});
+
+it('pre-dispatch handoff leaves recovery time even when voice and text enqueue in the same tick', async () => {
+  const voice = gate(), backend = gate(), deliver = vi.fn(() => backend.promise);
+  const old = createOutboundQueue({ conversation: {}, generation: 11, deliver: () => voice.promise });
+  const next = createOutboundQueue({ conversation: {}, generation: 12, deliver });
+  const deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS, typed = entry('same-tick', 'text');
+  const first = old.enqueue(entry('voice')), waiting = old.enqueue(typed, { deadline, handoffAt: Date.now() + OUTBOUND_PRE_DISPATCH_BUDGET_MS });
+  await vi.advanceTimersByTimeAsync(OUTBOUND_PRE_DISPATCH_BUDGET_MS - 1); expect(old.state).toBe('open');
+  await vi.advanceTimersByTimeAsync(1); expect(await waiting).toEqual({ status: 'dropped', started: false });
+  const moved = next.enqueue(typed, { deadline }); await flush(); expect(deliver).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS - OUTBOUND_PRE_DISPATCH_BUDGET_MS);
+  expect(await moved).toEqual({ status: 'dropped', started: true }); expect(Date.now()).toBe(deadline);
+  voice.resolve(); backend.resolve(); await first; await flush(); expect(deliver).toHaveBeenCalledTimes(1);
+});
+it('a dispatched send keeps the full deadline instead of the pre-dispatch handoff timer', async () => {
+  const work = gate(), queue = createOutboundQueue({ conversation: {}, generation: 13, deliver: () => work.promise });
+  const result = queue.enqueue(entry('dispatched', 'text'), { handoffAt: Date.now() + OUTBOUND_PRE_DISPATCH_BUDGET_MS }); await flush();
+  await vi.advanceTimersByTimeAsync(OUTBOUND_PRE_DISPATCH_BUDGET_MS); expect(queue.state).toBe('open');
+  await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS - OUTBOUND_PRE_DISPATCH_BUDGET_MS);
+  expect(await result).toEqual({ status: 'dropped', started: true }); work.resolve(); await flush();
 });

@@ -218,12 +218,12 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       endingLive = false;
       typedTakeover = false;
       micFailure = null;
-      const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const now = () => (typeof globalThis.performance !== 'undefined' ? globalThis.performance.now() : Date.now());
       const tapClock = now();
       const tapAt = voiceStartTap();
       const buffer = createAudioChunkBuffer();
       pcmBuffer = buffer;
-      const budget = new AbortController();
+      const budget = new globalThis.AbortController();
       connectAbort = budget;
       const budgetTimer = setTimeout(() => budget.abort(), VOICE_CONNECT_BUDGET_MS);
       let abandoned = false;
@@ -231,7 +231,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       const budgetHit = () => budget.signal.aborted && !typedTakeover && gen === talkGeneration;
       logVoice('tap', {}, now, tapClock);
 
-      let capture = null;
+      let capture;
       try {
         capture = prepareCaptureContext();
         logVoice('pcm-context', {

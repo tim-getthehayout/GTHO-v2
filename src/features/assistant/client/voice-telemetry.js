@@ -25,7 +25,7 @@ export function sanitizeVoiceLogContext(fields = {}) {
 export function logVoice(phase, fields = {}, now, tapAt) {
   const context = sanitizeVoiceLogContext(fields);
   if (tapAt != null && context.ms == null) {
-    const stamp = typeof now === 'function' ? now() : (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const stamp = typeof now === 'function' ? now() : (typeof globalThis.performance !== 'undefined' ? globalThis.performance.now() : Date.now());
     context.ms = Math.round(stamp - tapAt);
   }
   logger.info('assistant-voice', String(phase), context);

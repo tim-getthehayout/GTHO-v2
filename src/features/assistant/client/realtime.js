@@ -43,7 +43,7 @@ export function anySignal(...signals) {
   const live = signals.filter(Boolean);
   if (!live.length) return undefined;
   if (live.length === 1) return live[0];
-  const controller = new AbortController();
+  const controller = new globalThis.AbortController();
   const abort = () => controller.abort();
   for (const signal of live) {
     if (signal.aborted) { controller.abort(); break; }
@@ -97,7 +97,7 @@ export function resamplePcm16(pcm, fromRate, toRate) {
  * sends turn_detection null (manual commit). Returns a VoiceTransport driver plus
  * endTurn() (tap) and speak(text).
  */
-export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.WebSocket, setTimer = (fn, ms) => globalThis.setTimeout(fn, ms), clearTimer = id => globalThis.clearTimeout(id), onStatus = () => {}, randomId = () => globalThis.crypto.randomUUID(), now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()), tapAt } = {}) {
+export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.WebSocket, setTimer = (fn, ms) => globalThis.setTimeout(fn, ms), clearTimer = id => globalThis.clearTimeout(id), onStatus = () => {}, randomId = () => globalThis.crypto.randomUUID(), now = () => (typeof globalThis.performance !== 'undefined' ? globalThis.performance.now() : Date.now()), tapAt } = {}) {
   if (!config?.model || /latest/i.test(config.model)) throw new Error('pinned-voice-model-required');
   if (!PINNED_MODEL(config.transcriptionModel)) throw new Error('pinned-transcription-model-required');
   let active = null;

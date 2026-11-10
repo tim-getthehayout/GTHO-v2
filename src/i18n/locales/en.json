@@ -1,4 +1,13 @@
 {
+  "manualEntry": {
+    "invalidDate": "Enter a valid date and time.",
+    "invalidNumber": "Enter a finite number.",
+    "missingSource": "The original source is unknown. Inventory changes need a source assessment before this entry can be changed or deleted.",
+    "chooseSource": "Choose a source location.",
+    "stock": "Not enough inventory at the selected source.",
+    "stockAssessment": "Existing stock totals differ. Assess the historical inventory before changing this entry.",
+    "unsupportedFeed": "Use Move feed out for transferred or removed feed."
+  },
   "app": {
     "name": "Get The Hay Out",
     "version": "v2"

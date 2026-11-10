@@ -1,5 +1,7 @@
 /** @file Entity: event_feed_entries — V2_SCHEMA_DESIGN.md §5.4 */
 
+import { isCalendarDate } from '../utils/form-values.js';
+
 export const FIELDS = {
   id:            { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId:   { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
@@ -44,8 +46,12 @@ export function validate(record) {
   if (!record.eventId) errors.push('eventId is required');
   if (!record.batchId) errors.push('batchId is required');
   if (!record.locationId) errors.push('locationId is required');
-  if (!record.date) errors.push('date is required');
-  if (typeof record.quantity !== 'number' || record.quantity <= 0) errors.push('quantity must be a positive number');
+  if (!isCalendarDate(record.date)) errors.push('date is required and must be valid');
+  if (typeof record.quantity !== 'number' || !Number.isFinite(record.quantity) || record.quantity <= 0) errors.push('quantity must be a positive number');
+  if (!['delivery', 'removal'].includes(record.entryType ?? 'delivery')) errors.push('invalid entryType');
+  if (record.destinationType != null && !['batch', 'event'].includes(record.destinationType)) errors.push('invalid destinationType');
+  if (record.entryType === 'removal' && !record.destinationType) errors.push('removal destination is required');
+  if ((record.destinationType === 'event') !== !!record.destinationEventId) errors.push('destinationEventId must match destinationType');
   return { valid: errors.length === 0, errors };
 }
 

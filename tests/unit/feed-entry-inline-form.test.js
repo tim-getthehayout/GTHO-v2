@@ -196,17 +196,17 @@ describe('feed-entry-inline-form: commitAdd', () => {
     expect(getAll('eventFeedEntries')).toHaveLength(1);
   });
 
-  it('clamps batch.remaining at 0 when over-decrementing', () => {
+  it('rejects overdraw without changing batch remaining', () => {
     const a = mkBatch(BATCH_A, 'Hay A', 2);
     add('batches', a, BatchEntity.validate);
 
-    commitAdd({
+    expect(() => commitAdd({
       operationId: OP, event, locationId: LOC, date: '2026-04-10',
       lines: [{ batchId: BATCH_A, qty: 5 }],
       batches: [a],
-    });
+    })).toThrow(/Not enough inventory|manualEntry.stock/);
 
-    expect(getById('batches', BATCH_A).remaining).toBe(0);
+    expect(getById('batches', BATCH_A).remaining).toBe(2);
   });
 });
 

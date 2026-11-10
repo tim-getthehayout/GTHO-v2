@@ -19,10 +19,12 @@
  */
 
 import { el, clear } from '../../ui/dom.js';
-import { getAll, getById, add, update } from '../../data/store.js';
+import { getAll, getById, add, update, remove, runDurableWrite } from '../../data/store.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
-import * as BatchEntity from '../../entities/batch.js';
+import { balancesFor, availableDeliveryStock, exceedsAvailableStock, deductDelivery, applyRemainingDelta } from '../feed/batch-balances.js';
+import { t } from '../../i18n/i18n.js';
+import { isCalendarDate } from '../../utils/form-values.js';
 
 // ─── Module-level form state ────────────────────────────────────────────────
 
@@ -72,7 +74,7 @@ export function openEditMode(entry) {
     mode: 'edit',
     editingEntryId: entry.id,
     date: entry.date,
-    lines: [{ batchId: entry.batchId, qty: entry.quantity }],
+    lines: [{ batchId: entry.batchId, qty: entry.quantity, ...(entry.sourceLocationId ? { sourceLocationId: entry.sourceLocationId } : {}) }],
     error: null,
   };
 }
@@ -99,7 +101,7 @@ export function validateFeedEntryForm({ event, date, lines, mode, editingEntry, 
   if (positiveLines.length === 0) {
     return { valid: false, error: 'Quantity must be greater than zero. To remove feed from this event, use the Move feed out action.' };
   }
-  if (!date) {
+  if (!isCalendarDate(date)) {
     return { valid: false, error: 'Date is required.' };
   }
   if (event.dateIn && date < event.dateIn) {
@@ -120,7 +122,7 @@ export function validateFeedEntryForm({ event, date, lines, mode, editingEntry, 
     const line = positiveLines[0];
     const batch = batches.find(b => b.id === line.batchId);
     if (!batch) return { valid: false, error: 'Batch not found.' };
-    const oldQty = editingEntry?.quantity ?? 0;
+    const oldQty = editingEntry?.batchId === line.batchId ? editingEntry.quantity ?? 0 : 0;
     const ceiling = (batch.remaining ?? 0) + oldQty;
     if (line.qty > ceiling) {
       return { valid: false, error: `Not enough inventory. Batch has ${ceiling.toFixed(1)} ${batch.unit} available.` };
@@ -137,46 +139,83 @@ export function validateFeedEntryForm({ event, date, lines, mode, editingEntry, 
  *
  * @returns {Array<object>} the created entry records
  */
-export function commitAdd({ operationId, event, locationId, date, lines, batches }) {
-  const created = [];
-  const positive = lines.filter(l => Number(l.qty) > 0);
-  for (const line of positive) {
-    const batch = batches.find(b => b.id === line.batchId);
-    const entry = FeedEntryEntity.create({
-      operationId,
-      eventId: event.id,
-      batchId: line.batchId,
-      locationId,
-      date,
-      quantity: Number(line.qty),
-    });
-    add('eventFeedEntries', entry, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
-    if (batch) {
-      const newRemaining = Math.max(0, (batch.remaining ?? 0) - Number(line.qty));
-      update('batches', batch.id, { remaining: newRemaining }, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
-    }
-    created.push(entry);
+function validRecord(record) {
+  const result = FeedEntryEntity.validate(record);
+  if (!result.valid) throw new Error(result.errors.join(', '));
+}
+function coherent(batchId) {
+  const batch = getById('batches', batchId), rows = balancesFor(batchId);
+  if (rows.length && Math.abs(rows.reduce((sum, row) => sum + Number(row.quantity), 0) - Number(batch?.remaining)) > 1e-9) throw new Error(t('manualEntry.stockAssessment'));
+}
+function reversible(entry) {
+  coherent(entry.batchId);
+  if (entry.entryType === 'removal' || entry.sourceEventId) throw new Error(t('manualEntry.unsupportedFeed'));
+  const rows = balancesFor(entry.batchId);
+  if (rows.length && !rows.some(row => row.locationId === entry.sourceLocationId)) throw new Error(t('manualEntry.missingSource'));
+  if (!getById('batches', entry.batchId)) throw new Error(t('manualEntry.missingSource'));
+}
+function preflight(entries, previous = null) {
+  if (previous) reversible(previous);
+  const requested = new Map();
+  for (const entry of entries) {
+    validRecord(entry);
+    coherent(entry.batchId);
+    const stock = availableDeliveryStock(entry.batchId, entry.sourceLocationId);
+    // An exhausted source can be reused when this edit first restores its old feed.
+    const same = previous && previous.batchId === entry.batchId && previous.sourceLocationId === entry.sourceLocationId;
+    const row = balancesFor(entry.batchId).find(value => value.locationId === entry.sourceLocationId);
+    const available = stock.status === 'ok' ? stock.available : same && row ? Number(row.quantity) : null;
+    if (available == null) throw new Error(t('manualEntry.chooseSource'));
+    const pool = stock.poolKey || `${entry.batchId}\0${entry.sourceLocationId}`;
+    const total = (requested.get(pool) || 0) + entry.quantity;
+    const credit = same ? previous.quantity : 0;
+    if (exceedsAvailableStock(total, available + credit)) throw new Error(t('manualEntry.stock'));
+    requested.set(pool, total);
   }
-  return created;
+}
+const atomic = (operationId, work) => runDurableWrite(JSON.stringify([operationId, 'manual-feed', crypto.randomUUID(), 1]), work);
+
+export function commitAdd({ operationId, event, locationId, date, lines }) {
+  if (lines.some(line => !Number.isFinite(Number(line.qty)) || Number(line.qty) < 0)) throw new Error(t('manualEntry.invalidNumber'));
+  const entries = lines.filter(line => Number(line.qty) > 0).map(line => FeedEntryEntity.create({
+    operationId, eventId: event.id, locationId, date,
+    batchId: line.batchId, sourceLocationId: line.sourceLocationId || null, quantity: Number(line.qty),
+  }));
+  preflight(entries);
+  atomic(operationId, () => {
+    for (const entry of entries) {
+      const error = deductDelivery(entry.batchId, entry.sourceLocationId, entry.quantity);
+      if (error) throw new Error(t('manualEntry.stock'));
+      add('eventFeedEntries', entry, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+    }
+    return entries[0]?.id;
+  });
+  return entries;
 }
 
-/**
- * Edit mode commit. Updates one entry's date + quantity and adjusts the
- * batch's remaining by the delta (oldQty - newQty).
- */
-export function commitEdit({ entry, newDate, newQty, batches }) {
-  const oldQty = entry.quantity ?? 0;
-  const delta = oldQty - Number(newQty); // positive = freeing inventory; negative = consuming more
-  update(
-    'eventFeedEntries', entry.id,
-    { date: newDate, quantity: Number(newQty) },
-    FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries'
-  );
-  const batch = batches.find(b => b.id === entry.batchId);
-  if (batch) {
-    const newRemaining = Math.max(0, (batch.remaining ?? 0) + delta);
-    update('batches', batch.id, { remaining: newRemaining }, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
-  }
+export function commitEdit({ entry, newDate, newQty, newBatchId = entry.batchId, newSourceLocationId = entry.sourceLocationId }) {
+  const next = { ...entry, date: newDate, quantity: Number(newQty), batchId: newBatchId, sourceLocationId: newSourceLocationId || null };
+  validRecord(next);
+  // A date-only change to legacy data does not invent a stock location.
+  const inventoryChanged = next.quantity !== entry.quantity || next.batchId !== entry.batchId || next.sourceLocationId !== (entry.sourceLocationId || null);
+  if (inventoryChanged) preflight([next], entry);
+  atomic(entry.operationId, () => {
+    if (inventoryChanged) {
+      if (applyRemainingDelta(entry.batchId, entry.sourceLocationId, entry.quantity)) throw new Error(t('manualEntry.missingSource'));
+      if (deductDelivery(next.batchId, next.sourceLocationId, next.quantity)) throw new Error(t('manualEntry.stock'));
+    }
+    update('eventFeedEntries', entry.id, next, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+    return entry.id;
+  });
+}
+
+export function commitDelete(entry) {
+  reversible(entry);
+  atomic(entry.operationId, () => {
+    if (applyRemainingDelta(entry.batchId, entry.sourceLocationId, entry.quantity)) throw new Error(t('manualEntry.missingSource'));
+    remove('eventFeedEntries', entry.id, 'event_feed_entries');
+    return entry.id;
+  });
 }
 
 // ─── Render ─────────────────────────────────────────────────────────────────
@@ -247,23 +286,10 @@ function buildBatchSelector(activeBatches, isEdit, rerender) {
   const wrap = el('div', { style: { marginBottom: '8px' } });
 
   if (isEdit) {
-    // Locked: show only the selected batch as a non-toggleable card
-    const lockedLine = state.lines[0];
-    const lockedBatch = activeBatches.find(b => b.id === lockedLine?.batchId);
-    if (lockedBatch) {
-      wrap.appendChild(el('div', {
-        className: 'batch-sel on',
-        style: { cursor: 'default', opacity: '0.85' },
-      }, [
-        el('div', {}, [
-          el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [lockedBatch.name]),
-          el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [
-            `${(lockedBatch.remaining ?? 0).toFixed(1)} ${lockedBatch.unit}s remaining \u00B7 batch locked in edit mode`,
-          ]),
-        ]),
-        el('div', { className: 'chk' }, [el('span', { style: { color: 'white', fontSize: '14px' } }, ['\u2713'])]),
-      ]));
-    }
+    const line = state.lines[0];
+    wrap.appendChild(el('select', { 'data-testid': 'feed-form-batch', value: line.batchId, onChange: e => {
+      line.batchId = e.target.value; line.sourceLocationId = null; rerender();
+    } }, activeBatches.map(batch => el('option', { value: batch.id, selected: batch.id === line.batchId }, [batch.name]))));
     return wrap;
   }
 
@@ -312,6 +338,13 @@ function buildQtyStepperRows(activeBatches, rerender) {
         line.qty = isNaN(v) ? 0 : v;
       },
     });
+    const holdings = balancesFor(b.id);
+    if (holdings.length) wrap.appendChild(el('select', {
+      'data-testid': `feed-form-source-${b.id}`,
+      onChange: e => { line.sourceLocationId = e.target.value || null; },
+    }, [el('option', { value: '' }, [t('manualEntry.chooseSource')]), ...holdings.map(row => el('option', {
+      value: row.locationId, selected: row.locationId === line.sourceLocationId,
+    }, [getById('locations', row.locationId)?.name || '?']))]));
     wrap.appendChild(el('div', {
       style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' },
     }, [
@@ -373,10 +406,12 @@ function handleSave(event, operationId, container, { onAfterSave }) {
         entry: existing,
         newDate: state.date,
         newQty: state.lines[0].qty,
+        newBatchId: state.lines[0].batchId,
+        newSourceLocationId: state.lines[0].sourceLocationId || null,
         batches,
       });
     } else {
-      const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === event.id && !pw.dateClosed);
+      const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === event.id && !pw.dateClosed).sort((a, b) => `${b.dateOpened}T${b.timeOpened || '00:00'}`.localeCompare(`${a.dateOpened}T${a.timeOpened || '00:00'}`));
       const locationId = pws[0]?.locationId || null;
       if (!locationId) {
         state.error = 'No open paddock on this event to attribute the feed entry to.';

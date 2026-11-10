@@ -12,7 +12,6 @@ import { getCalcByName } from '../../utils/calc-registry.js';
 import { logger } from '../../utils/logger.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockObsEntity from '../../entities/paddock-observation.js';
-import * as BatchEntity from '../../entities/batch.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { openMoveWizard } from './move-wizard.js';
@@ -32,6 +31,7 @@ import { computeDmi8Days } from './dmi-chart-context.js';
 import { isConfinementLocation, wrapInactiveForage, renderEventFeedRemainingLine } from './confinement-forage-ui.js';
 import { navigate } from '../../ui/router.js';
 import {
+  commitDelete as deleteFeedEntry,
   renderInlineFeedForm,
   openAddMode as openFeedFormAdd,
   openEditMode as openFeedFormEdit,
@@ -968,12 +968,8 @@ function renderFeedEntries(ctx) {
           style: { color: 'var(--red-d)', borderColor: 'var(--red-d)' },
           onClick: () => {
             if (!confirm(t('event.confirmDeleteFeed'))) return;
-            // Restore inventory before removing the entry
-            if (batch) {
-              const newRemaining = (batch.remaining ?? 0) + (fe.quantity ?? 0);
-              update('batches', batch.id, { remaining: newRemaining }, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
-            }
-            remove('eventFeedEntries', fe.id, 'event_feed_entries');
+            try { deleteFeedEntry(fe); }
+            catch (error) { globalThis.alert(error.message); }
           },
         }, ['\u00D7']));
       }

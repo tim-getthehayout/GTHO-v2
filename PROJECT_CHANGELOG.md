@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | test(feeding): drive the mounted inline delivery time editor through a real save and assert DMI redraw, unchanged inventory and queued clock; preserve the focused draft through item-only check refresh. Guard chart rendering after DOM teardown. | `src/features/events/detail.js`, `tests/unit/manual-feed-chart-refresh.test.js` |
 | 2026-11-10 | fix(feeding): name saved observation clocks in Event Detail and remove misleading optional-time text from historical check editing. Real Add/Edit regressions prove explicit historical clock entry/confirmation, invalid/cancel no-write behavior, and the 12:59 observation before a 13:00 feeding (eight available, never fourteen after capture). | `src/features/events/{detail,edit-feed-check}.js`, `tests/unit/manual-feed-check-time.test.js` |
 | 2026-11-10 | fix(feeding): preserve a verified check anchor plus later deliveries as the real check form input ceiling, rather than silently clamping eight available bales to six surviving delivery rows. | `src/features/feed/check.js` |
 | 2026-11-10 | test(feeding): pin historical delivery intervals to strict-after/inclusive-close date-plus-clock boundaries in DMI history and check editing; cover same-day endpoint equality, midnight legacy clocks, reversed insertion order and staged edit clocks without mutating records. | `tests/unit/manual-feed-history-times.test.js` |

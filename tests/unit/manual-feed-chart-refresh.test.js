@@ -82,3 +82,21 @@ it('remote header/item and delivery changes redraw both charts; teardown and rep
   mergeRemote('eventFeedCheckItems', [{ ...item, remainingQuantity: 4, updatedAt: new Date().toISOString() }]);
   await flush(); expect(rendered.mock.calls).toHaveLength(closed);
 });
+
+it('the mounted inline delivery clock editor refreshes DMI without touching inventory or a focused draft on check refresh', async () => {
+  const closing = seed('eventFeedChecks', Check, { eventId: event.id, date: '2026-11-09', time: '13:00' });
+  const item = seed('eventFeedCheckItems', Item, { feedCheckId: closing.id, locationId: 'pasture', batchId: 'hay', remainingQuantity: 7 });
+  await flush(); expect(latest(true)[0].result.storedDmiKg).toBe(187.5);
+  button(document.querySelector('[data-testid="detail-feed-entries"]'), 'Edit').click();
+  const form = document.querySelector('[data-testid="feed-entry-inline-form"]'), clock = form.querySelector('input[type="time"]');
+  expect(clock.value).toBe('10:00'); fill(form, 'input[type="time"]', '08:59'); clock.focus();
+  await refreshed(() => update('eventFeedCheckItems', item.id, { remainingQuantity: 6 }, Item.validate, Item.toSupabaseShape, 'event_feed_check_items'));
+  expect(document.activeElement).toBe(clock); expect(clock.value).toBe('08:59'); expect(clock.isConnected).toBe(true);
+  const inventory = JSON.stringify({ batch: getById('batches', 'hay'), balances: getAll('batchLocationBalances') });
+  await refreshed(() => button(form, 'Save changes').click()); expect(latest(true)[0].result.storedDmiKg).toBe(0);
+  expect(getById('eventFeedEntries', 'delivery').time).toBe('08:59'); expect(queued('event_feed_entries').at(-1).time).toBe('08:59');
+  expect(JSON.stringify({ batch: getById('batches', 'hay'), balances: getAll('batchLocationBalances') })).toBe(inventory);
+  dashboard.remove(); document.querySelector('[data-testid="event-detail-view"]').remove(); const count = rendered.mock.calls.length;
+  update('eventFeedEntries', 'delivery', { time: '09:01' }, Entry.validate, Entry.toSupabaseShape, 'event_feed_entries'); await flush();
+  expect(rendered.mock.calls).toHaveLength(count);
+});

@@ -410,6 +410,7 @@ function renderSummary(ctx) {
 
 function renderDmiChart(ctx) {
   const el2 = ctx.sections.dmiChart;
+  if (!el2.isConnected) return;
   clear(el2);
 
   const dmi8 = getCalcByName('DMI-8');

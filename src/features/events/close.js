@@ -129,7 +129,8 @@ export function openCloseEventSheet(evt, operationId) {
   if (landWindows.length) postGrazeWrap.appendChild(postGraze.container);
   for (const pw of confinementWindows) {
     const loc = getById('locations', pw.locationId);
-    const node = el('div', {}, [loc?.name || pw.locationId]);
+    const card = renderPostGrazeCard({ farmSettings });
+    const node = el('div', {}, [el('div', { className: 'form-label' }, [loc?.name || pw.locationId]), card.container]);
     postGrazeWrap.appendChild(wrapInactiveForage(node, `close-event-postgraze-inactive-${pw.locationId}`));
   }
   panel.appendChild(postGrazeWrap);

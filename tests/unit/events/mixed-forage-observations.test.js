@@ -53,7 +53,12 @@ describe('mixed-event forage is per location', () => {
     expect(pen).toBeTruthy();
     expect(pen.className).toContain('confinement-forage-inactive');
     expect(wrap.querySelector('.obs-post-graze-card')?.closest('.confinement-forage-inactive')).toBeNull();
-    expect(pen.querySelector('input, select, textarea, button')?.disabled !== false || pen.getAttribute('aria-disabled') === 'true').toBe(true);
+    const fields = [...pen.querySelectorAll('input, select, textarea')];
+    expect(pen.querySelector('.obs-post-graze-card')).toBeTruthy();
+    expect(fields.length).toBeGreaterThan(0);
+    expect(fields.every(node => node.disabled && node.getAttribute('aria-disabled') === 'true')).toBe(true);
+    expect(pen.hidden).toBe(false);
+    expect(pen.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('closing mixed windows writes a land observation and skips confinement', () => {
@@ -61,11 +66,31 @@ describe('mixed-event forage is per location', () => {
     openWindow('pw-pen', LOC_PEN);
     const evt = getAll('events').find(e => e.id === EVT);
     openSubmoveCloseSheet(getAll('eventPaddockWindows').filter(w => w.eventId === EVT), OP);
-    expect(document.querySelector(`[data-testid="submove-close-postgraze-inactive-${LOC_PEN}"]`)).toBeTruthy();
+    const pen = document.querySelector(`[data-testid="submove-close-postgraze-inactive-${LOC_PEN}"]`);
+    expect(pen).toBeTruthy();
+    const fields = [...pen.querySelectorAll('input, select, textarea')];
+    expect(pen.querySelector('.obs-post-graze-card')).toBeTruthy();
+    expect(fields.length).toBeGreaterThan(0);
+    expect(fields.every(node => node.disabled && node.getAttribute('aria-disabled') === 'true')).toBe(true);
+    expect(pen.hidden).toBe(false);
     expect(document.querySelector('[data-testid="submove-close-postgraze"] .obs-post-graze-card')?.closest('.confinement-forage-inactive')).toBeNull();
     document.querySelector('[data-testid="submove-close-save"]').click();
     const observations = getAll('paddockObservations');
     expect(observations.some(row => row.locationId === LOC_LAND && row.type === 'close')).toBe(true);
     expect(observations.some(row => row.locationId === LOC_PEN)).toBe(false);
+  });
+
+  it('the sub-move open sheet shows greyed pre-graze fields for confinement and keeps them unwritable', () => {
+    const evt = getAll('events').find(e => e.id === EVT);
+    openSubmoveOpenSheet(evt, OP);
+    document.querySelector(`[data-testid="location-picker-item-${LOC_PEN}"]`).click();
+    const pen = document.querySelector(`[data-testid="submove-open-pregraze-inactive-${LOC_PEN}"]`);
+    expect(pen).toBeTruthy();
+    const fields = [...pen.querySelectorAll('input, select, textarea')];
+    expect(pen.querySelector('.obs-pre-graze-card')).toBeTruthy();
+    expect(fields.length).toBeGreaterThan(0);
+    expect(fields.every(node => node.disabled && node.getAttribute('aria-disabled') === 'true')).toBe(true);
+    expect(pen.hidden).toBe(false);
+    expect(pen.getAttribute('aria-disabled')).toBe('true');
   });
 });

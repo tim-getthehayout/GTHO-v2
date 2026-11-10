@@ -84,7 +84,8 @@ export function openSubmoveOpenSheet(evt, operationId) {
     }
     for (const id of confinement) {
       const loc = getById('locations', id);
-      const node = el('div', { 'data-testid': `submove-open-pregraze-inactive-${id}` }, [loc?.name || id]);
+      const card = renderPreGrazeCard({ farmSettings, paddockAcres: loc?.acres ?? null, initialValues: {} });
+      const node = el('div', {}, [el('div', { className: 'form-label' }, [loc?.name || id]), card.container]);
       preGrazeWrap.appendChild(wrapInactiveForage(node, `submove-open-pregraze-inactive-${id}`));
     }
   }
@@ -213,7 +214,8 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   if (landWindows.length) postGrazeWrap.appendChild(postGraze.container);
   for (const pw of confinementWindows) {
     const loc = getById('locations', pw.locationId);
-    const node = el('div', {}, [loc?.name || pw.locationId]);
+    const card = renderPostGrazeCard({ farmSettings: farmSettings2 });
+    const node = el('div', {}, [el('div', { className: 'form-label' }, [loc?.name || pw.locationId]), card.container]);
     postGrazeWrap.appendChild(wrapInactiveForage(node, `submove-close-postgraze-inactive-${pw.locationId}`));
   }
   panel.appendChild(postGrazeWrap);

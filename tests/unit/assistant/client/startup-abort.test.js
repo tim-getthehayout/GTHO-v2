@@ -127,6 +127,7 @@ beforeEach(() => {
   releaseConnect = null;
   createAssistantConversation.mockReset();
   createXaiRealtimeDriver.mockClear();
+  startMicrophone.mockClear();
   Object.defineProperty(globalThis, 'navigator', {
     value: { mediaDevices: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })) } },
     configurable: true,

@@ -69,6 +69,7 @@ export function renderTranscript(container, transcript) {
  */
 export function openAssistant(deps, config, options = {}) {
   if (entryIsOpen(activeEntry)) {
+    activeEntry.adoptOptions(options);
     if (options.focusText) activeEntry.input?.focus();
     if (options.firstTurn) {
       activeEntry.ready = activeEntry.begin('data-entry', options.firstTurn, options.extra ?? {}, options.from ?? {}).catch(error => { activeEntry.say(error.message); return null; });
@@ -106,6 +107,12 @@ export function openAssistant(deps, config, options = {}) {
   const endTurn = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-end', hidden: true, onClick: () => { void requestEndTurn(); } }, ['End']);
   body.append(el('div', { className: 'field' }, [input, send, endTurn]));
 
+  function setVoiceState(state) {
+    const busy = state === 'connecting' || state === 'listening';
+    endTurn.hidden = state !== 'listening';
+    input.hidden = busy;
+    send.hidden = busy;
+  }
   const sessionOptions = (extra = {}) => ({
     deps, config, intent: 'data-entry', say: text => {
       if (!stale()) status.textContent = text ?? '';
@@ -115,14 +122,15 @@ export function openAssistant(deps, config, options = {}) {
       if (!stale()) renderTranscript(transcript, turns);
       options.onTranscript?.(turns);
     },
+    onVoiceState: setVoiceState,
     onListening: listening => {
-      endTurn.hidden = !listening;
-      input.hidden = listening;
-      send.hidden = listening;
+      setVoiceState(listening ? 'listening' : 'idle');
       options.onListening?.(listening);
     },
     onVoiceTerminal: message => {
-      options.onVoiceTerminal?.(message);
+      setVoiceState('idle');
+      if (options.onVoiceTerminal) options.onVoiceTerminal(message);
+      else { say(message); void session?.end(); }
     },
     voiceLog, ...extra,
   });
@@ -137,10 +145,13 @@ export function openAssistant(deps, config, options = {}) {
   async function startVoice(extra = {}) {
     if (offline(deps)) { say(OFFLINE_TEXT); return { session: null, result: null }; }
     const current = bindSession(extra);
+    setVoiceState('connecting');
     try {
       const result = await current.talk();
+      if (result !== 'listening') setVoiceState('idle');
       return { session: current, result };
     } catch (error) {
+      setVoiceState('idle');
       say(error.message);
       return { session: current, result: null, error };
     }
@@ -154,9 +165,7 @@ export function openAssistant(deps, config, options = {}) {
   /** After a discarded empty voice start, stay on this composer for typing. */
   function switchToTyping() {
     session = null;
-    endTurn.hidden = true;
-    input.hidden = false;
-    send.hidden = false;
+    setVoiceState('idle');
     input.focus();
   }
 
@@ -165,11 +174,7 @@ export function openAssistant(deps, config, options = {}) {
     if (offline(deps)) { say(OFFLINE_TEXT); return null; }
     starting = true;
     say('Starting…');
-    session = createAssistantSession({
-      deps, config, intent: 'data-entry', say,
-      onTranscript: turns => { if (!stale()) renderTranscript(transcript, turns); },
-      voiceLog, ...extra,
-    });
+    session = createAssistantSession(sessionOptions(extra));
     await session.begin(undefined, undefined, from);
     if (stale()) {
       try { await session.end(); } catch { /* late begin still cleans up once */ }
@@ -207,11 +212,7 @@ export function openAssistant(deps, config, options = {}) {
     starting = true;
     say('Starting…');
     try {
-      session = createAssistantSession({
-        deps, config, intent: 'data-entry', say,
-        onTranscript: turns => { if (!stale()) renderTranscript(transcript, turns); },
-        voiceLog, ...extra,
-      });
+      session = createAssistantSession(sessionOptions(extra));
       await session.begin(firstTurn, undefined, from);
       if (stale()) {
         try { await session.end(); } catch { /* closed while starting */ }
@@ -231,6 +232,8 @@ export function openAssistant(deps, config, options = {}) {
   async function close() {
     if (closed) return;
     closed = true;
+    setVoiceState('idle');
+    options.onListening?.(false);
     const isActive = activeEntry === owner.handle;
     if (isActive) {
       wrap.querySelector('.sheet-backdrop').onclick = null;
@@ -300,6 +303,7 @@ export function openAssistant(deps, config, options = {}) {
   }
   const handle = {
     begin, close, startVoice, switchToTyping, endTurn: requestEndTurn,
+    adoptOptions(next) { options = { ...options, ...next }; },
     get ready() { return ready; },
     set ready(value) { ready = value; },
     isClosed: () => closed,

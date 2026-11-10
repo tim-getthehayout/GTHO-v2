@@ -1,5 +1,5 @@
 /**
- * @file OI-0204 faster start: buffer PCM before WS, Listening before awaitServerRows,
+ * @file OI-0204 faster start: buffer PCM before WS, Listening after row creation and the first chunk,
  * mic-failure still mints nothing, no mount prewarm / no cross-tap token reuse.
  * Bench numbers are fake-timer simulations, not phone measurements.
  */
@@ -155,7 +155,7 @@ describe('createAudioChunkBuffer', () => {
 });
 
 describe('faster start talk()', () => {
-  it('shows Listening before awaitServerRows/begin finishes, and flushes pre-WS speech in order', async () => {
+  it('stays Connecting until begin finishes, and flushes pre-WS speech in order', async () => {
     const conv = mockConversation({ beginDelayMs: 1 });
     const say = vi.fn();
     const session = createAssistantSession({ deps, config, intent: 'data-entry', say });
@@ -172,7 +172,7 @@ describe('faster start talk()', () => {
     await vi.waitFor(() => expect(say).toHaveBeenCalledWith('Connecting…'));
     // begin still blocked — Connecting does not wait on it; Listening does.
     expect(say).not.toHaveBeenCalledWith('Listening… say "over" or tap again when done.');
-    expect(conv.begin).toHaveBeenCalled();
+    await vi.waitFor(() => expect(conv.begin).toHaveBeenCalled());
     expect(conv.voiceAuthorization).not.toHaveBeenCalled();
 
     // Speech while WS not open yet.

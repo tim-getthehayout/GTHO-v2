@@ -12,20 +12,25 @@ export function createTestingRecorder({
   const recorder = new MediaRecorderImpl(stream, { mimeType });
   const chunks = [];
   const startedAt = Date.now();
+  let stoppedAt = null;
+  const stopCapture = () => {
+    stoppedAt ??= Date.now();
+    if (recorder.state !== 'inactive') recorder.stop();
+  };
   const done = new Promise(resolve => {
     recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
-    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType.split(';')[0] }));
+    recorder.onstop = () => { stoppedAt ??= Date.now(); resolve(new Blob(chunks, { type: mimeType.split(';')[0] })); };
   });
   recorder.start(1000);
   let capTimer = 0;
-  if (maxMs > 0) capTimer = setTimer(() => { if (recorder.state !== 'inactive') recorder.stop(); }, maxMs);
+  if (maxMs > 0) capTimer = setTimer(stopCapture, maxMs);
   return {
     capturedAt: new Date(startedAt).toISOString(),
     async stop() {
       if (capTimer) { clearTimer(capTimer); capTimer = 0; }
-      if (recorder.state !== 'inactive') recorder.stop();
+      stopCapture();
       const blob = await done;
-      return { blob, durationMs: Date.now() - startedAt };
+      return { blob, durationMs: stoppedAt - startedAt };
     },
   };
 }

@@ -6,6 +6,11 @@ const ALLOWED_KEYS = Object.freeze([
   'ms', 'audioContextState', 'sampleRate', 'declaredRate', 'chunkCount', 'totalBytes',
   'attempt', 'reason', 'ok', 'event', 'eventCount', 'flushed', 'emitted',
 ]);
+const ENUMS = {
+  audioContextState: new Set(['running', 'suspended', 'closed', 'interrupted']),
+  reason: new Set(['connect-budget', 'audio-context', 'no-mic', 'session-created-timeout', 'socket-closed', 'session-cap', 'socket-close', 'connect-failed', 'first-chunk-timeout']),
+  event: new Set(['updated', 'completed']),
+};
 const ALLOWED = new Set(ALLOWED_KEYS);
 
 /** Drop any field that is not a known numeric/state token. */
@@ -16,7 +21,7 @@ export function sanitizeVoiceLogContext(fields = {}) {
     const value = fields[key];
     if (value == null) continue;
     const type = typeof value;
-    if (type === 'number' || type === 'boolean' || type === 'string') context[key] = value;
+    if (ENUMS[key]?.has(value) || (key === 'ok' && type === 'boolean') || (!ENUMS[key] && key !== 'ok' && type === 'number' && Number.isFinite(value))) context[key] = value;
   }
   return context;
 }

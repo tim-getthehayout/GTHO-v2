@@ -393,13 +393,14 @@ describe('talk() connect budget and Listening', () => {
     expect(session.listening).toBe(false);
   });
 
-  it('hides the Type-here box only while Listening and shows End then', async () => {
+  it('hides the Type-here box from the tap through Connecting and Listening, showing End only when ready', async () => {
     mockConversation();
     const entry = openAssistant(deps, config, { mode: 'voice' });
     const input = document.querySelector('[data-testid="assistant-text"]');
     const send = document.querySelector('[data-testid="assistant-send"]');
     const end = document.querySelector('[data-testid="assistant-end"]');
-    expect(input.hidden).toBe(false);
+    expect(input.hidden).toBe(true);
+    expect(send.hidden).toBe(true);
     expect(end.hidden).toBe(true);
     await entry.ready;
     expect(input.hidden).toBe(true);
@@ -428,7 +429,7 @@ describe('talk() connect budget and Listening', () => {
       expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toBe('Connecting…');
       expect(document.querySelector('[data-testid="ptt-status"]').hidden).toBe(false);
       expect(document.querySelector('[data-testid="assistant-end"]').hidden).toBe(true);
-      expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(false);
+      expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(true);
       expect(document.querySelector('[data-testid="ptt-button"]').getAttribute('aria-pressed')).toBe('false');
       expect(createTestingRecorder).not.toHaveBeenCalled();
     };
@@ -545,7 +546,7 @@ describe('talk() connect budget and Listening', () => {
     await vi.waitFor(() => expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe('Connecting…'));
     document.querySelector('[data-testid="assistant-cancel"]').click();
     await vi.waitFor(() => expect(starting.isClosed()).toBe(true));
-    expect(conv.discardEmpty).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(conv.discardEmpty).toHaveBeenCalledTimes(1));
     expect(createTestingRecorder).not.toHaveBeenCalled();
     releaseConnect();
     await Promise.resolve();

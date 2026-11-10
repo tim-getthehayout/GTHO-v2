@@ -18,6 +18,7 @@ const LOC_G2 = '00000000-0000-0000-0000-0000000001a2';
 const FT = '00000000-0000-0000-0000-0000000000f1';
 const BATCH = '00000000-0000-0000-0000-0000000000b1';
 const BATCH_B = '00000000-0000-0000-0000-0000000000b2';
+const LOC_OUT = '00000000-0000-0000-0000-0000000001a9';
 
 function seed() {
   add('operations', OperationEntity.create({ id: OP, name: 'Test Op', unitSystem: 'metric' }),
@@ -39,6 +40,8 @@ function seed() {
   add('locations', LocationEntity.create({ id: LOC_G1, operationId: OP, farmId: FARM, name: 'G-1' }),
     LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
   add('locations', LocationEntity.create({ id: LOC_G2, operationId: OP, farmId: FARM, name: 'G-2' }),
+    LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+  add('locations', LocationEntity.create({ id: LOC_OUT, operationId: OP, farmId: FARM, name: 'Other Farm Paddock' }),
     LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
   add('eventPaddockWindows', PaddockWindowEntity.create({
     id: 'pw-g1', operationId: OP, eventId: EVT, locationId: LOC_G1, dateOpened: '2026-04-30',
@@ -127,5 +130,43 @@ describe('feeding review carryover is visible and editable', () => {
     expect(items[0].remainingQuantity).toBe(2);
     expect(items[0].locationId).toBe(LOC_G1);
     expect(getAll('eventFeedChecks')[0].time).toBe('07:15');
+  });
+
+  it('shows the check-time input when leftover timing changes from same-instant to before', () => {
+    let binding;
+    const evt = getAll('events').find(e => e.id === EVT);
+    openDeliverFeedSheet(evt, OP, { review: { bind(value) { binding = value; } } });
+    binding.fields.carryover.set({
+      timing: 'same-instant',
+      batchId: BATCH,
+      locationId: LOC_G1,
+      remainingQuantity: 2,
+    });
+    const region = document.querySelector('[data-testid="feed-delivery-carryover"]');
+    expect(region.querySelector('[data-testid="feed-carryover-time"]')).toBeNull();
+    const timing = region.querySelector('[data-testid="feed-carryover-timing"]');
+    timing.value = 'before';
+    timing.dispatchEvent(new Event('change'));
+    expect(document.querySelector('[data-testid="feed-carryover-time"]')).toBeTruthy();
+  });
+
+  it('does not save a leftover location that is not on this event', () => {
+    let binding;
+    const evt = getAll('events').find(e => e.id === EVT);
+    openDeliverFeedSheet(evt, OP, {
+      review: { bind(value) { binding = value; }, requestConfirmation: save => save() },
+    });
+    binding.fields.lines.set([{ batchId: BATCH, qty: 2 }]);
+    binding.fields.locationIds.set([LOC_G1]);
+    binding.fields.carryover.set({
+      timing: 'same-instant',
+      items: [{ batchId: BATCH, locationId: LOC_OUT, remainingQuantity: 2 }],
+    });
+    const panel = document.getElementById('deliver-feed-sheet-panel');
+    const saveBtn = Array.from(panel.querySelectorAll('button')).find(b => /save|deliver|log/i.test(b.textContent || ''));
+    saveBtn.click();
+    expect(getAll('eventFeedCheckItems')).toHaveLength(0);
+    expect(getAll('eventFeedChecks')).toHaveLength(0);
+    expect(panel.textContent).toMatch(/batch and paddock shown on this review/i);
   });
 });

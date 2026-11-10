@@ -341,7 +341,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     }
     carryoverEl.style.display = '';
     clear(carryoverEl);
-    const timing = el('select', { 'data-testid': 'feed-carryover-timing', onChange: writeCarryoverFromForm });
+    const timing = el('select', { 'data-testid': 'feed-carryover-timing', onChange: () => { writeCarryoverFromForm(); updateCarryover(); } });
     for (const [value, label] of [['before', 'Before the delivery'], ['same-instant', 'At the same time'], ['after', 'After the delivery']]) {
       timing.appendChild(el('option', { value, selected: carryover.timing === value }, [label]));
     }
@@ -436,6 +436,34 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
             statusEl.appendChild(el('span', {}, [plan.question || 'How should the quantity be allocated?']));
             return;
           }
+          const leftover = carryover && (carryover.remainingQuantity != null || carryover.items?.length) ? carryover : null;
+          const visibleLocationIds = new Set(sortedActivePWs.map(pw => pw.locationId));
+          const visibleBatchIds = new Set(batches.map(batch => batch.id));
+          const leftoverItems = leftover
+            ? (Array.isArray(leftover.items) && leftover.items.length
+              ? leftover.items
+              : (leftover.remainingQuantity != null && targets.length === 1
+                ? [{ locationId: leftover.locationId ?? targets[0], batchId: leftover.batchId ?? linesToSave[0]?.batchId, remainingQuantity: leftover.remainingQuantity }]
+                : null))
+            : null;
+          if (leftover) {
+            if (leftover.timing !== 'same-instant' && !leftover.time) {
+              statusEl.appendChild(el('span', {}, ['What time was the remaining feed checked?']));
+              return;
+            }
+            if (!leftoverItems) {
+              statusEl.appendChild(el('span', {}, ['How should the remaining quantity be split across the paddocks?']));
+              return;
+            }
+            if (leftoverItems.some(item => (
+              item.remainingQuantity == null || !Number.isFinite(Number(item.remainingQuantity))
+              || !visibleBatchIds.has(item.batchId)
+              || !visibleLocationIds.has(item.locationId)
+            ))) {
+              statusEl.appendChild(el('span', {}, ['Remaining feed must use a batch and paddock shown on this review.']));
+              return;
+            }
+          }
           for (const part of plan.allocations) {
             for (const line of part.lines.filter(item => item.qty > 0 || item.quantity > 0)) {
               const qty = line.qty ?? line.quantity;
@@ -462,31 +490,13 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               add('eventFeedEntries', entry, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
             }
           }
-          const leftover = carryover && (carryover.remainingQuantity != null || carryover.items?.length) ? carryover : null;
           if (leftover) {
-            if (leftover.timing !== 'same-instant' && !leftover.time) {
-              statusEl.appendChild(el('span', {}, ['What time was the remaining feed checked?']));
-              return;
-            }
-            const leftoverItems = Array.isArray(leftover.items) && leftover.items.length
-              ? leftover.items
-              : (leftover.remainingQuantity != null && targets.length === 1
-                ? [{ locationId: leftover.locationId ?? targets[0], batchId: leftover.batchId ?? linesToSave[0]?.batchId, remainingQuantity: leftover.remainingQuantity }]
-                : null);
-            if (!leftoverItems) {
-              statusEl.appendChild(el('span', {}, ['How should the remaining quantity be split across the paddocks?']));
-              return;
-            }
             const check = FeedCheckEntity.create({
               operationId, eventId: evt.id,
               date: dateInput.value, time: leftover.timing === 'same-instant' ? (timeInput.value || null) : leftover.time,
             });
             add('eventFeedChecks', check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
-            const items = leftoverItems;
-            for (const item of items) {
-              if (item.remainingQuantity == null || !item.batchId || !item.locationId) {
-                throw new Error('Carryover needs a batch, paddock and remaining quantity.');
-              }
+            for (const item of leftoverItems) {
               const checkItem = FeedCheckItemEntity.create({
                 operationId, feedCheckId: check.id,
                 batchId: item.batchId, locationId: item.locationId,

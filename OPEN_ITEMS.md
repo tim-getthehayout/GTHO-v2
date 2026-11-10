@@ -16,6 +16,7 @@
 | OI-0207 | One shared assistant entry lifecycle, neutral typing text and Cancel | Open — pending Tim: shared chooser or auto-detect; do not build yet |
 | OI-0208 | One running assistant chat with live transcription and answerable cards | Queued, not ready for Build — Design after the current fix batch ships |
 | OI-0209 | Confinement DMI/feed-days calculations; forage information greyed out and inactive | Open — ready for Build; no schema change or data repair |
+| OI-0214 | [Form entry audit (2026-11-10)](session_briefs/FORM_ENTRY_AUDIT_2026-11-10.md) | Audit written; findings pending Tim's review; not ready for Build |
 
 ---
 

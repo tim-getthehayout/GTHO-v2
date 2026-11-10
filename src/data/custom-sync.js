@@ -215,6 +215,9 @@ export class CustomSync extends SyncAdapter {
   /**
    * Push a single record to Supabase with retry logic.
    */
+  // Queued mutations retain their originating operation in the immutable payload.
+  // Replay is deliberately independent of the currently selected operation; RLS
+  // still requires membership and unit triggers forbid moving an existing ID.
   async _pushToRemote(table, record, operation = 'upsert') {
     if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) {
@@ -229,7 +232,9 @@ export class CustomSync extends SyncAdapter {
       if (operation === 'insert') {
         result = await supabase.from(table).insert(record);
       } else if (operation === 'update') {
-        result = await supabase.from(table).update(record).eq('id', record.id);
+        let query = supabase.from(table).update(record).eq('id', record.id);
+        if (UNIT_TABLES.includes(table)) query = query.eq('operation_id', record.operation_id);
+        result = await query;
       } else {
         result = await supabase.from(table).upsert(record, { onConflict: 'id' });
       }
@@ -357,7 +362,9 @@ export class CustomSync extends SyncAdapter {
       if (operation === 'insert') {
         result = await supabase.from(table).insert(record);
       } else if (operation === 'update') {
-        result = await supabase.from(table).update(record).eq('id', record.id);
+        let query = supabase.from(table).update(record).eq('id', record.id);
+        if (UNIT_TABLES.includes(table)) query = query.eq('operation_id', record.operation_id);
+        result = await query;
       } else {
         result = await supabase.from(table).upsert(record, { onConflict: 'id' });
       }

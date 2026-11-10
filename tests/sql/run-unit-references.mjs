@@ -1,3 +1,4 @@
+import { preflightUnits } from '../../src/data/unit-backup.js';
 // Disposable PostgreSQL/WASM only. Never accepts a database URL.
 // PGLITE_MODULE points at a scratch-installed @electric-sql/pglite@0.5.15.
 import { readFileSync } from 'node:fs';
@@ -20,7 +21,7 @@ async function fixture(legacy = false) {
     CREATE POLICY own_membership ON operation_members FOR SELECT TO authenticated USING(user_id=auth.uid());
     GRANT SELECT ON operation_members TO authenticated;
     INSERT INTO operation_members VALUES ('${OP1}','${U1}',now()),('${OP2}','${U2}',now()),('${OP1}','${PENDING}',NULL);
-    CREATE TABLE dose_units(id uuid PRIMARY KEY, name text NOT NULL UNIQUE, archived boolean DEFAULT false, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
+    CREATE TABLE dose_units(id uuid PRIMARY KEY, name text NOT NULL UNIQUE, archived boolean DEFAULT false, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
     CREATE TABLE input_product_units(LIKE dose_units INCLUDING ALL);
     CREATE TABLE animal_treatments(id uuid PRIMARY KEY, operation_id uuid REFERENCES operations, dose_unit_id uuid REFERENCES dose_units);
     CREATE TABLE amendments(id uuid PRIMARY KEY, operation_id uuid REFERENCES operations, qty_unit_id uuid REFERENCES input_product_units);
@@ -139,5 +140,21 @@ try {
     await denied(db,"UPDATE release_notes SET version='forged'");await denied(db,'DELETE FROM release_notes');
   });
   await as(db,'anon');await check('release_notes anon cannot read',async()=>{await denied(db,'SELECT * FROM release_notes');});
+  await as(db,'authenticated',U1);
+  for(const [index,table] of ['dose_units','input_product_units'].entries())await check(`${table} strict preflight rejects malformed metadata and forwards only DB-valid typed payloads`,async()=>{
+    let rpcCalls=0;
+    const client={from(name){return{select(){return this;},order(column){assert.equal(column,'id');return this;},async range(a,b){return{data:(await db.query(`SELECT * FROM ${name} ORDER BY id OFFSET ${a} LIMIT ${b-a+1}`)).rows,error:null};}};},async rpc(name,args){rpcCalls++;assert.equal(name,'unit_restore_id_conflicts');return{data:(await db.query('SELECT public.unit_restore_id_conflicts($1,$2,$3,$4::jsonb,$5::jsonb) AS value',[args.p_operation,args.p_dose_ids,args.p_product_ids,JSON.stringify(args.p_dose_rows),JSON.stringify(args.p_product_rows)])).rows[0].value,error:null};}};
+    const id=`ab000000-0000-4000-8000-00000000000${index+1}`;
+    for(const [field,value]of [['archived','invalid-boolean'],['created_at','invalid-timestamp'],['created_at',null],['updated_at',null],['created_at','2026-02-30T12:00:00Z'],['unknown','unsupported']]){
+      rpcCalls=0;const backup={tables:{[table]:[{id,operation_id:OP1,name:'Invalid restored unit',[field]:value}]}};
+      const result=await preflightUnits(backup,OP1,client,44);assert.equal(result.success,false);assert.equal(rpcCalls,0);assert.equal((await db.query(`SELECT count(*)::int AS n FROM ${table} WHERE id=$1`,[id])).rows[0].n,0);
+    }
+    const stamp='2026-11-10T18:30:00.123456+00:00';
+    const backup={tables:{[table]:[{id:id.toUpperCase(),operation_id:OP1,name:' Restored e\u0301 ',archived:null,created_at:stamp,updated_at:stamp}]}};
+    const result=await preflightUnits(backup,OP1,client,44);assert.equal(result.success,true);const payload=backup.tables[table][0];assert.equal(payload.id,id);assert.equal(payload.name,'Restored é');
+    const fields=Object.keys(payload);await db.query(`INSERT INTO ${table} (${fields.join(',')}) VALUES (${fields.map((_,i)=>'$'+(i+1)).join(',')})`,Object.values(payload));
+    assert.equal((await db.query(`SELECT archived IS NULL AND created_at=$2::timestamptz AND updated_at=$2::timestamptz AS ok FROM ${table} WHERE id=$1`,[id,stamp])).rows[0].ok,true);
+  });
+
   console.log(`Unit migration 044: ${passed} PostgreSQL/WASM checks passed. No live database accessed.`);
 } finally { await db.close(); }

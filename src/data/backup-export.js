@@ -1,3 +1,4 @@
+import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
 import { UNIT_TABLES } from '../utils/unit-standards.js';
 /**
  * @file Backup export — CP-55.
@@ -117,13 +118,14 @@ export function canExport() {
 async function fetchTable(table, operationId, paginate) {
   if (!supabase) throw new Error('Supabase client not configured');
 
-  // Global reference tables (dose_units, input_product_units): no operation_id column
+  // Held clients must remain compatible with pre-044 unit tables.
+  // Once released, filter customs on the server as well as before export.
   const isGlobal = REFERENCE_TABLES.has(table);
   const filterCol = table === 'operations' ? 'id' : 'operation_id';
 
   if (!paginate) {
     let query = supabase.from(table).select('*');
-    if (!isGlobal && !UNIT_TABLES.includes(table)) query = query.eq(filterCol, operationId);
+    if (!isGlobal && (!UNIT_TABLES.includes(table) || RELEASED_SCHEMA_VERSION >= 44)) query = query.eq(filterCol, operationId);
     const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch ${table}: ${error.message}`);
     return UNIT_TABLES.includes(table) ? (data || []).filter(row => row.operation_id === operationId) : data || [];
@@ -136,7 +138,8 @@ async function fetchTable(table, operationId, paginate) {
 
   while (hasMore) {
     let query = supabase.from(table).select('*');
-    if (!isGlobal && !UNIT_TABLES.includes(table)) query = query.eq(filterCol, operationId);
+    if (!isGlobal && (!UNIT_TABLES.includes(table) || RELEASED_SCHEMA_VERSION >= 44)) query = query.eq(filterCol, operationId);
+    if (UNIT_TABLES.includes(table)) query = query.order('id', { ascending: true });
     query = query.range(offset, offset + PAGE_SIZE - 1);
     const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch ${table} (offset ${offset}): ${error.message}`);

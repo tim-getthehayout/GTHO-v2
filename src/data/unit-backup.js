@@ -1,3 +1,4 @@
+import { buildCustomUnitPayload, unitUuid } from './unit-restore-payload.js';
 /** Unit-only backup normalization/preflight. No writes, names never resolve IDs. */
 import { UNIT_STANDARDS, UNIT_TABLES, foldUnitName, normalizeUnitName } from '../utils/unit-standards.js';
 export const UNIT_REFERENCES = Object.freeze([['animal_treatments', 'dose_unit_id', 'dose_units'], ['amendments', 'qty_unit_id', 'input_product_units'], ['input_products', 'unit_id', 'input_product_units']]);
@@ -21,18 +22,25 @@ export async function preflightUnits(backup, operationId, client, version) {
   for (const table of UNIT_TABLES) {
     const data = [];
     for (let offset = 0; ; offset += 1000) {
-      const page = await client.from(table).select('*').range(offset, offset + 999);
+      const page = await client.from(table).select('*').order('id', { ascending: true }).range(offset, offset + 999);
       if (page.error || !Array.isArray(page.data)) return fail('target unit catalog could not be verified');
       data.push(...page.data);
       if (page.data.length < 1000) break;
     }
     const standard = data.filter(row => row.operation_id == null), own = data.filter(row => row.operation_id === operationId);
-    const targetStandardIds = new Set(standard.map(row => row.id));
+    const targetStandardIds = new Set(standard.map(row => unitUuid(row.id)).filter(Boolean));
     const source = backup.tables[table] || [];
     // Legacy rows with target standard IDs are ignored, never written back.
-    const rows = source.filter(row => !targetStandardIds.has(row.id));
+    const rows = [];
+    for (const sourceRow of source) {
+      if (targetStandardIds.has(unitUuid(sourceRow?.id))) continue;
+      if (version < 44) return fail('custom units require verified schema 44');
+      const built = buildCustomUnitPayload(sourceRow, operationId);
+      if (built.error) return fail(built.error);
+      rows.push(built.payload);
+    }
     const ids = new Set(), names = new Map();
-    for (const row of [...standard, ...own]) names.set(foldUnitName(row.name), row.id);
+    for (const row of [...standard, ...own]) names.set(foldUnitName(row.name), unitUuid(row.id));
     for (const row of rows) {
       if (version < 44) return fail('custom units require verified schema 44');
       if (!row.id || row.operation_id !== operationId || ids.has(row.id)) return fail('custom unit ownership or duplicate ID');
@@ -44,7 +52,7 @@ export async function preflightUnits(backup, operationId, client, version) {
     }
     const allowed = new Set([...targetStandardIds, ...ids]);
     for (const [child, column, parent] of UNIT_REFERENCES) if (parent === table) {
-      for (const row of backup.tables[child] || []) if (row[column] != null && (row.operation_id !== operationId || !allowed.has(row[column]))) return fail('a record references a missing or foreign unit');
+      for (const row of backup.tables[child] || []) if (row[column] != null && (row.operation_id !== operationId || !allowed.has(unitUuid(row[column])))) return fail('a record references a missing or foreign unit');
     }
     incoming[table] = rows;
   }

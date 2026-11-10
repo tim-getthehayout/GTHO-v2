@@ -299,7 +299,7 @@ async function insertTableRows(table, rows, operationId) {
     if (isReference) {
       const { error } = await supabase
         .from(table)
-        .upsert(batch, { onConflict: 'id' });
+        .upsert(batch, { onConflict: 'id', ...(UNIT_TABLES.includes(table) ? { defaultToNull: false } : {}) });
       if (error) throw new Error(`Upsert failed on ${table} (batch ${i}): ${error.message}`);
     } else {
       const { error } = await supabase

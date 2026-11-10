@@ -7,7 +7,7 @@ import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
  * Used when records exist locally but were never synced (pre-fix onboarding).
  */
 
-import { getAll, getSyncAdapter } from './store.js';
+import { getAll, getSyncAdapter, getOperation } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
 import { logger } from '../utils/logger.js';
 
@@ -100,6 +100,7 @@ export async function pushAllToSupabase() {
   const adapter = getSyncAdapter();
   if (!adapter) return { queued: 0 };
 
+  const operationId = getOperation()?.id;
   let queued = 0;
 
   for (const [entityType, config] of Object.entries(SYNC_REGISTRY)) {
@@ -109,7 +110,7 @@ export async function pushAllToSupabase() {
 
     const records = getAll(entityType);
     for (const record of records) {
-      if (Object.hasOwn(UNIT_ENTITIES, entityType) && (!record.operationId || RELEASED_SCHEMA_VERSION < 44)) continue;
+      if (Object.hasOwn(UNIT_ENTITIES, entityType) && (!operationId || record.operationId !== operationId || RELEASED_SCHEMA_VERSION < 44)) continue;
       try {
         adapter.push(table, toSb(record));
         queued++;

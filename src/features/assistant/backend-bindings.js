@@ -3,6 +3,7 @@
  * Deployment remains fail-closed until authenticated review/write/provider ports exist.
  */
 import * as Checkpoint from '../../entities/assistant-session-checkpoints.js';
+import { restoreTrustedSnapshot } from '../../entities/assistant-pending-clarification.js';
 // JSONB may reorder object keys. Compare envelope values structurally without
 // changing the object that is persisted/resumed; array/transcript order matters.
 const comparable = value => Array.isArray(value) ? value.map(comparable)
@@ -24,7 +25,7 @@ export function createBackendPersistence({ client, authorize, applyConfirmedWrit
     if (!row) return null;
     const snapshot = row.trusted_snapshot;
     if (snapshot?.version !== 1 || snapshot.conversationRef !== ref || !same(snapshot.scope, scope)) throw new Error('untrusted-snapshot-scope');
-    return globalThis.structuredClone(snapshot);
+    return restoreTrustedSnapshot(globalThis.structuredClone(snapshot));
   }
   async function checkpoint(scope, snapshot) {
     await auth(scope);

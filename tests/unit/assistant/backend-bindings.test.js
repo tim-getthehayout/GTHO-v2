@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createBackendPersistence, createBillingPorts, createVerifiedVoiceUsage, createUsageReconciliation } from '../../../src/features/assistant/backend-bindings.js';
+import { ConversationRuntime } from '../../../src/features/assistant/shared.js';
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const scope = { operationId: id(1), actorId: id(2) }, ref = id(3);
 function database() {
@@ -143,5 +144,26 @@ describe('server/provider usage verification', () => {
     const good = createUsageReconciliation({ client, authorize: async () => true, verifyUsage: async () => usage });
     await good(scope, id(9));
     expect(client.rpc).toHaveBeenCalledWith('assistant_billing_reconcile', expect.objectContaining({ p_operation: scope.operationId, p_input: 0, p_audio: 0, p_requests: 1 }));
+  });
+});
+
+describe('pendingClarification restore', () => {
+  it('a malformed pendingClarification loaded from the backend is absent from resume().snapshot()', async () => {
+    const { client, tables } = database();
+    const malformed = { field: 'paddock', extra: true, fields: { note: '一'.repeat(6000) } };
+    const stored = snapshot({ intent: 'data-entry', pendingClarification: malformed });
+    tables.assistant_session_checkpoints = [{
+      operation_id: scope.operationId,
+      conversation_id: ref,
+      trusted_snapshot: stored,
+    }];
+    const p = persistence({ client, authorize: async () => true });
+    const host = { async authorize() {}, async earlyTesting() { return false; }, async checkpoint() {}, async event() {} };
+    await p.withSession(scope, ref, async existing => {
+      expect(existing.pendingClarification).toBeUndefined();
+      const runtime = await ConversationRuntime.resume(scope, existing, host);
+      expect(runtime.snapshot().pendingClarification).toBeUndefined();
+    });
+    expect(tables.assistant_session_checkpoints[0].trusted_snapshot.pendingClarification).toEqual(malformed);
   });
 });

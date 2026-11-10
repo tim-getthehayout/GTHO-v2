@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | fix(assistant): validate and strip a malformed pendingClarification on the trusted snapshot that is actually restored from the backend, so ConversationRuntime.resume().snapshot() does not return it. | `src/entities/assistant-pending-clarification.js`, `src/features/assistant/backend-bindings.js`, `src/features/assistant/server/compose.js`, `tests/unit/assistant/backend-bindings.test.js` |
 | 2026-11-10 | fix(assistant): measure pendingClarification against 16 KB of UTF-8 bytes (TextEncoder), so a 6000-character CJK payload (18040 bytes) is rejected, and accept a value at the 16384-byte boundary. | `src/entities/assistant-pending-clarification.js`, `tests/unit/entities/assistant-pending-clarification.test.js` |
 | 2026-11-10 | fix(feeding): drop the unused paddock-list helper left after short disambiguating answers replace the old alias, so lint stays at the existing warning baseline. | `src/features/assistant/feeding-clarification.js` |
 | 2026-11-10 | fix: drop the extra blank line at the end of window-helpers so the branch diff has no whitespace errors. | `src/calcs/window-helpers.js` |

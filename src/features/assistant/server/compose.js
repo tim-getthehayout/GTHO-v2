@@ -17,7 +17,7 @@ import { createTranscribeHandler } from './transcribe.js';
 import { RuntimeError } from '../shared.js';
 import { discardEmptyStartRows } from './discard-empty-start.js';
 import { persistTranscriptTurns, recordUnresolvedClarification } from './persist-transcript-turns.js';
-import { acceptPendingClarification } from '../../../entities/assistant-pending-clarification.js';
+import { acceptPendingClarification, restoreTrustedSnapshot } from '../../../entities/assistant-pending-clarification.js';
 
 const contentFreeLog = log => entry => { try { log?.(entry); } catch { /* logging never breaks a request */ } };
 
@@ -120,7 +120,7 @@ export function createAssistantFunction(deps) {
       const host = createServerHost({ client: deps.client, scope: context.scope, config: deps.config, persistence: context.persistence, getAll, authorize: context.authorize, session, log: contentFreeLog(deps.log), openSheet: parseOpenSheet(peeked?.openSheet) });
       const ports = {
         authenticate: async () => identity.identity,
-        withSession: (scope, ref, work) => context.persistence.withSession(scope, ref, existing => { session.ref = ref; session.loaded = existing; session.live = null; session.pendingClarification = acceptPendingClarification(existing?.pendingClarification ?? session.pendingClarification) ?? null; return work(existing); }),
+        withSession: (scope, ref, work) => context.persistence.withSession(scope, ref, existing => { const restored = restoreTrustedSnapshot(existing); session.ref = ref; session.loaded = restored; session.live = null; session.pendingClarification = acceptPendingClarification(restored?.pendingClarification) ?? null; return work(restored); }),
         host,
         billing: context.billing,
         provider: createProviderPort({ config: deps.config, fetch: fetcher, signal: request.signal, meter: context.meter, session, timeoutMs: deps.providerTimeoutMs }),

@@ -36,3 +36,13 @@ export function acceptPendingClarification(value) {
   if (new TextEncoder().encode(serialized).length > PENDING_CLARIFICATION_MAX_BYTES) return null;
   return value;
 }
+
+/** Strip a malformed pendingClarification from a restored trusted snapshot. */
+export function restoreTrustedSnapshot(snapshot) {
+  if (snapshot == null || typeof snapshot !== 'object' || Array.isArray(snapshot)) return snapshot;
+  const next = globalThis.structuredClone(snapshot);
+  const pending = acceptPendingClarification(next.pendingClarification);
+  if (pending) next.pendingClarification = pending;
+  else delete next.pendingClarification;
+  return next;
+}

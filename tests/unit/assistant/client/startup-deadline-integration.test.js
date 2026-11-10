@@ -401,8 +401,8 @@ describe('per-conversation outbound ownership', () => {
   });
   it('an already-dispatched typed request is bounded without replaying it on timeout', async () => {
     const held = gate(); conversation.turn.mockReturnValue(held.promise);
-    const session = makeSession(); let finished = false; const typing = session.text('only once').then(() => { finished = true; });
-    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await typing;
+    const session = makeSession(); let finished = false; const typing = session.text('only once').catch(error => { finished = true; return error; });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); expect((await typing).message).toBe(OUTBOUND_DROPPED_MESSAGE);
     expect(finished).toBe(true); expect(conversation.turn).toHaveBeenCalledTimes(1);
     held.resolve(null); await flush(); expect(conversation.turn).toHaveBeenCalledTimes(1);
   });
@@ -411,10 +411,10 @@ describe('per-conversation outbound ownership', () => {
     const session = makeSession(); await connect(session.talk());
     const original = contexts[0].close; contexts[0].close = () => new Promise(() => {});
     try {
-      const typing = session.text('typed after hung close'); await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS); await flush();
-      await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await typing;
+      const typing = session.text('typed after hung close').catch(error => error); await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS); await flush();
+      await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); expect((await typing).message).toBe(OUTBOUND_DROPPED_MESSAGE);
       expect(conversation.turn).not.toHaveBeenCalled();
-      expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'typed after hung close' }));
+      expect(next.turn).not.toHaveBeenCalled();
       expect(tracks[0].stop).toHaveBeenCalled();
     } finally { contexts[0].close = original; }
   });
@@ -460,6 +460,57 @@ describe('per-conversation outbound ownership', () => {
     expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
     expect(session.conversation).toBe(next); expect(session.listening).toBe(true); expect(sockets[1].readyState).toBe(1);
     expect(next.discardEmpty).not.toHaveBeenCalled(); await session.end();
+  });
+
+  it('one send keeps its original 20-second deadline when both old and replacement backends hang', async () => {
+    const next = replacement(), nextWork = gate();
+    next.turn.mockReturnValue(nextWork.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session); sockets[0].close(); await flush();
+    const enqueued = Date.now(); let settledAt;
+    const typing = session.text('one bounded send').then(() => { settledAt = Date.now(); }, error => { settledAt = Date.now(); return error; });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS - 1);
+    expect(settledAt).toBeUndefined(); expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'one bounded send' }));
+    await vi.advanceTimersByTimeAsync(1); expect((await typing).message).toBe(OUTBOUND_DROPPED_MESSAGE);
+    expect(settledAt - enqueued).toBe(OUTBOUND_TURN_BUDGET_MS);
+    first.resolve(null); nextWork.resolve(null); await flush(); expect(next.turn).toHaveBeenCalledTimes(1);
+  });
+  it('a dropped typed firstTurn keeps its failure and draft, then retries through ordinary Send', async () => {
+    const held = gate(), next = replacement(); conversation.turn.mockReturnValue(held.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    entry = openAssistant(deps, config, { firstTurn: { id: 'first-typed', role: 'user', modality: 'text', text: 'keep this draft' } });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await entry.ready;
+    const input = document.querySelector('[data-testid="assistant-text"]');
+    expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe(OUTBOUND_DROPPED_MESSAGE);
+    expect(input.value).toBe('keep this draft'); expect(input.hidden).toBe(false);
+    document.querySelector('[data-testid="assistant-send"]').click(); await flush();
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'keep this draft', modality: 'text' }));
+    expect(input.value).toBe(''); held.resolve(null); await flush(); expect(next.turn).toHaveBeenCalledTimes(1);
+  });
+
+  it('replacement startup consumes only the original send deadline and cannot send after a late begin', async () => {
+    const next = replacement(), begin = gate(); next.begin.mockReturnValue(begin.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const say = vi.fn(), session = makeSession({ say }); const first = await pendingFinals(session);
+    sockets[0].close(); await flush(); const started = Date.now(); let settled;
+    const typing = session.text('bounded startup too').catch(error => { settled = Date.now(); return error; });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS);
+    expect((await typing).message).toBe(OUTBOUND_DROPPED_MESSAGE); expect(settled - started).toBe(OUTBOUND_TURN_BUDGET_MS);
+    expect(next.begin).toHaveBeenCalledTimes(1); begin.resolve(); first.resolve(null); await flush();
+    expect(next.turn).not.toHaveBeenCalled(); expect(say.mock.calls.at(-1)).toEqual([OUTBOUND_DROPPED_MESSAGE]);
+  });
+  it('ordinary Send retains the same draft and visible drop failure as a typed firstTurn', async () => {
+    const held = gate(), next = replacement(); conversation.turn.mockReturnValue(held.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    entry = openAssistant(deps, config, { mode: 'text' });
+    const input = document.querySelector('[data-testid="assistant-text"]'); input.value = 'ordinary retry draft';
+    document.querySelector('[data-testid="assistant-send"]').click(); await flush();
+    await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await flush();
+    expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe(OUTBOUND_DROPPED_MESSAGE);
+    expect(input.value).toBe('ordinary retry draft'); expect(input.hidden).toBe(false);
+    document.querySelector('[data-testid="assistant-send"]').click(); await flush();
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'ordinary retry draft' }));
+    held.resolve(null); await flush(); expect(next.turn).toHaveBeenCalledTimes(1);
   });
 
 });

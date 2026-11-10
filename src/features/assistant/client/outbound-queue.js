@@ -38,22 +38,27 @@ export function createOutboundQueue({ conversation, generation, deliver, onDrop 
         finishIfDrained();
       };
     },
-    enqueue(entry, { reserved = false, beforeDeliver = async () => {} } = {}) {
+    enqueue(entry, { reserved = false, beforeDeliver = async () => {}, deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS } = {}) {
       if (jobs.has(entry.id)) return jobs.get(entry.id).done;
       if (state === 'expired' || (state === 'retiring' && !reserved)) {
         onDrop({ reason: 'outbound-retired', count: 1 });
         return Promise.resolve({ status: 'dropped', started: false });
       }
+      if (deadline <= Date.now()) {
+        onDrop({ reason: 'outbound-timeout', count: 1 });
+        return Promise.resolve({ status: 'dropped', started: false });
+      }
       let resolve;
       const done = new Promise(finish => { resolve = finish; });
-      const job = { entry: { ...entry }, conversation, generation, done, resolve, started: false, finished: false };
+      const job = { entry: { ...entry }, conversation, generation, done, resolve, started: false, finished: false, deadline };
       jobs.set(entry.id, job);
-      job.timer = globalThis.setTimeout(() => expire('outbound-timeout'), OUTBOUND_TURN_BUDGET_MS);
+      job.timer = globalThis.setTimeout(() => expire('outbound-timeout'), Math.max(0, job.deadline - Date.now()));
       tail = tail.then(async () => {
         if (job.finished) return;
         try {
           await beforeDeliver();
           if (job.finished) return;
+          if (Date.now() >= job.deadline) { expire('outbound-timeout'); return; }
           job.started = true;
           await deliver(job.entry, { conversation: job.conversation, generation: job.generation });
           complete(job, { status: 'delivered' });

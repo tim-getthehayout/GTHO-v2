@@ -2,7 +2,7 @@
  * (feedback, questions, how-to) and the global push-to-talk (farm voice entry).
  * Voice is I/O only: final transcripts go to the backend turn; the backend answer
  * is spoken verbatim. Tapping again ends the turn, the same as saying "over". */
-import { createOutboundQueue, OUTBOUND_DROPPED_MESSAGE } from './outbound-queue.js';
+import { createOutboundQueue, OUTBOUND_DROPPED_MESSAGE, OUTBOUND_TURN_BUDGET_MS } from './outbound-queue.js';
 import { VoiceTransport } from '../shared.js';
 import { createAssistantConversation, createFarmReviewFlow, createFeedbackFiling, feedbackSheetSession } from './conversation.js';
 import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, createAudioChunkBuffer, voiceStartTap, voiceStartMark, prepareCaptureContext, closeCaptureContext, anySignal, waitForAbort, SAMPLE_RATE, VOICE_CONNECT_BUDGET_MS, OFFLINE_NO_MIC_MESSAGE, VOICE_UNAVAILABLE_MESSAGE } from './realtime.js';
@@ -13,6 +13,15 @@ import { resolveTestingConsent } from './consent.js';
 import { createAttemptTracker } from './attempts.js';
 import { showDismissibleBanner } from '../../../ui/toast.js';
 import { mountFeedbackReview } from '../feedback-review.js';
+
+const outboundFailure = () => Object.assign(new Error(OUTBOUND_DROPPED_MESSAGE), { code: 'outbound-dropped' });
+function requireDelivery(result) { if (result.status === 'dropped') throw outboundFailure(); }
+async function withinOutboundDeadline(work, deadline) {
+  let timer;
+  try {
+    return await Promise.race([work, new Promise((_, reject) => { timer = globalThis.setTimeout(() => reject(outboundFailure()), Math.max(0, deadline - Date.now())); })]);
+  } finally { globalThis.clearTimeout(timer); }
+}
 
 /** True only with durable local-save evidence: the local receipt from the
  * existing durable write, or a replayed server outcome that records one. */
@@ -231,7 +240,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         const owner = { conversation: started, generation: ++outboundGeneration, attempts: null, origin: { ...origin }, replays: new Set(), queue: null, cleanup: null };
         outbound = owner;
         // talk() already shows Connecting…; do not clobber it with Starting… or a blank status.
-        if (!connectAbort) say('Starting…');
+        if (!connectAbort && !from.quiet) say('Starting…');
         await started.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
         // end() may have run while start was in flight. Clean up here so a
         // late start cannot use a nulled conversation, and End can return
@@ -243,8 +252,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         attempts = createAttemptTracker({ persist: deps.persist, scope: started.scope, getAll: typeof deps.getAll === 'function' ? deps.getAll : () => [] });
         owner.attempts = attempts;
         owner.queue = makeQueue(owner);
-        if (!connectAbort) say('');
-        if (firstTurn) await owner.queue.enqueue(firstTurn);
+        if (!connectAbort && !from.quiet) say('');
+        if (firstTurn) requireDelivery(await owner.queue.enqueue(firstTurn));
         onTranscript(visible());
         return started;
       })();
@@ -604,17 +613,24 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           release?.(); release = owner?.queue?.reserveText();
         }
         if (!owner?.queue) return null;
-        const result = await owner.queue.enqueue({ id: crypto.randomUUID(), role: 'user', modality: 'text', text }, { reserved: true, beforeDeliver: closeOwnedVoice });
+        const entry = { id: crypto.randomUUID(), role: 'user', modality: 'text', text };
+        // The send owns this absolute deadline, not either conversation queue.
+        const deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS;
+        let result = await owner.queue.enqueue(entry, { reserved: true, beforeDeliver: closeOwnedVoice, deadline });
         void closeOwnedVoice().catch(() => {});
-        if (result.status === 'dropped' && !result.started) {
+        if (result.status === 'dropped' && !result.started && Date.now() < deadline) {
           // A hung predecessor poisoned its old generation. Do not append to
           // that uncertain backend; text can start fresh without replaying it.
           clearCurrent(owner); release?.(); release = null;
           emptyStartCleanup = null;
-          if (!outbound) await session.begin();
-          if (outbound?.queue && outbound.queue.state === 'open') await outbound.queue.enqueue({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
+          if (!outbound) await withinOutboundDeadline(session.begin(undefined, undefined, { quiet: true }), deadline);
+          if (outbound?.queue && outbound.queue.state === 'open') result = await outbound.queue.enqueue(entry, { deadline });
         }
+        requireDelivery(result);
         return undefined;
+      } catch (error) {
+        if (error.code === 'outbound-dropped') say(OUTBOUND_DROPPED_MESSAGE);
+        throw error;
       } finally { release?.(); typedTakeover = false; }
     },
     async end() {

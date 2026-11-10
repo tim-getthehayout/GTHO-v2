@@ -222,6 +222,9 @@ export function openAssistant(deps, config, options = {}) {
       say('');
       return session;
     } catch (error) {
+      // Match ordinary Send: keep a dropped typed first turn for an explicit retry.
+      if (firstTurn?.modality === 'text') input.value = firstTurn.text;
+      setVoiceState('idle');
       say(error.message);
       throw error;
     } finally {

@@ -53,3 +53,24 @@ it('a typed takeover reservation survives retirement but releases exactly once',
   await queue.enqueue(entry('typed', 'text'), { reserved: true }); expect(retired).toBe(false);
   release(); release(); await ended; expect(retired).toBe(true); expect(queue.busy).toBe(false);
 });
+
+it('moving a never-dispatched entry carries its original remaining deadline', async () => {
+  const held = gate(), nextHeld = gate(), nextDeliver = vi.fn(() => nextHeld.promise);
+  const old = createOutboundQueue({ conversation: {}, generation: 8, deliver: () => held.promise });
+  const next = createOutboundQueue({ conversation: {}, generation: 9, deliver: nextDeliver });
+  const first = old.enqueue(entry('first')); await flush(); await vi.advanceTimersByTimeAsync(5000);
+  const deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS, typed = entry('typed', 'text');
+  const pending = old.enqueue(typed, { deadline }); await vi.advanceTimersByTimeAsync(15000);
+  expect(await pending).toEqual({ status: 'dropped', started: false });
+  const moved = next.enqueue(typed, { deadline }); await flush();
+  await vi.advanceTimersByTimeAsync(4999); expect(next.state).toBe('open');
+  await vi.advanceTimersByTimeAsync(1); expect(await moved).toEqual({ status: 'dropped', started: true });
+  expect(Date.now()).toBe(deadline); expect(nextDeliver).toHaveBeenCalledTimes(1);
+  held.resolve(); nextHeld.resolve(); await first; await flush(); expect(nextDeliver).toHaveBeenCalledTimes(1);
+});
+it('an exhausted send deadline cannot dispatch or buy a new queue budget', async () => {
+  const deliver = vi.fn(), onDrop = vi.fn(), queue = createOutboundQueue({ conversation: {}, generation: 10, deliver, onDrop });
+  expect(await queue.enqueue(entry('expired', 'text'), { deadline: Date.now() })).toEqual({ status: 'dropped', started: false });
+  await flush(); expect(deliver).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+  expect(onDrop).toHaveBeenCalledWith({ reason: 'outbound-timeout', count: 1 });
+});

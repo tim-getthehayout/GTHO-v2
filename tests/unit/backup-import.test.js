@@ -199,11 +199,33 @@ describe('backup-import (CP-56)', () => {
       await expect(serverHasMigration041(client)).resolves.toBe(false);
     });
 
-    it('serverHasMigration041 is true when the RPC exists (membership/args error)', async () => {
-      const client = {
-        rpc: async () => ({ data: null, error: { message: 'discard-empty-membership-required' } }),
-      };
-      await expect(serverHasMigration041(client)).resolves.toBe(true);
+    it('serverHasMigration041 is true only for the RPC\'s own known outcomes', async () => {
+      for (const message of [
+        'discard-empty-membership-required',
+        'discard-empty-auth-required',
+        'discard-empty-args-required',
+        'discard-empty-refused-turns-exist',
+        'assistant-restore-in-progress',
+      ]) {
+        const client = { rpc: async () => ({ data: null, error: { message } }) };
+        await expect(serverHasMigration041(client), message).resolves.toBe(true);
+      }
+      const ok = { rpc: async () => ({ data: 'discarded', error: null }) };
+      await expect(serverHasMigration041(ok)).resolves.toBe(true);
+    });
+
+    it('serverHasMigration041 is false for expired JWT, permission, and gateway errors', async () => {
+      for (const error of [
+        { code: 'PGRST301', message: 'JWT expired' },
+        { code: 'PGRST301', message: 'JWSError JWSInvalidSignature' },
+        { code: '42501', message: 'permission denied' },
+        { code: '502', message: 'Bad Gateway' },
+        { message: 'upstream connect error or disconnect/reset before headers' },
+        { code: 'PGRST000', message: 'could not connect to the database' },
+      ]) {
+        const client = { rpc: async () => ({ data: null, error }) };
+        await expect(serverHasMigration041(client), error.message).resolves.toBe(false);
+      }
     });
 
     it('resolveOperationsSchemaStamp keeps 41 when 041 is present', async () => {
@@ -220,6 +242,13 @@ describe('backup-import (CP-56)', () => {
       await expect(resolveOperationsSchemaStamp(41, client)).resolves.toBe(40);
       // Below 41 is never clamped.
       await expect(resolveOperationsSchemaStamp(40, client)).resolves.toBe(40);
+    });
+
+    it('resolveOperationsSchemaStamp clamps 41→40 on expired JWT (PGRST301)', async () => {
+      const client = {
+        rpc: async () => ({ data: null, error: { code: 'PGRST301', message: 'JWT expired' } }),
+      };
+      await expect(resolveOperationsSchemaStamp(41, client)).resolves.toBe(40);
     });
   });
 });

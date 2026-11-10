@@ -175,22 +175,35 @@ async function deleteTableRows(table, operationId) {
   if (error) throw new Error(`Delete failed on ${table}: ${error.message}`);
 }
 
+/** Outcomes that can only come from assistant_discard_empty_start itself. */
+const MIGRATION_041_OUTCOMES = Object.freeze([
+  'discarded',
+  'discard-empty-auth-required',
+  'discard-empty-membership-required',
+  'discard-empty-args-required',
+  'discard-empty-refused-turns-exist',
+  'assistant-restore-in-progress',
+  'restore-read-committed-required',
+]);
+
+function isMigration041Outcome(data, error) {
+  if (!error && data === 'discarded') return true;
+  const msg = String(error?.message || error?.code || data || '');
+  return MIGRATION_041_OUTCOMES.some(code => msg.includes(code));
+}
+
 /** True when SQL migration 041 (`assistant_discard_empty_start`) is present.
- * CP-56-style probe: call the RPC; PostgREST PGRST202 / "could not find the
- * function" means absent. Any other outcome (args/membership/fence errors)
- * means the function exists. Safe: membership fails before any DELETE. */
+ * Only the RPC's own known outcomes count as installed. Missing function
+ * (PGRST202) and any other auth, permission, gateway, or server error
+ * fail closed (treat as not confirmed). Safe: membership/auth fail before DELETE. */
 export async function serverHasMigration041(client = supabase) {
   if (!client?.rpc) return false;
   try {
-    const { error } = await client.rpc('assistant_discard_empty_start', {
+    const { data, error } = await client.rpc('assistant_discard_empty_start', {
       p_operation: '00000000-0000-4000-8000-000000000000',
       p_conversation: '00000000-0000-4000-8000-000000000000',
     });
-    if (!error) return true;
-    const code = String(error.code || '');
-    const msg = String(error.message || '');
-    if (code === 'PGRST202' || /could not find the function/i.test(msg)) return false;
-    return true;
+    return isMigration041Outcome(data, error);
   } catch {
     return false;
   }

@@ -175,6 +175,33 @@ async function deleteTableRows(table, operationId) {
   if (error) throw new Error(`Delete failed on ${table}: ${error.message}`);
 }
 
+/** True when SQL migration 041 (`assistant_discard_empty_start`) is present.
+ * CP-56-style probe: call the RPC; PostgREST PGRST202 / "could not find the
+ * function" means absent. Any other outcome (args/membership/fence errors)
+ * means the function exists. Safe: membership fails before any DELETE. */
+export async function serverHasMigration041(client = supabase) {
+  if (!client?.rpc) return false;
+  try {
+    const { error } = await client.rpc('assistant_discard_empty_start', {
+      p_operation: '00000000-0000-4000-8000-000000000000',
+      p_conversation: '00000000-0000-4000-8000-000000000000',
+    });
+    if (!error) return true;
+    const code = String(error.code || '');
+    const msg = String(error.message || '');
+    if (code === 'PGRST202' || /could not find the function/i.test(msg)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Stamp operations.schema_version at most 40 until the server confirms 041. */
+export async function resolveOperationsSchemaStamp(requested, client = supabase) {
+  if (requested == null || requested < 41) return requested;
+  return (await serverHasMigration041(client)) ? requested : 40;
+}
+
 async function insertTableRows(table, rows, operationId) {
   if (!rows || rows.length === 0) return;
   if (table === 'operation_members') return;
@@ -182,6 +209,7 @@ async function insertTableRows(table, rows, operationId) {
   if (table === 'operations') {
     const op = rows[0];
     if (op) {
+      const schemaVersion = await resolveOperationsSchemaStamp(op.schema_version);
       const { error } = await supabase
         .from('operations')
         .update({
@@ -189,7 +217,7 @@ async function insertTableRows(table, rows, operationId) {
           timezone: op.timezone,
           currency: op.currency,
           unit_system: op.unit_system,
-          schema_version: op.schema_version,
+          schema_version: schemaVersion,
           updated_at: op.updated_at,
         })
         .eq('id', operationId);

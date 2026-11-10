@@ -13,6 +13,8 @@ import {
   REFERENCE_TABLES,
   TWO_PASS_TABLES,
   CURRENT_SCHEMA_VERSION,
+  serverHasMigration041,
+  resolveOperationsSchemaStamp,
 } from '../../src/data/backup-import.js';
 import { getBackupTableNames } from '../../src/data/backup-export.js';
 import fixture from '../fixtures/backup-v14.json';
@@ -186,6 +188,38 @@ describe('backup-import (CP-56)', () => {
       expect(FK_ORDER[FK_ORDER.length - 1]).toBe('offline_voice_notes');
       // The import code iterates FK_ORDER, not Object.keys(backup.tables)
       expect(reversed[0]).not.toBe(FK_ORDER[0]); // proves JSON order differs
+    });
+  });
+
+  describe('schema stamp gate for migration 041', () => {
+    it('serverHasMigration041 is false when PostgREST reports the RPC missing', async () => {
+      const client = {
+        rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.assistant_discard_empty_start' } }),
+      };
+      await expect(serverHasMigration041(client)).resolves.toBe(false);
+    });
+
+    it('serverHasMigration041 is true when the RPC exists (membership/args error)', async () => {
+      const client = {
+        rpc: async () => ({ data: null, error: { message: 'discard-empty-membership-required' } }),
+      };
+      await expect(serverHasMigration041(client)).resolves.toBe(true);
+    });
+
+    it('resolveOperationsSchemaStamp keeps 41 when 041 is present', async () => {
+      const client = {
+        rpc: async () => ({ data: null, error: { message: 'discard-empty-args-required' } }),
+      };
+      await expect(resolveOperationsSchemaStamp(41, client)).resolves.toBe(41);
+    });
+
+    it('resolveOperationsSchemaStamp clamps 41→40 when 041 is absent', async () => {
+      const client = {
+        rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } }),
+      };
+      await expect(resolveOperationsSchemaStamp(41, client)).resolves.toBe(40);
+      // Below 41 is never clamped.
+      await expect(resolveOperationsSchemaStamp(40, client)).resolves.toBe(40);
     });
   });
 });

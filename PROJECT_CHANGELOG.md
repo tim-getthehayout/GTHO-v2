@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-09 | fix(backup): gate operations.schema_version 41 stamp on a CP-56-style probe for `assistant_discard_empty_start`. Restore only writes 41 when the server confirms migration 041 is present; otherwise clamps to 40 so a mixed-version deploy cannot claim schema 41 without the RPC. | `src/data/backup-import.js`, `tests/unit/backup-import.test.js` |
 | 2026-11-09 | fix(theme): make sample-screen computed-style contrast checks unconditional for light and dark. Light chip asserts always call `getComputedStyle` (resolving jsdom's unresolved `var()` / transparent); dark cat-pill sample now mounts under dark tokens and asserts computed colors too. | `tests/unit/theme-contrast.test.js` |
 | 2026-11-09 | fix(assistant): queue early turn-end until the voice connection is ready and the PCM buffer has flushed. During auth/connect the driver object may already exist but `endTurn` is ignored until connected — a second tap now always sets `pendingEndTurn` until after flush, so Listening startups no longer end with zero commits. | `src/features/assistant/client/session.js`, `tests/unit/assistant/client/startup-abort.test.js` |
 | 2026-11-09 | fix(assistant): drop finalized transcription item events before any state mutation or turn-end logic. A late `updated`/`completed` for a finalized item ending in "over" no longer fires another `input_audio_buffer.commit` against the next turn's PCM. | `src/features/assistant/client/realtime.js`, `tests/unit/assistant/client/realtime.test.js` |

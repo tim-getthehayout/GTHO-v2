@@ -55,7 +55,7 @@ beforeEach(() => {
     begin: vi.fn(async () => {}), turn: vi.fn(async () => null), discardEmpty: vi.fn(async () => {}),
     voiceAuthorization: vi.fn(async () => ({ provider: 'xai', token: 'test-token', expiresAt: Date.now() + 60000 })),
   };
-  createAssistantConversation.mockReturnValue(conversation);
+  createAssistantConversation.mockClear().mockReturnValue(conversation);
 });
 afterEach(async () => { await entry?.close(); await flush(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
@@ -225,4 +225,92 @@ it('recorder duration freezes at the cap even when stop is consumed much later',
 it('known telemetry keys cannot carry arbitrary strings, nonfinite numbers or wrong types', () => {
   expect(sanitizeVoiceLogContext({ reason: 'secret text', event: 'transcript', audioContextState: 'token', sampleRate: 'secret', ms: Infinity, attempt: NaN, ok: 'yes', emitted: true })).toEqual({});
   expect(sanitizeVoiceLogContext({ reason: 'connect-budget', event: 'updated', audioContextState: 'running', ms: 10, ok: true })).toEqual({ reason: 'connect-budget', event: 'updated', audioContextState: 'running', ms: 10, ok: true });
+});
+
+// Design review interleavings, using the real driver and vendor transport.
+describe('reviewed disconnect and retry interleavings', () => {
+  it.each([['socket-close', false], ['socket-close', true], ['backstop', false]])('queued final voice precedes typed text after %s (terminal ends: %s)', async (release, terminalEnds) => {
+    const first = gate(); conversation.turn.mockImplementationOnce(() => first.promise);
+    const session = makeSession({ onVoiceTerminal: terminalEnds ? () => { void session.end(); } : null });
+    await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'first', transcript: 'first over' });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    contexts[0].processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(128) } });
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'second', transcript: 'second' });
+    let settled = false;
+    const typing = session.text('typed').then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    if (release === 'backstop') await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    else sockets[0].close();
+    await flush(); first.resolve(null); await flush();
+    // Close releases the wait immediately; without a close the backstop wins.
+    // Neither path drops the already-final voice turn or duplicates it.
+    expect(settled).toBe(true); await typing;
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    expect(conversation.turn.mock.calls.map(([row]) => [row.modality, row.text])).toEqual([
+      ['voice', 'first'], ['voice', 'second'], ['text', 'typed'],
+    ]);
+    expect(new Set(conversation.turn.mock.calls.map(([row]) => row.id)).size).toBe(3);
+    expect(tracks[0].stop).toHaveBeenCalled();
+  });
+
+  it('retry adopts a still-pending begin without letting abandoned cleanup delete it', async () => {
+    const begin = gate(); conversation.begin.mockReturnValue(begin.promise);
+    const session = makeSession(); const firstTalk = session.talk(); await flush();
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await expect(firstTalk).resolves.toBe('unavailable');
+    const retry = session.talk(); await flush(); begin.resolve(); await flush();
+    expect(sockets).toHaveLength(1); sockets[0].message({ type: 'session.created' });
+    await expect(retry).resolves.toBe('listening');
+    expect(session.listening).toBe(true);
+    expect(conversation.discardEmpty).not.toHaveBeenCalled();
+    expect(createAssistantConversation).toHaveBeenCalledTimes(1);
+    expect(conversation.begin).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    expect(session.listening).toBe(true); await session.end();
+  });
+
+  it('retry retires cleanup already in flight before beginning a fresh conversation', async () => {
+    const begin = gate(), discarded = gate();
+    conversation.begin.mockReturnValue(begin.promise);
+    conversation.discardEmpty.mockReturnValue(discarded.promise);
+    const next = { ...conversation, ref: 'retry-conversation', begin: vi.fn(async () => {}), discardEmpty: vi.fn(async () => {}) };
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const firstTalk = session.talk(); await flush();
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await expect(firstTalk).resolves.toBe('unavailable');
+    begin.resolve(); await flush(); expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    const retry = session.talk(); await flush();
+    expect(next.begin).not.toHaveBeenCalled(); expect(sockets).toHaveLength(0);
+    discarded.resolve(); await flush();
+    expect(next.begin).toHaveBeenCalledTimes(1); expect(sockets).toHaveLength(1);
+    sockets[0].message({ type: 'session.created' }); await expect(retry).resolves.toBe('listening');
+    expect(session.conversation).toBe(next); expect(next.discardEmpty).not.toHaveBeenCalled();
+    await session.end(); expect(next.discardEmpty).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['socket-close', 'transport-invalidation'])('%s during finalization keeps final transcription before text', async release => {
+    const session = makeSession(); await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'one', transcript: 'final voice' });
+    let settled = false; const typing = session.text('typed').then(() => { settled = true; }); await flush();
+    if (release === 'socket-close') sockets[0].close();
+    else {
+      vi.spyOn(sockets[0], 'send').mockImplementationOnce(() => { throw new Error('stream-failed'); });
+      contexts[0].processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(128) } });
+    }
+    await flush(); expect(settled).toBe(true); await typing;
+    expect(conversation.turn.mock.calls.map(([row]) => [row.modality, row.text])).toEqual([
+      ['voice', 'final voice'], ['text', 'typed'],
+    ]);
+  });
+
+  it('declining recording consent still connects and never starts a recorder', async () => {
+    const Recorder = vi.fn(); vi.stubGlobal('MediaRecorder', Recorder);
+    entry = openAssistant(deps, { ...config, earlyTesting: true }, { mode: 'voice' });
+    document.querySelector('[data-testid="assistant-consent-decline"]').click(); await flush();
+    sockets[0].message({ type: 'session.created' }); expect((await entry.ready).result).toBe('listening');
+    expect(entry.session.listening).toBe(true); expect(Recorder).not.toHaveBeenCalled();
+    expect(conversation.begin).toHaveBeenCalledWith(expect.objectContaining({ consent: 'declined' }));
+  });
 });

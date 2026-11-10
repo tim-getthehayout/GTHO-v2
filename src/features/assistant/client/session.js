@@ -114,6 +114,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     liveTeardownArmed = false;
     voiceReady = false;
     pendingEndTurn = false;
+    invalidateVoiceDeliveries();
     pcmBuffer?.discard();
     pcmBuffer = null;
     const ownedTransport = transport, ownedPlayer = player;
@@ -169,8 +170,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   let pcmBuffer = null;
   /** True when discardEmptyStart failed; PTT keeps the locked bubble after No. */
   let discardEmptyFailed = false;
-  // VoiceTransport serializes delivery internally. Finalization may emit behind
-  // an earlier backend turn, so wait for this specific id before cancelling it.
+  // Final turns are owned/serialized here, not by a transport epoch. Duplicate
+  // vendor callbacks join the same work; invalidation releases receipt waiters.
   const voiceDeliveries = new Map();
   function voiceDelivery(id) {
     if (!voiceDeliveries.has(id)) {
@@ -181,6 +182,25 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     return voiceDeliveries.get(id);
   }
   let voiceTurnWork = Promise.resolve();
+  function deliverVoiceTurn(entry) {
+    const delivery = voiceDelivery(entry.id);
+    if (!delivery.work) {
+      // Host-owned serialization survives VoiceTransport invalidating its epoch.
+      delivery.work = voiceTurnWork = voiceTurnWork.then(() => turn(entry)).catch(error => say(error.message));
+      void delivery.work.then(delivery.resolve);
+    }
+    return delivery.work;
+  }
+  function invalidateVoiceDeliveries() {
+    for (const delivery of voiceDeliveries.values()) delivery.resolve();
+  }
+  async function waitForVoiceDelivery(delivery) {
+    let timer;
+    try {
+      await Promise.race([delivery.done, new Promise(resolve => { timer = globalThis.setTimeout(resolve, VOICE_CONNECT_BUDGET_MS); })]);
+    } finally { globalThis.clearTimeout(timer); }
+  }
+  let startupOwner = null;
   let beginWork = null;
   let consentWork = null;
   const getConsent = () => consentWork ??= resolveTestingConsent(config);
@@ -248,7 +268,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       pendingEndTurn = false;
       voiceReady = false;
       discardEmptyFailed = false;
-      emptyStartCleanup = null;
+      const retiringCleanup = emptyStartCleanup;
+      startupOwner = gen;
       endingLive = false;
       typedTakeover = false;
       micFailure = null;
@@ -297,6 +318,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       if (aborted()) { connectAbort = null; voiceState('idle'); void closeCaptureContext(capture.context); return 'aborted'; }
       let stream;
       budgetTimer = setTimeout(() => {
+        if (gen !== talkGeneration) return;
         budget.abort();
         buffer.discard();
         stream?.getTracks().forEach(track => track.stop());
@@ -305,11 +327,19 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         void closeCaptureContext(capture.context);
       }, VOICE_CONNECT_BUDGET_MS);
       const withinBudget = work => Promise.race([work, waitForAbort(budget.signal)]);
+      const cleanupStartup = () => startupOwner === gen && !typedTakeover ? discardEmptyStart() : undefined;
       const startup = (async () => {
+        // A cleanup already in flight cannot be adopted; retire it before a
+        // fresh begin. A pending begin, however, transfers to this generation.
+        if (retiringCleanup) {
+          await retiringCleanup;
+          if (startupOwner !== gen) return;
+          if (emptyStartCleanup === retiringCleanup) emptyStartCleanup = null;
+        }
         if (beginWork) await beginWork;
-        else if (!conversation) await session.begin();
+        if (!conversation) await session.begin();
         // Typed send keeps the conversation so compose can use it.
-        if ((abandoned || aborted()) && !typedTakeover) await discardEmptyStart();
+        if (abandoned || aborted()) await cleanupStartup();
       })();
       // Capture may still be waiting; keep an early failed begin observed.
       void startup.catch(() => {});
@@ -320,7 +350,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         say(VOICE_UNAVAILABLE_MESSAGE);
         void abandonLiveVoice();
         void closeCaptureContext(capture.context);
-        void startup.then(discardEmptyStart, discardEmptyStart).catch(() => {});
+        void startup.then(cleanupStartup, cleanupStartup).catch(() => {});
         logVoice('teardown', { reason }, now, tapClock);
         return 'unavailable';
       }
@@ -347,7 +377,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         buffer.discard();
         void abandonLiveVoice();
         void closeCaptureContext(capture.context);
-        void startup.then(discardEmptyStart, discardEmptyStart).catch(() => {});
+        void startup.then(cleanupStartup, cleanupStartup).catch(() => {});
         clearTimeout(budgetTimer);
         connectAbort = null;
         logVoice('teardown', { reason: 'no-mic' }, now, tapClock);
@@ -407,6 +437,9 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           onStatus: state => { if (state === 'session-cap') terminal('Voice session ended at 10 minutes. Tap to start a new one.'); },
           now, tapAt: tapClock,
           onTurnEnd: () => { voiceState('idle'); say('Thinking…'); },
+          // Keep final voice turns in a host queue before handing them to the
+          // vendor transport, whose queued callback may be dropped on close.
+          onFinalTurn: entry => { if (!endingLive || typedTakeover) void deliverVoiceTurn(entry); },
         });
         // Fresh authorization every tap (no cross-tap cache / no mount prewarm).
         // Within one connect, the driver still reuses the token across its 3 attempts.
@@ -422,12 +455,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
             });
           }, driver,
           getSession: () => conversation.session,
-          onTurn: entry => {
-            const delivered = voiceDelivery(entry.id);
-            voiceTurnWork = turn(entry).catch(error => say(error.message));
-            void voiceTurnWork.then(delivered.resolve);
-            return voiceTurnWork;
-          },
+          onTurn: deliverVoiceTurn,
           onAudio: bytes => player.play(bytes),
           // Unexpected socket close / transport error: VoiceTransport only flips
           // to text-fallback. Route that through the same terminal teardown as
@@ -509,7 +537,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         }
         if (gen !== talkGeneration) {
           void abandonLiveVoice();
-          void startup.then(discardEmptyStart, discardEmptyStart).catch(() => {});
+          void startup.then(cleanupStartup, cleanupStartup).catch(() => {});
           return 'aborted';
         }
         if (budgetHit() || error?.name === 'AbortError') {
@@ -522,24 +550,30 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       }
     },
     async text(text) {
-      if (mic || transport || connectAbort) {
-        typedTakeover = true;
-        talkGeneration += 1;
-        try { connectAbort?.abort(); } catch { /* already aborted */ }
-        if (driver) {
-          try {
-            const finalized = await driver.endTurn({ replay: false });
-            if (finalized?.id) await voiceDelivery(finalized.id).done;
-            else await voiceTurnWork;
-          } catch { /* mid-teardown */ }
+      try {
+        if (mic || transport || connectAbort) {
+          typedTakeover = true;
+          talkGeneration += 1;
+          startupOwner = talkGeneration;
+          try { connectAbort?.abort(); } catch { /* already aborted */ }
+          if (driver) {
+            try {
+              const finalized = await driver.endTurn({ replay: false });
+              if (finalized?.id) {
+                await waitForVoiceDelivery(voiceDelivery(finalized.id));
+                // Independent of the transport's now possibly dead callback.
+                await deliverVoiceTurn({ ...finalized, role: 'user', modality: 'voice' });
+              } else await voiceTurnWork;
+            } catch { /* mid-teardown */ }
+          }
+          await abandonLiveVoice();
+          say('');
         }
-        await abandonLiveVoice();
-        say('');
-      }
-      if (beginWork) await beginWork;
-      if (!conversation) await session.begin();
-      if (!attempts || !conversation) return null;
-      return turn({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
+        if (beginWork) await beginWork;
+        if (!conversation) await session.begin();
+        if (!attempts || !conversation) return null;
+        return await turn({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
+      } finally { typedTakeover = false; }
     },
     async end() {
       // Invalidate any in-flight talk() (begin / auth / connect). Await an
@@ -550,7 +584,9 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       endingLive = true;
       connectAbort?.abort();
       await abandonLiveVoice();
-      if (beginWork) return;
+      // Terminal UI callbacks call end() too. During a typed takeover they
+      // must not discard the conversation beneath queued final voice/text.
+      if (beginWork || typedTakeover) return;
       await discardEmptyStart();
     },
     get micFailure() { return micFailure; },

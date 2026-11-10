@@ -121,7 +121,7 @@ export function resamplePcm16(pcm, fromRate, toRate) {
  * sends turn_detection null (manual commit). Returns a VoiceTransport driver plus
  * endTurn() (tap) and speak(text).
  */
-export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.WebSocket, setTimer = (fn, ms) => globalThis.setTimeout(fn, ms), clearTimer = id => globalThis.clearTimeout(id), onStatus = () => {}, onTurnEnd = () => {}, randomId = () => globalThis.crypto.randomUUID(), now = () => (typeof globalThis.performance !== 'undefined' ? globalThis.performance.now() : Date.now()), tapAt } = {}) {
+export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.WebSocket, setTimer = (fn, ms) => globalThis.setTimeout(fn, ms), clearTimer = id => globalThis.clearTimeout(id), onStatus = () => {}, onTurnEnd = () => {}, onFinalTurn = () => {}, randomId = () => globalThis.crypto.randomUUID(), now = () => (typeof globalThis.performance !== 'undefined' ? globalThis.performance.now() : Date.now()), tapAt } = {}) {
   if (!config?.model || /latest/i.test(config.model)) throw new Error('pinned-voice-model-required');
   if (!PINNED_MODEL(config.transcriptionModel)) throw new Error('pinned-transcription-model-required');
   let active = null;
@@ -180,15 +180,19 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
     /** item_ids already committed to an emitted turn — late revisions never migrate. */
     const finalizedItems = new Set();
 
-    const close = () => {
-      if (closed) return; closed = true; clearTimer(cap); clearTimer(finalizeTimer); finalizeTimer = null;
+    const close = (preserveFinal = false) => {
+      if (closed) return;
+      // An unexpected close must not strand typed takeover's finalization wait
+      // or lose the transcript already collected for that turn.
+      if (preserveFinal && finalizing && !emitted) emitTurn();
+      closed = true; clearTimer(cap); clearTimer(finalizeTimer); finalizeTimer = null;
       resolveFinalized();
       socket.onmessage = socket.onclose = null;
       try { socket.close(); } catch { /* ignore */ }
       if (active?.socket === socket) active = null;
     };
     // P4: hang up at the session cap; a new session needs a new token.
-    const cap = setTimer(() => { logVoice('teardown', { reason: 'session-cap' }, now, tapAt); close(); onStatus('session-cap'); onDisconnect(); }, (config.sessionCapSeconds ?? 600) * 1000);
+    const cap = setTimer(() => { logVoice('teardown', { reason: 'session-cap' }, now, tapAt); close(true); onStatus('session-cap'); onDisconnect(); }, (config.sessionCapSeconds ?? 600) * 1000);
     const commit = () => { if (!committed && buffered) { committed = true; buffered = false; send({ type: 'input_audio_buffer.commit' }); } };
 
     function beginUserTurn() {
@@ -229,7 +233,9 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       for (const itemId of itemOrder) finalizedItems.add(itemId);
       emitted = { id, text };
       logVoice('emitted-turn', { emitted: 1 }, now, tapAt);
-      onTurn({ id, role: 'user', modality: 'voice', text });
+      const entry = { id, role: 'user', modality: 'voice', text };
+      onFinalTurn(entry);
+      onTurn(entry);
       resolveFinalized(emitted);
     }
 
@@ -246,7 +252,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       return finalized;
     }
 
-    socket.onclose = () => { if (!closed) { logVoice('teardown', { reason: 'socket-close' }, now, tapAt); close(); onDisconnect(); } };
+    socket.onclose = () => { if (!closed) { logVoice('teardown', { reason: 'socket-close' }, now, tapAt); close(true); onDisconnect(); } };
     socket.onmessage = event => {
       let message; try { message = JSON.parse(event.data); } catch { return; }
       switch (message.type) {
@@ -298,7 +304,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       async sendText() {},
       async interrupt() { send({ type: 'response.cancel' }); },
       async cancel() { send({ type: 'response.cancel' }); },
-      async close() { close(); },
+      async close() { close(true); },
       endTurn: finalizeTurn,
       speak(text) {
         ownResponses++;

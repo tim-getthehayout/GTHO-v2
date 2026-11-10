@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { logger } from '../../../../src/utils/logger.js';
 import { createXaiRealtimeDriver, endsWithOver, stripOver, CONNECT_ATTEMPTS, TURN_FINALIZE_TIMEOUT_MS } from '../../../../src/features/assistant/client/realtime.js';
 
 class FakeSocket {
@@ -224,5 +225,29 @@ describe('one user turn → one runtime turn', () => {
     clock.fire(TURN_FINALIZE_TIMEOUT_MS);
     expect(onTurn).toHaveBeenCalledTimes(1);
     expect(socket.sent.filter(m => m.type === 'input_audio_buffer.commit')).toHaveLength(commitsBefore);
+  });
+});
+
+describe('content-free voice milestones', () => {
+  it('logs session-created, transcription-event and emitted-turn without text or a measured-audio settlement claim', async () => {
+    const entries = [];
+    const spy = vi.spyOn(logger, 'info').mockImplementation((category, message, context) => {
+      if (category === 'assistant-voice') entries.push({ phase: message, context: { ...(context ?? {}) } });
+    });
+    const { driver, connection, socket, onTurn, clock } = await connected();
+    expect(entries.some(entry => entry.phase === 'session-created')).toBe(true);
+    await connection.sendAudio(new Uint8Array([1]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'item-1', transcript: 'Move the heifers, over.' });
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'Move the heifers, over.' });
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    const phases = entries.map(entry => entry.phase);
+    expect(phases).toContain('transcription-event');
+    expect(phases).toContain('emitted-turn');
+    const transcribe = entries.filter(entry => entry.phase === 'transcription-event');
+    expect(transcribe.some(entry => entry.context.event === 'updated')).toBe(true);
+    expect(transcribe.some(entry => entry.context.event === 'completed')).toBe(true);
+    expect(JSON.stringify(entries)).not.toMatch(/Move the heifers|measured audio|audio_minutes|worst-case settlement is measured/i);
+    spy.mockRestore();
   });
 });

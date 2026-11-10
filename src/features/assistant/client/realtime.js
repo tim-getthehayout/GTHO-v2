@@ -135,6 +135,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       audio: { input: { format: { type: 'audio/pcm', rate: SAMPLE_RATE }, transcription: { model: config.transcriptionModel } }, output: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } } },
     } });
     let closed = false, committed = false, ownResponses = 0, buffered = false;
+    let transcriptionEvents = 0;
     // One user turn → one runtime turn. item_id text accumulates until over/tap.
     let turnId = null;
     const itemOrder = [];
@@ -191,6 +192,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       const id = turnId || randomId();
       for (const itemId of itemOrder) finalizedItems.add(itemId);
       emitted = { id, text };
+      logVoice('emitted-turn', { emitted: 1 }, now, tapAt);
       onTurn({ id, role: 'user', modality: 'voice', text });
     }
 
@@ -209,6 +211,8 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       let message; try { message = JSON.parse(event.data); } catch { return; }
       switch (message.type) {
         case 'conversation.item.input_audio_transcription.updated': {
+          transcriptionEvents += 1;
+          logVoice('transcription-event', { event: 'updated', eventCount: transcriptionEvents }, now, tapAt);
           // Drop finalized-item events before any state mutation or turn-end.
           if (message.item_id && finalizedItems.has(message.item_id)) break;
           const raw = message.transcript ?? message.text ?? '';
@@ -218,6 +222,8 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
           break;
         }
         case 'conversation.item.input_audio_transcription.completed': {
+          transcriptionEvents += 1;
+          logVoice('transcription-event', { event: 'completed', eventCount: transcriptionEvents }, now, tapAt);
           // Drop finalized-item events before any state mutation or turn-end.
           if (message.item_id && finalizedItems.has(message.item_id)) break;
           committed = false;

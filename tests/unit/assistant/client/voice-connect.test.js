@@ -48,8 +48,9 @@ vi.mock('../../../../src/features/assistant/client/realtime.js', async importOri
     createPcmPlayer: vi.fn(() => ({ play: vi.fn(), close: vi.fn(async () => {}) })),
     startMicrophone: vi.fn(async ({ stream, onChunk }) => {
       onChunk?.(new Uint8Array([1]));
-      const stop = vi.fn(async () => {});
-      const mic = { stream: stream || {}, stop };
+      const owned = stream || {};
+      const stop = vi.fn(async () => { owned.getTracks?.().forEach(track => track.stop()); });
+      const mic = { stream: owned, stop };
       voiceHolders.mics.push(mic);
       return mic;
     }),
@@ -87,6 +88,7 @@ const { createAssistantConversation } = await import('../../../../src/features/a
 const { VoiceTransport } = await import('../../../../src/features/assistant/shared.js');
 const { createTestingRecorder } = await import('../../../../src/features/assistant/client/testing-audio.js');
 const { openAssistant } = await import('../../../../src/features/assistant/client/panel.js');
+const { mountPushToTalk, unmountPushToTalk } = await import('../../../../src/features/assistant/client/push-to-talk.js');
 const {
   startMicrophone, SAMPLE_RATE, VOICE_CONNECT_BUDGET_MS, createXaiRealtimeDriver,
 } = realtime;
@@ -157,10 +159,14 @@ beforeEach(() => {
   };
 });
 
-afterEach(() => {
+afterEach(async () => {
+  try { vi.useRealTimers(); } catch { /* already real */ }
   delete VoiceTransport.prototype.hold;
   delete VoiceTransport.prototype.nextState;
-  try { vi.useRealTimers(); } catch { /* already real */ }
+  document.querySelector('[data-testid="ptt-type-instead-dismiss"]')?.click();
+  document.querySelector('[data-testid="assistant-cancel"]')?.click();
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  unmountPushToTalk();
 });
 
 describe('live transcription model', () => {
@@ -212,6 +218,53 @@ describe('capture resume and resample', () => {
     const out = realResample(new Uint8Array(src.buffer), 48000, rate);
     expect(rate).toBe(24000);
     expect(out.byteLength).toBe(240 * 2);
+  });
+
+  it('iOS capture: AudioContext is created and resumed in the gesture, and 48 kHz input is resampled to 24 kHz before send', async () => {
+    const order = [];
+    const { prepareCaptureContext: realPrepare, startMicrophone: realStart, SAMPLE_RATE: rate } = await vi.importActual('../../../../src/features/assistant/client/realtime.js');
+    const resume = vi.fn(function resume() {
+      order.push('resume');
+      return new Promise(resolve => { queueMicrotask(() => { this.state = 'running'; order.push('resume-resolved'); resolve(); }); });
+    });
+    const AudioContextImpl = class {
+      constructor({ sampleRate } = {}) {
+        order.push('construct');
+        this.sampleRate = 48000;
+        this.state = 'suspended';
+        this.destination = {};
+        this.resume = resume;
+        this._requested = sampleRate;
+      }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() {
+        const processor = {
+          connect() {
+            processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(480) } });
+          },
+          disconnect() {},
+          onaudioprocess: null,
+        };
+        return processor;
+      }
+      async close() {}
+    };
+    const prepared = realPrepare(AudioContextImpl);
+    expect(order).toEqual(['construct', 'resume']);
+    expect(prepared.context.state).toBe('suspended');
+    await prepared.resumePromise;
+    expect(order).toEqual(['construct', 'resume', 'resume-resolved']);
+    expect(prepared.context.state).toBe('running');
+    let sent;
+    await realStart({
+      stream: { getTracks: () => [{ stop: vi.fn() }] },
+      context: prepared.context,
+      onChunk: bytes => { sent = bytes; },
+      AudioContextImpl,
+    });
+    expect(rate).toBe(24000);
+    expect(prepared.context.sampleRate).toBe(48000);
+    expect(sent.byteLength).toBe(240 * 2);
   });
 });
 
@@ -356,4 +409,182 @@ describe('talk() connect budget and Listening', () => {
     expect(input.hidden).toBe(false);
     expect(end.hidden).toBe(true);
   });
+
+  it('startup states keep Listening, status, bubble and End in agreement', async () => {
+    let releaseMint;
+    const mintGate = new Promise(resolve => { releaseMint = resolve; });
+    const conv = mockConversation();
+    conv.voiceAuthorization = vi.fn(async () => {
+      await mintGate;
+      return { provider: 'xai', token: 'tok', expiresAt: Date.now() + 60000 };
+    });
+    let releaseConnect;
+    VoiceTransport.prototype.hold = new Promise(resolve => { releaseConnect = resolve; });
+    mountPushToTalk(deps, config);
+    document.querySelector('[data-testid="ptt-button"]').click();
+
+    const assertConnecting = () => {
+      expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe('Connecting…');
+      expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toBe('Connecting…');
+      expect(document.querySelector('[data-testid="ptt-status"]').hidden).toBe(false);
+      expect(document.querySelector('[data-testid="assistant-end"]').hidden).toBe(true);
+      expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(false);
+      expect(document.querySelector('[data-testid="ptt-button"]').getAttribute('aria-pressed')).toBe('false');
+      expect(createTestingRecorder).not.toHaveBeenCalled();
+    };
+
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="assistant-status"]')?.textContent).toBe('Connecting…'));
+    await vi.waitFor(() => expect(conv.voiceAuthorization).toHaveBeenCalled());
+    assertConnecting(); // mic acquired, mint pending
+    releaseMint();
+    await vi.waitFor(() => expect(VoiceTransport.instances.length).toBe(1));
+    assertConnecting(); // connect pending
+    releaseConnect();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="assistant-status"]').textContent).toMatch(/^Listening/));
+    expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toMatch(/^Listening/);
+    expect(document.querySelector('[data-testid="ptt-status"]').hidden).toBe(false);
+    expect(document.querySelector('[data-testid="assistant-end"]').hidden).toBe(false);
+    expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(true);
+    expect(document.querySelector('[data-testid="ptt-button"]').getAttribute('aria-pressed')).toBe('true');
+    expect(createTestingRecorder).toHaveBeenCalledTimes(1);
+  });
+
+  it('a forced hung connect stays Connecting, then reaches the 10s terminal path once and offers Type instead?', async () => {
+    vi.useFakeTimers();
+    const conv = mockConversation();
+    let releaseConnect;
+    VoiceTransport.prototype.hold = new Promise(resolve => { releaseConnect = resolve; });
+    const stopTrack = vi.fn();
+    globalThis.navigator.mediaDevices.getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] }));
+    const phases = [];
+    const spy = vi.spyOn(logger, 'info').mockImplementation((category, message, context) => {
+      if (category === 'assistant-voice') phases.push({ phase: message, context: { ...context } });
+    });
+    mountPushToTalk(deps, config);
+    document.querySelector('[data-testid="ptt-button"]').click();
+    await vi.advanceTimersByTimeAsync(1);
+    for (let i = 0; i < 40; i += 1) await Promise.resolve();
+    expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe('Connecting…');
+    expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toBe('Connecting…');
+    expect(document.querySelector('[data-testid="assistant-end"]').hidden).toBe(true);
+    expect(createTestingRecorder).not.toHaveBeenCalled();
+    expect(VoiceTransport.instances.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    for (let i = 0; i < 40; i += 1) await Promise.resolve();
+    expect(document.querySelector('[data-testid="ptt-type-instead-question"]').textContent).toBe('Type instead?');
+    expect(document.querySelector('[data-testid="assistant-status"]')?.textContent ?? '').not.toMatch(/Listening/);
+    expect(document.querySelector('[data-testid="ptt-status-text"]')?.textContent ?? '').not.toMatch(/Listening/);
+    expect(stopTrack).toHaveBeenCalled();
+    expect(voiceHolders.mics[0].stop).toHaveBeenCalled();
+    expect(createTestingRecorder).not.toHaveBeenCalled();
+    expect(conv.discardEmpty).toHaveBeenCalledTimes(1);
+    const names = phases.map(entry => entry.phase);
+    expect(names).toContain('connecting');
+    expect(names).toContain('mint-done');
+    expect(names).toContain('teardown');
+    expect(names).not.toContain('session-created');
+    expect(names).not.toContain('first-chunk-sent');
+    expect(names).not.toContain('voice-ready');
+    expect(names.at(-1)).toBe('teardown');
+    expect(JSON.stringify(phases)).not.toMatch(/measured audio|audio_minutes|worst-case settlement is measured/i);
+    releaseConnect();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(createTestingRecorder).not.toHaveBeenCalled();
+    expect(conv.discardEmpty).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-testid="assistant-status"]')?.textContent ?? '').not.toMatch(/Listening/);
+    spy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('a connect that never sends a first chunk reaches the 10s terminal path and never Listening', async () => {
+    vi.useFakeTimers();
+    startMicrophone.mockImplementationOnce(async ({ stream } = {}) => {
+      const stop = vi.fn(async () => {});
+      const mic = { stream: stream || {}, stop };
+      voiceHolders.mics.push(mic);
+      return mic;
+    });
+    const conv = mockConversation();
+    const say = vi.fn();
+    const onListening = vi.fn();
+    const session = createAssistantSession({ deps, config, intent: 'data-entry', say, onListening });
+    const talking = session.talk();
+    await vi.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 40; i += 1) await Promise.resolve();
+    expect(say).toHaveBeenCalledWith('Connecting…');
+    expect(onListening).not.toHaveBeenCalledWith(true);
+    expect(session.listening).toBe(false);
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await expect(talking).resolves.toBe('unavailable');
+    expect(onListening).not.toHaveBeenCalledWith(true);
+    expect(session.listening).toBe(false);
+    expect(createTestingRecorder).not.toHaveBeenCalled();
+    expect(conv.discardEmpty).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('restores Type here after turn end, header Cancel, or connect failure, and Cancel uses the shared lifecycle', async () => {
+    mockConversation();
+    const live = openAssistant(deps, config, { mode: 'voice' });
+    await live.ready;
+    const input = document.querySelector('[data-testid="assistant-text"]');
+    const end = document.querySelector('[data-testid="assistant-end"]');
+    expect(input.hidden).toBe(true);
+    expect(end.hidden).toBe(false);
+    end.click();
+    await vi.waitFor(() => expect(input.hidden).toBe(false));
+    expect(end.hidden).toBe(true);
+    await live.close();
+    createTestingRecorder.mockClear();
+
+    const conv = mockConversation();
+    let releaseConnect;
+    VoiceTransport.prototype.hold = new Promise(resolve => { releaseConnect = resolve; });
+    const starting = openAssistant(deps, config, { mode: 'voice' });
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe('Connecting…'));
+    document.querySelector('[data-testid="assistant-cancel"]').click();
+    await vi.waitFor(() => expect(starting.isClosed()).toBe(true));
+    expect(conv.discardEmpty).toHaveBeenCalledTimes(1);
+    expect(createTestingRecorder).not.toHaveBeenCalled();
+    releaseConnect();
+    await Promise.resolve();
+    expect(starting.isClosed()).toBe(true);
+    expect(createTestingRecorder).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    VoiceTransport.prototype.hold = new Promise(() => {});
+    const failed = openAssistant(deps, config, { mode: 'voice' });
+    await vi.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 40; i += 1) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await failed.ready;
+    expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(false);
+    expect(document.querySelector('[data-testid="assistant-end"]').hidden).toBe(true);
+    expect(document.querySelector('[data-testid="assistant-status"]').textContent).not.toMatch(/Listening/);
+    vi.useRealTimers();
+  });
+
+  it('stops the testing recorder on teardown and keeps no audio when the session never connects', async () => {
+    const recStop = vi.fn(async () => null);
+    createTestingRecorder.mockImplementation(() => ({ capturedAt: '2026-11-10T00:00:00.000Z', stop: recStop }));
+    mockConversation();
+    const live = openAssistant(deps, config, { mode: 'voice' });
+    await live.ready;
+    expect(createTestingRecorder).toHaveBeenCalledTimes(1);
+    await live.close();
+    expect(recStop).toHaveBeenCalledTimes(1);
+
+    createTestingRecorder.mockClear();
+    VoiceTransport.prototype.hold = new Promise(() => {});
+    vi.useFakeTimers();
+    const hung = openAssistant(deps, config, { mode: 'voice' });
+    await vi.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 40; i += 1) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await hung.ready;
+    expect(createTestingRecorder).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
 });

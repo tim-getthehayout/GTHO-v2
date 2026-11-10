@@ -4,7 +4,7 @@
  * is spoken verbatim. Tapping again ends the turn, the same as saying "over". */
 import { VoiceTransport } from '../shared.js';
 import { createAssistantConversation, createFarmReviewFlow, createFeedbackFiling, feedbackSheetSession } from './conversation.js';
-import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, createAudioChunkBuffer, voiceStartTap, voiceStartMark, prepareCaptureContext, anySignal, SAMPLE_RATE, VOICE_CONNECT_BUDGET_MS, OFFLINE_NO_MIC_MESSAGE, VOICE_UNAVAILABLE_MESSAGE } from './realtime.js';
+import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, createAudioChunkBuffer, voiceStartTap, voiceStartMark, prepareCaptureContext, anySignal, waitForAbort, SAMPLE_RATE, VOICE_CONNECT_BUDGET_MS, OFFLINE_NO_MIC_MESSAGE, VOICE_UNAVAILABLE_MESSAGE } from './realtime.js';
 import { logVoice } from './voice-telemetry.js';
 import { recordNote } from './offline-notes.js';
 import { createTestingRecorder, uploadTestingAudio } from './testing-audio.js';
@@ -112,8 +112,11 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   /** Drop an empty conversation started in parallel with a mic that then failed.
    * Surfaces cleanup failure with the locked status-bubble copy; never claims
    * success by nulling on error. Local teardown is unchanged. */
+  let emptyStartCleanup = null;
   async function discardEmptyStart() {
+    if (emptyStartCleanup) return emptyStartCleanup;
     if (!conversation) return;
+    emptyStartCleanup = (async () => {
     // Design lock: delete empty conversation artifacts (consent/checkpoint/lock/attempt),
     // not vendor cancel()'s cancelled checkpoint. Billing/usage rows stay.
     try {
@@ -135,6 +138,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       say(DISCARD_EMPTY_FAILED_MESSAGE);
       showDismissibleBanner(DISCARD_EMPTY_FAILED_MESSAGE);
     }
+    })();
+    return emptyStartCleanup;
   }
   let micFailure = null;
   /** After a successful connect, unexpected transport drop must tear down like stop(). */
@@ -168,7 +173,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         consent = stored?.decision ?? null;
         const started = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });
         conversation = started;
-        say('Starting…');
+        // talk() already shows Connecting…; do not clobber it with Starting… or a blank status.
+        if (!connectAbort) say('Starting…');
         await started.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
         // end() may have run while start was in flight. Clean up here so a
         // late start cannot use a nulled conversation, and End can return
@@ -178,7 +184,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           return started;
         }
         attempts = createAttemptTracker({ persist: deps.persist, scope: started.scope, getAll: typeof deps.getAll === 'function' ? deps.getAll : () => [] });
-        say('');
+        if (!connectAbort) say('');
         if (firstTurn) await turn(firstTurn);
         onTranscript(visible());
         return started;
@@ -204,6 +210,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       if (mic || connectAbort) {
         if (voiceReady && driver) {
           driver.endTurn();
+          voiceReady = false;
+          onListening(false);
           say('Thinking…');
           return 'turn-ended';
         }
@@ -215,6 +223,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       pendingEndTurn = false;
       voiceReady = false;
       discardEmptyFailed = false;
+      emptyStartCleanup = null;
       endingLive = false;
       typedTakeover = false;
       micFailure = null;
@@ -273,12 +282,9 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       } catch (error) {
         if (budgetHit() || error?.name === 'AbortError') {
           abandoned = true;
-          await beginWork.catch(() => {});
-          await discardEmptyStart();
-          await abandonLiveVoice();
           clearTimeout(budgetTimer);
           connectAbort = null;
-          return failUnavailable(error?.name === 'AbortError' ? 'connect-budget' : 'connect-budget');
+          return await failUnavailable('connect-budget');
         }
         abandoned = true;
         micFailure = classifyMicError(error);
@@ -371,7 +377,20 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
             else { say(message); void abandonLiveVoice(); }
           },
         });
-        await transport.connect();
+        try {
+          await Promise.race([transport.connect(), waitForAbort(budget.signal)]);
+        } catch (error) {
+          if (typedTakeover) {
+            buffer.discard();
+            await abandonLiveVoice();
+            return 'aborted';
+          }
+          if (budgetHit() || error?.name === 'AbortError') {
+            try { await transport.cancel(); } catch { /* already torn down */ }
+            return await failUnavailable();
+          }
+          throw error;
+        }
         voiceStartMark('tap→WS ready', tapAt);
         if (typedTakeover) {
           buffer.discard();
@@ -417,6 +436,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         if (pendingEndTurn) {
           pendingEndTurn = false;
           driver.endTurn();
+          voiceReady = false;
+          onListening(false);
           say('Thinking…');
           return 'turn-ended';
         }

@@ -21,6 +21,8 @@ export const BIND_SESSION_IN_CLIENT_SECRET = false;
 /** Manual commit (turn_detection null) is the default; server_vad is unverified. */
 export const TURN_DETECTION = 'manual';
 export const STT_MODEL = 'grok-voice-transcribe-2.0';
+/** Live Realtime session transcription. Distinct from STT_MODEL (offline notes). */
+export const LIVE_TRANSCRIPTION_MODEL = 'grok-transcribe';
 export const OFFLINE_NOTE_MAX_SECONDS = 180;
 export const TESTING_AUDIO_BUCKET = 'assistant-testing-audio';
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -97,6 +99,7 @@ export function publicVoiceConfig(config) {
     provider: 'xai', model: config.voiceModel, voice: VOICE_NAME, reasoning: VOICE_REASONING,
     sessionCapSeconds: VOICE_SESSION_CAP_SECONDS, turnDetection: TURN_DETECTION,
     bindSessionInClientSecret: BIND_SESSION_IN_CLIENT_SECRET, earlyTesting: config.earlyTesting,
+    transcriptionModel: LIVE_TRANSCRIPTION_MODEL,
     offlineNoteMaxSeconds: OFFLINE_NOTE_MAX_SECONDS, maxAudioBytes: MAX_AUDIO_BYTES,
   };
 }

@@ -62,3 +62,5 @@ Before committing, Claude Code must cross-check §5.3a against every `FOREIGN KE
 **Do not invent schema changes.** CP-56 is a pure read-path + write-path implementation against the existing schema. Any schema change needed to support the import must stop and open an OPEN_ITEMS entry per CLAUDE.md "Invention Required — Stop and Flag."
 
 **Base docs are the spec.** This file is a pointer. If there is any conflict between this file and the base docs, the base docs win. Prefer reading §5 end-to-end once before starting rather than relying on this summary.
+
+**Later addendum (042 / 043, written but not applied).** CP-56 acceptance for held migrations 042 and 043 lives in `V2_MIGRATION_PLAN.md` §5.14, with the compiled ceiling, staged 41→42 / 42→43 steps and fail-closed gates in §5.9–5.11. The held steps must not run in the released importer while the ceiling remains 41.

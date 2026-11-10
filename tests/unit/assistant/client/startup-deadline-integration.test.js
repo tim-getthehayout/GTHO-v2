@@ -1,0 +1,516 @@
+/** Real voice driver + VoiceTransport with fake capture/socket boundaries. */
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { createAssistantSession } from '../../../../src/features/assistant/client/session.js';
+import { openAssistant } from '../../../../src/features/assistant/client/panel.js';
+import { createPcm16Resampler, startMicrophone, VOICE_CONNECT_BUDGET_MS, TURN_FINALIZE_TIMEOUT_MS } from '../../../../src/features/assistant/client/realtime.js';
+import { OUTBOUND_TURN_BUDGET_MS, OUTBOUND_DROPPED_MESSAGE } from '../../../../src/features/assistant/client/outbound-queue.js';
+import { logger } from '../../../../src/utils/logger.js';
+import { createTestingRecorder } from '../../../../src/features/assistant/client/testing-audio.js';
+import { sanitizeVoiceLogContext } from '../../../../src/features/assistant/client/voice-telemetry.js';
+import { createAssistantConversation } from '../../../../src/features/assistant/client/conversation.js';
+
+vi.mock('../../../../src/features/assistant/client/conversation.js', () => ({
+  createAssistantConversation: vi.fn(), createFarmReviewFlow: vi.fn(),
+  createFeedbackFiling: vi.fn(), feedbackSheetSession: vi.fn(),
+}));
+vi.mock('../../../../src/features/assistant/client/attempts.js', () => ({
+  createAttemptTracker: () => ({ current: null, ensure: async () => ({ id: 'test-attempt' }), finish: async () => {} }),
+}));
+
+const config = { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', sessionCapSeconds: 600, transcriptionModel: 'grok-transcribe', earlyTesting: false };
+const deps = { api: {}, scope: () => ({ operationId: 'test-operation', actorId: 'test-actor' }), persist: vi.fn(), online: () => true, offlineNotes: { list: async () => [] } };
+const gate = () => { let resolve, reject; const promise = new Promise((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; };
+const flush = async () => { for (let i = 0; i < 60; i++) await Promise.resolve(); };
+let sockets, tracks, contexts, conversation, entry;
+class Socket {
+  constructor() { this.readyState = 1; this.sent = []; sockets.push(this); }
+  send(json) { this.sent.push(JSON.parse(json)); }
+  message(value) { this.onmessage?.({ data: JSON.stringify(value) }); }
+  close() { this.readyState = 3; this.onclose?.(); }
+}
+class Audio {
+  constructor() { this.state = 'running'; this.sampleRate = 24000; this.destination = {}; contexts.push(this); }
+  resume() { return Promise.resolve(); }
+  close() { this.state = 'closed'; return Promise.resolve(); }
+  createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+  createScriptProcessor() {
+    const processor = { connect() { processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(128) } }); }, disconnect() {} };
+    this.processor = processor;
+    return processor;
+  }
+}
+function makeSession(options = {}) { return createAssistantSession({ deps, config: { ...config }, intent: 'data-entry', ...options }); }
+async function connect(talking) {
+  await flush();
+  expect(sockets).toHaveLength(1);
+  sockets[0].message({ type: 'session.created' });
+  await flush();
+  await expect(talking).resolves.toBe('listening');
+}
+beforeEach(() => {
+  vi.useFakeTimers(); document.body.replaceChildren(); sockets = []; tracks = [{ stop: vi.fn() }]; contexts = []; entry = null;
+  vi.stubGlobal('WebSocket', Socket); vi.stubGlobal('AudioContext', Audio);
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(async () => ({ getTracks: () => tracks })) } });
+  conversation = {
+    ref: 'test-conversation', scope: deps.scope(), route: null,
+    session: { conversationRef: 'test-conversation', intent: 'data-entry', phase: 'converse', transcript: [], capture: {} },
+    begin: vi.fn(async () => {}), turn: vi.fn(async () => null), discardEmpty: vi.fn(async () => {}),
+    voiceAuthorization: vi.fn(async () => ({ provider: 'xai', token: 'test-token', expiresAt: Date.now() + 60000 })),
+  };
+  createAssistantConversation.mockClear().mockReturnValue(conversation);
+});
+afterEach(async () => { await entry?.close(); await flush(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+describe('startup awaits cannot defeat the deadline', () => {
+  it('a hung gesture resume releases tracks at 10 seconds without waiting for begin or close', async () => {
+    const begin = gate(); conversation.begin.mockReturnValue(begin.promise);
+    Audio.prototype.resume = () => new Promise(() => {});
+    const originalClose = Audio.prototype.close;
+    Audio.prototype.close = () => new Promise(() => {});
+    const session = makeSession(); const talking = session.talk(); await flush();
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await expect(talking).resolves.toBe('unavailable');
+    expect(tracks[0].stop).toHaveBeenCalled(); expect(session.listening).toBe(false);
+    expect(conversation.discardEmpty).not.toHaveBeenCalled();
+    begin.resolve(); await flush(); expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    Audio.prototype.resume = () => Promise.resolve(); Audio.prototype.close = originalClose;
+  });
+  it('a rejected resume takes the unavailable path without awaiting context close', async () => {
+    const originalResume = Audio.prototype.resume, originalClose = Audio.prototype.close;
+    Audio.prototype.resume = () => Promise.reject(new Error('resume-failed'));
+    const close = vi.fn(() => new Promise(() => {})); Audio.prototype.close = close;
+    try {
+      const session = makeSession();
+      await expect(session.talk()).resolves.toBe('unavailable');
+      expect(tracks[0].stop).toHaveBeenCalled(); expect(close).toHaveBeenCalledTimes(1);
+    } finally { Audio.prototype.resume = originalResume; Audio.prototype.close = originalClose; }
+  });
+  it('a hung row begin releases capture immediately and cleans the late begin exactly once', async () => {
+    const begin = gate(); conversation.begin.mockReturnValue(begin.promise);
+    const session = makeSession(); const talking = session.talk(); await flush();
+    expect(conversation.begin).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await expect(talking).resolves.toBe('unavailable'); expect(tracks[0].stop).toHaveBeenCalled();
+    expect(sockets).toHaveLength(0); expect(conversation.discardEmpty).not.toHaveBeenCalled();
+    begin.resolve(); await flush(); expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    await session.end(); expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+  });
+  it('a row begin that rejects after the deadline still runs empty cleanup exactly once', async () => {
+    const begin = gate(); conversation.begin.mockReturnValue(begin.promise);
+    const session = makeSession(); const talking = session.talk(); await flush();
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await expect(talking).resolves.toBe('unavailable');
+    begin.reject(new Error('late-start-failure')); await flush();
+    expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    await session.end(); expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+  });
+  it('first-use consent takes no connect budget and the subsequent hung begin still expires', async () => {
+    const begin = gate(); conversation.begin.mockReturnValue(begin.promise);
+    entry = openAssistant(deps, { ...config, earlyTesting: true }, { mode: 'voice' });
+    expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(true);
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(conversation.begin).not.toHaveBeenCalled(); expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    document.querySelector('[data-testid="assistant-consent-decline"]').click(); await flush();
+    await vi.advanceTimersByTimeAsync(9999); expect(tracks[0].stop).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1); expect((await entry.ready).result).toBe('unavailable');
+    expect(tracks[0].stop).toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(false);
+    begin.resolve(); await flush(); expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+  });
+  it('the capture helper itself aborts a second hung resume', async () => {
+    const audio = new Audio(); audio.state = 'suspended'; audio.resume = () => new Promise(() => {});
+    const abort = new AbortController();
+    const capture = startMicrophone({ stream: { getTracks: () => tracks }, context: audio, onChunk() {}, signal: abort.signal });
+    const checked = expect(capture).rejects.toMatchObject({ name: 'AbortError' });
+    abort.abort(); await checked; expect(tracks[0].stop).toHaveBeenCalled();
+  });
+  it('typed Send during pending voice begin waits for attempts and keeps the conversation', async () => {
+    const begin = gate(); conversation.begin.mockReturnValue(begin.promise);
+    const session = makeSession(); const talking = session.talk(); await flush();
+    const typing = session.text('typed while connecting'); await flush();
+    expect(conversation.turn).not.toHaveBeenCalled();
+    begin.resolve(); await expect(typing).resolves.toBeUndefined(); await talking;
+    expect(conversation.turn).toHaveBeenCalledWith(expect.objectContaining({ modality: 'text', text: 'typed while connecting' }));
+    expect(conversation.begin).toHaveBeenCalledTimes(1); expect(conversation.discardEmpty).not.toHaveBeenCalled();
+  });
+  it('typed Send during a text-first begin also waits for attempts', async () => {
+    const begin = gate(); conversation.begin.mockReturnValue(begin.promise);
+    const session = makeSession(); const starting = session.begin(); await flush();
+    const typing = session.text('pending text'); await flush(); expect(conversation.turn).not.toHaveBeenCalled();
+    begin.resolve(); await starting; await typing;
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('real driver finalization and shared composer', () => {
+  it('typed takeover emits the unfinished voice turn before composing text, including final transcription', async () => {
+    const session = makeSession(); await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'spoken', transcript: 'old partial' });
+    const typing = session.text('then typed'); await flush();
+    expect(sockets[0].sent.some(row => row.type === 'input_audio_buffer.commit')).toBe(true);
+    expect(conversation.turn).not.toHaveBeenCalled();
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'spoken', transcript: 'final spoken words' });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS); await typing;
+    expect(conversation.turn.mock.calls.map(([row]) => [row.modality, row.text])).toEqual([['voice', 'final spoken words'], ['text', 'then typed']]);
+    expect(sockets[0].readyState).toBe(3);
+  });
+  it('typed takeover uses the finalization timeout when no completed event arrives', async () => {
+    const session = makeSession(); await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'spoken', transcript: 'partial survives' });
+    const typing = session.text('typed'); await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS); await typing;
+    expect(conversation.turn.mock.calls.map(([row]) => row.text)).toEqual(['partial survives', 'typed']);
+  });
+  it('typed takeover waits for its own voice delivery behind an earlier pending backend turn', async () => {
+    const first = gate();
+    conversation.turn.mockImplementationOnce(() => first.promise);
+    const session = makeSession(); await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'first', transcript: 'first voice over' });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    contexts[0].processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(128) } });
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'second', transcript: 'second voice' });
+    const typing = session.text('typed last');
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    expect(conversation.turn).toHaveBeenCalledTimes(1); expect(sockets[0].readyState).toBe(1);
+    first.resolve(null); await typing;
+    expect(conversation.turn.mock.calls.map(([row]) => row.text)).toEqual(['first voice', 'second voice', 'typed last']);
+  });
+  it('spoken over restores Type here and clears Listening without a second tap', async () => {
+    const listening = vi.fn(); entry = openAssistant(deps, config, { mode: 'voice', onListening: listening });
+    await flush(); sockets[0].message({ type: 'session.created' }); await entry.ready;
+    const input = document.querySelector('[data-testid="assistant-text"]'); expect(input.hidden).toBe(true);
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'over-turn', transcript: 'hello over' });
+    expect(input.hidden).toBe(false); expect(entry.session.listening).toBe(false);
+    expect(document.querySelector('[data-testid="assistant-end"]').hidden).toBe(true);
+    expect(listening).toHaveBeenLastCalledWith(false);
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    expect(conversation.turn).toHaveBeenCalledWith(expect.objectContaining({ text: 'hello' }));
+  });
+  it.each(['send', 'begin'])('a %s-first session adopts push-to-talk callbacks when the open header sheet is reused', async path => {
+    entry = openAssistant(deps, config);
+    if (path === 'send') {
+      document.querySelector('[data-testid="assistant-text"]').value = 'text first';
+      document.querySelector('[data-testid="assistant-send"]').click(); await flush();
+    } else await entry.begin('data-entry');
+    const priorSession = entry.session, listening = vi.fn(), terminal = vi.fn();
+    const reused = openAssistant(deps, config, { mode: 'voice', onListening: listening, onVoiceTerminal: terminal });
+    expect(reused).toBe(entry); expect(entry.session).toBe(priorSession);
+    expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(true);
+    await flush(); sockets[0].message({ type: 'session.created' }); await entry.ready;
+    expect(listening).toHaveBeenLastCalledWith(true);
+    sockets[0].close(); await flush();
+    expect(terminal).toHaveBeenCalledWith('Voice connection ended. Tap to start a new one.');
+    expect(listening).toHaveBeenLastCalledWith(false);
+    expect(tracks[0].stop).toHaveBeenCalled();
+    expect(entry.session.listening).toBe(false);
+    expect(document.querySelector('[data-testid="assistant-text"]').hidden).toBe(false);
+  });
+});
+
+it('44.1 kHz chunk boundaries produce the same PCM as a continuous stream', () => {
+  const samples = Int16Array.from({ length: 44100 }, (_, i) => Math.round(Math.sin(i / 17) * 20000));
+  const one = createPcm16Resampler(44100, 24000)(new Uint8Array(samples.buffer));
+  const convert = createPcm16Resampler(44100, 24000), chunks = [];
+  for (let i = 0; i < samples.length; i += 4096) chunks.push(...convert(new Uint8Array(samples.slice(i, i + 4096).buffer)));
+  expect(new Uint8Array(chunks)).toEqual(one); expect(one.byteLength).toBe(48000);
+});
+it('recorder duration freezes at the cap even when stop is consumed much later', async () => {
+  class Recorder {
+    static isTypeSupported() { return true; }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.onstop(); }
+  }
+  const recorder = createTestingRecorder({ stream: {}, MediaRecorderImpl: Recorder, maxMs: 1000 });
+  await vi.advanceTimersByTimeAsync(10000);
+  expect((await recorder.stop()).durationMs).toBe(1000);
+});
+it('known telemetry keys cannot carry arbitrary strings, nonfinite numbers or wrong types', () => {
+  expect(sanitizeVoiceLogContext({ reason: 'secret text', event: 'transcript', audioContextState: 'token', sampleRate: 'secret', ms: Infinity, attempt: NaN, ok: 'yes', emitted: true })).toEqual({});
+  expect(sanitizeVoiceLogContext({ reason: 'connect-budget', event: 'updated', audioContextState: 'running', ms: 10, ok: true })).toEqual({ reason: 'connect-budget', event: 'updated', audioContextState: 'running', ms: 10, ok: true });
+});
+
+// Design review interleavings, using the real driver and vendor transport.
+describe('reviewed disconnect and retry interleavings', () => {
+  it.each([['socket-close', false], ['socket-close', true], ['backstop', false]])('queued final voice precedes typed text after %s (terminal ends: %s)', async (release, terminalEnds) => {
+    const first = gate(); conversation.turn.mockImplementationOnce(() => first.promise);
+    const session = makeSession({ onVoiceTerminal: terminalEnds ? () => { void session.end(); } : null });
+    await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'first', transcript: 'first over' });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    contexts[0].processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(128) } });
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'second', transcript: 'second' });
+    let settled = false;
+    const typing = session.text('typed').then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    if (release === 'backstop') await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    else sockets[0].close();
+    await flush(); first.resolve(null); await flush();
+    // Close releases the wait immediately; without a close the backstop wins.
+    // Neither path drops the already-final voice turn or duplicates it.
+    expect(settled).toBe(true); await typing;
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    expect(conversation.turn.mock.calls.map(([row]) => [row.modality, row.text])).toEqual([
+      ['voice', 'first'], ['voice', 'second'], ['text', 'typed'],
+    ]);
+    expect(new Set(conversation.turn.mock.calls.map(([row]) => row.id)).size).toBe(3);
+    expect(tracks[0].stop).toHaveBeenCalled();
+  });
+
+  it('retry adopts a still-pending begin without letting abandoned cleanup delete it', async () => {
+    const begin = gate(); conversation.begin.mockReturnValue(begin.promise);
+    const session = makeSession(); const firstTalk = session.talk(); await flush();
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await expect(firstTalk).resolves.toBe('unavailable');
+    const retry = session.talk(); await flush(); begin.resolve(); await flush();
+    expect(sockets).toHaveLength(1); sockets[0].message({ type: 'session.created' });
+    await expect(retry).resolves.toBe('listening');
+    expect(session.listening).toBe(true);
+    expect(conversation.discardEmpty).not.toHaveBeenCalled();
+    expect(createAssistantConversation).toHaveBeenCalledTimes(1);
+    expect(conversation.begin).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    expect(session.listening).toBe(true); await session.end();
+  });
+
+  it('retry retires cleanup already in flight before beginning a fresh conversation', async () => {
+    const begin = gate(), discarded = gate();
+    conversation.begin.mockReturnValue(begin.promise);
+    conversation.discardEmpty.mockReturnValue(discarded.promise);
+    const next = { ...conversation, ref: 'retry-conversation', begin: vi.fn(async () => {}), discardEmpty: vi.fn(async () => {}) };
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const firstTalk = session.talk(); await flush();
+    await vi.advanceTimersByTimeAsync(VOICE_CONNECT_BUDGET_MS);
+    await expect(firstTalk).resolves.toBe('unavailable');
+    begin.resolve(); await flush(); expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    const retry = session.talk(); await flush();
+    expect(next.begin).not.toHaveBeenCalled(); expect(sockets).toHaveLength(0);
+    discarded.resolve(); await flush();
+    expect(next.begin).toHaveBeenCalledTimes(1); expect(sockets).toHaveLength(1);
+    sockets[0].message({ type: 'session.created' }); await expect(retry).resolves.toBe('listening');
+    expect(session.conversation).toBe(next); expect(next.discardEmpty).not.toHaveBeenCalled();
+    await session.end(); expect(next.discardEmpty).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['socket-close', 'transport-invalidation'])('%s during finalization keeps final transcription before text', async release => {
+    const session = makeSession(); await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'one', transcript: 'final voice' });
+    let settled = false; const typing = session.text('typed').then(() => { settled = true; }); await flush();
+    if (release === 'socket-close') sockets[0].close();
+    else {
+      vi.spyOn(sockets[0], 'send').mockImplementationOnce(() => { throw new Error('stream-failed'); });
+      contexts[0].processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(128) } });
+    }
+    await flush(); expect(settled).toBe(true); await typing;
+    expect(conversation.turn.mock.calls.map(([row]) => [row.modality, row.text])).toEqual([
+      ['voice', 'final voice'], ['text', 'typed'],
+    ]);
+  });
+
+  it('declining recording consent still connects and never starts a recorder', async () => {
+    const Recorder = vi.fn(); vi.stubGlobal('MediaRecorder', Recorder);
+    entry = openAssistant(deps, { ...config, earlyTesting: true }, { mode: 'voice' });
+    document.querySelector('[data-testid="assistant-consent-decline"]').click(); await flush();
+    sockets[0].message({ type: 'session.created' }); expect((await entry.ready).result).toBe('listening');
+    expect(entry.session.listening).toBe(true); expect(Recorder).not.toHaveBeenCalled();
+    expect(conversation.begin).toHaveBeenCalledWith(expect.objectContaining({ consent: 'declined' }));
+  });
+});
+
+// Additional adversarial orders: no transport state may select a turn's owner.
+describe('per-conversation outbound ownership', () => {
+  function replacement() {
+    return { ...conversation, ref: 'replacement', scope: { ...conversation.scope },
+      session: { ...conversation.session, conversationRef: 'replacement', transcript: [] },
+      begin: vi.fn(async () => {}), turn: vi.fn(async () => null), discardEmpty: vi.fn(async () => {}),
+    };
+  }
+  async function pendingFinals(session) {
+    const first = gate(); conversation.turn.mockImplementationOnce(() => first.promise);
+    await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'q-first', transcript: 'voice one over' });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    contexts[0].processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(128) } });
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'q-second', transcript: 'voice two over' });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    return first;
+  }
+  it('text after socket teardown stays behind every final voice turn', async () => {
+    const session = makeSession(); const first = await pendingFinals(session);
+    sockets[0].close(); await flush(); const typing = session.text('typed after disconnect'); await flush();
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    first.resolve(null); await typing;
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two', 'typed after disconnect']);
+  });
+  it('ordinary terminal end drains queued finals on their own conversation', async () => {
+    const session = makeSession({ onVoiceTerminal: () => { void session.end(); } });
+    const first = await pendingFinals(session); sockets[0].close(); await flush();
+    expect(session.conversation).toBeNull(); expect(conversation.discardEmpty).not.toHaveBeenCalled();
+    first.resolve(null); await flush();
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+  });
+  it('a real talk retry cannot receive an older generation final', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession({ onVoiceTerminal: () => { void session.end(); } });
+    const first = await pendingFinals(session); sockets[0].close(); await flush();
+    const retry = session.talk(); await flush(); expect(sockets).toHaveLength(2);
+    sockets[1].message({ type: 'session.created' }); await expect(retry).resolves.toBe('listening');
+    first.resolve(null); await flush();
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(next.turn).not.toHaveBeenCalled(); expect(session.conversation).toBe(next);
+    expect(next.discardEmpty).not.toHaveBeenCalled(); expect(session.listening).toBe(true);
+    await session.end();
+  });
+  it.each(['close-end', 'end-close', 'double-end'])('%s retires once and never cancels a replacement queue', async order => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session);
+    if (order === 'close-end') { sockets[0].close(); await flush(); await session.end(); }
+    else { await session.end(); if (order === 'double-end') await session.end(); else sockets[0].close(); }
+    const retry = session.talk(); await flush(); sockets[1].message({ type: 'session.created' }); await retry;
+    first.resolve(null); await flush();
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    expect(next.turn).not.toHaveBeenCalled(); expect(session.conversation).toBe(next); expect(session.listening).toBe(true);
+    await session.end();
+  });
+  it('post-end typed send waits for retired finals before using a fresh conversation', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session); await session.end();
+    const typing = session.text('fresh typed'); await flush(); expect(next.begin).not.toHaveBeenCalled();
+    first.resolve(null); await typing;
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'fresh typed', modality: 'text' }));
+  });
+  it('a hung backend cannot hold typed text forever; timed-out finals are visibly dropped, never migrated', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const say = vi.fn(), logged = vi.spyOn(logger, 'info');
+    const session = makeSession({ say }); const first = await pendingFinals(session);
+    sockets[0].close(); await flush(); let finished = false;
+    const typing = session.text('typed after timeout').then(() => { finished = true; }); await flush();
+    await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await typing;
+    expect(finished).toBe(true); expect(say).toHaveBeenCalledWith(OUTBOUND_DROPPED_MESSAGE);
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'typed after timeout', modality: 'text' }));
+    const drops = logged.mock.calls.filter(([, phase]) => phase === 'outbound-drop');
+    expect(drops).toContainEqual(['assistant-voice', 'outbound-drop', { reason: 'outbound-timeout', eventCount: 3 }]);
+    first.resolve('late old answer'); await flush();
+    expect(next.turn).toHaveBeenCalledTimes(1); expect(conversation.turn).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
+  });
+  it('an already-dispatched typed request is bounded without replaying it on timeout', async () => {
+    const held = gate(); conversation.turn.mockReturnValue(held.promise);
+    const session = makeSession(); let finished = false; const typing = session.text('only once').then(result => { finished = true; return result; });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); expect((await typing).status).toBe('dropped');
+    expect(finished).toBe(true); expect(conversation.turn).toHaveBeenCalledTimes(1);
+    held.resolve(null); await flush(); expect(conversation.turn).toHaveBeenCalledTimes(1);
+  });
+  it('hung teardown before typed dispatch is inside the same bounded queue budget', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); await connect(session.talk());
+    const original = contexts[0].close; contexts[0].close = () => new Promise(() => {});
+    try {
+      const typing = session.text('typed after hung close'); await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS); await flush();
+      await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); expect(await typing).toBeUndefined();
+      expect(conversation.turn).not.toHaveBeenCalled();
+      expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'typed after hung close' }));
+      expect(tracks[0].stop).toHaveBeenCalled();
+    } finally { contexts[0].close = original; }
+  });
+  it('text cannot adopt a conversation whose empty cleanup already began', async () => {
+    const next = replacement(), cleanup = gate(); conversation.discardEmpty.mockReturnValue(cleanup.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); await session.begin(); const ending = session.end(); await flush();
+    expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    const typing = session.text('during old cleanup'); await typing;
+    expect(conversation.turn).not.toHaveBeenCalled();
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'during old cleanup' }));
+    cleanup.resolve(); await ending; expect(session.conversation).toBe(next);
+  });
+  it('a voice-only timeout retires the poisoned conversation before the next Talk', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session);
+    await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await flush();
+    expect(session.listening).toBe(false); expect(session.conversation).toBeNull();
+    const retry = session.talk(); await flush(); sockets[1].message({ type: 'session.created' });
+    await expect(retry).resolves.toBe('listening');
+    first.resolve('late answer'); await flush();
+    expect(conversation.turn).toHaveBeenCalledTimes(1); expect(next.turn).not.toHaveBeenCalled();
+    expect(session.conversation).toBe(next); expect(session.listening).toBe(true);
+    await session.end();
+  });
+
+  it('retry in the same tick as end cannot adopt the retiring generation', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session);
+    const ending = session.end(); const retry = session.talk(); await flush();
+    expect(sockets).toHaveLength(2); sockets[1].message({ type: 'session.created' }); await retry; await ending;
+    first.resolve(null); await flush();
+    expect(session.conversation).toBe(next); expect(session.listening).toBe(true);
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(next.turn).not.toHaveBeenCalled(); await session.end();
+  });
+  it('late teardown and retirement completion cannot close the replacement voice session', async () => {
+    const next = replacement(), closed = gate(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session);
+    contexts[0].close = () => closed.promise;
+    await session.end(); const retry = session.talk(); await flush(); sockets[1].message({ type: 'session.created' }); await retry;
+    first.resolve(null); await flush(); closed.resolve(); await flush();
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(session.conversation).toBe(next); expect(session.listening).toBe(true); expect(sockets[1].readyState).toBe(1);
+    expect(next.discardEmpty).not.toHaveBeenCalled(); await session.end();
+  });
+
+  it('one send keeps its original 20-second deadline when both old and replacement backends hang', async () => {
+    const next = replacement(), nextWork = gate();
+    next.turn.mockReturnValue(nextWork.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session); sockets[0].close(); await flush();
+    const enqueued = Date.now(); let settledAt;
+    const typing = session.text('one bounded send').then(result => { settledAt = Date.now(); return result; }, error => { settledAt = Date.now(); return error; });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS - 1);
+    expect(settledAt).toBeUndefined(); expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'one bounded send' }));
+    await vi.advanceTimersByTimeAsync(1); expect((await typing).status).toBe('dropped');
+    expect(settledAt - enqueued).toBe(OUTBOUND_TURN_BUDGET_MS);
+    first.resolve(null); nextWork.resolve(null); await flush(); expect(next.turn).toHaveBeenCalledTimes(1);
+  });
+  it('a dropped typed firstTurn keeps its failure and draft, then retries through ordinary Send', async () => {
+    const held = gate(), next = replacement(); conversation.turn.mockReturnValue(held.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    entry = openAssistant(deps, config, { firstTurn: { id: 'first-typed', role: 'user', modality: 'text', text: 'keep this draft' } });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await entry.ready;
+    const input = document.querySelector('[data-testid="assistant-text"]');
+    expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe(OUTBOUND_DROPPED_MESSAGE);
+    expect(input.value).toBe('keep this draft'); expect(input.hidden).toBe(false);
+    document.querySelector('[data-testid="assistant-send"]').click(); await flush();
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'keep this draft', modality: 'text' }));
+    expect(input.value).toBe(''); held.resolve(null); await flush(); expect(next.turn).toHaveBeenCalledTimes(1);
+  });
+
+  it('replacement startup consumes only the original send deadline and cannot send after a late begin', async () => {
+    const next = replacement(), begin = gate(); next.begin.mockReturnValue(begin.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const say = vi.fn(), session = makeSession({ say }); const first = await pendingFinals(session);
+    sockets[0].close(); await flush(); const started = Date.now(); let settled;
+    const typing = session.text('bounded startup too').then(result => { settled = Date.now(); return result; });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS);
+    expect((await typing).status).toBe('dropped'); expect(settled - started).toBe(OUTBOUND_TURN_BUDGET_MS);
+    expect(next.begin).toHaveBeenCalledTimes(1); begin.resolve(); first.resolve(null); await flush();
+    expect(next.turn).not.toHaveBeenCalled(); expect(say.mock.calls.at(-1)).toEqual([OUTBOUND_DROPPED_MESSAGE]);
+  });
+  it('ordinary Send retains the same draft and visible drop failure as a typed firstTurn', async () => {
+    const held = gate(), next = replacement(); conversation.turn.mockReturnValue(held.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    entry = openAssistant(deps, config, { mode: 'text' });
+    const input = document.querySelector('[data-testid="assistant-text"]'); input.value = 'ordinary retry draft';
+    document.querySelector('[data-testid="assistant-send"]').click(); await flush();
+    await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await flush();
+    expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe(OUTBOUND_DROPPED_MESSAGE);
+    expect(input.value).toBe('ordinary retry draft'); expect(input.hidden).toBe(false);
+    document.querySelector('[data-testid="assistant-send"]').click(); await flush();
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'ordinary retry draft' }));
+    held.resolve(null); await flush(); expect(next.turn).toHaveBeenCalledTimes(1);
+  });
+
+});

@@ -96,7 +96,7 @@ const deps = {
   offlineNotes: { list: async () => [] },
 };
 
-const config = { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', sessionCapSeconds: 600, earlyTesting: false };
+const config = { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', sessionCapSeconds: 600, earlyTesting: false, transcriptionModel: 'grok-transcribe' };
 
 function micError(name) {
   const err = new Error(name);
@@ -133,7 +133,7 @@ describe('classifyMicError / acquireMicrophone', () => {
 });
 
 describe('talk() mic-first', () => {
-  it('mints only after the mic settles (begin may overlap; Listening before mint)', async () => {
+  it('mints only after the mic settles (begin may overlap; Connecting before mint)', async () => {
     const order = [];
     let releaseMic;
     const micGate = new Promise(resolve => { releaseMic = resolve; });
@@ -148,9 +148,24 @@ describe('talk() mic-first', () => {
     const saved = globalThis.navigator;
     Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices }, configurable: true });
     const AudioContextImpl = class {
-      constructor() { this.destination = {}; this.currentTime = 0; }
+      constructor({ sampleRate } = {}) {
+        this.sampleRate = sampleRate || 24000;
+        this.state = 'running';
+        this.destination = {};
+        this.currentTime = 0;
+        this.resume = async () => { this.state = 'running'; };
+      }
       createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
-      createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null }; }
+      createScriptProcessor() {
+        const processor = {
+          connect() {
+            queueMicrotask(() => processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(8) } }));
+          },
+          disconnect() {},
+          onaudioprocess: null,
+        };
+        return processor;
+      }
       createBuffer() { return { getChannelData: () => new Float32Array(1), duration: 0 }; }
       createBufferSource() { return { connect() {}, start() {}, buffer: null }; }
       async close() {}
@@ -301,9 +316,24 @@ describe('shared voice sheet: no xAI session before the mic check', () => {
     const saved = globalThis.navigator;
     Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices }, configurable: true });
     const AudioContextImpl = class {
-      constructor() { this.destination = {}; this.currentTime = 0; }
+      constructor({ sampleRate } = {}) {
+        this.sampleRate = sampleRate || 24000;
+        this.state = 'running';
+        this.destination = {};
+        this.currentTime = 0;
+        this.resume = async () => { this.state = 'running'; };
+      }
       createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
-      createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null }; }
+      createScriptProcessor() {
+        const processor = {
+          connect() {
+            queueMicrotask(() => processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(8) } }));
+          },
+          disconnect() {},
+          onaudioprocess: null,
+        };
+        return processor;
+      }
       createBuffer() { return { getChannelData: () => new Float32Array(1), duration: 0 }; }
       createBufferSource() { return { connect() {}, start() {}, buffer: null }; }
       async close() {}

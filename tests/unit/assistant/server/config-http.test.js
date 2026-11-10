@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readConfig, readOrigins, FUNCTION_SECRETS, publicVoiceConfig, TECHNICAL_BUDGETS, PROVIDER_TIMEOUT_MS } from '../../../../src/features/assistant/server/config.js';
+import { readConfig, readOrigins, FUNCTION_SECRETS, publicVoiceConfig, TECHNICAL_BUDGETS, PROVIDER_TIMEOUT_MS, LIVE_TRANSCRIPTION_MODEL, STT_MODEL } from '../../../../src/features/assistant/server/config.js';
 import { withCors, readJson, readBytes, unconfiguredWithCors, ALLOWED_HEADERS } from '../../../../src/features/assistant/server/http.js';
 import { env, OP } from './fake-supabase.js';
 
@@ -38,7 +38,11 @@ describe('function configuration (exactly eight GTHO secrets)', () => {
     expect(config.textModel).toBe('grok-4.20-0309-non-reasoning');
     expect(config.operations).toEqual([OP]);
     const shown = publicVoiceConfig(config);
-    expect(shown).toMatchObject({ model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', sessionCapSeconds: 600, turnDetection: 'manual', bindSessionInClientSecret: false });
+    expect(shown).toMatchObject({ model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', sessionCapSeconds: 600, turnDetection: 'manual', bindSessionInClientSecret: false, transcriptionModel: 'grok-transcribe' });
+    expect(shown.transcriptionModel).toBe(LIVE_TRANSCRIPTION_MODEL);
+    expect(LIVE_TRANSCRIPTION_MODEL).toBe('grok-transcribe');
+    expect(STT_MODEL).toBe('grok-voice-transcribe-2.0');
+    expect(LIVE_TRANSCRIPTION_MODEL).not.toBe(STT_MODEL);
     expect(JSON.stringify(shown)).not.toContain('not-real');
   });
 });

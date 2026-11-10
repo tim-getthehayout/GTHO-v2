@@ -48,3 +48,5 @@ Authoritative format definition: **V2_MIGRATION_PLAN.md §5** (read this first �
 **CP-56 not in scope here.** CP-56 is specified in V2_MIGRATION_PLAN.md §5.7–§5.9 for single-source reference, but will be picked up as its own checkpoint with its own spec file. Do not implement import during CP-55.
 
 **Architecture audit before commit.** Per CLAUDE.md "Architecture Audit — Before Every Commit," verify: operation entity round-trips `schemaVersion`; migration SQL column type matches `FIELDS` type; export envelope's `schema_version` reads from `operations.schema_version`, not a hardcoded constant; no innerHTML in progress sheet; all user-facing strings go through `t()`.
+
+**Later addendum (042 / 043, written but not applied).** CP-55 acceptance for held migrations 042 and 043 lives in `V2_MIGRATION_PLAN.md` §5.13, with serialization and ceiling rules in §5.5 and §5.9–5.11. Do not treat file presence as a raised export ceiling.

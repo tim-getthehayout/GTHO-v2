@@ -6,45 +6,35 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const onStatusHolders = [];
-vi.mock('../../../../src/features/assistant/client/realtime.js', () => ({
-  createXaiRealtimeDriver: vi.fn(({ onStatus }) => {
-    onStatusHolders.push(onStatus);
-    return {
-      endTurn: vi.fn(),
-      speak: vi.fn(() => true),
-      get connected() { return true; },
-      connect: vi.fn(async ({ onDisconnect }) => ({
-        sendAudio: vi.fn(),
-        sendText: vi.fn(),
-        interrupt: vi.fn(),
-        cancel: vi.fn(),
-        close: vi.fn(async () => { onDisconnect?.(); }),
+vi.mock('../../../../src/features/assistant/client/realtime.js', async importOriginal => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    createXaiRealtimeDriver: vi.fn(({ onStatus }) => {
+      onStatusHolders.push(onStatus);
+      return {
         endTurn: vi.fn(),
-        speak: vi.fn(),
-      })),
-    };
-  }),
-  acquireMicrophone: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })),
-  startMicrophone: vi.fn(async ({ stream, onChunk } = {}) => ({ stream: stream || {}, stop: vi.fn(async () => {}) })),
-  createPcmPlayer: vi.fn(() => ({ play: vi.fn(), close: vi.fn(async () => {}) })),
-  createAudioChunkBuffer: () => {
-    const queue = [];
-    return {
-      get length() { return queue.length; },
-      onChunk(bytes) { queue.push(bytes); },
-      async flushTo(send) { for (const c of queue.splice(0)) await send(c); },
-      discard() { queue.length = 0; },
-    };
-  },
-  voiceStartTap: () => null,
-  voiceStartMark: () => {},
-  classifyMicError: vi.fn(error => ({ name: error?.name || 'NotFoundError', message: error?.name === 'NotAllowedError' ? 'Microphone access is blocked.' : 'No microphone found.' })),
-  OFFLINE_NO_MIC_MESSAGE: "No microphone found, so the voice note wasn't recorded. You can use the normal screens.",
-  VOICE_UNAVAILABLE_MESSAGE: 'Voice is unavailable right now; you can type instead.',
-  MIC_MISSING_MESSAGE: 'No microphone found.',
-  MIC_BLOCKED_MESSAGE: 'Microphone access is blocked.',
-  TYPE_INSTEAD_QUESTION: 'Type instead?',
-}));
+        speak: vi.fn(() => true),
+        get connected() { return true; },
+        connect: vi.fn(async ({ onDisconnect }) => ({
+          sendAudio: vi.fn(),
+          sendText: vi.fn(),
+          interrupt: vi.fn(),
+          cancel: vi.fn(),
+          close: vi.fn(async () => { onDisconnect?.(); }),
+          endTurn: vi.fn(),
+          speak: vi.fn(),
+        })),
+      };
+    }),
+    acquireMicrophone: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })),
+    startMicrophone: vi.fn(async ({ stream, onChunk } = {}) => {
+      onChunk?.(new Uint8Array([1]));
+      return { stream: stream || {}, stop: vi.fn(async () => {}) };
+    }),
+    createPcmPlayer: vi.fn(() => ({ play: vi.fn(), close: vi.fn(async () => {}) })),
+  };
+});
 
 const onStateHolders = [];
 vi.mock('../../../../src/features/assistant/shared.js', async () => {
@@ -124,6 +114,9 @@ beforeEach(() => {
   startMicrophone.mockClear();
   acquireMicrophone.mockClear();
   acquireMicrophone.mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
+  globalThis.AudioContext = class {
+    constructor({ sampleRate } = {}) { this.sampleRate = sampleRate || 24000; this.state = 'running'; this.resume = async () => { this.state = 'running'; }; this.close = async () => {}; this.destination = {}; }
+  };
 });
 
 describe('voice terminal notifications', () => {
@@ -131,7 +124,7 @@ describe('voice terminal notifications', () => {
     const onVoiceTerminal = vi.fn();
     const say = vi.fn();
     const session = createAssistantSession({
-      deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', sessionCapSeconds: 600, earlyTesting: false },
+      deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', sessionCapSeconds: 600, earlyTesting: false, transcriptionModel: 'grok-transcribe' },
       intent: 'data-entry', say, onVoiceTerminal,
     });
     await session.talk();
@@ -151,7 +144,7 @@ describe('voice terminal notifications', () => {
     VoiceTransport.prototype.connect = async function connect() { this.state = 'text-fallback'; };
     try {
       const session = createAssistantSession({
-        deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', earlyTesting: false },
+        deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', earlyTesting: false, transcriptionModel: 'grok-transcribe' },
         intent: 'data-entry', say: vi.fn(), onVoiceTerminal,
       });
       await expect(session.talk()).resolves.toBe('unavailable');
@@ -166,7 +159,7 @@ describe('voice terminal notifications', () => {
   it('unexpected transport drop after connect notifies onVoiceTerminal (shared stop path)', async () => {
     const onVoiceTerminal = vi.fn();
     const session = createAssistantSession({
-      deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', earlyTesting: false },
+      deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', earlyTesting: false, transcriptionModel: 'grok-transcribe' },
       intent: 'data-entry', say: vi.fn(), onVoiceTerminal,
     });
     await expect(session.talk()).resolves.toBe('listening');
@@ -179,7 +172,7 @@ describe('voice terminal notifications', () => {
   it('intentional session.end cancel does not re-fire onVoiceTerminal via onState', async () => {
     const onVoiceTerminal = vi.fn();
     const session = createAssistantSession({
-      deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', earlyTesting: false },
+      deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', earlyTesting: false, transcriptionModel: 'grok-transcribe' },
       intent: 'data-entry', say: vi.fn(), onVoiceTerminal,
     });
     await session.talk();

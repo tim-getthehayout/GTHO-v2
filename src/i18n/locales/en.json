@@ -11,7 +11,10 @@
     "time": "Time",
     "explicitTime": "Enter or confirm the time for this historical observation.",
     "timeReadback": "Time: {time}",
-    "confirmTime": "Confirm time {time}"
+    "confirmTime": "Confirm time {time}",
+    "groupWeightsHint": "Enter per-head weights. Composite records store the full lot total. Leave blank to keep the current weight.",
+    "groupWeightPlaceholder": "New wt/head",
+    "groupWeightComposite": "{heads} head · per-head weight"
   },
   "app": {
     "name": "Get The Hay Out",

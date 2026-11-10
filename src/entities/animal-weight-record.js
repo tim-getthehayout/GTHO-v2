@@ -1,5 +1,7 @@
 /** @file Entity: animal_weight_records — V2_SCHEMA_DESIGN.md §9.10 */
 
+import { isValidTimestamp } from '../utils/form-values.js';
+
 export const FIELDS = {
   id:          { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId: { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
@@ -33,8 +35,11 @@ export function validate(record) {
   if (!record.operationId) errors.push('operationId is required');
   if (!record.animalId) errors.push('animalId is required');
   if (!record.recordedAt) errors.push('recordedAt is required');
+  else if (!isValidTimestamp(record.recordedAt)) errors.push('recordedAt must be a valid timestamp');
   if (record.weightKg === null || record.weightKg === undefined) {
     errors.push('weightKg is required');
+  } else if (typeof record.weightKg !== 'number' || !Number.isFinite(record.weightKg) || record.weightKg <= 0) {
+    errors.push('weightKg must be a positive finite number');
   }
   if (!record.source) {
     errors.push('source is required');

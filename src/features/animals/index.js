@@ -1286,7 +1286,7 @@ function openGroupWeightsSheet(group, operationId) {
   ]));
   panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '4px' } }, [`${group.name} \u00B7 ${groupAnimals.length} animals`]));
   panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Weigh date']), dateInput]));
-  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '10px' } }, ['Enter per-head weights below. Composite weights are stored as the full lot total. Leave blank to keep current weight unchanged.']));
+  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '10px' } }, [t('manualEntry.groupWeightsHint')]));
 
   const weightInputs = [];
   for (const a of groupAnimals) {
@@ -1295,13 +1295,13 @@ function openGroupWeightsSheet(group, operationId) {
     const perHeadKg = latestW?.weightKg > 0 && heads > 0 ? latestW.weightKg / heads : null;
     const currentDisplay = perHeadKg ? display(perHeadKg, 'weight', unitSys, 0) : '—';
     const cls = a.classId ? getAll('animalClasses').find(c => c.id === a.classId) : null;
-    const newWtInput = el('input', { type: 'number', 'data-testid': `group-weight-${a.id}`, placeholder: 'New wt/head', step: 'any', style: { width: '90px', padding: '7px 8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', textAlign: 'right' } });
+    const newWtInput = el('input', { type: 'number', 'data-testid': `group-weight-${a.id}`, placeholder: t('manualEntry.groupWeightPlaceholder'), step: 'any', style: { width: '90px', padding: '7px 8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', textAlign: 'right' } });
     weightInputs.push({ animalId: a.id, heads, input: newWtInput });
 
     panel.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
       el('div', { style: { flex: '1' } }, [
         el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`]),
-        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${a.sex} \u00B7 ${cls?.name || ''}${a.isBulk ? ` · ${heads} head · per-head weight` : ''}`]),
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${a.sex} \u00B7 ${cls?.name || ''}${a.isBulk ? ` · ${t('manualEntry.groupWeightComposite', { heads })}` : ''}`]),
       ]),
       el('div', { style: { textAlign: 'right', fontSize: '12px', color: 'var(--text2)', marginRight: '4px' } }, [`Current: ${currentDisplay} ${unitLabel('weight', unitSys)}`]),
       newWtInput,
@@ -1316,8 +1316,8 @@ function openGroupWeightsSheet(group, operationId) {
         const recordedAt = localFormTimestamp(dateInput.value, '12:00');
         const records = weightInputs.filter(wi => wi.input.value.trim() !== '').map(wi => {
           let perHeadKg = optionalFormNumber(wi.input.value);
-          if (!(perHeadKg > 0)) throw new Error('Weight must be a positive finite number.');
-          if (!(wi.heads > 0)) throw new Error('A composite needs a positive head count before weighing.');
+          if (!(perHeadKg > 0)) throw new Error(t('validation.weightRequired'));
+          if (!(wi.heads > 0)) throw new Error(t('animal.bulkHeadCountRequired'));
           if (unitSys === 'imperial') perHeadKg = convert(perHeadKg, 'weight', 'toMetric');
           const record = WeightRecordEntity.create({ operationId, animalId: wi.animalId, weightKg: perHeadKg * wi.heads, recordedAt, source: 'group_update' });
           const result = WeightRecordEntity.validate(record);
@@ -1328,6 +1328,7 @@ function openGroupWeightsSheet(group, operationId) {
           for (const record of records) add('animalWeightRecords', record, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
           // Split only after the complete list passes, at today's effective window boundary.
           maybeSplitForGroup(group.id, getLocalTodayStr());
+          return records[0].id;
         });
         wtSheet.close();
       } catch (error) { status.textContent = error.message; }

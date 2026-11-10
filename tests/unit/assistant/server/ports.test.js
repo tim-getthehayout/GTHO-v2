@@ -217,3 +217,37 @@ describe('one push-to-talk: intent routing is a suggestion, fallback question is
     expect(holder.loaded.transcript).toEqual([]);
   });
 });
+
+describe('pendingClarification checkpoint', () => {
+  function hostWithPending(session, pendingClarification) {
+    const client = fakeSupabase({ tables: {} });
+    const getAll = createServerFarmData({ client, operationId: OP });
+    const holder = { ref: REF, loaded: session, live: null, pendingClarification };
+    const persistence = { checkpoint: vi.fn(async (_incoming, snapshot) => snapshot) };
+    const h = createServerHost({ client, scope, config, persistence, getAll, authorize: async () => true, session: holder });
+    return { h, holder, persistence };
+  }
+
+  it('clears pendingClarification after cancel and after an intent change', async () => {
+    const pending = { field: 'quantityBasis', ui: 'feeding', names: { paddock: 'e1, e2' }, fields: { date: '2026-11-09' } };
+    const { h, holder, persistence } = hostWithPending({ intent: 'data-entry', phase: 'converse' }, pending);
+    const cancelled = await h.checkpoint(scope, { version: 1, intent: 'data-entry', phase: 'cancelled', transcript: [] });
+    expect(cancelled.pendingClarification).toBeUndefined();
+    expect(holder.pendingClarification).toBeNull();
+    expect(persistence.checkpoint).toHaveBeenCalled();
+
+    const again = hostWithPending({ intent: 'data-entry', phase: 'converse' }, pending);
+    const switched = await again.h.checkpoint(scope, { version: 1, intent: 'how-to', phase: 'converse', transcript: [] });
+    expect(switched.pendingClarification).toBeUndefined();
+    expect(again.holder.pendingClarification).toBeNull();
+  });
+
+  it('clears a malformed 200 KB pendingClarification instead of persisting it', async () => {
+    const huge = { field: 'paddock', fields: { note: 'x'.repeat(200 * 1024) } };
+    const { h, holder, persistence } = hostWithPending({ intent: 'data-entry', phase: 'converse' }, huge);
+    const next = await h.checkpoint(scope, { version: 1, intent: 'data-entry', phase: 'converse', transcript: [] });
+    expect(next.pendingClarification).toBeUndefined();
+    expect(holder.pendingClarification).toBeNull();
+    expect(JSON.stringify(persistence.checkpoint.mock.calls[0][1]).length).toBeLessThan(16 * 1024);
+  });
+});

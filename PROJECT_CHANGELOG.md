@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | fix(assistant): merge a minimal clarification reply such as per-paddock into the retained proposal (keeping date, lines, entryTarget and allocated lines); clear pendingClarification on cancel and on any intent change; and validate it against a strict known-key schema capped at 16 KB, rejecting and clearing malformed values (including a 200 KB payload) instead of persisting them. | `src/features/assistant/server/{host,compose,persist-transcript-turns}.js`, `src/entities/{assistant-pending-clarification,assistant-session-checkpoints}.js`, `tests/unit/assistant/server/{compose,ports}.test.js`, `tests/unit/entities/assistant-pending-clarification.test.js` |
 | 2026-11-10 | fix(feeding): replace an unresolved colliding paddock name with a short disambiguating answer, so a reply such as Corral is used instead of keeping the original alias. | `src/features/assistant/feeding-clarification.js`, `tests/unit/assistant/{feeding-clarification,entry-targets}.test.js` |
 | 2026-11-10 | fix(confinement): keep the sub-move open pre-graze card mounted before a paddock is picked so late-bound BRC cover still works, while confinement picks stay greyed and receive no forage observation. | `src/features/events/submove.js` |
 | 2026-11-10 | fix(feeding): omit leftover allocation parts without an unused destructure, so lint stays at the existing warning baseline. | `src/features/assistant/feeding-clarification.js` |

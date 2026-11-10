@@ -10,7 +10,8 @@ import { FARM_ENTRY_UIS, FARM_ENTRY_INSTRUCTIONS, FARM_ENTRY_FIELD_HINTS } from 
 import { resolveEntryTarget, ENTRY_TARGET_KEY, ENTRY_TARGET_NAMES, CHOOSE_ENTRY_QUESTION, RESOLVE_ENTRY_TARGET_TOOL } from '../entry-targets.js';
 import { ROUTE_INTENT_TOOL, ROUTING_INSTRUCTION, parseRoute } from '../intent-routing.js';
 import { persistTranscriptTurns } from './persist-transcript-turns.js';
-import { reconcileAllocatedLines } from '../feeding-clarification.js';
+import { applyPendingClarification, reconcileAllocatedLines } from '../feeding-clarification.js';
+import { acceptPendingClarification } from '../../../entities/assistant-pending-clarification.js';
 
 export const FEEDBACK_EDITABLE = Object.freeze(['title', 'type', 'expected', 'actual', 'reproSteps', 'severity', 'impact', 'needsDecision', 'unknowns']);
 export const CLIENT_APPLY_PENDING = 'client-apply-pending';
@@ -72,7 +73,7 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
       log({ type: 'entry-target-question', conversationRef: holder.ref });
       // Stash for compose: vendor createBackendHandler serializes only error.code.
       holder.unresolvedQuestion = resolved.question;
-      holder.pendingClarification = resolved.pending ?? holder.pendingClarification ?? { field: 'paddock', ui: proposal.destination, names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields };
+      holder.pendingClarification = acceptPendingClarification(resolved.pending ?? holder.pendingClarification ?? { field: 'paddock', ui: proposal.destination, names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields });
       const err = new RuntimeError('entry-target-unresolved');
       err.question = resolved.question;
       throw err;
@@ -92,8 +93,17 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
     }
     if (proposal.intent === 'data-entry') {
       if (!FARM_ENTRY_UIS.includes(proposal.destination)) fail('entry-ui-not-allowed');
-      const { fill } = await resolveTarget(proposal);
-      const fields = { ...proposal.fields, ...fill };
+      const lastUser = current()?.transcript?.filter(turn => turn.role === 'user').at(-1);
+      const retained = holder.pendingClarification;
+      const merged = retained
+        ? applyPendingClarification(retained, proposal.fields[ENTRY_TARGET_KEY], proposal.fields, lastUser?.text ?? '')
+        : { names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields };
+      const fieldsForResolve = {
+        ...merged.fields,
+        ...(merged.names != null ? { [ENTRY_TARGET_KEY]: merged.names } : {}),
+      };
+      const { fill } = await resolveTarget({ ...proposal, fields: fieldsForResolve });
+      const fields = { ...fieldsForResolve, ...fill };
       const locationIds = fields.locationIds ?? (fields.locationId ? [fields.locationId] : []);
       if (fields.allocatedLines != null) {
         const rec = reconcileAllocatedLines(fields.allocatedLines, { lines: fields.lines, locationIds });
@@ -205,7 +215,13 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
     async checkpoint(incoming, snapshot) {
       await auth(incoming);
       const next = { ...snapshot };
-      if (holder.pendingClarification) next.pendingClarification = holder.pendingClarification;
+      const intentChanged = typeof snapshot.intent === 'string'
+        && typeof holder.loaded?.intent === 'string'
+        && snapshot.intent !== holder.loaded.intent;
+      if (snapshot.phase === 'cancelled' || intentChanged) holder.pendingClarification = null;
+      const pending = acceptPendingClarification(holder.pendingClarification);
+      holder.pendingClarification = pending;
+      if (pending) next.pendingClarification = pending;
       else delete next.pendingClarification;
       return persistence.checkpoint(incoming, next);
     },

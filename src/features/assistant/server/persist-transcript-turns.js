@@ -2,6 +2,7 @@
  * entity, no new shape). Idempotent on (operation, conversation, turn_index).
  * Used so a failed typed request still leaves attributable turns (OI-0206). */
 import * as TranscriptTurns from '../../../entities/assistant-transcript-turns.js';
+import { acceptPendingClarification } from '../../../entities/assistant-pending-clarification.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const requireData = ({ data, error }) => { if (error) throw new Error('assistant-persistence-failed'); return data; };
@@ -52,10 +53,13 @@ export async function recordUnresolvedClarification({ persistence, scope, conver
     // checkpoint table). The key is host-only: capture is sent to the model
     // and snapshot.pending is the proposal-revision pointer.
     if (pendingClarification !== undefined) {
-      if (pendingClarification) next.pendingClarification = pendingClarification;
+      const accepted = acceptPendingClarification(pendingClarification);
+      if (accepted) next.pendingClarification = accepted;
       else delete next.pendingClarification;
-    } else if (snapshot.pendingClarification) {
-      next.pendingClarification = snapshot.pendingClarification;
+    } else {
+      const accepted = acceptPendingClarification(snapshot.pendingClarification);
+      if (accepted) next.pendingClarification = accepted;
+      else delete next.pendingClarification;
     }
     await persistence.checkpoint(scope, next);
     return next;

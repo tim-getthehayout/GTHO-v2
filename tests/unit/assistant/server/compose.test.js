@@ -276,7 +276,7 @@ describe('gtho-assistant composition', () => {
       fields: expect.objectContaining({ locationId: CORRAL, entryTarget: { paddock: 'Corral' } }),
     });
   });
-  it('remembers a pending total-vs-per-paddock clarification on the next turn', async () => {
+  async function startFeedingClarification({ fetch } = {}) {
     const L1 = '00000000-0000-4000-8000-0000000000e1';
     const L2 = '00000000-0000-4000-8000-0000000000e2';
     const EVT = '00000000-0000-4000-8000-0000000000ee';
@@ -291,11 +291,17 @@ describe('gtho-assistant composition', () => {
       },
       mappings: [],
     };
-    const fetch = vi.fn(async () => Response.json({
-      usage: { input_tokens: 1, output_tokens: 1 },
-      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(proposal) }] }],
-    }));
-    const { deps, client } = setup({ fetch });
+    let turns = 0;
+    const model = fetch ?? vi.fn(async () => {
+      turns += 1;
+      // A realistic follow-up is a short reply, not a repeat of the full proposal.
+      const body = turns === 1 ? proposal : { type: 'proposal', destination: 'feeding', fields: {}, mappings: [] };
+      return Response.json({
+        usage: { input_tokens: 1, output_tokens: 1 },
+        output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(body) }] }],
+      });
+    });
+    const { deps, client } = setup({ fetch: model });
     client.tables.locations = [
       { id: L1, operation_id: OP, name: 'e1', farm_id: 'f1' },
       { id: L2, operation_id: OP, name: 'e2', farm_id: 'f1' },
@@ -314,6 +320,11 @@ describe('gtho-assistant composition', () => {
       command: 'turn', conversationRef: REF, requestRef: 'r2',
       turn: { id: 't1', role: 'user', modality: 'text', text: 'Fed e1 and e2 four bales' },
     }));
+    return { handler, client, first, L1, L2, B1 };
+  }
+
+  it('merges a minimal per-paddock reply into the retained feeding proposal', async () => {
+    const { handler, client, first, L1, L2, B1 } = await startFeedingClarification();
     expect(first.status).toBe(400);
     const firstBody = await first.json();
     expect(firstBody.question).toMatch(/total|per paddock/i);
@@ -329,9 +340,33 @@ describe('gtho-assistant composition', () => {
     expect(secondBody.error).toBeUndefined();
     expect(secondBody.question).toBeUndefined();
     expect(secondBody.session.phase).toBe('review');
-    expect(secondBody.session.pending.fields.quantityBasis).toBe('per-paddock');
-    expect(secondBody.session.pending.fields.locationIds).toEqual([L1, L2]);
+    const fields = secondBody.session.pending.fields;
+    expect(fields.quantityBasis).toBe('per-paddock');
+    expect(fields.locationIds).toEqual([L1, L2]);
+    expect(fields.date).toBe('2026-11-09');
+    expect(fields.lines).toEqual([{ batchId: B1, qty: 4 }]);
+    expect(fields.entryTarget).toEqual({ paddock: 'e1, e2' });
+    expect(fields.allocatedLines).toEqual([
+      { locationId: L1, lines: [{ batchId: B1, qty: 4, quantity: 4 }] },
+      { locationId: L2, lines: [{ batchId: B1, qty: 4, quantity: 4 }] },
+    ]);
     expect(client.tables.assistant_session_checkpoints[0].trusted_snapshot.pendingClarification).toBeUndefined();
+  });
+
+  it('clears a pending clarification on cancel and on an intent change', async () => {
+    const started = await startFeedingClarification();
+    expect(started.client.tables.assistant_session_checkpoints[0].trusted_snapshot.pendingClarification).toBeTruthy();
+    const cancelled = await started.handler(post({ command: 'cancel', conversationRef: REF, requestRef: 'r-cancel' }));
+    expect(cancelled.status).toBe(200);
+    expect(started.client.tables.assistant_session_checkpoints[0].trusted_snapshot.pendingClarification).toBeUndefined();
+
+    const again = await startFeedingClarification();
+    expect(again.client.tables.assistant_session_checkpoints[0].trusted_snapshot.pendingClarification).toBeTruthy();
+    const switched = await again.handler(post({ command: 'intent', conversationRef: REF, requestRef: 'r-intent', intent: 'how-to' }));
+    expect(switched.status).toBe(200);
+    expect(again.client.tables.assistant_session_checkpoints[0].trusted_snapshot.pendingClarification).toBeUndefined();
+    const body = await switched.json();
+    expect(body.session.intent).toBe('how-to');
   });
 
   it('apply refuses a receipt with no durable claim', async () => {

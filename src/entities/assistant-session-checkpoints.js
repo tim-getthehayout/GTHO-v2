@@ -1,4 +1,5 @@
 import { defineAssistantEntity } from './assistant-entity.js';
+import { acceptPendingClarification } from './assistant-pending-clarification.js';
 
 export const FIELDS = {
   "id": {
@@ -50,5 +51,12 @@ export const FIELDS = {
 };
 export const { create, validate, toSupabaseShape, fromSupabaseShape } = defineAssistantEntity(FIELDS, record => {
   const s = record.trustedSnapshot;
-  return s && s.version === 1 && s.scope?.operationId === record.operationId && typeof s.conversationRef === 'string' && Array.isArray(s.transcript) ? [] : ['trustedSnapshot must be the scoped version-1 runtime envelope'];
+  const errors = [];
+  if (!(s && s.version === 1 && s.scope?.operationId === record.operationId && typeof s.conversationRef === 'string' && Array.isArray(s.transcript))) {
+    errors.push('trustedSnapshot must be the scoped version-1 runtime envelope');
+  }
+  if (s && s.pendingClarification != null && acceptPendingClarification(s.pendingClarification) == null) {
+    errors.push('pendingClarification must use known keys and types and stay within 16 KB');
+  }
+  return errors;
 });

@@ -9,6 +9,7 @@ import { createFarmReadPort, FARM_READ_TOOLS } from '../farm-reads.js';
 import { FARM_ENTRY_UIS, FARM_ENTRY_INSTRUCTIONS, FARM_ENTRY_FIELD_HINTS } from '../farm-entry-contract.js';
 import { resolveEntryTarget, ENTRY_TARGET_KEY, ENTRY_TARGET_NAMES, CHOOSE_ENTRY_QUESTION, RESOLVE_ENTRY_TARGET_TOOL } from '../entry-targets.js';
 import { ROUTE_INTENT_TOOL, ROUTING_INSTRUCTION, parseRoute } from '../intent-routing.js';
+import { persistTranscriptTurns } from './persist-transcript-turns.js';
 
 export const FEEDBACK_EDITABLE = Object.freeze(['title', 'type', 'expected', 'actual', 'reproSteps', 'severity', 'impact', 'needsDecision', 'unknowns']);
 export const CLIENT_APPLY_PENDING = 'client-apply-pending';
@@ -56,16 +57,26 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
   const operationRows = async table => (await getAll(table)).filter(row => row.operationId === scope.operationId);
   /** IDs come only from resolving the names the user said; never from the model. */
   async function resolveTarget(proposal) {
-    const resolved = await resolveEntryTarget({ ui: proposal.destination, names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields, rows: operationRows });
+    const lastUser = current()?.transcript?.filter(turn => turn.role === 'user').at(-1);
+    const resolved = await resolveEntryTarget({
+      ui: proposal.destination,
+      names: proposal.fields[ENTRY_TARGET_KEY],
+      fields: proposal.fields,
+      rows: operationRows,
+      pendingClarification: holder.pendingClarification,
+      utterance: lastUser?.text ?? '',
+    });
     if (resolved.status !== 'resolved') {
       // Host event: the device asks the natural missing-field question; it never enters the model transcript.
       log({ type: 'entry-target-question', conversationRef: holder.ref });
       // Stash for compose: vendor createBackendHandler serializes only error.code.
       holder.unresolvedQuestion = resolved.question;
+      holder.pendingClarification = resolved.pending ?? holder.pendingClarification ?? { field: 'paddock', ui: proposal.destination, names: proposal.fields[ENTRY_TARGET_KEY], fields: proposal.fields };
       const err = new RuntimeError('entry-target-unresolved');
       err.question = resolved.question;
       throw err;
     }
+    holder.pendingClarification = null;
     return resolved;
   }
   async function normalize(proposal) {
@@ -147,8 +158,8 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
       if (name !== RESOLVE_ENTRY_TARGET_TOOL.name) return readPort(incoming, name, args);
       if (current()?.intent !== 'data-entry' || !object(args) || Object.keys(args).some(key => !['ui', ENTRY_TARGET_KEY].includes(key))) fail('read-tool-denied');
       const resolved = await resolveEntryTarget({ ui: args.ui, names: args[ENTRY_TARGET_KEY], rows: operationRows });
-      // The model sees the question or a plain summary; IDs stay host-side.
-      return resolved.status === 'resolved' ? { status: 'resolved', ui: args.ui, summary: resolved.summary } : resolved;
+      // The model sees the question or a plain summary; IDs and pending stay host-side.
+      return resolved.status === 'resolved' ? { status: 'resolved', ui: args.ui, summary: resolved.summary } : { status: 'question', question: resolved.question };
     },
     async createProposal(incoming, candidate) { await auth(incoming); return normalize(candidate); },
     async validate(incoming, proposal) {
@@ -187,7 +198,13 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
     // Transcript, review-card and voice-to-entry-log artifacts are durable in the
     // trusted checkpoint written at the end of every runtime action; typed
     // client-safe rows are written by the browser through validate/store/sync.
-    async artifact(incoming, ref) { await auth(incoming); if (ref !== holder.ref) fail('conversation-mismatch'); },
+    async artifact(incoming, ref, artifact) {
+      await auth(incoming);
+      if (ref !== holder.ref) fail('conversation-mismatch');
+      if (artifact?.type === 'transcript' && Array.isArray(artifact.turns)) {
+        await persistTranscriptTurns({ client, scope, conversationRef: ref, turns: artifact.turns });
+      }
+    },
     async event(incoming, event) {
       await auth(incoming);
       log({ type: event?.type, conversationRef: event?.conversationRef, proposalId: event?.proposalId, revision: event?.revision });

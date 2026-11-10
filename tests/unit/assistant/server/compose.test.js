@@ -201,6 +201,43 @@ describe('gtho-assistant composition', () => {
     });
   });
 
+  it('a failed typed feeding request leaves conversation checkpoint and transcript evidence', async () => {
+    const proposal = {
+      type: 'proposal',
+      destination: 'feeding',
+      fields: { date: '2026-11-09', entryTarget: { paddock: 'e1' } },
+      mappings: [],
+    };
+    const fetch = vi.fn(async () => Response.json({
+      usage: { input_tokens: 1, output_tokens: 1 },
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(proposal) }] }],
+    }));
+    const { deps, client } = setup({ fetch });
+    // No matching paddock: resolution fails, but the request must still be attributable.
+    const handler = createAssistantFunction(deps);
+    await handler(post({
+      command: 'start', conversationRef: REF, requestRef: 'r1', intent: 'data-entry',
+      capture: { capturedAt: '2026-11-10T10:35:00Z', source: 'text', context: {} },
+    }));
+    const response = await handler(post({
+      command: 'turn', conversationRef: REF, requestRef: 'r2',
+      turn: { id: '00000000-0000-4000-8000-0000000000t1', role: 'user', modality: 'text', text: 'e1' },
+    }));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe('entry-target-unresolved');
+    expect(body.question).toMatch(/paddock/i);
+    const checkpoint = client.tables.assistant_session_checkpoints[0];
+    expect(checkpoint).toBeTruthy();
+    const snap = checkpoint.trusted_snapshot;
+    expect(snap.transcript.some(turn => turn.role === 'user' && turn.text === 'e1')).toBe(true);
+    expect(snap.transcript.some(turn => turn.role === 'assistant' && turn.text === body.question)).toBe(true);
+    const turns = client.tables.assistant_transcript_turns || [];
+    expect(turns.some(row => row.speaker === 'user' && row.text === 'e1' && row.input_mode === 'text')).toBe(true);
+    expect(turns.some(row => row.speaker === 'assistant' && row.text === body.question)).toBe(true);
+    expect(client.calls.rpc.some(call => call.name === 'assistant_billing_finish')).toBe(true);
+  });
+
   it('feeding proposal with paddock Corral reaches review (stubbed model picked feeding)', async () => {
     const CORRAL = '00000000-0000-4000-8000-0000000000c5';
     const EVT = '00000000-0000-4000-8000-0000000000c6';

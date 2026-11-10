@@ -75,3 +75,11 @@ export function normalizeSpokenName(value) {
   const trim = text => text.replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, '');
   return trim(spokenNumbersToDigits(trim(String(value ?? '').toLowerCase())));
 }
+
+/** Deterministic alias key for record names/codes and user input (OI-0206).
+ * Builds on normalizeSpokenName, then collapses internal spaces, hyphens and
+ * letter-digit separators so "e1", "E-1" and "E - 1" are equal, while "E-11"
+ * stays distinct. Never fuzzy, phonetic or nearest-name matching. */
+export function normalizeRecordAlias(value) {
+  return normalizeSpokenName(value).replace(/[\s\-_./]+/g, '');
+}

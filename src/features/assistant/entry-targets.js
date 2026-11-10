@@ -5,7 +5,8 @@
  * Shared by the backend (validation, read tool) and the browser (opening the sheet).
  */
 import { FARM_ENTRY_UIS } from './farm-entry-contract.js';
-import { normalizeSpokenName } from './spoken-numbers.js';
+import { normalizeSpokenName, normalizeRecordAlias } from './spoken-numbers.js';
+import { applyPendingClarification, allocateFeedingLines, carryoverTimingQuestion } from './feeding-clarification.js';
 
 export { ENTRY_TARGET_KEY } from './entry-fields.js';
 export const RESOLVE_ENTRY_TARGET_TOOL = Object.freeze({
@@ -64,12 +65,21 @@ function missingFieldsQuestion(ui, names = {}, fields = {}) {
   return `${head}, and ${rest.join(' and ')}?`;
 }
 
-function pick(rows, said, keys, labelOf, kind, ask) {
-  const wanted = norm(said);
-  const hits = rows.filter(row => keys.some(key => { const value = typeof key === 'function' ? key(row) : row[key]; return value != null && norm(value) === wanted; }));
+function pick(rows, said, keys, labelOf, kind, ask, nameNorm = norm) {
+  const wanted = nameNorm(said);
+  if (wanted === '') return { ask: question(ask) };
+  const hits = rows.filter(row => keys.some(key => { const value = typeof key === 'function' ? key(row) : row[key]; return value != null && nameNorm(value) === wanted; }));
   if (hits.length === 1) return { row: hits[0] };
   if (!hits.length) return { ask: question(`I couldn't find ${kind} called ${quote(said)}. ${ask}`) };
   return { ask: question(`Which ${kind.replace(/^an? /, '')} did you mean: ${list(hits.slice(0, 5).map(labelOf))}?`) };
+}
+
+/** Named paddocks the user said: one string, a comma-separated list, or an array. */
+export function parseSaidPaddockNames(said = {}) {
+  const raw = said?.paddock ?? said?.paddocks ?? null;
+  if (Array.isArray(raw)) return raw.map(value => String(value).trim()).filter(named);
+  if (typeof raw !== 'string') return [];
+  return raw.split(',').map(value => value.trim()).filter(named);
 }
 
 /**
@@ -77,8 +87,11 @@ function pick(rows, said, keys, labelOf, kind, ask) {
  * Returns {status:'resolved', target, fill, summary} or {status:'question', question}.
  * fill holds sheet fields set from resolved names (never from model IDs).
  */
-export async function resolveEntryTarget({ ui, names, fields = {}, rows }) {
+export async function resolveEntryTarget({ ui, names, fields = {}, rows, pendingClarification = null, utterance = '' }) {
   if (!FARM_ENTRY_UIS.includes(ui)) return question(CHOOSE_ENTRY_QUESTION);
+  const merged = pendingClarification ? applyPendingClarification(pendingClarification, names, fields, utterance) : { names, fields };
+  names = merged.names;
+  fields = merged.fields;
   const said = names && typeof names === 'object' && !Array.isArray(names) ? names : {};
   const animals = async () => (await rows('animals')).filter(row => row.active !== false);
   const groups = async () => (await rows('groups')).filter(row => !row.archivedAt);
@@ -89,11 +102,26 @@ export async function resolveEntryTarget({ ui, names, fields = {}, rows }) {
   const placeLabel = row => row.name;
   async function paddock(name, ask) {
     if (!named(name)) return { ask: question(ask) };
-    return pick(await locations(), name, ['name', 'fieldCode'], placeLabel, 'a paddock', ask);
+    const candidates = await locations();
+    const match = pick(candidates, name, ['name', 'fieldCode'], placeLabel, 'a paddock', ask, normalizeRecordAlias);
+    if (match.ask) return match;
+    // Alias collisions: another location shares this normalized name/code.
+    const alias = normalizeRecordAlias(name);
+    const collisions = candidates.filter(row => (
+      row.id !== match.row.id
+      && [row.name, row.fieldCode].some(value => value != null && normalizeRecordAlias(value) === alias)
+    ));
+    if (collisions.length) {
+      return { ask: question(`Which paddock did you mean: ${list([match.row, ...collisions].slice(0, 5).map(placeLabel))}?`) };
+    }
+    return match;
+  }
+  async function openEventsAt(location) {
+    const ids = [...new Set((await openPaddockWindows()).filter(row => row.locationId === location.id).map(row => row.eventId))];
+    return (await rows('events')).filter(row => ids.includes(row.id) && !row.dateOut);
   }
   async function openEventAt(location) {
-    const ids = [...new Set((await openPaddockWindows()).filter(row => row.locationId === location.id).map(row => row.eventId))];
-    const events = (await rows('events')).filter(row => ids.includes(row.id));
+    const events = await openEventsAt(location);
     return events.length === 1 ? events[0] : null;
   }
   async function destination(ask) {
@@ -116,11 +144,52 @@ export async function resolveEntryTarget({ ui, names, fields = {}, rows }) {
   }
   if (ui === 'feeding') {
     const ask = missingFieldsQuestion('feeding', said, fields);
-    const where = await paddock(said.paddock, ask);
-    if (where.ask) return where.ask;
-    const event = await openEventAt(where.row);
-    if (!event) return question(`Nothing is grazing ${where.row.name} right now. Which paddock did you feed?`);
-    return { status: 'resolved', target: { ui, id: event.id }, fill: { locationId: where.row.id }, summary: `feeding at ${where.row.name}` };
+    const names = parseSaidPaddockNames(said);
+    if (!names.length) return { status: 'question', question: ask, pending: { ui: 'feeding', names: said, fields, field: 'paddock' } };
+    const resolved = [];
+    for (const name of names) {
+      const where = await paddock(name, ask);
+      if (where.ask) return { ...where.ask, pending: { ui: 'feeding', names: said, fields, field: 'paddock' } };
+      if (!resolved.some(row => row.id === where.row.id)) resolved.push(where.row);
+    }
+    const eventSets = [];
+    for (const loc of resolved) {
+      const events = await openEventsAt(loc);
+      if (!events.length) return question(`Nothing is grazing ${loc.name} right now. Which paddock did you feed?`);
+      if (events.length > 1) return question(`More than one open event includes ${loc.name}. Which paddock did you feed?`);
+      eventSets.push(events[0]);
+    }
+    const eventIds = [...new Set(eventSets.map(event => event.id))];
+    if (eventIds.length > 1) {
+      const labels = resolved.map(placeLabel);
+      return question(`Those paddocks are on different events. Which paddocks did you feed: ${list(labels)}?`);
+    }
+    const event = eventSets[0];
+    const locationIds = resolved.map(row => row.id);
+    const labels = resolved.map(placeLabel);
+    const fill = locationIds.length === 1
+      ? { locationId: locationIds[0] }
+      : { locationId: locationIds[0], locationIds };
+    const pending = { ui: 'feeding', names: said, fields, fill, field: 'paddock' };
+    const askPending = (field, text) => ({ status: 'question', question: text, pending: { ...pending, field } });
+    if (locationIds.length > 1 && fields.lines != null && fields.lines !== '') {
+      const allocated = allocateFeedingLines(fields.lines, locationIds, fields.quantityBasis);
+      if (allocated.status === 'question') {
+        const text = allocated.field === 'quantityBasis'
+          ? `Is the quantity a total across ${list(labels)}, or the same amount per paddock?`
+          : `How should the total be allocated across ${list(labels)}?`;
+        return askPending(allocated.field, text);
+      }
+      if (allocated.quantityBasis) fill.quantityBasis = allocated.quantityBasis;
+      fill.allocatedLines = allocated.allocations;
+    }
+    const carryover = fields.carryover && typeof fields.carryover === 'object' ? fields.carryover : null;
+    if (carryover && (carryover.remainingQuantity != null || (Array.isArray(carryover.items) && carryover.items.length))) {
+      if (!carryover.timing) return askPending('carryoverTiming', carryoverTimingQuestion());
+      fill.carryover = carryover;
+    }
+    const summary = locationIds.length === 1 ? `feeding at ${labels[0]}` : `feeding at ${labels.join(', ')}`;
+    return { status: 'resolved', target: { ui, id: event.id }, fill, summary };
   }
   if (ui === 'move') {
     let event, scopedGroupWindowId = null, from;

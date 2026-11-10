@@ -4,9 +4,21 @@ import { resolveEntryTarget, CHOOSE_ENTRY_QUESTION } from '../../../src/features
 const data = {
   animals: [{ id: 'a1', tagNum: '42', name: 'Daisy', active: true }, { id: 'a2', tagNum: '43', name: 'Rosie', active: true }, { id: 'a3', tagNum: '44', name: 'Rosie', active: true }, { id: 'a4', tagNum: '45', name: 'Gone', active: false }],
   groups: [{ id: 'g1', name: 'Heifers' }, { id: 'g2', name: 'Cows' }, { id: 'g3', name: 'Bulls' }, { id: 'g4', name: 'Old', archivedAt: '2026-01-01' }, { id: 'g5', name: 'Steers' }],
-  locations: [{ id: 'l1', name: 'North 40', farmId: 'f1' }, { id: 'l2', name: 'South', farmId: 'f1' }, { id: 'l3', name: 'River', farmId: 'f2' }, { id: 'l4', name: 'Hill', farmId: 'f1' }],
-  events: [{ id: 'e1', farmId: 'f1' }, { id: 'e2', farmId: 'f1' }],
-  eventPaddockWindows: [{ id: 'pw1', eventId: 'e1', locationId: 'l1', dateClosed: null }, { id: 'pw2', eventId: 'e2', locationId: 'l2', dateClosed: null }],
+  locations: [
+    { id: 'l1', name: 'North 40', farmId: 'f1' }, { id: 'l2', name: 'South', farmId: 'f1' },
+    { id: 'l3', name: 'River', farmId: 'f2' }, { id: 'l4', name: 'Hill', farmId: 'f1' },
+    { id: 'l5', name: 'E - 1', farmId: 'f1' }, { id: 'l6', name: 'E - 2', farmId: 'f1' },
+    { id: 'l7', name: 'E-11', farmId: 'f1' }, { id: 'l8', name: 'Corral', fieldCode: 'e1', farmId: 'f1' },
+  ],
+  events: [{ id: 'e1', farmId: 'f1' }, { id: 'e2', farmId: 'f1' }, { id: 'e3', farmId: 'f1', dateOut: '2026-11-01' }, { id: 'e4', farmId: 'f1' }],
+  eventPaddockWindows: [
+    { id: 'pw1', eventId: 'e1', locationId: 'l1', dateClosed: null },
+    { id: 'pw2', eventId: 'e2', locationId: 'l2', dateClosed: null },
+    { id: 'pw5', eventId: 'e4', locationId: 'l5', dateClosed: null },
+    { id: 'pw6', eventId: 'e4', locationId: 'l6', dateClosed: null },
+    { id: 'pw7', eventId: 'e4', locationId: 'l7', dateClosed: null },
+    { id: 'pw8', eventId: 'e3', locationId: 'l5', dateClosed: null },
+  ],
   eventGroupWindows: [{ id: 'gw1', eventId: 'e1', groupId: 'g1', dateLeft: null }, { id: 'gw2', eventId: 'e1', groupId: 'g2', dateLeft: null }, { id: 'gw5', eventId: 'e2', groupId: 'g5', dateLeft: null }],
 };
 const resolve = (ui, names, fields) => resolveEntryTarget({ ui, names, fields, rows: async table => data[table] ?? [] });
@@ -28,7 +40,7 @@ describe('entry target resolution (names -> host IDs, one question otherwise)', 
     expect(await resolve('treatment', {})).toEqual({ status: 'question', question: 'Which animal was treated?' });
     expect(await resolve('calving', { animal: 'Gone' })).toEqual({ status: 'question', question: "I couldn't find an animal called “Gone”. Which cow calved?" });
     expect(await resolve('treatment', { animal: 'Rosie' })).toEqual({ status: 'question', question: 'Which animal did you mean: tag 43 (Rosie) or tag 44 (Rosie)?' });
-    expect(await resolve('feeding', {})).toEqual({ status: 'question', question: 'How many bales, and which paddock?' });
+    expect(await resolve('feeding', {})).toMatchObject({ status: 'question', question: 'How many bales, and which paddock?', pending: { field: 'paddock', ui: 'feeding' } });
     expect(await resolve('move', { group: 'Heifers' })).toEqual({ status: 'question', question: 'Where are they moving to?' });
     expect(await resolve('place', { group: 'Bulls' })).toEqual({ status: 'question', question: 'Which paddock are you placing them in?' });
   });
@@ -54,5 +66,146 @@ describe('entry target resolution (names -> host IDs, one question otherwise)', 
   it('place needs an unplaced group; the farm comes from the named destination paddock', async () => {
     expect(await resolve('place', { group: 'Bulls', to: 'River' })).toMatchObject({ status: 'resolved', target: { ui: 'place', id: 'g3', farmId: 'f2' }, fill: { locationId: 'l3' } });
     expect(await resolve('place', { group: 'Heifers', to: 'River' })).toEqual({ status: 'question', question: 'Heifers is already in a paddock. Did you mean a move?' });
+  });
+});
+
+describe('feeding paddock aliases and multi-target resolution (OI-0206)', () => {
+  it('resolves e1, E-1 and E - 1 to E - 1 when that alias is unique', async () => {
+    // Remove the colliding Corral fieldCode for this uniqueness check via a local table.
+    const rows = async table => {
+      if (table === 'locations') return data.locations.filter(row => row.id !== 'l8');
+      return data[table] ?? [];
+    };
+    const run = (name) => resolveEntryTarget({ ui: 'feeding', names: { paddock: name }, rows });
+    for (const name of ['e1', 'E-1', 'E - 1']) {
+      expect(await run(name)).toMatchObject({ status: 'resolved', target: { id: 'e4' }, fill: { locationId: 'l5' } });
+    }
+    expect(await run('E-11')).toMatchObject({ status: 'resolved', fill: { locationId: 'l7' } });
+  });
+
+  it('asks for disambiguation when aliases collide and never picks the first match', async () => {
+    const result = await resolve('feeding', { paddock: 'e1' });
+    expect(result.status).toBe('question');
+    expect(result.question).toMatch(/E - 1/);
+    expect(result.question).toMatch(/Corral/);
+  });
+
+  it('keeps two named paddocks on the same open event and does not collapse them', async () => {
+    const rows = async table => {
+      if (table === 'locations') return data.locations.filter(row => row.id !== 'l8');
+      return data[table] ?? [];
+    };
+    const result = await resolveEntryTarget({
+      ui: 'feeding', names: { paddock: 'e1, e2' }, rows,
+    });
+    expect(result).toMatchObject({
+      status: 'resolved',
+      target: { ui: 'feeding', id: 'e4' },
+      fill: { locationId: 'l5', locationIds: ['l5', 'l6'] },
+    });
+    expect(result.summary).toContain('E - 1');
+    expect(result.summary).toContain('E - 2');
+  });
+
+  it('accepts an array of two names the same way as a comma-separated string', async () => {
+    const rows = async table => {
+      if (table === 'locations') return data.locations.filter(row => row.id !== 'l8');
+      return data[table] ?? [];
+    };
+    const result = await resolveEntryTarget({
+      ui: 'feeding', names: { paddock: ['E - 1', 'E - 2'] }, rows,
+    });
+    expect(result.fill.locationIds).toEqual(['l5', 'l6']);
+  });
+
+  it('rejects closed paddocks and closed or missing parent events', async () => {
+    const rows = async table => {
+      if (table === 'eventPaddockWindows') {
+        return [{ id: 'pw-closed', eventId: 'e4', locationId: 'l5', dateClosed: '2026-11-02' }];
+      }
+      return data[table] ?? [];
+    };
+    expect(await resolveEntryTarget({ ui: 'feeding', names: { paddock: 'E - 1' }, rows })).toMatchObject({
+      status: 'question',
+    });
+    const closedParent = async table => {
+      if (table === 'locations') return data.locations.filter(row => row.id !== 'l8');
+      if (table === 'eventPaddockWindows') return data.eventPaddockWindows.filter(row => row.eventId === 'e3');
+      return data[table] ?? [];
+    };
+    expect(await resolveEntryTarget({ ui: 'feeding', names: { paddock: 'E - 1' }, rows: closedParent })).toEqual({
+      status: 'question',
+      question: 'Nothing is grazing E - 1 right now. Which paddock did you feed?',
+    });
+  });
+
+  it('does not silently merge paddocks on different open events', async () => {
+    const result = await resolve('feeding', { paddock: 'North 40, South' });
+    expect(result.status).toBe('question');
+    expect(result.question).toMatch(/different events/i);
+  });
+
+  it('asks whether a stated quantity is a total or per paddock and does not guess', async () => {
+    const rows = async table => {
+      if (table === 'locations') return data.locations.filter(row => row.id !== 'l8');
+      return data[table] ?? [];
+    };
+    const result = await resolveEntryTarget({
+      ui: 'feeding',
+      names: { paddock: 'e1, e2' },
+      fields: { lines: [{ qty: 4 }] },
+      rows,
+    });
+    expect(result.status).toBe('question');
+    expect(result.question).toMatch(/total/i);
+    expect(result.question).toMatch(/per paddock/i);
+  });
+});
+
+describe('feeding clarification continuity (OI-0206)', () => {
+  const rows = async table => {
+    if (table === 'locations') return data.locations.filter(row => row.id !== 'l8');
+    return data[table] ?? [];
+  };
+
+  it('a short "e1" reply fills the pending paddock and keeps date, time and lines', async () => {
+    const result = await resolveEntryTarget({
+      ui: 'feeding',
+      names: {},
+      fields: {},
+      utterance: 'e1',
+      pendingClarification: {
+        field: 'paddock',
+        names: {},
+        fields: { date: '2026-11-09', time: '13:00', lines: [{ batchId: 'b1', qty: 4 }] },
+      },
+      rows,
+    });
+    expect(result).toMatchObject({
+      status: 'resolved',
+      target: { ui: 'feeding', id: 'e4' },
+      fill: { locationId: 'l5' },
+    });
+  });
+
+  it('a short "total" reply does not invent a 2/2 split and asks for allocation', async () => {
+    const result = await resolveEntryTarget({
+      ui: 'feeding',
+      names: { paddock: 'e1, e2' },
+      fields: {},
+      utterance: 'total',
+      pendingClarification: {
+        field: 'quantityBasis',
+        names: { paddock: 'e1, e2' },
+        fields: { date: '2026-11-09', lines: [{ batchId: 'b1', qty: 4 }] },
+        fill: { locationId: 'l5', locationIds: ['l5', 'l6'] },
+      },
+      rows,
+    });
+    expect(result.status).toBe('question');
+    expect(result.question).toMatch(/allocated/i);
+    expect(result.pending.field).toBe('lineAllocations');
+    expect(result.pending.fields.quantityBasis).toBe('total');
+    expect(result.pending.fields.date).toBe('2026-11-09');
   });
 });

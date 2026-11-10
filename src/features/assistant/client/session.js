@@ -118,7 +118,15 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       conversation = null;
       attempts = null;
       discardEmptyFailed = false;
-    } catch {
+    } catch (error) {
+      // A populated (or failed-but-traced) request must not be deleted; this is
+      // not a cleanup failure (OI-0206 / OI-0207 populated path).
+      if (error?.code === 'discard-empty-refused-turns-exist') {
+        conversation = null;
+        attempts = null;
+        discardEmptyFailed = false;
+        return;
+      }
       discardEmptyFailed = true;
       say(DISCARD_EMPTY_FAILED_MESSAGE);
     }

@@ -16,6 +16,7 @@ import { createTestingAudioHandler } from './testing-audio.js';
 import { createTranscribeHandler } from './transcribe.js';
 import { RuntimeError } from '../shared.js';
 import { discardEmptyStartRows } from './discard-empty-start.js';
+import { persistTranscriptTurns, recordUnresolvedClarification } from './persist-transcript-turns.js';
 
 const contentFreeLog = log => entry => { try { log?.(entry); } catch { /* logging never breaks a request */ } };
 
@@ -132,6 +133,21 @@ export function createAssistantFunction(deps) {
         if (session.unresolvedQuestion && response.status === 400) {
           const body = await response.json();
           if (body.error === 'entry-target-unresolved') {
+            // Existing checkpoint/transcript shape only: persist the user turn
+            // (already in the snapshot via vendor finally) and the host question
+            // so a failed typed request remains attributable and cannot be
+            // discarded as an empty start. Never log private text.
+            try {
+              const snap = await recordUnresolvedClarification({
+                persistence: context.persistence,
+                scope: context.scope,
+                conversationRef: session.ref,
+                question: session.unresolvedQuestion,
+              });
+              if (snap?.transcript) {
+                await persistTranscriptTurns({ client: deps.client, scope: context.scope, conversationRef: session.ref, turns: snap.transcript });
+              }
+            } catch { /* response still carries the question; persistence failure is retried on the next turn */ }
             return json({ ...body, question: session.unresolvedQuestion }, 400);
           }
           return json(body, response.status);

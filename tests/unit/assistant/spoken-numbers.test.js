@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { spokenNumbersToDigits, normalizeSpokenName } from '../../../src/features/assistant/spoken-numbers.js';
+import { spokenNumbersToDigits, normalizeSpokenName, normalizeRecordAlias } from '../../../src/features/assistant/spoken-numbers.js';
 
 describe('spoken number words to digits (deterministic)', () => {
   it.each([
@@ -25,5 +25,26 @@ describe('spoken number words to digits (deterministic)', () => {
     expect(normalizeSpokenName('Rosie!')).toBe('rosie');
     expect(normalizeSpokenName("O'Brien's")).toBe("o'brien's");
     expect(normalizeSpokenName('Rosey')).not.toBe(normalizeSpokenName('Rosie'));
+  });
+});
+
+describe('record alias normalization (spaces, hyphens, letter-digit boundaries)', () => {
+  it('treats e1, E-1 and E - 1 as the same alias, but not E-11', () => {
+    expect(normalizeRecordAlias('e1')).toBe('e1');
+    expect(normalizeRecordAlias('E-1')).toBe('e1');
+    expect(normalizeRecordAlias('E - 1')).toBe('e1');
+    expect(normalizeRecordAlias('E-11')).toBe('e11');
+    expect(normalizeRecordAlias('e1')).not.toBe(normalizeRecordAlias('E-11'));
+  });
+  it('still applies spoken numbers and is not fuzzy', () => {
+    expect(normalizeRecordAlias('paddock forty two')).toBe(normalizeRecordAlias('Paddock 42'));
+    expect(normalizeRecordAlias('Rosie')).not.toBe(normalizeRecordAlias('Rosey'));
+  });
+});
+
+describe('baseline name normalization (pre-alias gap)', () => {
+  it('normalizeSpokenName still treats e1 and E - 1 as different; aliases close the gap', () => {
+    expect(normalizeSpokenName('e1')).not.toBe(normalizeSpokenName('E - 1'));
+    expect(normalizeRecordAlias('e1')).toBe(normalizeRecordAlias('E - 1'));
   });
 });

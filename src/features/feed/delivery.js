@@ -11,6 +11,9 @@ import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.j
 import { getEventStartDate } from '../events/event-start.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import { positiveBalances, deductDelivery, locationName } from './batch-balances.js';
+import { allocateFeedingLines } from '../assistant/feeding-clarification.js';
+import * as FeedCheckEntity from '../../entities/event-feed-check.js';
+import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 
 let deliverFeedSheet = null;
 
@@ -57,6 +60,10 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     return bStamp.localeCompare(aStamp);
   });
   let selectedLocationId = sortedActivePWs[0]?.locationId || null;
+  let selectedLocationIds = selectedLocationId ? [selectedLocationId] : [];
+  let quantityBasis = null;
+  let allocatedLines = null;
+  let carryover = null;
   const initialLoc = selectedLocationId ? getById('locations', selectedLocationId) : null;
   const locName = initialLoc?.name || '?';
 
@@ -248,9 +255,13 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
   // single-window events it's static (no picker rendered), on multi-window
   // events it tracks the <select>'s value via updateChip().
   const chipText = el('span', { 'data-testid': 'feed-delivery-location-chip', style: { fontWeight: '500' } }, ['']);
+  function locationLabels(ids) {
+    return ids.map(id => getById('locations', id)?.name || '?');
+  }
   function updateChip() {
-    const loc = selectedLocationId ? getById('locations', selectedLocationId) : null;
-    chipText.textContent = `→ ${loc?.name || '?'}`;
+    const ids = selectedLocationIds.length ? selectedLocationIds : (selectedLocationId ? [selectedLocationId] : []);
+    const names = locationLabels(ids);
+    chipText.textContent = names.length ? `→ ${names.join(', ')}` : '→ ?';
   }
   updateChip();
 
@@ -273,6 +284,40 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     chipRow.appendChild(paddockSelect);
   }
   panel.appendChild(chipRow);
+  const basisRow = el('div', { 'data-testid': 'feed-delivery-quantity-basis', style: { fontSize: '13px', marginBottom: '10px', display: 'none' } });
+  function updateBasisRow() {
+    const multi = selectedLocationIds.length > 1;
+    basisRow.style.display = multi ? '' : 'none';
+    if (!multi) return;
+    const names = locationLabels(selectedLocationIds).join(', ');
+    clear(basisRow);
+    const total = el('input', { type: 'radio', name: 'feed-qty-basis', value: 'total', 'data-testid': 'feed-quantity-basis-total' });
+    const per = el('input', { type: 'radio', name: 'feed-qty-basis', value: 'per-paddock', 'data-testid': 'feed-quantity-basis-per-paddock' });
+    total.checked = quantityBasis === 'total';
+    per.checked = quantityBasis === 'per-paddock';
+    total.addEventListener('change', () => { if (total.checked) quantityBasis = 'total'; });
+    per.addEventListener('change', () => { if (per.checked) quantityBasis = 'per-paddock'; });
+    basisRow.append(
+      el('div', { style: { marginBottom: '4px', color: 'var(--text2)' } }, [`Quantity for ${names}`]),
+      el('label', { style: { marginRight: '12px' } }, [total, ' Total across paddocks']),
+      el('label', {}, [per, ' Same amount per paddock']),
+    );
+  }
+  panel.appendChild(basisRow);
+  updateBasisRow();
+  const carryoverEl = el('div', { 'data-testid': 'feed-delivery-carryover', style: { fontSize: '13px', marginBottom: '10px', display: 'none', color: 'var(--text2)' } });
+  function updateCarryover() {
+    if (!carryover || (carryover.remainingQuantity == null && !carryover.items?.length)) {
+      carryoverEl.style.display = 'none';
+      return;
+    }
+    carryoverEl.style.display = '';
+    const qty = carryover.remainingQuantity ?? carryover.items?.map(item => item.remainingQuantity).filter(v => v != null).join(', ');
+    const when = carryover.timing === 'same-instant' ? 'at the same time as the delivery' : carryover.timing ? `${carryover.timing} the delivery` : 'timing not set';
+    carryoverEl.textContent = `Remaining feed observation: ${qty} (${when}). Saved as a feed check, not a delivery.`;
+  }
+  panel.appendChild(carryoverEl);
+  updateCarryover();
 
   // Date/time row
   const dateInput = el('input', { type: 'date', value: todayStr });
@@ -314,28 +359,61 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
           return;
         }
         try {
-          for (const line of linesToSave) {
-            const holdings = positiveBalances(line.batchId);
-            const sourceLocationId = holdings.length === 1
-              ? holdings[0].locationId
-              : (line.sourceLocationId || null);
-            if (holdings.length > 1 && !sourceLocationId) {
-              statusEl.appendChild(el('span', {}, [t('feed.locationRequired')]));
-              return;
+          const targets = selectedLocationIds.length ? selectedLocationIds : (selectedLocationId ? [selectedLocationId] : []);
+          const plan = allocatedLines
+            ? { status: 'allocated', allocations: allocatedLines }
+            : allocateFeedingLines(linesToSave, targets, quantityBasis);
+          if (plan.status !== 'allocated') {
+            statusEl.appendChild(el('span', {}, [plan.question || 'How should the quantity be allocated?']));
+            return;
+          }
+          for (const part of plan.allocations) {
+            for (const line of part.lines.filter(item => item.qty > 0 || item.quantity > 0)) {
+              const qty = line.qty ?? line.quantity;
+              const holdings = positiveBalances(line.batchId);
+              const sourceLocationId = holdings.length === 1
+                ? holdings[0].locationId
+                : (line.sourceLocationId || null);
+              if (holdings.length > 1 && !sourceLocationId) {
+                statusEl.appendChild(el('span', {}, [t('feed.locationRequired')]));
+                return;
+              }
+              const deducted = deductDelivery(line.batchId, sourceLocationId, qty);
+              if (deducted) {
+                statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
+                return;
+              }
+              const entry = FeedEntryEntity.create({
+                operationId, eventId: evt.id,
+                batchId: line.batchId, locationId: part.locationId,
+                sourceLocationId,
+                date: dateInput.value, time: timeInput.value || null,
+                quantity: qty,
+              });
+              add('eventFeedEntries', entry, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
             }
-            const deducted = deductDelivery(line.batchId, sourceLocationId, line.qty);
-            if (deducted) {
-              statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
-              return;
-            }
-            const entry = FeedEntryEntity.create({
+          }
+          const leftover = carryover && (carryover.remainingQuantity != null || carryover.items?.length) ? carryover : null;
+          if (leftover) {
+            const check = FeedCheckEntity.create({
               operationId, eventId: evt.id,
-              batchId: line.batchId, locationId: selectedLocationId,
-              sourceLocationId,
-              date: dateInput.value, time: timeInput.value || null,
-              quantity: line.qty,
+              date: dateInput.value, time: leftover.timing === 'same-instant' ? (timeInput.value || null) : (leftover.time || timeInput.value || null),
             });
-            add('eventFeedEntries', entry, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+            add('eventFeedChecks', check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
+            const items = Array.isArray(leftover.items) && leftover.items.length
+              ? leftover.items
+              : targets.map(locationId => ({ locationId, batchId: leftover.batchId ?? linesToSave[0]?.batchId, remainingQuantity: leftover.remainingQuantity }));
+            for (const item of items) {
+              if (item.remainingQuantity == null || !item.batchId || !item.locationId) {
+                throw new Error('Carryover needs a batch, paddock and remaining quantity.');
+              }
+              const checkItem = FeedCheckItemEntity.create({
+                operationId, feedCheckId: check.id,
+                batchId: item.batchId, locationId: item.locationId,
+                remainingQuantity: item.remainingQuantity,
+              });
+              add('eventFeedCheckItems', checkItem, FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+            }
           }
           if (!options.review) deliverFeedSheet.close();
         } catch (err) {
@@ -350,12 +428,24 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     date: inputField(dateInput),time: inputField(timeInput),
     locationId: { required: true,get: () => selectedLocationId,set: value => {
       if (!sortedActivePWs.some(window => window.locationId === value)) throw new Error('invalid-feeding-paddock');
-      selectedLocationId = value; updateChip();
+      selectedLocationId = value;
+      if (!selectedLocationIds.includes(value)) selectedLocationIds = [value];
+      updateChip(); updateBasisRow();
       const picker = panel.querySelector('[data-testid="feed-delivery-paddock-picker"]'); if (picker) picker.value = value;
     } },
+    locationIds: { get: () => selectedLocationIds.length > 1 ? globalThis.structuredClone(selectedLocationIds) : undefined, set: value => {
+      const ids = Array.isArray(value) ? value : [];
+      if (ids.some(id => !sortedActivePWs.some(window => window.locationId === id))) throw new Error('invalid-feeding-paddock');
+      selectedLocationIds = [...ids];
+      if (ids[0]) selectedLocationId = ids[0];
+      updateChip(); updateBasisRow();
+    } },
+    quantityBasis: { get: () => quantityBasis ?? undefined, set: value => { quantityBasis = value ?? null; updateBasisRow(); } },
+    allocatedLines: { get: () => allocatedLines ?? undefined, set: value => { allocatedLines = value ?? null; } },
+    carryover: { get: () => carryover ?? undefined, set: value => { carryover = value ?? null; updateCarryover(); } },
     lines: { required: true,get: () => globalThis.structuredClone(selectedLines),set: value => {
-      if (!Array.isArray(value) || value.some(line => !batches.some(batch => batch.id === line.batchId && batch.operationId === operationId) || !Number.isFinite(line.qty) || line.qty < 0)) throw new Error('invalid-feeding-lines');
-      selectedLines = value.map(({ batchId,qty,sourceLocationId }) => ({ batchId,qty,sourceLocationId: sourceLocationId || null })); renderBatches();renderSummary();
+      if (!Array.isArray(value) || value.some(line => !batches.some(batch => batch.id === line.batchId && batch.operationId === operationId) || !Number.isFinite(line.qty ?? line.quantity) || (line.qty ?? line.quantity) < 0)) throw new Error('invalid-feeding-lines');
+      selectedLines = value.map(({ batchId,qty,quantity,sourceLocationId,allocations }) => ({ batchId,qty: qty ?? quantity,sourceLocationId: sourceLocationId || null, allocations })); renderBatches();renderSummary();
     } },
   }) });
   deliverFeedSheet.open();

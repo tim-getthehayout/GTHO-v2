@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup, resolveGroupCurrentPlacement } from '../../data/store.js';
+import { getAll, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup, resolveGroupCurrentPlacement, runDurableWrite } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import * as GroupEntity from '../../entities/group.js';
@@ -27,6 +27,7 @@ import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpe
 import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { localFormTimestamp, optionalFormNumber } from '../../utils/form-values.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -1275,7 +1276,7 @@ function openGroupWeightsSheet(group, operationId) {
   const memberships = getAll('animalGroupMemberships').filter(m => m.groupId === group.id && !m.dateLeft);
   const animals = getAll('animals');
   const weightRecords = getAll('animalWeightRecords');
-  const groupAnimals = animals.filter(a => memberships.some(m => m.animalId === a.id) && a.isBulk !== true);
+  const groupAnimals = animals.filter(a => memberships.some(m => m.animalId === a.id) && a.active !== false);
 
   const todayStr = getLocalTodayStr();
   const dateInput = el('input', { type: 'date', value: todayStr });
@@ -1285,42 +1286,51 @@ function openGroupWeightsSheet(group, operationId) {
   ]));
   panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '4px' } }, [`${group.name} \u00B7 ${groupAnimals.length} animals`]));
   panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Weigh date']), dateInput]));
-  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '10px' } }, ['Enter new weights below. Leave blank to keep current weight unchanged.']));
+  panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '10px' } }, ['Enter per-head weights below. Composite weights are stored as the full lot total. Leave blank to keep current weight unchanged.']));
 
   const weightInputs = [];
   for (const a of groupAnimals) {
     const latestW = latestWeightForAnimal(weightRecords, a.id);
-    const currentDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '—';
+    const heads = a.isBulk ? animalHeadCount(a) : 1;
+    const perHeadKg = latestW?.weightKg > 0 && heads > 0 ? latestW.weightKg / heads : null;
+    const currentDisplay = perHeadKg ? display(perHeadKg, 'weight', unitSys, 0) : '—';
     const cls = a.classId ? getAll('animalClasses').find(c => c.id === a.classId) : null;
-    const newWtInput = el('input', { type: 'number', placeholder: 'New wt', step: '1', style: { width: '90px', padding: '7px 8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', textAlign: 'right' } });
-    weightInputs.push({ animalId: a.id, input: newWtInput });
+    const newWtInput = el('input', { type: 'number', 'data-testid': `group-weight-${a.id}`, placeholder: 'New wt/head', step: 'any', style: { width: '90px', padding: '7px 8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', textAlign: 'right' } });
+    weightInputs.push({ animalId: a.id, heads, input: newWtInput });
 
     panel.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
       el('div', { style: { flex: '1' } }, [
         el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`]),
-        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${a.sex} \u00B7 ${cls?.name || ''}`]),
+        el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${a.sex} \u00B7 ${cls?.name || ''}${a.isBulk ? ` · ${heads} head · per-head weight` : ''}`]),
       ]),
       el('div', { style: { textAlign: 'right', fontSize: '12px', color: 'var(--text2)', marginRight: '4px' } }, [`Current: ${currentDisplay} ${unitLabel('weight', unitSys)}`]),
       newWtInput,
     ]));
   }
 
+  const status = el('div', { className: 'auth-error' }); panel.appendChild(status);
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
     el('button', { className: 'btn btn-green', onClick: () => {
-      let anyChange = false;
-      for (const wi of weightInputs) {
-        const val = parseFloat(wi.input.value);
-        if (isNaN(val) || val <= 0) continue;
-        let weightKg = val;
-        if (unitSys === 'imperial') weightKg = convert(val, 'weight', 'toMetric');
-        const rec = WeightRecordEntity.create({ operationId, animalId: wi.animalId, weightKg, date: dateInput.value });
-        add('animalWeightRecords', rec, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
-        anyChange = true;
-      }
-      // OI-0094 entry #4: head count unchanged but avg weight shifts → split the group's open window.
-      // OI-0137: changeDate is today, never the user-supplied (possibly backdated) weigh date.
-      if (anyChange) maybeSplitForGroup(group.id, getLocalTodayStr());
-      wtSheet.close();
+      status.textContent = '';
+      try {
+        const recordedAt = localFormTimestamp(dateInput.value, '12:00');
+        const records = weightInputs.filter(wi => wi.input.value.trim() !== '').map(wi => {
+          let perHeadKg = optionalFormNumber(wi.input.value);
+          if (!(perHeadKg > 0)) throw new Error('Weight must be a positive finite number.');
+          if (!(wi.heads > 0)) throw new Error('A composite needs a positive head count before weighing.');
+          if (unitSys === 'imperial') perHeadKg = convert(perHeadKg, 'weight', 'toMetric');
+          const record = WeightRecordEntity.create({ operationId, animalId: wi.animalId, weightKg: perHeadKg * wi.heads, recordedAt, source: 'group_update' });
+          const result = WeightRecordEntity.validate(record);
+          if (!result.valid) throw new Error(result.errors.join('; '));
+          return record;
+        });
+        if (records.length) runDurableWrite(JSON.stringify([operationId, 'group-weights', crypto.randomUUID(), 1]), () => {
+          for (const record of records) add('animalWeightRecords', record, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
+          // Split only after the complete list passes, at today's effective window boundary.
+          maybeSplitForGroup(group.id, getLocalTodayStr());
+        });
+        wtSheet.close();
+      } catch (error) { status.textContent = error.message; }
     } }, ['Commit all changes']),
     el('button', { className: 'btn btn-outline', onClick: () => wtSheet.close() }, ['Cancel']),
   ]));

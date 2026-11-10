@@ -96,6 +96,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   async function abandonLiveVoice() {
     endingLive = true;
     liveTeardownArmed = false;
+    voiceReady = false;
+    pendingEndTurn = false;
     await stopVoice();
     await transport?.cancel();
     await player?.close();
@@ -123,8 +125,10 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   let endingLive = false;
   /** Bumped by end() / a new talk() so in-flight begin/auth/connect aborts. */
   let talkGeneration = 0;
-  /** Second tap while Listening but before driver exists — flush then endTurn when ready. */
+  /** Second tap while Listening but before connect+flush — endTurn when ready. */
   let pendingEndTurn = false;
+  /** True only after transport is connected AND the PCM buffer has been flushed. */
+  let voiceReady = false;
   const session = {
     get conversation() { return conversation; },
     get attempt() { return attempts?.current ?? null; },
@@ -153,11 +157,11 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
      * aborts any in-flight begin and never calls voiceAuthorization or opens a socket.
      */
     async talk() {
-      // Second tap ends the turn. If Listening is already showing but the driver
-      // is not ready yet, queue the end until connect finishes (never call
-      // driver.endTurn on undefined).
+      // Second tap ends the turn. During auth/connect the driver object may
+      // already exist but endTurn is ignored until connected — always queue
+      // until connection ready AND PCM buffer flushed.
       if (mic) {
-        if (driver) {
+        if (voiceReady && driver) {
           driver.endTurn();
           say('Thinking…');
           return 'turn-ended';
@@ -168,6 +172,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       }
       const gen = ++talkGeneration;
       pendingEndTurn = false;
+      voiceReady = false;
       endingLive = false;
       micFailure = null;
       const tapAt = voiceStartTap();
@@ -259,6 +264,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         liveTeardownArmed = true;
         endingLive = false;
         await buffer.flushTo(bytes => transport.stream(bytes));
+        voiceReady = true;
         if (pendingEndTurn) {
           pendingEndTurn = false;
           driver.endTurn();

@@ -1,8 +1,9 @@
 /**
- * @file Faster-start Listening can show before the realtime driver exists. A
- * second tap must not call driver.endTurn() on undefined — queue until connect
- * finishes. End during begin/auth/connect must abort the in-flight startup
- * (discard PCM buffer + empty conversation) without leaving mic/End stranded.
+ * @file Faster-start Listening can show before the realtime driver exists, and
+ * during auth/connect the driver object may already exist while endTurn is still
+ * ignored. A second tap must queue until connection ready AND PCM flushed.
+ * End during begin/auth/connect must abort the in-flight startup (discard PCM
+ * buffer + empty conversation) without leaving mic/End stranded.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -185,5 +186,35 @@ describe('startup second-tap and End abort', () => {
     expect(transportInstances[0].cancel).toHaveBeenCalled();
     expect(conv.discardEmpty).toHaveBeenCalled();
     expect(session.listening).toBe(false);
+  });
+
+  it('second tap during gated authorization queues endTurn until connected and flushed', async () => {
+    connectGate = new Promise((r) => { releaseConnect = r; });
+    const conv = mockConversation();
+    const driverHolder = [];
+    createXaiRealtimeDriver.mockImplementation(() => {
+      const d = {
+        endTurn: vi.fn(), speak: vi.fn(() => true), get connected() { return false; },
+        connect: vi.fn(async () => ({
+          sendAudio: vi.fn(), sendText: vi.fn(), interrupt: vi.fn(),
+          cancel: vi.fn(), close: vi.fn(), endTurn: vi.fn(), speak: vi.fn(),
+        })),
+      };
+      driverHolder.push(d);
+      return d;
+    });
+    const say = vi.fn();
+    const session = createAssistantSession({ deps, config, intent: 'data-entry', say });
+    const first = session.talk();
+    // Driver exists once transport.connect starts (auth/connect gated).
+    await vi.waitFor(() => expect(driverHolder).toHaveLength(1));
+    expect(createXaiRealtimeDriver).toHaveBeenCalled();
+    // Second tap while auth/connect is gated — must NOT call endTurn yet.
+    await expect(session.talk()).resolves.toBe('turn-ended');
+    expect(driverHolder[0].endTurn).not.toHaveBeenCalled();
+    releaseConnect();
+    await expect(first).resolves.toBe('turn-ended');
+    // After connect + PCM flush, the queued end fires once.
+    expect(driverHolder[0].endTurn).toHaveBeenCalledTimes(1);
   });
 });

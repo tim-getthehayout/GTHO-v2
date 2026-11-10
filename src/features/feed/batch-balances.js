@@ -199,7 +199,7 @@ export function validateDeliveryRestore(batchId, locationId, quantity) {
   if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(Number(batch.remaining) + quantity)) return 'quantity';
   if (rows.length && Math.abs(rows.reduce((sum, row) => sum + Number(row.quantity), 0) - Number(batch.remaining)) > STOCK_EPSILON) return 'drift';
   if (rows.length && !locationId) return 'location';
-  if (locationId && !getById('locations', locationId)) return 'location';
+  if (locationId && getById('locations', locationId)?.operationId !== batch.operationId) return 'location';
   if (!rows.length && locationId && Number(batch.remaining) > 0) return 'unlocated';
   return null;
 }

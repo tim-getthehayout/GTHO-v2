@@ -248,8 +248,8 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
       if (!line) continue;
       const amt = moveAmounts[key] || 0;
       const unit = line.batch?.unit || 'units';
-      const destNames = destEventId ? openLocationNames(destEventId) : [];
-      const destLabel = destType === 'batch' ? 'inventory' : (destEventId ? (destNames.join(', ') || 'Event') : '?');
+      const targetLocationId = destType === 'batch' ? returnLocations[key] : destLocationId;
+      const destLabel = getById('locations', targetLocationId)?.name || (destType === 'batch' ? t('manualEntry.unlocatedInventory') : '?');
 
       panel.appendChild(el('div', { style: { fontSize: '13px', padding: '6px 0', borderBottom: '0.5px solid var(--border)' } }, [
         `Move ${amt} ${unit} ${line.batch?.name || '?'} \u2192 ${destLabel}`,
@@ -266,17 +266,18 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
         clear(statusEl);
         try {
           if (committed) return;
-          if (getById('events', event.id)?.dateOut) throw new Error(t('manualEntry.closedSource'));
+          const source = getById('events', event.id);
+          if (!source || source.operationId !== operationId || source.dateOut) throw new Error(t('manualEntry.closedSource'));
           const observed = new Date();
           // The staged observation precedes the physical removal. Give the two
           // ordered actions distinct instants even within one clock tick.
           const moved = new Date(observed.getTime() + 1);
           const parts = date => ({ date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`, time: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}.${String(date.getMilliseconds()).padStart(3, '0')}` });
           const rows = [];
-          if (destType === 'event' && (!destEventId || destEventId === event.id || !getById('events', destEventId) || getById('events', destEventId).dateOut || !getAll('eventPaddockWindows').some(row => row.eventId === destEventId && row.locationId === destLocationId && !row.dateClosed))) throw new Error(t('manualEntry.pickDestination'));
+          if (destType === 'event' && (!destEventId || destEventId === event.id || getById('events', destEventId)?.operationId !== operationId || getById('events', destEventId).dateOut || getById('locations', destLocationId)?.operationId !== operationId || !getAll('eventPaddockWindows').some(row => row.eventId === destEventId && row.locationId === destLocationId && !row.dateClosed))) throw new Error(t('manualEntry.pickDestination'));
           for (const key of selected) {
             const line = feedLines.find(row => `${row.batchId}|${row.locationId}` === key), amt = moveAmounts[key], rem = confirmedRemaining[key];
-            if (!line || !getById('batches', line.batchId) || !getById('locations', line.locationId) || !Number.isFinite(amt) || !Number.isFinite(rem) || amt <= 0 || rem < amt) throw new Error(t('manualEntry.invalidNumber'));
+            if (!line || getById('batches', line.batchId)?.operationId !== operationId || getById('locations', line.locationId)?.operationId !== operationId || !Number.isFinite(amt) || !Number.isFinite(rem) || amt <= 0 || rem < amt) throw new Error(t('manualEntry.invalidNumber'));
             const check = FeedCheckEntity.create({ operationId, eventId: event.id, ...parts(observed) });
             const item = FeedCheckItemEntity.create({ operationId, feedCheckId: check.id, batchId: line.batchId, locationId: line.locationId, remainingQuantity: rem });
             const removal = FeedEntryEntity.create({ operationId, eventId: event.id, batchId: line.batchId, locationId: line.locationId, ...parts(moved), quantity: amt, entryType: 'removal', destinationType: destType, destinationEventId: destType === 'event' ? destEventId : null });
@@ -291,6 +292,10 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
             rows.push({ check, item, removal, inbound, batchId: line.batchId, storage: returnLocations[key], amount: amt });
           }
           if (!rows.length) throw new Error(t('manualEntry.invalidNumber'));
+          // Validate cumulative returns too, before creating any compound row.
+          const totals = new Map();
+          if (destType === 'batch') for (const row of rows) totals.set(row.batchId, (totals.get(row.batchId) || 0) + row.amount);
+          for (const [batchId, quantity] of totals) if (!Number.isFinite(quantity) || !Number.isFinite(Number(getById('batches', batchId).remaining) + quantity)) throw new Error(t('manualEntry.invalidNumber'));
           runDurableWrite(executionKey, () => {
             for (const row of rows) {
               add('eventFeedChecks', row.check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');

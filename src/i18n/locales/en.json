@@ -16,6 +16,7 @@
     "groupWeightPlaceholder": "New wt/head",
     "groupWeightComposite": "{heads} head · per-head weight",
     "pickDestination": "Select a destination event and paddock.",
+    "unlocatedInventory": "Unlocated inventory",
     "pickStorage": "Select storage (legacy unlocated stock may remain unlocated).",
     "closedSource": "This event is closed.",
     "returnInventoryError": "Inventory return cannot be saved: {reason}. No records were changed."

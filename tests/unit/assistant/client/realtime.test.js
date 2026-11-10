@@ -9,7 +9,7 @@ class FakeSocket {
   close() { this.readyState = 3; }
   emit(message) { this.onmessage?.({ data: JSON.stringify(message) }); }
 }
-const config = { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', sessionCapSeconds: 600 };
+const config = { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', sessionCapSeconds: 600, transcriptionModel: 'grok-transcribe' };
 function timers() {
   const pending = new Map(); let id = 0;
   return { pending, setTimer: (fn, ms) => { pending.set(++id, { fn, ms }); return id; }, clearTimer: key => pending.delete(key), fire(ms) { for (const [key, timer] of [...pending]) if (timer.ms === ms) { pending.delete(key); timer.fn(); } } };
@@ -92,6 +92,12 @@ describe('xAI realtime driver', () => {
   });
   it('refuses floating models', () => {
     expect(() => createXaiRealtimeDriver({ config: { ...config, model: 'grok-voice-latest' } })).toThrow('pinned-voice-model-required');
+  });
+  it('sends the live transcription model from server config and refuses a floating one', async () => {
+    const { socket } = await connected();
+    expect(socket.sent[0].session.audio.input.transcription).toEqual({ model: 'grok-transcribe' });
+    expect(() => createXaiRealtimeDriver({ config: { ...config, transcriptionModel: 'grok-transcribe-latest' } })).toThrow('pinned-transcription-model-required');
+    expect(() => createXaiRealtimeDriver({ config: { ...config, transcriptionModel: undefined } })).toThrow('pinned-transcription-model-required');
   });
   it('detects and strips a trailing "over" only', () => {
     expect(endsWithOver('turn it over now')).toBe(false);

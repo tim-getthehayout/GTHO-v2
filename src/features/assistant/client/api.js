@@ -20,7 +20,7 @@ export function createAssistantApi({ supabaseUrl, anonKey, getAccessToken, opera
     if (!response.ok) throw new AssistantApiError(response.status, body?.error ?? 'request-failed', { question: body?.question });
     return body;
   }
-  const postJson = async (name, body) => call(name, { method: 'POST', headers: await headers({ 'content-type': 'application/json' }), body: JSON.stringify(body) });
+  const postJson = async (name, body, signal) => call(name, { method: 'POST', headers: await headers({ 'content-type': 'application/json' }), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
   return {
     /** Field names of the normal sheet currently open for review (body hint). */
     setOpenSheet(value) { openSheet = value?.ui && Array.isArray(value.fields) ? { ui: value.ui, fields: [...value.fields] } : null; },
@@ -30,8 +30,8 @@ export function createAssistantApi({ supabaseUrl, anonKey, getAccessToken, opera
       catch (error) { if (error.status === 403 || error.status === 401) return null; throw error; }
     },
     /** Every POST gets a fresh requestRef: each is its own metered reservation. */
-    command(conversationRef, command, payload = {}) {
-      return postJson('gtho-assistant', { ...payload, ...(openSheet ? { openSheet } : {}), command, conversationRef, requestRef: randomUUID() });
+    command(conversationRef, command, payload = {}, signal) {
+      return postJson('gtho-assistant', { ...payload, ...(openSheet ? { openSheet } : {}), command, conversationRef, requestRef: randomUUID() }, signal);
     },
     apply(receipt) { return postJson('gtho-assistant-apply', receipt); },
     testingAudioUpload(conversationRef, mimeType) { return postJson('gtho-assistant-audio', { conversationRef, mimeType }); },

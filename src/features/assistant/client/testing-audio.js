@@ -3,7 +3,10 @@
  * Assistant output audio is never recorded. */
 import { nativeAudioMimeType } from './offline-notes.js';
 
-export function createTestingRecorder({ stream, MediaRecorderImpl = globalThis.MediaRecorder }) {
+export function createTestingRecorder({
+  stream, MediaRecorderImpl = globalThis.MediaRecorder, maxMs = 0,
+  setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = id => clearTimeout(id),
+}) {
   const mimeType = nativeAudioMimeType(MediaRecorderImpl);
   if (!mimeType) return null;
   const recorder = new MediaRecorderImpl(stream, { mimeType });
@@ -14,7 +17,17 @@ export function createTestingRecorder({ stream, MediaRecorderImpl = globalThis.M
     recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType.split(';')[0] }));
   });
   recorder.start(1000);
-  return { capturedAt: new Date(startedAt).toISOString(), async stop() { if (recorder.state !== 'inactive') recorder.stop(); const blob = await done; return { blob, durationMs: Date.now() - startedAt }; } };
+  let capTimer = 0;
+  if (maxMs > 0) capTimer = setTimer(() => { if (recorder.state !== 'inactive') recorder.stop(); }, maxMs);
+  return {
+    capturedAt: new Date(startedAt).toISOString(),
+    async stop() {
+      if (capTimer) { clearTimer(capTimer); capTimer = 0; }
+      if (recorder.state !== 'inactive') recorder.stop();
+      const blob = await done;
+      return { blob, durationMs: Date.now() - startedAt };
+    },
+  };
 }
 
 /** Upload then record the metadata row through the normal artifact path. */

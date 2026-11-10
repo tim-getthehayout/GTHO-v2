@@ -4,7 +4,8 @@
  * is spoken verbatim. Tapping again ends the turn, the same as saying "over". */
 import { VoiceTransport } from '../shared.js';
 import { createAssistantConversation, createFarmReviewFlow, createFeedbackFiling, feedbackSheetSession } from './conversation.js';
-import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, createAudioChunkBuffer, voiceStartTap, voiceStartMark, OFFLINE_NO_MIC_MESSAGE, VOICE_UNAVAILABLE_MESSAGE } from './realtime.js';
+import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, createAudioChunkBuffer, voiceStartTap, voiceStartMark, prepareCaptureContext, anySignal, SAMPLE_RATE, VOICE_CONNECT_BUDGET_MS, OFFLINE_NO_MIC_MESSAGE, VOICE_UNAVAILABLE_MESSAGE } from './realtime.js';
+import { logVoice } from './voice-telemetry.js';
 import { recordNote } from './offline-notes.js';
 import { createTestingRecorder, uploadTestingAudio } from './testing-audio.js';
 import { resolveTestingConsent } from './consent.js';
@@ -101,6 +102,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     liveTeardownArmed = false;
     voiceReady = false;
     pendingEndTurn = false;
+    pcmBuffer?.discard();
+    pcmBuffer = null;
     await stopVoice();
     await transport?.cancel();
     await player?.close();
@@ -143,13 +146,18 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   let pendingEndTurn = false;
   /** True only after transport is connected AND the PCM buffer has been flushed. */
   let voiceReady = false;
+  /** Typed send arrived while voice was live; talk() must not discard the conversation. */
+  let typedTakeover = false;
+  /** AbortController for the current tap's connect budget; also cancelled on typed takeover. */
+  let connectAbort = null;
+  let pcmBuffer = null;
   /** True when discardEmptyStart failed; PTT keeps the locked bubble after No. */
   let discardEmptyFailed = false;
   let beginWork = null;
   const session = {
     get conversation() { return conversation; },
     get attempt() { return attempts?.current ?? null; },
-    get listening() { return !!mic; },
+    get listening() { return voiceReady && !!mic; },
     // Feedback host facts are captured before AI for every session, so a routed
     // switch to feedback can still open the pinned interview.
     // origin: {capturedAt, previousAttemptId} when the first turn is an offline note.
@@ -183,17 +191,17 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       }
     },
     /**
-     * First tap starts listening; every later tap ends the current turn (same as "over").
-     * Faster start (OI-0204): mic runs concurrently with begin(); Listening and local
-     * PCM buffering start as soon as the mic is live (not after awaitServerRows / WS).
-     * Mint + WS wait until the mic has settled successfully (OI-0196): a mic failure
-     * aborts any in-flight begin and never calls voiceAuthorization or opens a socket.
+     * First tap starts connecting; Listening is shown only after the socket is
+     * live and the first PCM chunk has been sent. Every later tap ends the
+     * current turn (same as "over"). Mic still overlaps begin(); mint + WS wait
+     * until the mic has settled (OI-0196). A 10s overall budget covers tap →
+     * session.created plus the first chunk, including mint (AbortSignal).
      */
     async talk() {
-      // Second tap ends the turn. During auth/connect the driver object may
-      // already exist but endTurn is ignored until connected — always queue
-      // until connection ready AND PCM buffer flushed.
-      if (mic) {
+      // Second tap ends the turn. During Connecting the driver may already
+      // exist but endTurn is ignored until ready — always queue until the
+      // connection is live AND the first chunk has been sent.
+      if (mic || connectAbort) {
         if (voiceReady && driver) {
           driver.endTurn();
           say('Thinking…');
@@ -208,38 +216,100 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       voiceReady = false;
       discardEmptyFailed = false;
       endingLive = false;
+      typedTakeover = false;
       micFailure = null;
+      const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const tapClock = now();
       const tapAt = voiceStartTap();
       const buffer = createAudioChunkBuffer();
+      pcmBuffer = buffer;
+      const budget = new AbortController();
+      connectAbort = budget;
+      const budgetTimer = setTimeout(() => budget.abort(), VOICE_CONNECT_BUDGET_MS);
       let abandoned = false;
-      const aborted = () => gen !== talkGeneration || endingLive;
-      // begin() does not mint; safe to overlap with mic. Mint stays gated on mic OK.
+      const aborted = () => gen !== talkGeneration || endingLive || typedTakeover;
+      const budgetHit = () => budget.signal.aborted && !typedTakeover && gen === talkGeneration;
+      logVoice('tap', {}, now, tapClock);
+
+      let capture = null;
+      try {
+        capture = prepareCaptureContext();
+        logVoice('pcm-context', {
+          audioContextState: capture.context.state,
+          sampleRate: capture.context.sampleRate,
+          declaredRate: SAMPLE_RATE,
+        }, now, tapClock);
+      } catch {
+        clearTimeout(budgetTimer);
+        connectAbort = null;
+        micFailure = { name: 'VoiceUnavailable', message: VOICE_UNAVAILABLE_MESSAGE };
+        logVoice('teardown', { reason: 'audio-context' }, now, tapClock);
+        return 'unavailable';
+      }
+
+      say('Connecting…');
+      logVoice('connecting', {}, now, tapClock);
+
       const beginWork = (async () => {
         if (!conversation) await session.begin();
-        if (abandoned || aborted()) await discardEmptyStart();
+        // Typed send keeps the conversation so compose can use it.
+        if ((abandoned || aborted()) && !typedTakeover) await discardEmptyStart();
       })();
+
+      async function failUnavailable(reason = 'connect-budget') {
+        buffer.discard();
+        micFailure = { name: 'VoiceUnavailable', message: VOICE_UNAVAILABLE_MESSAGE };
+        await beginWork.catch(() => {});
+        await abandonLiveVoice();
+        await discardEmptyStart();
+        logVoice('teardown', { reason }, now, tapClock);
+        return 'unavailable';
+      }
 
       let stream;
       try {
-        stream = await acquireMicrophone();
+        stream = await acquireMicrophone({ signal: budget.signal });
+        logVoice('mic-open', {}, now, tapClock);
       } catch (error) {
+        if (budgetHit() || error?.name === 'AbortError') {
+          abandoned = true;
+          await beginWork.catch(() => {});
+          await discardEmptyStart();
+          await abandonLiveVoice();
+          clearTimeout(budgetTimer);
+          connectAbort = null;
+          return failUnavailable(error?.name === 'AbortError' ? 'connect-budget' : 'connect-budget');
+        }
         abandoned = true;
         micFailure = classifyMicError(error);
         await beginWork.catch(() => {});
-        // begin may have finished before the mic failed — always drop the empty start.
         await discardEmptyStart();
         buffer.discard();
         await abandonLiveVoice();
+        clearTimeout(budgetTimer);
+        connectAbort = null;
+        logVoice('teardown', { reason: 'no-mic' }, now, tapClock);
         return 'no-mic';
       }
 
       try {
-        // Mic live → buffer + Listening immediately (does not wait on awaitServerRows).
-        mic = await startMicrophone({ stream, onChunk: bytes => buffer.onChunk(bytes) });
-        onListening(true);
-        say('Listening… say "over" or tap again when done.');
-        voiceStartMark('tap→Listening', tapAt);
+        await capture.resumePromise;
+        if (capture.context.state === 'suspended' && typeof capture.context.resume === 'function') {
+          await capture.context.resume();
+        }
+        mic = await startMicrophone({ stream, context: capture.context, onChunk: bytes => buffer.onChunk(bytes), signal: budget.signal });
+        logVoice('capture-ready', {
+          audioContextState: capture.context.state,
+          sampleRate: capture.context.sampleRate,
+          declaredRate: SAMPLE_RATE,
+        }, now, tapClock);
 
+        if (typedTakeover) {
+          buffer.discard();
+          await beginWork.catch(() => {});
+          await abandonLiveVoice();
+          return 'aborted';
+        }
         if (aborted()) {
           buffer.discard();
           await beginWork.catch(() => {});
@@ -247,26 +317,46 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           await abandonLiveVoice();
           return 'aborted';
         }
+        if (budgetHit()) return await failUnavailable();
 
         await beginWork;
+        logVoice('begin-done', {}, now, tapClock);
+        if (typedTakeover) {
+          buffer.discard();
+          await abandonLiveVoice();
+          return 'aborted';
+        }
         if (abandoned || aborted()) {
           buffer.discard();
           await discardEmptyStart();
           await abandonLiveVoice();
           return abandoned ? 'no-mic' : 'aborted';
         }
-        if (consent === 'accepted') recorder = createTestingRecorder({ stream: mic.stream });
+        if (budgetHit()) return await failUnavailable();
 
         player ??= createPcmPlayer();
         const terminal = message => {
           if (onVoiceTerminal) onVoiceTerminal(message);
           else { say(message); void stopVoice(); }
         };
-        driver = createXaiRealtimeDriver({ config, onStatus: state => { if (state === 'session-cap') terminal('Voice session ended at 10 minutes. Tap to start a new one.'); } });
+        driver = createXaiRealtimeDriver({
+          config,
+          onStatus: state => { if (state === 'session-cap') terminal('Voice session ended at 10 minutes. Tap to start a new one.'); },
+          now, tapAt: tapClock,
+        });
         // Fresh authorization every tap (no cross-tap cache / no mount prewarm).
         // Within one connect, the driver still reuses the token across its 3 attempts.
         transport = new VoiceTransport({
-          broker: () => conversation.voiceAuthorization(), driver,
+          broker: signal => {
+            logVoice('mint-start', {}, now, tapClock);
+            return conversation.voiceAuthorization(anySignal(signal, budget.signal)).then(value => {
+              logVoice('mint-done', { ok: true }, now, tapClock);
+              return value;
+            }, error => {
+              logVoice('mint-fail', { ok: false }, now, tapClock);
+              throw error;
+            });
+          }, driver,
           getSession: () => conversation.session,
           onTurn: entry => turn(entry).catch(error => say(error.message)),
           onAudio: bytes => player.play(bytes),
@@ -283,22 +373,47 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         });
         await transport.connect();
         voiceStartMark('tap→WS ready', tapAt);
+        if (typedTakeover) {
+          buffer.discard();
+          await abandonLiveVoice();
+          return 'aborted';
+        }
         if (aborted()) {
           buffer.discard();
           await abandonLiveVoice();
           await discardEmptyStart();
           return 'aborted';
         }
-        if (transport.state !== 'connected') {
-          buffer.discard();
-          micFailure = { name: 'VoiceUnavailable', message: VOICE_UNAVAILABLE_MESSAGE };
-          await abandonLiveVoice();
-          return 'unavailable';
-        }
+        if (budgetHit()) return await failUnavailable();
+        if (transport.state !== 'connected') return await failUnavailable('connect-failed');
         liveTeardownArmed = true;
         endingLive = false;
         await buffer.flushTo(bytes => transport.stream(bytes));
+        logVoice('flush-done', { flushed: buffer.sentFirst ? 1 : 0 }, now, tapClock);
+        await buffer.waitForFirstSend(budget.signal);
+        logVoice('first-chunk-sent', {}, now, tapClock);
+        if (typedTakeover) {
+          buffer.discard();
+          await abandonLiveVoice();
+          return 'aborted';
+        }
+        if (aborted()) {
+          buffer.discard();
+          await abandonLiveVoice();
+          await discardEmptyStart();
+          return 'aborted';
+        }
+        if (budgetHit()) return await failUnavailable('first-chunk-timeout');
+
+        if (consent === 'accepted') {
+          recorder = createTestingRecorder({ stream: mic.stream, maxMs: (config.sessionCapSeconds ?? 600) * 1000 });
+        }
+
         voiceReady = true;
+        onListening(true);
+        say('Listening… say "over" or tap again when done.');
+        voiceStartMark('tap→Listening', tapAt);
+        logVoice('voice-ready', {}, now, tapClock);
         if (pendingEndTurn) {
           pendingEndTurn = false;
           driver.endTurn();
@@ -308,15 +423,38 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         return 'listening';
       } catch (error) {
         buffer.discard();
-        try { stream.getTracks().forEach(track => track.stop()); } catch { /* ignore */ }
+        try { stream?.getTracks().forEach(track => track.stop()); } catch { /* ignore */ }
+        if (typedTakeover) {
+          await abandonLiveVoice();
+          return 'aborted';
+        }
+        if (budgetHit() || error?.name === 'AbortError') {
+          await abandonLiveVoice();
+          await discardEmptyStart();
+          logVoice('teardown', { reason: 'connect-budget' }, now, tapClock);
+          micFailure = { name: 'VoiceUnavailable', message: VOICE_UNAVAILABLE_MESSAGE };
+          return 'unavailable';
+        }
         await abandonLiveVoice();
         if (aborted()) return 'aborted';
         throw error;
+      } finally {
+        clearTimeout(budgetTimer);
+        if (connectAbort === budget) connectAbort = null;
       }
     },
     async text(text) {
+      if (mic || transport || connectAbort) {
+        typedTakeover = true;
+        talkGeneration += 1;
+        try { connectAbort?.abort(); } catch { /* already aborted */ }
+        if (voiceReady && driver) {
+          try { driver.endTurn(); } catch { /* mid-teardown */ }
+        }
+        await abandonLiveVoice();
+        say('');
+      }
       if (!conversation) await session.begin();
-      if (transport) return transport.text(text);
       return turn({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
     },
     async end() {

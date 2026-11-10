@@ -117,6 +117,8 @@ export function openAssistant(deps, config, options = {}) {
     },
     onListening: listening => {
       endTurn.hidden = !listening;
+      input.hidden = listening;
+      send.hidden = listening;
       options.onListening?.(listening);
     },
     onVoiceTerminal: message => {
@@ -135,7 +137,6 @@ export function openAssistant(deps, config, options = {}) {
   async function startVoice(extra = {}) {
     if (offline(deps)) { say(OFFLINE_TEXT); return { session: null, result: null }; }
     const current = bindSession(extra);
-    endTurn.hidden = false;
     try {
       const result = await current.talk();
       return { session: current, result };
@@ -154,6 +155,8 @@ export function openAssistant(deps, config, options = {}) {
   function switchToTyping() {
     session = null;
     endTurn.hidden = true;
+    input.hidden = false;
+    send.hidden = false;
     input.focus();
   }
 

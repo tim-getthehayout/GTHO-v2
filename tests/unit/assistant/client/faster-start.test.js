@@ -86,7 +86,7 @@ const deps = {
   online: () => true,
   offlineNotes: { list: async () => [] },
 };
-const config = { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', sessionCapSeconds: 600, earlyTesting: false };
+const config = { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', sessionCapSeconds: 600, earlyTesting: false, transcriptionModel: 'grok-transcribe' };
 
 function chunk(n) { return new Uint8Array([n]); }
 
@@ -127,6 +127,11 @@ beforeEach(() => {
     getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })),
   };
   Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices }, configurable: true });
+  globalThis.AudioContext = class {
+    constructor({ sampleRate } = {}) { this.sampleRate = sampleRate || 24000; this.state = 'running'; this.resume = async () => { this.state = 'running'; }; this.close = async () => {}; this.destination = {}; }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+    createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null }; }
+  };
 });
 
 describe('createAudioChunkBuffer', () => {
@@ -164,12 +169,14 @@ describe('faster start talk()', () => {
     };
 
     const talking = session.talk();
-    await vi.waitFor(() => expect(say).toHaveBeenCalledWith('Listening… say "over" or tap again when done.'));
-    // begin still blocked — Listening did not wait on it.
+    await vi.waitFor(() => expect(say).toHaveBeenCalledWith('Connecting…'));
+    // begin still blocked — Connecting does not wait on it; Listening does.
+    expect(say).not.toHaveBeenCalledWith('Listening… say "over" or tap again when done.');
     expect(conv.begin).toHaveBeenCalled();
     expect(conv.voiceAuthorization).not.toHaveBeenCalled();
 
     // Speech while WS not open yet.
+    await vi.waitFor(() => expect(micOnChunk).toBeTypeOf('function'));
     micOnChunk(chunk(10));
     micOnChunk(chunk(20));
     micOnChunk(chunk(30));
@@ -177,6 +184,7 @@ describe('faster start talk()', () => {
     conv.releaseBegin();
     releaseConnect();
     await expect(talking).resolves.toBe('listening');
+    expect(say).toHaveBeenCalledWith('Listening… say "over" or tap again when done.');
     expect(conv.voiceAuthorization).toHaveBeenCalledOnce();
     expect(streamed.map(c => [...c])).toEqual([[10], [20], [30]]);
   });
@@ -220,13 +228,20 @@ describe('faster start talk()', () => {
     const sessions = [];
     mockConversation();
     const session = createAssistantSession({ deps, config, intent: 'data-entry', say: vi.fn() });
-    await session.talk();
+    const firstTalk = session.talk();
+    await vi.waitFor(() => expect(micOnChunk).toBeTypeOf('function'));
+    micOnChunk(chunk(1));
+    await firstTalk;
     const firstToken = transportInstances[0].lastAuth.token;
     await session.end();
+    micOnChunk = null;
     // Second talk on a new session object (new tap after endLiveSession).
     mockConversation();
     const session2 = createAssistantSession({ deps, config, intent: 'data-entry', say: vi.fn() });
-    await session2.talk();
+    const secondTalk = session2.talk();
+    await vi.waitFor(() => expect(micOnChunk).toBeTypeOf('function'));
+    micOnChunk(chunk(2));
+    await secondTalk;
     const secondToken = transportInstances.at(-1).lastAuth.token;
     expect(firstToken).not.toBe(secondToken);
     expect(brokerCalls).toBe(2);
@@ -262,9 +277,8 @@ describe('bench (fake delays — NOT phone numbers)', () => {
 
     // Before (OI-0196 sequential): mic → begin → connect → Listening
     const beforeListening = MIC_MS + BEGIN_MS + CONNECT_MS;
-    // After (OI-0204): Listening at max(mic, …) once mic live; begin overlaps.
-    const afterListening = MIC_MS; // Listening as soon as mic settles
-    // WS ready after: max(mic, begin) + connect
+    // After: Connecting can overlap mic+begin, but Listening waits for connect + first chunk.
+    const afterListening = Math.max(MIC_MS, BEGIN_MS) + CONNECT_MS;
     const afterWsReady = Math.max(MIC_MS, BEGIN_MS) + CONNECT_MS;
     const beforeWsReady = MIC_MS + BEGIN_MS + CONNECT_MS;
 
@@ -279,7 +293,7 @@ describe('bench (fake delays — NOT phone numbers)', () => {
       listeningImprovementMs: beforeListening - afterListening,
       wsReadyImprovementMs: beforeWsReady - afterWsReady,
     };
-    expect(globalThis.__GTHO_VOICE_BENCH__.listeningImprovementMs).toBe(BEGIN_MS + CONNECT_MS);
+    expect(globalThis.__GTHO_VOICE_BENCH__.listeningImprovementMs).toBe(MIC_MS);
     expect(globalThis.__GTHO_VOICE_BENCH__.wsReadyImprovementMs).toBe(MIC_MS); // begin overlapped with mic
   });
 });

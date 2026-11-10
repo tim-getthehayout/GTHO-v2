@@ -68,7 +68,7 @@ export function createAssistantConversation({ api, scope, persist, awaitServerRo
     /** Empty start only: server deletes checkpoint/lock/attempt; refuses if any turn exists. */
     async discardEmpty() { return api.command(ref, 'discard-empty'); },
     setOpenSheet(value) { api.setOpenSheet?.(value); },
-    async voiceAuthorization() { return (await api.command(ref, 'voice-authorization')).value; },
+    async voiceAuthorization(signal) { return (await api.command(ref, 'voice-authorization', {}, signal)).value; },
     /**
      * confirm -> client-apply-pending -> local apply (runDurableWrite, idempotent by key)
      * -> flush -> apply receipt -> confirm replays the stored outcome.

@@ -214,4 +214,11 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 40;
     return b;
   },
+
+  // 040 → 041: empty-start discard RPC only (no backup table shape change)
+  40: (b) => {
+    b.schema_version = 41;
+    for (const op of b.tables.operations || []) op.schema_version = 41;
+    return b;
+  },
 };

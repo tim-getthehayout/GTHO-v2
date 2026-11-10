@@ -242,4 +242,11 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 43;
     return b;
   },
+  // 043 → 044: reference-table permissions only; preserve every payload/ID.
+  // Staged only: CP-56 reference upserts need a separate Design decision.
+  43: (b) => {
+    b.schema_version = 44;
+    for (const op of b.tables.operations || []) op.schema_version = 44;
+    return b;
+  },
 };

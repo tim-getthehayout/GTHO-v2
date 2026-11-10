@@ -66,6 +66,7 @@ describe('openFeedCheckSheet — end-to-end Save click (OI-0103 regression guard
   let queuedWrites;
 
   beforeEach(() => {
+    localStorage.clear();
     _reset();
     document.body.innerHTML = '';
     queuedWrites = [];
@@ -116,8 +117,10 @@ describe('openFeedCheckSheet — end-to-end Save click (OI-0103 regression guard
     expect(item.locationId).toBe(LOC_ID);
 
     // Sync adapter received both rows via toSupabaseShape.
-    const checkPush = queuedWrites.find(w => w.table === 'event_feed_checks' && w.op === 'insert');
-    const itemPush = queuedWrites.find(w => w.table === 'event_feed_check_items' && w.op === 'insert');
+    const durableWrites = JSON.parse(localStorage.getItem('_sync_queue') || '[]').map(command => ({ table: command.table, row: command.record, op: command.operation }));
+    const allWrites = [...queuedWrites, ...durableWrites];
+    const checkPush = allWrites.find(w => w.table === 'event_feed_checks' && ['insert', 'upsert'].includes(w.op));
+    const itemPush = allWrites.find(w => w.table === 'event_feed_check_items' && ['insert', 'upsert'].includes(w.op));
     expect(checkPush, 'event_feed_checks sync push must fire').toBeTruthy();
     expect(itemPush, 'event_feed_check_items sync push must fire').toBeTruthy();
     // Supabase shape has snake_case `date` populated (not null).

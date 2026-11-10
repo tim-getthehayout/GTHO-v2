@@ -1,5 +1,7 @@
 /** @file Entity: animal_bcs_scores — V2_SCHEMA_DESIGN.md §9.5 */
 
+import { isValidTimestamp } from '../utils/form-values.js';
+
 export const FIELDS = {
   id:          { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId: { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
@@ -26,7 +28,7 @@ export function create(data = {}) {
   };
 }
 
-export function validate(record) {
+export function validate(record, { maxScore = 9 } = {}) {
   const errors = [];
   if (!record.operationId) errors.push('operationId is required');
   if (!record.animalId) errors.push('animalId is required');
@@ -34,6 +36,8 @@ export function validate(record) {
   if (record.score === null || record.score === undefined) {
     errors.push('score is required');
   }
+  if (record.scoredAt && !isValidTimestamp(record.scoredAt)) errors.push('scoredAt must be a valid timestamp');
+  if (record.score != null && (typeof record.score !== 'number' || !Number.isFinite(record.score) || record.score < 1 || record.score > maxScore)) errors.push('score is outside the species scale');
   return { valid: errors.length === 0, errors };
 }
 

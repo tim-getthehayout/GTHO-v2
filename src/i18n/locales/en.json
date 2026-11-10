@@ -6,7 +6,8 @@
     "chooseSource": "Choose a source location.",
     "stock": "Not enough inventory at the selected source.",
     "stockAssessment": "Existing stock totals differ. Assess the historical inventory before changing this entry.",
-    "unsupportedFeed": "Use Move feed out for transferred or removed feed."
+    "unsupportedFeed": "Use Move feed out for transferred or removed feed.",
+    "invalidReference": "Choose an existing record."
   },
   "app": {
     "name": "Get The Hay Out",

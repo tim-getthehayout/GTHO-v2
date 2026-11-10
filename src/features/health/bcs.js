@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getById, add } from '../../data/store.js';
 import * as BcsScoreEntity from '../../entities/animal-bcs-score.js';
+import { localFormTimestamp } from '../../utils/form-values.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let bcsSheet = null;
@@ -71,7 +72,9 @@ export function openBcsSheet(animal, operationId) {
       clear(statusEl);
       if (!selectedScore) { statusEl.appendChild(el('span', {}, ['Select a score'])); return; }
       try {
-        const record = BcsScoreEntity.create({ operationId, animalId: animal.id, score: selectedScore, date: dateInput.value, time: timeInput.value || null, notes: notesInput.value.trim() || null });
+        const record = BcsScoreEntity.create({ operationId, animalId: animal.id, score: selectedScore, scoredAt: localFormTimestamp(dateInput.value, timeInput.value), notes: notesInput.value.trim() || null });
+        const checked = BcsScoreEntity.validate(record, { maxScore });
+        if (!checked.valid) throw new Error(checked.errors.join(', '));
         add('animalBcsScores', record, BcsScoreEntity.validate, BcsScoreEntity.toSupabaseShape, 'animal_bcs_scores');
         bcsSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }

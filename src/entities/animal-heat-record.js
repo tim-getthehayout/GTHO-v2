@@ -1,5 +1,7 @@
 /** @file Entity: animal_heat_records — V2_SCHEMA_DESIGN.md §9.8 */
 
+import { isValidTimestamp } from '../utils/form-values.js';
+
 export const FIELDS = {
   id:          { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId: { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
@@ -27,6 +29,7 @@ export function validate(record) {
   if (!record.operationId) errors.push('operationId is required');
   if (!record.animalId) errors.push('animalId is required');
   if (!record.observedAt) errors.push('observedAt is required');
+  if (record.observedAt && !isValidTimestamp(record.observedAt)) errors.push('observedAt must be a valid timestamp');
   return { valid: errors.length === 0, errors };
 }
 

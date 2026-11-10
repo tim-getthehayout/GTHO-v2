@@ -1,5 +1,7 @@
 /** @file Entity: animal_breeding_records — V2_SCHEMA_DESIGN.md §9.7 */
 
+import { isValidTimestamp, isCalendarDate } from '../utils/form-values.js';
+
 export const FIELDS = {
   id:               { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId:      { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
@@ -43,6 +45,8 @@ export function validate(record) {
   if (!record.operationId) errors.push('operationId is required');
   if (!record.animalId) errors.push('animalId is required');
   if (!record.bredAt) errors.push('bredAt is required');
+  if (record.bredAt && !isValidTimestamp(record.bredAt)) errors.push('bredAt must be a valid timestamp');
+  for (const key of ['expectedCalving', 'confirmedDate']) if (record[key] != null && !isCalendarDate(record[key])) errors.push(`${key} must be a valid date`);
   if (!record.method) {
     errors.push('method is required');
   } else if (!VALID_METHODS.includes(record.method)) {

@@ -16,3 +16,7 @@ export function optionalFormNumber(value) {
   if (!Number.isFinite(number)) throw new Error(t('manualEntry.invalidNumber'));
   return number;
 }
+
+export function isValidTimestamp(value) {
+  return typeof value === 'string' && isCalendarDate(value.slice(0, 10)) && Number.isFinite(Date.parse(value));
+}

@@ -4,6 +4,8 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, add } from '../../data/store.js';
+import * as HeatRecordEntity from '../../entities/animal-heat-record.js';
+import { localFormTimestamp, isCalendarDate } from '../../utils/form-values.js';
 import * as BreedingEntity from '../../entities/animal-breeding-record.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
@@ -119,7 +121,16 @@ export function openBreedingSheet(animal, operationId) {
     el('button', { className: 'btn btn-green', onClick: () => {
       clear(statusEl);
       try {
-        const data = { operationId, animalId: animal.id, date: dateInput.value, time: timeInput.value || null, method: subtype, expectedCalvingDate: calvingDateInput.value || null };
+        const timestamp = localFormTimestamp(dateInput.value, timeInput.value);
+        if (subtype === 'heat') {
+          const record = HeatRecordEntity.create({ operationId, animalId: animal.id, observedAt: timestamp, notes: heatNotesInput.value.trim() || null });
+          add('animalHeatRecords', record, HeatRecordEntity.validate, HeatRecordEntity.toSupabaseShape, 'animal_heat_records');
+          breedingSheet.close(); return;
+        }
+        if (calvingDateInput.value && !isCalendarDate(calvingDateInput.value)) throw new Error(t('manualEntry.invalidDate'));
+        if (aiSireSelect.value && !getAll('aiBulls').some(row => row.id === aiSireSelect.value)) throw new Error(t('manualEntry.invalidReference'));
+        if (bullSelect.value && !getAll('animals').some(row => row.id === bullSelect.value)) throw new Error(t('manualEntry.invalidReference'));
+        const data = { operationId, animalId: animal.id, bredAt: timestamp, method: subtype, expectedCalving: calvingDateInput.value || null };
         if (subtype === 'ai') { data.sireAiBullId = aiSireSelect.value || null; data.sireName = aiSireNameInput.value.trim() || null; data.technician = aiTechInput.value.trim() || null; }
         if (subtype === 'bull') { data.sireAnimalId = bullSelect.value || null; data.sireName = bullNameInput.value.trim() || null; }
         if (subtype === 'heat') { data.notes = heatNotesInput.value.trim() || null; }

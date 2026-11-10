@@ -1846,9 +1846,9 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
         el('button', { className: 'btn btn-teal btn-xs', onClick: () => { animalSheet.close(); openHeatSheet(existingAnimal, operationId); } }, ['+ Record heat']),
       ]));
       if (heatRecords.length) {
-        for (const hr of heatRecords.sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5)) {
+        for (const hr of heatRecords.sort((a, b) => (b.observedAt || '').localeCompare(a.observedAt || '')).slice(0, 5)) {
           panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', padding: '4px 0', borderBottom: '0.5px solid var(--border)' } }, [
-            `${hr.date || '?'}${hr.notes ? ' \u00B7 ' + hr.notes : ''}`,
+            `${hr.observedAt?.slice(0, 10) || '?'}${hr.notes ? ' \u00B7 ' + hr.notes : ''}`,
           ]));
         }
       } else {

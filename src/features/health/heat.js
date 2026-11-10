@@ -5,6 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { add } from '../../data/store.js';
 import * as HeatRecordEntity from '../../entities/animal-heat-record.js';
+import { localFormTimestamp } from '../../utils/form-values.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let heatSheet = null;
@@ -52,7 +53,7 @@ export function openHeatSheet(animal, operationId) {
     el('button', { className: 'btn btn-green', onClick: () => {
       clear(statusEl);
       try {
-        const record = HeatRecordEntity.create({ operationId, animalId: animal.id, date: dateInput.value, time: timeInput.value || null, notes: notesInput.value.trim() || null });
+        const record = HeatRecordEntity.create({ operationId, animalId: animal.id, observedAt: localFormTimestamp(dateInput.value, timeInput.value), notes: notesInput.value.trim() || null });
         add('animalHeatRecords', record, HeatRecordEntity.validate, HeatRecordEntity.toSupabaseShape, 'animal_heat_records');
         heatSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }

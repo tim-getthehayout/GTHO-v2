@@ -34,9 +34,11 @@ function seedRecord() {
 function expectCleared() {
   expect(getById('animals', DAM).confirmedBred).toBe(false);
   expect(loadFromStorage('animals').find(a => a.id === DAM).confirmedBred).toBe(false);
-  expect(push).toHaveBeenCalledWith('animals', expect.objectContaining({
+  // Manual compound Saves enqueue atomically; single-record helpers use the adapter.
+  const writes = [...push.mock.calls, ...JSON.parse(localStorage.getItem('_sync_queue') || '[]').map(row => [row.table, row.record, row.operation])];
+  expect(writes).toContainEqual(['animals', expect.objectContaining({
     id: DAM, confirmed_bred: false, operation_id: OP,
-  }), 'update');
+  }), 'update']);
 }
 
 beforeEach(() => {

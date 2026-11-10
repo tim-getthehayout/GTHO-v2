@@ -332,7 +332,7 @@ function dailyDmiForAnimal(weightKg, animalClass) {
 }
 
 /** Sum of DMI for every animal with active !== false. Not limited to open events. */
-function farmWideActiveDmiKg() {
+export function farmWideActiveDmiKg() {
   const today = todayDateString();
   const classes = new Map(getAll('animalClasses').map(c => [c.id, c]));
   const weights = getAll('animalWeightRecords');

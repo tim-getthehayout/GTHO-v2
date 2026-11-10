@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, maybeSplitForGroup } from '../../data/store.js';
+import { getAll, getById, add, update, maybeSplitForGroup, runDurableWrite } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel } from '../../utils/units.js';
 import * as CalvingEntity from '../../entities/animal-calving-record.js';
@@ -13,6 +13,7 @@ import * as MembershipEntity from '../../entities/animal-group-membership.js';
 import { reviewSave, inputField } from '../assistant/entry-review.js';
 import { bindEntryFields } from '../assistant/entry-fields.js';
 import { CALVING_ENTRY_FIELDS } from './calving-entry-fields.js';
+import { isCalendarDate, optionalFormNumber } from '../../utils/form-values.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let calvingSheet = null;
@@ -34,6 +35,8 @@ export function openCalvingSheet(dam, operationId, options = {}) {
   clear(panel);
   panel.appendChild(el('div', { className: 'sheet-handle' }));
 
+  const executionKey = JSON.stringify([operationId, 'calving', crypto.randomUUID(), 1]);
+  let committed = false;
   const todayStr = getLocalTodayStr();
   const unitSys = getUnitSystem();
   const displayName = dam.tagNum || dam.name || dam.eid || dam.id.slice(0, 8);
@@ -127,70 +130,86 @@ export function openCalvingSheet(dam, operationId, options = {}) {
       onClick: reviewSave(options.review, () => {
         clear(statusEl);
         try {
-          const calvedAt = new Date(dateInput.value + 'T12:00:00Z').toISOString();
-          let calfId = null;
+          if (committed) return;
+          if (!isCalendarDate(dateInput.value)) throw new Error(t('manualEntry.invalidDate'));
+          const weight = optionalFormNumber(calfWeightInput.value);
+          if (weight !== null && weight <= 0) throw new Error(t('manualEntry.invalidNumber'));
+          if (getById('animals', dam.id)?.operationId !== operationId) throw new Error(t('manualEntry.invalidReference'));
+          if (calfClassSelect.value && !getById('animalClasses', calfClassSelect.value)) throw new Error(t('manualEntry.invalidReference'));
+          if (!stillbirthCheck.checked && calfGroupSelect.value && !getById('groups', calfGroupSelect.value)) throw new Error(t('manualEntry.invalidReference'));
+          const driedOff = panel.querySelector('[data-testid="calving-sheet-dried-off"]')?.value;
+          if (driedOff && !isCalendarDate(driedOff)) throw new Error(t('manualEntry.invalidDate'));
+          const write = () => {
+            const calvedAt = new Date(dateInput.value + 'T12:00:00Z').toISOString();
+            let calfId = null;
 
-          // Create calf animal (unless stillbirth with no tag)
-          if (!stillbirthCheck.checked || calfTagInput.value.trim()) {
-            const calf = AnimalEntity.create({
+            // Create calf animal (unless stillbirth with no tag)
+            if (!stillbirthCheck.checked || calfTagInput.value.trim()) {
+              const calf = AnimalEntity.create({
+                operationId,
+                tagNum: calfTagInput.value.trim() || null,
+                sex: calfSexState.value,
+                classId: calfClassSelect.value || null,
+                birthDate: dateInput.value,
+                damId: dam.id,
+                sireAnimalId: dam.sireAnimalId || null,
+                ...(stillbirthCheck.checked ? { active: false, cullDate: dateInput.value, cullReason: 'Died (natural)', cullNotes: ['Stillborn', notesInput.value.trim()].filter(Boolean).join(' — ') } : {}),
+              });
+              add('animals', calf, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
+              calfId = calf.id;
+
+              // Record birth weight if provided
+              let calfWeightKg = weight;
+              if (calfWeightKg > 0) {
+                if (unitSys === 'imperial') calfWeightKg = convert(calfWeightKg, 'weight', 'toMetric');
+                const wr = WeightRecordEntity.create({
+                  operationId, animalId: calf.id,
+                  recordedAt: calvedAt, weightKg: calfWeightKg, source: 'calving',
+                });
+                add('animalWeightRecords', wr, WeightRecordEntity.validate,
+                  WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
+              }
+
+              // Assign calf to group
+              if (!stillbirthCheck.checked && calfGroupSelect.value) {
+                const membership = MembershipEntity.create({
+                  operationId, animalId: calf.id,
+                  groupId: calfGroupSelect.value,
+                  dateJoined: dateInput.value, reason: 'calving',
+                });
+                add('animalGroupMemberships', membership, MembershipEntity.validate,
+                  MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+
+                // OI-0094 entry #5: split the group's open event window so calcs reflect the new calf.
+                // OI-0137: changeDate must be today, never the (possibly backdated) calving date —
+                // a backdated date makes maybeSplitForGroup compute 0 head against the still-open
+                // window and silently delegate to closeGroupWindow with date_left < date_joined.
+                maybeSplitForGroup(calfGroupSelect.value, getLocalTodayStr());
+              }
+            }
+
+            // Create calving record
+            const driedOffEl = panel.querySelector('[data-testid="calving-sheet-dried-off"]');
+            const calvingRecord = CalvingEntity.create({
               operationId,
-              tagNum: calfTagInput.value.trim() || null,
-              sex: calfSexState.value,
-              classId: calfClassSelect.value || null,
-              birthDate: dateInput.value,
               damId: dam.id,
-              sireAnimalId: dam.sireAnimalId || null,
+              calfId,
+              calvedAt,
+              stillbirth: stillbirthCheck.checked,
+              driedOffDate: driedOffEl?.value || null,
+              notes: notesInput.value.trim() || null,
             });
-            add('animals', calf, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
-            calfId = calf.id;
+            add('animalCalvingRecords', calvingRecord, CalvingEntity.validate,
+              CalvingEntity.toSupabaseShape, 'animal_calving_records');
+            // Required even for stillbirths and when the optional class prompt is declined.
+            update('animals', dam.id, { confirmedBred: false },
+              AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
 
-            // Record birth weight if provided
-            let calfWeightKg = parseFloat(calfWeightInput.value);
-            if (calfWeightKg > 0) {
-              if (unitSys === 'imperial') calfWeightKg = convert(calfWeightKg, 'weight', 'toMetric');
-              const wr = WeightRecordEntity.create({
-                operationId, animalId: calf.id,
-                recordedAt: calvedAt, weightKg: calfWeightKg, source: 'calving',
-              });
-              add('animalWeightRecords', wr, WeightRecordEntity.validate,
-                WeightRecordEntity.toSupabaseShape, 'animal_weight_records');
-            }
-
-            // Assign calf to group
-            if (calfGroupSelect.value) {
-              const membership = MembershipEntity.create({
-                operationId, animalId: calf.id,
-                groupId: calfGroupSelect.value,
-                dateJoined: dateInput.value, reason: 'calving',
-              });
-              add('animalGroupMemberships', membership, MembershipEntity.validate,
-                MembershipEntity.toSupabaseShape, 'animal_group_memberships');
-
-              // OI-0094 entry #5: split the group's open event window so calcs reflect the new calf.
-              // OI-0137: changeDate must be today, never the (possibly backdated) calving date —
-              // a backdated date makes maybeSplitForGroup compute 0 head against the still-open
-              // window and silently delegate to closeGroupWindow with date_left < date_joined.
-              maybeSplitForGroup(calfGroupSelect.value, getLocalTodayStr());
-            }
-          }
-
-          // Create calving record
-          const driedOffEl = panel.querySelector('[data-testid="calving-sheet-dried-off"]');
-          const calvingRecord = CalvingEntity.create({
-            operationId,
-            damId: dam.id,
-            calfId,
-            calvedAt,
-            stillbirth: stillbirthCheck.checked,
-            driedOffDate: driedOffEl?.value || null,
-            notes: notesInput.value.trim() || null,
-          });
-          add('animalCalvingRecords', calvingRecord, CalvingEntity.validate,
-            CalvingEntity.toSupabaseShape, 'animal_calving_records');
-          // Required even for stillbirths and when the optional class prompt is declined.
-          update('animals', dam.id, { confirmedBred: false },
-            AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
-
+            return calvingRecord.id;
+          };
+          // Reviewed entry already has the host's durable transaction.
+          if (options.review) write();
+          else { runDurableWrite(executionKey, write); committed = true; }
           if (!options.review) calvingSheet.close();
 
           // A27: Class reassignment prompt (non-blocking)

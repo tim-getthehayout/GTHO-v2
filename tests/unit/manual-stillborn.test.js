@@ -1,0 +1,43 @@
+import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+import '../../src/calcs/core.js';
+import { resetForms, seed, fill, button, queueSpy, OP, FARM } from './manual-entry-helpers.js';
+import { getAll, getById, update, subscribe } from '../../src/data/store.js';
+import { loadFromStorage } from '../../src/data/local-storage.js';
+import * as Animal from '../../src/entities/animal.js';
+import * as Birth from '../../src/entities/animal-calving-record.js';
+import * as Class from '../../src/entities/animal-class.js';
+import * as Group from '../../src/entities/group.js';
+import * as Membership from '../../src/entities/animal-group-membership.js';
+import * as EventEntity from '../../src/entities/event.js';
+import * as GroupWindow from '../../src/entities/event-group-window.js';
+import { openCalvingSheet } from '../../src/features/health/calving.js';
+import { renderAnimalsScreen } from '../../src/features/animals/index.js';
+import { farmWideActiveDmiKg } from '../../src/features/feed/index.js';
+import { getLiveWindowHeadCount } from '../../src/calcs/window-helpers.js';
+import { assessOpenAnimal } from '../../src/features/assistant/farm-reads.js';
+import { validateBackup, migrateBackupForward, CURRENT_SCHEMA_VERSION } from '../../src/data/backup-import.js';
+let panel,dam,window,queued;
+beforeEach(()=>{
+ resetForms();vi.spyOn(globalThis,'confirm').mockReturnValue(false);
+ seed('animalClasses',Class,{id:'cow',name:'Cow',role:'cow',species:'beef_cattle',defaultWeightKg:500,dmiPct:2.5});seed('animalClasses',Class,{id:'calf',name:'Calf',role:'calf',species:'beef_cattle',defaultWeightKg:50,dmiPct:2.5});
+ dam=seed('animals',Animal,{id:'dam',tagNum:'DAM',sex:'female',classId:'cow',confirmedBred:true});seed('groups',Group,{id:'herd',name:'Herd'});seed('events',EventEntity,{id:'event',farmId:FARM});
+ window=seed('eventGroupWindows',GroupWindow,{id:'live',eventId:'event',groupId:'herd',dateJoined:'2026-11-09',headCount:1,avgWeightKg:500});seed('eventGroupWindows',GroupWindow,{id:'historical',eventId:'event',groupId:'herd',dateJoined:'2026-11-01',dateLeft:'2026-11-08',headCount:5,avgWeightKg:450});
+ seed('animalGroupMemberships',Membership,{animalId:dam.id,groupId:'herd',dateJoined:'2026-11-01'});queued=queueSpy();openCalvingSheet(dam,OP);panel=document.querySelector('#calving-sheet-panel');fill(panel,'[data-testid="calving-sheet-date"]','2026-11-05');fill(panel,'[data-testid="calving-sheet-calf-tag"]','SB1');fill(panel,'[data-testid="calving-sheet-calf-class"]','calf','change');fill(panel,'[data-testid="calving-sheet-calf-group"]','herd','change');
+});
+afterEach(()=>vi.restoreAllMocks());
+function save(){panel.querySelector('[data-testid="calving-sheet-save"]').click();}
+const calf=()=>getAll('animals').find(row=>row.id!==dam.id);
+const heads=()=>getLiveWindowHeadCount(window,{memberships:getAll('animalGroupMemberships'),animals:getAll('animals'),now:'2026-11-10'});
+it('real tagged stillbirth Save is inactive from first publication, linked, culled and excluded from active heads/DMI/open cows despite a preselected group',()=>{
+ const historical=JSON.stringify(getById('eventGroupWindows','historical')),beforeDmi=farmWideActiveDmiKg(),published=[];const unsub=subscribe('animals',()=>published.push(calf()?.active));
+ panel.querySelector('[data-testid="calving-sheet-stillbirth"]').checked=true;fill(panel,'[data-testid="calving-sheet-notes"]','Difficult delivery');fill(panel,'[data-testid="calving-sheet-calf-weight"]','45');save();unsub();expect(panel.querySelector('.auth-error').textContent).toBe('');
+ expect(calf()).toMatchObject({tagNum:'SB1',birthDate:'2026-11-05',damId:'dam',active:false,cullDate:'2026-11-05',cullReason:'Died (natural)',cullNotes:'Stillborn — Difficult delivery',isBulk:false,bulkHeadCount:null});expect(published).not.toContain(true);expect(getAll('animalCalvingRecords')[0]).toMatchObject({calfId:calf().id,stillbirth:true,notes:'Difficult delivery'});expect(getById('animals','dam').confirmedBred).toBe(false);expect(heads()).toBe(1);expect(farmWideActiveDmiKg()).toBe(beforeDmi);expect(getAll('animalGroupMemberships').filter(row=>row.animalId===calf().id)).toHaveLength(0);expect(JSON.stringify(getById('eventGroupWindows','historical'))).toBe(historical);
+ expect(loadFromStorage('animals').find(row=>row.id===calf().id).active).toBe(false);expect(queued('animals').find(row=>row.id===calf().id)).toMatchObject({active:false,cull_date:'2026-11-05',cull_reason:'Died (natural)',cull_notes:'Stillborn — Difficult delivery'});expect(queued('animal_calving_records')[0]).toMatchObject({calf_id:calf().id,stillbirth:true});
+ update('animals',calf().id,{classId:'cow'},Animal.validate,Animal.toSupabaseShape,'animals');expect(assessOpenAnimal(calf(),getById('animalClasses','cow'))).toMatchObject({state:'known',value:false,reason:'outside-open-set'});expect(farmWideActiveDmiKg()).toBe(beforeDmi);
+ const root=document.createElement('main');document.body.append(root);renderAnimalsScreen(root);expect(root.querySelector(`[data-testid="animal-row-${calf().id}"]`)).toBeNull();root.querySelector('[data-testid="animals-chip-culls"]').click();const row=root.querySelector(`[data-testid="animal-row-${calf().id}"]`);expect(row).not.toBeNull();button(row,'Edit').click();expect(document.querySelector('#ae-sheet-panel').textContent).toContain('Stillborn');
+});
+it('live tagged calf still joins its explicitly selected group and increases active heads',()=>{save();expect(panel.querySelector('.auth-error').textContent).toBe('');expect(calf().active).toBe(true);expect(getAll('animalCalvingRecords')[0].stillbirth).toBe(false);expect(getAll('animalGroupMemberships').find(row=>row.animalId===calf().id)).toMatchObject({groupId:'herd'});expect(heads()).toBe(2);});
+it('untagged stillbirth keeps the no-calf path while clearing the dam',()=>{panel.querySelector('[data-testid="calving-sheet-stillbirth"]').checked=true;fill(panel,'[data-testid="calving-sheet-calf-tag"]','');save();expect(getAll('animals')).toHaveLength(1);expect(getAll('animalCalvingRecords')[0]).toMatchObject({calfId:null,stillbirth:true});expect(heads()).toBe(1);expect(getById('animals','dam').confirmedBred).toBe(false);});
+it('Cancel, invalid date and invalid weight leave no birth, calf or changed membership',()=>{button(panel,'Cancel').click();expect(getAll('animalCalvingRecords')).toHaveLength(0);openCalvingSheet(dam,OP);panel=document.querySelector('#calving-sheet-panel');fill(panel,'[data-testid="calving-sheet-date"]','');save();expect(getAll('animals')).toHaveLength(1);fill(panel,'[data-testid="calving-sheet-date"]','2026-11-05');fill(panel,'[data-testid="calving-sheet-calf-weight"]','-1');save();expect(getAll('animalCalvingRecords')).toHaveLength(0);expect(getById('animals','dam').confirmedBred).toBe(true);expect(heads()).toBe(1);});
+it('failed durable save rolls back the entire stillbirth and retry creates the inactive calf and birth once',()=>{panel.querySelector('[data-testid="calving-sheet-stillbirth"]').checked=true;const fault=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw Error('quota');});save();expect(getAll('animals')).toHaveLength(1);expect(getAll('animalCalvingRecords')).toHaveLength(0);expect(getById('animals','dam').confirmedBred).toBe(true);fault.mockRestore();save();save();expect(getAll('animals')).toHaveLength(2);expect(getAll('animalCalvingRecords')).toHaveLength(1);expect(calf().active).toBe(false);});
+it('existing fields and linked stillbirth survive the CP-55/56 serialized fixture without a schema bump',()=>{panel.querySelector('[data-testid="calving-sheet-stillbirth"]').checked=true;save();const envelope=JSON.parse(JSON.stringify({format:'gtho-v2-backup',format_version:1,schema_version:CURRENT_SCHEMA_VERSION,operation_id:OP,tables:{operations:[{id:OP,schema_version:CURRENT_SCHEMA_VERSION}],animals:[Animal.toSupabaseShape(calf())],animal_calving_records:getAll('animalCalvingRecords').map(Birth.toSupabaseShape),animal_group_memberships:[]}}));expect(validateBackup(envelope).valid).toBe(true);expect(migrateBackupForward(envelope).migrated).toBe(false);const restored=Animal.fromSupabaseShape(envelope.tables.animals[0]),birth=Birth.fromSupabaseShape(envelope.tables.animal_calving_records[0]);expect(restored).toMatchObject({active:false,cullDate:'2026-11-05',cullReason:'Died (natural)',cullNotes:'Stillborn'});expect(birth).toMatchObject({calfId:restored.id,stillbirth:true});});

@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | Tagged stillbirths are created inactive with the entered cull date, existing Died (natural) reason and Stillborn/additional notes, linked to their birth without group membership or active-head/DMI increases. Calving compound saves are recoverable; retain live/untagged paths and protect reviewed transactions. | Calving form, existing active-DMI test seam and real-form/backup fixtures |
 | 2026-11-10 | AI sire manager saves and displays registration through existing regNum/reg_num, preserving sire name, breed and reference identity. Remove the unimplemented registration-snapshot claim; retained EPD input remains available pending the separate approved schema release. | Animals manager, locale and real-form/pull regressions |
 | 2026-11-10 | Soil-test shortcut and full editor share canonical organicMatter, date, unit and numeric mapping. Preserve entered zeros versus blank/null; reject nonfinite values, invalid dates and existing pH/organic-matter range violations before writing. | Soil forms, shared adapter, entity and real-form tests |
 | 2026-11-10 | Treatment manager uses real category IDs in both Save and readback, with Save-time missing/archived/wrong-operation guards shared by Settings. Invalid category or name shows a visible error without adding a type. | Animals manager, health reference editor, locale and real-form tests |

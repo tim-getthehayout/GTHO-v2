@@ -30,6 +30,12 @@ export function serveConfigured(factory) {
     return Deno.serve(unconfiguredWithCors(readOrigins(env)));
   }
   const { config } = loaded;
-  const client = createClient(config.supabaseUrl, config.serviceKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
-  return Deno.serve(factory({ config, client, fetch: globalThis.fetch, openDatabase: () => requestDatabase(config.databaseUrl), log: entry => console.log(JSON.stringify(entry)) }));
+  const authOpts = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
+  const client = createClient(config.supabaseUrl, config.serviceKey, authOpts);
+  /** User-scoped client: anon/publishable key + caller's JWT so auth.uid() is set. */
+  const createUserClient = accessToken => createClient(config.supabaseUrl, config.anonKey, {
+    ...authOpts,
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+  return Deno.serve(factory({ config, client, createUserClient, fetch: globalThis.fetch, openDatabase: () => requestDatabase(config.databaseUrl), log: entry => console.log(JSON.stringify(entry)) }));
 }

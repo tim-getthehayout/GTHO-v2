@@ -3,16 +3,20 @@
  * RPC (not independent REST deletes). Migration 041 must delete testing consent
  * in the same transaction (NO ACTION FK would otherwise block conversation
  * DELETE), lock the conversation row, admit restore-fence, keep billing/usage,
- * and refuse when any transcript turn already exists.
+ * refuse null auth.uid() / non-members, and GRANT EXECUTE to authenticated only
+ * (no service_role) — same style as CP-56 restore RPC grants.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fakeSupabase, OP } from './fake-supabase.js';
+import { fakeSupabase, env, OP, USER } from './fake-supabase.js';
 import { discardEmptyStartRows } from '../../../../src/features/assistant/server/discard-empty-start.js';
 import { RuntimeError } from '../../../../src/features/assistant/shared.js';
+import { readConfig } from '../../../../src/features/assistant/server/config.js';
+import { createAssistantFunction } from '../../../../src/features/assistant/server/compose.js';
 
 const CONV = '00000000-0000-4000-8000-0000000000c1';
+const ORIGIN = 'https://getthehayout.com';
 
 describe('discardEmptyStartRows routes through atomic RPC', () => {
   it('calls assistant_discard_empty_start and returns discarded', async () => {
@@ -28,7 +32,6 @@ describe('discardEmptyStartRows routes through atomic RPC', () => {
     expect(client.calls.rpc).toEqual([
       { name: 'assistant_discard_empty_start', args: { p_operation: OP, p_conversation: CONV } },
     ]);
-    // Must not fall back to table deletes.
     expect(client.calls.deletes || []).toEqual([]);
   });
 
@@ -61,6 +64,20 @@ describe('migration 041 assistant_discard_empty_start', () => {
     expect(sql).toMatch(/accepted_at IS NOT NULL/);
   });
 
+  it('raises when auth.uid() is null (no null-uid bypass)', () => {
+    expect(sql).toMatch(/IF \(SELECT auth\.uid\(\)\) IS NULL THEN/);
+    expect(sql).toMatch(/RAISE EXCEPTION 'discard-empty-auth-required'/);
+    // No service_role / null-uid bypass remains.
+    expect(sql).not.toMatch(/auth\.role\(\)/);
+    expect(sql).not.toMatch(/IS DISTINCT FROM 'service_role'/);
+  });
+
+  it('refuses a non-member via accepted operation_members for auth.uid()', () => {
+    expect(sql).toMatch(/discard-empty-membership-required/);
+    expect(sql).toMatch(/user_id = \(SELECT auth\.uid\(\)\)/);
+    expect(sql).toMatch(/accepted_at IS NOT NULL/);
+  });
+
   it('admits restore-fence and locks the conversation row before deletes', () => {
     expect(sql).toMatch(/assistant_assert_restore_unfenced\(p_operation\)/);
     expect(sql).toMatch(/FOR UPDATE/);
@@ -74,7 +91,6 @@ describe('migration 041 assistant_discard_empty_start', () => {
     expect(sql).toMatch(/DELETE FROM public\.assistant_conversations/);
     expect(sql).not.toMatch(/DELETE FROM public\.assistant_billing_/);
     expect(sql).toMatch(/discard-empty-refused-turns-exist/);
-    // Consent DELETE must appear before conversation DELETE (FK order).
     const consentAt = sql.indexOf('DELETE FROM public.assistant_testing_consents');
     const convAt = sql.indexOf('DELETE FROM public.assistant_conversations');
     expect(consentAt).toBeGreaterThan(-1);
@@ -83,21 +99,65 @@ describe('migration 041 assistant_discard_empty_start', () => {
 
   it('documents the testing_consents NO ACTION FK that blocks conversation DELETE without consent cleanup', () => {
     const mig040 = readFileSync(resolve(process.cwd(), 'supabase/migrations/040_assistant_host_artifacts.sql'), 'utf8');
-    // 040 wires assistant_testing_consents → assistant_conversations with default NO ACTION.
     expect(mig040).toMatch(
       /ALTER TABLE assistant_testing_consents ADD FOREIGN KEY \(operation_id, conversation_id\) REFERENCES assistant_conversations\(operation_id, id\)/,
     );
-    // No ON DELETE CASCADE on that FK — deleting the conversation while a consent
-    // row remains must fail. 041 therefore deletes consent in the same transaction.
     const fkBlock = mig040.match(
       /ALTER TABLE assistant_testing_consents ADD FOREIGN KEY \(operation_id, conversation_id\) REFERENCES assistant_conversations\(operation_id, id\)[^;]*/,
     )?.[0] ?? '';
     expect(fkBlock).not.toMatch(/ON DELETE\s+CASCADE/i);
   });
 
-  it('grants execute to authenticated and service_role (edge service-role client) only', () => {
+  it('grants execute to authenticated only — service_role cannot execute (CP-56 style)', () => {
+    // Same pattern as assistant_restore_prepare: REVOKE … service_role; GRANT authenticated only.
+    expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) FROM PUBLIC, anon, service_role/);
     expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) TO authenticated/);
-    expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) TO service_role/);
-    expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) FROM PUBLIC, anon/);
+    expect(sql).not.toMatch(/GRANT EXECUTE ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) TO service_role/);
+  });
+});
+
+describe('edge discard-empty uses the user-scoped client', () => {
+  it('forwards the caller JWT via createUserClient and never RPCs on the service client', async () => {
+    const { config } = readConfig(env());
+    const serviceClient = fakeSupabase({
+      users: { 'jwt-user': USER },
+      tables: {
+        operation_members: [{ operation_id: OP, user_id: USER, accepted_at: '2026-01-01T00:00:00Z' }],
+      },
+      rpc: async () => ({ data: 'discarded', error: null }),
+    });
+    const userClient = fakeSupabase({
+      rpc: async (name, args) => {
+        expect(name).toBe('assistant_discard_empty_start');
+        expect(args).toEqual({ p_operation: OP, p_conversation: CONV });
+        return { data: 'discarded', error: null };
+      },
+    });
+    const createUserClient = vi.fn(() => userClient);
+    const openDatabase = () => ({
+      connect: async () => ({ query: async () => ({ rows: [] }), release: async () => {} }),
+      close: async () => {},
+    });
+    const handler = createAssistantFunction({
+      config, client: serviceClient, createUserClient, openDatabase, fetch: vi.fn(), log: vi.fn(),
+    });
+    const response = await handler(new Request('https://fn.invalid/gtho-assistant', {
+      method: 'POST',
+      headers: {
+        origin: ORIGIN,
+        authorization: 'Bearer jwt-user',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ command: 'discard-empty', conversationRef: CONV }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ value: { outcome: 'discarded' } });
+    expect(createUserClient).toHaveBeenCalledTimes(1);
+    expect(createUserClient).toHaveBeenCalledWith('jwt-user');
+    expect(userClient.calls.rpc).toEqual([
+      { name: 'assistant_discard_empty_start', args: { p_operation: OP, p_conversation: CONV } },
+    ]);
+    // Service client may auth/membership-lookup; it must not call the discard RPC.
+    expect(serviceClient.calls.rpc.filter(c => c.name === 'assistant_discard_empty_start')).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@
 import { RuntimeError } from '../shared.js';
 
 /**
- * @param {object} client service-role (or membership-scoped) supabase-js client
+ * @param {object} client user-scoped (JWT) supabase-js client — auth.uid() must be set
  * @param {{ operationId: string, conversationRef: string }} args
  * @returns {Promise<{'outcome': 'discarded'}>}
  */
@@ -20,6 +20,7 @@ export async function discardEmptyStartRows(client, { operationId, conversationR
   if (error) {
     const msg = String(error.message || error.code || 'discard-empty-failed');
     if (/discard-empty-refused-turns-exist/.test(msg)) throw new RuntimeError('discard-empty-refused-turns-exist');
+    if (/discard-empty-auth-required/.test(msg)) throw new RuntimeError('discard-empty-auth-required');
     if (/discard-empty-membership-required/.test(msg)) throw new RuntimeError('discard-empty-membership-required');
     if (/assistant-restore-in-progress/.test(msg)) throw new RuntimeError('assistant-restore-in-progress');
     if (/discard-empty-args-required/.test(msg)) throw new RuntimeError('discard-empty-args-required');

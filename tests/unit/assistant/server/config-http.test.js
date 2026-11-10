@@ -25,11 +25,13 @@ describe('function configuration (exactly eight GTHO secrets)', () => {
     expect(readConfig(env({ GTHO_ASSISTANT_ORIGINS: 'https://getthehayout.com,http://localhost:5173' })).ok).toBe(true);
     expect(readConfig(env({ GTHO_ASSISTANT_EARLY_TESTING: 'maybe' })).ok).toBe(false);
   });
-  it('needs platform database/service values but accepts the new secret-key format', () => {
+  it('needs platform database/service/anon values but accepts the new secret-key format', () => {
     expect(readConfig(env({ SUPABASE_DB_URL: '' })).ok).toBe(false);
+    expect(readConfig(env({ SUPABASE_ANON_KEY: '' }))).toEqual({ ok: false, reason: 'missing:platform' });
     const modern = readConfig(env({ SUPABASE_SERVICE_ROLE_KEY: '', SUPABASE_SECRET_KEYS: JSON.stringify({ default: 'sb_secret_not_real' }) }));
     expect(modern.ok).toBe(true);
     expect(modern.config.serviceKey).toBe('sb_secret_not_real');
+    expect(modern.config.anonKey).toBe('anon-not-real');
   });
   it('reads models and lists from secrets; public config exposes no secret', () => {
     const { config } = readConfig(env());

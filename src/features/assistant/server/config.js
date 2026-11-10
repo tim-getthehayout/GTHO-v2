@@ -70,7 +70,12 @@ export function readConfig(env = {}) {
   const origins = list(env.GTHO_ASSISTANT_ORIGINS);
   if (!origins.length || !origins.every(origin)) return { ok: false, reason: 'invalid:GTHO_ASSISTANT_ORIGINS' };
   const key = serviceKey(env);
-  if (!present(env.SUPABASE_URL) || !present(env.SUPABASE_DB_URL) || !key) return { ok: false, reason: 'missing:platform' };
+  // Platform-injected values (not GTHO function secrets): URL, DB URL, service
+  // key, and anon/publishable key. Supabase edge injects SUPABASE_ANON_KEY by
+  // default; required so discard-empty can open a user-scoped JWT client.
+  if (!present(env.SUPABASE_URL) || !present(env.SUPABASE_DB_URL) || !key || !present(env.SUPABASE_ANON_KEY)) {
+    return { ok: false, reason: 'missing:platform' };
+  }
   return { ok: true, config: Object.freeze({
     xaiApiKey: env.XAI_API_KEY.trim(),
     textModel: env.GTHO_XAI_TEXT_MODEL.trim(),
@@ -82,6 +87,7 @@ export function readConfig(env = {}) {
     supabaseUrl: env.SUPABASE_URL.trim(),
     databaseUrl: env.SUPABASE_DB_URL.trim(),
     serviceKey: key,
+    anonKey: env.SUPABASE_ANON_KEY.trim(),
   }) };
 }
 

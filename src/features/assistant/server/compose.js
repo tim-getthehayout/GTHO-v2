@@ -19,7 +19,7 @@ import { discardEmptyStartRows } from './discard-empty-start.js';
 
 const contentFreeLog = log => entry => { try { log?.(entry); } catch { /* logging never breaks a request */ } };
 
-/** deps: {config, client (service role), fetch, openDatabase(): {connect, close}, log}. */
+/** deps: {config, client (service role), createUserClient(accessToken), fetch, openDatabase(): {connect, close}, log}. */
 function requestContext(deps, identity, meter = { providerInvoked: false }) {
   const { client, config, openDatabase } = deps;
   const scope = identity.identity.scope;
@@ -86,10 +86,19 @@ export function createAssistantFunction(deps) {
     // case was settled once at token issue.
     if (peeked?.command === 'voice-usage') return json(VOICE_USAGE_REFUSAL);
     // Empty mic-failure start: delete checkpoint/lock/attempt (not billing). GTHO-side.
+    // Call the RPC on a user-scoped client (caller's JWT) so auth.uid() is set;
+    // never use the service-role client for this EXECUTE-authenticated RPC.
     if (peeked?.command === 'discard-empty') {
       const context = requestContext(deps, identity);
       try {
-        const result = await discardEmptyStartRows(deps.client, {
+        const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') || '')?.[1];
+        if (!token) return json({ error: 'unauthenticated' }, 401);
+        if (typeof deps.createUserClient !== 'function') {
+          contentFreeLog(deps.log)({ type: 'assistant-function-error', reason: 'user-client-required' });
+          return json({ error: 'backend-unavailable' }, 503);
+        }
+        const userClient = deps.createUserClient(token);
+        const result = await discardEmptyStartRows(userClient, {
           operationId: context.scope.operationId,
           conversationRef: peeked.conversationRef,
         });

@@ -70,6 +70,7 @@ export const env = (overrides = {}) => ({
   XAI_API_KEY: 'test-key-not-real', GTHO_XAI_TEXT_MODEL: 'grok-4.20-0309-non-reasoning', GTHO_XAI_VOICE_MODEL: 'grok-voice-3.0',
   GTHO_ASSISTANT_ENABLED: 'true', GTHO_ASSISTANT_OPERATIONS: OP, GTHO_ASSISTANT_EARLY_TESTING: 'true',
   GTHO_ASSISTANT_ORIGINS: 'https://getthehayout.com', GTHO_BILLING_CONTROL_USERS: BILLING_USER,
-  SUPABASE_URL: 'https://project.invalid', SUPABASE_DB_URL: 'postgres://db.invalid/postgres', SUPABASE_SERVICE_ROLE_KEY: 'service-not-real',
+  SUPABASE_URL: 'https://project.invalid', SUPABASE_DB_URL: 'postgres://db.invalid/postgres',
+  SUPABASE_SERVICE_ROLE_KEY: 'service-not-real', SUPABASE_ANON_KEY: 'anon-not-real',
   ...overrides,
 });

@@ -13,16 +13,16 @@ const CAT_ID    = '770e8400-e29b-41d4-a716-446655440000';
 
 describe('dose-unit entity', () => {
   // --- FIELDS ---
-  it('exports 5 fields', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(5);
+  it('exports 6 fields', () => {
+    expect(Object.keys(FIELDS)).toHaveLength(6);
   });
 
   it('FIELDS.name has sbColumn name', () => {
     expect(FIELDS.name.sbColumn).toBe('name');
   });
 
-  it('FIELDS does not include operationId', () => {
-    expect(FIELDS).not.toHaveProperty('operationId');
+  it('FIELDS includes nullable operationId', () => {
+    expect(FIELDS.operationId).toMatchObject({ required: false, sbColumn: 'operation_id' });
   });
 
   it('FIELDS.archived has sbColumn archived', () => {

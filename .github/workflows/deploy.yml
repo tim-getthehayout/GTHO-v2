@@ -30,6 +30,10 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run test:unit
+      - name: Disposable unit RLS and integrity SQL tests
+        run: |
+          npm install --prefix "$RUNNER_TEMP/unit-sql" --no-package-lock --no-audit --no-fund @electric-sql/pglite@0.5.15
+          PGLITE_MODULE="$RUNNER_TEMP/unit-sql/node_modules/@electric-sql/pglite/dist/index.js" node tests/sql/run-unit-references.mjs
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

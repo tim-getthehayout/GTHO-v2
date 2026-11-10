@@ -1,3 +1,6 @@
+import { UNIT_ENTITIES, UNIT_STANDARDS, normalizeUnitName } from '../utils/unit-standards.js';
+import { releasedColumns } from './schema-columns.js';
+import { t } from '../i18n/i18n.js';
 import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
 /** @file Store — single data access point. See V2_APP_ARCHITECTURE.md §4. */
 
@@ -127,7 +130,12 @@ initState();
 export function init() {
   recoverDurableWrite();
   for (const type of ENTITY_TYPES) {
-    state[type] = loadFromStorage(type);
+    const cached = loadFromStorage(type);
+    state[type] = Object.hasOwn(UNIT_ENTITIES, type) ? cached.filter(row => row.operationId != null || (row.operationId === null && UNIT_STANDARDS.some(unit => unit.table === UNIT_ENTITIES[type] && unit.id === row.id))) : cached;
+    if (state[type].length !== cached.length) {
+      saveToStorage(type, state[type]);
+      logger.info('sync', 'Legacy unit cache discarded', { count: cached.length - state[type].length });
+    }
   }
 }
 
@@ -201,6 +209,10 @@ export function add(entityType, record, validateFn, toSupabaseFn, table) {
     throw error;
   }
 
+  if (Object.hasOwn(UNIT_ENTITIES, entityType)) {
+    if (!record.operationId) throw new Error(t('unitCatalog.standardReadOnly'));
+    releasedColumns(44, { operation_id: record.operationId });
+  }
   requireWriteScope(record);
   // Persist before publishing memory/sync/subscriber success.
   const previous = state[entityType];
@@ -229,6 +241,7 @@ export function update(entityType, id, changes, validateFn, toSupabaseFn, table)
   }
 
   const updated = { ...state[entityType][index], ...changes, updatedAt: new Date().toISOString() };
+  if (Object.hasOwn(UNIT_ENTITIES, entityType)) updated.name = normalizeUnitName(updated.name);
 
   // 1. Validate
   const result = validateFn(updated);
@@ -238,6 +251,10 @@ export function update(entityType, id, changes, validateFn, toSupabaseFn, table)
     throw error;
   }
 
+  if (Object.hasOwn(UNIT_ENTITIES, entityType)) {
+    if (!state[entityType][index].operationId || updated.operationId !== state[entityType][index].operationId) throw new Error(t('unitCatalog.standardReadOnly'));
+    releasedColumns(44, { operation_id: updated.operationId });
+  }
   requireWriteScope(updated);
   const previous = state[entityType];
   state[entityType] = previous.map((row,i) => i === index ? updated : row);
@@ -258,6 +275,7 @@ export function remove(entityType, id, table) {
   const index = state[entityType].findIndex(r => r.id === id);
   if (index === -1) return;
 
+  if (Object.hasOwn(UNIT_ENTITIES, entityType)) throw new Error(t('unitCatalog.noDelete'));
   requireWriteScope(state[entityType][index]);
   const previous = state[entityType];
   state[entityType] = previous.filter((row,i) => i !== index);

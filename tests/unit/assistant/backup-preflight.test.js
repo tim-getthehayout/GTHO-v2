@@ -49,7 +49,7 @@ describe('CP-56 fenced prepare/finish/abort lifecycle',() => {
   });
   it('aborts on a missing backup migration before any destructive writes',async () => {
     const data = backup();data.schema_version = 13;
-    expect((await run(data)).success).toBe(false);expect(mocks.from).not.toHaveBeenCalled();expect(names().at(-1)).toBe('assistant_restore_abort');
+    expect((await run(data)).success).toBe(false);expect(mocks.from).not.toHaveBeenCalled();expect(names()).toEqual([]);
   });
   it.each(['update','delete','insert','parity'])('aborts on %s failure and never reports finish',async failure => {
     stage = failure;const data = backup();if (failure === 'insert') data.tables.farms = [{ id: 'farm',operation_id: op }];

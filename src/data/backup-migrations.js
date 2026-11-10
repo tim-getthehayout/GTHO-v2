@@ -1,3 +1,4 @@
+import { migrateUnitBackup } from './unit-backup.js';
 import { ASSISTANT_TABLES, SERVER_ASSISTANT_TABLES, HISTORICAL_FEEDBACK_FACTS, SUBMISSION_EXTENSION_COLUMNS } from '../features/assistant/schema.js';
 
 /**
@@ -242,9 +243,10 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 43;
     return b;
   },
-  // 043 → 044: reference-table permissions only; preserve every payload/ID.
-  // Staged only; 044 retains SELECT/INSERT/UPDATE for reference upserts.
+  // 043 → 044: operation-owned custom units and exact legacy standard-ID mapping.
+  // Held: exact legacy IDs map to fixed standards; other old rows become custom.
   43: (b) => {
+    migrateUnitBackup(b);
     b.schema_version = 44;
     for (const op of b.tables.operations || []) op.schema_version = 44;
     return b;

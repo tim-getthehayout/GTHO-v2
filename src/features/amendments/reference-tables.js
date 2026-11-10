@@ -1,3 +1,4 @@
+import { unitsFor } from '../../data/unit-references.js';
 /** @file Amendment reference table sections — CP-38. Products, categories, spreaders, units. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -77,7 +78,7 @@ let productSheet = null;
 export function renderProductsSection(operationId) {
   const products = getAll('inputProducts').filter(p => !p.archived);
   const categories = getAll('inputProductCategories').filter(c => !c.archived);
-  const productUnits = getAll('inputProductUnits').filter(u => !u.archived);
+  const productUnits = unitsFor('inputProductUnits', operationId);
   const unitMap = new Map(productUnits.map(u => [u.id, u.name]));
 
   return el('div', { className: 'card settings-card', 'data-testid': 'settings-input-products' }, [
@@ -136,11 +137,11 @@ function openProductSheet(existing, operationId, categories) {
   panel.appendChild(npkRow);
 
   // Unit selection from input_product_units
-  const productUnits = getAll('inputProductUnits').filter(u => !u.archived);
+  const productUnits = unitsFor('inputProductUnits', operationId, { selectedId: existing?.unitId });
   panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.productUnit')]));
   inputs.unitId = el('select', { className: 'auth-select', 'data-testid': 'product-sheet-unit' }, [
     el('option', { value: '' }, ['—']),
-    ...productUnits.map(u => el('option', { value: u.id }, [u.name])),
+    ...productUnits.map(u => el('option', { value: u.id, disabled: !!u.archived }, [u.name + (u.archived ? ` · ${t('unitCatalog.archived')}` : '')])),
   ]);
   if (existing?.unitId) inputs.unitId.value = existing.unitId;
   panel.appendChild(inputs.unitId);
@@ -251,13 +252,13 @@ function openSpreaderSheet(existing, operationId) {
 // Product units (read-only, seeded at onboarding)
 // ---------------------------------------------------------------------------
 
-export function renderProductUnitsSection() {
-  const units = getAll('inputProductUnits').filter(u => !u.archived);
+export function renderProductUnitsSection(operationId) {
+  const units = unitsFor('inputProductUnits', operationId);
   return el('div', { className: 'card settings-card', 'data-testid': 'settings-product-units' }, [
     el('h3', { className: 'settings-section-title' }, [t('amendment.productUnits')]),
     units.length
       ? el('div', { className: 'ft-list' }, units.map(u =>
-          el('div', { className: 'ft-row' }, [el('span', { className: 'ft-row-name' }, [u.name])])
+          el('div', { className: 'ft-row' }, [el('span', { className: 'ft-row-name' }, [u.name + (u.operationId == null ? ` · ${t('unitCatalog.standard')}` : '')])])
         ))
       : el('p', { className: 'form-hint' }, [t('amendment.productUnitEmpty')]),
   ]);

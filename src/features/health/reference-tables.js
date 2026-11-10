@@ -1,3 +1,4 @@
+import { unitsFor, validateCustomUnitName } from '../../data/unit-references.js';
 /** @file Health reference table sections — CP-32. AI bulls, treatment categories/types, dose units. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -241,13 +242,14 @@ function openTypeSheet(existing, operationId, categories) {
 }
 
 // ---------------------------------------------------------------------------
-// Dose units section (read-only list — seeded at onboarding)
+// Standard units are read-only; this operation owns its custom units.
 // ---------------------------------------------------------------------------
 
 let doseUnitSheet = null;
 
-export function renderDoseUnitsSection() {
-  const units = getAll('doseUnits').filter(u => !u.archived);
+export function renderDoseUnitsSection(operationId) {
+  const units = unitsFor('doseUnits', operationId);
+  const status = el('div', { className: 'auth-error', role: 'status' });
 
   return el('div', { className: 'card settings-card', 'data-testid': 'settings-dose-units' }, [
     el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
@@ -255,28 +257,32 @@ export function renderDoseUnitsSection() {
       el('button', {
         className: 'btn btn-outline btn-xs',
         'data-testid': 'settings-add-dose-unit',
-        onClick: () => openDoseUnitSheet(null),
+        onClick: () => openDoseUnitSheet(null, operationId),
       }, [t('health.addDoseUnit')]),
     ]),
     units.length
       ? el('div', { className: 'ft-list' }, units.map(u =>
           el('div', { className: 'ft-row', 'data-testid': `settings-dose-unit-${u.id}` }, [
-            el('span', { className: 'ft-row-name' }, [u.name]),
-            el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
-              el('button', { className: 'btn btn-outline btn-xs', onClick: () => openDoseUnitSheet(u) }, [t('action.edit')]),
+            el('span', { className: 'ft-row-name' }, [u.name, ...(u.operationId == null ? [' · ', t('unitCatalog.standard')] : [])]),
+            u.operationId == null ? null : el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
+              el('button', { className: 'btn btn-outline btn-xs', onClick: () => openDoseUnitSheet(u, operationId) }, [t('action.edit')]),
               el('button', { className: 'btn btn-outline btn-xs', onClick: () => {
                 if (window.confirm(t('health.confirmDelete'))) {
-                  update('doseUnits', u.id, { archived: true }, DoseUnitEntity.validate, DoseUnitEntity.toSupabaseShape, 'dose_units');
+                  clear(status);
+                  try { update('doseUnits', u.id, { archived: true }, DoseUnitEntity.validate, DoseUnitEntity.toSupabaseShape, 'dose_units'); }
+                  catch (err) { status.textContent = err.message; }
                 }
               }}, [t('action.archive')]),
             ]),
           ])
         ))
       : el('p', { className: 'form-hint' }, [t('health.doseUnitEmpty')]),
+    status,
   ]);
 }
 
-function openDoseUnitSheet(existing) {
+function openDoseUnitSheet(existing, operationId) {
+  if (existing && (existing.operationId == null || existing.operationId !== operationId)) return;
   if (!doseUnitSheet) doseUnitSheet = new Sheet('dose-unit-sheet-wrap');
   const panel = document.getElementById('dose-unit-sheet-panel');
   if (!panel) return;
@@ -293,8 +299,8 @@ function openDoseUnitSheet(existing) {
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
     el('button', { className: 'btn btn-green', onClick: () => {
       clear(statusEl);
-      const data = { name: nameInput.value.trim() };
       try {
+        const data = { operationId, name: validateCustomUnitName('doseUnits', nameInput.value, operationId, existing?.id) };
         if (existing) update('doseUnits', existing.id, data, DoseUnitEntity.validate, DoseUnitEntity.toSupabaseShape, 'dose_units');
         else add('doseUnits', DoseUnitEntity.create(data), DoseUnitEntity.validate, DoseUnitEntity.toSupabaseShape, 'dose_units');
         doseUnitSheet.close();

@@ -1,3 +1,5 @@
+import { UNIT_ENTITIES } from '../utils/unit-standards.js';
+import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
 import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
 /**
  * @file Push all local state to Supabase — recovery path for OI-0049.
@@ -107,6 +109,7 @@ export async function pushAllToSupabase() {
 
     const records = getAll(entityType);
     for (const record of records) {
+      if (Object.hasOwn(UNIT_ENTITIES, entityType) && (!record.operationId || RELEASED_SCHEMA_VERSION < 44)) continue;
       try {
         adapter.push(table, toSb(record));
         queued++;

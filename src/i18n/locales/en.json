@@ -30,20 +30,19 @@
     "destination": "Destination",
     "returnHint": "Returned feed creates a new labelled batch at the selected store, never credits an original lot, and has no invented purchase price.",
     "confirmMove": "Confirm feed movement at"
-},
+  },
   "manualEntry": {
     "unreleasedSchema": "Saving this field needs verified database migration {version}. Your input has been kept; approval and a backup are required before release.",
     "invalidDate": "Enter a valid date and time.",
     "sireReferenceHint": "Choose a sire reference when recording breeding. Registration is kept on this sire.",
     "invalidTreatmentCategory": "Select an available treatment category before saving.",
-    "invalidReference": "Choose valid source, unit and location records before saving.",
+    "invalidReference": "Choose an existing record.",
     "invalidNumber": "Enter a finite number.",
     "missingSource": "The original source is unknown. Inventory changes need a source assessment before this entry can be changed or deleted.",
     "chooseSource": "Choose a source location.",
     "stock": "Not enough inventory at the selected source.",
     "stockAssessment": "Existing stock totals differ. Assess the historical inventory before changing this entry.",
     "unsupportedFeed": "Use Move feed out for transferred or removed feed.",
-    "invalidReference": "Choose an existing record.",
     "time": "Time",
     "explicitTime": "Enter or confirm the time for this historical observation.",
     "timeReadback": "Time: {time}",
@@ -1453,5 +1452,13 @@
         "empty": "No calves needed backfilling."
       }
     }
+  },
+  "unitCatalog": {
+    "standard": "Standard",
+    "standardReadOnly": "Standard units are read-only; ownership cannot change.",
+    "noDelete": "Units cannot be deleted. Archive a custom unit instead.",
+    "reserved": "Enter a unique unit name; standard and archived names are reserved.",
+    "archived": "Archived",
+    "restoreInvalid": "Unit references or names are invalid; nothing was changed."
   }
 }

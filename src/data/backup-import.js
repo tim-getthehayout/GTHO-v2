@@ -1,3 +1,5 @@
+import { UNIT_TABLES } from '../utils/unit-standards.js';
+import { preflightUnits } from './unit-backup.js';
 /**
  * @file Backup import — CP-56.
  * Implements V2_MIGRATION_PLAN.md §5.7 steps 1–10.
@@ -103,10 +105,7 @@ const TWO_PASS_TABLES = {
   assistant_field_mappings: ['correction_predecessor_id'],
 };
 
-const REFERENCE_TABLES = new Set([
-  'dose_units',
-  'input_product_units',
-]);
+const REFERENCE_TABLES = new Set();
 
 const INSERT_BATCH_SIZE = 500;
 
@@ -179,7 +178,7 @@ export function migrateBackupForward(backup) {
 }
 
 async function deleteTableRows(table, operationId) {
-  if (REFERENCE_TABLES.has(table)) return;
+  if (REFERENCE_TABLES.has(table) || UNIT_TABLES.includes(table)) return;
   if (table === 'operations') return;
   if (table === 'operation_members') return;
 
@@ -282,7 +281,8 @@ async function insertTableRows(table, rows, operationId) {
     return;
   }
 
-  const isReference = REFERENCE_TABLES.has(table);
+  if (UNIT_TABLES.includes(table) && CURRENT_SCHEMA_VERSION < 44) return;
+  const isReference = REFERENCE_TABLES.has(table) || UNIT_TABLES.includes(table);
   const twoPassCols = TWO_PASS_TABLES[table];
 
   const insertRows = twoPassCols
@@ -331,6 +331,7 @@ async function parityCheck(backup, operationId) {
   const mismatches = [];
 
   for (const table of BROWSER_FK_ORDER) {
+    if (UNIT_TABLES.includes(table) && CURRENT_SCHEMA_VERSION < 44) continue;
     const backupRows = backup.tables[table] || [];
     const expected = backupRows.length;
 
@@ -347,7 +348,7 @@ async function parityCheck(backup, operationId) {
       continue;
     }
 
-    if (REFERENCE_TABLES.has(table)) {
+    if (REFERENCE_TABLES.has(table) || UNIT_TABLES.includes(table)) {
       if (count < expected) {
         mismatches.push({ table, expected, actual: count });
       }
@@ -404,6 +405,18 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
   if (CURRENT_SCHEMA_VERSION >= 42 && !(await serverHasStagedColumns(CURRENT_SCHEMA_VERSION))) {
     return { success: false, error: 'Database columns are not verified for this restore version.' };
   }
+  // Work on a copy: failed classification/validation never changes the caller's file.
+  backup = globalThis.structuredClone(backup);
+  if (backup.schema_version < CURRENT_SCHEMA_VERSION) {
+    const migrated = migrateBackupForward(backup);
+    if (migrated.error) return { success: false, error: migrated.error };
+  }
+  const scopeRows = Object.values(backup.tables).flat().filter(row => row && typeof row === 'object');
+  if (scopeRows.some(row => row.operation_id != null && row.operation_id !== operationId)) return { success: false, error: 'Restore refused: custom rows belong to another operation.' };
+  try {
+    const units = await preflightUnits(backup, operationId, supabase, CURRENT_SCHEMA_VERSION);
+    if (!units.success) return units;
+  } catch { return { success: false, error: 'Unit restore validation unavailable. Nothing was changed.' }; }
   const exportCheck = canExport();
   if (!exportCheck.ok) {
     return { success: false, error: 'Sync pending — retry when sync completes.' };
@@ -450,14 +463,6 @@ async function restoreBrowserTables(backup,operationId,progress,options,validati
   }
 
   checkRestoreCancelled(options);
-  if (backup.schema_version < CURRENT_SCHEMA_VERSION) {
-    progress('Migrating', `v${backup.schema_version} → v${CURRENT_SCHEMA_VERSION}`, 20);
-    const migResult = migrateBackupForward(backup);
-    if (migResult.error) {
-      return { success: false, error: migResult.error, autoBackupFileName };
-    }
-  }
-
   // Break only nullable self-links; retained values come from the backup on restore.
   // This is wholesale restore, NOT finished-at retention cleanup.
   for (const [table, columns] of Object.entries(TWO_PASS_TABLES)) {

@@ -1,3 +1,4 @@
+import { unitsFor } from '../../data/unit-references.js';
 /** @file Amendment entry — CP-40. Amendment flow with NPK preview and multi-paddock distribution. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -135,7 +136,7 @@ export function openAmendmentSheet(existing, operationId) {
   const todayStr = getLocalTodayStr();
   const inputProducts = getAll('inputProducts').filter(p => !p.archived);
   const manureBatches = getAll('manureBatches').filter(b => b.operationId === operationId);
-  const inputProductUnits = getAll('inputProductUnits').filter(u => !u.archived);
+  const inputProductUnits = unitsFor('inputProductUnits', operationId, { selectedId: existing?.qtyUnitId });
   const locations = getAll('locations').filter(l => !l.archived && l.type === 'land');
   const spreaders = getAll('spreaders').filter(s => !s.archived);
 
@@ -223,7 +224,7 @@ export function openAmendmentSheet(existing, operationId) {
     'data-testid': 'amendment-unit',
   }, [
     el('option', { value: '' }, ['—']),
-    ...inputProductUnits.map(u => el('option', { value: u.id }, [u.name])),
+    ...inputProductUnits.map(u => el('option', { value: u.id, disabled: !!u.archived }, [u.name + (u.archived ? ` · ${t('unitCatalog.archived')}` : '')])),
   ]);
   if (existing?.qtyUnitId) unitSelect.value = existing.qtyUnitId;
   qtyInput.addEventListener('input', updateNpkPreview);

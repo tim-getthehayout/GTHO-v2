@@ -1,3 +1,4 @@
+import { unitsFor } from '../../data/unit-references.js';
 /** @file Treatment recording sheet — v1 parity. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -56,7 +57,7 @@ export function openTreatmentSheet(animal, operationId, options = {}) {
   // Product/drug + dose
   const productInput = el('input', { type: 'text', placeholder: 'e.g. Draxxin' });
   const doseInput = el('input', { type: 'number', min: '0', step: 'any', placeholder: 'Dose amount' });
-  const doseUnit = el('select', {}, [el('option', { value: '' }, ['—']), ...getAll('doseUnits').map(unit => el('option', { value: unit.id }, [unit.name || unit.label || unit.abbreviation || unit.id]))]);
+  const doseUnit = el('select', {}, [el('option', { value: '' }, ['—']), ...unitsFor('doseUnits', operationId).map(unit => el('option', { value: unit.id }, [unit.name || unit.label || unit.abbreviation || unit.id]))]);
   panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Dose unit (optional)']),doseUnit]));
   panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['Product / drug ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), productInput]),

@@ -1,3 +1,4 @@
+import { UNIT_TABLES } from '../utils/unit-standards.js';
 /**
  * @file Backup export — CP-55.
  * Exports an operation-scoped JSON backup per V2_MIGRATION_PLAN.md §5.
@@ -51,7 +52,7 @@ export const BACKUP_TABLES = {
   harvest_event_fields:      { paginate: false },
   // D8
   input_product_categories:  { paginate: false },
-  input_product_units:       { paginate: false },
+  input_product_units:       { paginate: true },
   input_products:            { paginate: false },
   spreaders:                 { paginate: false },
   soil_tests:                { paginate: false },
@@ -64,7 +65,7 @@ export const BACKUP_TABLES = {
   ai_bulls:                  { paginate: false },
   treatment_categories:      { paginate: false },
   treatment_types:           { paginate: false },
-  dose_units:                { paginate: false },
+  dose_units:                { paginate: true },
   animal_bcs_scores:         { paginate: true },
   animal_treatments:         { paginate: true },
   animal_breeding_records:   { paginate: false },
@@ -122,10 +123,10 @@ async function fetchTable(table, operationId, paginate) {
 
   if (!paginate) {
     let query = supabase.from(table).select('*');
-    if (!isGlobal) query = query.eq(filterCol, operationId);
+    if (!isGlobal && !UNIT_TABLES.includes(table)) query = query.eq(filterCol, operationId);
     const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch ${table}: ${error.message}`);
-    return data || [];
+    return UNIT_TABLES.includes(table) ? (data || []).filter(row => row.operation_id === operationId) : data || [];
   }
 
   // Paginated fetch
@@ -135,7 +136,7 @@ async function fetchTable(table, operationId, paginate) {
 
   while (hasMore) {
     let query = supabase.from(table).select('*');
-    if (!isGlobal) query = query.eq(filterCol, operationId);
+    if (!isGlobal && !UNIT_TABLES.includes(table)) query = query.eq(filterCol, operationId);
     query = query.range(offset, offset + PAGE_SIZE - 1);
     const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch ${table} (offset ${offset}): ${error.message}`);
@@ -144,7 +145,7 @@ async function fetchTable(table, operationId, paginate) {
     offset += PAGE_SIZE;
   }
 
-  return allRows;
+  return UNIT_TABLES.includes(table) ? allRows.filter(row => row.operation_id === operationId) : allRows;
 }
 
 /**

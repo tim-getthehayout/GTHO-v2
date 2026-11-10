@@ -1,6 +1,7 @@
 /** @file Entity: release_notes — V2_SCHEMA_DESIGN.md §11.5 */
 
-// No operation_id — global/public table. No RLS (public read).
+// Global metadata, not operation-scoped. Staged 044 permits authenticated reads
+// only; browser roles cannot write. It stays excluded from CP-55/56.
 
 export const FIELDS = {
   id:          { type: 'uuid',        required: false, sbColumn: 'id' },

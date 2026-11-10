@@ -85,7 +85,7 @@ async function handleV1FileSelect(e, mount, operation) {
     const { data: doseUnits } = await supabase
       .from('dose_units')
       .select('id, name')
-      .eq('operation_id', operation.id);
+      .or(`operation_id.is.null,operation_id.eq.${operation.id}`);
 
     const { envelope, audit } = transformV1ToV2(v1Data, {
       operationId: operation.id,

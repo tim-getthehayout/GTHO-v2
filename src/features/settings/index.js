@@ -59,12 +59,12 @@ export function renderSettingsScreen(container) {
     renderAiBullsSection(operationId),
     renderTreatmentCategoriesSection(operationId),
     renderTreatmentTypesSection(operationId),
-    renderDoseUnitsSection(),
+    renderDoseUnitsSection(operationId),
     // Amendment reference tables (CP-38)
     renderProductCategoriesSection(operationId),
     renderProductsSection(operationId),
     renderSpreadersSection(operationId),
-    renderProductUnitsSection(),
+    renderProductUnitsSection(operationId),
     // OI-0132 Class B: Tools section (currently: backfill calving records).
     renderToolsSection(operationId),
     renderAccountSection(),

@@ -16,7 +16,7 @@ const fullData = {
 
 describe('entity: input_product_units', () => {
   it('exports FIELDS with sbColumn for every field', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(5);
+    expect(Object.keys(FIELDS)).toHaveLength(6);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }

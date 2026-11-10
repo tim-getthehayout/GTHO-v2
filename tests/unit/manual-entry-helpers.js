@@ -1,13 +1,14 @@
 import { vi } from 'vitest';
 import { setLocale } from '../../src/i18n/i18n.js';
 import en from '../../src/i18n/locales/en.json';
-import { add, _reset, setSyncAdapter, getAll } from '../../src/data/store.js';
+import { add, _reset, setSyncAdapter, getAll, mergeRemote } from '../../src/data/store.js';
 import * as Operation from '../../src/entities/operation.js';
 import * as Farm from '../../src/entities/farm.js';
 export const OP = 'test-operation', FARM = 'test-farm';
 export function seed(type, entity, data) {
-  const row = entity.create({ operationId: OP, ...data });
-  add(type, row, entity.validate, entity.toSupabaseShape, type);
+  const row = entity.create({ operationId: ['doseUnits','inputProductUnits'].includes(type) ? null : OP, ...data });
+  if (['doseUnits','inputProductUnits'].includes(type) && !row.operationId) mergeRemote(type, [row]);
+  else add(type, row, entity.validate, entity.toSupabaseShape, type);
   return row;
 }
 export function resetForms(units = 'metric') {

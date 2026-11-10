@@ -1,3 +1,5 @@
+import { UNIT_TABLES } from '../utils/unit-standards.js';
+import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
 /** @file Custom Supabase sync implementation with offline queue + exponential backoff */
 
 import { SyncAdapter } from './sync-adapter.js';
@@ -21,7 +23,13 @@ const BACKOFF_BASE_MS = 1000;
 function readQueue() {
   try {
     const raw = localStorage.getItem(SYNC_QUEUE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const rows = raw ? JSON.parse(raw) : [];
+    const kept = rows.filter(row => !UNIT_TABLES.includes(row.table) || (row.record?.operation_id != null && row.operation !== 'delete'));
+    if (kept.length !== rows.length) {
+      localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(kept));
+      logger.info('sync', 'Legacy or read-only unit queue entries discarded', { count: rows.length - kept.length });
+    }
+    return kept;
   } catch {
     return [];
   }
@@ -46,7 +54,13 @@ function writeQueue(queue) {
 function readDeadLetters() {
   try {
     const raw = localStorage.getItem(DEAD_LETTER_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const rows = raw ? JSON.parse(raw) : [];
+    const kept = rows.filter(row => !UNIT_TABLES.includes(row.table) || (row.record?.operation_id != null && row.operation !== 'delete'));
+    if (kept.length !== rows.length) {
+      localStorage.setItem(DEAD_LETTER_KEY, JSON.stringify(kept));
+      logger.info('sync', 'Legacy or read-only unit dead letters discarded', { count: rows.length - kept.length });
+    }
+    return kept;
   } catch {
     return [];
   }
@@ -115,6 +129,7 @@ export class CustomSync extends SyncAdapter {
   }
 
   async push(table, record, operation = 'upsert') {
+    if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     const online = await this.isOnline();
     if (!online) {
       this._enqueue(operation, table, record);
@@ -126,6 +141,7 @@ export class CustomSync extends SyncAdapter {
   }
 
   async pushBatch(table, records) {
+    if (UNIT_TABLES.includes(table)) return Promise.all(records.map(record => this.push(table, record)));
     const online = await this.isOnline();
     if (!online) {
       for (const record of records) {
@@ -162,6 +178,7 @@ export class CustomSync extends SyncAdapter {
   }
 
   async delete(table, id) {
+    if (UNIT_TABLES.includes(table)) return { id, success: false, error: 'Units cannot be deleted.' };
     const online = await this.isOnline();
     if (!online) {
       this._enqueue('delete', table, { id });
@@ -199,6 +216,7 @@ export class CustomSync extends SyncAdapter {
    * Push a single record to Supabase with retry logic.
    */
   async _pushToRemote(table, record, operation = 'upsert') {
+    if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) {
       this._enqueue(operation, table, record);
       return { id: record.id, success: false, error: 'No Supabase client' };
@@ -332,6 +350,7 @@ export class CustomSync extends SyncAdapter {
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   async _singlePush(table, record, operation = 'upsert') {
+    if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) return { success: false, error: 'No Supabase client' };
     try {
       let result;

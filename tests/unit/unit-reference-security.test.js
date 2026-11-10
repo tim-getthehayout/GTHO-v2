@@ -1,96 +1,54 @@
-/** File-only checks: never execute the staged SQL or contact a database. */
-import { readFileSync, readdirSync } from 'node:fs';
+import { add, getAll, _reset } from '../../src/data/store.js';
+/** Static migration/release checks; real role/trigger checks live in tests/sql. */
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { expect, it } from 'vitest';
 import { BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';
-import { HELD_SCHEMA_VERSIONS, RELEASED_SCHEMA_VERSION } from '../../src/data/schema-release.js';
-import { CURRENT_SCHEMA_VERSION, validateBackup, migrateBackupForward } from '../../src/data/backup-import.js';
-
-const directory = path.resolve(__dirname, '../../supabase/migrations');
-const source = readFileSync(path.join(directory, '044_unit_reference_rls.sql'), 'utf8');
-const statements = source.replace(/--[^\n]*/g, '').split(';').map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
-const tables = ['input_product_units', 'dose_units'];
-
-// Exact statements, not comments, must provide grants and matching policies.
-describe('staged unit-reference RLS migration (static only)', () => {
-  it.each(tables)('%s enables RLS and authenticated SELECT/INSERT/UPDATE policies only', table => {
-    expect(statements).toContain(`ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY`);
-    expect(statements.filter(s => s.startsWith('CREATE POLICY') && s.includes(`ON public.${table} `))).toEqual([
-      `CREATE POLICY ${table}_authenticated_select ON public.${table} FOR SELECT TO authenticated USING (true)`,
-      `CREATE POLICY ${table}_authenticated_insert ON public.${table} FOR INSERT TO authenticated WITH CHECK (true)`,
-      `CREATE POLICY ${table}_authenticated_update ON public.${table} FOR UPDATE TO authenticated USING (true) WITH CHECK (true)`,
-    ]);
-  });
-
-  it('anon has all privileges revoked and no policy or grant', () => {
-    expect(statements).toContain('REVOKE ALL ON TABLE public.input_product_units, public.dose_units FROM anon');
-    expect(statements.filter(s => s.startsWith('CREATE POLICY')).join(';')).not.toMatch(/TO anon|TO public/i);
-    expect(statements.filter(s => s.startsWith('GRANT')).join(';')).not.toMatch(/TO anon|TO public/i);
-  });
-
-  it('authenticated keeps SELECT/INSERT/UPDATE for conflict-column reads and upsert, never DELETE/TRUNCATE', () => {
-    expect(statements.filter(s => s.startsWith('GRANT'))).toEqual([
-      'GRANT SELECT, INSERT, UPDATE ON TABLE public.input_product_units, public.dose_units TO authenticated',
-    ]);
-    expect(statements).toContain('REVOKE DELETE, TRUNCATE ON TABLE public.input_product_units, public.dose_units FROM authenticated');
-    expect(statements.filter(s => s.startsWith('CREATE POLICY'))).toHaveLength(6);
-    expect(statements.join(';')).not.toMatch(/DISABLE ROW LEVEL SECURITY|FOR (?:ALL|DELETE)|SECURITY DEFINER|CREATE FUNCTION/);
-  });
-
-  it('revokes TRUNCATE/REFERENCES/TRIGGER for both client roles on all three tables, with no other release_notes change', () => {
-    const revoke = 'REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.dose_units, public.input_product_units, public.release_notes FROM anon, authenticated';
-    expect(statements).toContain(revoke);
-    expect(statements.filter(s => s.includes('public.release_notes'))).toEqual([revoke]);
-  });
-
-  it('is a held, transactional stamp-44 file immediately after 042 and 043', () => {
-    expect(source).toContain('WRITTEN ONLY / NOT APPLIED');
-    expect(statements[0]).toBe('BEGIN');
-    expect(statements.slice(-2)).toEqual(['UPDATE public.operations SET schema_version = 44 WHERE schema_version < 44', 'COMMIT']);
-    expect(statements).toHaveLength(15);
-    expect(readdirSync(directory).filter(f => /^04[234]_/.test(f)).sort()).toEqual([
-      '042_retained_breeding_text.sql', '043_event_feed_pool_snapshots.sql', '044_unit_reference_rls.sql',
-    ]);
-    expect(RELEASED_SCHEMA_VERSION).toBe(41);
-    expect(CURRENT_SCHEMA_VERSION).toBe(41);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([42, 43, 44]);
-  });
+import { HELD_SCHEMA_VERSIONS, RELEASED_SCHEMA_VERSION, STAGED_COLUMNS } from '../../src/data/schema-release.js';
+import { validateBackup } from '../../src/data/backup-import.js';
+import { UNIT_STANDARDS, UNIT_TABLES } from '../../src/utils/unit-standards.js';
+import { create, validate, toSupabaseShape } from '../../src/entities/dose-unit.js';
+const sql = readFileSync(path.resolve(__dirname, '../../supabase/migrations/044_unit_reference_rls.sql'), 'utf8').replace(/--[^\n]*/g,'');
+it.each(UNIT_TABLES)('%s is scoped with standard/custom indexes and accepted-membership policies', table => {
+ expect(sql).toContain(`ALTER TABLE public.${table} ADD COLUMN operation_id uuid DEFAULT NULL REFERENCES public.operations(id)`);
+ expect(sql).toContain(`ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY`);
+ expect(sql).toContain(`ON public.${table} (lower(btrim(name))) WHERE operation_id IS NULL`);
+ expect(sql).toContain(`ON public.${table} (operation_id, lower(btrim(name))) WHERE operation_id IS NOT NULL`);
+ for(const op of ['SELECT','INSERT','UPDATE'])expect(sql).toContain(`ON public.${table} FOR ${op} TO authenticated`);
+ expect(sql).toContain('accepted_at IS NOT NULL');
 });
+it('revokes all anon unit access and unsafe privileges, while release notes are authenticated read-only',()=>{
+ expect(sql).toContain('REVOKE ALL ON TABLE public.dose_units, public.input_product_units FROM anon, authenticated');
+ expect(sql).toContain('GRANT SELECT, INSERT, UPDATE ON TABLE public.dose_units, public.input_product_units TO authenticated');
+ expect(sql).toContain('REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.dose_units, public.input_product_units FROM anon, authenticated');
+ expect(sql).toContain('CREATE POLICY release_notes_authenticated_select ON public.release_notes FOR SELECT TO authenticated USING (true)');
+ expect(sql).toContain('REVOKE SELECT ON TABLE public.release_notes FROM anon');
+ expect(sql).toContain('REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.release_notes FROM anon, authenticated');
+ expect(sql).not.toMatch(/CREATE POLICY[^;]*TO anon/);
+});
+it('private guards serialize namespace checks, forbid ownership moves and check all three references',()=>{
+ expect(sql).toContain('pg_advisory_xact_lock(44,');expect(sql).toContain("current_setting('transaction_isolation') <> 'read committed'");
+ expect(sql).toContain('NEW.operation_id IS DISTINCT FROM OLD.operation_id');
+ for(const [table,field]of [['animal_treatments','dose_unit_id'],['amendments','qty_unit_id'],['input_products','unit_id']])expect(sql).toContain(`BEFORE INSERT OR UPDATE OF operation_id, ${field} ON public.${table}`);
+ expect(sql).not.toMatch(/CREATE FUNCTION public\.[^;]*SECURITY DEFINER/);
+});
+it('all eleven exact legacy IDs and fixed IDs are in the migration, with both apply aborts',()=>{
+ expect(UNIT_STANDARDS).toHaveLength(11);expect(new Set(UNIT_STANDARDS.map(row=>row.id)).size).toBe(11);
+ for(const row of UNIT_STANDARDS){expect(sql).toContain(row.id);expect(sql).toContain(row.legacyId);}
+ expect(sql).toContain('unit-migration-references-exist');expect(sql).toContain('unit-migration-unexpected-standard-set');expect(sql).toContain('SET schema_version = 44');
+});
+it('keeps the release ceiling at 41, held 42/43/44, and custom serialization fails closed',()=>{
+ expect(RELEASED_SCHEMA_VERSION).toBe(41);expect(HELD_SCHEMA_VERSIONS).toEqual([42,43,44]);expect(STAGED_COLUMNS[44]).toEqual({dose_units:['operation_id'],input_product_units:['operation_id']});
+ expect(()=>toSupabaseShape(create({name:'custom',operationId:'op'}))).toThrow(/44|unreleasedSchema/);
+ expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:44,operation_id:'op',tables:{}}).valid).toBe(false);
+});
+it('43→44 maps by exact legacy IDs only, skips standards, retains custom IDs and stamps all operations',()=>{
+ const dose=UNIT_STANDARDS.find(row=>row.table==='dose_units'),product=UNIT_STANDARDS.find(row=>row.table==='input_product_units');
+ const b={schema_version:43,operation_id:'op',tables:{operations:[{id:'op',schema_version:43}],dose_units:[{id:dose.legacyId,name:'untrusted name'},{id:'custom',name:' New e\u0301 '}],input_product_units:[{id:product.legacyId,name:'untrusted'}],animal_treatments:[{dose_unit_id:dose.legacyId}],amendments:[{qty_unit_id:product.legacyId}],input_products:[{unit_id:'custom-product'}]}};
+ const out=BACKUP_MIGRATIONS[43](structuredClone(b));expect(out.schema_version).toBe(44);expect(out.tables.operations[0].schema_version).toBe(44);expect(out.tables.dose_units).toEqual([{id:'custom',name:'New é',operation_id:'op'}]);expect(out.tables.input_product_units).toEqual([]);expect(out.tables.animal_treatments[0].dose_unit_id).toBe(dose.id);expect(out.tables.amendments[0].qty_unit_id).toBe(product.id);expect(out.tables.input_products[0].unit_id).toBe('custom-product');expect(b.schema_version).toBe(43);
+});
+it('names alone never map unknown IDs into standards',()=>{const out=BACKUP_MIGRATIONS[43]({schema_version:43,operation_id:'op',tables:{dose_units:[{id:'different',name:'ml'}]}});expect(out.tables.dose_units[0]).toEqual({id:'different',name:'ml',operation_id:'op'});});
 
-describe('staged 43→44 backup permission-only step', () => {
-  it('stamps the envelope and every operation without dropping or rewriting reference payloads/IDs', () => {
-    const backup = {
-      format: 'gtho-v2-backup', format_version: 1, schema_version: 43, operation_id: 'op',
-      metadata: { untouched: true },
-      tables: {
-        operations: [{ id: 'op', schema_version: 43, name: 'Farm' }, { id: 'other', schema_version: 42 }],
-        input_product_units: [{ id: 'kg', name: 'kg', archived: false, extra: 'preserve' }],
-        dose_units: [{ id: 'ml', name: 'mL', archived: true }],
-        input_products: [{ id: 'product', unit_id: 'kg' }],
-        animal_treatment_records: [{ id: 'treatment', dose_unit_id: 'ml' }],
-        event_feed_entries: [{ id: 'pool', batch_id: null, transfer_id: 'transfer' }],
-      },
-    };
-    const expected = structuredClone(backup);
-    expected.schema_version = 44;
-    expected.tables.operations.forEach(op => { op.schema_version = 44; });
-    const migrated = BACKUP_MIGRATIONS[43](structuredClone(backup));
-    expect(migrated).toEqual(expected);
-    expect(BACKUP_MIGRATIONS[43](migrated)).toEqual(expected);
-    expect(backup.schema_version).toBe(43);
-  });
-
-  it('does not synthesize tables, reference rows or defaults in a minimal backup', () => {
-    expect(BACKUP_MIGRATIONS[43]({ schema_version: 43, tables: {} })).toEqual({ schema_version: 44, tables: {} });
-  });
-
-  it('cannot release or automatically run the held step through the compiled importer', () => {
-    const backup = { format: 'gtho-v2-backup', format_version: 1, operation_id: 'op', schema_version: 44, tables: {} };
-    expect(validateBackup(backup)).toMatchObject({ valid: false });
-    expect(validateBackup(backup).error).toContain('newer than this build (41)');
-    const old = { ...backup, schema_version: 41 };
-    const before = structuredClone(old);
-    expect(migrateBackupForward(old).migrated).toBe(false);
-    expect(old).toEqual(before);
-  });
+it('held custom writes fail before local persistence even without a serializer',()=>{
+ _reset();localStorage.clear();expect(()=>add('doseUnits',create({name:'Custom',operationId:'op'}),validate)).toThrow(/44|unreleasedSchema/);expect(getAll('doseUnits')).toEqual([]);expect(localStorage.getItem('gtho_v2_doseUnits')).toBeNull();
 });

@@ -13,14 +13,10 @@ import { create as createAnimalClass, validate as validateAnimalClass, toSupabas
 import { create as createTreatmentCat, validate as validateTreatmentCat, toSupabaseShape as treatCatToSb } from '../../entities/treatment-category.js';
 import { create as createInputProductCat, validate as validateInputProductCat, toSupabaseShape as prodCatToSb } from '../../entities/input-product-category.js';
 import { create as createForageType, validate as validateForageType, toSupabaseShape as forageToSb } from '../../entities/forage-type.js';
-import { create as createDoseUnit, validate as validateDoseUnit, toSupabaseShape as doseUnitToSb } from '../../entities/dose-unit.js';
-import { create as createInputProductUnit, validate as validateInputProductUnit, toSupabaseShape as prodUnitToSb } from '../../entities/input-product-unit.js';
 import {
   ANIMAL_CLASSES_BY_SPECIES,
   DEFAULT_TREATMENT_CATEGORIES,
   DEFAULT_INPUT_PRODUCT_CATEGORIES,
-  DEFAULT_DOSE_UNITS,
-  DEFAULT_INPUT_PRODUCT_UNITS,
   DEFAULT_FORAGE_TYPES,
 } from './seed-data.js';
 
@@ -388,17 +384,5 @@ async function executeOnboarding(data) {
     }), validateForageType, forageToSb, 'forage_types');
   }
 
-  // 10. Seed default dose_units (shared — no operation_id)
-  if (getAll('doseUnits').length === 0) {
-    for (const name of DEFAULT_DOSE_UNITS) {
-      add('doseUnits', createDoseUnit({ name }), validateDoseUnit, doseUnitToSb, 'dose_units');
-    }
-  }
-
-  // 11. Seed default input_product_units (shared — no operation_id)
-  if (getAll('inputProductUnits').length === 0) {
-    for (const name of DEFAULT_INPUT_PRODUCT_UNITS) {
-      add('inputProductUnits', createInputProductUnit({ name }), validateInputProductUnit, prodUnitToSb, 'input_product_units');
-    }
-  }
+  // Unit standards are pulled read-only; onboarding never seeds them.
 }

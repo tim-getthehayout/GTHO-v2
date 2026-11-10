@@ -43,7 +43,7 @@ Get The Hay Out v2 is the pasture and grazing PWA. Vanilla JS, Vite, Supabase, G
 - Domain specs stay where they are: `V2_SCHEMA_DESIGN.md`, `V2_UX_FLOWS.md`, `V2_APP_ARCHITECTURE.md`, `V2_CALCULATION_SPEC.md`, `V2_INFRASTRUCTURE.md`, `V2_DESIGN_SYSTEM.md`, `V2_MIGRATION_PLAN.md`, `V2_BUILD_INDEX.md`.
 - Backlog stays in `OPEN_ITEMS.md`. Do not copy it into `PROJECT_STATUS.md`. Status points at the open items that matter this session.
 - Session briefs live in `session_briefs/`. New briefs use Homelab/project-framework (`https://git.sarnford.com/Homelab/project-framework`) `session-brief.template.md`. Implementation specs live in `github/issues/` (this project does not use a `specs/` folder).
-- Current schema stamp is 39 (migration `039_animals_bulk_composite.sql`, applied and verified 2026-11-06). Tim verified `schema_version = 39`. Migration 037 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`) is also applied. Migration 038 (`038_location_type_storage.sql`) was applied and verified 2026-11-04.
+- Current schema stamp is 41. Orchestrator's read-only live check on 2026-11-10 found `operations.schema_version = 41`, with objects from migrations 037 (`batch_location_balances`, `batch_moves`, `event_feed_entries.source_location_id`) and 040 (the `assistant_*` tables) present. Checked-in migrations run through `041_assistant_discard_empty_start.sql`. The Supabase migration ledger lists only through 035, because 036–041 were applied outside the ledger; trust the stamp and the objects, not the ledger. The next migration is 042, stamping 42 (OI-0214 FA-10b, written but not applied until Tim approves and a backup is taken). History: 038 was applied and verified 2026-11-04, and 039 on 2026-11-06.
 
 ---
 

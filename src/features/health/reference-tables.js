@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, add, update, remove } from '../../data/store.js';
+import { getAll, getById, add, update, remove } from '../../data/store.js';
 import * as AiBullEntity from '../../entities/ai-bull.js';
 import * as TreatmentCategoryEntity from '../../entities/treatment-category.js';
 import * as TreatmentTypeEntity from '../../entities/treatment-type.js';
@@ -158,6 +158,13 @@ function openCategorySheet(existing, operationId) {
   categorySheet.open();
 }
 
+/** Resolve the stored FK at Save time, not a label or an opening-time snapshot. */
+export function requireTreatmentCategory(categoryId, operationId) {
+  const category = getById('treatmentCategories', categoryId);
+  if (!category || category.archived || category.operationId !== operationId) throw new Error(t('manualEntry.invalidTreatmentCategory'));
+  return category.id;
+}
+
 // ---------------------------------------------------------------------------
 // Treatment types section
 // ---------------------------------------------------------------------------
@@ -221,6 +228,7 @@ function openTypeSheet(existing, operationId, categories) {
       clear(statusEl);
       const data = { operationId, name: nameInput.value.trim(), categoryId: catSelect.value || null };
       try {
+        data.categoryId = requireTreatmentCategory(data.categoryId, operationId);
         if (existing) update('treatmentTypes', existing.id, data, TreatmentTypeEntity.validate, TreatmentTypeEntity.toSupabaseShape, 'treatment_types');
         else add('treatmentTypes', TreatmentTypeEntity.create(data), TreatmentTypeEntity.validate, TreatmentTypeEntity.toSupabaseShape, 'treatment_types');
         typeSheet.close();

@@ -3,13 +3,14 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup, resolveGroupCurrentPlacement, runDurableWrite } from '../../data/store.js';
+import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup, resolveGroupCurrentPlacement, runDurableWrite } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import * as GroupEntity from '../../entities/group.js';
 import * as AnimalClassEntity from '../../entities/animal-class.js';
 import * as AnimalEntity from '../../entities/animal.js';
 import * as MembershipEntity from '../../entities/animal-group-membership.js';
+import { requireTreatmentCategory } from '../health/reference-tables.js';
 import * as TreatmentTypeEntity from '../../entities/treatment-type.js';
 import * as AiBullEntity from '../../entities/ai-bull.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
@@ -1150,7 +1151,7 @@ function openTreatmentsManager(operationId) {
       typesList.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '0.5px solid var(--border)' } }, [
         el('div', {}, [
           el('span', { style: { fontSize: '13px', fontWeight: '500' } }, [`\uD83D\uDC89 ${tt.name}`]),
-          tt.category ? el('span', { className: 'badge bb', style: { fontSize: '10px', marginLeft: '6px' } }, [tt.category]) : null,
+          tt.categoryId ? el('span', { className: 'badge bb', style: { fontSize: '10px', marginLeft: '6px' } }, [getById('treatmentCategories', tt.categoryId)?.name || '—']) : null,
         ].filter(Boolean)),
         el('button', { style: { border: 'none', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontSize: '16px', padding: '0 2px' }, onClick: () => { remove('treatmentTypes', tt.id, 'treatment_types'); renderTypesList(); } }, ['\u00D7']),
       ]));
@@ -1162,25 +1163,27 @@ function openTreatmentsManager(operationId) {
   panel.appendChild(el('div', { className: 'div' }));
   panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Add treatment type']));
 
-  const ttNameInput = el('input', { type: 'text', placeholder: 'e.g. Vaccinate \u2014 BVD', style: { width: '100%', padding: '9px 10px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '13px', background: 'var(--bg)', boxSizing: 'border-box', fontFamily: 'inherit' } });
-  const ttCatSelect = el('select', { style: { height: '100%', padding: '9px 8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '13px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', width: '100%' } }, [
-    el('option', { value: '' }, ['No category']),
-    el('option', {}, ['Vaccine']), el('option', {}, ['Parasite Control']),
-    el('option', {}, ['Antibiotic']), el('option', {}, ['Wound/Surgery']),
-    el('option', {}, ['Nutritional']), el('option', {}, ['Other']),
+  const ttNameInput = el('input', { 'data-testid': 'treatment-manager-name', type: 'text', placeholder: 'e.g. Vaccinate \u2014 BVD', style: { width: '100%', padding: '9px 10px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '13px', background: 'var(--bg)', boxSizing: 'border-box', fontFamily: 'inherit' } });
+  const ttCatSelect = el('select', { 'data-testid': 'treatment-manager-category', style: { height: '100%', padding: '9px 8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '13px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', width: '100%' } }, [
+    el('option', { value: '' }, [t('health.typeCategory')]),
+    ...getAll('treatmentCategories').filter(category => !category.archived && category.operationId === operationId).map(category => el('option', { value: category.id }, [category.name])),
   ]);
   panel.appendChild(el('div', { style: { display: 'flex', gap: '8px', marginBottom: '8px' } }, [
     el('div', { className: 'field', style: { flex: '2', margin: '0' } }, [ttNameInput]),
     el('div', { className: 'field', style: { flex: '1', margin: '0' } }, [ttCatSelect]),
   ]));
 
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'treatment-manager-status' });
+  panel.appendChild(statusEl);
   panel.appendChild(el('button', { className: 'btn btn-green btn-sm', style: { padding: '10px 16px' }, onClick: () => {
-    const name = ttNameInput.value.trim();
-    if (!name) return;
-    const rec = TreatmentTypeEntity.create({ operationId, name, category: ttCatSelect.value || null });
-    add('treatmentTypes', rec, TreatmentTypeEntity.validate, TreatmentTypeEntity.toSupabaseShape, 'treatment_types');
-    ttNameInput.value = '';
-    renderTypesList();
+    clear(statusEl);
+    try {
+      const categoryId = requireTreatmentCategory(ttCatSelect.value, operationId);
+      const rec = TreatmentTypeEntity.create({ operationId, name: ttNameInput.value.trim(), categoryId });
+      add('treatmentTypes', rec, TreatmentTypeEntity.validate, TreatmentTypeEntity.toSupabaseShape, 'treatment_types');
+      ttNameInput.value = '';
+      renderTypesList();
+    } catch (error) { statusEl.textContent = error.message; }
   } }, ['Add']));
 
   treatSheet.open();

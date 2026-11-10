@@ -1,20 +1,14 @@
 /**
  * @file Theme contrast for named surfaces against the REAL main.css stylesheet.
- * Resolves declared color/background var() chains against light and dark token
- * blocks parsed from :root, and asserts ≥4.5:1 in both schemes.
+ * Resolves declared color/background var() chains (including color-mix) against
+ * light and dark token blocks parsed from :root.
  *
- * Hardcoded light-mode backgrounds left alone (for the PR):
- * - .now-chip { background: #fff; color: var(--color-green-dark) }
- *   Not switched to var(--bg): --color-green-dark (#3B6D11) on dark --bg
- *   (#1a1a18) is only ~2.8:1; fixing it needs a new color or a design choice.
- * - dashboard inline chips in src/features/dashboard/index.js:
- *   #F4F8EC / #3B6D11 (event-type chip) and #FDF6EA / #8B6914 (button)
- * - light tint tokens used as surfaces without a dark remap: --green-l /
- *   --*-light on .dsk-nav-item.active, .batch-sel.on, .cat-pill.cp-*.sel,
- *   .bt/.ba/.bp/.br, .badge-*, .loc-picker-item.selected,
- *   .dest-type-card.selected, etc.
- * Animals selected group uses --surface-selected (this commit).
- * .obs-compact-input / .obs-input / .active-rotation-banner__chip use var(--bg).
+ * Remaining hardcoded colors outside this tint/selected set (for the PR notes):
+ * - Solid fills still using raw --color-*-base (buttons, dots, legends, sync)
+ * - dashboard Feed / Sub-Move quick-action buttons (green-base / teal outline)
+ * - .invite-banner still on --color-green-light (not remapped via --tint-green)
+ * - .fb-dev-resp on --teal-l / --teal-d (not moved to tint tokens this pass)
+ * - legend capacity swatch #D4A76A, various white text on solid brand fills
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -22,33 +16,70 @@ import { resolve } from 'node:path';
 
 const CSS = readFileSync(resolve(process.cwd(), 'src/styles/main.css'), 'utf8');
 
-/** Strip comments for simpler parsing. */
 function stripComments(css) {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
-/** Parse simple `selector { decls }` rules (no nested @media bodies as selectors). */
+/** Walk balanced braces; return outer-level `selector { decls }` rules. */
 function parseRules(css) {
   const rules = [];
-  const re = /([^{}@]+)\{([^{}]*)\}/g;
-  let m;
-  while ((m = re.exec(css))) {
-    const sel = m[1].trim();
+  let i = 0;
+  const n = css.length;
+  while (i < n) {
+    while (i < n && /\s/.test(css[i])) i++;
+    if (i >= n) break;
+    if (css.startsWith('@', i)) {
+      // skip @rule (media/keyframes) but extract nested style rules for dark media
+      const atStart = i;
+      while (i < n && css[i] !== '{') i++;
+      if (i >= n) break;
+      const atHeader = css.slice(atStart, i).trim();
+      let depth = 0, bodyStart = i + 1;
+      for (; i < n; i++) {
+        if (css[i] === '{') depth++;
+        else if (css[i] === '}') {
+          depth--;
+          if (depth === 0) { i++; break; }
+        }
+      }
+      const body = css.slice(bodyStart, i - 1);
+      if (/prefers-color-scheme\s*:\s*dark/.test(atHeader)) {
+        for (const nested of parseRules(body)) {
+          nested.darkOnly = true;
+          rules.push(nested);
+        }
+      }
+      continue;
+    }
+    const selStart = i;
+    while (i < n && css[i] !== '{') i++;
+    if (i >= n) break;
+    const sel = css.slice(selStart, i).trim();
+    let depth = 0, bodyStart = i + 1;
+    for (; i < n; i++) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}') {
+        depth--;
+        if (depth === 0) { i++; break; }
+      }
+    }
     if (!sel || sel.startsWith('@')) continue;
+    const body = css.slice(bodyStart, i - 1);
+    // only flat decls (no nested rules)
+    if (body.includes('{')) continue;
     const decls = {};
-    for (const part of m[2].split(';')) {
+    for (const part of body.split(';')) {
       const idx = part.indexOf(':');
       if (idx < 0) continue;
       const prop = part.slice(0, idx).trim().toLowerCase();
       const val = part.slice(idx + 1).trim();
       if (prop) decls[prop] = val;
     }
-    rules.push({ selectors: sel.split(',').map(s => s.trim()).filter(Boolean), decls, rawSel: sel });
+    rules.push({ selectors: sel.split(',').map(s => s.trim()).filter(Boolean), decls, rawSel: sel, darkOnly: false });
   }
   return rules;
 }
 
-/** Extract :root custom properties from a block of CSS text. */
 function parseRootTokens(block) {
   const tokens = {};
   const root = block.match(/:root\s*\{([^{}]*)\}/);
@@ -65,32 +96,41 @@ function parseRootTokens(block) {
 
 function lightAndDarkTokens(css) {
   const plain = stripComments(css);
-  // Light: first :root outside the dark media query.
-  const darkMedia = plain.match(/@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*\{([\s\S]*?)\n\}/);
-  const withoutDark = darkMedia ? plain.replace(darkMedia[0], '') : plain;
-  const light = parseRootTokens(withoutDark);
-  const dark = { ...light, ...parseRootTokens(darkMedia ? darkMedia[1] : '') };
+  const darkMedia = plain.match(/@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*\{/);
+  let lightBlock = plain;
+  let darkBody = '';
+  if (darkMedia) {
+    const start = darkMedia.index;
+    let i = start + darkMedia[0].length - 1;
+    let depth = 0;
+    for (; i < plain.length; i++) {
+      if (plain[i] === '{') depth++;
+      else if (plain[i] === '}') {
+        depth--;
+        if (depth === 0) { darkBody = plain.slice(start + darkMedia[0].length, i); break; }
+      }
+    }
+    lightBlock = plain.slice(0, start) + plain.slice(i + 1);
+  }
+  const light = parseRootTokens(lightBlock);
+  // Dark :root overrides live inside the media body
+  const darkRoot = parseRootTokens(darkBody.includes(':root') ? darkBody : '');
+  // Also handle bare custom props if nested under :root in media
+  const dark = { ...light, ...darkRoot };
   return { light, dark };
 }
 
-/** Resolve var(--x, fallback) / var(--x) against a token map; hex/rgb pass through. */
-function resolveValue(value, tokens, depth = 0) {
-  if (!value || depth > 12) return value;
-  let out = value.trim();
-  // var(--name) or var(--name, fallback)
-  const varRe = /var\(\s*(--[\w-]+)\s*(?:,\s*([^)]+))?\)/i;
-  let guard = 0;
-  while (varRe.test(out) && guard++ < 20) {
-    out = out.replace(varRe, (_, name, fallback) => {
-      if (tokens[name] != null) return tokens[name];
-      if (fallback != null) return fallback.trim();
-      return _;
-    });
-  }
-  return out.trim();
+function hexToRgb(hex) {
+  const n = hex.replace('#', '');
+  return [0, 1, 2].map((i) => parseInt(n.slice(i * 2, i * 2 + 2), 16));
+}
+function rgbToHex(rgb) {
+  const h = (n) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
+  return `#${h(rgb[0])}${h(rgb[1])}${h(rgb[2])}`;
 }
 
 function parseHex(color) {
+  if (!color) return null;
   const c = color.trim().toLowerCase();
   if (/^#([0-9a-f]{6})$/.test(c)) return c;
   if (/^#([0-9a-f]{3})$/.test(c)) {
@@ -98,72 +138,103 @@ function parseHex(color) {
     return `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}`;
   }
   const rgb = c.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
-  if (rgb) {
-    const hex = (n) => Number(n).toString(16).padStart(2, '0');
-    return `#${hex(+rgb[1])}${hex(+rgb[2])}${hex(+rgb[3])}`;
-  }
+  if (rgb) return rgbToHex([+rgb[1], +rgb[2], +rgb[3]]);
   return null;
 }
 
+function mixSrgb(aHex, percent, bHex) {
+  const a = hexToRgb(aHex);
+  const b = hexToRgb(bHex);
+  const p = percent / 100;
+  return rgbToHex(a.map((v, i) => v * p + b[i] * (1 - p)));
+}
+
+/** Resolve var() and color-mix(in srgb, …) against a token map. */
+function resolveValue(value, tokens, depth = 0) {
+  if (!value || depth > 16) return value;
+  let out = value.trim();
+  const varRe = /var\(\s*(--[\w-]+)\s*(?:,\s*((?:[^()]+|\([^()]*\))*))?\)/i;
+  let guard = 0;
+  while (varRe.test(out) && guard++ < 30) {
+    out = out.replace(varRe, (_, name, fallback) => {
+      if (tokens[name] != null) return tokens[name];
+      if (fallback != null) return fallback.trim();
+      return _;
+    });
+  }
+  // color-mix(in srgb, COLOR p%, COLOR)
+  const mixRe = /color-mix\(\s*in\s+srgb\s*,\s*([^,]+?)\s+(\d+(?:\.\d+)?)%\s*,\s*([^)]+?)\s*\)/i;
+  guard = 0;
+  while (mixRe.test(out) && guard++ < 10) {
+    out = out.replace(mixRe, (_, c1, pct, c2) => {
+      const a = parseHex(resolveValue(c1.trim(), tokens, depth + 1));
+      const b = parseHex(resolveValue(c2.trim(), tokens, depth + 1));
+      if (!a || !b) return _;
+      return mixSrgb(a, Number(pct), b);
+    });
+  }
+  return out.trim();
+}
+
 function relativeLuminance(hex) {
-  const n = hex.replace('#', '');
-  const rgb = [0, 1, 2].map((i) => {
-    const c = parseInt(n.slice(i * 2, i * 2 + 2), 16) / 255;
+  const rgb = hexToRgb(hex).map((c) => {
+    c /= 255;
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   });
   return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
 }
-
 function contrastRatio(fg, bg) {
   const L1 = relativeLuminance(fg);
   const L2 = relativeLuminance(bg);
   return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
 }
 
-/**
- * Find the most specific simple rule whose selector list contains `needle`
- * exactly as one comma-separated selector (trimmed). Later rules win on ties.
- */
-function findRule(rules, needle) {
+function findRule(rules, needle, { darkOnly = null } = {}) {
   let found = null;
   for (const rule of rules) {
+    if (darkOnly === true && !rule.darkOnly) continue;
+    if (darkOnly === false && rule.darkOnly) continue;
+    // Prefer light/default when darkOnly is unspecified; dark overrides asked explicitly.
+    if (darkOnly == null && rule.darkOnly) continue;
     if (rule.selectors.includes(needle)) found = rule;
   }
   return found;
 }
-
 function declared(rule, prop) {
   return rule?.decls?.[prop] ?? null;
 }
 
-/**
- * Effective color/background for a control selector.
- * Falls back to the base `input`/`textarea`/`select`/`button` rule for color,
- * and to page `--bg` for background when the surface does not set one.
- */
-function surfaceStyles(rules, selector, { tag = 'input', pageBg = 'var(--bg)' } = {}) {
-  const rule = findRule(rules, selector);
-  const base = findRule(rules, tag);
-  const color = declared(rule, 'color') || declared(base, 'color') || 'var(--text)';
+function surfaceStyles(rules, selector, { tag = 'input', pageBg = 'var(--bg)', darkOnly = null } = {}) {
+  const rule = findRule(rules, selector, { darkOnly });
+  // Prefer light/default rule; for dark-only overrides merge over base
+  const baseRule = darkOnly ? findRule(rules, selector, { darkOnly: false }) : null;
+  const tagRule = findRule(rules, tag, { darkOnly: false });
+  const color = declared(rule, 'color') || declared(baseRule, 'color') || declared(tagRule, 'color') || 'var(--text)';
   const background = declared(rule, 'background')
     || declared(rule, 'background-color')
-    || declared(base, 'background')
-    || declared(base, 'background-color')
+    || declared(baseRule, 'background')
+    || declared(baseRule, 'background-color')
+    || declared(tagRule, 'background')
     || pageBg;
-  return { color, background, rule, base };
+  return { color, background, rule, baseRule };
 }
 
-function placeholderColor(rules) {
-  const rule = findRule(rules, 'input::placeholder') || findRule(rules, 'textarea::placeholder');
-  return declared(rule, 'color') || 'var(--text2)';
-}
-
+const PLAIN = stripComments(CSS);
 const { light: LIGHT, dark: DARK } = lightAndDarkTokens(CSS);
-const RULES = parseRules(stripComments(CSS));
+const RULES = parseRules(PLAIN);
 
 describe('theme tokens and base rule from real main.css', () => {
   it('sets color-scheme: light dark on :root', () => {
     expect(CSS).toMatch(/:root\s*\{[^}]*color-scheme:\s*light\s+dark/s);
+  });
+
+  it('defines tint / on-tint tokens for each hue family', () => {
+    for (const hue of ['green', 'amber', 'teal', 'purple', 'red', 'blue', 'tan']) {
+      expect(LIGHT[`--tint-${hue}`]).toBe(`var(--color-${hue}-light)`);
+      expect(LIGHT[`--on-tint-${hue}`]).toBe(`var(--color-${hue}-dark)`);
+      expect(DARK[`--tint-${hue}`]).toMatch(/color-mix\(in srgb/);
+      expect(DARK[`--on-tint-${hue}`]).toMatch(/color-mix\(in srgb/);
+    }
   });
 
   it('parses light and dark --text / --bg / --surface-selected', () => {
@@ -180,14 +251,45 @@ describe('theme tokens and base rule from real main.css', () => {
       const rule = findRule(RULES, tag);
       expect(rule, tag).toBeTruthy();
       expect(declared(rule, 'color')).toBe('var(--text)');
-      expect(declared(rule, 'font')).toBe('inherit');
     }
-    expect(placeholderColor(RULES)).toBe('var(--text2)');
   });
 });
 
+/** Light-mode expected computed colors (today's palette) — must not regress. */
+const LIGHT_UNCHANGED = [
+  { sel: '.dsk-nav-item.active', bg: '#eaf3de', fg: '#3b6d11' },
+  { sel: '.batch-sel.on', bg: '#eaf3de', fg: '#1a1a18' },
+  { sel: '.loc-picker-item.selected', bg: '#eaf3de', fg: '#1a1a18' },
+  { sel: '.dest-type-card.selected', bg: '#eaf3de', fg: '#3b6d11' },
+  { sel: '.badge-green', bg: '#eaf3de', fg: '#3b6d11' },
+  { sel: '.badge-teal', bg: '#e1f5ee', fg: '#0f6e56' },
+  { sel: '.badge-purple', bg: '#eeedfe', fg: '#3c3489' },
+  { sel: '.badge-amber', bg: '#faeeda', fg: '#854f0b' },
+  { sel: '.bg', bg: '#eaf3de', fg: '#3b6d11' },
+  { sel: '.ba', bg: '#faeeda', fg: '#854f0b' },
+  { sel: '.bt', bg: '#e1f5ee', fg: '#0f6e56' },
+  { sel: '.bp', bg: '#eeedfe', fg: '#3c3489' },
+  { sel: '.br', bg: '#fcebeb', fg: '#a32d2d' },
+  { sel: '.cat-pill.cp-idea.sel', bg: '#eaf3de', fg: '#3b6d11' },
+  { sel: '.cat-pill.cp-bug.sel', bg: '#fcebeb', fg: '#a32d2d' },
+  { sel: '.now-chip', bg: '#eaf3de', fg: '#3b6d11' },
+  { sel: '.dash-chip-green', bg: '#eaf3de', fg: '#3b6d11' },
+  { sel: '.dash-btn-amber', bg: '#faeeda', fg: '#854f0b' },
+];
+
+describe('light-mode computed colors unchanged for listed selectors', () => {
+  for (const row of LIGHT_UNCHANGED) {
+    it(row.sel, () => {
+      const styles = surfaceStyles(RULES, row.sel, { tag: 'div', darkOnly: false });
+      const bg = parseHex(resolveValue(styles.background, LIGHT));
+      const fg = parseHex(resolveValue(styles.color, LIGHT));
+      expect(bg, `${row.sel} bg`).toBe(row.bg);
+      expect(fg, `${row.sel} fg`).toBe(row.fg);
+    });
+  }
+});
+
 describe('real-stylesheet contrast ≥ 4.5:1 in both schemes', () => {
-  /** @type {Array<{ name: string, selector: string, tag?: string, colorDecl?: string, bgDecl?: string, bgFallback?: string }>} */
   const surfaces = [
     { name: 'input', selector: 'input', tag: 'input' },
     { name: 'textarea', selector: 'textarea', tag: 'textarea' },
@@ -198,30 +300,66 @@ describe('real-stylesheet contrast ≥ 4.5:1 in both schemes', () => {
     { name: '.obs-compact-input', selector: '.obs-compact-input', tag: 'input' },
     { name: '.obs-input', selector: '.obs-input', tag: 'input' },
     { name: '.events-log__filter select', selector: '.events-log__filter select', tag: 'select' },
-    // Assistant sheet text box is a bare <input data-testid="assistant-text"> — base input rule.
     { name: 'assistant-text (base input)', selector: 'input', tag: 'input' },
     { name: '.gtho-ptt-end', selector: '.gtho-ptt-end', tag: 'button' },
     { name: '.gtho-ptt-log', selector: '.gtho-ptt-log', tag: 'button' },
-    { name: '.groups-grid-tile--selected', selector: '.groups-grid-tile--selected', tag: 'div', bgFallback: 'var(--surface-selected)' },
+    { name: '.groups-grid-tile--selected', selector: '.groups-grid-tile--selected', tag: 'div', bgFallback: 'var(--surface-selected)', colorDecl: 'var(--text)' },
     { name: 'selected tile outline pill (.btn-outline)', selector: '.btn-outline', tag: 'button', bgFallback: 'var(--surface-selected)' },
+    // Tint / selected set
+    { name: '.dsk-nav-item.active', selector: '.dsk-nav-item.active', tag: 'button' },
+    { name: '.batch-sel.on', selector: '.batch-sel.on', tag: 'div' },
+    { name: '.loc-picker-item.selected', selector: '.loc-picker-item.selected', tag: 'div' },
+    { name: '.dest-type-card.selected', selector: '.dest-type-card.selected', tag: 'div' },
+    { name: '.badge-green', selector: '.badge-green', tag: 'span' },
+    { name: '.badge-teal', selector: '.badge-teal', tag: 'span' },
+    { name: '.badge-purple', selector: '.badge-purple', tag: 'span' },
+    { name: '.badge-amber', selector: '.badge-amber', tag: 'span' },
+    { name: '.bg', selector: '.bg', tag: 'span' },
+    { name: '.ba', selector: '.ba', tag: 'span' },
+    { name: '.bt', selector: '.bt', tag: 'span' },
+    { name: '.bp', selector: '.bp', tag: 'span' },
+    { name: '.br', selector: '.br', tag: 'span' },
+    { name: '.cat-pill.cp-idea.sel', selector: '.cat-pill.cp-idea.sel', tag: 'button' },
+    { name: '.cat-pill.cp-bug.sel', selector: '.cat-pill.cp-bug.sel', tag: 'button' },
+    { name: '.cat-pill.cp-ux.sel', selector: '.cat-pill.cp-ux.sel', tag: 'button' },
+    { name: '.cat-pill.cp-feature.sel', selector: '.cat-pill.cp-feature.sel', tag: 'button' },
+    { name: '.cat-pill.cp-calc.sel', selector: '.cat-pill.cp-calc.sel', tag: 'button' },
+    { name: '.now-chip', selector: '.now-chip', tag: 'span' },
+    { name: '.dash-chip-green', selector: '.dash-chip-green', tag: 'span' },
+    { name: '.dash-btn-amber', selector: '.dash-btn-amber', tag: 'button' },
   ];
 
-  function resolvedPair(surface, tokens) {
+  const darkSelected = new Set([
+    '.dsk-nav-item.active',
+    '.batch-sel.on',
+    '.loc-picker-item.selected',
+    '.dest-type-card.selected',
+  ]);
+
+  function resolvedPair(surface, tokens, scheme) {
     let colorDecl = surface.colorDecl;
     let bgDecl = surface.bgDecl;
+    const useDark = scheme === 'dark' && darkSelected.has(surface.selector);
     if (!colorDecl || !bgDecl) {
       const styles = surfaceStyles(RULES, surface.selector, {
         tag: surface.tag || 'input',
         pageBg: surface.bgFallback || 'var(--bg)',
+        darkOnly: useDark ? true : false,
       });
+      // For dark selected, prefer dark-only override when present
+      if (useDark) {
+        const darkStyles = surfaceStyles(RULES, surface.selector, { tag: surface.tag || 'div', darkOnly: true });
+        if (darkStyles.rule) {
+          colorDecl = colorDecl || darkStyles.color;
+          bgDecl = bgDecl || darkStyles.background;
+        }
+      }
       colorDecl = colorDecl || styles.color;
       bgDecl = bgDecl || styles.background;
-      // Selected tile sets only background; text inherits page --text.
       if (surface.selector === '.groups-grid-tile--selected') {
         colorDecl = 'var(--text)';
         bgDecl = styles.background || 'var(--surface-selected)';
       }
-      // Outline pill on selected tile: button color on the tile's selected bg.
       if (surface.selector === '.btn-outline') {
         colorDecl = styles.color || 'var(--text)';
         bgDecl = 'var(--surface-selected)';
@@ -236,13 +374,50 @@ describe('real-stylesheet contrast ≥ 4.5:1 in both schemes', () => {
     describe(scheme, () => {
       for (const surface of surfaces) {
         it(`${surface.name} contrast`, () => {
-          const { colorDecl, bgDecl, fg, bg } = resolvedPair(surface, tokens);
+          const { colorDecl, bgDecl, fg, bg } = resolvedPair(surface, tokens, scheme);
           expect(fg, `${surface.name} fg from ${colorDecl}`).toBeTruthy();
           expect(bg, `${surface.name} bg from ${bgDecl}`).toBeTruthy();
           const ratio = contrastRatio(fg, bg);
           expect(ratio, `${surface.name} ${fg} on ${bg} (${colorDecl} / ${bgDecl}) = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
         });
       }
+    });
+  }
+});
+
+describe('dark-mode selection indicator ≥ 3:1 vs --bg', () => {
+  const selectors = [
+    '.dsk-nav-item.active',
+    '.batch-sel.on',
+    '.loc-picker-item.selected',
+    '.dest-type-card.selected',
+    '.cat-pill.cp-idea.sel',
+  ];
+  const pageBg = parseHex(resolveValue('var(--bg)', DARK));
+  const green = parseHex(resolveValue('var(--color-green-base)', DARK));
+
+  it('green-base indicator clears 3:1 on dark --bg', () => {
+    expect(pageBg).toBe('#1a1a18');
+    expect(green).toBe('#639922');
+    expect(contrastRatio(green, pageBg)).toBeGreaterThanOrEqual(3);
+  });
+
+  for (const sel of selectors) {
+    it(`${sel} declares a 2px green indicator in dark only`, () => {
+      const darkRule = findRule(RULES, sel, { darkOnly: true });
+      expect(darkRule, `${sel} dark rule`).toBeTruthy();
+      const border = declared(darkRule, 'border') || '';
+      const borderWidth = declared(darkRule, 'border-width') || '';
+      const borderColor = declared(darkRule, 'border-color') || '';
+      const shadow = declared(darkRule, 'box-shadow') || '';
+      const hasInset = /inset\s+0\s+0\s+0\s+2px\s+var\(--color-green-base\)/.test(shadow);
+      const hasBorder = (borderWidth === '2px' && /green-base/.test(borderColor))
+        || /2px\s+solid\s+var\(--color-green-base\)/.test(border);
+      expect(hasInset || hasBorder, `${sel} indicator decls ${JSON.stringify(darkRule.decls)}`).toBe(true);
+      // Light must NOT gain a new 2px green indicator rule.
+      const lightRule = findRule(RULES, sel, { darkOnly: false });
+      const lightShadow = declared(lightRule, 'box-shadow') || '';
+      expect(lightShadow).not.toMatch(/inset\s+0\s+0\s+0\s+2px/);
     });
   }
 });

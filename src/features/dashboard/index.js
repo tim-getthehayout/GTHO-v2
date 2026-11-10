@@ -1391,7 +1391,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
 
   // §4 + §5: Event type badge + summary line
   children.push(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: 'var(--space-2)' } }, [
-    el('span', { style: { background: '#F4F8EC', color: '#3B6D11', fontSize: '12px', borderRadius: '4px', padding: '2px 6px', marginRight: '6px' } }, [eventType]),
+    el('span', { className: 'dash-chip-green' }, [eventType]),
     `Day ${dayCount} \u00B7 In ${eventStartDate ? formatShortDate(eventStartDate) : '\u2014'} \u00B7 $${feedCost.toFixed(2)}`,
   ]));
 
@@ -1535,7 +1535,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const btnRowStyle = { padding: '10px 8px', fontSize: '13px', fontWeight: '600', borderRadius: '8px', cursor: 'pointer', flex: '1' };
   children.push(el('div', { style: { display: 'flex', gap: '6px', marginTop: 'var(--space-2)' } }, [
     el('button', {
-      style: { ...btnRowStyle, background: '#FDF6EA', border: '1px solid #E5C76B', color: '#8B6914' },
+      className: 'dash-btn-amber',
+      style: { ...btnRowStyle },
       'data-testid': `dashboard-feed-check-btn-${event.id}`,
       onClick: () => openFeedCheckSheet(event, operationId),
     }, [t('event.feedCheck')]),

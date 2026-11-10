@@ -17,8 +17,7 @@ import * as PaddockObsEntity from '../../entities/paddock-observation.js';
 import * as SoilTestEntity from '../../entities/soil-test.js';
 import * as FeedTypeEntity from '../../entities/feed-type.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
-import * as AmendmentEntity from '../../entities/amendment.js';
-import * as AmendmentLocationEntity from '../../entities/amendment-location.js';
+import { openAmendmentSheet } from '../amendments/entry.js';
 import * as SurveyEntity from '../../entities/survey.js';
 import * as SurveyDraftEntryEntity from '../../entities/survey-draft-entry.js';
 import { openHarvestSheet } from '../harvest/index.js';
@@ -37,7 +36,6 @@ let locationSheet = null;
 let soilTestSheet = null;
 let surveySheet = null;
 let feedTypesSheet = null;
-let applyInputSheet = null;
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -1194,131 +1192,4 @@ export function openFeedTypesSheet(operationId) {
 
 // ─── Apply Input / Amendment Sheet ──────────────────────────────────────
 
-function ensureApplyInputSheetDOM() {
-  if (document.getElementById('apply-input-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'apply-input-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => applyInputSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'apply-input-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
-  ]));
-}
-
-function openApplyInputSheet(operationId) {
-  ensureApplyInputSheetDOM();
-  if (!applyInputSheet) applyInputSheet = new Sheet('apply-input-wrap');
-  const panel = document.getElementById('apply-input-panel');
-  if (!panel) return;
-  clear(panel);
-  panel.appendChild(el('div', { className: 'sheet-handle' }));
-  panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '14px' } }, ['Apply input / amendment']));
-
-  const todayStr = getLocalTodayStr();
-  let sourceType = 'product';
-  const selectedLocations = new Set();
-
-  // Date
-  const dateInput = el('input', { type: 'date', value: todayStr });
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Date applied']), dateInput]));
-
-  // Source toggle
-  const sourceSelect = el('select', {}, [
-    el('option', { value: 'product' }, ['Purchased product / input']),
-    el('option', { value: 'manure' }, ['Stored manure from inventory']),
-  ]);
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Source']), sourceSelect]));
-
-  // Product fields
-  const productFields = el('div');
-  const products = getAll('inputProducts');
-  const productSelect = el('select', {}, [
-    el('option', { value: '' }, ['\u2014 select product \u2014']),
-    ...products.map(p => el('option', { value: p.id }, [p.name])),
-  ]);
-  const qtyInput = el('input', { type: 'number', step: '0.01', placeholder: '0' });
-  productFields.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Product']), productSelect]));
-  productFields.appendChild(el('div', { className: 'two' }, [
-    el('div', { className: 'field' }, [el('label', {}, ['Quantity']), qtyInput]),
-    el('div'),
-  ]));
-  panel.appendChild(productFields);
-
-  // Manure fields (hidden by default)
-  const manureFields = el('div', { style: { display: 'none' } });
-  const manureBatches = getAll('manureBatches');
-  const manureSelect = el('select', {}, [
-    el('option', { value: '' }, ['\u2014 select batch \u2014']),
-    ...manureBatches.map(mb => el('option', { value: mb.id }, [mb.sourceName || `Batch ${mb.id.slice(0, 6)}`])),
-  ]);
-  const manurePctInput = el('input', { type: 'range', min: '1', max: '100', step: '1', value: '25', style: { flex: '1', accentColor: 'var(--green)' } });
-  const manurePctLabel = el('span', { style: { fontSize: '14px', fontWeight: '600', minWidth: '40px', textAlign: 'right' } }, ['25%']);
-  manurePctInput.addEventListener('input', () => { manurePctLabel.textContent = `${manurePctInput.value}%`; });
-  manureFields.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Manure batch']), manureSelect]));
-  manureFields.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' } }, [manurePctInput, manurePctLabel]));
-  panel.appendChild(manureFields);
-
-  // Source toggle handler
-  sourceSelect.addEventListener('change', () => {
-    sourceType = sourceSelect.value;
-    productFields.style.display = sourceType === 'product' ? 'block' : 'none';
-    manureFields.style.display = sourceType === 'manure' ? 'block' : 'none';
-  });
-
-  // Location multi-select
-  panel.appendChild(el('div', { className: 'field' }, [
-    el('label', {}, ['Apply to locations ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['select one or more'])]),
-  ]));
-  const locListEl = el('div', { style: { maxHeight: '200px', overflowY: 'auto', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', padding: '4px 0', marginBottom: '10px' } });
-  const allLocs = getAll('locations').filter(l => !l.archived);
-
-  function renderLocCheckboxes() {
-    clear(locListEl);
-    const unitSys = getUnitSystem();
-    const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
-    for (const loc of allLocs) {
-      const isChecked = selectedLocations.has(loc.id);
-      const locHa = locationAreaHa(loc);
-      const areaVal = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(2) : '';
-      locListEl.appendChild(el('div', {
-        style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', cursor: 'pointer', background: isChecked ? 'var(--green-l)' : 'transparent' },
-        onClick: () => { if (isChecked) selectedLocations.delete(loc.id); else selectedLocations.add(loc.id); renderLocCheckboxes(); },
-      }, [
-        el('div', { style: { width: '16px', height: '16px', borderRadius: '4px', border: `1.5px solid ${isChecked ? 'var(--green)' : 'var(--border2)'}`, background: isChecked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' } },
-          isChecked ? [el('svg', { width: '10', height: '10', viewBox: '0 0 12 12', fill: 'none' }, [el('polyline', { points: '2,6 5,9 10,3', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })])] : []),
-        el('div', { style: { flex: '1', fontSize: '13px', fontWeight: '500' } }, [loc.name]),
-        areaVal ? el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ${areaUnit}`]) : null,
-      ].filter(Boolean)));
-    }
-  }
-  renderLocCheckboxes();
-  panel.appendChild(locListEl);
-
-  // Notes
-  const notesInput = el('input', { type: 'text', placeholder: 'Application method, conditions, applicator\u2026' });
-  panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Notes ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), notesInput]));
-
-  const statusEl = el('div', { className: 'auth-error' });
-  panel.appendChild(statusEl);
-
-  panel.appendChild(el('div', { className: 'btn-row' }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
-      clear(statusEl);
-      if (!selectedLocations.size) { statusEl.appendChild(el('span', {}, ['Select at least one location'])); return; }
-      try {
-        const productName = sourceType === 'product' ? (products.find(p => p.id === productSelect.value)?.name || 'Unknown') : 'Manure application';
-        const amendment = AmendmentEntity.create({
-          operationId, date: dateInput.value || todayStr, productName,
-          sourceType, notes: notesInput.value.trim() || null,
-        });
-        add('amendments', amendment, AmendmentEntity.validate, AmendmentEntity.toSupabaseShape, 'amendments');
-
-        for (const locId of selectedLocations) {
-          const al = AmendmentLocationEntity.create({ operationId, amendmentId: amendment.id, locationId: locId });
-          add('amendmentLocations', al, AmendmentLocationEntity.validate, AmendmentLocationEntity.toSupabaseShape, 'amendment_locations');
-        }
-        applyInputSheet.close();
-      } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
-    } }, ['Record application']),
-    el('button', { className: 'btn btn-outline', onClick: () => applyInputSheet.close() }, ['Cancel']),
-  ]));
-
-  applyInputSheet.open();
-}
+function openApplyInputSheet(operationId) { openAmendmentSheet(null, operationId); }

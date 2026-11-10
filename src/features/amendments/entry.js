@@ -4,9 +4,12 @@ import { el, clear } from '../../ui/dom.js';
 import { openLocationMapPicker } from '../map/picker.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, remove, subscribe } from '../../data/store.js';
+import { getAll, getById, add, remove, subscribe, runDurableWrite } from '../../data/store.js';
 import * as AmendmentEntity from '../../entities/amendment.js';
 import * as AmendmentLocationEntity from '../../entities/amendment-location.js';
+import { isCalendarDate, optionalFormNumber } from '../../utils/form-values.js';
+import { getUnitSystem } from '../../utils/preferences.js';
+import { convert } from '../../utils/units.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let unsubs = [];
@@ -32,10 +35,6 @@ export function renderAmendmentsScreen(container) {
       }, [t('amendment.addAmendment')]),
     ]),
     el('div', { 'data-testid': 'amendments-list' }),
-    el('div', { className: 'sheet-wrap', id: 'amendment-sheet-wrap' }, [
-      el('div', { className: 'sheet-backdrop', onClick: () => amendmentSheet && amendmentSheet.close() }),
-      el('div', { className: 'sheet-panel', id: 'amendment-sheet-panel' }),
-    ]),
   ]);
 
   container.appendChild(screenEl);
@@ -121,7 +120,13 @@ function renderAmendmentList(rootContainer, operationId) {
 
 let amendmentSheet = null;
 
-function openAmendmentSheet(existing, operationId) {
+export function openAmendmentSheet(existing, operationId) {
+  if (!document.getElementById('amendment-sheet-wrap')) document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'amendment-sheet-wrap' }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => amendmentSheet?.close() }),
+    el('div', { className: 'sheet-panel', id: 'amendment-sheet-panel' }),
+  ]));
+  const executionKey = JSON.stringify([operationId, 'amendment', crypto.randomUUID(), 1]);
+  let committed = false;
   if (!amendmentSheet) amendmentSheet = new Sheet('amendment-sheet-wrap');
   const panel = document.getElementById('amendment-sheet-panel');
   if (!panel) return;
@@ -203,7 +208,7 @@ function openAmendmentSheet(existing, operationId) {
     }
     updateNpkPreview();
   };
-  renderSourcePicker();
+  // Initialize the picker only once its preview and quantity controls exist.
 
   // Quantity + unit
   panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.quantity')]));
@@ -254,14 +259,18 @@ function openAmendmentSheet(existing, operationId) {
     style: { marginBottom: 'var(--space-3)', fontFamily: 'monospace' },
   });
   panel.appendChild(npkPreviewEl);
+  renderSourcePicker();
+  unitSelect.addEventListener('change', updateNpkPreview);
 
   function updateNpkPreview() {
     clear(npkPreviewEl);
     const qty = parseFloat(qtyInput.value);
-    if (isNaN(qty) || qty <= 0) {
+    if (!Number.isFinite(qty) || qty <= 0) {
       npkPreviewEl.appendChild(el('span', {}, [t('amendment.npkPreviewEmpty')]));
       return;
     }
+    // A label-only unit has no conversion metadata: never assume bags/litres are kg.
+    if (getById('inputProductUnits', unitSelect.value)?.name !== 'kg') { npkPreviewEl.appendChild(el('span', {}, [t('amendment.npkPreviewNoData')])); return; }
     let nPct = null, pPct = null, kPct = null;
     if (sourceState.value === 'product' && productSelect && productSelect.value) {
       const prod = inputProducts.find(p => p.id === productSelect.value);
@@ -316,6 +325,8 @@ function openAmendmentSheet(existing, operationId) {
     });
     row.appendChild(cb);
     row.appendChild(el('label', { htmlFor: `amend-loc-${loc.id}`, style: { cursor: 'pointer' } }, [loc.name]));
+    const hectares = loc.areaHectares ?? loc.areaHa;
+    if (hectares != null) { const imperial = getUnitSystem() === 'imperial'; row.appendChild(el('span', { className: 'form-hint' }, [`${(imperial ? convert(hectares, 'area', 'toImperial') : hectares).toFixed(2)} ${imperial ? 'ac' : 'ha'}`])); }
     paddockListEl.appendChild(row);
   }
   panel.appendChild(paddockListEl);
@@ -340,8 +351,15 @@ function openAmendmentSheet(existing, operationId) {
       onClick: () => {
         clear(statusEl);
         try {
-          const qty = qtyInput.value !== '' ? parseFloat(qtyInput.value) : null;
-          const cost = costInput.value !== '' ? parseFloat(costInput.value) : null;
+          if (committed) return;
+          if (!isCalendarDate(dateInput.value)) throw new Error(t('manualEntry.invalidDate'));
+          const qty = optionalFormNumber(qtyInput.value), cost = optionalFormNumber(costInput.value);
+          if (qty === null || qty <= 0 || (cost !== null && cost < 0)) throw new Error(t('manualEntry.invalidNumber'));
+          const product = getById('inputProducts', productSelect?.value), manure = getById('manureBatches', manureBatchSelect?.value);
+          const unit = getById('inputProductUnits', unitSelect.value);
+          if (!unit || unit.archived || (sourceState.value === 'product' ? !product || product.archived : !manure || manure.operationId !== operationId)) throw new Error(t('manualEntry.invalidReference'));
+          if (spreaderSelect.value && !getById('spreaders', spreaderSelect.value)) throw new Error(t('manualEntry.invalidReference'));
+          if (!selectedLocations.size || [...selectedLocations].some(id => { const loc = getById('locations', id); return !loc || loc.archived || loc.type !== 'land' || loc.operationId !== operationId; })) throw new Error(t('manualEntry.invalidReference'));
 
           const amendmentData = AmendmentEntity.create({
             operationId,
@@ -356,7 +374,8 @@ function openAmendmentSheet(existing, operationId) {
             notes: notesInput.value.trim() || null,
           });
 
-          add('amendments', amendmentData, AmendmentEntity.validate, AmendmentEntity.toSupabaseShape, 'amendments');
+          const allocations = [];
+          const valid = AmendmentEntity.validate(amendmentData); if (!valid.valid) throw new Error(valid.errors.join('; '));
 
           // Create amendment_location records, splitting nutrients by area
           const locationArr = [...selectedLocations];
@@ -372,7 +391,7 @@ function openAmendmentSheet(existing, operationId) {
               // Compute per-location nutrient kg from product composition
               let nKg = null, pKg = null, kKg = null;
               if (qty != null) {
-                if (sourceState.value === 'product' && productSelect?.value) {
+                if (sourceState.value === 'product' && productSelect?.value && unit.name === 'kg') {
                   const prod = inputProducts.find(p => p.id === productSelect.value);
                   if (prod) {
                     nKg = prod.nPct != null ? (prod.nPct / 100) * qty / locCount : null;
@@ -392,11 +411,18 @@ function openAmendmentSheet(existing, operationId) {
                 kKg,
                 areaHa: locAreaHa,
               });
-              add('amendmentLocations', alData, AmendmentLocationEntity.validate,
-                AmendmentLocationEntity.toSupabaseShape, 'amendment_locations');
+              const valid = AmendmentLocationEntity.validate(alData); if (!valid.valid) throw new Error(valid.errors.join('; '));
+              if ([alData.nKg, alData.pKg, alData.kKg, alData.qty].some(value => value !== null && !Number.isFinite(value))) throw new Error(t('manualEntry.invalidNumber'));
+              allocations.push(alData);
             }
           }
 
+          runDurableWrite(executionKey, () => {
+            add('amendments', amendmentData, AmendmentEntity.validate, AmendmentEntity.toSupabaseShape, 'amendments');
+            for (const allocation of allocations) add('amendmentLocations', allocation, AmendmentLocationEntity.validate, AmendmentLocationEntity.toSupabaseShape, 'amendment_locations');
+            return amendmentData.id;
+          });
+          committed = true;
           amendmentSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

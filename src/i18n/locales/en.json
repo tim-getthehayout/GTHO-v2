@@ -1,6 +1,7 @@
 {
   "manualEntry": {
     "invalidDate": "Enter a valid date and time.",
+    "invalidReference": "Choose valid source, unit and location records before saving.",
     "invalidNumber": "Enter a finite number.",
     "missingSource": "The original source is unknown. Inventory changes need a source assessment before this entry can be changed or deleted.",
     "chooseSource": "Choose a source location.",

@@ -132,7 +132,7 @@ describe('metric area display — six screens match Event Detail ac/ha', () => {
     let container = freshContainer();
     renderLocationsScreen(container);
     clickButton(container, 'Apply input');
-    const panel = document.getElementById('apply-input-panel');
+    const panel = document.getElementById('amendment-sheet-panel');
     expect(panel.textContent).toContain('2.47 ac');
     expect(panel.textContent).not.toContain('2.47 ha');
 
@@ -140,7 +140,7 @@ describe('metric area display — six screens match Event Detail ac/ha', () => {
     container = freshContainer();
     renderLocationsScreen(container);
     clickButton(container, 'Apply input');
-    const panel2 = document.getElementById('apply-input-panel');
+    const panel2 = document.getElementById('amendment-sheet-panel');
     expect(panel2.textContent).toContain('1.00 ha');
     expect(panel2.textContent).not.toContain('2.47 ha');
     expect(panel2.textContent).not.toContain('2.47 ac');

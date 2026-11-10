@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { supportsWebstorageFlag } from './scripts/run-vitest.mjs';
 import { fileURLToPath } from 'url';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
@@ -63,7 +64,8 @@ export default defineConfig(({ mode,isSsrBuild }) => ({
     environment: 'jsdom',
     include: ['tests/**/*.test.js'],
     // Node 26+ enables experimental webstorage that shadows jsdom's localStorage
-    // (715+ failures under plain `npm test`). Pin it off for every worker.
-    execArgv: ['--no-experimental-webstorage'],
+    // (715+ failures under plain `npm test`). Pin it off for every worker when
+    // this Node accepts the flag (Node 20 rejects it with exit 9).
+    execArgv: supportsWebstorageFlag() ? ['--no-experimental-webstorage'] : [],
   },
 }));

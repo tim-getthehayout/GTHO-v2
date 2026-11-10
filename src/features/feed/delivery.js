@@ -278,7 +278,9 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     paddockSelect.value = selectedLocationId;
     paddockSelect.addEventListener('change', () => {
       selectedLocationId = paddockSelect.value;
+      selectedLocationIds = [selectedLocationId];
       updateChip();
+      updateBasisRow();
     });
     chipRow.appendChild(el('label', { style: { fontSize: '12px', color: 'var(--text2)', marginLeft: 'auto' } }, [t('feed.deliverTo')]));
     chipRow.appendChild(paddockSelect);

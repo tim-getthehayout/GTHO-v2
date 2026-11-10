@@ -1,6 +1,8 @@
 /** @file Feed state helpers — OI-0135, OI-0139. */
 
 import { getAll } from '../data/store.js';
+import { rowInstant } from '../utils/date-utils.js';
+const signedQuantity = entry => (entry.entryType === 'removal' ? -1 : 1) * (Number(entry.quantity) || 0);
 
 /**
  * Resolve the live-remaining stored-feed quantity per (batch, location) for an
@@ -26,8 +28,8 @@ export function getLiveRemainingForMove(eventId) {
   const allChecks = getAll('eventFeedChecks')
     .filter(fc => fc.eventId === eventId)
     .sort((a, b) => {
-      const ad = `${a.date}T${a.time || '00:00'}`;
-      const bd = `${b.date}T${b.time || '00:00'}`;
+      const ad = rowInstant(a.date, a.time);
+      const bd = rowInstant(b.date, b.time);
       return bd.localeCompare(ad); // most recent first
     });
   const checkItems = getAll('eventFeedCheckItems');
@@ -36,14 +38,14 @@ export function getLiveRemainingForMove(eventId) {
   const result = {};
   for (const e of feedEntries) {
     const key = `${e.batchId}|${e.locationId}`;
-    result[key] = (result[key] ?? 0) + (Number(e.quantity) || 0);
+    result[key] = (result[key] ?? 0) + signedQuantity(e);
   }
 
   // 2. For every pair that has at least one check, override the seed with
   //    `latestCheck.remainingQuantity + Σ deliveries strictly after the check`.
   const seen = new Set();
   for (const fc of allChecks) {
-    const fcStamp = `${fc.date}T${fc.time || '00:00'}`;
+    const fcStamp = rowInstant(fc.date, fc.time);
     const items = checkItems.filter(ci => ci.feedCheckId === fc.id);
     for (const ci of items) {
       const key = `${ci.batchId}|${ci.locationId}`;
@@ -51,8 +53,8 @@ export function getLiveRemainingForMove(eventId) {
       seen.add(key);
       const postCheckDeliveries = feedEntries
         .filter(e => e.batchId === ci.batchId && e.locationId === ci.locationId)
-        .filter(e => `${e.date}T${e.time || '00:00'}` > fcStamp)
-        .reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+        .filter(e => rowInstant(e.date, e.time) > fcStamp)
+        .reduce((sum, e) => sum + signedQuantity(e), 0);
       result[key] = (Number(ci.remainingQuantity) || 0) + postCheckDeliveries;
     }
   }

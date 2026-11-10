@@ -126,4 +126,8 @@ export function getLocalTodayStr() {
 }
 
 /** Feed/check ordering: a missing clock is midnight; equality is captured by the check. */
-export function rowInstant(date, time) { return `${date || ''}T${time || '00:00'}`; }
+export function rowInstant(date, time) {
+  const [hour, minute, seconds = '00'] = (time || '00:00').split(':');
+  const [second, fraction = ''] = seconds.split('.');
+  return `${date || ''}T${hour}:${minute}:${second}.${fraction.padEnd(3, '0')}`;
+}

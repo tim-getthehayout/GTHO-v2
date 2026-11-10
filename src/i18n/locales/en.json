@@ -14,7 +14,11 @@
     "confirmTime": "Confirm time {time}",
     "groupWeightsHint": "Enter per-head weights. Composite records store the full lot total. Leave blank to keep the current weight.",
     "groupWeightPlaceholder": "New wt/head",
-    "groupWeightComposite": "{heads} head · per-head weight"
+    "groupWeightComposite": "{heads} head · per-head weight",
+    "pickDestination": "Select a destination event and paddock.",
+    "pickStorage": "Select storage (legacy unlocated stock may remain unlocated).",
+    "closedSource": "This event is closed.",
+    "returnInventoryError": "Inventory return cannot be saved: {reason}. No records were changed."
   },
   "app": {
     "name": "Get The Hay Out",

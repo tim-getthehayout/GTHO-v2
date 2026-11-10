@@ -3,13 +3,14 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update } from '../../data/store.js';
+import { getAll, getById, add, runDurableWrite } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display } from '../../utils/units.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
-import * as BatchEntity from '../../entities/batch.js';
+import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
+import { validateDeliveryRestore, restoreDelivery } from '../feed/batch-balances.js';
 import { openLocationNames } from './open-cohort.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
@@ -56,7 +57,7 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
   }
   const feedLines = Object.values(lines).map(l => ({
     ...l,
-    netRemaining: l.delivered - l.removed,
+    netRemaining: getLiveRemainingForMove(event.id)[`${l.batchId}|${l.locationId}`] ?? 0,
     batch: batchMap.get(l.batchId),
     location: locMap.get(l.locationId),
   })).filter(l => l.netRemaining > 0);
@@ -68,6 +69,9 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
   let destType = 'batch'; // 'batch' | 'event'
   let destEventId = null;
   let destLocationId = null;
+  const returnLocations = {};
+  const executionKey = JSON.stringify([operationId, 'move-feed-out', crypto.randomUUID(), 1]);
+  let committed = false;
 
   // Pre-select if provided
   if (opts.preselectBatchId && opts.preselectLocationId) {
@@ -126,8 +130,8 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
       if (!line) continue;
       const batchName = line.batch?.name || '?';
       const unit = line.batch?.unit || 'units';
-      const input = el('input', { type: 'number', min: '0', step: '0.01', value: line.netRemaining, style: { width: '100px', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', fontWeight: '600', textAlign: 'center' } });
-      input.addEventListener('change', () => { confirmedRemaining[key] = parseFloat(input.value) || 0; });
+      const input = el('input', { 'data-testid': `move-check-${line.batchId}-${line.locationId}`, type: 'number', min: '0', step: '0.01', value: line.netRemaining, style: { width: '100px', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', fontWeight: '600', textAlign: 'center' } });
+      input.addEventListener('change', () => { if (input.isConnected) confirmedRemaining[key] = input.value.trim() === '' ? NaN : Number(input.value); });
       confirmedRemaining[key] = line.netRemaining;
 
       panel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
@@ -152,8 +156,8 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
       if (!line) continue;
       const remaining = confirmedRemaining[key] || 0;
       const unit = line.batch?.unit || 'units';
-      const input = el('input', { type: 'number', min: '0.1', max: String(remaining), step: '0.1', value: remaining, style: { width: '100px', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', textAlign: 'center' } });
-      input.addEventListener('change', () => { moveAmounts[key] = parseFloat(input.value) || 0; });
+      const input = el('input', { 'data-testid': `move-amount-${line.batchId}-${line.locationId}`, type: 'number', min: '0.1', max: String(remaining), step: '0.1', value: remaining, style: { width: '100px', padding: '8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', textAlign: 'center' } });
+      input.addEventListener('change', () => { if (input.isConnected) moveAmounts[key] = input.value.trim() === '' ? NaN : Number(input.value); });
       moveAmounts[key] = remaining;
 
       panel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '0.5px solid var(--border)', fontSize: '13px' } }, [
@@ -164,10 +168,11 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
 
     // Destination picker
     panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginTop: '14px', marginBottom: '8px' } }, ['Destination']));
-    const destSelect = el('select', { className: 'auth-select' }, [
+    const destSelect = el('select', { className: 'auth-select', 'data-testid': 'move-destination-type', value: destType }, [
       el('option', { value: 'batch' }, ['Back to inventory']),
       el('option', { value: 'event' }, ['Existing open event']),
     ]);
+    destSelect.value = destType;
     destSelect.addEventListener('change', () => { destType = destSelect.value; renderDestDetails(); });
     panel.appendChild(el('div', { className: 'field' }, [destSelect]));
 
@@ -176,9 +181,19 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
 
     function renderDestDetails() {
       clear(destDetailsEl);
-      if (destType === 'event') {
+      if (destType === 'batch') {
+        for (const key of selected) {
+          const line = feedLines.find(row => `${row.batchId}|${row.locationId}` === key);
+          const original = [...new Set(entries.filter(row => row.batchId === line.batchId && row.locationId === line.locationId && row.entryType !== 'removal').map(row => row.sourceLocationId).filter(Boolean))];
+          if (!(key in returnLocations)) returnLocations[key] = original.length === 1 ? original[0] : null;
+          const available = locations.filter(row => row.type === 'storage' || original.includes(row.id));
+          const picker = el('select', { className: 'auth-select', 'data-testid': `move-return-${line.batchId}-${line.locationId}` }, [el('option', { value: '' }, [t('manualEntry.pickStorage')]), ...available.map(row => el('option', { value: row.id }, [row.name]))]);
+          picker.value = returnLocations[key] || ''; picker.addEventListener('change', () => { if (picker.isConnected) returnLocations[key] = picker.value || null; });
+          destDetailsEl.appendChild(el('div', { className: 'field' }, [el('label', {}, [line.batch?.name || '?']), picker]));
+        }
+      } else if (destType === 'event') {
         const openEvents = getAll('events').filter(e => !e.dateOut && e.id !== event.id);
-        const evtSelect = el('select', { className: 'auth-select' }, [
+        const evtSelect = el('select', { className: 'auth-select', 'data-testid': 'move-destination-event' }, [
           el('option', { value: '' }, ['\u2014 pick event \u2014']),
           ...openEvents.map(e => {
             const names = openLocationNames(e.id);
@@ -186,8 +201,18 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
             return el('option', { value: e.id }, [locName]);
           }),
         ]);
-        evtSelect.addEventListener('change', () => { destEventId = evtSelect.value || null; });
+        evtSelect.value = destEventId || '';
+        const paddocks = el('div');
+        function renderPaddocks() {
+          clear(paddocks);
+          const windows = getAll('eventPaddockWindows').filter(row => row.eventId === destEventId && !row.dateClosed);
+          const picker = el('select', { className: 'auth-select', 'data-testid': 'move-destination-location' }, [el('option', { value: '' }, [t('manualEntry.pickDestination')]), ...windows.map(row => el('option', { value: row.locationId }, [locMap.get(row.locationId)?.name || '?']))]);
+          picker.value = destLocationId || ''; picker.addEventListener('change', () => { if (picker.isConnected) destLocationId = picker.value || null; });
+          paddocks.appendChild(picker);
+        }
+        evtSelect.addEventListener('change', () => { if (!evtSelect.isConnected) return; destEventId = evtSelect.value || null; destLocationId = null; renderPaddocks(); });
         destDetailsEl.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Event']), evtSelect]));
+        destDetailsEl.appendChild(paddocks); renderPaddocks();
       }
     }
     renderDestDetails();
@@ -202,10 +227,11 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
         for (const key of selected) {
           const amt = moveAmounts[key] || 0;
           const rem = confirmedRemaining[key] || 0;
+          if (!Number.isFinite(moveAmounts[key]) || !Number.isFinite(confirmedRemaining[key]) || rem < 0) { statusEl.textContent = t('manualEntry.invalidNumber'); return; }
           if (amt > rem) { statusEl.appendChild(el('span', {}, ['Move amount exceeds remaining'])); return; }
           if (amt <= 0) { statusEl.appendChild(el('span', {}, ['Move amount must be > 0'])); return; }
         }
-        if (destType === 'event' && !destEventId) { statusEl.appendChild(el('span', {}, ['Select a destination event'])); return; }
+        if (destType === 'event' && (!destEventId || !destLocationId)) { statusEl.appendChild(el('span', {}, ['Select a destination event'])); return; }
         renderStep4();
       } }, ['Next']),
       el('button', { className: 'btn btn-outline', onClick: () => renderStep2() }, ['Back']),
@@ -239,43 +265,43 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
       el('button', { className: 'btn btn-green', onClick: () => {
         clear(statusEl);
         try {
+          if (committed) return;
+          if (getById('events', event.id)?.dateOut) throw new Error(t('manualEntry.closedSource'));
+          const observed = new Date();
+          // The staged observation precedes the physical removal. Give the two
+          // ordered actions distinct instants even within one clock tick.
+          const moved = new Date(observed.getTime() + 1);
+          const parts = date => ({ date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`, time: `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}.${String(date.getMilliseconds()).padStart(3, '0')}` });
+          const rows = [];
+          if (destType === 'event' && (!destEventId || destEventId === event.id || !getById('events', destEventId) || getById('events', destEventId).dateOut || !getAll('eventPaddockWindows').some(row => row.eventId === destEventId && row.locationId === destLocationId && !row.dateClosed))) throw new Error(t('manualEntry.pickDestination'));
           for (const key of selected) {
-            const line = feedLines.find(l => `${l.batchId}|${l.locationId}` === key);
-            if (!line) continue;
-            const amt = moveAmounts[key] || 0;
-            const rem = confirmedRemaining[key] || 0;
-
-            // 1. Feed check (strike the line)
-            const check = FeedCheckEntity.create({ operationId, eventId: event.id, checkDate: todayStr });
-            add('eventFeedChecks', check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
-            const checkItem = FeedCheckItemEntity.create({ operationId, feedCheckId: check.id, batchId: line.batchId, locationId: line.locationId, remainingQuantity: rem });
-            add('eventFeedCheckItems', checkItem, FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
-
-            // 2. Removal entry on source
-            const removal = FeedEntryEntity.create({
-              operationId, eventId: event.id, batchId: line.batchId, locationId: line.locationId,
-              date: todayStr, quantity: amt, entryType: 'removal',
-              destinationType: destType, destinationEventId: destType === 'event' ? destEventId : null,
-            });
-            add('eventFeedEntries', removal, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
-
-            // 3/4. Destination
-            if (destType === 'batch') {
-              // Increment batch remaining
-              const batch = getById('batches', line.batchId);
-              if (batch) update('batches', batch.id, { remaining: (batch.remaining || 0) + amt }, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
-            } else if (destType === 'event' && destEventId) {
-              // Create inbound delivery on destination
-              const destPw = getAll('eventPaddockWindows').find(pw => pw.eventId === destEventId && !pw.dateClosed);
-              const inbound = FeedEntryEntity.create({
-                operationId, eventId: destEventId, batchId: line.batchId,
-                locationId: destPw?.locationId || line.locationId,
-                date: todayStr, quantity: amt, entryType: 'delivery',
-                sourceEventId: event.id,
-              });
-              add('eventFeedEntries', inbound, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+            const line = feedLines.find(row => `${row.batchId}|${row.locationId}` === key), amt = moveAmounts[key], rem = confirmedRemaining[key];
+            if (!line || !getById('batches', line.batchId) || !getById('locations', line.locationId) || !Number.isFinite(amt) || !Number.isFinite(rem) || amt <= 0 || rem < amt) throw new Error(t('manualEntry.invalidNumber'));
+            const check = FeedCheckEntity.create({ operationId, eventId: event.id, ...parts(observed) });
+            const item = FeedCheckItemEntity.create({ operationId, feedCheckId: check.id, batchId: line.batchId, locationId: line.locationId, remainingQuantity: rem });
+            const removal = FeedEntryEntity.create({ operationId, eventId: event.id, batchId: line.batchId, locationId: line.locationId, ...parts(moved), quantity: amt, entryType: 'removal', destinationType: destType, destinationEventId: destType === 'event' ? destEventId : null });
+            const inbound = destType === 'event' ? FeedEntryEntity.create({ operationId, eventId: destEventId, batchId: line.batchId, locationId: destLocationId, ...parts(moved), quantity: amt, sourceEventId: event.id }) : null;
+            for (const [entity, record] of [[FeedCheckEntity, check], [FeedCheckItemEntity, item], [FeedEntryEntity, removal], ...(inbound ? [[FeedEntryEntity, inbound]] : [])]) {
+              const result = entity.validate(record); if (!result.valid) throw new Error(result.errors.join('; '));
             }
+            if (destType === 'batch') {
+              const error = validateDeliveryRestore(line.batchId, returnLocations[key], amt);
+              if (error) throw new Error(t('manualEntry.returnInventoryError', { reason: error }));
+            }
+            rows.push({ check, item, removal, inbound, batchId: line.batchId, storage: returnLocations[key], amount: amt });
           }
+          if (!rows.length) throw new Error(t('manualEntry.invalidNumber'));
+          runDurableWrite(executionKey, () => {
+            for (const row of rows) {
+              add('eventFeedChecks', row.check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
+              add('eventFeedCheckItems', row.item, FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+              add('eventFeedEntries', row.removal, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+              if (row.inbound) add('eventFeedEntries', row.inbound, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+              else { const error = restoreDelivery(row.batchId, row.storage, row.amount); if (error) throw new Error(t('manualEntry.returnInventoryError', { reason: error })); }
+            }
+            return rows[0].removal.id;
+          });
+          committed = true;
           moveFeedSheet.close();
         } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
       } }, ['Confirm']),

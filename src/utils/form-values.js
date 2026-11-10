@@ -7,7 +7,7 @@ export function isCalendarDate(value) {
 }
 export function localFormTimestamp(date, time = '') {
   const clock = time || '00:00';
-  if (!isCalendarDate(date) || !/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(clock)) throw new Error(t('manualEntry.invalidDate'));
+  if (!isCalendarDate(date) || !/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d{1,3})?)?$/.test(clock)) throw new Error(t('manualEntry.invalidDate'));
   return `${date}T${clock.length === 5 ? clock + ':00' : clock}`;
 }
 export function optionalFormNumber(value) {

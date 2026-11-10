@@ -191,3 +191,25 @@ export function deleteBatchWithLocations(batchId) {
   for (const id of moveIds) remove('batchMoves', id, 'batch_moves');
   remove('batches', batchId, 'batches');
 }
+
+/** Preflight an explicit return without repairing or relocating existing stock. */
+export function validateDeliveryRestore(batchId, locationId, quantity) {
+  const batch = getById('batches', batchId), rows = balancesFor(batchId);
+  if (!batch) return 'missing';
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(Number(batch.remaining) + quantity)) return 'quantity';
+  if (rows.length && Math.abs(rows.reduce((sum, row) => sum + Number(row.quantity), 0) - Number(batch.remaining)) > STOCK_EPSILON) return 'drift';
+  if (rows.length && !locationId) return 'location';
+  if (locationId && !getById('locations', locationId)) return 'location';
+  if (!rows.length && locationId && Number(batch.remaining) > 0) return 'unlocated';
+  return null;
+}
+export function restoreDelivery(batchId, locationId, quantity) {
+  const error = validateDeliveryRestore(batchId, locationId, quantity);
+  if (error) return error;
+  const batch = getById('batches', batchId), rows = balancesFor(batchId);
+  if (!rows.length && !locationId) return applyRemainingDelta(batchId, null, quantity);
+  const current = rows.find(row => row.locationId === locationId);
+  upsertBalance(batch.operationId, batchId, locationId, Number(current?.quantity ?? 0) + quantity);
+  syncRemaining(batchId);
+  return null;
+}

@@ -13,6 +13,7 @@ import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { isConfinementLocation, wrapInactiveForage } from './confinement-forage-ui.js';
 
 // ---------------------------------------------------------------------------
 // Sub-move open sheet (CP-18)
@@ -76,11 +77,19 @@ export function openSubmoveOpenSheet(evt, operationId) {
       // Summed acres for the imperial-native BRC-1 calc. One pick matches
       // the single-paddock card; a second pick adds that paddock's area.
       preGraze.setPaddockAcres(summedPaddockAcres(selection.locationIds));
+      const locs = selection.locationIds.map((id) => getById('locations', id));
+      const allConfinement = locs.length > 0 && locs.every(isConfinementLocation);
+      preGrazeWrap.classList.toggle('confinement-forage-inactive', allConfinement);
+      preGrazeWrap.setAttribute('aria-disabled', allConfinement ? 'true' : 'false');
+      preGrazeWrap.querySelectorAll('button, input, select, textarea').forEach((node) => {
+        if ('disabled' in node) node.disabled = allConfinement;
+      });
     },
   });
   panel.appendChild(locPickerEl);
 
-  panel.appendChild(preGraze.container);
+  const preGrazeWrap = el('div', { 'data-testid': 'submove-open-pregraze' }, [preGraze.container]);
+  panel.appendChild(preGrazeWrap);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-open-status' });
   panel.appendChild(statusEl);
@@ -188,7 +197,11 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   // Post-graze observation card (OI-0112 surface #5).
   const farmSettings2 = getAll('farmSettings')[0] || null;
   const postGraze = renderPostGrazeCard({ farmSettings: farmSettings2 });
-  panel.appendChild(postGraze.container);
+  const closeLoc = first ? getById('locations', first.locationId) : null;
+  const postGrazeNode = el('div', { 'data-testid': 'submove-close-postgraze' }, [postGraze.container]);
+  panel.appendChild(isConfinementLocation(closeLoc)
+    ? wrapInactiveForage(postGrazeNode, 'submove-close-postgraze-inactive')
+    : postGrazeNode);
 
   // OI-0119: forced feed-check card when the event has any stored-feed
   // deliveries. Strikes a clean actual/estimated boundary on sub-move close.

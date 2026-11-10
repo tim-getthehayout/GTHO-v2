@@ -90,6 +90,7 @@ describe('OI-0119 — buildDmi8ChartContext', () => {
   it('applies areaHectares ?? areaHa fallback in locations map', () => {
     const ctx = buildDmi8ChartContext(EVT);
     expect(ctx.locations[LOC].areaHa).toBe(2);
+    expect(ctx.locations[LOC].type).toBe('land');
   });
 
   it('decorates event.dateIn with derived getEventStartDate', () => {

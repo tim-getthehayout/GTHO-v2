@@ -2,6 +2,7 @@
 
 import { registerCalc } from '../utils/calc-registry.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from './window-helpers.js';
+import { isConfinementLocation } from './location-type.js';
 
 // DMI-1: Consumed DM from Feed
 registerCalc({
@@ -561,7 +562,7 @@ registerCalc({
     { name: 'paddockWindows', type: 'array', unit: '{ id, eventId, locationId, dateOpened, dateClosed, areaPct }' },
     { name: 'observations', type: 'array', unit: 'paddock_observations[] (type=open, source=event). Calc picks per-window via locationId + sourceId fallback.' },
     { name: 'forageTypes', type: 'object', unit: '{ [locationId]: { dmKgPerCmPerHa, minResidualHeightCm, utilizationPct } }' },
-    { name: 'locations', type: 'object', unit: '{ [locationId]: { areaHa, forageTypeId? } } — areaHa = areaHectares ?? areaHa (caller handles fallback)' },
+    { name: 'locations', type: 'object', unit: '{ [locationId]: { type, areaHa, forageTypeId? } } — type is authoritative (confinement contributes zero pasture); areaHa = areaHectares ?? areaHa (caller handles fallback)' },
     { name: 'animalClasses', type: 'object', unit: '{ [classId]: { id, defaultWeightKg, dmiPct, dmiPctLactating } }' },
   ],
   output: { type: 'object', shape: '{ status, totalDmiKg?, storedDmiKg?, pastureDmiKg?, deficitKg?, reason?, hint? }', unit: 'kg' },
@@ -570,6 +571,17 @@ registerCalc({
        paddockWindows, observations, forageTypes, locations, animalClasses }) {
 
     // ---- Helpers -----------------------------------------------------------
+
+    // Event-scoped collections: rows from another event must not change this
+    // cascade (OI-0209). Rows without eventId stay (unit fixtures).
+    const sameEvent = (row) => !row?.eventId || row.eventId === event.id;
+    feedEntries = (feedEntries || []).filter(sameEvent);
+    feedChecks = (feedChecks || []).filter(sameEvent);
+    paddockWindows = (paddockWindows || []).filter(sameEvent);
+    groupWindows = (groupWindows || []).filter(sameEvent);
+    const checkIds = new Set((feedChecks || []).map((c) => c.id));
+    feedCheckItems = (feedCheckItems || []).filter((item) => !item?.feedCheckId || checkIds.has(item.feedCheckId));
+
 
     // Daily demand (OI-0091: live recompute for open windows).
     function dailyDemand(dt) {
@@ -611,6 +623,8 @@ registerCalc({
     function for1ForWindow(pw) {
       const ft = forageTypes?.[pw.locationId];
       const loc = locations?.[pw.locationId];
+      // OI-0209: confinement contributes zero pasture, even with stale forage/area.
+      if (isConfinementLocation(loc)) return { dm: 0, hint: null };
       const obs = pickPreGraze(pw);
       if (!obs || !obs.forageHeightCm || !ft?.dmKgPerCmPerHa || !loc?.areaHa) {
         return { dm: 0, hint: null };
@@ -691,7 +705,7 @@ registerCalc({
     const totalDmiKg = dailyDemand(date);
     if (totalDmiKg <= 0) return { status: 'no_animals' };
 
-    // ---- Step 1 — gate: forage type + pre-graze per open window on target --
+    // ---- Step 1 — gate: forage type + pre-graze per non-confinement window --
 
     const eventPws = (paddockWindows || []).filter(pw => pw.eventId === event.id);
     const openOnTarget = eventPws.filter(pw =>
@@ -702,8 +716,13 @@ registerCalc({
     // rather than no_pasture_data (there's no window to CTA into).
     if (openOnTarget.length === 0) return { status: 'no_animals' };
 
+    const landOpenOnTarget = openOnTarget.filter(pw => !isConfinementLocation(locations?.[pw.locationId]));
+    const pureConfinement = landOpenOnTarget.length === 0;
+
     let aggregateHint = null;
-    for (const pw of openOnTarget) {
+    // OI-0209: confinement windows skip forage/area/pre-graze gates and never
+    // trigger no_pasture_data. Land windows in a mixed event still validate.
+    for (const pw of landOpenOnTarget) {
       const loc = locations?.[pw.locationId];
       const ft = forageTypes?.[pw.locationId];
       if (!loc?.areaHa) {
@@ -794,6 +813,10 @@ registerCalc({
     // When prev + next checks bracket the date, use DMI-5 linear distribution
     // across the interval for storedDmiKg. Pasture fills the rest.
     const nextCheck = sortedChecks.find(c => c.date > date) || null;
+    // Bracketing checks still produce actual stored/pasture bars below, but
+    // remaining end-of-day buckets come from the cascade walk (needed for the
+    // shared confinement feed-days projection). Do not return early.
+    let actualBars = null;
     if (prevCheck && nextCheck) {
       const prevKg = sumCheckKg(prevCheck);
       const nextKg = sumCheckKg(nextCheck);
@@ -803,10 +826,17 @@ registerCalc({
       }
       const days = Math.max(1, daysBetween(prevCheck.date, nextCheck.date));
       const storedDmiKg = Math.max(0, (prevKg + deliveriesBetween - nextKg) / days);
-      const pastureDmiKg = Math.max(0, totalDmiKg - storedDmiKg);
-      const out = { status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg: 0 };
-      if (aggregateHint) out.hint = aggregateHint;
-      return out;
+      // OI-0209: never fill a pure-confinement shortfall with invented pasture.
+      let pastureDmiKg;
+      let deficitKg = 0;
+      if (pureConfinement) {
+        pastureDmiKg = 0;
+        deficitKg = Math.max(0, totalDmiKg - storedDmiKg);
+      } else {
+        pastureDmiKg = Math.max(0, totalDmiKg - storedDmiKg);
+      }
+      actualBars = { status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg };
+      if (aggregateHint) actualBars.hint = aggregateHint;
     }
 
     // ---- Walk forward ------------------------------------------------------
@@ -878,18 +908,21 @@ registerCalc({
     // ---- Emit --------------------------------------------------------------
 
     // status=actual when a prev check anchor exists for the walk (we're
-    // projecting forward from ground truth); estimated otherwise.
-    const status = prevCheck ? 'actual' : 'estimated';
+    // projecting forward from ground truth); estimated otherwise. Bracketing
+    // checks keep their interpolated bar values but still expose remaining
+    // buckets from the walk.
+    const status = actualBars?.status || (prevCheck ? 'actual' : 'estimated');
     const out = {
       status,
       totalDmiKg,
-      storedDmiKg: outRef.stored,
-      pastureDmiKg: outRef.pasture,
-      deficitKg: outRef.deficit,
+      storedDmiKg: actualBars ? actualBars.storedDmiKg : outRef.stored,
+      pastureDmiKg: actualBars ? actualBars.pastureDmiKg : outRef.pasture,
+      deficitKg: actualBars ? actualBars.deficitKg : outRef.deficit,
       remainingPastureDmKg: outRef.remainingPasture,
       remainingStoredDmKg: outRef.remainingStored,
     };
-    if (aggregateHint) out.hint = aggregateHint;
+    if (actualBars?.hint) out.hint = actualBars.hint;
+    else if (aggregateHint) out.hint = aggregateHint;
     return out;
   },
 });

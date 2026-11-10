@@ -3449,3 +3449,32 @@ body:has(.auth-overlay) .pwa-update-banner {
 .gtho-ptt-status { max-width: min(90vw, 360px); padding: 4px 4px 4px 12px; border-radius: 12px; background: var(--bg, #fff); color: var(--text); box-shadow: 0 2px 10px rgba(0,0,0,.2); font-size: 14px; display: flex; align-items: center; gap: 4px; }
 .gtho-ptt-status-text { flex: 1; min-width: 0; }
 .gtho-ptt-status-dismiss { flex: none; min-width: 44px; min-height: 44px; padding: 0; border: none; border-radius: 10px; background: transparent; color: var(--text); cursor: pointer; font-size: 18px; line-height: 1; }
+
+/* OI-0209: confinement forage stays visible, greyed out and inactive in both schemes. */
+.confinement-forage-inactive {
+  color: var(--text3, var(--text2));
+  opacity: 0.7;
+  filter: grayscale(0.25);
+  pointer-events: none;
+  font-style: italic;
+}
+.confinement-forage-inactive input,
+.confinement-forage-inactive button,
+.confinement-forage-inactive select,
+.confinement-forage-inactive textarea,
+.confinement-forage-inactive a {
+  pointer-events: none;
+  color: inherit;
+}
+.event-feed-remaining {
+  margin-bottom: var(--space-1);
+}
+.event-feed-remaining-line {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-green-dark, #3B6D11);
+}
+.event-feed-remaining-caption {
+  font-size: 11px;
+  color: var(--text3, var(--text2));
+}

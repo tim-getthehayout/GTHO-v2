@@ -26,6 +26,8 @@ import { getEventStartDate } from '../events/event-start.js';
 import { buildDmi8ChartContext, computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
 import { listOpenPaddocksForEvent, formatPaddockDisplayName } from '../../data/current-placement.js';
+import { isPureConfinementOnDate } from '../../calcs/location-type.js';
+import { renderEventFeedRemainingLine, renderInactiveForageSummary } from '../events/confinement-forage-ui.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -1119,8 +1121,15 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const hasStoredFeed = feedEntries.length > 0;
 
   // Event type badge
+  const isPureConfinement = isPureConfinementOnDate({
+    paddockWindows: allPws,
+    locations: getAll('locations'),
+    eventId: event.id,
+    date: todayStr,
+  });
   let eventType = 'grazing';
-  if (hasStoredFeed && totalAreaHa > 0) eventType = 'stored feed & grazing';
+  if (isPureConfinement) eventType = 'confinement';
+  else if (hasStoredFeed && totalAreaHa > 0) eventType = 'stored feed & grazing';
   else if (hasStoredFeed) eventType = 'stored feed';
 
   // DMI
@@ -1383,17 +1392,24 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     ]));
   }
 
-  // §7: Capacity line (green)
-  // OI-0075 Bug 3: the old `availableDmKg > 0 && dailyDmiKg > 0` gate silently
-  // hid the line whenever a farmer had data missing (no forage type on the
-  // paddock, no pre-graze observation yet, etc.). Now: render the line
-  // whenever EITHER the full estimate works OR we can at least show partial
-  // info (forage height, ADA) with a hint naming what's missing.
-  if (dailyDmiKg > 0 && (availableDmKg > 0 || daysIncludeStored)) {
-    let capText = `Est. capacity: ${Math.round(estAuds)} AUDs \u00B7 ~${daysRemaining} days remaining`;
+  // §7: Capacity line (green) — pure confinement uses the shared feed-days
+  // projection (OI-0209) and keeps forage information visible but inactive.
+  if (isPureConfinement) {
+    children.push(renderInactiveForageSummary({
+      forageTypeName: forageType?.name,
+      heightDisplay: forageHeightDisplay ? `${forageHeightDisplay}"` : '',
+      testId: `dashboard-confinement-forage-${event.id}`,
+    }));
+    const feedLine = renderEventFeedRemainingLine(event.id, {
+      today: todayStr,
+      testId: `dashboard-feed-remaining-${event.id}`,
+    }).element;
+    if (feedLine) children.push(feedLine);
+  } else if (dailyDmiKg > 0 && (availableDmKg > 0 || daysIncludeStored)) {
+    let capText = `Est. capacity: ${Math.round(estAuds)} AUDs · ~${daysRemaining} days remaining`;
     if (daysIncludeStored) capText += ' (incl. stored feed)';
-    if (forageHeightDisplay) capText += ` \u00B7 ${forageHeightDisplay}"`;
-    if (totalAcres > 0) capText += ` \u00B7 ADA est: ${adaPerAc.toFixed(1)}/ac`;
+    if (forageHeightDisplay) capText += ` · ${forageHeightDisplay}"`;
+    if (totalAcres > 0) capText += ` · ADA est: ${adaPerAc.toFixed(1)}/ac`;
     children.push(el('div', { style: { fontSize: '12px', color: 'var(--color-green-dark, #3B6D11)', fontWeight: '500', marginBottom: 'var(--space-1)' } }, [capText]));
   } else if (capacityBlockers.length) {
     // Informative hint: tell the user which inputs are missing instead of
@@ -1402,7 +1418,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     if (forageHeightDisplay) partialParts.push(`${forageHeightDisplay}"`);
     if (totalAcres > 0 && adaPerAc > 0) partialParts.push(`ADA est: ${adaPerAc.toFixed(1)}/ac`);
     const hintText = `Capacity: add ${capacityBlockers.join(' + ')} to estimate`
-      + (partialParts.length ? ` \u00B7 ${partialParts.join(' \u00B7 ')}` : '');
+      + (partialParts.length ? ` · ${partialParts.join(' · ')}` : '');
     children.push(el('div', {
       style: { fontSize: '12px', color: 'var(--text3, var(--text2))', fontStyle: 'italic', marginBottom: 'var(--space-1)' },
       'data-testid': `dashboard-capacity-hint-${event.id}`,

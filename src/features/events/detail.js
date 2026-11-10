@@ -29,6 +29,7 @@ import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/wind
 import { openEditFeedCheckDialog } from './edit-feed-check.js';
 import { getEventStart, setEventStart } from './event-start.js';
 import { computeDmi8Days } from './dmi-chart-context.js';
+import { isConfinementLocation, wrapInactiveForage, renderEventFeedRemainingLine } from './confinement-forage-ui.js';
 import { navigate } from '../../ui/router.js';
 import {
   renderInlineFeedForm,
@@ -438,6 +439,12 @@ function renderDmiChart(ctx) {
     }),
   ]);
 
+  const feedLine = renderEventFeedRemainingLine(event.id, {
+    today: getLocalTodayStr(),
+    testId: `detail-feed-remaining-${event.id}`,
+  }).element;
+  if (feedLine) card.appendChild(feedLine);
+
   el2.appendChild(card);
 }
 
@@ -502,15 +509,18 @@ function renderPaddocks(ctx) {
     const heightStr = obs?.forageHeightCm != null ? display(obs.forageHeightCm, 'length', unitSys, 1) : '\u2014';
     const coverStr = obs?.forageCoverPct != null ? `${obs.forageCoverPct}%` : '\u2014';
 
+    const forageLine = el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
+      `Height ${heightStr} \u00B7 Cover ${coverStr}`,
+    ]);
     const pwCard = el('div', {
       style: { borderBottom: '1px solid var(--border)', padding: 'var(--space-3) 0' },
       'data-testid': `detail-paddock-${pw.id}`,
     }, [
       el('div', { style: { fontWeight: '600', fontSize: '14px' } }, [headerText]),
       el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-1)' } }, [statsText]),
-      el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
-        `Height ${heightStr} \u00B7 Cover ${coverStr}`,
-      ]),
+      isConfinementLocation(loc)
+        ? wrapInactiveForage(forageLine, `detail-paddock-forage-${pw.id}`)
+        : forageLine,
     ]);
 
     // Action buttons
@@ -665,7 +675,9 @@ function renderPreGraze(ctx) {
       card.container,
       el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [saveBtn, statusEl]),
     ].filter(Boolean));
-    el2.appendChild(wrap);
+    el2.appendChild(isConfinementLocation(loc)
+      ? wrapInactiveForage(wrap, `detail-pregraze-inactive-${pw.id}`)
+      : wrap);
   }
 }
 
@@ -758,7 +770,9 @@ function renderPostGraze(ctx) {
       card.container,
       el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [saveBtn, statusEl]),
     ].filter(Boolean));
-    el2.appendChild(wrap);
+    el2.appendChild(isConfinementLocation(loc)
+      ? wrapInactiveForage(wrap, `detail-postgraze-inactive-${pw.id}`)
+      : wrap);
   }
 }
 

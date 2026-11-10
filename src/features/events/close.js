@@ -15,6 +15,7 @@ import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { checkWindowCloses } from './window-close-guard.js';
 import { openDateConflictDialog } from './date-conflict-dialog.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { isConfinementLocation, wrapInactiveForage } from './confinement-forage-ui.js';
 
 let closeEventSheet = null;
 
@@ -120,7 +121,13 @@ export function openCloseEventSheet(evt, operationId) {
   // Post-graze observation card (OI-0112 surface #3).
   const farmSettings = getAll('farmSettings')[0] || null;
   const postGraze = renderPostGrazeCard({ farmSettings });
-  panel.appendChild(postGraze.container);
+  const closingLocs = (getAll('eventPaddockWindows') || [])
+    .filter((w) => w.eventId === evt.id && !w.dateClosed)
+    .map((w) => getById('locations', w.locationId));
+  const postGrazeNode = el('div', { 'data-testid': 'close-event-postgraze' }, [postGraze.container]);
+  panel.appendChild(closingLocs.length && closingLocs.every(isConfinementLocation)
+    ? wrapInactiveForage(postGrazeNode, 'close-event-postgraze-inactive')
+    : postGrazeNode);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'close-event-status' });
   panel.appendChild(statusEl);

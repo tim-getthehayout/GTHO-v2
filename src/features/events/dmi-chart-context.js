@@ -58,6 +58,8 @@ export function buildDmi8ChartContext(eventId) {
       areaHa: loc.areaHectares ?? loc.areaHa,
       forageTypeId: loc.forageTypeId ?? null,
       name: loc.name,
+      // OI-0209: type is authoritative for confinement vs land classification.
+      type: loc.type ?? null,
     };
     if (loc.forageTypeId) {
       const ft = getById('forageTypes', loc.forageTypeId);

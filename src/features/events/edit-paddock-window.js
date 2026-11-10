@@ -11,6 +11,7 @@ import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getEventStartFloorExcluding } from './event-start.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { isConfinementLocation, wrapInactiveForage } from './confinement-forage-ui.js';
 
 let editPwSheet = null;
 
@@ -140,7 +141,7 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
     },
   }, [t('action.save')]);
 
-  panel.appendChild(el('div', {
+  const preGrazeWrap = el('div', {
     className: 'card',
     style: { marginTop: 'var(--space-4)', marginBottom: 'var(--space-3)' },
     'data-testid': `edit-pw-pregraze-${pw.id}`,
@@ -149,7 +150,10 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
     el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [
       preGrazeSaveBtn, preGrazeSavedEl,
     ]),
-  ]));
+  ]);
+  panel.appendChild(isConfinementLocation(loc)
+    ? wrapInactiveForage(preGrazeWrap, `edit-pw-pregraze-inactive-${pw.id}`)
+    : preGrazeWrap);
 
   // Post-graze only on closed windows (mirrors detail.js §6).
   if (isClosed) {
@@ -200,7 +204,7 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
       },
     }, [t('action.save')]);
 
-    panel.appendChild(el('div', {
+    const postGrazeWrap = el('div', {
       className: 'card',
       style: { marginBottom: 'var(--space-3)' },
       'data-testid': `edit-pw-postgraze-${pw.id}`,
@@ -209,7 +213,10 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
       el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [
         postGrazeSaveBtn, postGrazeSavedEl,
       ]),
-    ]));
+    ]);
+    panel.appendChild(isConfinementLocation(loc)
+      ? wrapInactiveForage(postGrazeWrap, `edit-pw-postgraze-inactive-${pw.id}`)
+      : postGrazeWrap);
   }
 
   const statusEl = el('div', { className: 'auth-error' });

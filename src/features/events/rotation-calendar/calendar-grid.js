@@ -47,8 +47,8 @@ export function renderCalendarGrid(container) {
 
   // Filter locations: exclude confinement unless toggled on
   const locations = allLocations.filter(loc => {
-    if (loc.locationType === 'confinement' && !state.showConfinement) return false;
-    return loc.locationType !== 'other';
+    if (loc.type === 'confinement' && !state.showConfinement) return false;
+    return loc.type !== 'other';
   });
 
   if (locations.length === 0) {
@@ -237,6 +237,7 @@ export function renderCalendarGrid(container) {
           isGrazingInProgress: hasActiveEvent,
           hayEstimateLbs: '?',
           locationId: loc.id,
+          forageInactive: loc.type === 'confinement',
           onClickBlock: (locId, action) => {
             if (action === 'survey') navigate('#/locations');
           },
@@ -252,6 +253,7 @@ export function renderCalendarGrid(container) {
           isGrazingInProgress: hasActiveEvent,
           hayEstimateLbs: '?',
           locationId: loc.id,
+          forageInactive: loc.type === 'confinement',
           onClickBlock: (locId, action) => {
             if (action === 'survey') navigate('#/locations');
           },

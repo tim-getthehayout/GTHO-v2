@@ -52,7 +52,7 @@ function formatCovers(hours) {
 export function renderEstimatedFutureBlock({
   leftPx, widthPx, minDate, maxDate, confidence,
   isNeverGrazed, isGrazingInProgress, hayEstimateLbs,
-  locationId, onClickBlock,
+  locationId, onClickBlock, forageInactive = false,
 }) {
   if (isGrazingInProgress) {
     return el('div', {
@@ -63,6 +63,18 @@ export function renderEstimatedFutureBlock({
       el('span', { className: 'future-block__dashed-label' }, [
         'Grazing in progress \u2014 forecast available after close',
       ]),
+    ]);
+  }
+
+  if (forageInactive) {
+    // OI-0209: visible, greyed, no survey CTA or stale-forage capacity.
+    return el('div', {
+      className: 'future-block confinement-forage-inactive',
+      style: { left: `${leftPx}px`, width: `${widthPx}px` },
+      dataset: { testid: 'future-block-confinement', locationId },
+      'aria-disabled': 'true',
+    }, [
+      el('span', {}, ['Confinement forage recovery is not estimated']),
     ]);
   }
 
@@ -119,8 +131,16 @@ export function renderEstimatedFutureBlock({
 export function renderForecastFutureBlock({
   leftPx, widthPx, coverageFraction, coversHours, shortfallLbsHay, surplusHours,
   isNeverGrazed, isGrazingInProgress, hayEstimateLbs,
-  locationId, onClickBlock,
+  locationId, onClickBlock, forageInactive = false,
 }) {
+  if (forageInactive) {
+    return renderEstimatedFutureBlock({
+      leftPx, widthPx, isGrazingInProgress: false, isNeverGrazed: false,
+      locationId, onClickBlock, forageInactive: true,
+      minDate: '', maxDate: '', confidence: 'min',
+    });
+  }
+
   if (isGrazingInProgress) {
     return renderEstimatedFutureBlock({
       leftPx, widthPx, isGrazingInProgress: true,

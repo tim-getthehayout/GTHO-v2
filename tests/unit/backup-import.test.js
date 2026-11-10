@@ -12,6 +12,7 @@ import {
   BROWSER_FK_ORDER,
   REFERENCE_TABLES,
   TWO_PASS_TABLES,
+  CURRENT_SCHEMA_VERSION,
 } from '../../src/data/backup-import.js';
 import { getBackupTableNames } from '../../src/data/backup-export.js';
 import fixture from '../fixtures/backup-v14.json';
@@ -79,19 +80,19 @@ describe('backup-import (CP-56)', () => {
 
   describe('migrateBackupForward — §5.7 step 5', () => {
     it('returns no-op when schema_version matches current', () => {
-      const backup = { ...structuredClone(fixture), schema_version: 40 };
+      const backup = { ...structuredClone(fixture), schema_version: CURRENT_SCHEMA_VERSION };
       const result = migrateBackupForward(backup);
       expect(result.migrated).toBe(false);
-      expect(result.from).toBe(40);
-      expect(result.to).toBe(40);
+      expect(result.from).toBe(CURRENT_SCHEMA_VERSION);
+      expect(result.to).toBe(CURRENT_SCHEMA_VERSION);
     });
 
-    it('migrates 14 → 40 through the chain', () => {
+    it('migrates 14 → current through the chain', () => {
       const backup = { ...structuredClone(fixture), schema_version: 14 };
       const result = migrateBackupForward(backup);
       expect(result.migrated).toBe(true);
       expect(result.from).toBe(14);
-      expect(result.to).toBe(40);
+      expect(result.to).toBe(CURRENT_SCHEMA_VERSION);
     });
 
     it('returns error when migration is missing', () => {

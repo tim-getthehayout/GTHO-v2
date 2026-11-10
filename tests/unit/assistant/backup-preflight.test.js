@@ -1,3 +1,4 @@
+import { CURRENT_SCHEMA_VERSION } from '../../../src/data/backup-import.js';
 import { describe,it,expect,vi,beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ from: vi.fn(),rpc: vi.fn(),pull: vi.fn(),autoBackup: vi.fn(),download: vi.fn() }));
 vi.mock('../../../src/data/supabase-client.js',() => ({ supabase: { from: mocks.from,rpc: mocks.rpc } }));
@@ -6,7 +7,7 @@ vi.mock('../../../src/data/pull-remote.js',() => ({ pullAllRemote: mocks.pull })
 import { importOperationBackup } from '../../../src/data/backup-import.js';
 import { SERVER_ASSISTANT_TABLES } from '../../../src/features/assistant/schema.js';
 const op = '00000000-0000-4000-8000-000000000001',token = '00000000-0000-4000-8000-000000000002';
-const backup = () => ({ format: 'gtho-v2-backup',format_version: 1,schema_version: 40,operation_id: op,tables: { operations: [{ id: op }] } });
+const backup = () => ({ format: 'gtho-v2-backup',format_version: 1,schema_version: CURRENT_SCHEMA_VERSION,operation_id: op,tables: { operations: [{ id: op }] } });
 let events,stage,prepareResult,finishResult,abortResult,prepareAction;
 beforeEach(() => {
   vi.clearAllMocks();localStorage.clear();events = [];stage = null;prepareAction = null;

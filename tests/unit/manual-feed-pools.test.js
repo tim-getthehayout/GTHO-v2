@@ -58,3 +58,16 @@ it('a real explicit zero with unavailable conversion resets both masses for a la
  const close=seed('eventFeedChecks',Check,{eventId:'e',date:'2026-11-09',time:'09:00'});seed('eventFeedCheckItems',Item,{feedCheckId:close.id,locationId:'p',feedTypeId:'hay',remainingQuantity:1,unitSnapshot:'bale',weightPerUnitKgSnapshot:100,dmPctSnapshot:100});
  expect(poolDailyActual(poolInput('e'),'2026-11-08').get(hayKey())).toBeCloseTo(100/3);
 });
+
+it('real pre-feeding remaining input rejects blank rather than silently confirming zero',()=>{
+ placeInitialBalance({operationId:OP,batchId:'a',locationId:'shed',quantity:8});let binding;
+ openDeliverFeedSheet(event,OP,{review:{bind:value=>{binding=value;},requestConfirmation:save=>save()}});
+ binding.fields.lines.set([{batchId:'a',qty:1,sourceLocationId:'shed'}]);binding.fields.locationIds.set(['p']);binding.fields.quantityBasis.set('total');binding.fields.carryover.set({timing:'before',time:'12:59',items:[{feedTypeId:'hay',locationId:'p',remainingQuantity:2}]});
+ const panel=document.querySelector('#deliver-feed-sheet-panel');fill(panel,'input[type="date"]','2026-11-06','change');const clock=[...panel.querySelectorAll('input[type="time"]')].find(node=>node.dataset.testid!=='feed-carryover-time');clock.value='13:00';clock.dispatchEvent(new Event('input'));fill(panel,'[data-testid="feed-carryover-remaining"]','');
+ const saveButton=[...panel.querySelectorAll('button')].find(node=>/save|deliver|log/i.test(node.textContent));saveButton.click();expect(getAll('eventFeedChecks')).toHaveLength(0);expect(getAll('eventFeedEntries')).toHaveLength(3);expect(getById('batches','a').remaining).toBe(8);expect(getAll('batchLocationBalances')[0].quantity).toBe(8);
+ fill(panel,'[data-testid="feed-carryover-remaining"]','0');saveButton.click();expect(getAll('eventFeedCheckItems')[0]).toMatchObject({remainingQuantity:0,batchId:null,feedTypeId:'hay'});expect(getById('batches','a').remaining).toBe(7);expect(getAll('batchLocationBalances')[0].quantity).toBe(7);
+});
+it.each(['storage|shed','event|target|p2'])('real positive movement to %s with unknown conversion leaves all records, stock and queued payloads untouched',destination=>{
+ update('eventFeedEntries','fed-a',{weightPerUnitKgSnapshot:null},Entry.validate,Entry.toSupabaseShape,'event_feed_entries');const before=JSON.stringify({entries:getAll('eventFeedEntries'),batches:getAll('batches'),balances:getAll('batchLocationBalances')}),queueBefore=localStorage.getItem('_sync_queue');
+ openMoveFeedOutSheet(event,OP,FARM,{preselectFeedTypeId:'hay',preselectLocationId:'p'});const panel=document.querySelector('#move-feed-out-panel');clocks(panel);amount(panel,'hay',4);amount(panel,'hay',1,'move');fill(panel,'[data-testid="pool-destination"]',destination,'change');button(panel,'Save').click();expect(panel.querySelector('.auth-error').textContent).toContain('conversion');expect(getAll('eventFeedChecks')).toHaveLength(0);expect(JSON.stringify({entries:getAll('eventFeedEntries'),batches:getAll('batches'),balances:getAll('batchLocationBalances')})).toBe(before);expect(localStorage.getItem('_sync_queue')).toBe(queueBefore);
+});

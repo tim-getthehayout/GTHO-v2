@@ -335,7 +335,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     const rows = [...carryoverEl.querySelectorAll('[data-testid="feed-carryover-item"]')].map(row => ({
       ...(poolWritesEnabled() ? {feedTypeId:row.querySelector('[data-testid="feed-carryover-type"]')?.value || null} : {batchId:row.querySelector('[data-testid="feed-carryover-batch"]')?.value || null}),
       locationId: row.querySelector('[data-testid="feed-carryover-location"]')?.value || null,
-      remainingQuantity: Number(row.querySelector('[data-testid="feed-carryover-remaining"]')?.value),
+      remainingQuantity: row.querySelector('[data-testid="feed-carryover-remaining"]')?.value?.trim() ? Number(row.querySelector('[data-testid="feed-carryover-remaining"]')?.value) : NaN,
     }));
     if (rows.length) carryover = { ...carryover, timing, time, items: rows, remainingQuantity: rows[0]?.remainingQuantity, batchId: rows[0]?.batchId, locationId: rows[0]?.locationId };
     else carryover = { ...carryover, timing, time };

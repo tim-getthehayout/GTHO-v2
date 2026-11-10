@@ -2556,7 +2556,7 @@ CREATE TABLE submission_repro_steps (
 
 #### 11.2b Physical host artifacts — OI-0195 (locked 2026-11-08; design DDL)
 
-> **2026-11-09:** These tables are implemented in `supabase/migrations/040_assistant_host_artifacts.sql`, merged on Forgejo main as PR #38 (`eb04c197`) and **not applied**. The schema stamp stays 39 until Tim approves the apply. Server-authoritative tables added by 040, the backup exception and the restore fence are in §11.2c.
+> **Historical checkpoint, 2026-11-09 (not current deployment status; see `PROJECT_STATUS.md`):** These tables are implemented in `supabase/migrations/040_assistant_host_artifacts.sql`, merged on Forgejo main as PR #38 (`eb04c197`) and **not applied**. The schema stamp stays 39 until Tim approves the apply. Server-authoritative tables added by 040, the backup exception and the restore fence are in §11.2c.
 
 Capture original input/context/build stamp before AI interpretation. Artifact presence follows purpose, not every artifact on every conversation. The common UUID, operation, timestamp and RLS conventions above apply. The typed mappings are the draft; there are no shadow draft copies of farm domain tables.
 
@@ -2834,6 +2834,16 @@ Common columns above also apply.
 
 **Design decisions:** Resume from transcript and typed proposal; recheck current authorized data and windows before commit. Checkpoint cadence is not specified.
 
+**Trusted snapshot — `pendingClarification` (PR #48, `b6689b23`; 2026-11-10).** This server-owned key lives inside the trusted runtime snapshot in `assistant_session_checkpoints`, not a new browser-owned column or farm entity. The strict validator is **`src/entities/assistant-pending-clarification.js`** (not under `src/features/assistant/entities/`). Its accepted shape is a plain object with no top-level keys other than `field`, `ui`, `names`, `fields` and `fill`:
+
+- `field` is required and is one of `paddock`, `quantityBasis`, `lineAllocations`, `carryoverTiming`, `carryoverTime`, `carryoverSplit`.
+- `ui`, if present, is a nonempty string of at most 64 characters; the validator does not define a UI enum here.
+- `names`, `fields` and `fill`, if present, are plain objects containing JSON-compatible values: null, strings, booleans, finite numbers, arrays and plain objects. Recursive values beyond depth 8 are rejected; this does not impose per-field nested enums not present in the code.
+- The entire serialized object is capped at **16 KB (16 × 1024 UTF-8 bytes)**, measured with `TextEncoder` after `JSON.stringify`, not JavaScript string length. Invalid or oversized values are rejected. `restoreTrustedSnapshot` clones the snapshot and strips a malformed pending key before it is trusted again; server compose and backend bindings use that restore sanitization.
+
+Current clearing is on resolve, cancel and runtime intent change. Clearing when the entry kind changes within data-entry is **pending implementation/scoping**, not a shipped guarantee; OI-0210 is being scoped by Design with Tim for schema-driven entry across the whole app, not ready for Build. This note does not authorize its implementation. Like the other server-authoritative assistant state, `pendingClarification` is excluded from browser **CP-55/CP-56** with its checkpoint table (§11.2c); no new browser backup field or backup migration is introduced.
+
+
 ```sql
 CREATE TABLE assistant_session_checkpoints (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2874,6 +2884,7 @@ Common columns above also apply.
 - A user discard sets `discarded`, with no expiry.
 - Log filters: Today (operation timezone), Write, Question, Feedback, How-to, Unfinished, All, plus the unfinished badge on the push-to-talk control.
 - **Retry chains, ruling (a).** `previous_attempt_id` links a retry to the attempt it retries. The badge and the Unfinished filter count only the newest non-discarded attempt in a chain. Finishing a retry finishes its unfinished predecessors with the same `finished_at`. Discarding the retry makes its predecessor count again.
+- **FK cross-check (2026-11-10, `b6689b23`):** migration 040 declares `conversation_id uuid NOT NULL` at :320 and adds its composite conversation FK at :512; the retry predecessor composite FK is at :514. These match the DDL below. Neither FK specifies an ON DELETE cascade; do not infer one from the empty-start cleanup RPC in migration 041.
 - The fallback question is a host event stored device-local and kept out of the model transcript; it needs no 040 amendment.
 
 ```sql
@@ -3052,7 +3063,7 @@ CREATE TABLE offline_voice_notes (
 
 No deletion cascade is specified from attempts or mappings to ordinary farm records, retained revisions/review-card evidence/confirmations or transcripts, testing consent/audio, execution evidence, checkpoints, or offline recordings. At 90 days from finished_at, explicitly delete the finished attempt and its mapping/correction rows; detach nullable attempt links on retained artifacts (including related-attempt links) and remove mapping predecessor dependencies within the cleanup set. Do not let an FK block cleanup indefinitely or cascade away retained evidence. Discarded attempts/recordings are not in that cleanup set. Transcripts and review evidence remain after testing; no extra retention duration is invented for them here. Today filtering uses capture time, not finish time.
 
-The host 90-day finished mapping-record lock **differs from the shared conversation-runtime CONTRACT’s permanent mapping-record language**. Neither shared CONTRACT is changed; no reconciliation is claimed. How-to-only Get help stays in the same assistant with a matching doc link and no product filing. The new tables in this section and the additive submissions columns join the existing CP-55/CP-56 serialization/backup set in the same operation-scoped way as submissions, except `assistant_session_checkpoints` and `assistant_execution_results`, which are server-authoritative and excluded (§11.2c). Opaque metadata is not proof that audio bytes are backed up. See `V2_MIGRATION_PLAN.md` §5.3. Migration 040 is on Forgejo main and not applied; schema_version stays 39 until Tim approves the apply.
+The host 90-day finished mapping-record lock **differs from the shared conversation-runtime CONTRACT’s permanent mapping-record language**. Neither shared CONTRACT is changed; no reconciliation is claimed. How-to-only Get help stays in the same assistant with a matching doc link and no product filing. The new tables in this section and the additive submissions columns join the existing CP-55/CP-56 serialization/backup set in the same operation-scoped way as submissions, except `assistant_session_checkpoints` and `assistant_execution_results`, which are server-authoritative and excluded (§11.2c). Opaque metadata is not proof that audio bytes are backed up. See `V2_MIGRATION_PLAN.md` §5.3. Historical 2026-11-09 application checkpoint: migration 040 was on Forgejo main and not applied, with schema_version 39. This is not the current deployment claim; PR #48 is live as recorded in `PROJECT_STATUS.md`. Live migration-history verification is not contained in this docs-only review.
 
 #### 11.2c Server-authoritative assistant tables, backup exception and restore fence — OI-0195 (locked 2026-11-09)
 
@@ -3209,6 +3220,7 @@ CREATE TABLE release_notes (
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-10 | GTHO Design — docs only | Document server-owned pendingClarification shape, UTF-8 byte cap, restore sanitization, clearing and CP-55/CP-56 exclusion; distinguish pending entry-kind clearing from shipped behavior; verify migration 040 voice_entry_attempts FKs against the existing DDL. |
 | 2026-11-09 | OI-0195 — ready-for-build gate locks | §11.2b notes migration 040 (on Forgejo main via PR #38, not applied). `voice_entry_attempts` lifecycle and retry-chain ruling (a); consent asked once per tester per operation with exact copy and decline behavior; testing audio in the private `assistant-testing-audio` bucket; offline notes in IndexedDB with a 3-minute cap. New §11.2c: seven server-authoritative tables, testing-scope CP-55/CP-56 exception, restore fence and billing locks. Calving dam clear marked implemented. |
 | 2026-11-08 | OI-0195 host physical design specified | Additive submissions columns/fact states/repro steps and operation-scoped artifact table sketches; populated-UI review; typed drafts and safe 90-day cleanup. Open set excludes calves; every recorded birth clears dam confirmed_bred. Design only, adapter unimplemented, not handed to Build; shared CONTRACTs unchanged. |
 | 2026-11-08 | OI-0195 — host adoption design | Added release pins, additive submissions mapping and explicit historical unknowns; logical host artifact inventory, review/capture obligations, how-to routing, offline deletion and consent, 90-day log/mapping retention. Physical layout and tool contracts remain open; not ready for Build. No SQL/schema applied. |

@@ -2,7 +2,7 @@
 
 ## Open
 
-**Ledger reconciled:** 2026-11-10 against Forgejo `main` at `1fe0a593` and live build `b2026-11-10.1025-1fe0a59`. OI-0196–OI-0204 shipped in PR #44; the earlier open statuses were stale. This is a docs-only reconciliation, not a new implementation or data repair.
+**Ledger reconciled:** 2026-11-10 against Forgejo `main` at `b6689b23` and reported live build `b2026-11-10.1517-b6689b2`. OI-0196–OI-0204 shipped in PR #44; OI-0205/0206/0207/0209 shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48). Retest remains in progress; shipped does not mean every phone acceptance passed. This is a docs-only record, not implementation or data repair. Edge redeploy from `b6689b23` (Build report relayed by Design): `gtho-assistant` v5; `gtho-assistant-apply`, `gtho-assistant-audio` and `gtho-assistant-transcribe` v4. PR #48 required no migration.
 
 | Item | Scope | Current status |
 |---|---|---|
@@ -11,11 +11,82 @@
 | OI-0202 | One manual user turn, sticky transcription ownership and replay safety | Closed — PR #44, `8e5bd03d` |
 | OI-0203 | Infer the entry surface and ask a natural missing-field question | Closed — PR #44, `8e5bd03d`; remaining target gap is OI-0206 |
 | OI-0204 | Parallel startup, local PCM buffering and startup cancellation guards | Closed — PR #44, `8e5bd03d` |
-| OI-0205 | Animals current-placement display agrees with the dashboard | Open — ready for Build within the scope below |
-| OI-0206 | Feeding target normalization, clarification continuity and carryover | Open — ready for Build within the scope below |
-| OI-0207 | One shared assistant entry lifecycle, neutral typing text and Cancel | Open — pending Tim: shared chooser or auto-detect; do not build yet |
+| OI-0205 | Animals current-placement display agrees with the dashboard | Shipped — PR #48; phone acceptance remains open |
+| OI-0206 | Feeding target normalization, clarification continuity and carryover | Shipped — PR #48; retest findings are reserved as OI-0210 |
+| OI-0207 | One shared assistant entry lifecycle, neutral typing text and Cancel | Option B decided and shipped — PR #48; sheet-state follow-up in OI-0211 |
 | OI-0208 | One running assistant chat with live transcription and answerable cards | Queued, not ready for Build — Design after the current fix batch ships |
-| OI-0209 | Confinement DMI/feed-days calculations; forage information greyed out and inactive | Open — ready for Build; no schema change or data repair |
+| OI-0209 | Confinement DMI/feed-days calculations; forage information greyed out and inactive | Shipped — awaiting Tim’s retest; not closed |
+| OI-0210 | Assistant entry across the whole app (schema-driven) | Being scoped by Design with Tim; not ready for Build |
+| OI-0211 | iPhone voice captures audio without a turn; truthful connection state | Open P1 — diagnosis continuing; root-cause fix required |
+| OI-0212 | RLS-disabled advisor findings on two unit tables | Open — tracking only; no Build work authorized |
+| OI-0213 | Ordinary feeding-sheet mid-save storage failure is not atomic | Deferred — scope later; not ready for Build |
+
+---
+
+OI-0210 — Assistant entry across the whole app (schema-driven). Status: being scoped by Design with Tim, 2026-11-10; not ready for Build. Origin: Tim's 11:37–11:41 iPhone retest (a feed receipt misrouted into feeding; clarifying replies taken whole as names).
+
+---
+
+### OI-0211 — iPhone voice start captures audio but produces no turn; Listening shows without a live connection
+
+**Added:** 2026-11-10 | **Area:** v2-build / assistant / voice / iPhone Safari / shared sheet | **Priority:** P1
+
+**Status:** open — Build's read-only diagnosis continues. Root-cause fix and truthful startup/sheet states are required together; a cosmetic Listening change alone does not close this item. No code or production configuration is changed by this docs commit.
+
+**Evidence (Build's read-only production diagnosis, relayed 2026-11-10; times ET).** Tim tapped the floating mic on iPhone Safari, iOS 18.7, at about 11:37 AM on `b2026-11-10.1517-b6689b2`, accepted first-use microphone permission and saw Listening alongside the Type here composer. A voice token was minted at 11:37:43 AM; voice billing settled the 10-minute worst-case cap, **not measured audio**. The testing recorder captured about 4 min 28 s locally and uploaded at about 11:42 AM. There were **zero transcribe calls, no voice transcript text and no voice turns**. Local capture succeeded; successful realtime delivery/transcription did not follow. There are no xAI socket logs, so a hung connect versus a connected-but-silent session is not established. The later typed message went through compose normally; it is not evidence of a successful voice turn.
+
+**Source / diagnosis on `b6689b23`.** `src/features/assistant/client/session.js:237–241` sets Listening when the mic is live, before mint and `transport.connect()` (`:284`), connection validation (`:292`) and buffered PCM flush (`:300`). `src/features/assistant/client/realtime.js:288–300` creates the AudioContext after awaited microphone acquisition and has no explicit resume there. Build is investigating connection bounding, iOS AudioContext creation/resume, audio flush and turn detection. These are investigation targets, not a proven root cause. Retain the mic-first mint, buffering, queued early end and generation/abort protections.
+
+**Requirements:** Listening (status text, the floating bubble and the End control state) is shown only after the voice connection is live and buffered audio is flushing. Before that, show Connecting… or similarly plain wording (Design; Build may refine the copy). A connect that does not reach live within a bound must take the existing terminal / voice-unavailable path: release the mic, stop the testing recorder, discard the empty start and offer Type instead?; it never leaves the mic open. Fix the iOS root cause, not just the UI. Add content-free connection and turn logging: connect state, session created, first audio chunk sent, input transcription events and turn emitted, without audio, transcript text or private record data. While voice is listening, hide the Type here box and show only Listening plus End; restore the box when the turn or voice ends (Tim, 2026-11-10; OI-0207 follow-up). Listening must reflect a genuinely live connection, not permission success or token mint.
+
+**Implementation gate:** The numeric connect bound and the exact root-cause repair are not established by this evidence. Build reports the diagnosis and proposed bound to Design/Orchestrator before final implementation scope is called ready; do not invent an unbounded wait or treat the 10-minute billing cap as a connection timeout. Preserve one shared composer/lifecycle, review-before-save, consent and empty/nonempty-session cleanup guards. No shared snapshot patch under `vendor/` is authorized; raise a reusable runtime gap to its owner if found.
+
+**Acceptance criteria:**
+
+- [ ] On Tim's iPhone Safari, first-use permission followed by a spoken entry and “over” produces one voice turn, with transcription and compose evidence; granting permission alone cannot show Listening. Repeat with permission already granted.
+- [ ] Automated startup-state tests cover mic acquired / mint pending / connect pending / live and flushing, with Listening/status/bubble/End agreeing. Forced hung connect remains Connecting, then reaches the bounded terminal path, never Listening; tracks and testing recorder stop, empty-start cleanup runs once and Type instead? is offered.
+- [ ] A diagnosed iOS AudioContext/flush/turn-detection regression has a focused test; the phone retest demonstrates the actual root cause is fixed, not merely hidden by a status change.
+- [ ] The shared sheet hides Type here during live listening and restores it after turn end, stop or failure; header Cancel and close still perform the shared lifecycle. A forced connect failure cannot strand a recording or allow a late callback to reopen it.
+- [ ] Content-free logs identify connect state, session-created, first-chunk, transcription-event and emitted-turn milestones (or the last milestone reached). Logs do not claim the worst-case voice settlement is measured audio.
+- [ ] Existing early-end, buffered-audio order, stop-during-start, retry, stale-generation and terminal cleanup tests continue to pass; no save occurs without review.
+
+**Schema / CP-55/CP-56 spec impact:** None expected — existing voice/session lifecycle and operational logging. Any newly required persisted shape or shared-contract change returns to Design before implementation.
+
+**Related:** OI-0207 (shared sheet and Tim's hide-composer decision), OI-0200 (terminal teardown), OI-0202 (manual turn ownership), OI-0204 (buffered startup). Retest remains open.
+
+**Origin:** Tim's 2026-11-10 11:37 AM ET first-use iPhone retest; Build's read-only production diagnosis; Tim's sheet-state decision relayed by Orchestrator at 11:46 AM ET.
+
+---
+
+### OI-0212 — Supabase advisor: RLS disabled on public.input_product_units and public.dose_units
+
+**Added:** 2026-11-10 | **Area:** v2-security / Supabase / RLS | **Priority:** tracking (severity not investigated)
+
+**Status:** open — tracking only; **no Build work authorized**. GTHO Build reported Supabase security-advisor findings on project `sxkmultsfsmfcijvsauf`: RLS disabled on `public.input_product_units` and `public.dose_units`. No investigation or exposure assessment has been completed. This records the report, not an independently verified vulnerability or an approved policy design.
+
+**Next step:** bring investigation findings and any proposed fix to Tim through Orchestrator. Any fix needs Tim's approval; do not enable RLS, change grants/policies or ship a migration under this tracking item.
+
+**Schema / CP-55/CP-56 spec impact:** None from tracking; assess when a fix is scoped.
+
+**Origin:** Build's 2026-11-10 read-only advisor observation; tracking authorized through Orchestrator at 11:46 AM ET.
+
+---
+
+### OI-0213 — Ordinary feeding-sheet writes are not atomic on a mid-save storage failure
+
+**Added:** 2026-11-10 | **Area:** v2-design / feeding / storage / write atomicity | **Priority:** deferred (scope later)
+
+**Status:** open — deferred by Design from PR #48; **not ready for Build**. No implementation or live data repair is authorized.
+
+**Verified current sequence on `b6689b23`:** `src/features/feed/delivery.js:479–520` plans delivery/check/item rows; `:521–527` validates every entity before any write; `:528–546` checks aggregate requested stock by the actual shared batch/source pool. Validation/stock-preflight failure therefore writes nothing (no partial deduction, negative stock or duplicate leftover rows from those rejected inputs). This is the PR #48 preflight fix, not transactionality.
+
+The ordinary sheet then loops delivery rows at `:547–554`, calling `deductDelivery` (`:548`) and `add('eventFeedEntries', …)` (`:553`) separately. It subsequently adds the optional feed check (`:555–556`) and each check item (`:557–559`). The catch at `:562–564` displays the error; this save sequence has no multi-row rollback. A mid-save storage failure can therefore leave earlier writes present even though the complete save failed. Do not describe preflight as atomic storage or infer that a live partial-write incident occurred.
+
+**Later scope:** establish the durable all-or-nothing/recovery design, retry/idempotency semantics and failure-injection coverage across deductions, delivery rows, check and check items before handing to Build. Preserve the existing validated preflight and shared stock-pool behavior. No repair strategy, transaction mechanism or schema change is chosen here.
+
+**Schema / CP-55/CP-56 spec impact:** None from this tracking note; assess with the later design if persisted recovery state or fields are proposed.
+
+**Origin:** Design's deferred ordinary feeding-sheet storage-failure gap from PR #48 review, recorded 2026-11-10.
 
 ---
 
@@ -23,7 +94,7 @@
 
 **Added:** 2026-11-10 | **Area:** v2-build / confinement / DMI / dashboard / events / calendar | **Priority:** P2 (valid confinement feed data is hidden behind irrelevant pasture gates and prompts)
 
-**Status:** open — ready for build (2026-11-10). Added to the OI-0205–OI-0207 fix batch; OI-0208 remains queued. No schema change or data repair. Phone retest required after implementation.
+**Status:** shipped — awaiting Tim’s retest, not closed. Shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48), merged to main `b6689b23` on 2026-11-10 and live as `b2026-11-10.1517-b6689b2`. Edge: assistant v5; apply/audio/transcribe v4, redeployed from the same SHA. No migration. Tim is still testing the confinement surfaces; the phone acceptance below remains open. No data repair. OI-0208 remains queued.
 
 **LOCKED (Tim, 2026-11-10):** confinement forage data is **null by design**. Never prompt for forage type or height, pre/post-graze observations or recovery on a confinement location. On confinement event cards, keep forage information **visible but greyed out and inactive**, not hidden or suppressed; no editable controls or Fix/Set-forage CTA. DMI and feed calculations must still render from the actual fed feed. Classify by **`location.type`**, not a legacy flag, the presence of acreage or stale forage data.
 
@@ -55,20 +126,20 @@ Evidence on `1fe0a593`:
 
 **Acceptance criteria:**
 
-- [ ] Realistic Corral fixture: **22 head including a composite**, two bales, null forage, `noPasture: false`. It renders actual feed/model DMI, not 24px Set-forage-type placeholders; pasture contribution is zero.
-- [ ] Confinement works without acreage, ignores stale forage data, and behaves as confinement with `noPasture` true or false. `location.type` remains authoritative through the DMI context and calendar.
-- [ ] Feed-only, valid empty-feed and depleted-feed states are covered. Valid depleted feed shows 0 days; unknown/invalid data hides the estimate rather than showing zero or a forage CTA.
-- [ ] Deliveries, later deliveries after a check, removals, check re-anchors and existing same-instant ordering are exercised with an event-scoped fixture; unrelated event/farm inventory cannot change its estimate. Group changes and composite head/weight demand are included.
-- [ ] Missing weights, missing DM percentage/conversion inputs and zero demand hide the numeric estimate safely. No NaN/infinite/negative days or invented pasture intake, including the bracketed-check actual path.
-- [ ] Pure-pasture and mixed-window regressions retain land forage validation and feed allocation; a confinement window contributes no pasture even if stale forage/acreage are present.
-- [ ] On confinement dashboard and Event Detail cards, forage information is **present, greyed out and inactive**, never hidden/suppressed; there is no active forage-type/height, pre/post-graze or recovery prompt. Listed edit/sub-move/close/calendar surfaces likewise keep displayed confinement forage controls inactive rather than prompting for input. Creation remains free of forage questions. Applicable feed checks/removals and move/close actions work; land controls remain active.
-- [ ] Pure confinement replaces the active capacity/AUDs/ADA claim with Est. feed remaining: ~N days, labelled end-of-today daily-model estimate; forage information remains present but greyed out/inactive, without invented pasture values. Dashboard and Event Detail agree from the **same shared projection**, including depleted and hidden-input states.
-- [ ] Light/dark DMI bars render from fed feed with usable contrast; disabled forage information stays visibly greyed out/inactive in both schemes. The placeholder-vs-bar distinction is tested, not dismissed as a tint issue.
+- [x] Realistic Corral fixture: **22 head including a composite**, two bales, null forage, `noPasture: false`. It renders actual feed/model DMI, not 24px Set-forage-type placeholders; pasture contribution is zero.
+- [x] Confinement works without acreage, ignores stale forage data, and behaves as confinement with `noPasture` true or false. `location.type` remains authoritative through the DMI context and calendar.
+- [x] Feed-only, valid empty-feed and depleted-feed states are covered. Valid depleted feed shows 0 days; unknown/invalid data hides the estimate rather than showing zero or a forage CTA.
+- [x] Deliveries, later deliveries after a check, removals, check re-anchors and existing same-instant ordering are exercised with an event-scoped fixture; unrelated event/farm inventory cannot change its estimate. Group changes and composite head/weight demand are included.
+- [x] Missing weights, missing DM percentage/conversion inputs and zero demand hide the numeric estimate safely. No NaN/infinite/negative days or invented pasture intake, including the bracketed-check actual path.
+- [x] Pure-pasture and mixed-window regressions retain land forage validation and feed allocation; a confinement window contributes no pasture even if stale forage/acreage are present.
+- [x] On confinement dashboard and Event Detail cards, forage information is **present, greyed out and inactive**, never hidden/suppressed; there is no active forage-type/height, pre/post-graze or recovery prompt. Listed edit/sub-move/close/calendar surfaces likewise keep displayed confinement forage controls inactive rather than prompting for input. Creation remains free of forage questions. Applicable feed checks/removals and move/close actions work; land controls remain active.
+- [x] Pure confinement replaces the active capacity/AUDs/ADA claim with Est. feed remaining: ~N days, labelled end-of-today daily-model estimate; forage information remains present but greyed out/inactive, without invented pasture values. Dashboard and Event Detail agree from the **same shared projection**, including depleted and hidden-input states.
+- [x] Light/dark DMI bars render from fed feed with usable contrast; disabled forage information stays visibly greyed out/inactive in both schemes. The placeholder-vs-bar distinction is tested, not dismissed as a tint issue.
 - [ ] Phone retest verifies the Corral DMI, feed-days line and all applicable confinement entry/close/calendar surfaces after the new build stamp is confirmed.
 
 **CP-55/CP-56 spec impact:** None — existing `location.type`, feed/check/removal and group/window data, derived on read. No schema change, new persisted estimate or live data repair. Null confinement forage is valid and must not be backfilled.
 
-**Spec corrections in this docs change:** `V2_CALCULATION_SPEC.md` DMI-8's forage gate applies only to non-confinement windows and never invents confinement pasture; FOR-4 describes the shared event-scoped end-of-today feed estimate. `V2_UX_FLOWS.md` §17.7 capacity line is the feed-days estimate for pure confinement, or hidden when inputs are invalid.
+**Spec corrections in the preceding docs batch (PR #47):** `V2_CALCULATION_SPEC.md` DMI-8's forage gate applies only to non-confinement windows and never invents confinement pasture; FOR-4 describes the shared event-scoped end-of-today feed estimate. `V2_UX_FLOWS.md` §17.7 capacity line is the feed-days estimate for pure confinement, or hidden when inputs are invalid.
 
 **Related:** OI-0119 (DMI gate), OI-0075 (capacity UI), OI-0201 (tints, not the cause), OI-0205 (shared placement), OI-0206 (remaining-feed observations), OI-0208 (queued chat design).
 
@@ -94,15 +165,15 @@ Evidence on `1fe0a593`:
 
 **Added:** 2026-11-10 | **Area:** v2-build / assistant / shared entry / typed-entry / sheet lifecycle | **Priority:** P2 (inconsistent entry paths, picker flash and incomplete cancellation)
 
-**Status:** open — **PENDING TIM'S PRODUCT CHOICE; do not build the entry UX yet** (2026-11-10). Recommend option B below. Both options are technically feasible; the runtime requires a valid seed intent, **not** a user-picked intent. This replaces the earlier split spec (direct Type-instead composer versus header-only picker) and overrides that item's earlier ready-for-Build label. Picker flash is reproduced; a full disappearance of the sheet is not and still needs a phone retest.
+**Status:** decided — **Tim chose option B on 2026-11-10**; shared lifecycle shipped. Shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48), merged to main `b6689b23` on 2026-11-10 and live as `b2026-11-10.1517-b6689b2`. Edge: assistant v5; apply/audio/transcribe v4, redeployed from the same SHA. No migration. Sheet-state follow-up remains open under OI-0211. Phone retest, including the separately reported disappearance symptom, is not complete.
 
 **LOCKED (Tim):** floating PTT, the Assistant button and Type-instead fallback must take **one shared path and lifecycle**, not separate picker policies. Once typing is active the composer says **"Type here"**, never "Type instead". The mic-failure decision may still ask "Type instead?"; that is a question about input modality, not the composer placeholder or an intent picker.
 
-**Option A:** Every entry point shows the same intent/choice dialog with Cancel, then enters the same composer/session lifecycle.
+**Option A (not selected; historical):** Every entry point shows the same intent/choice dialog with Cancel, then enters the same composer/session lifecycle.
 
-**Option B (recommended; pending Tim):** Every entry point skips the intent picker and opens the same composer/session lifecycle with auto-routing and a Cancel in the sheet header; review-before-save confirms any proposed write.
+**Option B (LOCKED — Tim, 2026-11-10):** Every entry point skips the intent picker and opens the same composer/session lifecycle with auto-routing and a Cancel in the sheet header; review-before-save confirms any proposed write.
 
-**Read-only findings on main `1fe0a593`:**
+**Historical read-only findings before PR #48, on main `1fe0a593`:**
 
 | Entry point | Current behavior / evidence |
 |---|---|
@@ -114,7 +185,7 @@ Evidence on `1fe0a593`:
 
 These are all production `openAssistant` call sites and direct assistant-session starts found in the entry wiring. Ordinary Get Help / Feedback buttons still open the existing feedback UI (`src/ui/header.js:139–140`), not the assistant runtime; do not silently convert those product surfaces under this item.
 
-**Placeholder today:** `src/features/assistant/client/panel.js:72` sets `placeholder: 'Type instead…'`. Replace that composer placeholder with **"Type here"** for every typed entry/resume/fallback path, not just PTT Yes.
+**Historical placeholder before PR #48:** `src/features/assistant/client/panel.js:72` set `placeholder: 'Type instead…'`. PR #48 replaced that composer placeholder with **"Type here"** for every typed entry/resume/fallback path, not just PTT Yes.
 
 **Is the picker required? No; a valid internal seed intent is required.**
 
@@ -123,9 +194,11 @@ These are all production `openAssistant` call sites and direct assistant-session
 - Existing typed reroute coverage is `tests/unit/assistant/client/session-routing.test.js:26–75`: data-entry bootstrap to farm questions, how-to and feedback, with draft preservation and no confirm on switch. No chooser selection is needed for these flows. Record-name matching remains **exact after deterministic normalization** (`entry-targets.js:21–23,67–72`; `spoken-numbers.js:72–77`); that is separate from semantic intent routing and must not be replaced with fuzzy matching.
 - Apply needs the current reviewed proposal/revision and confirmation, not evidence of a picker click (`server/apply.js:23–32`). Farm review records explicit confirmation before applying (`client/conversation.js:175–197`); feedback likewise retains its review/filing gate (`:147–163`). Auto-detect does **not** authorize a save, remove ambiguity/missing-field follow-ups or confirm the subject on the user's behalf. The normal populated review UI is the confirmation for a write; questions/how-to need no extra universal subject-confirm dialog.
 
-**Product decision / recommendation.** Choosing A versus B is **Tim's product call**, not forced by a broken option. Recommend B because routing already supports a known seed without requiring users to categorize their request, and the existing review-before-save remains authoritative. The missing/null-seed failure is an implementation constraint, not a reason to force a chooser. No code or shared-contract changes are authorized by this pending docs revision.
+**Product decision (Tim, 2026-11-10):** option B — one shared composer and lifecycle for floating mic, Assistant button and Type-instead; no intent picker; auto-routing; header Cancel; Type here placeholder; review before save. A valid internal seed remains required; it is not a user-facing intent choice.
 
-**Recommended shared path (option B, only after Tim approves):**
+**Sheet-state follow-up (Tim, 2026-11-10):** the 11:37 AM ET iPhone retest showed the shared sheet's Type here box while status and bubble said Listening. While voice is listening, the sheet hides the Type here box and shows only the Listening status plus End; the box returns when the turn or voice ends. Implement with OI-0211, so Listening is shown only once the voice connection is actually live and buffered audio is flushing. This is not merely a typing fallback: local capture without a voice turn is separately tracked there.
+
+**Shared path (option B, shipped):**
 
 1. **One entry controller / lifecycle:** floating mic, header Assistant, PTT Type-instead Yes and both offline-note Use paths call the same entry path. All skip the intent picker and show the same sheet/composer with header **Cancel**. Only input modality/origin differs: the floating mic requests voice capture through that controller; the Assistant button and fallback request typing, never a second voice/intent-specific launch flow. Existing capture provenance and offline-note durability rules remain.
 2. **Lazy untouched state:** merely opening the composer without submitting text or requesting voice does not start a conversation, reserve usage, request a mic or call start/discard RPCs. An explicit PTT/voice capture request counts as starting interaction, not an untouched opening. First typed Send, an explicit voice action or Use of reviewed offline-note text supplies the existing internal `data-entry` seed for a fresh session; do not omit it, inherit the panel's historical note-only feedback default, or invent an `auto` enum. An existing live conversation keeps its current valid intent and routes the next turn normally. Maintain one session per open interaction and preserve the runtime's bounded reroute/draft behavior.
@@ -134,24 +207,24 @@ These are all production `openAssistant` call sites and direct assistant-session
 5. **Generation/abort guards:** close immediately stops local voice transport/timer where applicable. A late begin/auth/connect, notes load or transcript callback cannot reopen a closed sheet, focus detached controls or overwrite a newer session. A begin finishing after close still cleans up its empty start once; repeated close events do not duplicate cleanup or affect a later open. Keep the mic-before-mint, PCM buffering and queued turn-end protections.
 6. **Truthful failure:** keep the dismissible status **"Voice closed, but the empty session couldn't be removed."** visible when cleanup fails, even after closing or choosing No. Never claim deletion succeeded; × dismisses only the message, not a live turn. Preserve consent, auth/allowlist, offline behavior, feature-flag and review-before-save guards.
 
-If Tim selects A, replace the B-specific pre-entry UI consistently for **all** entry points with the same chooser and Cancel; keep the same shared controller, neutral typing placeholder, seed validation, review gate and close/async protections. Do not implement a mixed A/B policy.
+**Acceptance criteria (implementation shipped; phone acceptance separate):**
 
-**Acceptance criteria (after the product choice is approved):**
-
-- [ ] The floating mic, Assistant button, fallback Yes and both note-Use paths use one lifecycle and the same approved picker policy. For B, all skip the picker; for A, all show it. Entry-point-specific choices/flash are not allowed.
-- [ ] Under B, untouched composer close makes zero start/discard RPCs; typed Send/explicit voice starts once with a valid seed. Missing/null/auto seeds are rejected, while unpicked-but-seeded typed and spoken write/question/feedback/how-to requests route correctly. Preserve pending review drafts and the one-reroute bound.
-- [ ] The typed composer always says Type here, including header, fallback and resume; Type instead? remains only the modality question. A delayed begin shows stable Starting… and cannot erase entered text or cause a detached focus.
-- [ ] Cancel in the shared header, backdrop and Escape share idempotent cleanup and restore invoker focus. Empty/pending close invokes discard once; populated state is never deleted. Close-before/during-begin, auth/connect, double close, immediate reopen and late callbacks are covered.
-- [ ] Missing-RPC/refused cleanup leaves the exact truthful message visible and ×-dismissible, with local transport/timer stopped and billing/usage history retained.
-- [ ] Auto-routing or switching never confirms a write; farm and feedback proposals still require their existing populated-UI review and explicit confirmation. Unresolved names/fields still ask useful questions under the exact-normalization rule.
-- [ ] Typing never calls getUserMedia or starts a voice timer. Shared voice startup retains the current mic-first mint, buffer/early-end and generation guards; consent/offline-note preservation/feature gates remain intact.
+- [x] The floating mic, Assistant button, fallback Yes and both note-Use paths use one lifecycle and skip the picker under option B. Entry-point-specific choices/flash are not allowed.
+- [x] Under B, untouched composer close makes zero start/discard RPCs; typed Send/explicit voice starts once with a valid seed. Missing/null/auto seeds are rejected, while unpicked-but-seeded typed and spoken write/question/feedback/how-to requests route correctly. Preserve pending review drafts and the one-reroute bound.
+- [x] The typed composer always says Type here, including header, fallback and resume; Type instead? remains only the modality question. A delayed begin shows stable Starting… and cannot erase entered text or cause a detached focus.
+- [x] Cancel in the shared header, backdrop and Escape share idempotent cleanup and restore invoker focus. Empty/pending close invokes discard once; populated state is never deleted. Close-before/during-begin, auth/connect, double close, immediate reopen and late callbacks are covered.
+- [x] Missing-RPC/refused cleanup leaves the exact truthful message visible and ×-dismissible, with local transport/timer stopped and billing/usage history retained.
+- [x] Auto-routing or switching never confirms a write; farm and feedback proposals still require their existing populated-UI review and explicit confirmation. Unresolved names/fields still ask useful questions under the exact-normalization rule.
+- [x] Typing never calls getUserMedia or starts a voice timer. Shared voice startup retains the current mic-first mint, buffer/early-end and generation guards; consent/offline-note preservation/feature gates remain intact.
 - [ ] Phone retest covers every launcher, picker flash and the separately reported full-disappearance symptom. Record whether disappearance reproduces; it is not yet a confirmed cause or fix.
+
+- [ ] OI-0211 follow-up: hide Type here only during real live listening, show Listening plus End, and restore typing after turn/voice end; connect failures never claim Listening.
 
 **CP-55/CP-56 spec impact:** None intended — existing runtime seed/routing, lifecycle/RPC and persisted artifacts only. No new enum, table, field or shared-contract change is authorized. Escalate any needed shared-contract change to Chief of Staff.
 
 **Related:** OI-0196 (typed peer and empty-start cleanup), OI-0200 (dismiss/teardown), OI-0204 (generation guards), OI-0208 (separate later running-chat design, unchanged by this item).
 
-**Origin:** 2026-11-10 live picker investigation, followed by Tim's request for one shared path and neutral composer wording. Read-only source review at `1fe0a593`; product choice pending Tim, not approved by this docs commit.
+**Origin:** 2026-11-10 live picker investigation, followed by Tim's request for one shared path and neutral composer wording. Read-only source review at `1fe0a593`; option B subsequently selected by Tim and shipped in PR #48; 2026-11-10 sheet-state follow-up remains open.
 
 ---
 
@@ -159,7 +232,7 @@ If Tim selects A, replace the B-specific pre-entry UI consistently for **all** e
 
 **Added:** 2026-11-10 | **Area:** v2-build / assistant / feeding / target resolution / audit | **Priority:** P1 (a clear feeding request cannot progress to review)
 
-**Status:** open — ready for build (2026-11-10). Not a regression: shorthand and multi-target rejection reproduce at `aa2f48bf` as well as `1fe0a593`. OI-0203 improved the wording, not these target restrictions; OI-0202 transcription is not the cause of the typed-input failure.
+**Status:** shipped — retest findings remain open. Shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48), merged to main `b6689b23` on 2026-11-10 and live as `b2026-11-10.1517-b6689b2`. Edge: assistant v5; apply/audio/transcribe v4, redeployed from the same SHA. No migration. OI-0210 is being scoped with Tim, not an approved follow-on implementation. Original investigation/spec below is historical; this is not full phone acceptance. Not a regression: shorthand and multi-target rejection reproduce at `aa2f48bf` as well as `1fe0a593`. OI-0203 improved the wording, not these target restrictions; OI-0202 transcription is not the cause of the typed-input failure.
 
 **Bug.** Tim named E - 1 and E - 2, four bales of grass hay for yesterday at 1:00 PM ET, and two bales left from the prior feeding. The assistant kept asking which paddock after the short answer "e1". Live location names are `E - 1` and `E - 2`, with no field-code aliases. Exact matching currently treats `e1`, `E-1` and `E - 1` differently; only the last spelling resolves. One comma-separated name or an array of two names does not resolve.
 
@@ -182,16 +255,16 @@ Verified on `1fe0a593`:
 
 **Acceptance criteria:**
 
-- [ ] Typed and spoken variants `e1`, `E-1`, `E - 1` resolve identically; E-11 remains distinct. Case, spaces, hyphens, spoken numbers, duplicate aliases and normalization collisions are covered without fuzzy matching.
-- [ ] Two named paddocks in one open event/cohort survive resolution and appear in review; closed/missing parents and closed paddocks are rejected. Cross-event conflicts do not silently merge.
-- [ ] A short clarification reply fills the pending field and preserves feeding intent, date, time, batch and supplied quantities. Repeated ambiguous replies ask a useful disambiguation question, not a no-progress loop. Quantity four never creates four target questions or four writes.
-- [ ] Total versus per-paddock quantity is explicit; allocation is reviewed, never guessed or double-counted. Multiple feed lines do not restart target clarification independently when they share a resolved target set.
-- [ ] Four newly delivered bales plus two carried over remain separate reviewed delivery/remaining-feed facts. Before/after/unclear timing, same-instant semantics, batch/location allocation and no accidental inventory overwrite are covered.
-- [ ] Nothing saves before review; cancel, correction, replay, retry and duplicate confirmation do not create duplicate delivery/check rows.
-- [ ] A deliberately failed typed request leaves attributable conversation/checkpoint evidence, including its pending field/question; billing remains intact. Verify the persisted evidence, not only the visible bubble.
-- [ ] Re-run the shorthand and multi-target reproductions against the prior baseline to document this as an older gap rather than an OI-0202/OI-0203 regression.
+- [x] Typed and spoken variants `e1`, `E-1`, `E - 1` resolve identically; E-11 remains distinct. Case, spaces, hyphens, spoken numbers, duplicate aliases and normalization collisions are covered without fuzzy matching.
+- [x] Two named paddocks in one open event/cohort survive resolution and appear in review; closed/missing parents and closed paddocks are rejected. Cross-event conflicts do not silently merge.
+- [x] A short clarification reply fills the pending field and preserves feeding intent, date, time, batch and supplied quantities. Repeated ambiguous replies ask a useful disambiguation question, not a no-progress loop. Quantity four never creates four target questions or four writes.
+- [x] Total versus per-paddock quantity is explicit; allocation is reviewed, never guessed or double-counted. Multiple feed lines do not restart target clarification independently when they share a resolved target set.
+- [x] Four newly delivered bales plus two carried over remain separate reviewed delivery/remaining-feed facts. Before/after/unclear timing, same-instant semantics, batch/location allocation and no accidental inventory overwrite are covered.
+- [x] Nothing saves before review; cancel, correction, replay, retry and duplicate confirmation do not create duplicate delivery/check rows.
+- [x] A deliberately failed typed request leaves attributable conversation/checkpoint evidence, including its pending field/question; billing remains intact. Verify the persisted evidence, not only the visible bubble.
+- [x] Re-run the shorthand and multi-target reproductions against the prior baseline to document this as an older gap rather than an OI-0202/OI-0203 regression.
 
-**Model choice:** switching to a reasoning model does not fix deterministic name rejection, singular targets or missing clarification state. The dated `grok-4.20-0309-non-reasoning` and `grok-4.20-0309-reasoning` have the same current per-million-token rates: under 200k prompt tokens, input **$1.25**, cached input **$0.20**, output **$2.50**; at/above 200k, **$2.50 / $0.40 / $5.00**. Reasoning adds variable billable tokens/latency; a typical overhead or TTFT difference was not verified. A model switch is Tim's separate decision, not part of this fix. Official pricing/model pages fetched 2026-11-10: https://docs.x.ai/developers/pricing and https://docs.x.ai/developers/models/grok-4.20-0309-reasoning.
+**Model choice (historical OI-0206 analysis, not a current model-change authorization):** switching to a reasoning model does not fix deterministic name rejection, singular targets or missing clarification state. The dated `grok-4.20-0309-non-reasoning` and `grok-4.20-0309-reasoning` have the same current per-million-token rates: under 200k prompt tokens, input **$1.25**, cached input **$0.20**, output **$2.50**; at/above 200k, **$2.50 / $0.40 / $5.00**. Reasoning adds variable billable tokens/latency; a typical overhead or TTFT difference was not verified. A model switch is Tim's separate decision, not part of this fix. Official pricing/model pages fetched 2026-11-10: https://docs.x.ai/developers/pricing and https://docs.x.ai/developers/models/grok-4.20-0309-reasoning.
 
 **CP-55/CP-56 spec impact:** Use existing feeding/check entities and the existing reviewed artifact/checkpoint contract; no new persisted shape is authorized. Any required new field or checkpoint-contract change needs Design/Chief of Staff review and matching backup/restore assessment before implementation.
 
@@ -205,7 +278,7 @@ Verified on `1fe0a593`:
 
 **Added:** 2026-11-10 | **Area:** v2-build / animals / dashboard / current placement | **Priority:** P2 (wrong placement display despite a valid current grazing event)
 
-**Status:** open — ready for build (2026-11-10), within the display/resolver scope below. Not a regression: the first-window selection dates from `fa65ca4`, 2026-04-16; PRs #44–#46 did not introduce it.
+**Status:** shipped — phone acceptance remains open. Shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48), merged to main `b6689b23` on 2026-11-10 and live as `b2026-11-10.1517-b6689b2`. Edge: assistant v5; apply/audio/transcribe v4, redeployed from the same SHA. No migration. No historical data repair authorized. Original investigation/spec retained below. Not a regression: the first-window selection dates from `fa65ca4`, 2026-04-16; PRs #44–#46 did not introduce it.
 
 **Bug.** Animals takes the first group window with no `dateLeft`, then checks whether its parent event is open. A stale window on a closed parent can win before a valid current window. Dashboard Groups filters for an open parent first; Dashboard Locations starts from open events. The current Cow-Calf placement is one event with two open paddocks, E - 1 and E - 2, not an invalid double placement.
 
@@ -220,12 +293,12 @@ Verified on `1fe0a593`:
 
 **Acceptance criteria:**
 
-- [ ] Stale-first/valid-later windows and all input-order permutations select the valid current placement. Closed-only, closed group window, missing parent and closed parent cases do not count as placed.
-- [ ] One open event with one or several paddocks returns all distinct open locations in stable order; closed paddock windows are excluded. State-window splits in one event do not duplicate placement or labels.
-- [ ] Animals group tiles, animal rows, split-sheet context and both dashboard views agree. Membership changes move inherited placement; an ungrouped animal does not receive an invented location.
-- [ ] Farm scope and current-farm lookup agree with the valid current event. Audit `getGroupCurrentFarm` and `maybeSplitForGroup`; any write-context adoption uses the valid current window, not a historical orphan.
-- [ ] No read/display action mutates source records. A genuinely conflicting distinct-open-event fixture does not silently union events or show unplaced when a valid open window exists.
-- [ ] Regression tests cover order permutations, stale/closed/missing parents, membership changes, no membership, state splits, duplicate location windows, multi-paddock cohorts, closed paddocks and farm scope.
+- [x] Stale-first/valid-later windows and all input-order permutations select the valid current placement. Closed-only, closed group window, missing parent and closed parent cases do not count as placed.
+- [x] One open event with one or several paddocks returns all distinct open locations in stable order; closed paddock windows are excluded. State-window splits in one event do not duplicate placement or labels.
+- [x] Animals group tiles, animal rows, split-sheet context and both dashboard views agree. Membership changes move inherited placement; an ungrouped animal does not receive an invented location.
+- [x] Farm scope and current-farm lookup agree with the valid current event. Audit `getGroupCurrentFarm` and `maybeSplitForGroup`; any write-context adoption uses the valid current window, not a historical orphan.
+- [x] No read/display action mutates source records. A genuinely conflicting distinct-open-event fixture does not silently union events or show unplaced when a valid open window exists.
+- [x] Regression tests cover order permutations, stale/closed/missing parents, membership changes, no membership, state splits, duplicate location windows, multi-paddock cohorts, closed paddocks and farm scope.
 
 **Out of scope / product question:** repairing the stale July 27 orphan is a separate reviewed data operation; this item authorizes no live data writes. How to display genuinely conflicting **distinct** open events is an open product question for Tim. Until decided, do not silently union them, do not add a new conflict-display policy, and do not show "unplaced" when a valid open window exists. One event with two paddocks is valid and is in scope now.
 
@@ -241,7 +314,7 @@ Verified on `1fe0a593`:
 
 **Added:** 2026-11-08 | **Area:** v2-design / voice / ai | **Priority:** P3 (new capability; the app works without it today)
 
-**Status:** open — HOST ADAPTER ON FORGEJO MAIN, NOT LIVE (2026-11-09). Ready-for-build gate passed after PR #12 (merge `33bebb9`); GTHO Build implemented the adapter and it merged as Forgejo PR #38, merge `eb04c1973b4621d728f2a9ec760aa70b259f10f8`. Migration 040 not applied; assistant not enabled; GitHub publish held until 040 is live. Stays open until the go-live order completes and Tim confirms the live build stamp. Earlier docs: rewrite PR #6 `7d536cb`; exceptions/PTT PR #7 `e44d641`; voice-to-entry log PR #8 `0b9f21e`; offline audio notes PR #9 `3aada9c`; tap-to-start PR #10 `16bdafd`; step-through PR #11 `e4d5891`; host schema and farm-tool method PR #12 `33bebb9`. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md` (gate locks section); `V2_INFRASTRUCTURE.md` §8.3b; `V2_SCHEMA_DESIGN.md` §11.2c.
+**Status:** open — host adapter live by 2026-11-10; current retest remains open. PR #48 deployment is recorded above; OI-0210 is being scoped and OI-0211 tracks the no-turn voice failure. The following 2026-11-09 pre-live checkpoint is historical, not the current deployment state. **Historical checkpoint:** Ready-for-build gate passed after PR #12 (merge `33bebb9`); GTHO Build implemented the adapter and it merged as Forgejo PR #38, merge `eb04c1973b4621d728f2a9ec760aa70b259f10f8`. Migration 040 not applied; assistant not enabled; GitHub publish held until 040 is live. Stays open until the go-live order completes and Tim confirms the live build stamp. Earlier docs: rewrite PR #6 `7d536cb`; exceptions/PTT PR #7 `e44d641`; voice-to-entry log PR #8 `0b9f21e`; offline audio notes PR #9 `3aada9c`; tap-to-start PR #10 `16bdafd`; step-through PR #11 `e4d5891`; host schema and farm-tool method PR #12 `33bebb9`. Spec: `session_briefs/SESSION_BRIEF_2026-11-08_oi-0195-voice-ai-foundation.md` (gate locks section); `V2_INFRASTRUCTURE.md` §8.3b; `V2_SCHEMA_DESIGN.md` §11.2c.
 
 **Need.** Users should be able to enter farm data by voice with an AI helper instead of typing into small phone fields, and they should also be able to ask questions about farm state through authorized data-grounded read capabilities. Before this filing there was no open item, no `PROJECT_STATUS.md` mention, and no matching code in `src/`, `tests/`, or `supabase/`. The April 2026 sketch in `V2_INFRASTRUCTURE.md` §8 (reviewed 2026-04-12 in `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md`) has been rewritten as of 2026-11-08 and is no longer current design. The April session brief stays historical. `V2_SCHEMA_DESIGN.md` Domain 11 no longer treats the April transcript/training/script/confidence list as the planned table set. `V2_MIGRATION_PLAN.md` Phase 4 retires the unnamed “Voice field mode (5 checkpoints)” line.
 
@@ -311,7 +384,7 @@ Familiarization is runtime grounding in live UI/entity contracts and user correc
 - *Design technical bindings T1–T13:* client-apply handshake via `gtho-assistant-apply`; `maxReadRounds` 3 and `maxBodyBytes` 65536; 25 s provider timeout over the whole request; 60 s client secret with subprotocol and 3 retries; `turn_detection` null with manual commit; worst-case voice settlement at token issue; JWT via `auth.getUser` with membership or checked `X-GTHO-Operation`; CORS from `GTHO_ASSISTANT_ORIGINS`; one pinned Postgres driver; server-side `getAll`; `routeDestination` filing and `matchingDoc` undefined; `earlyTesting` from a secret with the client writing the consent row; eight secrets, 503 unless all present and `ENABLED=true`, no `latest` models, PWA flag `VITE_GTHO_ASSISTANT=1` with a flag-off build shipping no assistant or feedback-module code, pinned Supabase CLI.
 - *Design rulings:* one global push-to-talk is the only voice entry (no Talk button on the Assistant sheet); exact matching after deterministic normalization (spoken numbers to digits), no fuzzy matching; moves follow existing UI launch semantics; fallback question is a device-local host event outside the model transcript (no 040 amendment); field hints from sheet field definitions; `voice_entry_attempts` lifecycle and filters per `V2_SCHEMA_DESIGN.md` §11.2b; retry chains ruling (a); ruling (b) duplicated replay turn in the vendor transcript raised with Chief of Staff, no library change; ruling (c) device-local preview fallback accepted.
 
-**Go-live order:** (1) Tim approves applying 040 live; GTHO Build applies and verifies. (2) Secrets: Tim creates `XAI_API_KEY`; the other seven are set, `GTHO_ASSISTANT_ENABLED` not yet `true`. (3) GTHO Build deploys the functions with the pinned Supabase CLI. (4) Smoke tests, including the live unknowns. (5) Tim flips `GTHO_ASSISTANT_ENABLED=true`. (6) The flag-on PWA lands; the GitHub publish needs Tim’s separate approval and must not happen before 040 is live. State 2026-11-09: `XAI_API_KEY` reported set by Tim (via Orchestrator, not verified by Design); the other seven secrets not set; 040 not applied.
+**Historical go-live order (2026-11-09; not the current deployment checkpoint):** (1) Tim approves applying 040 live; GTHO Build applies and verifies. (2) Secrets: Tim creates `XAI_API_KEY`; the other seven are set, `GTHO_ASSISTANT_ENABLED` not yet `true`. (3) GTHO Build deploys the functions with the pinned Supabase CLI. (4) Smoke tests, including the live unknowns. (5) Tim flips `GTHO_ASSISTANT_ENABLED=true`. (6) The flag-on PWA lands; the GitHub publish needs Tim’s separate approval and must not happen before 040 is live. State 2026-11-09: `XAI_API_KEY` reported set by Tim (via Orchestrator, not verified by Design); the other seven secrets not set; 040 not applied.
 
 **Open live unknowns (verify at smoke time):** whether `client_secrets` accepts `session`; whether transcription streams with VAD null; the realtime transcription model name `grok-transcribe` (`realtime.js:60`); reusing the token across connection retries; the operation timezone is set (else `billing-calendar-timezone-required`, 040 :902); the Supabase plan wall clock; the pooler behind `SUPABASE_DB_URL`; CLI bundling of `../../../vendor` imports.
 
@@ -328,7 +401,7 @@ Familiarization is runtime grounding in live UI/entity contracts and user correc
 - [ ] Go-live order completed, smoke tests pass including the live unknowns, and Tim flips `GTHO_ASSISTANT_ENABLED`.
 - [ ] GitHub publish approved by Tim after 040 is live, and Tim confirms the header build stamp.
 
-**CP-55/CP-56 spec impact:** Additive normalization changes the submissions backup shape when implemented: preserve IDs/history/build stamps and explicit unknowns on older-backup import. New operation-scoped artifact tables and additive submissions columns join the existing serialization set like submissions (opaque references do not back up audio bytes); see `V2_MIGRATION_PLAN.md` §5.3 impact note. Exception (Tim, 2026-11-09, testing scope): the seven server-authoritative tables and `assistant_restore_fences` are excluded from browser CP-55/CP-56, and CP-56 runs the restore fence before anything destructive (`V2_MIGRATION_PLAN.md` §5.3). Migration 040 (PR #38) is on Forgejo main and not applied.
+**CP-55/CP-56 spec impact:** Additive normalization changes the submissions backup shape when implemented: preserve IDs/history/build stamps and explicit unknowns on older-backup import. New operation-scoped artifact tables and additive submissions columns join the existing serialization set like submissions (opaque references do not back up audio bytes); see `V2_MIGRATION_PLAN.md` §5.3 impact note. Exception (Tim, 2026-11-09, testing scope): the seven server-authoritative tables and `assistant_restore_fences` are excluded from browser CP-55/CP-56, and CP-56 runs the restore fence before anything destructive (`V2_MIGRATION_PLAN.md` §5.3). The 2026-11-09 checkpoint recorded migration 040 (PR #38) on Forgejo main and not applied; this is historical, not a claim about the current live schema. Live migration-history verification remains outstanding in this docs pass.
 
 **Related:** `V2_INFRASTRUCTURE.md` §8 (rewritten 2026-11-08); `V2_SCHEMA_DESIGN.md` Domain 11 future-schema note; `V2_MIGRATION_PLAN.md` Phase 4 voice line; `session_briefs/SESSION_BRIEF_2026-04-12_infrastructure-review.md` (historical); `V2_CALCULATION_SPEC.md` remaining-feed reader rule.
 
@@ -6070,7 +6143,7 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 
 **Status:** closed — PR #44 (`8e5bd03d`); ledger backfilled 2026-11-10. Included in live build `b2026-11-10.1025-1fe0a59`.
 
-**Implemented / acceptance:** Microphone acquisition runs alongside begin/authorization; mint remains after mic success. Listening does not wait for server-row sync; PCM buffers locally until connection readiness, then flushes before a queued early end sends one commit. Generation/abort guards cover End at each startup stage; failures discard buffered PCM. No token cache across taps or prewarm mint on mount; timing marks are dev-only.
+**Implemented / acceptance (historical startup policy; Listening timing superseded by OI-0211):** Microphone acquisition runs alongside begin/authorization; mint remains after mic success. The original implementation showed Listening without waiting for server-row sync; OI-0211 now requires a live connection and audio flush before that claim; PCM buffers locally until connection readiness, then flushes before a queued early end sends one commit. Generation/abort guards cover End at each startup stage; failures discard buffered PCM. No token cache across taps or prewarm mint on mount; timing marks are dev-only.
 
 **CP-55/CP-56 spec impact:** Existing schema-41/040→041 backup migration and RPC protections remain in force; this ledger backfill changes no schema.
 
@@ -6692,6 +6765,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-10 | GTHO Design — docs only | PR #48 shipped/retest records; OI-0207 option B and hide-composer lock; reserve OI-0210 for schema-driven whole-app scoping (not ready); OI-0211 voice startup diagnosis/requirements; OI-0212 RLS tracking only; OI-0213 deferred feeding atomicity; trusted pendingClarification schema note. No code, data, secret or deployment changes. |
 | 2026-11-09 | OI-0195 ready-for-build gate locks after PR #12 — createHash Vite alias, pins, backup exception, restore fence, billing caps; Tim’s P1–P12 and unknown-usage handling; consent copy and second-tap end; T1–T13; Design rulings (single global push-to-talk, exact matching, attempt lifecycle, retry chains (a)–(c)); deferred list; live unknowns; go-live order. Host adapter merged as Forgejo PR #38 (`eb04c197`), not live; 040 not applied; GitHub publish held until 040 is live. Calving dam clear marked done. | GTHO Design — docs only |
 | 2026-11-08 | OI-0195 final host locks — physical design and populated-UI field-set method specified; launch write wiring, not scenario scripts. Open cow/heifer set excludes calves; all calving-row paths clear dam confirmed_bred. Safe finished-at 90-day cleanup and local-save-gated offline deletion. | GTHO Design — docs only; adapter unimplemented, not handed to Build; audio disposal/later-rollout consent deferred/non-blocking |
 | 2026-11-08 | OI-0195 host adoption — released feedback-module v0.1.3 / conversation-runtime v0.1.1 pins; additive submissions mapping and historical unknowns; capture/review and how-to routing; offline deletion only after confirmed write/filing, no extra device-storage prompt; capture-time today and finished-time 90 days for visible log plus mapping record. Logical artifacts recorded; physical layout/tool contracts still open. | GTHO Design — DESIGN IN PROGRESS, not ready for Build; docs only |

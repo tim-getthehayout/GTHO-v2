@@ -1,6 +1,7 @@
 {
   "manualEntry": {
     "invalidDate": "Enter a valid date and time.",
+    "sireReferenceHint": "Choose a sire reference when recording breeding. Registration is kept on this sire.",
     "invalidTreatmentCategory": "Select an available treatment category before saving.",
     "invalidReference": "Choose valid source, unit and location records before saving.",
     "invalidNumber": "Enter a finite number.",

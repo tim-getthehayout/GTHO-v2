@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | AI sire manager saves and displays registration through existing regNum/reg_num, preserving sire name, breed and reference identity. Remove the unimplemented registration-snapshot claim; retained EPD input remains available pending the separate approved schema release. | Animals manager, locale and real-form/pull regressions |
 | 2026-11-10 | Soil-test shortcut and full editor share canonical organicMatter, date, unit and numeric mapping. Preserve entered zeros versus blank/null; reject nonfinite values, invalid dates and existing pH/organic-matter range violations before writing. | Soil forms, shared adapter, entity and real-form tests |
 | 2026-11-10 | Treatment manager uses real category IDs in both Save and readback, with Save-time missing/archived/wrong-operation guards shared by Settings. Invalid category or name shows a visible error without adding a type. | Animals manager, health reference editor, locale and real-form tests |
 | 2026-11-10 | Locations Apply input uses the canonical amendment editor. Validate explicit quantity, unit, source and allocations before a recoverable compound save; initialize NPK preview after its controls and never infer kg from an unconverted unit. | Amendment editor, Locations shortcut, locale and real-form tests |

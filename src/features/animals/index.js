@@ -1209,7 +1209,7 @@ function openAISiresManager(operationId) {
     el('div', { style: { fontSize: '16px', fontWeight: '600' } }, ['AI sires']),
     el('button', { className: 'btn btn-outline btn-xs', onClick: () => siresSheet.close() }, ['Done']),
   ]));
-  panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '12px' } }, ['Name and registration number are snapshotted on each breeding record.']));
+  panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '12px' } }, [t('manualEntry.sireReferenceHint')]));
 
   const bullsList = el('div', { style: { marginBottom: '12px' } });
   function renderBullsList() {
@@ -1219,7 +1219,7 @@ function openAISiresManager(operationId) {
       bullsList.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '0.5px solid var(--border)' } }, [
         el('div', {}, [
           el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [
-            b.name, b.regNumber ? el('span', { style: { fontSize: '11px', color: 'var(--text2)', marginLeft: '6px' } }, [b.regNumber]) : null,
+            b.name, b.regNum ? el('span', { style: { fontSize: '11px', color: 'var(--text2)', marginLeft: '6px' } }, [b.regNum]) : null,
           ].filter(Boolean)),
           (b.breed || b.epds) ? el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [[b.breed, b.epds].filter(Boolean).join(' \u00B7 ')]) : null,
         ].filter(Boolean)),
@@ -1233,10 +1233,10 @@ function openAISiresManager(operationId) {
   panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Add sire']));
 
   const sInputs = {};
-  sInputs.name = el('input', { type: 'text', placeholder: 'e.g. Connealy Confidence' });
-  sInputs.reg = el('input', { type: 'text', placeholder: 'e.g. 17760326' });
-  sInputs.breed = el('input', { type: 'text', placeholder: 'e.g. Angus' });
-  sInputs.epds = el('input', { type: 'text', placeholder: 'e.g. CE+8 BW-1.2 WW+68' });
+  sInputs.name = el('input', { 'data-testid': 'ai-manager-name', type: 'text', placeholder: 'e.g. Connealy Confidence' });
+  sInputs.reg = el('input', { 'data-testid': 'ai-manager-reg', type: 'text', placeholder: 'e.g. 17760326' });
+  sInputs.breed = el('input', { 'data-testid': 'ai-manager-breed', type: 'text', placeholder: 'e.g. Angus' });
+  sInputs.epds = el('input', { 'data-testid': 'ai-manager-epds', type: 'text', placeholder: 'e.g. CE+8 BW-1.2 WW+68' });
 
   panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['Sire name *']), sInputs.name]),
@@ -1250,7 +1250,7 @@ function openAISiresManager(operationId) {
   panel.appendChild(el('button', { className: 'btn btn-green btn-sm', style: { width: 'auto', padding: '10px 20px' }, onClick: () => {
     const name = sInputs.name.value.trim();
     if (!name) return;
-    const rec = AiBullEntity.create({ operationId, name, regNumber: sInputs.reg.value.trim() || null, breed: sInputs.breed.value.trim() || null, epds: sInputs.epds.value.trim() || null });
+    const rec = AiBullEntity.create({ operationId, name, regNum: sInputs.reg.value.trim() || null, breed: sInputs.breed.value.trim() || null, epds: sInputs.epds.value.trim() || null });
     add('aiBulls', rec, AiBullEntity.validate, AiBullEntity.toSupabaseShape, 'ai_bulls');
     sInputs.name.value = ''; sInputs.reg.value = ''; sInputs.breed.value = ''; sInputs.epds.value = '';
     renderBullsList();

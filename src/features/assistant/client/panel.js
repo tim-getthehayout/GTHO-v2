@@ -83,7 +83,10 @@ export function openAssistant(deps, config, options = {}) {
   const invoker = options.invoker ?? null;
   clear(panel);
   const status = el('div', { className: 'auth-error', 'data-testid': 'assistant-status', role: 'status' });
-  const retry = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-retry', 'aria-label': 'Retry failed submission', hidden: true, onClick: () => { void submit(failedSubmission); } }, ['Retry']);
+  const retry = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-retry', 'aria-label': 'Retry failed submission', hidden: true, onClick: () => {
+    const failed = failedSubmission;
+    if (!retry.hidden && failed && recoveryIsCurrent(failed)) void submit(failed);
+  } }, ['Retry']);
   const transcript = el('div', { 'data-testid': 'assistant-transcript' });
   const body = el('div', { 'data-testid': 'assistant-body' });
   const cancel = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-cancel', onClick: () => { void close(); } }, ['Cancel']);
@@ -127,6 +130,7 @@ export function openAssistant(deps, config, options = {}) {
       options.onTranscript?.(turns);
     },
     onVoiceState: setVoiceState,
+    onRecoveryInvalidated: ({ session: changed }) => { if (changed === session) clearRecovery(); },
     onListening: listening => {
       setVoiceState(listening ? 'listening' : 'idle');
       options.onListening?.(listening);
@@ -147,6 +151,7 @@ export function openAssistant(deps, config, options = {}) {
 
   /** Start voice without begin()/xAI first: talk() checks the mic, then starts. */
   async function startVoice(extra = {}) {
+    clearRecovery();
     if (offline(deps)) { say(OFFLINE_TEXT); return { session: null, result: null }; }
     const current = bindSession(extra);
     setVoiceState('connecting');
@@ -168,32 +173,42 @@ export function openAssistant(deps, config, options = {}) {
 
   /** After a discarded empty voice start, stay on this composer for typing. */
   function switchToTyping() {
+    clearRecovery();
     session = null;
     setVoiceState('idle');
     input.focus();
   }
 
-  function recoverSubmission(text, kept, { revision, expectedDraft, restoreAllowed }, message) {
-    if (stale()) return;
+  function clearRecovery() { failedSubmission = null; retry.hidden = true; }
+  function recoveryIsCurrent(recovery) {
+    const identity = session?.recoveryIdentity;
+    return !stale() && recovery.session === session && recovery.generation === identity?.generation && recovery.conversation === identity?.conversation;
+  }
+  function recoverSubmission(text, kept, recovery, message) {
+    if (!recoveryIsCurrent(recovery)) return;
+    const { revision, expectedDraft, restoreAllowed } = recovery;
     const restored = restoreAllowed && draftRevision === revision && input.value === expectedDraft;
     if (restored) input.value = kept;
-    failedSubmission = { text, kept, restored, revision: draftRevision };
+    failedSubmission = { text, kept, restored, revision: draftRevision, session: recovery.session, generation: recovery.generation, conversation: recovery.conversation };
     retry.hidden = false;
     setVoiceState('idle'); say(message);
   }
 
   async function submit(retrying = null) {
+    const submittedAt = Date.now();
     const text = retrying?.text ?? input.value.trim();
     if (!text || starting || stale()) return;
     const kept = retrying?.kept ?? input.value;
     if (offline(deps)) { say(OFFLINE_TEXT); return; }
+    // An unchanged restored draft follows Send clearing; edited drafts stay untouched.
     const preserveDraft = !!retrying && !(retrying.restored && retrying.revision === draftRevision && input.value === kept);
-    const recovery = { revision: draftRevision, expectedDraft: input.value, restoreAllowed: !preserveDraft };
-    failedSubmission = null; retry.hidden = true;
+    const current = bindSession();
+    const recovery = { revision: draftRevision, expectedDraft: input.value, restoreAllowed: !preserveDraft, session: current, ...current.recoveryIdentity };
+    clearRecovery();
     starting = true; say('Starting…');
     try {
       // text() owns startup as well as queueing: no pre-submit begin wait outside its budget.
-      const delivery = await bindSession().text(text, { onEnqueued: () => {
+      const delivery = await current.text(text, { submittedAt, onOwnership: identity => Object.assign(recovery, identity), onEnqueued: () => {
         if (!stale() && !preserveDraft && draftRevision === recovery.revision && input.value === recovery.expectedDraft) {
           input.value = ''; recovery.expectedDraft = '';
         }
@@ -207,13 +222,16 @@ export function openAssistant(deps, config, options = {}) {
   }
 
   async function begin(intent, firstTurn, extra = {}, from = {}) {
+    const submittedAt = Date.now();
+    clearRecovery();
     if (offline(deps)) { say(OFFLINE_TEXT); return session; }
     const recovery = { revision: draftRevision, expectedDraft: input.value, restoreAllowed: input.value === '' };
     starting = true;
     say('Starting…');
     try {
       session = createAssistantSession(sessionOptions(extra));
-      const started = await session.begin(firstTurn, undefined, from);
+      recovery.session = session; Object.assign(recovery, session.recoveryIdentity);
+      const started = await session.begin(firstTurn, undefined, { ...from, submittedAt, onOwnership: identity => Object.assign(recovery, identity) });
       if (stale()) {
         try { await session.end(); } catch { /* closed while starting */ }
         session = null;
@@ -240,6 +258,7 @@ export function openAssistant(deps, config, options = {}) {
   async function close() {
     if (closed) return;
     closed = true;
+    clearRecovery();
     setVoiceState('idle');
     options.onListening?.(false);
     const isActive = activeEntry === owner.handle;

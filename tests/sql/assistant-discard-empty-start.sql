@@ -149,3 +149,38 @@ BEGIN
   ASSERT EXISTS (SELECT 1 FROM assistant_transcript_turns WHERE conversation_id = conv);
 END $$;
 ROLLBACK;
+
+-- Mid-delete FK: a proposal still references the conversation after consent is
+-- deleted, so the conversation DELETE fails. The whole RPC must roll back —
+-- the consent row is still present afterwards.
+BEGIN;
+DO $$
+DECLARE
+  op uuid := '00000000-0000-4000-8000-000000000001';
+  conv uuid := '00000000-0000-4000-8000-0000000000c1';
+  actor uuid := '00000000-0000-4000-8000-0000000000a1';
+BEGIN
+  INSERT INTO auth.users (id) VALUES (actor);
+  INSERT INTO operation_members (operation_id, user_id, accepted_at) VALUES (op, actor, now());
+  INSERT INTO assistant_conversations (id, operation_id, captured_at, feedback_module_pin, conversation_runtime_pin)
+    VALUES (conv, op, now(), '0.1.3', '0.1.1');
+  INSERT INTO assistant_testing_consents (operation_id, conversation_id, actor_id, decision, decided_at)
+    VALUES (op, conv, actor, 'accepted', now());
+  INSERT INTO assistant_proposals (operation_id, conversation_id, destination_entity, destination_ui)
+    VALUES (op, conv, 'calvings', 'calving');
+
+  PERFORM set_config('request.jwt.claim.sub', actor::text, true);
+  BEGIN
+    PERFORM assistant_discard_empty_start(op, conv);
+    RAISE EXCEPTION 'mid-delete FK was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+  ASSERT EXISTS (SELECT 1 FROM assistant_testing_consents WHERE conversation_id = conv),
+    'mid-delete FK must roll back the consent delete';
+  ASSERT EXISTS (SELECT 1 FROM assistant_conversations WHERE id = conv),
+    'mid-delete FK must leave the conversation';
+  ASSERT EXISTS (SELECT 1 FROM assistant_proposals WHERE conversation_id = conv),
+    'blocking proposal must remain';
+END $$;
+ROLLBACK;

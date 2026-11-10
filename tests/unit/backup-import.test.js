@@ -228,6 +228,20 @@ describe('backup-import (CP-56)', () => {
       }
     });
 
+    it('does not treat a substring "discarded" in an unknown error as proof 041 is installed', async () => {
+      const gateway = { rpc: async () => ({ data: null, error: { code: '502', message: 'Gateway discarded request' } }) };
+      await expect(serverHasMigration041(gateway)).resolves.toBe(false);
+      await expect(resolveOperationsSchemaStamp(41, gateway)).resolves.toBe(40);
+
+      const permission = { rpc: async () => ({ data: null, error: { code: '42501', message: 'permission denied: request discarded' } }) };
+      await expect(serverHasMigration041(permission)).resolves.toBe(false);
+      await expect(resolveOperationsSchemaStamp(41, permission)).resolves.toBe(40);
+
+      // Success payload must be error-free; an error object still fails closed.
+      const mixed = { rpc: async () => ({ data: 'discarded', error: { code: '502', message: 'Gateway discarded request' } }) };
+      await expect(serverHasMigration041(mixed)).resolves.toBe(false);
+    });
+
     it('resolveOperationsSchemaStamp keeps 41 when 041 is present', async () => {
       const client = {
         rpc: async () => ({ data: null, error: { message: 'discard-empty-args-required' } }),

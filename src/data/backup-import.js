@@ -175,21 +175,27 @@ async function deleteTableRows(table, operationId) {
   if (error) throw new Error(`Delete failed on ${table}: ${error.message}`);
 }
 
-/** Outcomes that can only come from assistant_discard_empty_start itself. */
-const MIGRATION_041_OUTCOMES = Object.freeze([
-  'discarded',
+/** Exact RAISE messages from 041 (and from assistant_assert_restore_unfenced,
+ * which 041 PERFORMs). "discarded" is success data only — never an error match.
+ * Generic SQLSTATE 42501 / P0001 are not unique, so they are not accepted alone. */
+const MIGRATION_041_RAISE_MESSAGES = Object.freeze([
+  'discard-empty-args-required',
   'discard-empty-auth-required',
   'discard-empty-membership-required',
-  'discard-empty-args-required',
   'discard-empty-refused-turns-exist',
   'assistant-restore-in-progress',
   'restore-read-committed-required',
 ]);
 
+function isExact041Raise(value) {
+  return MIGRATION_041_RAISE_MESSAGES.includes(String(value ?? ''));
+}
+
 function isMigration041Outcome(data, error) {
+  // Success payload only when the RPC returns without an error object.
   if (!error && data === 'discarded') return true;
-  const msg = String(error?.message || error?.code || data || '');
-  return MIGRATION_041_OUTCOMES.some(code => msg.includes(code));
+  if (!error) return false;
+  return isExact041Raise(error.message) || isExact041Raise(error.code);
 }
 
 /** True when SQL migration 041 (`assistant_discard_empty_start`) is present.

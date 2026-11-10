@@ -1,3 +1,4 @@
+import { feedSnapshot, poolHistory, replayFeedPools, poolDailyActual } from './feed-pools.js';
 /** @file Feed/forage calculation registrations — CP-46/CP-54. 21 formulas (DMI, FOR, CST, FED domains). */
 
 import { rowInstant } from '../utils/date-utils.js';
@@ -643,8 +644,9 @@ registerCalc({
 
     // Convert a feed-entry quantity (batch units) to kg DM. Removals subtract.
     function entryDmKg(entry) {
-      const b = batches?.[entry.batchId];
-      if (!b || !b.weightPerUnitKg || !b.dmPct) return 0;
+      const snap = feedSnapshot(entry, batches);
+      const b = { weightPerUnitKg: snap.weight, dmPct: snap.dmPct };
+      if (b.weightPerUnitKg == null || b.dmPct == null) return 0;
       const sign = entry.entryType === 'removal' ? -1 : 1;
       return sign * (entry.quantity ?? 0) * b.weightPerUnitKg * (b.dmPct / 100);
     }
@@ -655,8 +657,9 @@ registerCalc({
 
     // Convert a check item's remaining quantity to kg DM.
     function itemDmKg(item) {
-      const b = batches?.[item.batchId];
-      if (!b || !b.weightPerUnitKg || !b.dmPct) return 0;
+      const snap = feedSnapshot(item, batches);
+      const b = { weightPerUnitKg: snap.weight, dmPct: snap.dmPct };
+      if (b.weightPerUnitKg == null || b.dmPct == null) return 0;
       return (item.remainingQuantity ?? 0) * b.weightPerUnitKg * (b.dmPct / 100);
     }
 
@@ -737,6 +740,14 @@ registerCalc({
       if (obs.forageCoverPct == null) aggregateHint = 'assumed_full_cover';
     }
 
+    // New shapes use independent pool anchors; old-only history keeps its exact
+    // prior cascade. A partial pool observation must not zero any other pool.
+    const poolMode = feedEntries.some(row => row.kind) || feedCheckItems.some(row => row.feedTypeId);
+    const poolData = { eventId: event.id, entries: feedEntries, checks: feedChecks, items: feedCheckItems, batches };
+    const poolRecords = poolMode ? poolHistory(poolData).records : [];
+    if (poolMode && [...replayFeedPools(poolData, { through: rowInstant(date, '23:59:59.999') }).values()].some(pool => pool.d == null)) return { status: 'needs_check', reason: 'missing_conversion' };
+    const storedByPool = new Map();
+
     // ---- Cascade walk setup ------------------------------------------------
 
     const startDate = event.dateIn;
@@ -803,6 +814,11 @@ registerCalc({
       }
     }
 
+    if (poolMode) {
+      for (const [key, pool] of replayFeedPools(poolData, { through: rowInstant(startDate, '23:59:59.999') })) storedByPool.set(key, pool.d ?? 0);
+      seedStoredKg = [...storedByPool.values()].reduce((sum, value) => sum + value, 0);
+    }
+
     const pastureRef = { value: totalPasture() };
     const storedRef = { value: seedStoredKg };
 
@@ -814,7 +830,7 @@ registerCalc({
     // remaining end-of-day buckets come from the cascade walk (needed for the
     // shared confinement feed-days projection). Do not return early.
     let actualBars = null;
-    if (prevCheck && nextCheck) {
+    if (!poolMode && prevCheck && nextCheck) {
       const prevKg = sumCheckKg(prevCheck);
       const nextKg = sumCheckKg(nextCheck);
       let deliveriesBetween = 0;
@@ -834,6 +850,17 @@ registerCalc({
       }
       actualBars = { status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg };
       if (aggregateHint) actualBars.hint = aggregateHint;
+    }
+
+    if (poolMode) {
+      const observations = poolDailyActual(poolData, date);
+      const activeKeys = new Set(poolRecords.filter(row => row.stamp <= rowInstant(date, '23:59:59.999')).map(row => row.key));
+      if ([...activeKeys].some(key => observations.has(key) && observations.get(key) == null)) return { status: 'needs_check', reason: 'missing_conversion' };
+      if (activeKeys.size && [...activeKeys].every(key => observations.has(key))) {
+        const storedDmiKg = [...activeKeys].reduce((sum, key) => sum + observations.get(key), 0);
+        actualBars = { status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg: pureConfinement ? 0 : Math.max(0, totalDmiKg - storedDmiKg), deficitKg: pureConfinement ? Math.max(0, totalDmiKg - storedDmiKg) : 0 };
+        if (aggregateHint) actualBars.hint = aggregateHint;
+      }
     }
 
     // ---- Walk forward ------------------------------------------------------
@@ -862,7 +889,18 @@ registerCalc({
       // bales placed later that day. Days with no check still add that
       // day's entries once (the walk-start seed is not added again).
       const cursorCheck = [...sortedChecks].reverse().find(c => c.date === cursor && (!preStartCheck || c.id !== preStartCheck.id));
-      if (cursorCheck) {
+      if (poolMode) {
+        if (cursor !== startDate) {
+          for (const key of new Set(poolRecords.map(row => row.key))) {
+            const today = poolRecords.filter(row => row.key === key && row.stamp.slice(0, 10) === cursor);
+            const anchor = today.filter(row => row.order === 1).at(-1);
+            let value = anchor ? anchor.children.reduce((sum, child) => sum + itemDmKg(child.row), 0) : storedByPool.get(key) ?? 0;
+            for (const row of today.filter(row => row.order === 0 && (!anchor || row.stamp > anchor.stamp))) value += entryDmKg(row.row);
+            storedByPool.set(key, Math.max(0, value));
+          }
+        }
+        storedRef.value = [...storedByPool.values()].reduce((sum, value) => sum + value, 0);
+      } else if (cursorCheck) {
         storedRef.value = sumCheckKg(cursorCheck);
         for (const e of (feedEntries || [])) {
           if (e.date === cursor && isAfterCheck(e, cursorCheck)) storedRef.value += entryDmKg(e);
@@ -875,7 +913,9 @@ registerCalc({
 
       // (4) Allocate.
       const demand = dailyDemand(cursor);
+      const storedBefore = storedRef.value;
       const allocated = allocateDay(demand, pastureRef, storedRef);
+      if (poolMode && storedBefore > 0) for (const [key, value] of storedByPool) storedByPool.set(key, Math.max(0, value - allocated.stored * value / storedBefore));
       // Decrement per-window pools proportionally so sub-move close drops the
       // right remainder.
       decrementPoolsProportionally(allocated.pasture);

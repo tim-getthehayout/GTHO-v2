@@ -1,3 +1,4 @@
+import { feedSnapshot } from '../../calcs/feed-pools.js';
 /** @file Event Detail Sheet — SP-2. Sheet overlay for one event's full data + actions. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -905,7 +906,7 @@ function renderFeedEntries(ctx) {
 
   const isActive = !event.dateOut;
   const feedEntries = getAll('eventFeedEntries')
-    .filter(fe => fe.eventId === ctx.eventId && fe.entryType !== 'removal')
+    .filter(fe => fe.eventId === ctx.eventId && (fe.entryType !== 'removal' || fe.kind === 'pool_removal'))
     .sort((a, b) => `${a.date}T${a.time || '00:00'}`.localeCompare(`${b.date}T${b.time || '00:00'}`));
   const batches = getAll('batches');
   const batchMap = new Map(batches.map(b => [b.id, b]));
@@ -938,19 +939,21 @@ function renderFeedEntries(ctx) {
     const unitSys = getUnitSystem();
     for (const fe of feedEntries) {
       const batch = batchMap.get(fe.batchId);
-      const feedName = batch?.name || '?';
-      const unit = batch?.unit || '';
+      const snap = feedSnapshot(fe, batches);
+      const movement = fe.kind === 'pool_carry' || fe.kind === 'pool_removal';
+      const feedName = batch?.name || getById('feedTypes', fe.feedTypeId)?.name || '?';
+      const unit = fe.unitSnapshot || batch?.unit || '';
       // OI-0140: surface which paddock window each entry was attributed to.
       // Mirrors the existing arrow format used on the Feed Checks rows below.
       const feLoc = fe.locationId ? getById('locations', fe.locationId) : null;
       const feLocName = feLoc?.name || '?';
-      const desc = `${fe.quantity ?? 0} ${unit} ${feedName} → ${feLocName}`.trim();
+      const desc = `${fe.quantity ?? 0} ${unit} ${feedName} → ${feLocName}${movement ? ` · ${fe.kind} · ${fe.transferId}` : ''}`.trim();
       const cost = (fe.quantity || 0) * (batch?.costPerUnit ?? 0);
 
       // OI-0108: formula produces dry matter DELIVERED (DM), not DMI (per-head intake).
       // The guard below shows em-dash when batch is missing weight/DM — otherwise a
       // legitimate `quantity === 0` row is indistinguishable from a missing-data row.
-      const dm = computeFeedEntryDm(fe.quantity, batch, unitSys);
+      const dm = computeFeedEntryDm(fe.quantity, fe.kind ? { weightPerUnitKg: snap.weight, dmPct: snap.dmPct } : batch, unitSys);
       const dmDivAttrs = { 'data-testid': `detail-feed-entry-dm-${fe.id}` };
       if (dm.missing) dmDivAttrs.title = t('event.feedEntryDmMissing');
 
@@ -962,7 +965,7 @@ function renderFeedEntries(ctx) {
           el('div', {}, [`$${cost.toFixed(2)}`]),
         ]),
       ];
-      if (isActive) {
+      if (isActive && !movement) {
         rightChildren.push(el('button', {
           className: 'btn btn-outline btn-xs',
           onClick: () => {
@@ -1060,8 +1063,8 @@ function renderFeedChecks(ctx) {
     const batch = getById('batches', item.batchId);
     const loc = getById('locations', item.locationId);
     const dateStr = `${formatShortDate(check.date || check.checkDate || check.createdAt)}${check.time ? ` ${check.time}` : ''}`;
-    const remStr = `${item.remainingQuantity} ${batch?.unit || ''}`.trim();
-    const batchName = batch?.name || '?';
+    const remStr = `${item.remainingQuantity} ${item.unitSnapshot || batch?.unit || ''}`.trim();
+    const batchName = batch?.name || getById('feedTypes', item.feedTypeId)?.name || '?';
     const locName = loc?.name || '?';
     const noteStr = check.notes ? ` \u00B7 ${check.notes}` : '';
 

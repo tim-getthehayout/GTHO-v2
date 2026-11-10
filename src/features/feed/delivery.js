@@ -1,9 +1,12 @@
+import { replayFeedPools, poolKey, poolReading } from '../../calcs/feed-pools.js';
+import { rowInstant } from '../../utils/date-utils.js';
+import { poolWritesEnabled, poolInput, inventoryPoolSnapshot } from './pool-ledger.js';
 /** @file Deliver feed (Log feeding) sheet — CP-27. V1 parity: batch cards + inline stepper + summary. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add } from '../../data/store.js';
+import { runDurableWrite, getAll, getById, add } from '../../data/store.js';
 import { reviewSave, inputField } from '../assistant/entry-review.js';
 import { bindEntryFields } from '../assistant/entry-fields.js';
 import { FEEDING_ENTRY_FIELDS } from './delivery-entry-fields.js';
@@ -67,6 +70,8 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
   let quantityBasis = null;
   let allocatedLines = null;
   let carryover = null;
+  const executionKey=JSON.stringify([operationId,'manual-pool-feeding',crypto.randomUUID(),1]);
+  let committed=false;
   const initialLoc = selectedLocationId ? getById('locations', selectedLocationId) : null;
   const locName = initialLoc?.name || '?';
 
@@ -316,7 +321,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     if (Array.isArray(carryover.items) && carryover.items.length) return carryover.items;
     if (carryover.remainingQuantity != null || carryover.batchId) {
       return [{
-        batchId: carryover.batchId ?? null,
+        ...(poolWritesEnabled() ? {feedTypeId:carryover.feedTypeId??null,unit:carryover.unit} : {batchId: carryover.batchId ?? null}),
         locationId: carryover.locationId ?? selectedLocationId,
         remainingQuantity: carryover.remainingQuantity,
       }];
@@ -328,7 +333,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     const timing = carryoverEl.querySelector('[data-testid="feed-carryover-timing"]')?.value || carryover.timing || null;
     const time = carryoverEl.querySelector('[data-testid="feed-carryover-time"]')?.value || (timing === 'same-instant' ? null : (carryover.time || null));
     const rows = [...carryoverEl.querySelectorAll('[data-testid="feed-carryover-item"]')].map(row => ({
-      batchId: row.querySelector('[data-testid="feed-carryover-batch"]')?.value || null,
+      ...(poolWritesEnabled() ? {feedTypeId:row.querySelector('[data-testid="feed-carryover-type"]')?.value || null} : {batchId:row.querySelector('[data-testid="feed-carryover-batch"]')?.value || null}),
       locationId: row.querySelector('[data-testid="feed-carryover-location"]')?.value || null,
       remainingQuantity: Number(row.querySelector('[data-testid="feed-carryover-remaining"]')?.value),
     }));
@@ -366,8 +371,13 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     );
     items.forEach((item, index) => {
       const batchSel = el('select', { 'data-testid': 'feed-carryover-batch', onChange: writeCarryoverFromForm });
-      for (const batch of batches) batchSel.appendChild(el('option', { value: batch.id, selected: batch.id === item.batchId }, [batch.name || batch.id]));
-      if (item.batchId) batchSel.value = item.batchId;
+      if (poolWritesEnabled()) {
+        batchSel.dataset.testid='feed-carryover-type';
+        for(const type of getAll('feedTypes').filter(row=>row.operationId===operationId))batchSel.appendChild(el('option',{value:type.id,selected:type.id===(item.feedTypeId||getById('batches',item.batchId)?.feedTypeId)},[type.name]));
+      }
+      for (const batch of poolWritesEnabled() ? [] : batches) batchSel.appendChild(el('option', { value: batch.id, selected: batch.id === item.batchId }, [batch.name || batch.id]));
+      if (poolWritesEnabled() && item.feedTypeId) batchSel.value=item.feedTypeId;
+      else if (!poolWritesEnabled() && item.batchId) batchSel.value = item.batchId;
       const locSel = el('select', { 'data-testid': 'feed-carryover-location', onChange: writeCarryoverFromForm });
       const locIds = sortedActivePWs.map(pw => pw.locationId);
       for (const id of locIds) {
@@ -382,7 +392,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
         onInput: writeCarryoverFromForm,
       });
       carryoverEl.appendChild(el('div', { 'data-testid': 'feed-carryover-item', 'data-index': String(index), style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' } }, [
-        el('div', { className: 'field' }, [el('label', {}, ['Batch']), batchSel]),
+        el('div', { className: 'field' }, [el('label', {}, [poolWritesEnabled()?t('pool.feedType'):'Batch']), batchSel]),
         el('div', { className: 'field' }, [el('label', {}, ['Paddock']), locSel]),
         el('div', { className: 'field' }, [el('label', {}, ['Remaining']), remaining]),
       ]));
@@ -424,6 +434,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
     el('button', {
       className: 'btn btn-green',
       onClick: reviewSave(options.review, () => {
+        if(committed)return;
         clear(statusEl);
         const linesToSave = selectedLines.filter(l => l.qty > 0);
         if (!linesToSave.length) {
@@ -458,9 +469,10 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               statusEl.appendChild(el('span', {}, ['How should the remaining quantity be split across the paddocks?']));
               return;
             }
+            if(poolWritesEnabled() && leftover.timing!=='same-instant' && (leftover.timing==='before' ? rowInstant(dateInput.value,leftover.time)>=rowInstant(dateInput.value,timeInput.value) : rowInstant(dateInput.value,leftover.time)<=rowInstant(dateInput.value,timeInput.value)))throw new Error(t('pool.timing'));
             const seenLeftover = new Set();
             for (const item of leftoverItems) {
-              if (!visibleBatchIds.has(item.batchId) || !visibleLocationIds.has(item.locationId)) {
+              if ((!poolWritesEnabled() && !visibleBatchIds.has(item.batchId)) || (poolWritesEnabled() && !getAll('feedTypes').some(row=>row.id===(item.feedTypeId||getById('batches',item.batchId)?.feedTypeId) && row.operationId===operationId)) || !visibleLocationIds.has(item.locationId)) {
                 statusEl.appendChild(el('span', {}, ['Remaining feed must use a batch and paddock shown on this review.']));
                 return;
               }
@@ -468,7 +480,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
                 statusEl.appendChild(el('span', {}, ['Remaining feed quantity must be a non-negative number.']));
                 return;
               }
-              const key = `${item.batchId}:${item.locationId}`;
+              const key = `${poolWritesEnabled() ? item.feedTypeId || getById('batches',item.batchId)?.feedTypeId : item.batchId}:${item.locationId}`;
               if (seenLeftover.has(key)) {
                 statusEl.appendChild(el('span', {}, ['Remaining feed cannot repeat the same batch and paddock.']));
                 return;
@@ -495,6 +507,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
                 record: FeedEntryEntity.create({
                   operationId, eventId: evt.id,
                   batchId: line.batchId, locationId: part.locationId,
+                  ...inventoryPoolSnapshot(getById('batches', line.batchId)),
                   sourceLocationId,
                   date: dateInput.value, time: timeInput.value || null,
                   quantity: qty,
@@ -506,12 +519,16 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
             operationId, eventId: evt.id,
             date: dateInput.value, time: leftover.timing === 'same-instant' ? (timeInput.value || null) : leftover.time,
           }) : null;
+          const previewPools = poolWritesEnabled() && leftover ? replayFeedPools({...poolInput(evt.id),entries:[...getAll('eventFeedEntries'),...plannedEntries.map(row=>row.record)]},{through:rowInstant(plannedCheck.date,plannedCheck.time)}) : null;
           const plannedItems = leftover
-            ? leftoverItems.map(item => FeedCheckItemEntity.create({
-              operationId, feedCheckId: plannedCheck.id,
-              batchId: item.batchId, locationId: item.locationId,
-              remainingQuantity: item.remainingQuantity,
-            }))
+            ? leftoverItems.map(item => {
+              if(poolWritesEnabled()){
+                const feedTypeId=item.feedTypeId||getById('batches',item.batchId)?.feedTypeId;
+                const pool=previewPools.get(poolKey({eventId:evt.id,locationId:item.locationId,feedTypeId}));
+                return FeedCheckItemEntity.create({operationId,feedCheckId:plannedCheck.id,...poolReading(pool,item.remainingQuantity,item.unit??pool?.unit)});
+              }
+              return FeedCheckItemEntity.create({operationId,feedCheckId:plannedCheck.id,batchId:item.batchId,locationId:item.locationId,remainingQuantity:item.remainingQuantity});
+            })
             : [];
           const pendingRows = [
             ...plannedEntries.map(row => ({ validate: FeedEntryEntity.validate, record: row.record })),
@@ -544,12 +561,10 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               return;
             }
           }
+          const write=()=>{
           for (const row of plannedEntries) {
             const deducted = deductDelivery(row.batchId, row.sourceLocationId, row.qty);
-            if (deducted) {
-              statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
-              return;
-            }
+            if (deducted) throw new Error(t('feed.moveTooMuch'));
             add('eventFeedEntries', row.record, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
           }
           if (plannedCheck) {
@@ -558,6 +573,10 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               add('eventFeedCheckItems', item, FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
             }
           }
+          return plannedEntries[0].record.id;
+          };
+          if(poolWritesEnabled() && !options.review)runDurableWrite(executionKey,write);else write();
+          committed=true;
           if (!options.review) deliverFeedSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

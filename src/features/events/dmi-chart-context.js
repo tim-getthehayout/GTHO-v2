@@ -78,12 +78,12 @@ export function buildDmi8ChartContext(eventId) {
   for (const fe of feedEntries) {
     if (batches[fe.batchId]) continue;
     const b = getById('batches', fe.batchId);
-    if (b) batches[fe.batchId] = { weightPerUnitKg: b.weightPerUnitKg, dmPct: b.dmPct };
+    if (b) batches[fe.batchId] = { weightPerUnitKg: b.weightPerUnitKg, dmPct: b.dmPct, feedTypeId: b.feedTypeId, unit: b.unit };
   }
   for (const fci of feedCheckItems) {
     if (batches[fci.batchId]) continue;
     const b = getById('batches', fci.batchId);
-    if (b) batches[fci.batchId] = { weightPerUnitKg: b.weightPerUnitKg, dmPct: b.dmPct };
+    if (b) batches[fci.batchId] = { weightPerUnitKg: b.weightPerUnitKg, dmPct: b.dmPct, feedTypeId: b.feedTypeId, unit: b.unit };
   }
 
   // OI-0130: include `id` and `defaultWeightKg` so the map values round-trip

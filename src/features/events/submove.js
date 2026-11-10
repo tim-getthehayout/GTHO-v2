@@ -1,9 +1,10 @@
+import { poolWritesEnabled, liveFeedPools, writePoolCheck, poolExecutionKey } from '../feed/pool-ledger.js';
 /** @file Sub-move open/close sheets and advance strip sheet — CP-18, OI-0006. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, closePaddockWindow } from '../../data/store.js';
+import { getAll, getById, add, update, closePaddockWindow, runDurableWrite } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
@@ -239,8 +240,8 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
     // batch × location) so the "Delivered: N" line lines up with the value the
     // farmer is about to confirm, not the original delivery total.
     const liveRemaining = getLiveRemainingForMove(first.eventId);
-    const groups = {};
-    for (const entry of eventFeedEntries) {
+    const groups = poolWritesEnabled() ? Object.fromEntries([...liveFeedPools(first.eventId)].filter(([,pool])=>windows.some(window=>window.locationId===pool.locationId)).map(([,pool])=>[`${pool.feedTypeId}|${pool.locationId}`,{feedTypeId:pool.feedTypeId,locationId:pool.locationId,total:pool.q??'?',unit:pool.unit||'kg'}])) : {};
+    for (const entry of poolWritesEnabled() ? [] : eventFeedEntries) {
       const key = `${entry.batchId}|${entry.locationId}`;
       if (!groups[key]) {
         groups[key] = {
@@ -254,21 +255,21 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
     for (const group of Object.values(groups)) {
       const batch = getById('batches', group.batchId);
       const groupLoc = getById('locations', group.locationId);
-      const batchName = batch ? batch.name : '?';
+      const batchName = group.feedTypeId ? getById('feedTypes',group.feedTypeId)?.name || '?' : batch ? batch.name : '?';
       const groupLocName = groupLoc ? groupLoc.name : '?';
       const remainingInput = el('input', {
         type: 'number', className: 'auth-input settings-input',
         value: '0', placeholder: '0', min: '0',
-        'data-testid': `submove-close-feed-${group.batchId}-${group.locationId}`,
+        'data-testid': `submove-close-feed-${group.feedTypeId || group.batchId}-${group.locationId}`,
       });
-      feedCheckInputs.push({ batchId: group.batchId, locationId: group.locationId, input: remainingInput });
+      feedCheckInputs.push({ batchId: group.batchId, feedTypeId:group.feedTypeId, unit:group.unit, locationId: group.locationId, input: remainingInput });
       panel.appendChild(el('div', {
         className: 'card-inset',
         style: { marginTop: 'var(--space-2)', padding: 'var(--space-3)' },
       }, [
         el('div', { style: { fontWeight: '500', fontSize: '13px' } }, [`${batchName} \u2192 ${groupLocName}`]),
         el('div', { className: 'form-hint' }, [
-          `${t('feed.feedCheckStarted')}: ${group.total} ${batch?.unit || ''}`,
+          `${t('feed.feedCheckStarted')}: ${group.total} ${group.unit || batch?.unit || ''}`,
         ]),
         el('label', { className: 'form-label' }, [t('feed.feedCheckRemaining')]),
         remainingInput,
@@ -276,6 +277,7 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
     }
   }
 
+  const executionKey=poolExecutionKey(first.operationId,'submove-pools');
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-close-status' });
   panel.appendChild(statusEl);
 
@@ -303,6 +305,7 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
         }
 
         try {
+          const write=()=>{
           // One residual, copied onto every window this Save closes.
           // The feed check is the event's reading, written once.
           const observedAt = new Date().toISOString();
@@ -317,7 +320,8 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
 
           // OI-0119: write the feed check + items so DMI-8 converts the prior
           // interval's storedDmiKg from estimated → actual on re-read.
-          if (hasStoredFeed && feedCheckInputs.length) {
+          if(hasStoredFeed && feedCheckInputs.length && poolWritesEnabled())writePoolCheck({operationId:first.operationId,eventId:first.eventId,date:dateClosed,time:timeClosed,readings:feedCheckInputs.map(row=>({feedTypeId:row.feedTypeId,locationId:row.locationId,remainingQuantity:Number(row.input.value),unit:row.unit}))});
+          else if (hasStoredFeed && feedCheckInputs.length) {
             const check = FeedCheckEntity.create({
               operationId: first.operationId,
               eventId: first.eventId,
@@ -340,6 +344,9 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
             }
           }
 
+          return first.id;
+          };
+          if(poolWritesEnabled())runDurableWrite(executionKey,write);else write();
           submoveCloseSheet.close();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

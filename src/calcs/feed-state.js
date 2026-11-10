@@ -1,3 +1,5 @@
+import { RELEASED_SCHEMA_VERSION } from '../data/schema-release.js';
+import { replayFeedPools } from './feed-pools.js';
 /** @file Feed state helpers — OI-0135, OI-0139. */
 
 import { getAll } from '../data/store.js';
@@ -24,6 +26,7 @@ const signedQuantity = entry => (entry.entryType === 'removal' ? -1 : 1) * (Numb
  * @returns {Object<string, number>} keyed by `${batchId}|${locationId}`
  */
 export function getLiveRemainingForMove(eventId) {
+  if(RELEASED_SCHEMA_VERSION>=43)return Object.fromEntries([...replayFeedPools({eventId,entries:getAll('eventFeedEntries'),checks:getAll('eventFeedChecks'),items:getAll('eventFeedCheckItems'),batches:getAll('batches'),feedTypes:getAll('feedTypes')}).values()].map(pool=>[`${pool.feedTypeId}|${pool.locationId}`,pool.q]));
   const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === eventId);
   const allChecks = getAll('eventFeedChecks')
     .filter(fc => fc.eventId === eventId)

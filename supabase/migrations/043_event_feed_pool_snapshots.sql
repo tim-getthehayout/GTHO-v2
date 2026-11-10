@@ -57,7 +57,7 @@ ALTER TABLE public.event_feed_entries
   ),
   ADD CONSTRAINT feed_entry_return_destination CHECK (
     (return_batch_id IS NULL AND return_storage_location_id IS NULL)
-    OR (return_batch_id IS NOT NULL AND return_storage_location_id IS NOT NULL AND kind IS NOT NULL AND kind = 'pool_removal' AND destination_type = 'batch')
+    OR (return_batch_id IS NOT NULL AND return_storage_location_id IS NOT NULL AND kind IS NOT NULL AND kind = 'pool_removal' AND destination_type IS NOT NULL AND destination_type = 'batch')
   );
 -- transfer_id is a shared durable operation token, not a cyclic entry FK.
 -- Batches and storage locations already precede entries in backup FK order.

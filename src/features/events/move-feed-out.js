@@ -1,3 +1,5 @@
+import { poolWritesEnabled } from '../feed/pool-ledger.js';
+import { renderPoolTransferForm } from '../feed/pool-forms.js';
 /** @file Move Feed Out sheet — SP-10 §8a. Four-step flow: state → check → amount+dest → confirm. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -36,6 +38,8 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
   if (!moveFeedSheet) moveFeedSheet = new Sheet('move-feed-out-wrap');
   const panel = document.getElementById('move-feed-out-panel');
   if (!panel) return;
+
+  if (poolWritesEnabled()) { renderPoolTransferForm(panel, event, operationId, { ...opts, close: () => moveFeedSheet.close() }); moveFeedSheet.open(); return; }
 
   const unitSys = getUnitSystem();
   const todayStr = getLocalTodayStr();

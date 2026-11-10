@@ -1,3 +1,5 @@
+import { poolWritesEnabled } from '../feed/pool-ledger.js';
+import { renderPoolCheckForm } from '../feed/pool-forms.js';
 /** @file Feed Check Edit Dialog — SP-10 §9 (OI-0084).
  *
  * Per-item edit dialog. Edits one feed line's reading on a single feed check
@@ -340,6 +342,8 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
   if (!panel) return;
   clear(panel);
   panel.appendChild(el('div', { className: 'sheet-handle' }));
+
+  if (poolWritesEnabled()) { renderPoolCheckForm(panel, event, operationId, { check, item, close: () => editFcSheet.close() }); editFcSheet.open(); return; }
 
   const batch = getById('batches', item.batchId);
   const loc = getById('locations', item.locationId);

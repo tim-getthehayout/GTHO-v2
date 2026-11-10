@@ -1,3 +1,4 @@
+import { inventoryPoolSnapshot } from '../feed/pool-ledger.js';
 /** @file Inline §8 Feed Entries Add/Edit form — OI-0085 (v1 parity).
  *
  * Renders inside the Edit Event dialog under the §8 list. Module-level state
@@ -180,6 +181,7 @@ const atomic = (operationId, work) => runDurableWrite(JSON.stringify([operationI
 export function commitAdd({ operationId, event, locationId, date, time = null, lines }) {
   if (lines.some(line => !Number.isFinite(Number(line.qty)) || Number(line.qty) < 0)) throw new Error(t('manualEntry.invalidNumber'));
   const entries = lines.filter(line => Number(line.qty) > 0).map(line => FeedEntryEntity.create({
+    ...inventoryPoolSnapshot(getById('batches', line.batchId)),
     operationId, eventId: event.id, locationId, date, time,
     batchId: line.batchId, sourceLocationId: line.sourceLocationId || null, quantity: Number(line.qty),
   }));
@@ -196,7 +198,8 @@ export function commitAdd({ operationId, event, locationId, date, time = null, l
 }
 
 export function commitEdit({ entry, newDate, newTime = entry.time, newQty, newBatchId = entry.batchId, newSourceLocationId = entry.sourceLocationId }) {
-  const next = { ...entry, date: newDate, time: newTime || null, quantity: Number(newQty), batchId: newBatchId, sourceLocationId: newSourceLocationId || null };
+  if(['pool_carry','pool_removal'].includes(entry.kind))throw new Error(t('manualEntry.unsupportedFeed'));
+  const next = { ...entry, ...(newBatchId !== entry.batchId ? inventoryPoolSnapshot(getById('batches', newBatchId)) : {}), date: newDate, time: newTime || null, quantity: Number(newQty), batchId: newBatchId, sourceLocationId: newSourceLocationId || null };
   validRecord(next);
   // A date-only change to legacy data does not invent a stock location.
   const inventoryChanged = next.quantity !== entry.quantity || next.batchId !== entry.batchId || next.sourceLocationId !== (entry.sourceLocationId || null);

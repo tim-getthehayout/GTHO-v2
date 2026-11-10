@@ -1,3 +1,6 @@
+import { poolWritesEnabled, liveFeedPools, writePoolCheck, writePoolTransfer, poolExecutionKey, afterObservation } from '../feed/pool-ledger.js';
+import { poolConversion } from '../../calcs/feed-pools.js';
+import { rowInstant } from '../../utils/date-utils.js';
 import { reviewSave, inputField, stateField, observationField } from '../assistant/entry-review.js';
 import { bindEntryFields } from '../assistant/entry-fields.js';
 import { MOVE_ENTRY_FIELDS } from './move-wizard-entry-fields.js';
@@ -6,7 +9,7 @@ import { MOVE_ENTRY_FIELDS } from './move-wizard-entry-fields.js';
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, closeGroupWindow, closePaddockWindow } from '../../data/store.js';
+import { getAll, getById, add, update, closeGroupWindow, closePaddockWindow, runDurableWrite } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { logger } from '../../utils/logger.js';
 import { maybeShowEmptyGroupPrompt } from '../animals/empty-group-prompt.js';
@@ -65,6 +68,7 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
 
   // Wizard state
   const state = {
+    executionKey: poolExecutionKey(operationId, 'move-pool-event'),
     step: 1,
     destType: null,        // 'new' | 'join'
     locationId: null,
@@ -114,6 +118,14 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
 }
 
 // Step 3: Close & Move
+function wizardPoolGroups(eventId,date,time){return Object.fromEntries([...liveFeedPools(eventId,date,time)].map(([,pool])=>[`${pool.feedTypeId}|${pool.locationId}`,{feedTypeId:pool.feedTypeId,locationId:pool.locationId,total:pool.q??NaN,unit:pool.unit||'kg'}]));}
+function transferWizardPools(toggles,sourceEvent,destinationEventId,destinationLocationId,operationId,date,time,arrival){
+  for(const toggle of toggles||[]){if(toggle.choice!=='move')continue;
+    const arrived=arrival && rowInstant(arrival.date,arrival.time)!==rowInstant(date,time)?arrival:afterObservation(date,time);
+    writePoolTransfer({operationId,eventId:sourceEvent.id,feedTypeId:toggle.feedTypeId,locationId:toggle.locationId,date,time,quantity:toggle.total,unit:toggle.unit,destinationEventId,destinationLocationId,arrival:arrived,allowClosed:true});
+  }
+}
+
 function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, opts = {},parentRender) {
   panel.appendChild(el('h2', { className: 'wizard-step-title' }, [t('event.step3Title')]));
 
@@ -288,14 +300,16 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
     feedSection = el('div', { className: 'close-open-section', style: { marginTop: 'var(--space-4)' } }, [
       el('div', { className: 'close-open-section-title' }, [t('event.feedTransfer')]),
     ]);
-    if (state.destType === 'new' && destIds.length > 1) {
-      if (!state.feedLocationId || !destIds.includes(state.feedLocationId)) {
-        state.feedLocationId = destIds[0];
+    const feedDestIds = poolWritesEnabled() && state.destType === 'join' ? getAll('eventPaddockWindows').filter(row=>row.eventId===state.existingEventId && !row.dateClosed).map(row=>row.locationId) : destIds;
+    if (poolWritesEnabled() && state.destType === 'join' && feedDestIds.length === 1) state.feedLocationId = feedDestIds[0];
+    if ((state.destType === 'new' || poolWritesEnabled()) && feedDestIds.length > 1) {
+      if (!state.feedLocationId || !feedDestIds.includes(state.feedLocationId)) {
+        state.feedLocationId = feedDestIds[0];
       }
       const feedDest = el('select', {
         className: 'auth-select',
         'data-testid': 'move-wizard-feed-destination',
-      }, destIds.map((id) => el('option', {
+      }, feedDestIds.map((id) => el('option', {
         value: id,
         ...(id === state.feedLocationId ? { selected: 'true' } : {}),
       }, [getById('locations', id)?.name || id.slice(0, 8)])));
@@ -310,8 +324,8 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
     // after delivery and silently inflated both the residual close-reading
     // stamp and the destination delivery row.
     const liveRemaining = getLiveRemainingForMove(sourceEvent.id);
-    const feedGroups = {};
-    for (const entry of feedEntries) {
+    const feedGroups = poolWritesEnabled() ? wizardPoolGroups(sourceEvent.id,state.dateOut,state.timeOut) : {};
+    for (const entry of poolWritesEnabled() ? [] : feedEntries) {
       const key = `${entry.batchId}|${entry.locationId}`;
       if (!feedGroups[key]) {
         feedGroups[key] = {
@@ -336,9 +350,9 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
       if (group.total <= 0) continue;
       const batch = getById('batches', group.batchId);
       const loc = getById('locations', group.locationId);
-      const batchName = batch ? batch.name : '?';
+      const batchName = group.feedTypeId ? getById('feedTypes',group.feedTypeId)?.name || '?' : batch ? batch.name : '?';
       const locName = loc ? loc.name : '?';
-      const unit = batch?.unit || '';
+      const unit = group.unit || batch?.unit || '';
       const safeKey = key.replace('|', '-');
       // OI-0136: the required residual-qty input is constructed here so the
       // Save handler can read `toggle.residualInput.value` at validation time.
@@ -352,6 +366,8 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
       const toggle = {
         key,
         batchId: group.batchId,
+        feedTypeId: group.feedTypeId,
+        unit,
         locationId: group.locationId,
         total: group.total,
         choice: 'move',  // default
@@ -526,6 +542,12 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     const timeInPreview = inputs.timeIn?.value || null;
     for (const toggle of transferToggles) {
       if (toggle.choice !== 'move') continue;
+      if(poolWritesEnabled()){
+        const pool=liveFeedPools(sourceEvent.id,dateOut,timeOut).get(`${sourceEvent.id}|${toggle.locationId}|${toggle.feedTypeId}`);
+        if(!poolConversion(pool) || !Number.isFinite(toggle.total) || toggle.total<=0 || toggle.total>pool.q+1e-8){statusEl.textContent=t('pool.unavailable');return;}
+        if(state.destType==='new' && rowInstant(dateInPreview,timeInPreview)<rowInstant(dateOut,timeOut)){statusEl.textContent=t('pool.arrival');return;}
+        continue;
+      }
       const dryRun = FeedEntryEntity.create({
         operationId,
         eventId: '00000000-0000-0000-0000-000000000000', // placeholder; only shape matters here
@@ -592,7 +614,9 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     return;
   }
 
+  let moveSucceeded=false;
   try {
+    const write=()=>{
     // --- CLOSE SOURCE (Steps 1-5 of save sequence) ---
 
     // OI-0066: scoped moves leave the source event open for remaining groups
@@ -604,7 +628,11 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     // Step 1: Create close-reading feed check if feed entries exist
     // Skipped in scoped mode — feed stays with the groups still on the source.
     const feedEntries = isScoped ? [] : getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
-    if (feedEntries.length) {
+    if(feedEntries.length && poolWritesEnabled()){
+      const groups=wizardPoolGroups(sourceEvent.id,dateOut,timeOut),toggles=new Map((transferToggles||[]).map(row=>[row.key,row]));
+      const readings=Object.entries(groups).map(([key,group])=>{const toggle=toggles.get(key);return {feedTypeId:group.feedTypeId,locationId:group.locationId,unit:group.unit,remainingQuantity:toggle?.choice==='residual'?Number(toggle.residualInput.value):group.total};});
+      writePoolCheck({operationId,eventId:sourceEvent.id,date:dateOut,time:timeOut,readings,isCloseReading:true});
+    } else if (feedEntries.length) {
       const check = FeedCheckEntity.create({
         operationId,
         eventId: sourceEvent.id,
@@ -755,7 +783,8 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       // Step 8: Feed transfer — only 'move' lines write a destination delivery row.
       // 'residual' lines are already captured by the close-reading remainingQuantity
       // stamp above (Step 1); the fertility-ledger write lands with OI-0092.
-      if (transferToggles && transferToggles.length) {
+      if(poolWritesEnabled())transferWizardPools(transferToggles,sourceEvent,newEvent.id,feedDestinationId(state),operationId,dateOut,timeOut,{date:dateIn,time:timeIn});
+      else if (transferToggles && transferToggles.length) {
         for (const toggle of transferToggles) {
           if (toggle.choice !== 'move') continue;
           const transferEntry = FeedEntryEntity.create({
@@ -783,10 +812,17 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         timeJoined: timeOut,
         logCategory: 'move-wizard',
       });
+      if(poolWritesEnabled())transferWizardPools(transferToggles,sourceEvent,state.existingEventId,state.feedLocationId,operationId,dateOut,timeOut);
     }
+
+    return sourceEvent.id;
+    };
+    if(poolWritesEnabled() && !review)runDurableWrite(state.executionKey,write);else write();
+    moveSucceeded=true;
 
     // OI-0162-B: success path — wizard closes from the finally block.
   } catch (err) {
+    if(poolWritesEnabled())statusEl.textContent=err.message;
     // OI-0162-B Layer 2 — log + toast + finally-close. Pre-OI-0162 the
     // catch handler appended the error message to `statusEl` and left the
     // wizard open, but partial commits had already landed (source closed,
@@ -807,6 +843,6 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     showToast(t('event.moveWizardSaveErrorToast'), 'move-wizard-save-error-toast');
     if (review) throw err;
   } finally {
-    if (!review) moveWizardSheet.close();
+    if (!review && (!poolWritesEnabled() || moveSucceeded)) moveWizardSheet.close();
   }
 }

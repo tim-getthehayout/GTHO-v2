@@ -1,3 +1,5 @@
+import { poolWritesEnabled } from './pool-ledger.js';
+import { renderPoolCheckForm } from './pool-forms.js';
 /** @file Feed check sheet — CP-28. V1 parity: triple-sync stepper + pct + slider. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -37,6 +39,8 @@ export function openFeedCheckSheet(evt, operationId) {
   const panel = document.getElementById('feed-check-sheet-panel');
   if (!panel) return;
   clear(panel);
+
+  if (poolWritesEnabled()) { renderPoolCheckForm(panel, evt, operationId, { close: () => feedCheckSheet.close() }); feedCheckSheet.open(); return; }
 
   // Handle bar
   panel.appendChild(el('div', { className: 'sheet-handle' }));

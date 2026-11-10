@@ -1,3 +1,4 @@
+import { feedSnapshot } from '../../calcs/feed-pools.js';
 /** @file Reports screen — CP-48 through CP-51, CP-54. Report tabs + reference console. */
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
@@ -141,16 +142,23 @@ function renderFeedDmiTab() {
 
   // Totals
   let totalDmKg = 0;
+  let unknownPoolDm = false;
   let totalCost = 0;
   const batchMap = new Map(batches.map(b => [b.id, b]));
 
   const costEntries = [];
   for (const fe of feedEntries) {
     const batch = batchMap.get(fe.batchId);
-    if (!batch) continue;
-    const dmPct = batch.dmPct ?? 0;
-    totalDmKg += fe.quantity * (batch.weightPerUnitKg ?? 1) * (dmPct / 100);
-    costEntries.push({ qtyUnits: fe.quantity, costPerUnit: batch.costPerUnit ?? 0 });
+    if (fe.kind) {
+      const snap = feedSnapshot(fe, batches);
+      if (snap.weight != null && snap.dmPct != null) totalDmKg += (fe.kind === 'pool_removal' ? -1 : 1) * fe.quantity * snap.weight * snap.dmPct / 100;
+      else unknownPoolDm = true;
+      if (fe.kind === 'inventory_feeding') costEntries.push({ qtyUnits: fe.quantity, costPerUnit: batch?.costPerUnit ?? 0 });
+    } else if (batch) {
+      const dmPct = batch.dmPct ?? 0;
+      totalDmKg += fe.quantity * (batch.weightPerUnitKg ?? 1) * dmPct / 100;
+      costEntries.push({ qtyUnits: fe.quantity, costPerUnit: batch.costPerUnit ?? 0 });
+    }
   }
 
   if (cst1) {
@@ -160,12 +168,12 @@ function renderFeedDmiTab() {
   wrap.appendChild(sectionHeading(t('reports.totals')));
   wrap.appendChild(statCard(
     t('reports.totalFeedDelivered'),
-    `${feedEntries.length} ${t('reports.deliveries')}`,
+    `${feedEntries.filter(row=>row.kind ? row.kind==='inventory_feeding' : row.entryType!=='removal').length} ${t('reports.deliveries')}`,
     'reports-feed-total-deliveries',
   ));
   wrap.appendChild(statCard(
     t('reports.totalDmConsumed'),
-    `${display(totalDmKg, 'weight', unitSys, 1)} DM`,
+    unknownPoolDm ? '—' : `${display(totalDmKg, 'weight', unitSys, 1)} DM`,
     'reports-feed-total-dm',
   ));
   wrap.appendChild(statCard(
@@ -173,6 +181,10 @@ function renderFeedDmiTab() {
     `$${totalCost.toFixed(2)}`,
     'reports-feed-total-cost',
   ));
+
+  for (const row of feedEntries.filter(row => row.kind === 'pool_carry' || row.kind === 'pool_removal')) {
+    wrap.appendChild(el('div', { 'data-testid': `report-pool-movement-${row.id}`, className: 'form-hint' }, [`${row.date} ${row.time || ''} · ${getById('feedTypes', row.feedTypeId)?.name || '?'} · ${row.quantity} ${row.unitSnapshot || ''} · ${row.kind} · ${row.transferId}`]));
+  }
 
   // Group-by-group DMI breakdown
   wrap.appendChild(sectionHeading(t('reports.dmiByGroup')));
@@ -564,7 +576,7 @@ function renderSeasonTab() {
   let totalCost = 0;
   const costEntries = feedEntries.map(fe => {
     const batch = batchMap.get(fe.batchId);
-    return { qtyUnits: fe.quantity, costPerUnit: batch?.costPerUnit ?? 0 };
+    return { qtyUnits: fe.quantity, costPerUnit: fe.kind === 'pool_carry' || fe.kind === 'pool_removal' ? 0 : batch?.costPerUnit ?? 0 };
   });
 
   if (cst1 && costEntries.length) {

@@ -1,9 +1,10 @@
+import { poolWritesEnabled, liveFeedPools, writePoolCheck, poolExecutionKey } from '../feed/pool-ledger.js';
 /** @file Close event sheet — CP-20/CP-30. Full version with feed check + confinement NPK. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, closeGroupWindow, closePaddockWindow } from '../../data/store.js';
+import { getAll, getById, add, update, closeGroupWindow, closePaddockWindow, runDurableWrite } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
@@ -69,8 +70,8 @@ export function openCloseEventSheet(evt, operationId) {
     }, [t('feed.feedCheck')]));
 
     // Group by batch × location
-    const feedGroups = {};
-    for (const entry of feedEntries) {
+    const feedGroups = poolWritesEnabled() ? Object.fromEntries([...liveFeedPools(evt.id)].map(([,pool])=>[`${pool.feedTypeId}|${pool.locationId}`,{feedTypeId:pool.feedTypeId,locationId:pool.locationId,total:pool.q??'?',unit:pool.unit||'kg'}])) : {};
+    for (const entry of poolWritesEnabled() ? [] : feedEntries) {
       const key = `${entry.batchId}|${entry.locationId}`;
       if (!feedGroups[key]) feedGroups[key] = { batchId: entry.batchId, locationId: entry.locationId, total: 0 };
       feedGroups[key].total += entry.quantity;
@@ -79,7 +80,7 @@ export function openCloseEventSheet(evt, operationId) {
     for (const [key, group] of Object.entries(feedGroups)) {
       const batch = getById('batches', group.batchId);
       const loc = getById('locations', group.locationId);
-      const batchName = batch ? batch.name : '?';
+      const batchName = group.feedTypeId ? getById('feedTypes',group.feedTypeId)?.name || '?' : batch ? batch.name : '?';
       const locName = loc ? loc.name : '?';
 
       const remainingInput = el('input', {
@@ -87,7 +88,7 @@ export function openCloseEventSheet(evt, operationId) {
         value: '0', placeholder: '0',
         'data-testid': `close-event-feed-${key.replace('|', '-')}`,
       });
-      feedCheckInputs.push({ batchId: group.batchId, locationId: group.locationId, input: remainingInput });
+      feedCheckInputs.push({ batchId: group.batchId, feedTypeId:group.feedTypeId, unit:group.unit, locationId: group.locationId, input: remainingInput });
 
       panel.appendChild(el('div', {
         className: 'card-inset',
@@ -97,7 +98,7 @@ export function openCloseEventSheet(evt, operationId) {
           `${batchName} → ${locName}`,
         ]),
         el('div', { className: 'form-hint' }, [
-          `${t('feed.feedCheckStarted')}: ${group.total} ${batch?.unit || ''}`,
+          `${t('feed.feedCheckStarted')}: ${group.total} ${group.unit || batch?.unit || ''}`,
         ]),
         el('label', { className: 'form-label' }, [t('feed.feedCheckRemaining')]),
         remainingInput,
@@ -135,6 +136,7 @@ export function openCloseEventSheet(evt, operationId) {
   }
   panel.appendChild(postGrazeWrap);
 
+  inputs.poolExecutionKey=poolExecutionKey(operationId,'close-pools');
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'close-event-status' });
   panel.appendChild(statusEl);
 
@@ -209,8 +211,10 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
   }
 
   try {
+    const write=()=>{
     // 1. Create feed check if feed was delivered
-    if (feedCheckInputs.length) {
+    if(feedCheckInputs.length && poolWritesEnabled())writePoolCheck({operationId,eventId:evt.id,date:dateOut,time:timeOut,isCloseReading:true,readings:feedCheckInputs.map(row=>({feedTypeId:row.feedTypeId,locationId:row.locationId,remainingQuantity:row.input.value.trim()===''?NaN:Number(row.input.value),unit:row.unit}))});
+    else if (feedCheckInputs.length) {
       const check = FeedCheckEntity.create({
         operationId,
         eventId: evt.id,
@@ -282,6 +286,9 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
       }
     }
 
+    return evt.id;
+    };
+    if(poolWritesEnabled())runDurableWrite(inputs.poolExecutionKey,write);else write();
     closeEventSheet.close();
   } catch (err) {
     statusEl.appendChild(el('span', {}, [err.message]));

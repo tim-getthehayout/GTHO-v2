@@ -212,4 +212,3 @@ export function hasUnknownLiveWindowWeights(gw, opts) {
   }
   return false;
 }
-

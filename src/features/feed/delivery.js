@@ -10,7 +10,10 @@ import { FEEDING_ENTRY_FIELDS } from './delivery-entry-fields.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { getEventStartDate } from '../events/event-start.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
-import { positiveBalances, deductDelivery, locationName } from './batch-balances.js';
+import {
+  positiveBalances, deductDelivery, locationName,
+  availableDeliveryStock, exceedsAvailableStock,
+} from './batch-balances.js';
 import { allocateFeedingLines, reconcileAllocatedLines } from '../assistant/feeding-clarification.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
@@ -522,13 +525,19 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               return;
             }
           }
-          const requestedByBatch = new Map();
+          const requestedBySource = new Map();
           for (const row of plannedEntries) {
-            requestedByBatch.set(row.batchId, (requestedByBatch.get(row.batchId) ?? 0) + row.qty);
+            const key = `${row.batchId}\0${row.sourceLocationId ?? ''}`;
+            const prev = requestedBySource.get(key);
+            requestedBySource.set(key, {
+              batchId: row.batchId,
+              sourceLocationId: row.sourceLocationId,
+              qty: (prev?.qty ?? 0) + row.qty,
+            });
           }
-          for (const [batchId, requested] of requestedByBatch) {
-            const batch = getById('batches', batchId);
-            if (!batch || requested > Number(batch.remaining)) {
+          for (const { batchId, sourceLocationId, qty } of requestedBySource.values()) {
+            const stock = availableDeliveryStock(batchId, sourceLocationId);
+            if (stock.status !== 'ok' || exceedsAvailableStock(qty, stock.available)) {
               statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
               return;
             }

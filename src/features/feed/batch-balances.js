@@ -142,20 +142,38 @@ export function applyRemainingDelta(batchId, locationId, delta) {
   return null;
 }
 
+/** Tiny slack so 0.1 + 0.2 is not treated as more than 0.3. */
+const STOCK_EPSILON = 1e-9;
+
+/** The exact quantity deductDelivery will draw from for this batch and store. */
+export function availableDeliveryStock(batchId, sourceLocationId) {
+  const batch = getById('batches', batchId);
+  if (!batch) return { status: 'missing' };
+  const rows = balancesFor(batchId);
+  if (!rows.length) return { status: 'ok', available: Number(batch.remaining) };
+  const source = rows.find(row => row.locationId === sourceLocationId && Number(row.quantity) > 0);
+  if (!source) return { status: 'location' };
+  return { status: 'ok', available: Number(source.quantity) };
+}
+
+/** True when requested stock is short of available, using the deduction's comparison. */
+export function exceedsAvailableStock(requested, available) {
+  return Number(requested) - Number(available) > STOCK_EPSILON;
+}
+
 /** Deduct a delivery from one positive balance and keep remaining in sync. */
 export function deductDelivery(batchId, sourceLocationId, quantity) {
+  const stock = availableDeliveryStock(batchId, sourceLocationId);
+  if (stock.status !== 'ok') return stock.status;
   const batch = getById('batches', batchId);
-  if (!batch) return 'missing';
   const rows = balancesFor(batchId);
   if (!rows.length) {
-    update('batches', batchId, { remaining: Math.max(0, Number(batch.remaining) - quantity) },
+    update('batches', batchId, { remaining: Math.max(0, stock.available - quantity) },
       BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
     return null;
   }
-  const source = rows.find(row => row.locationId === sourceLocationId && Number(row.quantity) > 0);
-  if (!source) return 'location';
-  if (quantity > Number(source.quantity)) return 'tooMuch';
-  upsertBalance(batch.operationId, batchId, source.locationId, Number(source.quantity) - quantity);
+  if (exceedsAvailableStock(quantity, stock.available)) return 'tooMuch';
+  upsertBalance(batch.operationId, batchId, sourceLocationId, Math.max(0, stock.available - quantity));
   syncRemaining(batchId);
   return null;
 }

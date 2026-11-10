@@ -14,6 +14,7 @@ import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.j
 import * as LocationEntity from '../../entities/location.js';
 import * as ForageTypeEntity from '../../entities/forage-type.js'; // eslint-disable-line no-unused-vars
 import * as PaddockObsEntity from '../../entities/paddock-observation.js';
+import { soilTestFormValues } from '../amendments/soil-test-values.js';
 import * as SoilTestEntity from '../../entities/soil-test.js';
 import * as FeedTypeEntity from '../../entities/feed-type.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
@@ -615,6 +616,7 @@ function openSoilTestSheetFn(loc, operationId) {
   panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Lab ', el('span', { style: { fontWeight: '400', color: 'var(--text2)', fontSize: '11px' } }, ['(optional)'])]), inputs.lab]));
   panel.appendChild(el('div', { className: 'field' }, [el('label', {}, ['Notes ', el('span', { style: { fontWeight: '400', color: 'var(--text2)', fontSize: '11px' } }, ['(optional)'])]), inputs.notes]));
 
+  for (const [key, input] of Object.entries(inputs)) input.dataset.testid = `location-soil-${key}`;
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
 
@@ -623,13 +625,11 @@ function openSoilTestSheetFn(loc, operationId) {
       clear(statusEl);
       if (!inputs.date.value) { statusEl.appendChild(el('span', {}, ['Date is required'])); return; }
       try {
-        const rec = SoilTestEntity.create({
-          operationId, locationId: loc.id, testedAt: inputs.date.value,
-          unit: inputs.unit.value, n: parseFloat(inputs.n.value) || null,
-          p: parseFloat(inputs.p.value) || null, k: parseFloat(inputs.k.value) || null,
-          ph: parseFloat(inputs.ph.value) || null, organicMatterPct: parseFloat(inputs.om.value) || null,
-          lab: inputs.lab.value.trim() || null, notes: inputs.notes.value.trim() || null,
-        });
+        const rec = SoilTestEntity.create(soilTestFormValues(operationId, {
+          locationId: loc.id, testedAt: inputs.date.value, unit: inputs.unit.value,
+          n: inputs.n.value, p: inputs.p.value, k: inputs.k.value, ph: inputs.ph.value, organicMatter: inputs.om.value,
+          lab: inputs.lab.value, notes: inputs.notes.value,
+        }));
         add('soilTests', rec, SoilTestEntity.validate, SoilTestEntity.toSupabaseShape, 'soil_tests');
         soilTestSheet.close();
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }

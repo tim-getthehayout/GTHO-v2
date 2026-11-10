@@ -5,6 +5,7 @@ import { mapPickButton } from '../map/picker.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
+import { soilTestFormValues } from './soil-test-values.js';
 import * as SoilTestEntity from '../../entities/soil-test.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
@@ -164,22 +165,8 @@ function openSoilTestSheet(existing, operationId) {
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
     el('button', { className: 'btn btn-green', 'data-testid': 'soil-test-save', onClick: () => {
       clear(statusEl);
-      const parseNum = v => v === '' ? null : parseFloat(v);
-      const data = {
-        operationId,
-        locationId: inputs.locationId.value,
-        testedAt: new Date(inputs.testedAt.value + 'T12:00:00Z').toISOString(),
-        extractionMethod: inputs.extractionMethod.value.trim() || null,
-        unit: inputs.unit.value.trim() || 'ppm',
-        ph: parseNum(inputs.ph.value), bufferPh: parseNum(inputs.bufferPh.value),
-        cec: parseNum(inputs.cec.value), baseSaturation: parseNum(inputs.baseSaturation.value),
-        organicMatter: parseNum(inputs.organicMatter.value),
-        lab: inputs.lab.value.trim() || null,
-        notes: inputs.notes.value.trim() || null,
-      };
-      for (const key of NUTRIENT_KEYS) data[key] = parseNum(inputs[key].value);
-
       try {
+        const data = soilTestFormValues(operationId, Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.value])));
         if (isEdit) update('soilTests', existing.id, data, SoilTestEntity.validate, SoilTestEntity.toSupabaseShape, 'soil_tests');
         else add('soilTests', SoilTestEntity.create(data), SoilTestEntity.validate, SoilTestEntity.toSupabaseShape, 'soil_tests');
         soilTestSheet.close();

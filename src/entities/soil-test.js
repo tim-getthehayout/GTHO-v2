@@ -1,5 +1,7 @@
 /** @file Entity: soil_tests — V2_SCHEMA_DESIGN.md §8.5 */
 
+import { isValidTimestamp } from '../utils/form-values.js';
+
 export const FIELDS = {
   id:              { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId:     { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
@@ -69,6 +71,10 @@ export function validate(record) {
   if (!record.operationId) errors.push('operationId is required');
   if (!record.locationId) errors.push('locationId is required');
   if (!record.testedAt) errors.push('testedAt is required');
+  else if (!isValidTimestamp(record.testedAt)) errors.push('testedAt must be a valid timestamp');
+  for (const [key, field] of Object.entries(FIELDS)) if (field.type === 'numeric' && record[key] != null && (typeof record[key] !== 'number' || !Number.isFinite(record[key]))) errors.push(`${key} must be finite`);
+  if (record.ph != null && (record.ph < 0 || record.ph > 14)) errors.push('ph must be between 0 and 14');
+  if (record.organicMatter != null && (record.organicMatter < 0 || record.organicMatter > 100)) errors.push('organicMatter must be between 0 and 100');
   if (!record.unit || typeof record.unit !== 'string' || record.unit.trim() === '') {
     errors.push('unit is required');
   }

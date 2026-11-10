@@ -522,6 +522,17 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               return;
             }
           }
+          const requestedByBatch = new Map();
+          for (const row of plannedEntries) {
+            requestedByBatch.set(row.batchId, (requestedByBatch.get(row.batchId) ?? 0) + row.qty);
+          }
+          for (const [batchId, requested] of requestedByBatch) {
+            const batch = getById('batches', batchId);
+            if (!batch || requested > Number(batch.remaining)) {
+              statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
+              return;
+            }
+          }
           for (const row of plannedEntries) {
             const deducted = deductDelivery(row.batchId, row.sourceLocationId, row.qty);
             if (deducted) {

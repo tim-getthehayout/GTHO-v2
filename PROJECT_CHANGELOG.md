@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | fix(feeding): check remaining stock per batch in the delivery preflight, totaling requested quantity across every planned line, and write nothing if any batch is short. | `src/features/feed/delivery.js`, `tests/unit/features/feed/delivery-stock-preflight.test.js` |
 | 2026-11-10 | fix(feeding): run the exact entity validation used on write for every delivery, feed check and check item, and reject non-numeric, string-numeric, negative, and duplicate batch+location leftovers, before any stock deduction or record is written. | `src/features/feed/delivery.js`, `tests/unit/features/feed/delivery-carryover.test.js` |
 | 2026-11-10 | fix(assistant): validate and strip a malformed pendingClarification on the trusted snapshot that is actually restored from the backend, so ConversationRuntime.resume().snapshot() does not return it. | `src/entities/assistant-pending-clarification.js`, `src/features/assistant/backend-bindings.js`, `src/features/assistant/server/compose.js`, `tests/unit/assistant/backend-bindings.test.js` |
 | 2026-11-10 | fix(assistant): measure pendingClarification against 16 KB of UTF-8 bytes (TextEncoder), so a 6000-character CJK payload (18040 bytes) is rejected, and accept a value at the 16384-byte boundary. | `src/entities/assistant-pending-clarification.js`, `tests/unit/entities/assistant-pending-clarification.test.js` |

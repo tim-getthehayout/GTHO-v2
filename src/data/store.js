@@ -9,6 +9,7 @@ import * as GroupWindowEntity from '../entities/event-group-window.js';
 import * as GroupEntity from '../entities/group.js';
 import * as PaddockWindowEntity from '../entities/event-paddock-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../calcs/window-helpers.js';
+import { resolveCurrentPlacement } from './current-placement.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -397,28 +398,35 @@ export function getVisibleLocations() {
 }
 
 /**
- * OI-0133: Derive a group's current farm from its most recent open
- * event_group_window → event.farmId. Returns null if the group has no
- * open window (newly created, fully archived, or between placements).
+ * OI-0205 / OI-0133: resolve the group's current placement from open
+ * group windows whose parent event exists and is open. Shared by Animals,
+ * the dashboard, farm scope and write-context splits.
  *
- * "Most recent open" = window where dateLeft is null/undefined, sorted
- * by dateJoined DESC then timeJoined DESC; take first. Pure function
- * over store state — no I/O.
+ * Pure over store state — no I/O and no mutation of source records.
+ *
+ * @param {string} groupId
+ * @returns {object} placement from resolveCurrentPlacement
+ */
+export function resolveGroupCurrentPlacement(groupId) {
+  return resolveCurrentPlacement({
+    groupId,
+    groupWindows: state.eventGroupWindows || [],
+    events: state.events || [],
+    paddockWindows: state.eventPaddockWindows || [],
+    locations: state.locations || [],
+  });
+}
+
+/**
+ * OI-0133 / OI-0205: A group's current farm is derived from its valid
+ * current placement (open group window on an existing open parent event).
+ * The group record itself has no farm_id (dropped in migration 032).
  *
  * @param {string} groupId
  * @returns {string|null} farmId of the owning event, or null
  */
 export function getGroupCurrentFarm(groupId) {
-  const openWindows = (state.eventGroupWindows || [])
-    .filter(w => w.groupId === groupId && !w.dateLeft);
-  if (!openWindows.length) return null;
-  const latest = openWindows.sort((a, b) => {
-    const dateCmp = (b.dateJoined || '').localeCompare(a.dateJoined || '');
-    if (dateCmp !== 0) return dateCmp;
-    return (b.timeJoined || '').localeCompare(a.timeJoined || '');
-  })[0];
-  const event = (state.events || []).find(e => e.id === latest.eventId);
-  return event?.farmId ?? null;
+  return resolveGroupCurrentPlacement(groupId).farmId;
 }
 
 /**
@@ -823,8 +831,11 @@ export function splitGroupWindow(groupId, eventId, changeDate, changeTime, newSt
 }
 
 /**
- * OI-0094 helper: if the group is on an open event, split its open window so
- * calcs pick up the new live head/weight. No-op when the group isn't placed.
+ * OI-0094 helper: if the group has a valid current placement (open window
+ * on an existing open parent event), split that window so calcs pick up
+ * the new live head/weight. No-op when the group isn't placed, including
+ * when the only open windows are orphans of closed or missing parents
+ * (OI-0205).
  *
  * Promoted to shared export 2026-04-18 per OI-0096 prereq — previously defined
  * locally in calving.js and animals/index.js.
@@ -834,7 +845,9 @@ export function splitGroupWindow(groupId, eventId, changeDate, changeTime, newSt
  */
 export function maybeSplitForGroup(groupId, changeDate) {
   if (!groupId || !changeDate) return;
-  const openGW = state.eventGroupWindows.find(w => w.groupId === groupId && !w.dateLeft);
+  // OI-0205: adopt the valid current window, never a historical orphan
+  // whose parent event is missing or closed, and never insertion order.
+  const openGW = resolveGroupCurrentPlacement(groupId).groupWindow;
   if (!openGW) return;
   const ctx = {
     memberships: state.animalGroupMemberships,

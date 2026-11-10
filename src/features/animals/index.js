@@ -3,7 +3,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup } from '../../data/store.js';
+import { getAll, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup, resolveGroupCurrentPlacement } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import * as GroupEntity from '../../entities/group.js';
@@ -23,7 +23,6 @@ import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
 import { syncCalvingRecordForAnimal } from './calving-sync.js';
 import { maybeShowEmptyGroupPrompt, groupEventHistoryCount } from './empty-group-prompt.js';
 import { showToast } from '../../ui/toast.js';
-import { openLocationNames } from '../events/open-cohort.js';
 import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpers.js';
 import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
@@ -213,15 +212,10 @@ export function renderAnimalsScreen(container) {
       const dmiKg = totalWeightKg * 0.025;
       const dmiDisplay = display(dmiKg, 'weight', unitSys, 0);
 
-      // Status badge
-      const gws = getAll('eventGroupWindows').filter(gw => gw.groupId === g.id && !gw.dateLeft);
-      const activeGw = gws[0];
-      const activeEvent = activeGw ? getById('events', activeGw.eventId) : null;
-      const isPlaced = !!(activeEvent && !activeEvent.dateOut);
-      let locName = '';
-      if (isPlaced) {
-        locName = openLocationNames(activeEvent.id).join(', ');
-      }
+      // Status badge — OI-0205 shared current-placement resolver
+      const placement = resolveGroupCurrentPlacement(g.id);
+      const isPlaced = placement.placed;
+      const locName = placement.displayName;
 
       const isFiltered = selectedFilter === g.id;
 
@@ -405,14 +399,12 @@ export function renderAnimalsScreen(container) {
       const weightDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '—';
       const isCulled = animal.active === false;
 
-      // Location badge
+      // Location badge — inherit the group's current placement (OI-0205)
       let locBadge = null;
       if (grp) {
-        const gws2 = getAll('eventGroupWindows').filter(gw => gw.groupId === grp.id && !gw.dateLeft);
-        const ae = gws2[0] ? getById('events', gws2[0].eventId) : null;
-        if (ae && !ae.dateOut) {
-          const names = openLocationNames(ae.id);
-          if (names.length) locBadge = el('span', { className: 'badge bt', style: { fontSize: '10px' } }, [names.join(', ')]);
+        const animalPlacement = resolveGroupCurrentPlacement(grp.id);
+        if (animalPlacement.placed && animalPlacement.displayName) {
+          locBadge = el('span', { className: 'badge bt', style: { fontSize: '10px' } }, [animalPlacement.displayName]);
         }
       }
 
@@ -703,10 +695,9 @@ function openSplitGroupSheet(group, operationId) {
   const groups = getAll('groups').filter(g => !g.archivedAt && g.id !== group.id);
   const colors = ['#639922', '#1D9E75', '#185FA5', '#BA7517', '#E24B4A', '#534AB7'];
 
-  // Find location
-  const gws = getAll('eventGroupWindows').filter(gw => gw.groupId === group.id && !gw.dateLeft);
-  const activeEvent = gws[0] ? getById('events', gws[0].eventId) : null;
-  const locName = activeEvent ? openLocationNames(activeEvent.id).join(', ') : '';
+  // Find location — OI-0205 shared current-placement resolver
+  const splitPlacement = resolveGroupCurrentPlacement(group.id);
+  const locName = splitPlacement.placed ? splitPlacement.displayName : '';
 
   const splitAnimals = new Set();
   let destType = 'new';

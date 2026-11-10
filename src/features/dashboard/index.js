@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActiveFarmId, isCurrentUserDev } from '../../data/store.js';
+import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActiveFarmId, isCurrentUserDev, resolveGroupCurrentPlacement } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display } from '../../utils/units.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
@@ -25,7 +25,7 @@ import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads, ani
 import { getEventStartDate } from '../events/event-start.js';
 import { buildDmi8ChartContext, computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
-import { openLocationNames } from '../events/open-cohort.js';
+import { listOpenPaddocksForEvent, formatPaddockDisplayName } from '../../data/current-placement.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -708,21 +708,11 @@ function renderGroupsView(gridEl) {
 }
 
 function renderGroupCard(group, unitSys, operationId, farmId) {
-  // OI-0073 Part A: prefer GW linked to an open event; tie-break by most-recent dateJoined.
-  const groupWindows = getAll('eventGroupWindows');
-  const events = getAll('events');
-  const eventMap = new Map(events.map(e => [e.id, e]));
-  const candidateGWs = groupWindows.filter(gw => gw.groupId === group.id && !gw.dateLeft);
-  const sortByDateJoinedDesc = (a, b) => (b.dateJoined || '').localeCompare(a.dateJoined || '');
-  const openEventCandidates = candidateGWs.filter(gw => {
-    const evt = eventMap.get(gw.eventId);
-    return evt && !evt.dateOut;
-  });
-  const activeGW = openEventCandidates.sort(sortByDateJoinedDesc)[0]
-    || candidateGWs.slice().sort(sortByDateJoinedDesc)[0]
-    || null;
-  const activeEvent = activeGW ? eventMap.get(activeGW.eventId) : null;
-  const isOnPasture = !!(activeEvent && !activeEvent.dateOut);
+  // OI-0205: shared current-placement resolver (open parent first, latest-joined).
+  const placement = resolveGroupCurrentPlacement(group.id);
+  const activeGW = placement.groupWindow;
+  const activeEvent = placement.event;
+  const isOnPasture = placement.placed;
 
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');
@@ -754,11 +744,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   let locationName = '';
   let dayCount = 0;
   if (isOnPasture) {
-    const names = openLocationNames(activeEvent.id);
-    if (names.length) locationName = names.join(', ');
-    else if (getAll('eventPaddockWindows').some(w => w.eventId === activeEvent.id && !w.dateClosed)) {
-      locationName = '?';
-    }
+    locationName = placement.displayName;
     const startDate = getEventStartDate(activeEvent.id);
     dayCount = startDate ? daysBetweenInclusive(startDate, todayStr) : 0;
   }
@@ -1039,13 +1025,8 @@ function renderLocationsView(gridEl) {
 
   gridEl.appendChild(grid);
 
-  // Unplaced groups section
-  const placedGroupIds = new Set();
-  for (const event of activeEvents) {
-    const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id && !gw.dateLeft);
-    for (const gw of gws) placedGroupIds.add(gw.groupId);
-  }
-  const unplacedGroups = groups.filter(g => !placedGroupIds.has(g.id));
+  // Unplaced groups section — OI-0205: same resolver as group tiles
+  const unplacedGroups = groups.filter(g => !resolveGroupCurrentPlacement(g.id).placed);
 
   if (unplacedGroups.length) {
     const section = el('div', { style: { marginTop: 'var(--space-5)' } }, [
@@ -1086,12 +1067,12 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const locArea = (l) => l?.areaHectares ?? l?.areaHa ?? 0;
   let locName, totalAreaHa = 0;
   if (openPws.length > 1) {
-    const names = openPws.map(pw => {
-      const loc = getById('locations', pw.locationId);
-      totalAreaHa += locArea(loc);
-      return loc?.name || '?';
-    });
-    locName = names.join(', ');
+    for (const pw of openPws) {
+      totalAreaHa += locArea(getById('locations', pw.locationId));
+    }
+    locName = formatPaddockDisplayName(listOpenPaddocksForEvent(
+      event.id, getAll('eventPaddockWindows'), getAll('locations'),
+    )) || '?';
   } else {
     const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
     locName = loc?.name || '?';

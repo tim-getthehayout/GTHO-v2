@@ -58,3 +58,21 @@ it('FA-01 legacy unplaced stock reverses without inventing a source; located leg
   const unknown = seed('eventFeedEntries', Entry, { eventId: event.id, locationId: 'pasture', batchId: 'hay-a', date: '2026-01-02', quantity: 2 });
   edit(unknown, 1); expect(mount.textContent).toContain('original source is unknown'); expect(getById('eventFeedEntries', unknown.id).quantity).toBe(2); invariant('hay-a', 10);
 });
+
+it('rejects an actual edit overdraw and an invalid date with no queued stock changes', () => {
+  const old = seed('eventFeedEntries', Entry, { eventId: event.id, locationId: 'pasture', batchId: 'hay-a', sourceLocationId: 'barn', date: '2026-01-02', quantity: 2 });
+  const before = JSON.stringify(balancesFor('hay-a'));
+  edit(old, 20); expect(getById('eventFeedEntries', old.id).quantity).toBe(2);
+  expect(JSON.stringify(balancesFor('hay-a'))).toBe(before); expect(queued('batches')).toHaveLength(0);
+  openEditMode(old); render(); fill(mount, 'input[type="date"]', ''); button(mount, 'Save changes').click();
+  expect(getById('eventFeedEntries', old.id).date).toBe('2026-01-02'); expect(queued('event_feed_entries')).toHaveLength(0);
+});
+it('actual Add rolls back row, balances and queue if local persistence fails', () => {
+  openAddMode(event); render(); [...mount.querySelectorAll('.batch-sel')].find(node => node.textContent.includes('hay-a')).click();
+  fill(mount, '[data-testid="feed-form-source-hay-a"]', 'barn', 'change'); fill(mount, 'input[type="number"]', '2');
+  const before = JSON.stringify(balancesFor('hay-a'));
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+  button(mount, 'Add to event').click();
+  expect(getAll('eventFeedEntries')).toHaveLength(0); expect(JSON.stringify(balancesFor('hay-a'))).toBe(before);
+  invariant('hay-a', 10); expect(queued('event_feed_entries')).toHaveLength(0);
+});

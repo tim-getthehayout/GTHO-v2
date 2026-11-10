@@ -144,6 +144,8 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       let message; try { message = JSON.parse(event.data); } catch { return; }
       switch (message.type) {
         case 'conversation.item.input_audio_transcription.updated': {
+          // Drop finalized-item events before any state mutation or turn-end.
+          if (message.item_id && finalizedItems.has(message.item_id)) break;
           const raw = message.transcript ?? message.text ?? '';
           if (message.item_id) noteItem(message.item_id, raw);
           // Spoken "over" ends the user turn (then commit + wait for finals).
@@ -151,6 +153,8 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
           break;
         }
         case 'conversation.item.input_audio_transcription.completed': {
+          // Drop finalized-item events before any state mutation or turn-end.
+          if (message.item_id && finalizedItems.has(message.item_id)) break;
           committed = false;
           const raw = message.transcript ?? message.text ?? '';
           noteItem(message.item_id, raw);

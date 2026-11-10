@@ -175,4 +175,48 @@ describe('one user turn → one runtime turn', () => {
     expect(second.text).not.toContain('I fed two');
     expect(onTurn.mock.calls[0][0]).toEqual(first);
   });
+
+  it('late updated ending in "over" for a finalized item does not commit the next turn', async () => {
+    const { driver, connection, socket, onTurn, clock } = await connected();
+    await connection.sendAudio(new Uint8Array([1]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'I fed two' });
+    // Tap ends turn 1 and commits once.
+    driver.endTurn();
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    const commitsBefore = socket.sent.filter(m => m.type === 'input_audio_buffer.commit').length;
+    expect(commitsBefore).toBe(1);
+
+    // Next turn PCM is buffered; a late "… over" revision of item-1 must not
+    // finalize/commit against this new buffer.
+    await connection.sendAudio(new Uint8Array([2]));
+    socket.emit({
+      type: 'conversation.item.input_audio_transcription.updated',
+      item_id: 'item-1',
+      transcript: 'I fed two bales of grass hay, over',
+    });
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    expect(socket.sent.filter(m => m.type === 'input_audio_buffer.commit')).toHaveLength(commitsBefore);
+  });
+
+  it('late completed ending in "over" for a finalized item does not commit the next turn', async () => {
+    const { driver, connection, socket, onTurn, clock } = await connected();
+    await connection.sendAudio(new Uint8Array([1]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'I fed two' });
+    driver.endTurn();
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    const commitsBefore = socket.sent.filter(m => m.type === 'input_audio_buffer.commit').length;
+
+    await connection.sendAudio(new Uint8Array([2]));
+    socket.emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'item-1',
+      transcript: 'I fed two bales of grass hay over',
+    });
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    expect(socket.sent.filter(m => m.type === 'input_audio_buffer.commit')).toHaveLength(commitsBefore);
+  });
 });

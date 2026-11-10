@@ -62,5 +62,8 @@ export default defineConfig(({ mode,isSsrBuild }) => ({
     globals: false,
     environment: 'jsdom',
     include: ['tests/**/*.test.js'],
+    // Node 26+ enables experimental webstorage that shadows jsdom's localStorage
+    // (715+ failures under plain `npm test`). Pin it off for every worker.
+    execArgv: ['--no-experimental-webstorage'],
   },
 }));

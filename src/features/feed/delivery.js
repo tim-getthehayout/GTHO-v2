@@ -11,7 +11,7 @@ import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.j
 import { getEventStartDate } from '../events/event-start.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import { positiveBalances, deductDelivery, locationName } from './batch-balances.js';
-import { allocateFeedingLines } from '../assistant/feeding-clarification.js';
+import { allocateFeedingLines, reconcileAllocatedLines } from '../assistant/feeding-clarification.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 
@@ -307,16 +307,83 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
   }
   panel.appendChild(basisRow);
   updateBasisRow();
-  const carryoverEl = el('div', { 'data-testid': 'feed-delivery-carryover', style: { fontSize: '13px', marginBottom: '10px', display: 'none', color: 'var(--text2)' } });
+  const carryoverEl = el('div', { 'data-testid': 'feed-delivery-carryover', style: { fontSize: '13px', marginBottom: '10px', display: 'none' } });
+  function carryoverItems() {
+    if (!carryover) return [];
+    if (Array.isArray(carryover.items) && carryover.items.length) return carryover.items;
+    if (carryover.remainingQuantity != null || carryover.batchId) {
+      return [{
+        batchId: carryover.batchId ?? null,
+        locationId: carryover.locationId ?? selectedLocationId,
+        remainingQuantity: carryover.remainingQuantity,
+      }];
+    }
+    return [];
+  }
+  function writeCarryoverFromForm() {
+    if (!carryover) return;
+    const timing = carryoverEl.querySelector('[data-testid="feed-carryover-timing"]')?.value || carryover.timing || null;
+    const time = carryoverEl.querySelector('[data-testid="feed-carryover-time"]')?.value || (timing === 'same-instant' ? null : (carryover.time || null));
+    const rows = [...carryoverEl.querySelectorAll('[data-testid="feed-carryover-item"]')].map(row => ({
+      batchId: row.querySelector('[data-testid="feed-carryover-batch"]')?.value || null,
+      locationId: row.querySelector('[data-testid="feed-carryover-location"]')?.value || null,
+      remainingQuantity: Number(row.querySelector('[data-testid="feed-carryover-remaining"]')?.value),
+    }));
+    if (rows.length) carryover = { ...carryover, timing, time, items: rows, remainingQuantity: rows[0]?.remainingQuantity, batchId: rows[0]?.batchId, locationId: rows[0]?.locationId };
+    else carryover = { ...carryover, timing, time };
+  }
   function updateCarryover() {
-    if (!carryover || (carryover.remainingQuantity == null && !carryover.items?.length)) {
+    const items = carryoverItems();
+    if (!items.length) {
       carryoverEl.style.display = 'none';
+      clear(carryoverEl);
       return;
     }
     carryoverEl.style.display = '';
-    const qty = carryover.remainingQuantity ?? carryover.items?.map(item => item.remainingQuantity).filter(v => v != null).join(', ');
-    const when = carryover.timing === 'same-instant' ? 'at the same time as the delivery' : carryover.timing ? `${carryover.timing} the delivery` : 'timing not set';
-    carryoverEl.textContent = `Remaining feed observation: ${qty} (${when}). Saved as a feed check, not a delivery.`;
+    clear(carryoverEl);
+    const timing = el('select', { 'data-testid': 'feed-carryover-timing', onChange: writeCarryoverFromForm });
+    for (const [value, label] of [['before', 'Before the delivery'], ['same-instant', 'At the same time'], ['after', 'After the delivery']]) {
+      timing.appendChild(el('option', { value, selected: carryover.timing === value }, [label]));
+    }
+    if (carryover.timing) timing.value = carryover.timing;
+    const whenFields = [el('div', { className: 'field', style: { marginBottom: '8px' } }, [el('label', {}, ['When']), timing])];
+    if (carryover.timing && carryover.timing !== 'same-instant') {
+      const time = el('input', {
+        type: 'time',
+        'data-testid': 'feed-carryover-time',
+        value: carryover.time || '',
+        onInput: writeCarryoverFromForm,
+        onChange: writeCarryoverFromForm,
+      });
+      whenFields.push(el('div', { className: 'field', style: { marginBottom: '8px' } }, [el('label', {}, ['Check time']), time]));
+    }
+    carryoverEl.append(
+      el('div', { style: { fontWeight: '600', marginBottom: '4px' } }, ['Remaining feed (saved as a feed check, not a delivery)']),
+      ...whenFields,
+    );
+    items.forEach((item, index) => {
+      const batchSel = el('select', { 'data-testid': 'feed-carryover-batch', onChange: writeCarryoverFromForm });
+      for (const batch of batches) batchSel.appendChild(el('option', { value: batch.id, selected: batch.id === item.batchId }, [batch.name || batch.id]));
+      if (item.batchId) batchSel.value = item.batchId;
+      const locSel = el('select', { 'data-testid': 'feed-carryover-location', onChange: writeCarryoverFromForm });
+      const locIds = sortedActivePWs.map(pw => pw.locationId);
+      for (const id of locIds) {
+        const loc = getById('locations', id);
+        locSel.appendChild(el('option', { value: id, selected: id === item.locationId }, [loc?.name || id]));
+      }
+      if (item.locationId) locSel.value = item.locationId;
+      const remaining = el('input', {
+        type: 'number', min: '0', step: '0.01',
+        'data-testid': 'feed-carryover-remaining',
+        value: item.remainingQuantity != null ? String(item.remainingQuantity) : '',
+        onInput: writeCarryoverFromForm,
+      });
+      carryoverEl.appendChild(el('div', { 'data-testid': 'feed-carryover-item', 'data-index': String(index), style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' } }, [
+        el('div', { className: 'field' }, [el('label', {}, ['Batch']), batchSel]),
+        el('div', { className: 'field' }, [el('label', {}, ['Paddock']), locSel]),
+        el('div', { className: 'field' }, [el('label', {}, ['Remaining']), remaining]),
+      ]));
+    });
   }
   panel.appendChild(carryoverEl);
   updateCarryover();
@@ -363,7 +430,7 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
         try {
           const targets = selectedLocationIds.length ? selectedLocationIds : (selectedLocationId ? [selectedLocationId] : []);
           const plan = allocatedLines
-            ? { status: 'allocated', allocations: allocatedLines }
+            ? reconcileAllocatedLines(allocatedLines, { lines: linesToSave, locationIds: targets })
             : allocateFeedingLines(linesToSave, targets, quantityBasis);
           if (plan.status !== 'allocated') {
             statusEl.appendChild(el('span', {}, [plan.question || 'How should the quantity be allocated?']));
@@ -397,14 +464,25 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
           }
           const leftover = carryover && (carryover.remainingQuantity != null || carryover.items?.length) ? carryover : null;
           if (leftover) {
+            if (leftover.timing !== 'same-instant' && !leftover.time) {
+              statusEl.appendChild(el('span', {}, ['What time was the remaining feed checked?']));
+              return;
+            }
+            const leftoverItems = Array.isArray(leftover.items) && leftover.items.length
+              ? leftover.items
+              : (leftover.remainingQuantity != null && targets.length === 1
+                ? [{ locationId: leftover.locationId ?? targets[0], batchId: leftover.batchId ?? linesToSave[0]?.batchId, remainingQuantity: leftover.remainingQuantity }]
+                : null);
+            if (!leftoverItems) {
+              statusEl.appendChild(el('span', {}, ['How should the remaining quantity be split across the paddocks?']));
+              return;
+            }
             const check = FeedCheckEntity.create({
               operationId, eventId: evt.id,
-              date: dateInput.value, time: leftover.timing === 'same-instant' ? (timeInput.value || null) : (leftover.time || timeInput.value || null),
+              date: dateInput.value, time: leftover.timing === 'same-instant' ? (timeInput.value || null) : leftover.time,
             });
             add('eventFeedChecks', check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
-            const items = Array.isArray(leftover.items) && leftover.items.length
-              ? leftover.items
-              : targets.map(locationId => ({ locationId, batchId: leftover.batchId ?? linesToSave[0]?.batchId, remainingQuantity: leftover.remainingQuantity }));
+            const items = leftoverItems;
             for (const item of items) {
               if (item.remainingQuantity == null || !item.batchId || !item.locationId) {
                 throw new Error('Carryover needs a batch, paddock and remaining quantity.');

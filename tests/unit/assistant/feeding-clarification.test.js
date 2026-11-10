@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseQuantityBasis, parseCarryoverTiming, allocateFeedingLines,
-  applyPendingClarification, QUANTITY_BASIS_TOTAL, QUANTITY_BASIS_PER_PADDOCK,
+  applyPendingClarification, reconcileAllocatedLines, QUANTITY_BASIS_TOTAL, QUANTITY_BASIS_PER_PADDOCK,
 } from '../../../src/features/assistant/feeding-clarification.js';
 
 const L1 = 'loc-1';
@@ -86,5 +86,27 @@ describe('clarification continuity', () => {
     expect(parseCarryoverTiming('before the new delivery')).toBe('before');
     expect(parseCarryoverTiming('at the same time')).toBe('same-instant');
     expect(parseCarryoverTiming('not sure')).toBeNull();
+  });
+});
+
+describe('reconcileAllocatedLines and duplicate allocations', () => {
+  it('drops an unknown target and uses the visible line on a single resolved paddock', () => {
+    const shown = [{ batchId: 'b1', qty: 4 }];
+    const result = reconcileAllocatedLines([
+      { locationId: 'ghost', lines: [{ batchId: 'b1', qty: 99 }] },
+      { locationId: L1, lines: [{ batchId: 'b1', qty: 99 }] },
+    ], { lines: shown, locationIds: [L1] });
+    expect(result.status).toBe('allocated');
+    expect(result.allocations).toEqual([{ locationId: L1, lines: [expect.objectContaining({ batchId: 'b1', qty: 4 })] }]);
+  });
+
+  it('rejects duplicate allocation locations instead of crashing', () => {
+    const lines = [{ batchId: 'b1', qty: 4, allocations: [{ locationId: L1, qty: 2 }, { locationId: L1, qty: 2 }] }];
+    const result = allocateFeedingLines(lines, [L1, L2], 'total');
+    expect(result.status).toBe('question');
+    expect(reconcileAllocatedLines(
+      [{ locationId: L1, lines: [{ batchId: 'b1', qty: 2 }] }, { locationId: L1, lines: [{ batchId: 'b1', qty: 2 }] }],
+      { lines: [{ batchId: 'b1', qty: 4 }], locationIds: [L1, L2] },
+    ).status).toBe('rejected');
   });
 });

@@ -119,7 +119,7 @@ export function createAssistantFunction(deps) {
       const host = createServerHost({ client: deps.client, scope: context.scope, config: deps.config, persistence: context.persistence, getAll, authorize: context.authorize, session, log: contentFreeLog(deps.log), openSheet: parseOpenSheet(peeked?.openSheet) });
       const ports = {
         authenticate: async () => identity.identity,
-        withSession: (scope, ref, work) => context.persistence.withSession(scope, ref, existing => { session.ref = ref; session.loaded = existing; session.live = null; return work(existing); }),
+        withSession: (scope, ref, work) => context.persistence.withSession(scope, ref, existing => { session.ref = ref; session.loaded = existing; session.live = null; session.pendingClarification = existing?.pendingClarification ?? session.pendingClarification ?? null; return work(existing); }),
         host,
         billing: context.billing,
         provider: createProviderPort({ config: deps.config, fetch: fetcher, signal: request.signal, meter: context.meter, session, timeoutMs: deps.providerTimeoutMs }),
@@ -143,6 +143,7 @@ export function createAssistantFunction(deps) {
                 scope: context.scope,
                 conversationRef: session.ref,
                 question: session.unresolvedQuestion,
+                pendingClarification: session.pendingClarification ?? null,
               });
               if (snap?.transcript) {
                 await persistTranscriptTurns({ client: deps.client, scope: context.scope, conversationRef: session.ref, turns: snap.transcript });

@@ -208,4 +208,39 @@ describe('feeding clarification continuity (OI-0206)', () => {
     expect(result.pending.fields.quantityBasis).toBe('total');
     expect(result.pending.fields.date).toBe('2026-11-09');
   });
+it('asks for the leftover check time when timing is before, and never invents a same-instant time', async () => {
+    const result = await resolveEntryTarget({
+      ui: 'feeding',
+      names: { paddock: 'e1' },
+      fields: { lines: [{ batchId: 'b1', qty: 4 }], carryover: { remainingQuantity: 2, timing: 'before', batchId: 'b1' } },
+      rows,
+    });
+    expect(result.status).toBe('question');
+    expect(result.pending.field).toBe('carryoverTime');
+    expect(result.question).toMatch(/time/i);
+  });
+
+  it('asks how to split a leftover across paddocks instead of copying it onto every target', async () => {
+    const result = await resolveEntryTarget({
+      ui: 'feeding',
+      names: { paddock: 'e1, e2' },
+      fields: { lines: [{ batchId: 'b1', qty: 4 }], quantityBasis: 'per-paddock', carryover: { remainingQuantity: 2, timing: 'same-instant', batchId: 'b1' } },
+      rows,
+    });
+    expect(result.status).toBe('question');
+    expect(result.pending.field).toBe('carryoverSplit');
+  });
+
+  it('ties an unallocated leftover to the single paddock it applies to', async () => {
+    const result = await resolveEntryTarget({
+      ui: 'feeding',
+      names: { paddock: 'e1' },
+      fields: { lines: [{ batchId: 'b1', qty: 4 }], carryover: { remainingQuantity: 2, timing: 'same-instant', batchId: 'b1' } },
+      rows,
+    });
+    expect(result.status).toBe('resolved');
+    expect(result.fill.carryover.items).toEqual([
+      expect.objectContaining({ locationId: 'l5', remainingQuantity: 2, batchId: 'b1' }),
+    ]);
+  });
 });

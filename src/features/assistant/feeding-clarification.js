@@ -48,7 +48,12 @@ export function allocateFeedingLines(lines, locationIds, quantityBasis) {
   if (basis === QUANTITY_BASIS_PER_PADDOCK) {
     return { status: 'allocated', quantityBasis: basis, allocations: ids.map(locationId => ({ locationId, lines: rows.map(line => ({ ...line })) })) };
   }
+  const uniqueParts = parts => {
+    const locIds = (parts ?? []).map(part => part.locationId);
+    return locIds.length === new Set(locIds).size;
+  };
   const explicit = rows.every(line => Array.isArray(line.allocations) && line.allocations.length === ids.length
+    && uniqueParts(line.allocations)
     && line.allocations.every(part => ids.includes(part.locationId) && Number.isFinite(part.qty) && part.qty >= 0)
     && Math.abs(line.allocations.reduce((sum, part) => sum + part.qty, 0) - Number(line.qty ?? line.quantity ?? 0)) < 1e-9);
   if (!explicit) {
@@ -72,6 +77,46 @@ export function allocateFeedingLines(lines, locationIds, quantityBasis) {
   };
 }
 
+
+/** Keep only allocations that match the visible targets, batches and quantities.
+ * Unknown targets are dropped. A single visible target always uses the visible
+ * lines — model-supplied allocations are never trusted as-is. */
+export function reconcileAllocatedLines(allocated, { lines, locationIds } = {}) {
+  const ids = [...new Set((locationIds ?? []).filter(Boolean))];
+  const rows = Array.isArray(lines) ? lines : [];
+  if (!ids.length) return { status: 'rejected', reason: 'no-targets' };
+  if (ids.length === 1) {
+    return { status: 'allocated', allocations: [{ locationId: ids[0], lines: rows.map(line => ({ ...line })) }] };
+  }
+  const incoming = Array.isArray(allocated) ? allocated.filter(part => ids.includes(part.locationId)) : [];
+  const locIds = incoming.map(part => part.locationId);
+  if (new Set(locIds).size !== locIds.length) return { status: 'rejected', reason: 'duplicate-target' };
+  if (incoming.length !== ids.length) return { status: 'rejected', reason: 'missing-target' };
+  const qty = line => Number(line?.qty ?? line?.quantity ?? 0);
+  const byTarget = new Map(incoming.map(part => [part.locationId, Array.isArray(part.lines) ? part.lines : []]));
+  for (const line of rows) {
+    const parts = ids.map(id => (byTarget.get(id) ?? []).find(item => item.batchId === line.batchId));
+    if (parts.some(part => !part || !Number.isFinite(qty(part)) || qty(part) < 0)) {
+      return { status: 'rejected', reason: 'quantity-mismatch' };
+    }
+    const shown = qty(line);
+    const perPaddock = parts.every(part => Math.abs(qty(part) - shown) < 1e-9);
+    const totalMatches = Math.abs(parts.reduce((sum, part) => sum + qty(part), 0) - shown) < 1e-9;
+    if (!perPaddock && !totalMatches) return { status: 'rejected', reason: 'quantity-mismatch' };
+  }
+  return {
+    status: 'allocated',
+    allocations: ids.map(locationId => ({
+      locationId,
+      lines: rows.map(line => {
+        const part = (byTarget.get(locationId) ?? []).find(item => item.batchId === line.batchId);
+        const { allocations: _ignored, ...rest } = line;
+        return { ...rest, qty: qty(part), quantity: qty(part) };
+      }),
+    })),
+  };
+}
+
 /** Merge a short clarification reply into the pending paddock / quantity / carryover field. */
 export function applyPendingClarification(pending, names = {}, fields = {}, utterance = '') {
   const said = { ...(pending?.names && typeof pending.names === 'object' ? pending.names : {}), ...(names && typeof names === 'object' && !Array.isArray(names) ? names : {}) };
@@ -89,6 +134,11 @@ export function applyPendingClarification(pending, names = {}, fields = {}, utte
       const timing = parseCarryoverTiming(carryover.timing ?? said.timing ?? answer);
       if (timing) carryover.timing = timing;
     }
+    merged.carryover = carryover;
+  }
+  if (field === 'carryoverTime') {
+    const carryover = { ...(merged.carryover && typeof merged.carryover === 'object' ? merged.carryover : {}) };
+    if (!carryover.time && named(answer)) carryover.time = answer;
     merged.carryover = carryover;
   }
   if (pending?.fill && typeof pending.fill === 'object') {

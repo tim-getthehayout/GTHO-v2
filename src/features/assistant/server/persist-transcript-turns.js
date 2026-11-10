@@ -35,19 +35,28 @@ export async function persistTranscriptTurns({ client, scope, conversationRef, t
 /** After a failed turn, append the host question as an assistant transcript
  * entry on the existing trusted snapshot, then persist turns. Does not add
  * new snapshot keys. */
-export async function recordUnresolvedClarification({ persistence, scope, conversationRef, question, modality = 'text' }) {
+export async function recordUnresolvedClarification({ persistence, scope, conversationRef, question, modality = 'text', pendingClarification = undefined } = {}) {
   if (!persistence || !scope || !conversationRef || !String(question || '').trim()) return null;
   return persistence.withSession(scope, conversationRef, async snapshot => {
     if (!snapshot) return null;
     const text = String(question).trim();
     const already = snapshot.transcript?.some(turn => turn.role === 'assistant' && turn.text === text);
-    const next = already ? snapshot : {
+    const next = already ? { ...snapshot } : {
       ...snapshot,
       transcript: [
         ...(snapshot.transcript ?? []),
         { id: crypto.randomUUID(), role: 'assistant', modality: modality === 'voice' ? 'voice' : 'text', text },
       ],
     };
+    // pendingClarification lives on the existing trusted snapshot (no new
+    // checkpoint table). The key is host-only: capture is sent to the model
+    // and snapshot.pending is the proposal-revision pointer.
+    if (pendingClarification !== undefined) {
+      if (pendingClarification) next.pendingClarification = pendingClarification;
+      else delete next.pendingClarification;
+    } else if (snapshot.pendingClarification) {
+      next.pendingClarification = snapshot.pendingClarification;
+    }
     await persistence.checkpoint(scope, next);
     return next;
   });

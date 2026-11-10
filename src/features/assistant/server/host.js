@@ -10,6 +10,7 @@ import { FARM_ENTRY_UIS, FARM_ENTRY_INSTRUCTIONS, FARM_ENTRY_FIELD_HINTS } from 
 import { resolveEntryTarget, ENTRY_TARGET_KEY, ENTRY_TARGET_NAMES, CHOOSE_ENTRY_QUESTION, RESOLVE_ENTRY_TARGET_TOOL } from '../entry-targets.js';
 import { ROUTE_INTENT_TOOL, ROUTING_INSTRUCTION, parseRoute } from '../intent-routing.js';
 import { persistTranscriptTurns } from './persist-transcript-turns.js';
+import { reconcileAllocatedLines } from '../feeding-clarification.js';
 
 export const FEEDBACK_EDITABLE = Object.freeze(['title', 'type', 'expected', 'actual', 'reproSteps', 'severity', 'impact', 'needsDecision', 'unknowns']);
 export const CLIENT_APPLY_PENDING = 'client-apply-pending';
@@ -92,7 +93,14 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
     if (proposal.intent === 'data-entry') {
       if (!FARM_ENTRY_UIS.includes(proposal.destination)) fail('entry-ui-not-allowed');
       const { fill } = await resolveTarget(proposal);
-      return { ...proposal, fields: { ...proposal.fields, ...fill } };
+      const fields = { ...proposal.fields, ...fill };
+      const locationIds = fields.locationIds ?? (fields.locationId ? [fields.locationId] : []);
+      if (fields.allocatedLines != null) {
+        const rec = reconcileAllocatedLines(fields.allocatedLines, { lines: fields.lines, locationIds });
+        if (rec.status !== 'allocated') delete fields.allocatedLines;
+        else fields.allocatedLines = rec.allocations;
+      }
+      return { ...proposal, fields };
     }
     return fail('read-only-intent');
   }
@@ -194,7 +202,13 @@ export function createServerHost({ client, scope, config, persistence, getAll, a
         throw error;
       }
     },
-    async checkpoint(incoming, snapshot) { await auth(incoming); return persistence.checkpoint(incoming, snapshot); },
+    async checkpoint(incoming, snapshot) {
+      await auth(incoming);
+      const next = { ...snapshot };
+      if (holder.pendingClarification) next.pendingClarification = holder.pendingClarification;
+      else delete next.pendingClarification;
+      return persistence.checkpoint(incoming, next);
+    },
     // Transcript, review-card and voice-to-entry-log artifacts are durable in the
     // trusted checkpoint written at the end of every runtime action; typed
     // client-safe rows are written by the browser through validate/store/sync.

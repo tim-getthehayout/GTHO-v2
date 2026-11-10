@@ -186,7 +186,16 @@ export async function resolveEntryTarget({ ui, names, fields = {}, rows, pending
     const carryover = fields.carryover && typeof fields.carryover === 'object' ? fields.carryover : null;
     if (carryover && (carryover.remainingQuantity != null || (Array.isArray(carryover.items) && carryover.items.length))) {
       if (!carryover.timing) return askPending('carryoverTiming', carryoverTimingQuestion());
-      fill.carryover = carryover;
+      if (carryover.timing !== 'same-instant' && !carryover.time) {
+        return askPending('carryoverTime', 'What time was the remaining feed checked?');
+      }
+      const items = Array.isArray(carryover.items) && carryover.items.length ? carryover.items : null;
+      if (!items && carryover.remainingQuantity != null && locationIds.length > 1) {
+        return askPending('carryoverSplit', 'How should the remaining quantity be split across the paddocks?');
+      }
+      fill.carryover = !items && locationIds.length === 1
+        ? { ...carryover, locationId: carryover.locationId ?? locationIds[0], items: [{ batchId: carryover.batchId, locationId: carryover.locationId ?? locationIds[0], remainingQuantity: carryover.remainingQuantity }] }
+        : carryover;
     }
     const summary = locationIds.length === 1 ? `feeding at ${labels[0]}` : `feeding at ${labels.join(', ')}`;
     return { status: 'resolved', target: { ui, id: event.id }, fill, summary };

@@ -276,6 +276,64 @@ describe('gtho-assistant composition', () => {
       fields: expect.objectContaining({ locationId: CORRAL, entryTarget: { paddock: 'Corral' } }),
     });
   });
+  it('remembers a pending total-vs-per-paddock clarification on the next turn', async () => {
+    const L1 = '00000000-0000-4000-8000-0000000000e1';
+    const L2 = '00000000-0000-4000-8000-0000000000e2';
+    const EVT = '00000000-0000-4000-8000-0000000000ee';
+    const B1 = '00000000-0000-4000-8000-0000000000b1';
+    const proposal = {
+      type: 'proposal',
+      destination: 'feeding',
+      fields: {
+        date: '2026-11-09',
+        lines: [{ batchId: B1, qty: 4 }],
+        entryTarget: { paddock: 'e1, e2' },
+      },
+      mappings: [],
+    };
+    const fetch = vi.fn(async () => Response.json({
+      usage: { input_tokens: 1, output_tokens: 1 },
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(proposal) }] }],
+    }));
+    const { deps, client } = setup({ fetch });
+    client.tables.locations = [
+      { id: L1, operation_id: OP, name: 'e1', farm_id: 'f1' },
+      { id: L2, operation_id: OP, name: 'e2', farm_id: 'f1' },
+    ];
+    client.tables.events = [{ id: EVT, operation_id: OP, farm_id: 'f1' }];
+    client.tables.event_paddock_windows = [
+      { id: 'pw-1', operation_id: OP, event_id: EVT, location_id: L1, date_closed: null },
+      { id: 'pw-2', operation_id: OP, event_id: EVT, location_id: L2, date_closed: null },
+    ];
+    const handler = createAssistantFunction(deps);
+    await handler(post({
+      command: 'start', conversationRef: REF, requestRef: 'r1', intent: 'data-entry',
+      capture: { capturedAt: '2026-11-09T10:00:00Z', source: 'text', context: {} },
+    }));
+    const first = await handler(post({
+      command: 'turn', conversationRef: REF, requestRef: 'r2',
+      turn: { id: 't1', role: 'user', modality: 'text', text: 'Fed e1 and e2 four bales' },
+    }));
+    expect(first.status).toBe(400);
+    const firstBody = await first.json();
+    expect(firstBody.question).toMatch(/total|per paddock/i);
+    const snap = client.tables.assistant_session_checkpoints[0].trusted_snapshot;
+    expect(snap.pendingClarification).toMatchObject({ field: 'quantityBasis', fill: { locationIds: [L1, L2] } });
+
+    const second = await handler(post({
+      command: 'turn', conversationRef: REF, requestRef: 'r3',
+      turn: { id: 't2', role: 'user', modality: 'text', text: 'per-paddock' },
+    }));
+    const secondBody = await second.json();
+    expect(second.status).toBe(200);
+    expect(secondBody.error).toBeUndefined();
+    expect(secondBody.question).toBeUndefined();
+    expect(secondBody.session.phase).toBe('review');
+    expect(secondBody.session.pending.fields.quantityBasis).toBe('per-paddock');
+    expect(secondBody.session.pending.fields.locationIds).toEqual([L1, L2]);
+    expect(client.tables.assistant_session_checkpoints[0].trusted_snapshot.pendingClarification).toBeUndefined();
+  });
+
   it('apply refuses a receipt with no durable claim', async () => {
     const { deps } = setup();
     const handler = createAssistantFunction(deps);

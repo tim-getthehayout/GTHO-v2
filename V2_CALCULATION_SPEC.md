@@ -201,36 +201,38 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
   - `groupWindows[]` — active group windows on this event (from store)
   - `feedEntries[]` — event_feed_entries for this event (**required**, not optional — drives the stored bucket)
   - `feedChecks[]` — event_feed_checks + event_feed_check_items for this event
-  - `paddockWindows[]` — event_paddock_windows for this event (all open windows on `date` contribute to the pasture pool)
+  - `paddockWindows[]` — event_paddock_windows for this event (only non-confinement open windows on `date` can contribute to the pasture pool)
+  - `locations` — location rows including `type`; `type = confinement` is authoritative even without acreage or with stale forage data / either `noPasture` value
   - `observations[]` — paddock_observations with `type = 'open'` AND `source = 'event'`, preferring `sourceId === pw.id` with fall-through to most-recent (same pattern as capacity line). **NOT `event_observations`** — that table was dropped in migration 029 (OI-0113, 2026-04-20); all event-time observations live in `paddock_observations` with `source = 'event'`.
   - `forageTypes[]` — forage_types (for `dm_kg_per_cm_per_ha`, `utilization_pct`, `residual_height_cm`)
 
 - **Output:** One of five statuses per date:
   - `{ status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg }` — feed check anchors the stored leg for this date
   - `{ status: 'estimated', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg }` — no check, cascade walk from FOR-1-seeded pasture bucket + deliveries-seeded stored bucket
-  - `{ status: 'needs_check' }` — the cascade can't run (e.g. first day of event with no observation yet, or pre-graze observation missing its forage height)
+  - `{ status: 'needs_check' }` — the cascade can't run (e.g. required non-confinement pre-graze inputs are incomplete). Null confinement forage alone never causes this status (OI-0209).
   - `{ status: 'no_animals' }` — `totalDmiKg <= 0` on this date (zero active groups). Distinct from `needs_check`: no data is missing, there are just no animals to feed.
-  - `{ status: 'no_pasture_data', reason: 'missing_observation' | 'missing_forage_type' }` — pre-graze observation missing on the owning paddock window, OR `location.forageTypeId` is null. Distinct from `needs_check`: this is a user-fixable gap with an inline CTA.
+  - `{ status: 'no_pasture_data', reason: 'missing_observation' | 'missing_forage_type' }` — required pre-graze observation missing on a non-confinement owning paddock window, OR that land location's `forageTypeId` is null. Distinct from `needs_check`: this is a user-fixable land-data gap with an inline CTA, never a confinement forage prompt (OI-0209).
 
 - **State determination logic (cascade bucket model):**
 
   **Step 0 — Compute daily demand.** `totalDmiKg` = DMI-3(event, date) — sum of DMI-2 for each group window active on this date. If `totalDmiKg <= 0` → status = `no_animals`, return (no further computation).
 
-  **Step 1 — Gate on pre-graze observation + forage type.**
-  - For each paddock window open on `date`: look up the pre-graze observation on the window's location from `paddock_observations` (filter `type = 'open'`, `source = 'event'`, prefer `sourceId === pw.id`, fall back to most recent).
-  - If ANY open window lacks a pre-graze observation with `forageHeightCm > 0` → status = `no_pasture_data`, reason = `'missing_observation'`.
-  - If ANY open window's location lacks `forageTypeId` → status = `no_pasture_data`, reason = `'missing_forage_type'`.
-  - If observation has `forageHeightCm` but `forageCoverPct` is null → **default cover to 100%** and proceed. Caller surfaces a subtle "(assuming 100% cover — Fix)" hint in the UI.
+  **Step 1 — Gate on pre-graze observation + forage type for non-confinement windows only (OI-0209).**
+  - Classify each open window from its `location.type`. Confinement forage data is null by design: confinement contributes **zero pasture** and skips forage type, height, pre/post-graze, recovery and acreage gates, even with stale forage values or either `noPasture` value. Continue stored-feed allocation, checks and removals; never prompt the user to supply confinement forage.
+  - For each **non-confinement** paddock window open on `date`: look up the pre-graze observation on the window's location from `paddock_observations` (filter `type = 'open'`, `source = 'event'`, prefer `sourceId === pw.id`, fall back to most recent).
+  - If ANY such non-confinement open window lacks a pre-graze observation with `forageHeightCm > 0` → status = `no_pasture_data`, reason = `'missing_observation'`.
+  - If ANY such non-confinement open window's location lacks `forageTypeId` → status = `no_pasture_data`, reason = `'missing_forage_type'`.
+  - If a non-confinement observation has `forageHeightCm` but `forageCoverPct` is null → **default cover to 100%** and proceed. Caller surfaces a subtle "(assuming 100% cover — Fix)" hint in the UI. Land-window validation still applies in a mixed event; the confinement exception is per window, not an event-wide bypass.
 
   **Step 2 — Check for feed check on this date.**
   - If a feed check exists on or bracketing this date, compute `storedDmiKg` via DMI-5 interpolation (bracketed) or single-check projection (deliveries since check minus current remaining, linearly distributed across days since check).
-  - `pastureDmiKg = max(totalDmiKg - storedDmiKg, 0)`; `deficitKg = max(storedDmiKg + pastureDmiKg - totalDmiKg, 0)` handled by clamping — in practice, if `storedDmiKg >= totalDmiKg`, `pastureDmiKg = 0` and any excess is counted as surplus stored (not deficit).
+  - `pastureDmiKg = max(totalDmiKg - storedDmiKg, 0)`; `deficitKg = max(storedDmiKg + pastureDmiKg - totalDmiKg, 0)` handled by clamping — in practice, if `storedDmiKg >= totalDmiKg`, `pastureDmiKg = 0` and any excess is counted as surplus stored (not deficit). **Confinement exception (OI-0209):** never fill a shortfall with invented pasture. For a pure confinement event `pastureDmiKg = 0`; preserve measured stored consumption and report any unmet demand as deficit. In mixed events, only the non-confinement windows can supply pasture.
   - Status = `actual`. Return.
   - **Retroactive actual-conversion rule:** when a feed check is added, the PRIOR interval's `storedDmiKg` bars flip from `estimated` → `actual` (the interval between this check and the previous check, or the event start if no previous check). The stored leg is re-derived from deliveries within the interval minus the new check's residual. **Pasture bars in that interval stay `estimated`** — pre-graze observations are too subjective to retroactively promote. This is handled naturally by re-running DMI-8 after a check insertion; the calc itself is pure-functional.
 
   **Step 3 — Estimated path (cascade walk).** Walk forward from the earliest relevant day (event start OR source event end — see bridge below) through `date`, maintaining two buckets:
 
-  - **Pasture bucket (`remainingPastureDm`):** seeded from `sum(FOR-1(pw))` across all paddock windows open at walk start. FOR-1 = `(forageHeightCm - residualHeightCm) × dmKgPerCmPerHa × areaHectares × (forageCoverPct / 100) × (utilizationPct / 100)`. Pooled across parallel open sub-paddocks — multiple windows can be open simultaneously.
+  - **Pasture bucket (`remainingPastureDm`):** seeded from `sum(FOR-1(pw))` across non-confinement paddock windows open at walk start. Confinement windows always seed/add zero pasture, even if historical forage values are present. FOR-1 = `(forageHeightCm - residualHeightCm) × dmKgPerCmPerHa × areaHectares × (forageCoverPct / 100) × (utilizationPct / 100)`. Pooled across parallel open sub-paddocks — multiple windows can be open simultaneously.
     - **Sub-move open** during the walk: add `FOR-1(newWindow)` to the bucket on the sub-move's open date (new pasture becomes available).
     - **Sub-move close** during the walk: drop the closed window's remaining pasture from the bucket on the close date (animals lose access). Remaining pasture in the closed window is not carried over.
     - **Per day:** subtract that day's `pastureDmiKg` (computed in step 3c below).
@@ -259,7 +261,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
   - Chained events (event B sources from event A sources from event Z): routing walks the chain per-date (date-range tests for A and Z independently). Uncommon; tested but not optimized.
 
 - **Sub-move interactions with the cascade:**
-  - **Sub-move open** at `openDate`: on the walk, add `FOR-1(newWindow)` to the pasture bucket on `openDate`. If a pre-graze observation exists for the new window, use it; if not, the new window's contribution is 0 (pasture bucket does not grow from an unobserved new window; the `no_pasture_data` gate in step 1 applies event-wide, not per-window, because any open window without an observation invalidates the pooled estimate).
+  - **Sub-move open** at `openDate`: on the walk, add `FOR-1(newWindow)` to the pasture bucket on `openDate`. If a pre-graze observation exists for the new window, use it; if not, the new window's contribution is 0 (pasture bucket does not grow from an unobserved new window; the `no_pasture_data` gate in step 1 checks all open non-confinement windows, because missing required land observations invalidate the pooled pasture estimate; a confinement window adds zero pasture and does not trigger that gate).
   - **Sub-move close** at `closeDate`: on the walk, drop the closing window's remaining pasture share from the pasture bucket. Remaining pasture is estimated as `initialPastureDm(closingWindow) - sum(pastureDmiKg attributed to closing window during its open period)`. Since the cascade pools pasture, the attribution uses the window's open-day share of the pool (`initialPastureDm_window / sum(initialPastureDm_open_windows)`). Close drops the attributable remainder.
   - **New flow rule — forced feed check on sub-move close when stored feed present.** If `event.hasStoredFeed` is true (any `event_feed_entries` row exists on the event), the Sub-move Close sheet renders a required feed-check card inline and blocks Save until the farmer records remaining stored feed. This strikes a clean actual/estimated boundary at the close date — the prior interval's `storedDmiKg` retroactively converts to `actual`. Pasture bars in that interval stay `estimated` per the retroactive rule in step 2. No pasture observation is forced at close (pasture observations are too subjective to usefully mark a boundary). No stored-feed close prompt (existing Close Event behavior unchanged).
 
@@ -308,6 +310,8 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Computes: How many more days animals can stay on current location
 - Inputs: Consumed to date, remaining stored DM, current forage estimate
 - Output: days_remaining (number, 2 decimal places) — same precision rule as FOR-3
+- **Pure confinement (OI-0209):** pasture is zero. Dashboard and Event Detail use one shared event-scoped projection: run the existing DMI-8 cascade through the end of today, including this event's feed deliveries/removals, check re-anchors and changing group demand, then use FOR-4 on the projected remaining feed with zero pasture. Do not substitute farm-wide Feed-screen inventory/days or the dashboard's non-daily feed-mass fallback. No implicit cross-event feed carryover.
+- **Display / validity:** replace confinement capacity, AUDs and ADA with **"Est. feed remaining: ~N days"**, labelled **end-of-today daily-model estimate**. Retain the existing 2-decimal precision rule. Show a number only with valid required feed/DM/weight inputs and finite positive demand; hide it for missing/invalid inputs or zero demand. Valid empty/depleted feed shows **0**, not an input prompt. No live clock countdown, fabricated pasture or persisted estimate. Pure-pasture behavior and land-window validation in mixed events remain unchanged.
 
 **FOR-5: Stocking Efficiency**
 - Computes: Actual AUDs used vs estimated AUDs available

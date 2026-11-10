@@ -14,7 +14,65 @@
 | OI-0205 | Animals current-placement display agrees with the dashboard | Open — ready for Build within the scope below |
 | OI-0206 | Feeding target normalization, clarification continuity and carryover | Open — ready for Build within the scope below |
 | OI-0207 | Direct typed start without picker flash; unified Cancel lifecycle | Open — ready for Build; phone retest required |
-| OI-0208 | One running assistant chat with live transcription and answerable cards | Queued, not ready for Build — Design after OI-0205–OI-0207 ship |
+| OI-0208 | One running assistant chat with live transcription and answerable cards | Queued, not ready for Build — Design after the current fix batch ships |
+| OI-0209 | Confinement DMI, feed-days estimate and suppression of pasture UI | Open — ready for Build; no schema change or data repair |
+
+---
+
+### OI-0209 — Confinement locations show pasture UI (DMI placeholder bars, forage capacity prompt)
+
+**Added:** 2026-11-10 | **Area:** v2-build / confinement / DMI / dashboard / events / calendar | **Priority:** P2 (valid confinement feed data is hidden behind irrelevant pasture gates and prompts)
+
+**Status:** open — ready for build (2026-11-10). Added to the OI-0205–OI-0207 fix batch; OI-0208 remains queued. No schema change or data repair. Phone retest required after implementation.
+
+**LOCKED (Tim, 2026-11-10):** confinement forage data is **null by design**. Never prompt for forage type or height, pre/post-graze observations or recovery on a confinement location. Classify by **`location.type`**, not a legacy flag, the presence of acreage or stale forage data.
+
+**Bug.** Confinement cards show 24px **"Set forage type" placeholders**, not computed DMI bars, and a forage-capacity prompt. This is **not a PR #44 regression** and is not caused by OI-0201 tints: the DMI gate comes from `65fc3b8` (OI-0119); the capacity prompt comes from `69cc154` (OI-0075).
+
+Evidence on `1fe0a593`:
+
+- `src/calcs/feed-forage.js:694–721` gates on forage/area before reading stored feed; `:793–807` fills an actual-path shortfall with invented pasture if left unqualified for confinement. The existing event-scoped DMI-8 feed cascade, checks, removals and end-of-day buckets are at `:770–890`.
+- `src/features/events/dmi-chart-context.js:57–61` drops `location.type`, preventing the calc from classifying the window correctly.
+- `src/features/dashboard/index.js:1169–1185` and `:1411–1428` apply the pasture capacity/forage treatment to confinement. Do **not** reuse `:293–299` as a feed-days projection; that feed mass fallback is not the end-of-today daily model.
+- The rotation calendar's `src/features/events/rotation-calendar/calendar-grid.js:49–51` checks obsolete `locationType` instead of `type`; the confinement rendering at `:224–258` also needs correction.
+
+**Fix.**
+
+1. **Type-aware calculation:** carry `location.type` through the shared DMI context. Every confinement window contributes **zero pasture**, whether acreage/old forage values exist and whether `noPasture` is true or false. Skip forage type, height, pre-graze and area gates for those windows, but retain event-scoped stored-feed allocation, deliveries, removals and feed checks. Never fill a confinement shortfall with pasture; retain the model's real stored-feed/deficit result. Pure-pasture behavior and validation for the land windows in a mixed event stay intact.
+2. **One shared feed-days projection:** on a **pure confinement** card replace pasture capacity, AUDs and ADA with **"Est. feed remaining: ~N days"**, explicitly labelled as an **end-of-today daily-model estimate**. Dashboard and Event Detail consume the same projection, not two similar implementations. Use this event's DMI-8 daily cascade (`feed-forage.js:770–890`) through the end of today and FOR-4 with zero pasture; account for group changes, check re-anchors, later deliveries and removals. Do not use farm-wide inventory/days from the Feed screen or the dashboard feed-mass fallback at `index.js:293–299`. No implicit feed carryover from another event.
+3. **Validity / empty state:** show a number only with valid event feed/model inputs and finite positive demand. Hide the estimate if required weights, DM conversion data or other required inputs are missing/invalid, or demand is zero; do not fabricate a number, divide by zero or call unknown data depletion. When the inputs and demand are valid but feed is empty/depleted, show **0**. Apply FOR-4's existing precision rule. This is a daily-model estimate after today's intake, not a live clock countdown or a promised future delivery.
+4. **No confinement forage/graze/recovery UI:** suppress the irrelevant pasture-only prompts, placeholders, metrics and observation controls on every surface below, while preserving applicable Feed, Feed check, removal, movement and close actions. In mixed events the suppression is per confinement location/window; it must not remove the land windows' required validation or useful pasture controls.
+5. **Calendar:** use `location.type`, not `locationType`, in classification and rendering. Confinement blocks must not request forage/recovery inputs or use stale forage to show pasture capacity; land forecast/recovery behavior stays intact.
+
+**Affected UI sweep (line references on `1fe0a593`):**
+
+- Dashboard: `src/features/dashboard/index.js:1140–1143`, `:1169–1185`, `:1411–1428`, `:1431–1437`, `:1508–1525`.
+- Event Detail: `src/features/events/detail.js:405–438`, `:497–513`, `:579–618`, `:685–706`.
+- Edit paddock window: `src/features/events/edit-paddock-window.js:101–112`, `:154–171`.
+- Sub-move: `src/features/events/submove.js:64–83`, `:188–191`.
+- Close event: `src/features/events/close.js:120–123`.
+- Rotation calendar: `src/features/events/rotation-calendar/calendar-grid.js:49–51`, `:224–258`.
+
+**Acceptance criteria:**
+
+- [ ] Realistic Corral fixture: **22 head including a composite**, two bales, null forage, `noPasture: false`. It renders actual feed/model DMI, not 24px Set-forage-type placeholders; pasture contribution is zero.
+- [ ] Confinement works without acreage, ignores stale forage data, and behaves as confinement with `noPasture` true or false. `location.type` remains authoritative through the DMI context and calendar.
+- [ ] Feed-only, valid empty-feed and depleted-feed states are covered. Valid depleted feed shows 0 days; unknown/invalid data hides the estimate rather than showing zero or a forage CTA.
+- [ ] Deliveries, later deliveries after a check, removals, check re-anchors and existing same-instant ordering are exercised with an event-scoped fixture; unrelated event/farm inventory cannot change its estimate. Group changes and composite head/weight demand are included.
+- [ ] Missing weights, missing DM percentage/conversion inputs and zero demand hide the numeric estimate safely. No NaN/infinite/negative days or invented pasture intake, including the bracketed-check actual path.
+- [ ] Pure-pasture and mixed-window regressions retain land forage validation and feed allocation; a confinement window contributes no pasture even if stale forage/acreage are present.
+- [ ] Every listed screen has no confinement forage-type/height, pre/post-graze or recovery prompt. Applicable feed checks/removals and move/close actions remain usable; land controls are not suppressed globally.
+- [ ] Pure confinement replaces capacity/AUDs/ADA with Est. feed remaining: ~N days, labelled end-of-today daily-model estimate. Dashboard and Event Detail agree from the **same shared projection**, including depleted and hidden-input states.
+- [ ] Light/dark DMI bars render and have usable contrast; the placeholder-vs-bar distinction is tested, not dismissed as a tint issue.
+- [ ] Phone retest verifies the Corral DMI, feed-days line and all applicable confinement entry/close/calendar surfaces after the new build stamp is confirmed.
+
+**CP-55/CP-56 spec impact:** None — existing `location.type`, feed/check/removal and group/window data, derived on read. No schema change, new persisted estimate or live data repair. Null confinement forage is valid and must not be backfilled.
+
+**Spec corrections in this docs change:** `V2_CALCULATION_SPEC.md` DMI-8's forage gate applies only to non-confinement windows and never invents confinement pasture; FOR-4 describes the shared event-scoped end-of-today feed estimate. `V2_UX_FLOWS.md` §17.7 capacity line is the feed-days estimate for pure confinement, or hidden when inputs are invalid.
+
+**Related:** OI-0119 (DMI gate), OI-0075 (capacity UI), OI-0201 (tints, not the cause), OI-0205 (shared placement), OI-0206 (remaining-feed observations), OI-0208 (queued chat design).
+
+**Origin:** 2026-11-10 Tim confinement report and Design investigation; Tim's explicit null-forage lock and event-scoped feed-days direction. Implementation belongs to Build; this entry authorizes no code or data changes in the docs branch.
 
 ---
 
@@ -22,7 +80,7 @@
 
 **Added:** 2026-11-10 | **Area:** v2-design / assistant / conversation UX | **Priority:** P3 (follow-on direction, not part of the current fix batch)
 
-**Status:** Queued, not ready for Build. Tim's direction: present the assistant as one running chat with live transcription of what he says or types, and question cards he can answer by tapping, typing or voice, replacing transient pickers and prompts. Design scopes this after OI-0205–OI-0207 ship; this note is not an implementation handoff.
+**Status:** Queued, not ready for Build. Tim's direction: present the assistant as one running chat with live transcription of what he says or types, and question cards he can answer by tapping, typing or voice, replacing transient pickers and prompts. Design scopes this after OI-0205–OI-0207 plus OI-0209 ship; this note is not an implementation handoff.
 
 **Contracts:** `conversation-runtime` and `feedback-module`, owned by Chief of Staff. GTHO is an adopter; any shared-contract change must be scoped with that owner, not patched into `vendor/` here.
 

@@ -19,6 +19,8 @@ export function feedSnapshot(row, batches) {
   };
 }
 function mass(quantity, snap) {
+  // A confirmed empty observation has known zero masses without a conversion.
+  if (quantity === 0) return { m: 0, d: 0 };
   const m = validWeight(snap.weight) ? quantity * snap.weight : null;
   return { m, d: m != null && validDm(snap.dmPct) ? m * snap.dmPct / 100 : null };
 }

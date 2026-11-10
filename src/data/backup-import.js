@@ -195,7 +195,8 @@ function isMigration041Outcome(data, error) {
   // Success payload only when the RPC returns without an error object.
   if (!error && data === 'discarded') return true;
   if (!error) return false;
-  return isExact041Raise(error.message) || isExact041Raise(error.code);
+  // Only an exact error.message match counts — never error.code.
+  return isExact041Raise(error.message);
 }
 
 /** True when SQL migration 041 (`assistant_discard_empty_start`) is present.

@@ -228,6 +228,14 @@ describe('backup-import (CP-56)', () => {
       }
     });
 
+    it('does not treat an exact known raise in error.code with an unrelated message as installed', async () => {
+      const client = {
+        rpc: async () => ({ data: null, error: { code: 'discard-empty-auth-required', message: 'unrelated' } }),
+      };
+      await expect(serverHasMigration041(client)).resolves.toBe(false);
+      await expect(resolveOperationsSchemaStamp(41, client)).resolves.toBe(40);
+    });
+
     it('does not treat a substring "discarded" in an unknown error as proof 041 is installed', async () => {
       const gateway = { rpc: async () => ({ data: null, error: { code: '502', message: 'Gateway discarded request' } }) };
       await expect(serverHasMigration041(gateway)).resolves.toBe(false);

@@ -77,6 +77,8 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
     let finalizing = false;
     let emitted = null; // { id, text } after the one onTurn; reused for retry replay
     let finalizeTimer = null;
+    /** item_ids already committed to an emitted turn — late revisions never migrate. */
+    const finalizedItems = new Set();
 
     const close = () => {
       if (closed) return; closed = true; clearTimer(cap); clearTimer(finalizeTimer); finalizeTimer = null;
@@ -98,9 +100,11 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
     }
 
     function noteItem(itemId, rawText) {
-      if (emitted) return; // late after send: do not revise or re-emit
-      if (!turnId) beginUserTurn();
       const id = itemId || randomId();
+      // Already-sent turn ownership is sticky across PCM chunks / next turns.
+      if (finalizedItems.has(id)) return;
+      if (emitted) return; // late after send (same turn): do not revise or re-emit
+      if (!turnId) beginUserTurn();
       if (!itemText.has(id)) itemOrder.push(id);
       itemText.set(id, rawText ?? '');
     }
@@ -120,6 +124,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       finalizing = false;
       if (!text) { turnId = null; itemOrder.length = 0; itemText.clear(); return; }
       const id = turnId || randomId();
+      for (const itemId of itemOrder) finalizedItems.add(itemId);
       emitted = { id, text };
       onTurn({ id, role: 'user', modality: 'voice', text });
     }
@@ -167,6 +172,9 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
     const connection = {
       socket,
       async sendAudio(bytes) {
+        // Explicit next-turn boundary: after an emitted turn, the next PCM chunk
+        // opens a new client turnId. Finalized item_ids stay locked so a late
+        // revised `completed` for the previous item cannot land in the new turn.
         if (emitted || !turnId) beginUserTurn();
         buffered = true;
         send({ type: 'input_audio_buffer.append', audio: toBase64(bytes) });

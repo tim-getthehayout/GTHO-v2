@@ -143,15 +143,36 @@ describe('one user turn → one runtime turn', () => {
     const { driver, connection, socket, onTurn, clock } = await connected();
     await connection.sendAudio(new Uint8Array([1]));
     socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'Move the heifers over' });
-    // "over" on completed starts finalize
     expect(socket.sent.some(m => m.type === 'input_audio_buffer.commit')).toBe(true);
     clock.fire(TURN_FINALIZE_TIMEOUT_MS);
     expect(onTurn).toHaveBeenCalledTimes(1);
     const first = onTurn.mock.calls[0][0];
     expect(first).toEqual({ id: 'turn-1', role: 'user', modality: 'voice', text: 'Move the heifers' });
-    // Retry (second endTurn after emit) replays identical payload.
     driver.endTurn();
     expect(onTurn).toHaveBeenCalledTimes(2);
     expect(onTurn.mock.calls[1][0]).toEqual(first);
+  });
+
+  it('continuous PCM after emit opens a new turn; late revision of prior item stays dropped', async () => {
+    const { driver, connection, socket, onTurn, clock } = await connected();
+    await connection.sendAudio(new Uint8Array([1]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'I fed two' });
+    driver.endTurn();
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(1);
+    const first = onTurn.mock.calls[0][0];
+    expect(first).toEqual({ id: 'turn-1', role: 'user', modality: 'voice', text: 'I fed two' });
+
+    await connection.sendAudio(new Uint8Array([2]));
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-1', transcript: 'I fed two bales of grass hay in the corral' });
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'item-2', transcript: 'Move the heifers' });
+    driver.endTurn();
+    clock.fire(TURN_FINALIZE_TIMEOUT_MS);
+    expect(onTurn).toHaveBeenCalledTimes(2);
+    const second = onTurn.mock.calls[1][0];
+    expect(second.id).toBe('turn-2');
+    expect(second.text).toBe('Move the heifers');
+    expect(second.text).not.toContain('I fed two');
+    expect(onTurn.mock.calls[0][0]).toEqual(first);
   });
 });

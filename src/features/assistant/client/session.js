@@ -143,6 +143,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   let voiceReady = false;
   /** True when discardEmptyStart failed; PTT keeps the locked bubble after No. */
   let discardEmptyFailed = false;
+  let beginWork = null;
   const session = {
     get conversation() { return conversation; },
     get attempt() { return attempts?.current ?? null; },
@@ -152,16 +153,32 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     // origin: {capturedAt, previousAttemptId} when the first turn is an offline note.
     async begin(firstTurn, context = typeof deps.feedbackHost === 'function' ? { feedbackHost: deps.feedbackHost() } : {}, from = {}) {
       origin = { ...(from.capturedAt ? { capturedAt: from.capturedAt } : {}), ...(from.previousAttemptId ? { previousAttemptId: from.previousAttemptId } : {}) };
-      const stored = await resolveTestingConsent(config);
-      consent = stored?.decision ?? null;
-      conversation = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });
-      say('Starting…');
-      await conversation.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
-      attempts = createAttemptTracker({ persist: deps.persist, scope: conversation.scope, getAll: typeof deps.getAll === 'function' ? deps.getAll : () => [] });
-      say('');
-      if (firstTurn) await turn(firstTurn);
-      onTranscript(visible());
-      return conversation;
+      const work = (async () => {
+        const stored = await resolveTestingConsent(config);
+        consent = stored?.decision ?? null;
+        const started = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });
+        conversation = started;
+        say('Starting…');
+        await started.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
+        // end() may have run while start was in flight. Clean up here so a
+        // late start cannot use a nulled conversation, and End can return
+        // without waiting on a gated start.
+        if (endingLive || conversation !== started) {
+          if (conversation === started) await discardEmptyStart();
+          return started;
+        }
+        attempts = createAttemptTracker({ persist: deps.persist, scope: started.scope, getAll: typeof deps.getAll === 'function' ? deps.getAll : () => [] });
+        say('');
+        if (firstTurn) await turn(firstTurn);
+        onTranscript(visible());
+        return started;
+      })();
+      beginWork = work;
+      try {
+        return await work;
+      } finally {
+        if (beginWork === work) beginWork = null;
+      }
     },
     /**
      * First tap starts listening; every later tap ends the current turn (same as "over").
@@ -301,12 +318,14 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       return turn({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
     },
     async end() {
-      // Invalidate any in-flight talk() (begin / auth / connect). Discards the
-      // PCM buffer via abandonLiveVoice's mic stop + transport cancel, and drops
-      // an empty conversation (minted reservation settles under existing rules).
+      // Invalidate any in-flight talk() (begin / auth / connect). Await an
+      // in-flight start first, then discard the empty conversation, so a late
+      // start cannot run after cleanup or throw on a nulled conversation.
       talkGeneration += 1;
       pendingEndTurn = false;
+      endingLive = true;
       await abandonLiveVoice();
+      if (beginWork) return;
       await discardEmptyStart();
     },
     get micFailure() { return micFailure; },

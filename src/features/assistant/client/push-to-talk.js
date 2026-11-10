@@ -8,7 +8,7 @@
  * as a panel from this control, which shows the unfinished count. */
 import { el } from '../../../ui/dom.js';
 import { createOfflineNoteStore } from './offline-notes.js';
-import { createAssistantSession, createOfflineNoteRecorder, DISCARD_EMPTY_FAILED_MESSAGE } from './session.js';
+import { createOfflineNoteRecorder, DISCARD_EMPTY_FAILED_MESSAGE } from './session.js';
 import { createVoiceLog } from './voice-log.js';
 import { openVoiceLog, voiceLogRows } from './voice-log-panel.js';
 import { recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
@@ -126,19 +126,16 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
   // Clears transport / mic / timer via session.end(), hides End, and optionally
   // leaves a terminal message for the status dismiss control.
   async function endLiveSession({ statusMessage } = {}) {
-    const current = session;
+    const current = session ?? entry?.session;
     session = null;
-    await current?.end();
-    setListening(false);
     end.hidden = true;
+    setListening(false);
+    if (entry && !entry.isClosed()) await entry.close();
+    else await current?.end();
+    entry = null;
     if (statusMessage !== undefined) say(statusMessage);
     else say('');
   }
-  const newSession = (extra = {}) => createAssistantSession({
-    deps, config, intent: 'data-entry', say, onTranscript, onListening: setListening, voiceLog,
-    onVoiceTerminal: message => { void endLiveSession({ statusMessage: message }); },
-    ...extra,
-  });
   const setListening = listening => {
     button.setAttribute('aria-pressed', String(listening));
     button.setAttribute('aria-label', listening ? 'End turn' : 'Talk to GTHO');
@@ -146,27 +143,60 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
   };
   const onTranscript = turns => { const last = turns.filter(turn => turn.role === 'assistant').at(-1); if (last) say(last.text); void refreshBadge(); };
 
-  async function tap() {
-    if (!deps.online()) { await offline.toggle(null); setListening(offline.recording); if (!offline.recording) await refreshBadge(); return; }
-    session ??= newSession();
-    end.hidden = false;
-    const result = await session.talk();
-    // Mic failure or auth/connect failure: Type instead? (OI-0196 / OI-0204).
-    if (result !== 'no-mic' && result !== 'unavailable') return;
-    const failure = session.micFailure ?? { message: result === 'unavailable' ? 'Voice is unavailable right now; you can type instead.' : 'No microphone found.' };
-    const discardFailed = session.discardEmptyFailed === true;
-    // OI-0200: close goes through endLiveSession (clears transport/mic/timer, hides End).
-    // If empty-start cleanup failed, keep the locked copy in the closeable status
-    // bubble so it stays visible during Type instead? and after No (endLiveSession
-    // would otherwise say('') and hide it).
-    await endLiveSession(discardFailed ? { statusMessage: DISCARD_EMPTY_FAILED_MESSAGE } : {});
+  let entry = null;
+  async function handleVoiceFailure(result, fromSession) {
+    if (result !== 'no-mic' && result !== 'unavailable') return result;
+    const current = fromSession ?? session ?? entry?.session;
+    const failure = current?.micFailure ?? { message: result === 'unavailable' ? 'Voice is unavailable right now; you can type instead.' : 'No microphone found.' };
+    const discardFailed = current?.discardEmptyFailed === true;
+    // talk() already ran empty-start cleanup. Drop the live session handle but
+    // keep the shared sheet open so Type instead? does not flash a picker.
+    session = null;
+    end.hidden = true;
+    setListening(false);
+    if (discardFailed) {
+      say(DISCARD_EMPTY_FAILED_MESSAGE);
+      entry?.say?.(DISCARD_EMPTY_FAILED_MESSAGE);
+    }
     const answer = await askTypeInstead({ message: failure.message });
     if (answer === 'yes') {
-      // Typed peer of voice: same data-entry runtime, review-before-save; no voice timer.
-      openAssistant(deps, config, { intent: 'data-entry', focusText: true });
+      entry = entry && !entry.isClosed() ? entry : openAssistant(deps, config, { focusText: true });
+      entry.switchToTyping?.();
+      entry.input?.focus();
+    } else {
+      await entry?.close();
+      entry = null;
     }
-    // No / dismiss: empty conversation already discarded via endLiveSession when
-    // cleanup succeeded; a failed cleanup leaves the locked bubble (× to dismiss).
+    return result;
+  }
+  async function tap() {
+    if (!deps.online()) { await offline.toggle(null); setListening(offline.recording); if (!offline.recording) await refreshBadge(); return; }
+    // Second tap ends the current turn on the already-open shared sheet.
+    if (entry && !entry.isClosed() && entry.session) {
+      const result = await entry.session.talk();
+      return handleVoiceFailure(result, entry.session);
+    }
+    entry = openAssistant(deps, config, {
+      mode: 'voice',
+      invoker: button,
+      onListening: setListening,
+      onTranscript,
+      voiceLog,
+      say,
+      onVoiceTerminal: message => {
+        const current = session ?? entry?.session;
+        session = null;
+        end.hidden = true;
+        setListening(false);
+        say(message);
+        entry?.say?.(message);
+        entry?.switchToTyping?.();
+        void current?.end?.();
+      },
+    });
+    const outcome = await entry.ready;
+    session = entry.session ?? null;
+    return handleVoiceFailure(outcome?.result, session);
   }
   async function stop() {
     await endLiveSession();

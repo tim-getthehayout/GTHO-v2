@@ -3,6 +3,7 @@
  * backend answers 403. Voice for every intent launches from the global
  * push-to-talk; both use the same session, routing and review rules. */
 import { el, clear } from '../../../ui/dom.js';
+import { showDismissibleBanner } from '../../../ui/toast.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { createOfflineNoteStore } from './offline-notes.js';
 import { createAssistantSession, DISCARD_EMPTY_FAILED_MESSAGE } from './session.js';
@@ -22,6 +23,14 @@ export const PANEL_INTENTS = Object.freeze([
 
 function offline(deps) {
   return typeof deps.online === 'function' && !deps.online();
+}
+
+let activeEntry = null;
+
+function entryIsOpen(entry) {
+  if (!entry || entry.isClosed()) return false;
+  const wrap = document.getElementById('assistant-sheet-wrap');
+  return !!wrap && wrap.classList.contains('open');
 }
 
 /** Reveals the control only when the backend returns config (not 403). */
@@ -59,6 +68,15 @@ export function renderTranscript(container, transcript) {
  * explicit voice request, or Use of a reviewed note starts once.
  */
 export function openAssistant(deps, config, options = {}) {
+  if (entryIsOpen(activeEntry)) {
+    if (options.focusText) activeEntry.input?.focus();
+    if (options.firstTurn) {
+      activeEntry.ready = activeEntry.begin('data-entry', options.firstTurn, options.extra ?? {}, options.from ?? {}).catch(error => { activeEntry.say(error.message); return null; });
+    } else if (options.mode === 'voice') {
+      activeEntry.ready = activeEntry.startVoice(options.extra ?? {});
+    }
+    return activeEntry;
+  }
   const { sheet, panel, wrap } = ensureSheet();
   const invoker = options.invoker ?? null;
   clear(panel);
@@ -80,29 +98,77 @@ export function openAssistant(deps, config, options = {}) {
   let session = null;
   let closed = false;
   let starting = false;
-  let openId = 0;
-  const generation = { id: 0 };
-  const thisOpen = (generation.id += 1);
-  openId = thisOpen;
-  const stale = () => closed || generation.id !== openId;
+  const owner = { handle: null };
+  const stale = () => closed || activeEntry !== owner.handle;
 
   const input = el('input', { type: 'text', placeholder: COMPOSER_PLACEHOLDER, 'data-testid': 'assistant-text' });
   const send = el('button', { className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-send', onClick: () => { void submit(); } }, ['Send']);
-  body.append(el('div', { className: 'field' }, [input, send]));
+  const endTurn = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-end', hidden: true, onClick: () => { void requestEndTurn(); } }, ['End']);
+  body.append(el('div', { className: 'field' }, [input, send, endTurn]));
+
+  const sessionOptions = (extra = {}) => ({
+    deps, config, intent: 'data-entry', say: text => {
+      if (!stale()) status.textContent = text ?? '';
+      options.say?.(text);
+    },
+    onTranscript: turns => {
+      if (!stale()) renderTranscript(transcript, turns);
+      options.onTranscript?.(turns);
+    },
+    onListening: listening => {
+      endTurn.hidden = !listening;
+      options.onListening?.(listening);
+    },
+    onVoiceTerminal: message => {
+      options.onVoiceTerminal?.(message);
+    },
+    voiceLog, ...extra,
+  });
+
+  function bindSession(extra = {}) {
+    if (session) return session;
+    session = createAssistantSession(sessionOptions(extra));
+    return session;
+  }
+
+  /** Start voice without begin()/xAI first: talk() checks the mic, then starts. */
+  async function startVoice(extra = {}) {
+    if (offline(deps)) { say(OFFLINE_TEXT); return { session: null, result: null }; }
+    const current = bindSession(extra);
+    endTurn.hidden = false;
+    try {
+      const result = await current.talk();
+      return { session: current, result };
+    } catch (error) {
+      say(error.message);
+      return { session: current, result: null, error };
+    }
+  }
+
+  function requestEndTurn() {
+    if (!session || stale()) return Promise.resolve(null);
+    return session.talk();
+  }
+
+  /** After a discarded empty voice start, stay on this composer for typing. */
+  function switchToTyping() {
+    session = null;
+    endTurn.hidden = true;
+    input.focus();
+  }
 
   async function ensureSession(extra = {}, from = {}) {
     if (session) return session;
     if (offline(deps)) { say(OFFLINE_TEXT); return null; }
     starting = true;
     say('Starting…');
-    const startedFor = openId;
     session = createAssistantSession({
       deps, config, intent: 'data-entry', say,
-      onTranscript: turns => { if (!stale() && startedFor === generation.id) renderTranscript(transcript, turns); },
+      onTranscript: turns => { if (!stale()) renderTranscript(transcript, turns); },
       voiceLog, ...extra,
     });
     await session.begin(undefined, undefined, from);
-    if (stale() || startedFor !== generation.id) {
+    if (stale()) {
       try { await session.end(); } catch { /* late begin still cleans up once */ }
       session = null;
       return null;
@@ -162,21 +228,30 @@ export function openAssistant(deps, config, options = {}) {
   async function close() {
     if (closed) return;
     closed = true;
-    generation.id += 1;
-    wrap.querySelector('.sheet-backdrop').onclick = null;
-    document.removeEventListener('keydown', onEscape, true);
-    sheet.close();
-    try { invoker?.focus?.(); } catch { /* invoker may be detached */ }
-    if (!session) return;
+    const isActive = activeEntry === owner.handle;
+    if (isActive) {
+      wrap.querySelector('.sheet-backdrop').onclick = null;
+      document.removeEventListener('keydown', onEscape, true);
+      sheet.close();
+      try { invoker?.focus?.(); } catch { /* invoker may be detached */ }
+    }
+    if (!session) {
+      if (isActive && activeEntry === owner.handle) activeEntry = null;
+      return;
+    }
     const current = session;
+    session = null;
     try {
       await current.end();
     } catch (error) {
-      if (current.discardEmptyFailed) say(DISCARD_EMPTY_FAILED_MESSAGE);
-      else if (error) say(error.message);
+      const message = current.discardEmptyFailed ? DISCARD_EMPTY_FAILED_MESSAGE : (error?.message || DISCARD_EMPTY_FAILED_MESSAGE);
+      if (current.discardEmptyFailed) showDismissibleBanner(message);
+      else if (isActive) say(message);
+      if (isActive && activeEntry === owner.handle) activeEntry = null;
       return;
     }
-    session = null;
+    if (current.discardEmptyFailed) showDismissibleBanner(DISCARD_EMPTY_FAILED_MESSAGE);
+    if (isActive && activeEntry === owner.handle) activeEntry = null;
   }
 
   function onEscape(event) {
@@ -218,12 +293,18 @@ export function openAssistant(deps, config, options = {}) {
     ready = begin('data-entry', options.firstTurn, options.extra ?? {}, options.from ?? {}).catch(error => { say(error.message); return null; });
   }
   if (options.mode === 'voice') {
-    ready = (async () => {
-      const current = await ensureSession();
-      if (!current || stale()) return null;
-      try { await current.talk(); } catch (error) { say(error.message); }
-      return current;
-    })();
+    ready = startVoice(options.extra ?? {});
   }
-  return { begin, close, ready, get session() { return session; }, get input() { return input; } };
+  const handle = {
+    begin, close, startVoice, switchToTyping, endTurn: requestEndTurn,
+    get ready() { return ready; },
+    set ready(value) { ready = value; },
+    isClosed: () => closed,
+    get session() { return session; },
+    get input() { return input; },
+    say,
+  };
+  owner.handle = handle;
+  activeEntry = handle;
+  return handle;
 }

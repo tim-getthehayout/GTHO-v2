@@ -38,20 +38,27 @@ describe('global push-to-talk', () => {
     const first = mountPushToTalk(deps(), {});
     expect(mountPushToTalk(deps(), {})).toBe(first);
   });
-  it('first tap starts a data-entry voice session; tapping again ends the turn', async () => {
+  it('first tap opens the shared sheet and starts a data-entry voice session; End ends the turn; Cancel closes', async () => {
     const control = mountPushToTalk(deps(), { earlyTesting: false });
     const button = document.querySelector('[data-testid="ptt-button"]');
     await control.tap();
+    expect(document.querySelectorAll('[data-testid^="assistant-intent-"]')).toHaveLength(0);
+    expect(document.querySelector('[data-testid="assistant-cancel"]').textContent).toBe('Cancel');
+    expect(document.querySelector('[data-testid="assistant-text"]').placeholder).toBe('Type here');
+    expect(document.querySelector('[data-testid="assistant-end"]').hidden).toBe(false);
     expect(sessions).toHaveLength(1);
     expect(sessions[0].options.intent).toBe('data-entry');
+    expect(sessions[0].begin).not.toHaveBeenCalled();
     expect(button.getAttribute('aria-pressed')).toBe('true');
     expect(await sessions[0].talk.mock.results[0].value).toBe('listening');
     await control.tap();
     expect(sessions).toHaveLength(1);
     expect(await sessions[0].talk.mock.results[1].value).toBe('turn-ended');
-    document.querySelector('[data-testid="ptt-end"]').click();
+    document.querySelector('[data-testid="assistant-end"]').click();
     await Promise.resolve();
-    expect(sessions[0].end).toHaveBeenCalled();
+    expect(sessions[0].talk.mock.calls.length).toBeGreaterThanOrEqual(3);
+    document.querySelector('[data-testid="assistant-cancel"]').click();
+    await vi.waitFor(() => expect(sessions[0].end).toHaveBeenCalled());
   });
   it('offline, a tap records a device-local voice note instead', async () => {
     const control = mountPushToTalk(deps(false), {});
@@ -361,7 +368,8 @@ describe('push-to-talk status dismiss and terminal end path', () => {
     expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toBe('');
     expect(started.end).not.toHaveBeenCalled();
     expect(document.querySelector('[data-testid="ptt-button"]').getAttribute('aria-pressed')).toBe('true');
-    expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(false);
+    expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
+    expect(document.querySelector('[data-testid="assistant-end"]').hidden).toBe(false);
     expect(control.session).toBe(started);
     // A later status brings the bubble back.
     started.options.say('Thinking…');
@@ -402,11 +410,12 @@ describe('no-mic Type instead? (OI-0196)', () => {
     });
   });
 
-  it('no-mic close goes through endLiveSession: End hidden, session cleared, then Type instead? prompt', async () => {
+  it('no-mic keeps the shared sheet open, then Type instead? No closes it without a picker flash', async () => {
     const control = mountPushToTalk(deps(), { earlyTesting: false });
     const tapPromise = control.tap();
     await vi.waitFor(() => expect(document.querySelector('[data-testid="ptt-type-instead"]')).not.toBeNull());
-    expect(sessions[0].end).toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="assistant-cancel"]')).toBeTruthy();
+    expect(document.querySelectorAll('[data-testid^="assistant-intent-"]')).toHaveLength(0);
     expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
     expect(control.session).toBeNull();
     expect(document.querySelector('[data-testid="ptt-no-mic-message"]').textContent).toBe('No microphone found.');
@@ -414,23 +423,21 @@ describe('no-mic Type instead? (OI-0196)', () => {
     document.querySelector('[data-testid="ptt-type-instead-no"]').click();
     await tapPromise;
     expect(document.querySelector('[data-testid="ptt-type-instead"]')).toBeNull();
-    expect(document.querySelector('#assistant-sheet-wrap')).toBeNull();
+    expect(document.getElementById('assistant-sheet-wrap')?.classList.contains('open')).toBeFalsy();
+    expect(sessions[0].end).toHaveBeenCalled();
   });
 
-  it('Yes opens the Assistant sheet on data-entry with the text box focused and no voice timer', async () => {
+  it('Yes stays on the same composer with Type here focused, no picker and no new begin', async () => {
     const control = mountPushToTalk(deps(), { earlyTesting: false });
     const tapPromise = control.tap();
     await vi.waitFor(() => expect(document.querySelector('[data-testid="ptt-type-instead-yes"]')).not.toBeNull());
+    expect(document.querySelector('[data-testid="assistant-text"]').placeholder).toBe('Type here');
     document.querySelector('[data-testid="ptt-type-instead-yes"]').click();
     await tapPromise;
-    await vi.waitFor(() => expect(document.querySelector('[data-testid="assistant-text"]')).not.toBeNull());
-    // begin was called for the typed sheet session (second createAssistantSession call).
-    expect(sessions.length).toBeGreaterThanOrEqual(1);
-    const typed = sessions.find(s => s.begin.mock.calls.length && s.options.intent === 'data-entry');
-    // Sheet session is created by openAssistant → begin('data-entry').
-    expect(document.querySelector('[data-testid="assistant-intent-data-entry"]') || document.querySelector('[data-testid="assistant-text"]')).toBeTruthy();
-    expect(document.querySelector('[data-testid="assistant-text"]')).toBe(document.activeElement);
-    // No live PTT session / End button after the handoff.
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="assistant-text"]')).toBe(document.activeElement));
+    expect(document.querySelectorAll('[data-testid^="assistant-intent-"]')).toHaveLength(0);
+    expect(document.querySelector('[data-testid="assistant-text"]').placeholder).toBe('Type here');
+    expect(sessions.every(s => s.begin.mock.calls.length === 0)).toBe(true);
     expect(control.session).toBeNull();
     expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
   });
@@ -441,7 +448,7 @@ describe('no-mic Type instead? (OI-0196)', () => {
     await vi.waitFor(() => expect(document.querySelector('[data-testid="ptt-type-instead-dismiss"]')).not.toBeNull());
     document.querySelector('[data-testid="ptt-type-instead-dismiss"]').click();
     await tapPromise;
-    expect(document.querySelector('#assistant-sheet-panel')).toBeNull();
+    expect(document.getElementById('assistant-sheet-wrap')?.classList.contains('open')).toBeFalsy();
     expect(control.session).toBeNull();
   });
 

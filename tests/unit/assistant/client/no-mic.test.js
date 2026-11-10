@@ -284,3 +284,61 @@ describe('header typed path never needs the mic', () => {
     }
   });
 });
+
+describe('shared voice sheet: no xAI session before the mic check', () => {
+  it('opens Cancel / Type here first and does not mint until getUserMedia settles', async () => {
+    const order = [];
+    let releaseMic;
+    const micGate = new Promise(resolve => { releaseMic = resolve; });
+    const mediaDevices = {
+      getUserMedia: vi.fn(async () => {
+        order.push('mic-start');
+        await micGate;
+        order.push('mic');
+        return { getTracks: () => [{ stop: vi.fn() }] };
+      }),
+    };
+    const saved = globalThis.navigator;
+    Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices }, configurable: true });
+    const AudioContextImpl = class {
+      constructor() { this.destination = {}; this.currentTime = 0; }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {}, disconnect() {}, onaudioprocess: null }; }
+      createBuffer() { return { getChannelData: () => new Float32Array(1), duration: 0 }; }
+      createBufferSource() { return { connect() {}, start() {}, buffer: null }; }
+      async close() {}
+    };
+    globalThis.AudioContext = AudioContextImpl;
+
+    createAssistantConversation.mockImplementation(() => {
+      order.push('begin');
+      return {
+        ref: 'c1', scope: { operationId: 'op', actorId: 'u' },
+        session: { intent: 'data-entry', phase: 'converse', transcript: [], capture: {}, conversationRef: 'c1' },
+        route: null, begin: vi.fn(async () => { order.push('begin-done'); }), turn: vi.fn(async () => null), switchIntent: vi.fn(),
+        cancel: vi.fn(async () => {}),
+        discardEmpty: vi.fn(async () => ({ value: { outcome: 'discarded' } })),
+        voiceAuthorization: async () => { order.push('mint'); return { provider: 'xai', token: 't', expiresAt: Date.now() + 60000 }; },
+      };
+    });
+
+    try {
+      const say = vi.fn();
+      const entry = openAssistant(deps, config, { mode: 'voice', say });
+      expect(document.querySelectorAll('[data-testid^="assistant-intent-"]')).toHaveLength(0);
+      expect(document.querySelector('[data-testid="assistant-cancel"]').textContent).toBe('Cancel');
+      expect(document.querySelector('[data-testid="assistant-text"]').placeholder).toBe('Type here');
+      expect(document.querySelector('[data-testid="assistant-end"]')).toBeTruthy();
+      await vi.waitFor(() => expect(order).toContain('mic-start'));
+      expect(order).not.toContain('mint');
+      expect(voiceAuth).not.toHaveBeenCalled();
+      releaseMic();
+      const outcome = await entry.ready;
+      expect(outcome.result).toBe('listening');
+      expect(order).toContain('mic');
+      expect(order.indexOf('mint')).toBeGreaterThan(order.indexOf('mic'));
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true });
+    }
+  });
+});

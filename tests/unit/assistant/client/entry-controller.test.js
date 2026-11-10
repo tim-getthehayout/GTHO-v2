@@ -126,7 +126,7 @@ describe('shared assistant entry (no picker, Type here, Cancel)', () => {
     await entry.close();
     expect(d.commands).toContain('discard-empty');
     expect(d.commands).not.toContain('cancel');
-    expect(document.querySelector('[data-testid="assistant-status"]').textContent).not.toBe(DISCARD_EMPTY_FAILED_MESSAGE);
+    expect(document.querySelector('[data-testid="assistant-cleanup-failure"]')).toBeNull();
   });
 
   it('a failed empty-start cleanup leaves the locked truthful message visible', async () => {
@@ -139,7 +139,48 @@ describe('shared assistant entry (no picker, Type here, Cancel)', () => {
     const entry = openAssistant(d, {});
     await entry.begin('data-entry');
     await entry.close();
-    expect(document.querySelector('[data-testid="assistant-status"]').textContent).toBe(DISCARD_EMPTY_FAILED_MESSAGE);
+    expect(document.getElementById('assistant-sheet-wrap')?.classList.contains('open')).toBeFalsy();
+    const banner = document.querySelector('[data-testid="assistant-cleanup-failure"]');
+    expect(banner).toBeTruthy();
+    expect(banner.querySelector('[data-testid="assistant-cleanup-failure-text"]').textContent).toBe(DISCARD_EMPTY_FAILED_MESSAGE);
+    document.querySelector('[data-testid="assistant-cleanup-failure-dismiss"]').click();
+    expect(document.querySelector('[data-testid="assistant-cleanup-failure"]')).toBeNull();
+  });
+
+  it('close during an in-flight start waits for start, then discards, and does not throw', async () => {
+    const d = deps();
+    let release;
+    d.api.command = vi.fn(async (ref, command) => {
+      d.commands.push(command);
+      if (command === 'start') await new Promise(resolve => { release = resolve; });
+      return { session: { intent: 'data-entry', phase: 'converse', transcript: [], capture: {}, conversationRef: ref } };
+    });
+    const entry = openAssistant(d, {});
+    const starting = entry.begin('data-entry');
+    await vi.waitFor(() => expect(typeof release).toBe('function'));
+    const closing = entry.close();
+    expect(d.commands).toEqual(['start']);
+    expect(d.commands).not.toContain('discard-empty');
+    release();
+    await expect(starting).resolves.toBeDefined();
+    await expect(closing).resolves.toBeUndefined();
+    expect(d.commands.filter(name => name === 'start')).toHaveLength(1);
+    expect(d.commands.filter(name => name === 'discard-empty')).toHaveLength(1);
+    expect(d.commands.indexOf('start')).toBeLessThan(d.commands.indexOf('discard-empty'));
+  });
+
+  it('a later open is not closed by an older handle', async () => {
+    const first = openAssistant(deps(), {});
+    const second = openAssistant(deps(), {});
+    expect(second).toBe(first);
+    await first.close();
+    const third = openAssistant(deps(), {});
+    expect(third).not.toBe(first);
+    expect(document.getElementById('assistant-sheet-wrap').classList.contains('open')).toBe(true);
+    await first.close();
+    expect(document.getElementById('assistant-sheet-wrap').classList.contains('open')).toBe(true);
+    await third.close();
+    expect(document.getElementById('assistant-sheet-wrap').classList.contains('open')).toBe(false);
   });
 
   it('shows the offline message and does not begin when Send is used offline', async () => {
@@ -150,5 +191,23 @@ describe('shared assistant entry (no picker, Type here, Cancel)', () => {
     document.querySelector('[data-testid="assistant-send"]').click();
     await Promise.resolve();
     expect(d.api.command).not.toHaveBeenCalled();
+  });
+});
+
+describe('voice entry chrome', () => {
+  it('voice mode opens the same composer with Cancel, Type here, and an End control, and never a picker', async () => {
+    const d = deps();
+    const entry = openAssistant(d, {}, { mode: 'voice' });
+    expect(document.querySelectorAll('[data-testid^="assistant-intent-"]')).toHaveLength(0);
+    expect(document.querySelector('[data-testid="assistant-cancel"]').textContent).toBe('Cancel');
+    expect(document.querySelector('[data-testid="assistant-text"]').placeholder).toBe('Type here');
+    const end = document.querySelector('[data-testid="assistant-end"]');
+    expect(end).toBeTruthy();
+    expect(end.textContent).toBe('End');
+    await entry.ready;
+    // Without a mic, talk() settles as no-mic and the sheet stays put (no picker).
+    expect(document.querySelector('[data-testid="assistant-cancel"]')).toBeTruthy();
+    expect(document.querySelectorAll('[data-testid^="assistant-intent-"]')).toHaveLength(0);
+    expect(document.querySelector('[data-testid="assistant-text"]').placeholder).toBe('Type here');
   });
 });

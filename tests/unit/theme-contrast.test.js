@@ -476,11 +476,23 @@ describe('dark-mode selection indicator ≥ 3:1 vs --bg', () => {
 
 
 
-/** Baseline commit whose light chip hex must stay locked (Design HOLD on PR #44). */
+/** Baseline commit whose light chip hex must stay locked (Design HOLD on PR #44).
+ * Frozen under tests/fixtures/light-lock-aa2f48bf/ so CI shallow clones don't
+ * need git history. Integrity test compares to `git show` when the commit is present. */
 const LIGHT_LOCK_COMMIT = 'aa2f48bf';
+const LIGHT_LOCK_FIXTURES = resolve(process.cwd(), 'tests/fixtures/light-lock-aa2f48bf');
 
-function gitShow(path) {
-  return execSync(`git show ${LIGHT_LOCK_COMMIT}:${path}`, { encoding: 'utf8' });
+function lightLockFixture(name) {
+  return readFileSync(resolve(LIGHT_LOCK_FIXTURES, name));
+}
+
+function gitHasObject(rev) {
+  try {
+    execSync(`git cat-file -e ${rev}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseRuleDecls(css, selector) {
@@ -498,9 +510,14 @@ function parseRuleDecls(css, selector) {
 }
 
 describe('light chip colors locked to aa2f48bf (not remapped tint-green)', () => {
-  const baselineCss = gitShow('src/styles/main.css');
-  const baselineDash = gitShow('src/features/dashboard/index.js');
+  const baselineCss = lightLockFixture('main.css.txt').toString('utf8');
+  const baselineDash = lightLockFixture('dashboard-index.js.txt').toString('utf8');
   const baselineNow = parseRuleDecls(baselineCss, '.now-chip');
+
+  it.skipIf(!gitHasObject(LIGHT_LOCK_COMMIT))('fixtures are byte-identical to git show aa2f48bf', () => {
+    expect(lightLockFixture('main.css.txt')).toEqual(execSync(`git show ${LIGHT_LOCK_COMMIT}:src/styles/main.css`));
+    expect(lightLockFixture('dashboard-index.js.txt')).toEqual(execSync(`git show ${LIGHT_LOCK_COMMIT}:src/features/dashboard/index.js`));
+  });
 
   it('reads .now-chip light bg #fff from aa2f48bf', () => {
     expect(baselineNow?.background?.toLowerCase()).toBe('#fff');

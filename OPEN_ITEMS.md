@@ -2,160 +2,150 @@
 
 ## Open
 
----
+**Ledger reconciled:** 2026-11-10 against Forgejo `main` at `1fe0a593` and live build `b2026-11-10.1025-1fe0a59`. OI-0196–OI-0204 shipped in PR #44; the earlier open statuses were stale. This is a docs-only reconciliation, not a new implementation or data repair.
 
-### OI-0199 — Desktop nav: selecting Feedback also highlights Feed
-
-**Added:** 2026-11-09 | **Area:** v2-build / header / nav / a11y | **Priority:** P2 (wrong active chrome on Feedback; Feed looks selected at the same time)
-
-**Status:** open — ready for build (2026-11-09). Reported by Tim from live testing on build `aa2f48b`. No product choice.
-
-**Bug.** Active-state matching uses a raw prefix check. `#/feedback` starts with `#/feed`, so the Feed item lights up on the Feedback route.
-
-Verified on `aa2f48bf` in `src/ui/header.js`:
-
-- Feed registrations: sidebar `sidebarNavItem('#/feed', …)` at **:62**; mobile `navLink('#/feed', …)` at **:79**; bottom nav `{ hash: '#/feed', … }` at **:514**. Feedback is `sidebarNavItemBadge('#/feedback', …)` at **:66**.
-- Matching sites that share the broken prefix rule:
-  - `updateActiveSidebarItem` **:446** — `hash === itemHash || (itemHash !== '#/' && hash.startsWith(itemHash))`
-  - `updateActiveBottomNavItem` **:464** — same expression
-  - `sidebarNavItem` **:593** — `currentHash === href || (href !== '#/' && currentHash.startsWith(href))`
-  - `sidebarNavItemBadge` **:603** — `currentHash === href || currentHash.startsWith(href)` (also lacks the `#/` root guard the other three have)
-
-**Fix.** One shared helper used at all four sites. An item is active when the hash equals its href, or — for non-root hrefs — when the hash starts with that href followed by `'/'` or `'?'`. Root `'#/'` matches only exactly. Example shape:
-
-```js
-function navHrefIsActive(hash, href) {
-  if (hash === href) return true;
-  if (href === '#/') return false;
-  return hash.startsWith(href + '/') || hash.startsWith(href + '?');
-}
-```
-
-**Acceptance criteria:**
-
-- [ ] On `#/feedback` only Feedback is active; on `#/feed` only Feed is active.
-- [ ] Sub-routes such as `#/feed/...` still highlight Feed.
-- [ ] Bottom-nav and sidebar hashchange sync (`updateActiveBottomNavItem` / `updateActiveSidebarItem`) agree with the initial render helpers.
-- [ ] Unit tests cover feed vs feedback and a root / sub-route case (exact `#/`, `#/feed`, `#/feed/…`, `#/feedback`).
-
-**CP-55/CP-56 spec impact:** None — nav chrome only.
-
-**Related:** OI-0154 (sidebar/bottom-nav active sync that introduced the shared startsWith pattern). Live repro on getthehayout.com build `aa2f48b`.
-
-**Origin:** 2026-11-09 Tim live testing; Design confirmed the prefix collision in `src/ui/header.js` on `aa2f48bf`.
+| Item | Scope | Current status |
+|---|---|---|
+| OI-0200 | Dismissible PTT status and shared terminal teardown | Closed — PR #44, `8e5bd03d` |
+| OI-0201 | Native-control contrast, tint tokens and light-value lock | Closed — PR #44, `8e5bd03d` |
+| OI-0202 | One manual user turn, sticky transcription ownership and replay safety | Closed — PR #44, `8e5bd03d` |
+| OI-0203 | Infer the entry surface and ask a natural missing-field question | Closed — PR #44, `8e5bd03d`; remaining target gap is OI-0206 |
+| OI-0204 | Parallel startup, local PCM buffering and startup cancellation guards | Closed — PR #44, `8e5bd03d` |
+| OI-0205 | Animals current-placement display agrees with the dashboard | Open — ready for Build within the scope below |
+| OI-0206 | Feeding target normalization, clarification continuity and carryover | Open — ready for Build within the scope below |
+| OI-0207 | Direct typed start without picker flash; unified Cancel lifecycle | Open — ready for Build; phone retest required |
+| OI-0208 | One running assistant chat with live transcription and answerable cards | Queued, not ready for Build — Design after OI-0205–OI-0207 ship |
 
 ---
 
-### OI-0198 — Metric mode shows acres labelled "ha" (or hardcoded "ac") on six screens
+### OI-0208 — One running assistant chat, live transcription and answerable question cards
 
-**Added:** 2026-11-09 | **Area:** v2-build / locations / harvest / field-mode / units | **Priority:** P2 (wrong unit shown in metric; numbers are acres while the label may say ha)
+**Added:** 2026-11-10 | **Area:** v2-design / assistant / conversation UX | **Priority:** P3 (follow-on direction, not part of the current fix batch)
 
-**Status:** open — ready for build (2026-11-09). Found during Design's review of PR #42 (areaHectares fix). No product choice; match `src/features/events/detail.js:488-491`.
+**Status:** Queued, not ready for Build. Tim's direction: present the assistant as one running chat with live transcription of what he says or types, and question cards he can answer by tapping, typing or voice, replacing transient pickers and prompts. Design scopes this after OI-0205–OI-0207 ship; this note is not an implementation handoff.
 
-**Bug.** Several screens convert location area to acres unconditionally (`convert(..., 'area', 'toImperial')`) and then either (a) pair that acres number with `areaUnit = unitSys === 'imperial' ? 'ac' : 'ha'`, so metric shows acres labelled "ha", or (b) hardcode the literal `"ac"`, so metric still shows acres. Canonical correct pattern is already in Event Detail:
+**Contracts:** `conversation-runtime` and `feedback-module`, owned by Chief of Staff. GTHO is an adopter; any shared-contract change must be scoped with that owner, not patched into `vendor/` here.
 
-- `src/features/events/detail.js:490` — `const areaDisplay = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(2) : '';`
-- `src/features/events/detail.js:491` — `const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';`
+**CP-55/CP-56 spec impact:** To be assessed during Design scoping; no new persisted shape is authorized by this queued note.
 
-**Sites (verified on `aa2f48bf`):**
-
-1. Locations card — `src/features/locations/index.js:296-298` (always `toImperial` at 298; `areaUnit` at 296; rendered at 344).
-2. Survey sheet list — `src/features/locations/index.js:927-929` (always `toImperial` at 928; `areaUnit2` at 929; rendered at 936).
-3. Apply-input location picker — `src/features/locations/index.js:1275-1276` (always `toImperial`); display hardcodes `` `${areaVal} ac` `` at **1284**.
-4. Harvest field picker — `src/features/harvest/index.js:203-205` (always `toImperial` at 204; `areaUnit` at 205; rendered at 214).
-5. Field-mode survey-single paddock picker — `src/features/field-mode/index.js:183-184` (always `toImperial` at 184); display hardcodes `` `${areaVal} ac` `` at **190**.
-6. Field-mode active-events total — `src/features/field-mode/index.js:491` (always `toImperial` into `locAcres`); display hardcodes `` `${locAcres.toFixed(1)} ac` `` at **512**.
-
-**Fix.** At each site, convert to acres only when `unitSys === 'imperial'`; otherwise show hectares. Use `ac` / `ha` to match Event Detail. Do not invent a shared helper unless Build already has one in reach; copy the detail.js ternary.
-
-**Acceptance criteria:**
-
-- [ ] Each of the six screens shows hectares with "ha" when the unit system is metric, and acres with "ac" when imperial.
-- [ ] Unit tests (or existing screen tests extended) cover metric and imperial for each site.
-- [ ] Light/dark and other unit displays are unchanged.
-
-**CP-55/CP-56 spec impact:** None — display-only; stored `areaHectares` unchanged.
-
-**Related:** PR #42 / merge `aa2f48bf` (areaHectares read fix). OI-0124 (areaHa field-name drift class).
-
-**Origin:** 2026-11-09 Design review of PR #42; filed with OI-0196 / OI-0197 live-test docs.
+**Origin:** Tim's 2026-11-10 direction following the placement, feeding-loop and picker investigations.
 
 ---
 
-### OI-0197 — Push-to-talk side buttons unreadable in dark mode
+### OI-0207 — PTT Type-instead picker flash; header picker needs Cancel
 
-**Added:** 2026-11-09 | **Area:** v2-build / assistant / push-to-talk / a11y | **Priority:** P1 (unreadable controls on the only voice entry; Tim hit it on first live test)
+**Added:** 2026-11-10 | **Area:** v2-build / assistant / typed-entry / sheet lifecycle | **Priority:** P2 (wrong transient choices and no explicit way to cancel the header picker)
 
-**Status:** open — ready for build (2026-11-09). Orchestrator: build this first among the 2026-11-09 live bugs. No product choice.
+**Status:** open — ready for build (2026-11-10). Picker flash reproduced on live build `b2026-11-10.1025-1fe0a59`; a full disappearance of the sheet was not reproduced and needs a phone retest. Do not claim that symptom is already explained or fixed.
 
-**Bug.** The End button (left) and the log pill (right) beside the global push-to-talk, plus the status bubble under them, set `background: var(--bg)` but no `color`. Native `<button>` elements do not inherit text color, so they keep the browser default black text. Under `prefers-color-scheme: dark`, `--bg` is `#1a1a18` (`src/styles/main.css:102`) and `--text` is `#e8e6de` (`:105`), so black-on-dark is unreadable.
+**Bug.** `src/features/assistant/client/panel.js:105–118` always renders the intent picker, even when `options.intent` requests a direct typed start. `begin()` only clears it after the awaited session start (`:70–72`). PTT Yes therefore flashes choices while begin is pending. The header picker has no Cancel below its choices; backdrop close at `:113` only closes the sheet and does not share a session-cleanup lifecycle.
 
-Verified on `aa2f48bf`:
+**Fix.**
 
-- `.gtho-ptt-end` — `src/styles/main.css:3310` — `background: var(--bg, #fff)`; border `var(--border, #ccc)`; no `color`.
-- `.gtho-ptt-log` — `:3311` — same gap.
-- `.gtho-ptt-status` — `:3314` — same gap (div, but still no explicit color against `--bg`).
-
-**Fix.** Add `color: var(--text)` to all three. Switch their border to `var(--border2)` (dark token at `:109` is `rgba(255, 255, 255, 0.18)`). Do not change the green PTT mic button (`.gtho-ptt-button` already sets `color: #fff`).
+1. **PTT Yes / direct typed start:** skip the intent picker entirely. Open the composer directly with a stable **"Starting…"** state while begin is pending; enable Send and focus the text box when ready. Keep the same runtime, inferred data-entry route and review-before-save. No microphone, realtime connection or voice timer is started by typing.
+2. **Header Assistant:** keep the intent choices and add **Cancel below the choices**. An untouched picker does not create a session, reserve usage or make a start/discard RPC.
+3. **One idempotent close lifecycle** for Cancel, backdrop and Escape. Return focus to the invoker after close. Repeated close events must not repeat cleanup or act on a subsequently opened sheet.
+4. **Untouched picker:** close locally only, with no RPC. **Empty started or pending session:** discard using the existing discard-empty RPC; preserve its membership, restore-fence, nonempty-session and billing protections. **Populated session:** never delete it; close through the existing safe session lifecycle and retain its recoverable transcript/proposal/attempt.
+5. **Async guards:** one begin per open/start action; disable repeated start/Send while pending. Use an open-generation/abort guard so a late begin, notes load or transcript callback cannot reopen a closed sheet, replace a newer sheet, render/focus detached controls or orphan an empty session. A begin that finishes after close must still have its empty start cleaned up once. Close local transport/timer immediately where applicable, without waiting for cleanup RPC success.
+6. **Cleanup failure:** retain the truthful, dismissible status **"Voice closed, but the empty session couldn't be removed."** Do not claim deletion succeeded, hide the error during close, or delete billing/usage rows. The visible × dismisses the message only, not a live turn.
 
 **Acceptance criteria:**
 
-- [ ] In dark mode, text and icons on End, the log pill, and the status bubble meet at least 4.5:1 contrast against their background.
-- [ ] Light mode appearance is unchanged aside from using `--border2` if that token already matches.
-- [ ] A unit/snapshot or computed-style test checks `color` resolves to `var(--text)` (or the dark/light computed value) for all three classes in both schemes.
+- [ ] With a gated/delayed begin, PTT Yes never shows intent choices, shows stable Starting… UI, then focuses the enabled composer exactly once. Offline/error paths do not leave a stuck or silently vanished sheet.
+- [ ] Header choices remain; Cancel appears below them. Untouched Cancel, backdrop and Escape each perform zero start/discard RPCs and restore invoker focus.
+- [ ] Empty-start close calls the existing discard-empty path once. Close before/during begin, late completion, double click, repeated Escape and immediate reopen are covered; no stale completion can affect the newer sheet.
+- [ ] Populated sessions, proposals, attempts and ordinary farm records are never deleted by Cancel/backdrop/Escape. Existing review-before-save remains intact.
+- [ ] Missing-RPC/cleanup failure leaves the exact truthful message visible and dismissible with ×. Local voice transport/timer are stopped and billing/usage history is untouched.
+- [ ] Direct and header typed paths work with no `mediaDevices`; consent, authorization, offline-note preservation and feature-flag gates stay intact.
+- [ ] Retest the flash and the separately reported full-disappearance symptom on the phone; record whether disappearance reproduces rather than treating it as a confirmed cause.
 
-**CP-55/CP-56 spec impact:** None — CSS only.
+**CP-55/CP-56 spec impact:** None intended — existing lifecycle/RPC and persisted artifacts only. No new table, field or shared-contract change is authorized.
 
-**Related:** OI-0195 (global PTT). Live repro on getthehayout.com build `aa2f48b`.
+**Related:** OI-0196 (typed peer and empty-start cleanup), OI-0200 (dismiss/teardown), OI-0204 (generation guards), OI-0208 (later running-chat design).
 
-**Origin:** 2026-11-09 Tim first live assistant test; Orchestrator filed to Design.
+**Origin:** 2026-11-10 Tim live testing; two read-only reviewers agreed on the picker flash and source path. The full-disappearance report remains unconfirmed.
 
 ---
 
-### OI-0196 — No-microphone fallback for push-to-talk (typed path is a full peer of voice)
+### OI-0206 — Typed or spoken feeding target resolution loops on named paddocks
 
-**Added:** 2026-11-09 | **Area:** v2-build / assistant / push-to-talk / typed-entry | **Priority:** P1 (PTT dead-ends with no way to type on machines without a mic; stranded realtime session can sit until the 10-minute cap)
+**Added:** 2026-11-10 | **Area:** v2-build / assistant / feeding / target resolution / audit | **Priority:** P1 (a clear feeding request cannot progress to review)
 
-**Status:** open — ready for build (2026-11-09). Spec locked including Tim's typed-path decision and the mic-first / Type-instead? prompt the same day. Orchestrator: after OI-0197.
+**Status:** open — ready for build (2026-11-10). Not a regression: shorthand and multi-target rejection reproduce at `aa2f48bf` as well as `1fe0a593`. OI-0203 improved the wording, not these target restrictions; OI-0202 transcription is not the cause of the typed-input failure.
 
-**Bug.** On a computer with no microphone, push-to-talk fails with "Requested device not found", the conversation never starts, and there is no way to type. Tim's live follow-up (2026-11-09 **5:49 PM ET**): after the no-mic failure he later saw **"Voice session ended at 10 minutes. Tap to start a new one."** — the stranded realtime session stayed open until the 10-minute cap. Cause (verified on `aa2f48bf`):
+**Bug.** Tim named E - 1 and E - 2, four bales of grass hay for yesterday at 1:00 PM ET, and two bales left from the prior feeding. The assistant kept asking which paddock after the short answer "e1". Live location names are `E - 1` and `E - 2`, with no field-code aliases. Exact matching currently treats `e1`, `E-1` and `E - 1` differently; only the last spelling resolves. One comma-separated name or an array of two names does not resolve.
 
-- `src/features/assistant/client/session.js:128` awaits `startMicrophone` **after** the realtime transport is already connected (`:126`). A missing or denied mic therefore leaves a connected xAI session and its voice timer running with no turn and no typed escape.
-- `startMicrophone` in `src/features/assistant/client/realtime.js:126-127` calls `mediaDevices.getUserMedia(...)` with no guard when `mediaDevices` is missing and no caller-side catch for `NotFoundError` / permission failures.
-- The text box ("Type instead…") only renders after `session.begin` inside the Assistant sheet (`src/features/assistant/client/panel.js:61-75`), so a PTT mic failure that never opens the sheet leaves Tim with no typed entry.
+Verified on `1fe0a593`:
 
-**LOCKED (Tim, 2026-11-09 5:41 PM ET) — typed path is a full peer of voice:** Typing goes through the same routing (writes, questions, feedback, how-to) and the same conversation runtime as voice, and nothing saves until the same review card is approved. This applies to the mic-failure Yes path and also to typing from the header Assistant sheet. Tim's words: "Typing should do everything voice can, including recording entries like moves, feeding and animal records, with the same review before save."
+- `src/features/assistant/spoken-numbers.js:72–77` normalizes case, surrounding punctuation/whitespace and spoken numbers, but not internal spaces/hyphens or letter-digit boundaries.
+- `src/features/assistant/entry-targets.js:67–72` requires exact equality after that normalization. Feeding takes one `entryTarget.paddock` string and returns one `locationId` (`:19`, `:90–123`), even when two named paddocks share an event/cohort.
+- The unresolved-target question comes deterministically from `src/features/assistant/server/host.js:58–67`, not a model decision to ask once per bale. Compose forwards it and the client displays it. The resolver's pending target is a field, not a counter per bale, target or line item.
+- The available live snapshot had two failed metered typed requests on 2026-11-10 around **5:35 AM ET**, but no surviving conversation/checkpoint attributable to them. No feeding proposal, field mapping, review confirmation or execution result was found. Exact live question/answer counts and per-turn checkpoint changes cannot be inferred from that missing trace. Do not confuse the separate two-bale Corral delivery with a proven assistant save or carryover mapping.
 
-Product consequence: the header sheet's `PANEL_INTENTS` today only offers feedback / data-questions / how-to (`panel.js:14`). Build must extend typed entry so write intents (first-slice Move / Place / feeding / treatment / Calving per OI-0195) are reachable by typing the same way voice reaches them — same runtime, same review-before-save. Do not invent a parallel typed-only form.
+**Fix.**
 
-**LOCKED (Tim, 2026-11-09) — mic-first and Type instead? prompt.** Tim's words: "When a mic is not present that should automatically end that session if the user didnt convert to typing. After no mic is fine maybe prompt the user if they want to type, if no, close and delete the session, if yes take them to type and stop the voice timer."
-
-**Binding fix.**
-
-1. **Check the microphone first.** Call `getUserMedia` **before** minting the realtime client secret or connecting the transport, so a missing or denied mic never opens an xAI session or starts the 10-minute voice timer. Catch every mic failure: missing `navigator.mediaDevices`, plus `NotFoundError`, `NotAllowedError`, `NotReadableError`, `OverconstrainedError`, and `SecurityError`.
-2. **On any mic failure, show a prompt.** Message: **"No microphone found."** or, for denied permission, **"Microphone access is blocked."** Then ask **"Type instead?"** with Yes and No.
-   - **Yes:** open the Assistant sheet with the text box focused. The conversation continues as typed (a full peer of voice, per the earlier lock). No voice timer runs.
-   - **No, or dismissing the prompt:** close the session and delete it. Discard the empty conversation and its voice attempt so nothing is left as Unfinished in the voice log, and release any server-side session lock or checkpoint.
-3. **Guard:** if a realtime transport or timer already exists when a mic error happens (any code path), close it and clear the timer immediately. A session must never sit until the 10-minute cap because of a mic failure.
-4. **Design ruling — billing / usage ledger:** Billing and usage ledger rows are **not** deleted. "Delete" covers the empty conversation and voice attempt only. Any reservation is settled under the existing OI-0195 rules (a failure before any provider fetch counts as measured zero).
-5. **Offline voice-note recorder** (`session.js:155`, `createOfflineNoteRecorder`): keep the earlier no-mic message — **"No microphone found, so the voice note wasn't recorded. You can use the normal screens."** No Yes/No prompt there, because offline has no typed assistant. Do not leave a stuck recording.
-6. Typing from the header Assistant button must never need the mic. `PANEL_INTENTS` at `panel.js:14`; intent buttons at `:97-102` call `begin()`. `begin()` / `session.text()` on that path must never call `getUserMedia`. Add a unit test that runs the header typed path with `mediaDevices` missing.
+1. **Deterministic aliases, never fuzzy matching:** normalize case, internal spaces/hyphens and letter-digit boundaries so `e1`, `E-1` and `E - 1` are equal, but E-1 is not E-11. Apply the same documented normalization to names/codes and user input. Detect collisions across candidate names/aliases and ask for disambiguation; never pick the nearest or first match.
+2. **Multiple named paddocks within one event or cohort:** resolve each name independently against authorized current records, deduplicate targets, and retain all of them. Require open paddock windows and an open, existing parent event. Do not silently collapse a list to one target or broaden it to unnamed paddocks. Cross-event/conflicting targets are not authorized for automatic grouping by this item; ask rather than inventing a combined write.
+3. **Clarification continuity:** keep the resolved entry type, supplied values and pending field/target, so a short answer fills that field rather than restarting entry selection. Preserve the question/answer relationship in an attributable runtime/checkpoint trace. Ask only for unresolved information; if an alias is still ambiguous, offer the actual candidates instead of the same context-free question.
+4. **Quantity allocation:** ask whether the stated quantity is a total across the named paddocks or per paddock, then ask for any missing allocation. Never assume a split or duplicate a total onto each target. Retain the stated date, time, feed and quantity while clarifying.
+5. **Carryover is an observation, not a delivery:** a stated leftover/remaining quantity maps to `event_feed_checks` / `event_feed_check_items.remaining_quantity`, with batch and location resolved. Ask about timing relative to the new delivery when unclear, and about allocation when a multi-paddock observation is not attributable. Do not add it to newly delivered quantity or overwrite stock balances. Follow the existing strict timestamp semantics: a same-instant check already includes a same-instant delivery; do not fabricate a time to force ordering. Any live-remaining derivation uses `getLiveRemainingForMove`, not a parallel calculation.
+6. **Review before every write:** present resolved targets, dates/times, batch, delivery quantities/allocations and remaining-feed observations through the normal reviewed write paths. No proposal, clarification, model answer or quantity guess saves farm data. Retried confirmation must not duplicate delivery/check rows.
+7. **Audit gap:** failed typed requests must leave an attributable conversation or checkpoint trace of the input, unresolved field/question and failure stage. Preserve user-entered evidence under the existing consent/retention rules; never put private text in content-free operational logs. Preserve all billing/usage rows. If solving trace persistence needs a new persisted shape or a shared-contract change, stop and return that design/CP-55/CP-56 impact before building it.
 
 **Acceptance criteria:**
 
-- [ ] On a machine with no mic, tapping PTT opens **no** realtime connection, **no** xAI client secret is minted, and the Type-instead? prompt appears.
-- [ ] **Yes** leaves the Assistant sheet open with the text box focused and **no** voice timer running; typed turns use the same conversation runtime and review-before-save as voice (including first-slice write intents).
-- [ ] **No** (or dismiss) leaves no conversation, no unfinished voice-log entry, and no open connection; any server-side session lock/checkpoint is released.
-- [ ] Nothing ever reaches the "Voice session ended at 10 minutes…" message because of a mic failure (including any path where a transport already existed — it is closed and the timer cleared immediately).
-- [ ] Unit tests cover each named error (`NotFoundError`, `NotAllowedError`, `NotReadableError`, `OverconstrainedError`, `SecurityError`) plus missing `mediaDevices`, and both Yes and No answers.
-- [ ] Offline note recorder: same catch and message; no stuck recording; no Type-instead? prompt.
-- [ ] Header Assistant typed path never calls `getUserMedia` (test with `mediaDevices` missing).
+- [ ] Typed and spoken variants `e1`, `E-1`, `E - 1` resolve identically; E-11 remains distinct. Case, spaces, hyphens, spoken numbers, duplicate aliases and normalization collisions are covered without fuzzy matching.
+- [ ] Two named paddocks in one open event/cohort survive resolution and appear in review; closed/missing parents and closed paddocks are rejected. Cross-event conflicts do not silently merge.
+- [ ] A short clarification reply fills the pending field and preserves feeding intent, date, time, batch and supplied quantities. Repeated ambiguous replies ask a useful disambiguation question, not a no-progress loop. Quantity four never creates four target questions or four writes.
+- [ ] Total versus per-paddock quantity is explicit; allocation is reviewed, never guessed or double-counted. Multiple feed lines do not restart target clarification independently when they share a resolved target set.
+- [ ] Four newly delivered bales plus two carried over remain separate reviewed delivery/remaining-feed facts. Before/after/unclear timing, same-instant semantics, batch/location allocation and no accidental inventory overwrite are covered.
+- [ ] Nothing saves before review; cancel, correction, replay, retry and duplicate confirmation do not create duplicate delivery/check rows.
+- [ ] A deliberately failed typed request leaves attributable conversation/checkpoint evidence, including its pending field/question; billing remains intact. Verify the persisted evidence, not only the visible bubble.
+- [ ] Re-run the shorthand and multi-target reproductions against the prior baseline to document this as an older gap rather than an OI-0202/OI-0203 regression.
 
-**CP-55/CP-56 spec impact:** None for the fallback itself. Typed writes still go through existing entity `validate()` and durable write paths after review (OI-0195 host method). Billing/usage rows stay; empty conversation/attempt delete is client + server session cleanup only.
+**Model choice:** switching to a reasoning model does not fix deterministic name rejection, singular targets or missing clarification state. The dated `grok-4.20-0309-non-reasoning` and `grok-4.20-0309-reasoning` have the same current per-million-token rates: under 200k prompt tokens, input **$1.25**, cached input **$0.20**, output **$2.50**; at/above 200k, **$2.50 / $0.40 / $5.00**. Reasoning adds variable billable tokens/latency; a typical overhead or TTFT difference was not verified. A model switch is Tim's separate decision, not part of this fix. Official pricing/model pages fetched 2026-11-10: https://docs.x.ai/developers/pricing and https://docs.x.ai/developers/models/grok-4.20-0309-reasoning.
 
-**Related:** OI-0195 (shared PTT + review-before-save + reservation settle-as-measured-zero). OI-0197 (PTT chrome contrast, build first).
+**CP-55/CP-56 spec impact:** Use existing feeding/check entities and the existing reviewed artifact/checkpoint contract; no new persisted shape is authorized. Any required new field or checkpoint-contract change needs Design/Chief of Staff review and matching backup/restore assessment before implementation.
 
-**Origin:** 2026-11-09 Tim first live assistant test on getthehayout.com (build `aa2f48b`); Orchestrator filed to Design. Typed-path lock 5:41 PM ET; stranded 10-minute-cap finding and mic-first / Type-instead? lock later the same afternoon (5:49 PM ET finding).
+**Related:** OI-0195 (shared runtime, exact matching and review), OI-0203 (natural question), OI-0205 (current-placement rule), OI-0208 (later chat design). This is a separate root cause from Animals' stale-first window selection.
+
+**Origin:** 2026-11-10 Tim live typed feeding report and repeated "which paddock?" follow-up; read-only source/data investigation and resolver reproductions on `aa2f48bf` and `1fe0a593`.
+
+---
+
+### OI-0205 — Animals shows Cow-Calf unplaced while the dashboard shows E - 1 and E - 2
+
+**Added:** 2026-11-10 | **Area:** v2-build / animals / dashboard / current placement | **Priority:** P2 (wrong placement display despite a valid current grazing event)
+
+**Status:** open — ready for build (2026-11-10), within the display/resolver scope below. Not a regression: the first-window selection dates from `fa65ca4`, 2026-04-16; PRs #44–#46 did not introduce it.
+
+**Bug.** Animals takes the first group window with no `dateLeft`, then checks whether its parent event is open. A stale window on a closed parent can win before a valid current window. Dashboard Groups filters for an open parent first; Dashboard Locations starts from open events. The current Cow-Calf placement is one event with two open paddocks, E - 1 and E - 2, not an invalid double placement.
+
+Verified on `1fe0a593`:
+
+- `src/features/animals/index.js:217–239` — group tile's unsorted first-window choice and unplaced badge; `:400–415` — inherited animal placement; `:706–709` — split-sheet choice.
+- `src/data/store.js:411–421` (`getGroupCurrentFarm`) and `:835–850` (`maybeSplitForGroup`) have related stale-window exposure and must be audited against the shared rule, without inventing a historical data repair.
+- `src/features/dashboard/index.js:710–725` prefers windows whose parent exists and is open, then latest `dateJoined`; Locations at `:1017–1048` starts from open events. `src/features/events/open-cohort.js:25–32` already returns all open paddock names; `:49–83` supports one event/cohort with several paddocks.
+- Live read-only evidence: 32 active animals/current memberships, one current open event from November 2, and two open paddock windows in the same cohort. The November 9 group-window state split is not another placement. A separate July 27 group window remains open against a closed historical parent; that is a data inconsistency, not evidence that today's E - 1/E - 2 placement is wrong.
+
+**Fix.** One shared current-placement resolver used by Animals group tiles, inherited animal rows, split-sheet launch and dashboard consumers. Filter to open group windows whose parent event exists and is open **before** selecting. Use the dashboard's latest-joined preference with deterministic ordering for otherwise equivalent candidates; never let local cache/insertion order decide placement. Return every open paddock of the chosen event, deduplicated and deterministically ordered, for display such as **"E - 1, E - 2"**. Animals inherit their current group's placement; do not invent an independent animal-location store or a new last-move cache.
+
+**Acceptance criteria:**
+
+- [ ] Stale-first/valid-later windows and all input-order permutations select the valid current placement. Closed-only, closed group window, missing parent and closed parent cases do not count as placed.
+- [ ] One open event with one or several paddocks returns all distinct open locations in stable order; closed paddock windows are excluded. State-window splits in one event do not duplicate placement or labels.
+- [ ] Animals group tiles, animal rows, split-sheet context and both dashboard views agree. Membership changes move inherited placement; an ungrouped animal does not receive an invented location.
+- [ ] Farm scope and current-farm lookup agree with the valid current event. Audit `getGroupCurrentFarm` and `maybeSplitForGroup`; any write-context adoption uses the valid current window, not a historical orphan.
+- [ ] No read/display action mutates source records. A genuinely conflicting distinct-open-event fixture does not silently union events or show unplaced when a valid open window exists.
+- [ ] Regression tests cover order permutations, stale/closed/missing parents, membership changes, no membership, state splits, duplicate location windows, multi-paddock cohorts, closed paddocks and farm scope.
+
+**Out of scope / product question:** repairing the stale July 27 orphan is a separate reviewed data operation; this item authorizes no live data writes. How to display genuinely conflicting **distinct** open events is an open product question for Tim. Until decided, do not silently union them, do not add a new conflict-display policy, and do not show "unplaced" when a valid open window exists. One event with two paddocks is valid and is in scope now.
+
+**CP-55/CP-56 spec impact:** None — derived-on-read placement over existing membership/event/window records. No new stored location or schema change.
+
+**Related:** OI-0073 (dashboard open-parent preference), OI-0091 (latest-window preference), OI-0133 (derived group farm), OI-0206 (separate feeding target gap).
+
+**Origin:** 2026-11-10 Tim report on `b2026-11-10.1025-1fe0a59`; read-only source, history and live-data investigation. Animals first-window logic introduced in `fa65ca4`; dashboard open-parent preference landed in `fbb6799`, refined in `c9e69d1`.
 
 ---
 
@@ -5985,6 +5975,231 @@ Audited all 37 `registerCalc()` calls across 4 files (core.js, feed-forage.js, a
 ---
 
 ## Closed
+
+### OI-0204 — Fast PTT startup with buffered audio and cancellation guards
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / UI | **Priority:** P2
+
+**Status:** closed — PR #44 (`8e5bd03d`); ledger backfilled 2026-11-10. Included in live build `b2026-11-10.1025-1fe0a59`.
+
+**Implemented / acceptance:** Microphone acquisition runs alongside begin/authorization; mint remains after mic success. Listening does not wait for server-row sync; PCM buffers locally until connection readiness, then flushes before a queued early end sends one commit. Generation/abort guards cover End at each startup stage; failures discard buffered PCM. No token cache across taps or prewarm mint on mount; timing marks are dev-only.
+
+**CP-55/CP-56 spec impact:** Existing schema-41/040→041 backup migration and RPC protections remain in force; this ledger backfill changes no schema.
+
+**Origin:** 2026-11-09 live-test follow-up batch and PR #44 review; recorded here to retire the stale ledger, not to reopen completed work.
+
+---
+
+### OI-0203 — Infer the entry surface and ask naturally for missing fields
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / UI | **Priority:** P2
+
+**Status:** closed — PR #44 (`8e5bd03d`); ledger backfilled 2026-11-10. Included in live build `b2026-11-10.1025-1fe0a59`.
+
+**Implemented / acceptance:** Clear fed/feeding input selects feeding rather than the entry menu. CHOOSE_ENTRY_QUESTION is only for an uninferred surface; entry-target-unresolved carries the natural missing-field question. No save bypasses review. This did not add shorthand aliases, multi-target feeding or durable pending clarification; those remaining gaps are OI-0206.
+
+**CP-55/CP-56 spec impact:** No new schema or backup shape from this ledger backfill; existing shared-contract pins and backup exclusions remain unchanged.
+
+**Origin:** 2026-11-09 live-test follow-up batch and PR #44 review; recorded here to retire the stale ledger, not to reopen completed work.
+
+---
+
+### OI-0202 — One manual user turn with sticky transcription ownership
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / UI | **Priority:** P2
+
+**Status:** closed — PR #44 (`8e5bd03d`); ledger backfilled 2026-11-10. Included in live build `b2026-11-10.1025-1fe0a59`.
+
+**Implemented / acceptance:** Accumulate transcripts per item until explicit over/tap, wait for final completions with a timeout, then send one turn. Client-generated turn identity survives retries with identical text; continuous-PCM item ownership stays sticky and finalized-item events are dropped before state changes. No server_vad and no vendor runtime modification.
+
+**CP-55/CP-56 spec impact:** No new schema or backup shape from this ledger backfill; existing shared-contract pins and backup exclusions remain unchanged.
+
+**Origin:** 2026-11-09 live-test follow-up batch and PR #44 review; recorded here to retire the stale ledger, not to reopen completed work.
+
+---
+
+### OI-0201 — Scheme-aware native controls and tint/selection contrast
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / UI | **Priority:** P2
+
+**Status:** closed — PR #44 (`8e5bd03d`); ledger backfilled 2026-11-10. Included in live build `b2026-11-10.1025-1fe0a59`.
+
+**Implemented / acceptance:** Root color-scheme is light dark; native inputs/textarea/select/button use text color and inherited font, with secondary placeholder color. Per-hue tint/on-tint tokens, badge/chip classes and dark selected surfaces preserve aa2f48bf light values exactly. Dark selections use --surface-selected and --text with a dark-only 2px green indicator. Real rendered/computed-style and contrast checks retain negative controls and a shallow-clone-safe light-baseline fixture.
+
+**CP-55/CP-56 spec impact:** No new schema or backup shape from this ledger backfill; existing shared-contract pins and backup exclusions remain unchanged.
+
+**Origin:** 2026-11-09 live-test follow-up batch and PR #44 review; recorded here to retire the stale ledger, not to reopen completed work.
+
+---
+
+### OI-0200 — Dismissible PTT status and shared terminal teardown
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / UI | **Priority:** P2
+
+**Status:** closed — PR #44 (`8e5bd03d`); ledger backfilled 2026-11-10. Included in live build `b2026-11-10.1025-1fe0a59`.
+
+**Implemented / acceptance:** Status has a visible 44px-minimum × with aria-label Dismiss and text-token color. Dismiss hides only the message, never a live turn; a new status shows it again. Cap, terminal error, no-mic and unexpected close share teardown of transport, mic and timer and hide End; tests cover cap, dismiss and dismiss while live.
+
+**CP-55/CP-56 spec impact:** No new schema or backup shape from this ledger backfill; existing shared-contract pins and backup exclusions remain unchanged.
+
+**Origin:** 2026-11-09 live-test follow-up batch and PR #44 review; recorded here to retire the stale ledger, not to reopen completed work.
+
+---
+
+### OI-0199 — Desktop nav: selecting Feedback also highlights Feed
+
+**Added:** 2026-11-09 | **Area:** v2-build / header / nav / a11y | **Priority:** P2 (wrong active chrome on Feedback; Feed looks selected at the same time)
+
+**Status:** closed — implemented in Forgejo PR #44 (`8e5bd03d`), included in live build `b2026-11-10.1025-1fe0a59` (2026-11-10 ledger reconciliation). Original report/spec below retained as history.
+
+**Bug.** Active-state matching uses a raw prefix check. `#/feedback` starts with `#/feed`, so the Feed item lights up on the Feedback route.
+
+Verified on `aa2f48bf` in `src/ui/header.js`:
+
+- Feed registrations: sidebar `sidebarNavItem('#/feed', …)` at **:62**; mobile `navLink('#/feed', …)` at **:79**; bottom nav `{ hash: '#/feed', … }` at **:514**. Feedback is `sidebarNavItemBadge('#/feedback', …)` at **:66**.
+- Matching sites that share the broken prefix rule:
+  - `updateActiveSidebarItem` **:446** — `hash === itemHash || (itemHash !== '#/' && hash.startsWith(itemHash))`
+  - `updateActiveBottomNavItem` **:464** — same expression
+  - `sidebarNavItem` **:593** — `currentHash === href || (href !== '#/' && currentHash.startsWith(href))`
+  - `sidebarNavItemBadge` **:603** — `currentHash === href || currentHash.startsWith(href)` (also lacks the `#/` root guard the other three have)
+
+**Fix.** One shared helper used at all four sites. An item is active when the hash equals its href, or — for non-root hrefs — when the hash starts with that href followed by `'/'` or `'?'`. Root `'#/'` matches only exactly. Example shape:
+
+```js
+function navHrefIsActive(hash, href) {
+  if (hash === href) return true;
+  if (href === '#/') return false;
+  return hash.startsWith(href + '/') || hash.startsWith(href + '?');
+}
+```
+
+**Acceptance criteria:**
+
+- [x] On `#/feedback` only Feedback is active; on `#/feed` only Feed is active.
+- [x] Sub-routes such as `#/feed/...` still highlight Feed.
+- [x] Bottom-nav and sidebar hashchange sync (`updateActiveBottomNavItem` / `updateActiveSidebarItem`) agree with the initial render helpers.
+- [x] Unit tests cover feed vs feedback and a root / sub-route case (exact `#/`, `#/feed`, `#/feed/…`, `#/feedback`).
+
+**CP-55/CP-56 spec impact:** None — nav chrome only.
+
+**Related:** OI-0154 (sidebar/bottom-nav active sync that introduced the shared startsWith pattern). Live repro on getthehayout.com build `aa2f48b`.
+
+**Origin:** 2026-11-09 Tim live testing; Design confirmed the prefix collision in `src/ui/header.js` on `aa2f48bf`.
+
+---
+
+### OI-0198 — Metric mode shows acres labelled "ha" (or hardcoded "ac") on six screens
+
+**Added:** 2026-11-09 | **Area:** v2-build / locations / harvest / field-mode / units | **Priority:** P2 (wrong unit shown in metric; numbers are acres while the label may say ha)
+
+**Status:** closed — implemented in Forgejo PR #44 (`8e5bd03d`), included in live build `b2026-11-10.1025-1fe0a59` (2026-11-10 ledger reconciliation). Original report/spec below retained as history.
+
+**Bug.** Several screens convert location area to acres unconditionally (`convert(..., 'area', 'toImperial')`) and then either (a) pair that acres number with `areaUnit = unitSys === 'imperial' ? 'ac' : 'ha'`, so metric shows acres labelled "ha", or (b) hardcode the literal `"ac"`, so metric still shows acres. Canonical correct pattern is already in Event Detail:
+
+- `src/features/events/detail.js:490` — `const areaDisplay = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(2) : '';`
+- `src/features/events/detail.js:491` — `const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';`
+
+**Sites (verified on `aa2f48bf`):**
+
+1. Locations card — `src/features/locations/index.js:296-298` (always `toImperial` at 298; `areaUnit` at 296; rendered at 344).
+2. Survey sheet list — `src/features/locations/index.js:927-929` (always `toImperial` at 928; `areaUnit2` at 929; rendered at 936).
+3. Apply-input location picker — `src/features/locations/index.js:1275-1276` (always `toImperial`); display hardcodes `` `${areaVal} ac` `` at **1284**.
+4. Harvest field picker — `src/features/harvest/index.js:203-205` (always `toImperial` at 204; `areaUnit` at 205; rendered at 214).
+5. Field-mode survey-single paddock picker — `src/features/field-mode/index.js:183-184` (always `toImperial` at 184); display hardcodes `` `${areaVal} ac` `` at **190**.
+6. Field-mode active-events total — `src/features/field-mode/index.js:491` (always `toImperial` into `locAcres`); display hardcodes `` `${locAcres.toFixed(1)} ac` `` at **512**.
+
+**Fix.** At each site, convert to acres only when `unitSys === 'imperial'`; otherwise show hectares. Use `ac` / `ha` to match Event Detail. Do not invent a shared helper unless Build already has one in reach; copy the detail.js ternary.
+
+**Acceptance criteria:**
+
+- [x] Each of the six screens shows hectares with "ha" when the unit system is metric, and acres with "ac" when imperial.
+- [x] Unit tests (or existing screen tests extended) cover metric and imperial for each site.
+- [x] Light/dark and other unit displays are unchanged.
+
+**CP-55/CP-56 spec impact:** None — display-only; stored `areaHectares` unchanged.
+
+**Related:** PR #42 / merge `aa2f48bf` (areaHectares read fix). OI-0124 (areaHa field-name drift class).
+
+**Origin:** 2026-11-09 Design review of PR #42; filed with OI-0196 / OI-0197 live-test docs.
+
+---
+
+### OI-0197 — Push-to-talk side buttons unreadable in dark mode
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / push-to-talk / a11y | **Priority:** P1 (unreadable controls on the only voice entry; Tim hit it on first live test)
+
+**Status:** closed — implemented in Forgejo PR #44 (`8e5bd03d`), included in live build `b2026-11-10.1025-1fe0a59` (2026-11-10 ledger reconciliation). Original report/spec below retained as history.
+
+**Bug.** The End button (left) and the log pill (right) beside the global push-to-talk, plus the status bubble under them, set `background: var(--bg)` but no `color`. Native `<button>` elements do not inherit text color, so they keep the browser default black text. Under `prefers-color-scheme: dark`, `--bg` is `#1a1a18` (`src/styles/main.css:102`) and `--text` is `#e8e6de` (`:105`), so black-on-dark is unreadable.
+
+Verified on `aa2f48bf`:
+
+- `.gtho-ptt-end` — `src/styles/main.css:3310` — `background: var(--bg, #fff)`; border `var(--border, #ccc)`; no `color`.
+- `.gtho-ptt-log` — `:3311` — same gap.
+- `.gtho-ptt-status` — `:3314` — same gap (div, but still no explicit color against `--bg`).
+
+**Fix.** Add `color: var(--text)` to all three. Switch their border to `var(--border2)` (dark token at `:109` is `rgba(255, 255, 255, 0.18)`). Do not change the green PTT mic button (`.gtho-ptt-button` already sets `color: #fff`).
+
+**Acceptance criteria:**
+
+- [x] In dark mode, text and icons on End, the log pill, and the status bubble meet at least 4.5:1 contrast against their background.
+- [x] Light mode appearance is unchanged aside from using `--border2` if that token already matches.
+- [x] A unit/snapshot or computed-style test checks `color` resolves to `var(--text)` (or the dark/light computed value) for all three classes in both schemes.
+
+**CP-55/CP-56 spec impact:** None — CSS only.
+
+**Related:** OI-0195 (global PTT). Live repro on getthehayout.com build `aa2f48b`.
+
+**Origin:** 2026-11-09 Tim first live assistant test; Orchestrator filed to Design.
+
+---
+
+### OI-0196 — No-microphone fallback for push-to-talk (typed path is a full peer of voice)
+
+**Added:** 2026-11-09 | **Area:** v2-build / assistant / push-to-talk / typed-entry | **Priority:** P1 (PTT dead-ends with no way to type on machines without a mic; stranded realtime session can sit until the 10-minute cap)
+
+**Status:** closed — implemented in Forgejo PR #44 (`8e5bd03d`), included in live build `b2026-11-10.1025-1fe0a59` (2026-11-10 ledger reconciliation). Original report/spec below retained as history.
+
+**Bug.** On a computer with no microphone, push-to-talk fails with "Requested device not found", the conversation never starts, and there is no way to type. Tim's live follow-up (2026-11-09 **5:49 PM ET**): after the no-mic failure he later saw **"Voice session ended at 10 minutes. Tap to start a new one."** — the stranded realtime session stayed open until the 10-minute cap. Cause (verified on `aa2f48bf`):
+
+- `src/features/assistant/client/session.js:128` awaits `startMicrophone` **after** the realtime transport is already connected (`:126`). A missing or denied mic therefore leaves a connected xAI session and its voice timer running with no turn and no typed escape.
+- `startMicrophone` in `src/features/assistant/client/realtime.js:126-127` calls `mediaDevices.getUserMedia(...)` with no guard when `mediaDevices` is missing and no caller-side catch for `NotFoundError` / permission failures.
+- The text box ("Type instead…") only renders after `session.begin` inside the Assistant sheet (`src/features/assistant/client/panel.js:61-75`), so a PTT mic failure that never opens the sheet leaves Tim with no typed entry.
+
+**LOCKED (Tim, 2026-11-09 5:41 PM ET) — typed path is a full peer of voice:** Typing goes through the same routing (writes, questions, feedback, how-to) and the same conversation runtime as voice, and nothing saves until the same review card is approved. This applies to the mic-failure Yes path and also to typing from the header Assistant sheet. Tim's words: "Typing should do everything voice can, including recording entries like moves, feeding and animal records, with the same review before save."
+
+Product consequence: the header sheet's `PANEL_INTENTS` today only offers feedback / data-questions / how-to (`panel.js:14`). Build must extend typed entry so write intents (first-slice Move / Place / feeding / treatment / Calving per OI-0195) are reachable by typing the same way voice reaches them — same runtime, same review-before-save. Do not invent a parallel typed-only form.
+
+**LOCKED (Tim, 2026-11-09) — mic-first and Type instead? prompt.** Tim's words: "When a mic is not present that should automatically end that session if the user didnt convert to typing. After no mic is fine maybe prompt the user if they want to type, if no, close and delete the session, if yes take them to type and stop the voice timer."
+
+**Binding fix.**
+
+1. **Check the microphone first.** Call `getUserMedia` **before** minting the realtime client secret or connecting the transport, so a missing or denied mic never opens an xAI session or starts the 10-minute voice timer. Catch every mic failure: missing `navigator.mediaDevices`, plus `NotFoundError`, `NotAllowedError`, `NotReadableError`, `OverconstrainedError`, and `SecurityError`.
+2. **On any mic failure, show a prompt.** Message: **"No microphone found."** or, for denied permission, **"Microphone access is blocked."** Then ask **"Type instead?"** with Yes and No.
+   - **Yes:** open the Assistant sheet with the text box focused. The conversation continues as typed (a full peer of voice, per the earlier lock). No voice timer runs.
+   - **No, or dismissing the prompt:** close the session and delete it. Discard the empty conversation and its voice attempt so nothing is left as Unfinished in the voice log, and release any server-side session lock or checkpoint.
+3. **Guard:** if a realtime transport or timer already exists when a mic error happens (any code path), close it and clear the timer immediately. A session must never sit until the 10-minute cap because of a mic failure.
+4. **Design ruling — billing / usage ledger:** Billing and usage ledger rows are **not** deleted. "Delete" covers the empty conversation and voice attempt only. Any reservation is settled under the existing OI-0195 rules (a failure before any provider fetch counts as measured zero).
+5. **Offline voice-note recorder** (`session.js:155`, `createOfflineNoteRecorder`): keep the earlier no-mic message — **"No microphone found, so the voice note wasn't recorded. You can use the normal screens."** No Yes/No prompt there, because offline has no typed assistant. Do not leave a stuck recording.
+6. Typing from the header Assistant button must never need the mic. `PANEL_INTENTS` at `panel.js:14`; intent buttons at `:97-102` call `begin()`. `begin()` / `session.text()` on that path must never call `getUserMedia`. Add a unit test that runs the header typed path with `mediaDevices` missing.
+
+**Acceptance criteria:**
+
+- [x] On a machine with no mic, tapping PTT opens **no** realtime connection, **no** xAI client secret is minted, and the Type-instead? prompt appears.
+- [x] **Yes** leaves the Assistant sheet open with the text box focused and **no** voice timer running; typed turns use the same conversation runtime and review-before-save as voice (including first-slice write intents).
+- [x] **No** (or dismiss) leaves no conversation, no unfinished voice-log entry, and no open connection; any server-side session lock/checkpoint is released.
+- [x] Nothing ever reaches the "Voice session ended at 10 minutes…" message because of a mic failure (including any path where a transport already existed — it is closed and the timer cleared immediately).
+- [x] Unit tests cover each named error (`NotFoundError`, `NotAllowedError`, `NotReadableError`, `OverconstrainedError`, `SecurityError`) plus missing `mediaDevices`, and both Yes and No answers.
+- [x] Offline note recorder: same catch and message; no stuck recording; no Type-instead? prompt.
+- [x] Header Assistant typed path never calls `getUserMedia` (test with `mediaDevices` missing).
+
+**CP-55/CP-56 spec impact:** None for the fallback itself. Typed writes still go through existing entity `validate()` and durable write paths after review (OI-0195 host method). Billing/usage rows stay; empty conversation/attempt delete is client + server session cleanup only.
+
+**Related:** OI-0195 (shared PTT + review-before-save + reservation settle-as-measured-zero). OI-0197 (PTT chrome contrast, build first).
+
+**Origin:** 2026-11-09 Tim first live assistant test on getthehayout.com (build `aa2f48b`); Orchestrator filed to Design. Typed-path lock 5:41 PM ET; stranded 10-minute-cap finding and mic-first / Type-instead? lock later the same afternoon (5:49 PM ET finding).
+
+---
 
 ### OI-0194 — Recovery email opens the login page instead of the change-password form
 **Added:** 2026-11-07 | **Closed:** 2026-11-07 | **Area:** v2-build / auth / password-reset

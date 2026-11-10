@@ -21,7 +21,11 @@ try {
   await db.exec(readFileSync(new URL('../../supabase/migrations/040_assistant_host_artifacts.sql',import.meta.url),'utf8'));
   const assertions = readFileSync(new URL('./assistant-host-artifacts.sql',import.meta.url),'utf8');
   await db.exec(assertions);
-  console.log(`Migration 040 and all ${assertions.match(/^ROLLBACK;/gm).length} disposable SQL regression blocks passed (isolated PostgreSQL only)`);
+  await db.exec(readFileSync(new URL('../../supabase/migrations/041_assistant_discard_empty_start.sql',import.meta.url),'utf8'));
+  const assertions041 = readFileSync(new URL('./assistant-discard-empty-start.sql',import.meta.url),'utf8');
+  await db.exec(assertions041);
+  const blocks = (assertions.match(/^ROLLBACK;/gm) || []).length + (assertions041.match(/^ROLLBACK;/gm) || []).length;
+  console.log(`Migrations 040+041 and all ${blocks} disposable SQL regression blocks passed (isolated PostgreSQL only)`);
 } catch (error) {
   console.error('Isolated SQL regression failed:',error.message,error.where || '');
   process.exitCode = 1;

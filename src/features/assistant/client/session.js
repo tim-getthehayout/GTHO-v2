@@ -20,6 +20,8 @@ export function durableLocalSave(outcome) {
 
 /** Fallback when the backend refused an entry whose names did not resolve. */
 export const UNRESOLVED_TARGET_QUESTION = 'Which farm, paddock, group or animal did you mean?';
+/** Status-bubble copy when empty-start cleanup fails (RPC missing or refused). */
+export const DISCARD_EMPTY_FAILED_MESSAGE = "Voice closed, but the empty session couldn't be removed.";
 
 /** intent is where the session starts; a route-intent suggestion switches it
  * through the runtime intent command (onIntent reports the new intent). */
@@ -104,7 +106,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     transport = null; player = null; driver = null;
   }
   /** Drop an empty conversation started in parallel with a mic that then failed.
-   * Surfaces RPC/edge failure via say; never claims success by nulling on error. */
+   * Surfaces cleanup failure with the locked status-bubble copy; never claims
+   * success by nulling on error. Local teardown is unchanged. */
   async function discardEmptyStart() {
     if (!conversation) return;
     // Design lock: delete empty conversation artifacts (consent/checkpoint/lock/attempt),
@@ -114,9 +117,10 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       else await conversation.cancel();
       conversation = null;
       attempts = null;
-    } catch (error) {
-      const message = error?.message || error?.code || 'Could not discard empty start';
-      say(String(message));
+      discardEmptyFailed = false;
+    } catch {
+      discardEmptyFailed = true;
+      say(DISCARD_EMPTY_FAILED_MESSAGE);
     }
   }
   let micFailure = null;
@@ -129,6 +133,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   let pendingEndTurn = false;
   /** True only after transport is connected AND the PCM buffer has been flushed. */
   let voiceReady = false;
+  /** True when discardEmptyStart failed; PTT keeps the locked bubble after No. */
+  let discardEmptyFailed = false;
   const session = {
     get conversation() { return conversation; },
     get attempt() { return attempts?.current ?? null; },
@@ -173,6 +179,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       const gen = ++talkGeneration;
       pendingEndTurn = false;
       voiceReady = false;
+      discardEmptyFailed = false;
       endingLive = false;
       micFailure = null;
       const tapAt = voiceStartTap();
@@ -295,6 +302,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       await discardEmptyStart();
     },
     get micFailure() { return micFailure; },
+    get discardEmptyFailed() { return discardEmptyFailed; },
   };
   return session;
 }

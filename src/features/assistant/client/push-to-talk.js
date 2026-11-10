@@ -8,7 +8,7 @@
  * as a panel from this control, which shows the unfinished count. */
 import { el } from '../../../ui/dom.js';
 import { createOfflineNoteStore } from './offline-notes.js';
-import { createAssistantSession, createOfflineNoteRecorder } from './session.js';
+import { createAssistantSession, createOfflineNoteRecorder, DISCARD_EMPTY_FAILED_MESSAGE } from './session.js';
 import { createVoiceLog } from './voice-log.js';
 import { openVoiceLog, voiceLogRows } from './voice-log-panel.js';
 import { recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
@@ -148,14 +148,19 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
     // Mic failure or auth/connect failure: Type instead? (OI-0196 / OI-0204).
     if (result !== 'no-mic' && result !== 'unavailable') return;
     const failure = session.micFailure ?? { message: result === 'unavailable' ? 'Voice is unavailable right now; you can type instead.' : 'No microphone found.' };
+    const discardFailed = session.discardEmptyFailed === true;
     // OI-0200: close goes through endLiveSession (clears transport/mic/timer, hides End).
-    await endLiveSession();
+    // If empty-start cleanup failed, keep the locked copy in the closeable status
+    // bubble so it stays visible during Type instead? and after No (endLiveSession
+    // would otherwise say('') and hide it).
+    await endLiveSession(discardFailed ? { statusMessage: DISCARD_EMPTY_FAILED_MESSAGE } : {});
     const answer = await askTypeInstead({ message: failure.message });
     if (answer === 'yes') {
       // Typed peer of voice: same data-entry runtime, review-before-save; no voice timer.
       openAssistant(deps, config, { intent: 'data-entry', focusText: true });
     }
-    // No / dismiss: empty conversation already discarded via endLiveSession; nothing unfinished.
+    // No / dismiss: empty conversation already discarded via endLiveSession when
+    // cleanup succeeded; a failed cleanup leaves the locked bubble (× to dismiss).
   }
   async function stop() {
     await endLiveSession();

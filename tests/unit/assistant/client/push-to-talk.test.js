@@ -1,16 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sessions = [];
-vi.mock('../../../../src/features/assistant/client/session.js', () => ({
-  createAssistantSession: vi.fn(options => {
-    let live = false;
-    const session = { options, talk: vi.fn(async () => { if (live) return 'turn-ended'; live = true; options.onListening(true); return 'listening'; }), end: vi.fn(async () => {}), begin: vi.fn(async firstTurn => ({ ref: 'c1', scope: { operationId: '00000000-0000-4000-8000-000000000001', actorId: 'u' }, firstTurn })) };
-    sessions.push(session);
-    return session;
-  }),
-  createOfflineNoteRecorder: vi.fn(() => { let on = false; return { get recording() { return on; }, toggle: vi.fn(async () => { on = !on; }) }; }),
-}));
+vi.mock('../../../../src/features/assistant/client/session.js', async importOriginal => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    createAssistantSession: vi.fn(options => {
+      let live = false;
+      const session = { options, discardEmptyFailed: false, talk: vi.fn(async () => { if (live) return 'turn-ended'; live = true; options.onListening(true); return 'listening'; }), end: vi.fn(async () => {}), begin: vi.fn(async firstTurn => ({ ref: 'c1', scope: { operationId: '00000000-0000-4000-8000-000000000001', actorId: 'u' }, firstTurn })) };
+      sessions.push(session);
+      return session;
+    }),
+    createOfflineNoteRecorder: vi.fn(() => { let on = false; return { get recording() { return on; }, toggle: vi.fn(async () => { on = !on; }) }; }),
+  };
+});
 const { mountPushToTalk, PTT_POSITION_KEY } = await import('../../../../src/features/assistant/client/push-to-talk.js');
+const { DISCARD_EMPTY_FAILED_MESSAGE } = await import('../../../../src/features/assistant/client/session.js');
 const { openAssistant } = await import('../../../../src/features/assistant/client/panel.js');
 
 const OP = '00000000-0000-4000-8000-000000000001';
@@ -385,6 +390,7 @@ describe('no-mic Type instead? (OI-0196)', () => {
       const session = {
         options,
         micFailure: null,
+        discardEmptyFailed: false,
         talk: vi.fn(async () => {
           session.micFailure = { name: 'NotFoundError', message: 'No microphone found.' };
           return 'no-mic';
@@ -439,5 +445,46 @@ describe('no-mic Type instead? (OI-0196)', () => {
     await tapPromise;
     expect(document.querySelector('#assistant-sheet-panel')).toBeNull();
     expect(control.session).toBeNull();
+  });
+
+  it('keeps discard-empty failure visible in the status bubble at the prompt and after No', async () => {
+    const { createAssistantSession } = await import('../../../../src/features/assistant/client/session.js');
+    createAssistantSession.mockImplementation(options => {
+      const session = {
+        options,
+        micFailure: null,
+        discardEmptyFailed: false,
+        talk: vi.fn(async () => {
+          session.micFailure = { name: 'NotFoundError', message: 'No microphone found.' };
+          // Reproduce: cleanup says an error, then talk returns no-mic. endLiveSession
+          // used to say('') and hide it before Type instead? and after No.
+          options.say('Could not find the function public.assistant_discard_empty_start');
+          session.discardEmptyFailed = true;
+          return 'no-mic';
+        }),
+        end: vi.fn(async () => {}),
+        begin: vi.fn(async () => ({ ref: 'c1' })),
+        text: vi.fn(async () => {}),
+      };
+      sessions.push(session);
+      return session;
+    });
+    const control = mountPushToTalk(deps(), { earlyTesting: false });
+    const tapPromise = control.tap();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="ptt-type-instead"]')).not.toBeNull());
+    const status = document.querySelector('[data-testid="ptt-status"]');
+    const statusText = document.querySelector('[data-testid="ptt-status-text"]');
+    const dismiss = document.querySelector('[data-testid="ptt-status-dismiss"]');
+    expect(status.hidden).toBe(false);
+    expect(statusText.textContent).toBe(DISCARD_EMPTY_FAILED_MESSAGE);
+    expect(dismiss.hidden).toBe(false);
+    document.querySelector('[data-testid="ptt-type-instead-no"]').click();
+    await tapPromise;
+    expect(document.querySelector('[data-testid="ptt-type-instead"]')).toBeNull();
+    expect(status.hidden).toBe(false);
+    expect(statusText.textContent).toBe(DISCARD_EMPTY_FAILED_MESSAGE);
+    dismiss.click();
+    expect(status.hidden).toBe(true);
+    expect(statusText.textContent).toBe('');
   });
 });

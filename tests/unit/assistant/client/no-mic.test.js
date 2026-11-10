@@ -78,7 +78,7 @@ vi.mock('../../../../src/features/assistant/client/consent.js', () => ({
   resolveTestingConsent: vi.fn(async () => null),
 }));
 
-const { createAssistantSession, createOfflineNoteRecorder } = await import('../../../../src/features/assistant/client/session.js');
+const { createAssistantSession, createOfflineNoteRecorder, DISCARD_EMPTY_FAILED_MESSAGE } = await import('../../../../src/features/assistant/client/session.js');
 const { createAssistantConversation } = await import('../../../../src/features/assistant/client/conversation.js');
 const {
   acquireMicrophone, classifyMicError, startMicrophone,
@@ -215,6 +215,33 @@ describe('talk() mic-first', () => {
       await expect(session.talk()).resolves.toBe('no-mic');
       expect(session.micFailure.message).toBe(MIC_MISSING_MESSAGE);
       expect(voiceAuth).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true });
+    }
+  });
+
+  it('says the locked discard-empty failure copy and does not null the conversation', async () => {
+    const mediaDevices = { getUserMedia: vi.fn(async () => { throw micError('NotFoundError'); }) };
+    const saved = globalThis.navigator;
+    Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices }, configurable: true });
+    const conv = {
+      ref: 'c1', scope: { operationId: 'op', actorId: 'u' },
+      session: { intent: 'data-entry', phase: 'converse', transcript: [], capture: {}, conversationRef: 'c1' },
+      route: null, begin: vi.fn(async () => {}), turn: vi.fn(async () => null), switchIntent: vi.fn(),
+      cancel: vi.fn(async () => {}),
+      discardEmpty: vi.fn(async () => { throw new Error('Could not find the function public.assistant_discard_empty_start'); }),
+      voiceAuthorization: voiceAuth,
+    };
+    createAssistantConversation.mockImplementation(() => conv);
+    try {
+      const say = vi.fn();
+      const session = createAssistantSession({ deps, config, intent: 'data-entry', say });
+      await expect(session.talk()).resolves.toBe('no-mic');
+      expect(conv.discardEmpty).toHaveBeenCalled();
+      expect(say).toHaveBeenCalledWith(DISCARD_EMPTY_FAILED_MESSAGE);
+      expect(say).not.toHaveBeenCalledWith(expect.stringMatching(/Could not find the function/));
+      expect(session.discardEmptyFailed).toBe(true);
+      expect(session.conversation).toBe(conv);
     } finally {
       Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true });
     }

@@ -55,64 +55,18 @@ describe('discardEmptyStartRows routes through atomic RPC', () => {
 });
 
 describe('migration 041 assistant_discard_empty_start', () => {
-  const sql = readFileSync(resolve(process.cwd(), 'supabase/migrations/041_assistant_discard_empty_start.sql'), 'utf8');
-
-  it('is SECURITY DEFINER with fixed search_path and membership via auth.uid()', () => {
-    expect(sql).toMatch(/SECURITY DEFINER/);
-    expect(sql).toMatch(/SET search_path = ''/);
-    expect(sql).toMatch(/operation_members[\s\S]*auth\.uid\(\)/);
-    expect(sql).toMatch(/accepted_at IS NOT NULL/);
-  });
-
-  it('raises when auth.uid() is null (no null-uid bypass)', () => {
-    expect(sql).toMatch(/IF \(SELECT auth\.uid\(\)\) IS NULL THEN/);
-    expect(sql).toMatch(/RAISE EXCEPTION 'discard-empty-auth-required'/);
-    // No service_role / null-uid bypass remains.
-    expect(sql).not.toMatch(/auth\.role\(\)/);
-    expect(sql).not.toMatch(/IS DISTINCT FROM 'service_role'/);
-  });
-
-  it('refuses a non-member via accepted operation_members for auth.uid()', () => {
-    expect(sql).toMatch(/discard-empty-membership-required/);
-    expect(sql).toMatch(/user_id = \(SELECT auth\.uid\(\)\)/);
-    expect(sql).toMatch(/accepted_at IS NOT NULL/);
-  });
-
-  it('admits restore-fence and locks the conversation row before deletes', () => {
-    expect(sql).toMatch(/assistant_assert_restore_unfenced\(p_operation\)/);
-    expect(sql).toMatch(/FOR UPDATE/);
-  });
-
-  it('deletes testing consent before conversation (NO ACTION FK) plus attempt/checkpoint/lock; never billing', () => {
-    expect(sql).toMatch(/DELETE FROM public\.assistant_testing_consents/);
-    expect(sql).toMatch(/DELETE FROM public\.voice_entry_attempts/);
-    expect(sql).toMatch(/DELETE FROM public\.assistant_session_checkpoints/);
-    expect(sql).toMatch(/DELETE FROM public\.assistant_session_locks/);
-    expect(sql).toMatch(/DELETE FROM public\.assistant_conversations/);
-    expect(sql).not.toMatch(/DELETE FROM public\.assistant_billing_/);
-    expect(sql).toMatch(/discard-empty-refused-turns-exist/);
-    const consentAt = sql.indexOf('DELETE FROM public.assistant_testing_consents');
-    const convAt = sql.indexOf('DELETE FROM public.assistant_conversations');
-    expect(consentAt).toBeGreaterThan(-1);
-    expect(convAt).toBeGreaterThan(consentAt);
-  });
-
-  it('documents the testing_consents NO ACTION FK that blocks conversation DELETE without consent cleanup', () => {
-    const mig040 = readFileSync(resolve(process.cwd(), 'supabase/migrations/040_assistant_host_artifacts.sql'), 'utf8');
-    expect(mig040).toMatch(
-      /ALTER TABLE assistant_testing_consents ADD FOREIGN KEY \(operation_id, conversation_id\) REFERENCES assistant_conversations\(operation_id, id\)/,
-    );
-    const fkBlock = mig040.match(
-      /ALTER TABLE assistant_testing_consents ADD FOREIGN KEY \(operation_id, conversation_id\) REFERENCES assistant_conversations\(operation_id, id\)[^;]*/,
-    )?.[0] ?? '';
-    expect(fkBlock).not.toMatch(/ON DELETE\s+CASCADE/i);
-  });
-
-  it('grants execute to authenticated only — service_role cannot execute (CP-56 style)', () => {
-    // Same pattern as assistant_restore_prepare: REVOKE … service_role; GRANT authenticated only.
-    expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) FROM PUBLIC, anon, service_role/);
-    expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) TO authenticated/);
-    expect(sql).not.toMatch(/GRANT EXECUTE ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) TO service_role/);
+  // Grants, null-uid, non-member, consent FK, and atomic rollback are proved
+  // against a real database in tests/sql/assistant-discard-empty-start.sql
+  // (PGlite runner: tests/sql/run-assistant-host-artifacts.mjs).
+  it('is loaded by the isolated SQL runner after migration 040', () => {
+    const sql = readFileSync(resolve(process.cwd(), 'supabase/migrations/041_assistant_discard_empty_start.sql'), 'utf8');
+    const runner = readFileSync(resolve(process.cwd(), 'tests/sql/run-assistant-host-artifacts.mjs'), 'utf8');
+    const assertions = readFileSync(resolve(process.cwd(), 'tests/sql/assistant-discard-empty-start.sql'), 'utf8');
+    expect(runner).toMatch(/041_assistant_discard_empty_start\.sql/);
+    expect(runner).toMatch(/assistant-discard-empty-start\.sql/);
+    expect(assertions).toMatch(/has_function_privilege\('service_role'/);
+    expect(assertions).toMatch(/foreign_key_violation/);
+    expect(sql).toMatch(/assistant_discard_empty_start/);
   });
 });
 

@@ -7,10 +7,13 @@
  * ends, then a short wait collects finals and a single onTurn fires with a
  * client-minted UUID. Manual commit only — no server_vad.
  */
+import { logVoice } from './voice-telemetry.js';
 export const REALTIME_URL = 'wss://api.x.ai/v1/realtime';
 export const SESSION_CREATED_TIMEOUT_MS = 5000;
 export const CONNECT_ATTEMPTS = 3;
 export const SAMPLE_RATE = 24000;
+/** Overall bound from the tap until session.created AND the first PCM chunk is sent. */
+export const VOICE_CONNECT_BUDGET_MS = 10_000;
 /** After "over"/tap + commit, wait this long for final transcription.completed
  * events before emitting the one runtime turn. Conservative short window. */
 export const TURN_FINALIZE_TIMEOUT_MS = 1500;
@@ -32,44 +35,140 @@ export function fromBase64(text) {
   return bytes;
 }
 
+
+const PINNED_MODEL = value => typeof value === 'string' && value.trim().length > 0 && !/latest/i.test(value) && /^[A-Za-z0-9._-]+$/.test(value.trim());
+
+/** Race several abort signals: abort the returned signal when any input aborts. */
+export function anySignal(...signals) {
+  const live = signals.filter(Boolean);
+  if (!live.length) return undefined;
+  if (live.length === 1) return live[0];
+  const controller = new globalThis.AbortController();
+  const abort = () => controller.abort();
+  for (const signal of live) {
+    if (signal.aborted) { controller.abort(); break; }
+    signal.addEventListener('abort', abort, { once: true });
+  }
+  return controller.signal;
+}
+
+function abortError(message = 'connect-budget') {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+export function waitForAbort(signal) {
+  return new Promise((_, reject) => {
+    if (!signal) return;
+    if (signal.aborted) { reject(abortError()); return; }
+    signal.addEventListener('abort', () => reject(abortError()), { once: true });
+  });
+}
+
+// Teardown can race the deadline, capture abort and End. Close each context once.
+const closingContexts = new WeakMap();
+export function closeCaptureContext(context) {
+  if (!context) return Promise.resolve();
+  if (!closingContexts.has(context)) {
+    try { closingContexts.set(context, Promise.resolve(context.close()).catch(() => {})); }
+    catch { closingContexts.set(context, Promise.resolve()); }
+  }
+  return closingContexts.get(context);
+}
+
+/** Create an AudioContext synchronously in the user-gesture stack and kick resume() before any await. */
+export function prepareCaptureContext(AudioContextImpl = globalThis.AudioContext) {
+  if (typeof AudioContextImpl !== 'function') throw new Error('audio-context-unavailable');
+  const context = new AudioContextImpl({ sampleRate: SAMPLE_RATE });
+  const resumePromise = typeof context.resume === 'function' ? Promise.resolve(context.resume()) : Promise.resolve();
+  // A consent prompt may outlive a failed resume; the startup path still observes it.
+  void resumePromise.catch(() => {});
+  return { context, resumePromise };
+}
+
+/** Streaming linear interpolation. Phase and the boundary sample survive chunks. */
+export function createPcm16Resampler(fromRate, toRate) {
+  let offset = 0, next = 0, last;
+  const step = fromRate / toRate;
+  return pcm => {
+    if (!pcm || fromRate === toRate) return pcm;
+    const source = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
+    const end = offset + source.length;
+    const out = [];
+    while (next < end) {
+      const lo = Math.floor(next), fraction = next - lo;
+      if (fraction > 1e-9 && lo + 1 >= end) break; // need next chunk's sample
+      const left = lo < offset ? last : source[lo - offset];
+      const right = fraction > 1e-9 ? source[lo + 1 - offset] : left;
+      out.push(Math.round(left * (1 - fraction) + right * fraction));
+      next += step;
+    }
+    if (source.length) last = source[source.length - 1];
+    offset = end;
+    return new Uint8Array(new Int16Array(out).buffer);
+  };
+}
+
+/** One-shot convenience; capture uses one stateful converter for its lifetime. */
+export function resamplePcm16(pcm, fromRate, toRate) {
+  return createPcm16Resampler(fromRate, toRate)(pcm);
+}
+
 /**
  * config: server-returned {model, voice, reasoning, turnDetection, sessionCapSeconds}.
  * turnDetection from the server is ignored for the wire session: this driver always
  * sends turn_detection null (manual commit). Returns a VoiceTransport driver plus
  * endTurn() (tap) and speak(text).
  */
-export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.WebSocket, setTimer = (fn, ms) => globalThis.setTimeout(fn, ms), clearTimer = id => globalThis.clearTimeout(id), onStatus = () => {}, randomId = () => globalThis.crypto.randomUUID() }) {
+export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.WebSocket, setTimer = (fn, ms) => globalThis.setTimeout(fn, ms), clearTimer = id => globalThis.clearTimeout(id), onStatus = () => {}, onTurnEnd = () => {}, onFinalTurn = () => {}, randomId = () => globalThis.crypto.randomUUID(), now = () => (typeof globalThis.performance !== 'undefined' ? globalThis.performance.now() : Date.now()), tapAt } = {}) {
   if (!config?.model || /latest/i.test(config.model)) throw new Error('pinned-voice-model-required');
+  if (!PINNED_MODEL(config.transcriptionModel)) throw new Error('pinned-transcription-model-required');
   let active = null;
 
-  function open(token) {
+  function open(token, attempt = 0, signal) {
     return new Promise((resolve, reject) => {
       const socket = new WebSocketImpl(`${REALTIME_URL}?model=${encodeURIComponent(config.model)}`, [`xai-client-secret.${token}`]);
-      const timer = setTimer(() => { try { socket.close(); } catch { /* ignore */ } reject(new Error('session-created-timeout')); }, SESSION_CREATED_TIMEOUT_MS);
+      const cleanup = () => { clearTimer(timer); signal?.removeEventListener('abort', abort); };
+      const abort = () => {
+        cleanup(); socket.onmessage = socket.onclose = null;
+        try { socket.close(); } catch { /* ignore */ }
+        reject(abortError());
+      };
+      const timer = setTimer(() => { cleanup(); try { socket.close(); } catch { /* ignore */ } logVoice('teardown', { reason: 'session-created-timeout', attempt }, now, tapAt); reject(new Error('session-created-timeout')); }, SESSION_CREATED_TIMEOUT_MS);
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) { abort(); return; }
       socket.onmessage = event => {
         let message; try { message = JSON.parse(event.data); } catch { return; }
-        if (message.type === 'session.created') { clearTimer(timer); socket.onmessage = null; resolve(socket); }
+        if (message.type === 'session.created') {
+          cleanup();
+          socket.onmessage = null;
+          logVoice('session-created', { attempt }, now, tapAt);
+          resolve(socket);
+        }
       };
       socket.onerror = () => {};
-      socket.onclose = () => { clearTimer(timer); reject(new Error('socket-closed')); };
+      socket.onclose = () => { cleanup(); logVoice('teardown', { reason: 'socket-closed', attempt }, now, tapAt); reject(new Error('socket-closed')); };
     });
   }
 
   async function connect({ authorization, onTurn, onAudio, onDisconnect, signal }) {
     let socket, lastError;
     for (let attempt = 0; attempt < CONNECT_ATTEMPTS && !socket; attempt++) {
-      if (signal?.aborted) throw new Error('aborted');
-      try { socket = await open(authorization.token); } catch (error) { lastError = error; }
+      if (signal?.aborted) throw abortError();
+      try { socket = await open(authorization.token, attempt, signal); } catch (error) { lastError = error; }
     }
+    if (signal?.aborted) { socket?.close(); throw abortError(); }
     if (!socket) throw lastError ?? new Error('voice-connect-failed');
     const send = message => socket.readyState === 1 && socket.send(JSON.stringify(message));
     send({ type: 'session.update', session: {
       voice: config.voice, instructions: SPEAK_INSTRUCTIONS, reasoning: { effort: config.reasoning },
       // Manual commit only (OI-0202). server_vad is out of scope regardless of config.turnDetection.
       turn_detection: { type: null },
-      audio: { input: { format: { type: 'audio/pcm', rate: SAMPLE_RATE }, transcription: { model: 'grok-transcribe' } }, output: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } } },
+      audio: { input: { format: { type: 'audio/pcm', rate: SAMPLE_RATE }, transcription: { model: config.transcriptionModel } }, output: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } } },
     } });
     let closed = false, committed = false, ownResponses = 0, buffered = false;
+    let transcriptionEvents = 0;
     // One user turn → one runtime turn. item_id text accumulates until over/tap.
     let turnId = null;
     const itemOrder = [];
@@ -77,17 +176,23 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
     let finalizing = false;
     let emitted = null; // { id, text } after the one onTurn; reused for retry replay
     let finalizeTimer = null;
+    let finalized = null, resolveFinalized = () => {};
     /** item_ids already committed to an emitted turn — late revisions never migrate. */
     const finalizedItems = new Set();
 
-    const close = () => {
-      if (closed) return; closed = true; clearTimer(cap); clearTimer(finalizeTimer); finalizeTimer = null;
+    const close = (preserveFinal = false) => {
+      if (closed) return;
+      // An unexpected close must not strand typed takeover's finalization wait
+      // or lose the transcript already collected for that turn.
+      if (preserveFinal && finalizing && !emitted) emitTurn();
+      closed = true; clearTimer(cap); clearTimer(finalizeTimer); finalizeTimer = null;
+      resolveFinalized();
       socket.onmessage = socket.onclose = null;
       try { socket.close(); } catch { /* ignore */ }
       if (active?.socket === socket) active = null;
     };
     // P4: hang up at the session cap; a new session needs a new token.
-    const cap = setTimer(() => { close(); onStatus('session-cap'); onDisconnect(); }, (config.sessionCapSeconds ?? 600) * 1000);
+    const cap = setTimer(() => { logVoice('teardown', { reason: 'session-cap' }, now, tapAt); close(true); onStatus('session-cap'); onDisconnect(); }, (config.sessionCapSeconds ?? 600) * 1000);
     const commit = () => { if (!committed && buffered) { committed = true; buffered = false; send({ type: 'input_audio_buffer.commit' }); } };
 
     function beginUserTurn() {
@@ -96,6 +201,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       itemText.clear();
       finalizing = false;
       emitted = null;
+      finalized = null;
       clearTimer(finalizeTimer); finalizeTimer = null;
     }
 
@@ -122,28 +228,37 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       }
       const text = joinedText();
       finalizing = false;
-      if (!text) { turnId = null; itemOrder.length = 0; itemText.clear(); return; }
+      if (!text) { turnId = null; itemOrder.length = 0; itemText.clear(); resolveFinalized(); return; }
       const id = turnId || randomId();
       for (const itemId of itemOrder) finalizedItems.add(itemId);
       emitted = { id, text };
-      onTurn({ id, role: 'user', modality: 'voice', text });
+      logVoice('emitted-turn', { emitted: 1 }, now, tapAt);
+      const entry = { id, role: 'user', modality: 'voice', text };
+      onFinalTurn(entry);
+      onTurn(entry);
+      resolveFinalized(emitted);
     }
 
-    function finalizeTurn() {
-      if (emitted) { emitTurn(); return; } // retry
-      if (finalizing) return;
+    function finalizeTurn({ replay = true } = {}) {
+      if (emitted) { if (replay) emitTurn(); return finalized; }
+      if (finalizing) return finalized;
       if (!turnId) beginUserTurn();
       finalizing = true;
+      finalized = new Promise(resolve => { resolveFinalized = resolve; });
+      onTurnEnd();
       commit();
       clearTimer(finalizeTimer);
       finalizeTimer = setTimer(() => { finalizeTimer = null; emitTurn(); }, TURN_FINALIZE_TIMEOUT_MS);
+      return finalized;
     }
 
-    socket.onclose = () => { if (!closed) { close(); onDisconnect(); } };
+    socket.onclose = () => { if (!closed) { logVoice('teardown', { reason: 'socket-close' }, now, tapAt); close(true); onDisconnect(); } };
     socket.onmessage = event => {
       let message; try { message = JSON.parse(event.data); } catch { return; }
       switch (message.type) {
         case 'conversation.item.input_audio_transcription.updated': {
+          transcriptionEvents += 1;
+          logVoice('transcription-event', { event: 'updated', eventCount: transcriptionEvents }, now, tapAt);
           // Drop finalized-item events before any state mutation or turn-end.
           if (message.item_id && finalizedItems.has(message.item_id)) break;
           const raw = message.transcript ?? message.text ?? '';
@@ -153,6 +268,8 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
           break;
         }
         case 'conversation.item.input_audio_transcription.completed': {
+          transcriptionEvents += 1;
+          logVoice('transcription-event', { event: 'completed', eventCount: transcriptionEvents }, now, tapAt);
           // Drop finalized-item events before any state mutation or turn-end.
           if (message.item_id && finalizedItems.has(message.item_id)) break;
           committed = false;
@@ -187,7 +304,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       async sendText() {},
       async interrupt() { send({ type: 'response.cancel' }); },
       async cancel() { send({ type: 'response.cancel' }); },
-      async close() { close(); },
+      async close() { close(true); },
       endTurn: finalizeTurn,
       speak(text) {
         ownResponses++;
@@ -201,7 +318,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
   return {
     connect,
     /** Tap ends the current user turn (same as saying "over"). */
-    endTurn() { active?.endTurn(); },
+    endTurn(options) { return active?.endTurn(options); },
     speak(text) { if (!active) return false; active.speak(text); return true; },
     get connected() { return !!active; },
   };
@@ -235,8 +352,17 @@ export function createAudioChunkBuffer() {
   const queue = [];
   let mode = 'buffer';
   let liveSend = null;
+  let firstSent = false;
+  let firstSentResolve = () => {};
+  const firstSentPromise = new Promise(resolve => { firstSentResolve = resolve; });
+  const markFirst = () => {
+    if (firstSent) return;
+    firstSent = true;
+    firstSentResolve();
+  };
   return {
     get length() { return queue.length; },
+    get sentFirst() { return firstSent; },
     onChunk(bytes) {
       const copy = bytes instanceof Uint8Array ? bytes.slice() : new Uint8Array(bytes);
       if (mode === 'live' && liveSend) {
@@ -248,10 +374,14 @@ export function createAudioChunkBuffer() {
     async flushTo(send) {
       while (queue.length) {
         const batch = queue.splice(0, queue.length);
-        for (const chunk of batch) await send(chunk);
+        for (const chunk of batch) { await send(chunk); markFirst(); }
       }
-      liveSend = chunk => { void send(chunk); };
+      liveSend = chunk => { void send(chunk); markFirst(); };
       mode = 'live';
+    },
+    waitForFirstSend(signal) {
+      if (firstSent) return Promise.resolve();
+      return Promise.race([firstSentPromise, waitForAbort(signal)]);
     },
     discard() {
       queue.length = 0;
@@ -273,31 +403,52 @@ export function classifyMicError(error) {
  * Structured as its own step so a later faster-start can run it concurrently
  * with begin() / voice-authorization and buffer PCM until the socket is ready.
  */
-export async function acquireMicrophone({ mediaDevices = globalThis.navigator?.mediaDevices } = {}) {
+export async function acquireMicrophone({ mediaDevices = globalThis.navigator?.mediaDevices, signal } = {}) {
+  if (signal?.aborted) throw abortError();
   if (!mediaDevices?.getUserMedia) {
     const err = new Error(MIC_MISSING_MESSAGE);
     err.name = 'NotFoundError';
     throw err;
   }
-  return mediaDevices.getUserMedia({ audio: { ...MIC_AUDIO } });
+  let stream = null;
+  const pending = mediaDevices.getUserMedia({ audio: { ...MIC_AUDIO } }).then(owned => {
+    stream = owned;
+    if (signal?.aborted) owned.getTracks().forEach(track => track.stop());
+    return owned;
+  });
+  try {
+    return await (signal ? Promise.race([pending, waitForAbort(signal)]) : pending);
+  } catch (error) {
+    stream?.getTracks().forEach(track => track.stop());
+    throw error;
+  }
 }
 
 /** Microphone -> PCM16 mono 24 kHz chunks. Also hands the raw stream to the
  * optional MediaRecorder consumer (testing audio). Pass `stream` when the mic
- * was already acquired (mic-first / faster-start). */
-export async function startMicrophone({ onChunk, stream, mediaDevices = globalThis.navigator?.mediaDevices, AudioContextImpl = globalThis.AudioContext }) {
-  const owned = stream ?? await acquireMicrophone({ mediaDevices });
-  const context = new AudioContextImpl({ sampleRate: SAMPLE_RATE });
-  const source = context.createMediaStreamSource(owned);
-  const processor = context.createScriptProcessor(4096, 1, 1);
+ * was already acquired (mic-first / faster-start). Pass a pre-created
+ * `context` (from prepareCaptureContext) so iOS can resume inside the tap. */
+export async function startMicrophone({ onChunk, stream, context, mediaDevices = globalThis.navigator?.mediaDevices, AudioContextImpl = globalThis.AudioContext, signal } = {}) {
+  const owned = stream ?? await acquireMicrophone({ mediaDevices, signal });
+  const audio = context ?? new AudioContextImpl({ sampleRate: SAMPLE_RATE });
+  if (typeof audio.resume === 'function' && audio.state === 'suspended') {
+    try { await Promise.race([audio.resume(), waitForAbort(signal)]); }
+    catch (error) { owned.getTracks().forEach(track => track.stop()); void closeCaptureContext(audio); throw error; }
+  }
+  if (signal?.aborted) { owned.getTracks().forEach(track => track.stop()); void closeCaptureContext(audio); throw abortError(); }
+  const source = audio.createMediaStreamSource(owned);
+  const processor = audio.createScriptProcessor(4096, 1, 1);
+  const inRate = audio.sampleRate || SAMPLE_RATE;
+  const resample = createPcm16Resampler(inRate, SAMPLE_RATE);
   processor.onaudioprocess = event => {
     const input = event.inputBuffer.getChannelData(0);
     const pcm = new Int16Array(input.length);
     for (let i = 0; i < input.length; i++) { const s = Math.max(-1, Math.min(1, input[i])); pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff; }
-    onChunk(new Uint8Array(pcm.buffer));
+    const bytes = new Uint8Array(pcm.buffer);
+    onChunk(inRate === SAMPLE_RATE ? bytes : resample(bytes));
   };
-  source.connect(processor); processor.connect(context.destination);
-  return { stream: owned, async stop() { processor.disconnect(); source.disconnect(); owned.getTracks().forEach(track => track.stop()); await context.close(); } };
+  source.connect(processor); processor.connect(audio.destination);
+  return { stream: owned, context: audio, async stop() { processor.disconnect(); source.disconnect(); owned.getTracks().forEach(track => track.stop()); await closeCaptureContext(audio); } };
 }
 
 /** PCM16 24 kHz speaker output, chunks scheduled back to back. */

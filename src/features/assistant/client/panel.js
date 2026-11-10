@@ -6,6 +6,7 @@ import { el, clear } from '../../../ui/dom.js';
 import { showDismissibleBanner } from '../../../ui/toast.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { createOfflineNoteStore } from './offline-notes.js';
+import { OUTBOUND_DROPPED_MESSAGE } from './outbound-queue.js';
 import { createAssistantSession, DISCARD_EMPTY_FAILED_MESSAGE } from './session.js';
 import { renderNoteReview, recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
 import { createVoiceLog } from './voice-log.js';
@@ -69,6 +70,7 @@ export function renderTranscript(container, transcript) {
  */
 export function openAssistant(deps, config, options = {}) {
   if (entryIsOpen(activeEntry)) {
+    activeEntry.adoptOptions(options);
     if (options.focusText) activeEntry.input?.focus();
     if (options.firstTurn) {
       activeEntry.ready = activeEntry.begin('data-entry', options.firstTurn, options.extra ?? {}, options.from ?? {}).catch(error => { activeEntry.say(error.message); return null; });
@@ -81,6 +83,10 @@ export function openAssistant(deps, config, options = {}) {
   const invoker = options.invoker ?? null;
   clear(panel);
   const status = el('div', { className: 'auth-error', 'data-testid': 'assistant-status', role: 'status' });
+  const retry = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-retry', 'aria-label': 'Retry failed submission', hidden: true, onClick: () => {
+    const failed = failedSubmission;
+    if (!retry.hidden && failed && recoveryIsCurrent(failed)) void submit(failed);
+  } }, ['Retry']);
   const transcript = el('div', { 'data-testid': 'assistant-transcript' });
   const body = el('div', { 'data-testid': 'assistant-body' });
   const cancel = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-cancel', onClick: () => { void close(); } }, ['Cancel']);
@@ -90,7 +96,7 @@ export function openAssistant(deps, config, options = {}) {
       el('div', { style: { fontSize: '16px', fontWeight: '600' } }, ['Assistant']),
       cancel,
     ]),
-    body, transcript, status,
+    body, transcript, status, retry,
   );
   const say = text => { status.textContent = text ?? ''; };
   const notes = deps.offlineNotes ?? createOfflineNoteStore({ onQuota: () => say('This device is out of storage. Your voice note was not saved; free up space and record it again.') });
@@ -98,14 +104,22 @@ export function openAssistant(deps, config, options = {}) {
   let session = null;
   let closed = false;
   let starting = false;
+  let failedSubmission = null, draftRevision = 0;
   const owner = { handle: null };
   const stale = () => closed || activeEntry !== owner.handle;
 
   const input = el('input', { type: 'text', placeholder: COMPOSER_PLACEHOLDER, 'data-testid': 'assistant-text' });
+  input.addEventListener('input', () => { draftRevision++; });
   const send = el('button', { className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-send', onClick: () => { void submit(); } }, ['Send']);
   const endTurn = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-end', hidden: true, onClick: () => { void requestEndTurn(); } }, ['End']);
   body.append(el('div', { className: 'field' }, [input, send, endTurn]));
 
+  function setVoiceState(state) {
+    const busy = state === 'connecting' || state === 'listening';
+    endTurn.hidden = state !== 'listening';
+    input.hidden = busy;
+    send.hidden = busy;
+  }
   const sessionOptions = (extra = {}) => ({
     deps, config, intent: 'data-entry', say: text => {
       if (!stale()) status.textContent = text ?? '';
@@ -115,12 +129,16 @@ export function openAssistant(deps, config, options = {}) {
       if (!stale()) renderTranscript(transcript, turns);
       options.onTranscript?.(turns);
     },
+    onVoiceState: setVoiceState,
+    onRecoveryInvalidated: ({ session: changed, preserveSubmission }) => { if (changed === session) clearRecovery(preserveSubmission); },
     onListening: listening => {
-      endTurn.hidden = !listening;
+      setVoiceState(listening ? 'listening' : 'idle');
       options.onListening?.(listening);
     },
     onVoiceTerminal: message => {
-      options.onVoiceTerminal?.(message);
+      setVoiceState('idle');
+      if (options.onVoiceTerminal) options.onVoiceTerminal(message);
+      else { say(message); void session?.end(); }
     },
     voiceLog, ...extra,
   });
@@ -133,13 +151,16 @@ export function openAssistant(deps, config, options = {}) {
 
   /** Start voice without begin()/xAI first: talk() checks the mic, then starts. */
   async function startVoice(extra = {}) {
+    clearRecovery();
     if (offline(deps)) { say(OFFLINE_TEXT); return { session: null, result: null }; }
     const current = bindSession(extra);
-    endTurn.hidden = false;
+    setVoiceState('connecting');
     try {
       const result = await current.talk();
+      if (result !== 'listening') setVoiceState('idle');
       return { session: current, result };
     } catch (error) {
+      setVoiceState('idle');
       say(error.message);
       return { session: current, result: null, error };
     }
@@ -152,82 +173,99 @@ export function openAssistant(deps, config, options = {}) {
 
   /** After a discarded empty voice start, stay on this composer for typing. */
   function switchToTyping() {
+    clearRecovery();
     session = null;
-    endTurn.hidden = true;
+    setVoiceState('idle');
     input.focus();
   }
 
-  async function ensureSession(extra = {}, from = {}) {
-    if (session) return session;
-    if (offline(deps)) { say(OFFLINE_TEXT); return null; }
-    starting = true;
-    say('Starting…');
-    session = createAssistantSession({
-      deps, config, intent: 'data-entry', say,
-      onTranscript: turns => { if (!stale()) renderTranscript(transcript, turns); },
-      voiceLog, ...extra,
-    });
-    await session.begin(undefined, undefined, from);
-    if (stale()) {
-      try { await session.end(); } catch { /* late begin still cleans up once */ }
-      session = null;
-      return null;
-    }
-    say('');
-    starting = false;
-    return session;
+  let recoveryToken = 0;
+  function clearRecovery(preserveSubmission = false) { failedSubmission = null; retry.hidden = true; if (!preserveSubmission) { recoveryToken++; starting = false; } }
+  function recoveryIsCurrent(recovery) {
+    const identity = session?.recoveryIdentity;
+    return !stale() && recovery.token === recoveryToken && recovery.session === session && recovery.generation === identity?.generation && recovery.conversation === identity?.conversation;
+  }
+  function recoverSubmission(text, kept, recovery, message) {
+    if (!recoveryIsCurrent(recovery)) return;
+    const { revision, expectedDraft, restoreAllowed } = recovery;
+    const restored = restoreAllowed && draftRevision === revision && input.value === expectedDraft;
+    if (restored) input.value = kept;
+    failedSubmission = { text, kept, restored, revision: draftRevision, token: recovery.token, session: recovery.session, generation: recovery.generation, conversation: recovery.conversation };
+    retry.hidden = false;
+    setVoiceState('idle'); say(message);
   }
 
-  async function submit() {
-    const text = input.value.trim();
-    if (!text || starting) return;
-    const kept = input.value;
+  async function submit(retrying = null) {
+    const submittedAt = Date.now();
+    const text = retrying?.text ?? input.value.trim();
+    if (!text || starting || stale()) return;
+    const kept = retrying?.kept ?? input.value;
     if (offline(deps)) { say(OFFLINE_TEXT); return; }
-    starting = true;
-    say('Starting…');
+    // An unchanged restored draft follows Send clearing; edited drafts stay untouched.
+    const preserveDraft = !!retrying && !(retrying.restored && retrying.revision === draftRevision && input.value === kept);
+    const current = bindSession();
+    const recovery = { revision: draftRevision, expectedDraft: input.value, restoreAllowed: !preserveDraft, session: current, ...current.recoveryIdentity };
+    clearRecovery(); recovery.token = recoveryToken;
+    const currentSubmission = () => !stale() && session === current && recovery.token === recoveryToken;
+    starting = true; say('Starting…');
     try {
-      const current = await ensureSession();
-      if (!current) { input.value = kept; starting = false; return; }
-      input.value = '';
-      await current.text(text);
-      if (!status.textContent) say('');
+      // text() owns startup as well as queueing: no pre-submit begin wait outside its budget.
+      const delivery = await current.text(text, { submittedAt, isCurrent: currentSubmission, onOwnership: identity => { if (currentSubmission()) Object.assign(recovery, identity); }, onEnqueued: () => {
+        if (recoveryIsCurrent(recovery) && !preserveDraft && draftRevision === recovery.revision && input.value === recovery.expectedDraft) {
+          input.value = ''; recovery.expectedDraft = '';
+        }
+      } });
+      if (delivery?.status === 'dropped') recoverSubmission(text, kept, recovery, OUTBOUND_DROPPED_MESSAGE);
     } catch (error) {
-      input.value = kept;
-      say(error.message);
+      recoverSubmission(text, kept, recovery, error.message);
     } finally {
-      starting = false;
+      if (currentSubmission()) starting = false;
     }
   }
 
   async function begin(intent, firstTurn, extra = {}, from = {}) {
+    const submittedAt = Date.now();
+    clearRecovery();
     if (offline(deps)) { say(OFFLINE_TEXT); return session; }
+    const recovery = { revision: draftRevision, expectedDraft: input.value, restoreAllowed: input.value === '', token: recoveryToken };
+    const currentSubmission = () => !stale() && session === recovery.session && recovery.token === recoveryToken;
     starting = true;
     say('Starting…');
     try {
-      session = createAssistantSession({
-        deps, config, intent: 'data-entry', say,
-        onTranscript: turns => { if (!stale()) renderTranscript(transcript, turns); },
-        voiceLog, ...extra,
-      });
-      await session.begin(firstTurn, undefined, from);
-      if (stale()) {
-        try { await session.end(); } catch { /* closed while starting */ }
-        session = null;
+      session = createAssistantSession(sessionOptions(extra));
+      recovery.session = session; Object.assign(recovery, session.recoveryIdentity);
+      const started = await session.begin(firstTurn, undefined, { ...from, submittedAt, isCurrent: currentSubmission, onOwnership: identity => { if (currentSubmission()) Object.assign(recovery, identity); } });
+      if (!currentSubmission()) {
+        if (stale()) {
+          try { await recovery.session.end(); } catch { /* closed while starting */ }
+          if (session === recovery.session) session = null;
+        }
+        return null;
+      }
+      if (firstTurn && started === null) {
+        if (firstTurn.modality === 'text') recoverSubmission(firstTurn.text, firstTurn.text, recovery, OUTBOUND_DROPPED_MESSAGE);
+        else { setVoiceState('idle'); say(OUTBOUND_DROPPED_MESSAGE); }
         return null;
       }
       say('');
       return session;
     } catch (error) {
-      say(error.message);
+      // Match ordinary Send: keep a dropped typed first turn for an explicit retry.
+      if (!currentSubmission()) return null;
+      if (firstTurn?.modality === 'text') recoverSubmission(firstTurn.text, firstTurn.text, recovery, error.message);
+      if (currentSubmission()) { setVoiceState('idle'); say(error.message); }
       throw error;
     } finally {
-      starting = false;
+      if (currentSubmission()) starting = false;
     }
   }
 
   async function close() {
     if (closed) return;
     closed = true;
+    clearRecovery();
+    setVoiceState('idle');
+    options.onListening?.(false);
     const isActive = activeEntry === owner.handle;
     if (isActive) {
       wrap.querySelector('.sheet-backdrop').onclick = null;
@@ -297,6 +335,7 @@ export function openAssistant(deps, config, options = {}) {
   }
   const handle = {
     begin, close, startVoice, switchToTyping, endTurn: requestEndTurn,
+    adoptOptions(next) { options = { ...options, ...next }; },
     get ready() { return ready; },
     set ready(value) { ready = value; },
     isClosed: () => closed,

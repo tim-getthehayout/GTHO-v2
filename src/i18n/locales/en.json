@@ -1,5 +1,6 @@
 {
   "manualEntry": {
+    "unreleasedSchema": "Saving this field needs verified database migration {version}. Your input has been kept; approval and a backup are required before release.",
     "invalidDate": "Enter a valid date and time.",
     "sireReferenceHint": "Choose a sire reference when recording breeding. Registration is kept on this sire.",
     "invalidTreatmentCategory": "Select an available treatment category before saving.",

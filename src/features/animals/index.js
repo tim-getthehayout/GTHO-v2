@@ -1232,6 +1232,8 @@ function openAISiresManager(operationId) {
   panel.appendChild(el('div', { className: 'div' }));
   panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px' } }, ['Add sire']));
 
+  const sireStatus = el('div', { className: 'auth-error', 'data-testid': 'ai-manager-status' });
+  panel.appendChild(sireStatus);
   const sInputs = {};
   sInputs.name = el('input', { 'data-testid': 'ai-manager-name', type: 'text', placeholder: 'e.g. Connealy Confidence' });
   sInputs.reg = el('input', { 'data-testid': 'ai-manager-reg', type: 'text', placeholder: 'e.g. 17760326' });
@@ -1250,8 +1252,11 @@ function openAISiresManager(operationId) {
   panel.appendChild(el('button', { className: 'btn btn-green btn-sm', style: { width: 'auto', padding: '10px 20px' }, onClick: () => {
     const name = sInputs.name.value.trim();
     if (!name) return;
-    const rec = AiBullEntity.create({ operationId, name, regNum: sInputs.reg.value.trim() || null, breed: sInputs.breed.value.trim() || null, epds: sInputs.epds.value.trim() || null });
-    add('aiBulls', rec, AiBullEntity.validate, AiBullEntity.toSupabaseShape, 'ai_bulls');
+    clear(sireStatus);
+    try {
+      const rec = AiBullEntity.create({ operationId, name, regNum: sInputs.reg.value.trim() || null, breed: sInputs.breed.value.trim() || null, epds: sInputs.epds.value.trim() || null });
+      add('aiBulls', rec, AiBullEntity.validate, AiBullEntity.toSupabaseShape, 'ai_bulls');
+    } catch (error) { sireStatus.textContent = error.message; return; }
     sInputs.name.value = ''; sInputs.reg.value = ''; sInputs.breed.value = ''; sInputs.epds.value = '';
     renderBullsList();
   } }, ['Add sire']));

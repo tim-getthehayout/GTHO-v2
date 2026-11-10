@@ -10,10 +10,11 @@ import { supabase } from './supabase-client.js';
 import { canExport, exportOperationBackup, downloadBackup } from './backup-export.js';
 import { BACKUP_MIGRATIONS } from './backup-migrations.js';
 import { pullAllRemote } from './pull-remote.js';
+import { RELEASED_SCHEMA_VERSION, STAGED_COLUMNS } from './schema-release.js';
 import { logger } from '../utils/logger.js';
 
 const SUPPORTED_FORMAT_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 41;
+const CURRENT_SCHEMA_VERSION = RELEASED_SCHEMA_VERSION;
 
 const FK_ORDER = [
   'operations',
@@ -128,6 +129,17 @@ export function validateBackup(backup) {
   if (!backup.operation_id) {
     return { valid: false, error: 'Backup is missing "operation_id".' };
   }
+  if ((backup.tables.operations || []).some(row => row.schema_version > CURRENT_SCHEMA_VERSION)) {
+    return { valid: false, error: 'Operation schema version exceeds this compatible release.' };
+  }
+  for (const [version, tables] of Object.entries(STAGED_COLUMNS)) {
+    if (Number(version) <= CURRENT_SCHEMA_VERSION) continue;
+    for (const [table, columns] of Object.entries(tables)) {
+      if ((backup.tables[table] || []).some(row => columns.some(column => Object.hasOwn(row, column)))) {
+        return { valid: false, error: `Backup contains unreleased schema ${version} columns. Update only after verified compatibility.` };
+      }
+    }
+  }
   return { valid: true };
 }
 
@@ -216,9 +228,30 @@ export async function serverHasMigration041(client = supabase) {
   }
 }
 
+/** Read-only zero-row column proof for a future compatible release. Schema
+ * stamps and the 041 RPC alone do not prove any held columns exist. */
+export async function serverHasStagedColumns(version, client = supabase) {
+  if (!STAGED_COLUMNS[version] || !client?.from) return false;
+  try {
+    for (const [step, tables] of Object.entries(STAGED_COLUMNS)) {
+      if (Number(step) > version) continue;
+      for (const [table, columns] of Object.entries(tables)) {
+        const { data, error } = await client.from(table).select(columns.join(',')).limit(0);
+        if (error || !Array.isArray(data)) return false;
+      }
+    }
+    return true;
+  } catch { return false; }
+}
+
 /** Stamp operations.schema_version at most 40 until the server confirms 041. */
 export async function resolveOperationsSchemaStamp(requested, client = supabase) {
+  if (requested > CURRENT_SCHEMA_VERSION) throw new Error('Unverified schema version: restore refused.');
   if (requested == null || requested < 41) return requested;
+  if (requested >= 42) {
+    if (!(await serverHasStagedColumns(requested, client)) || !(await serverHasMigration041(client))) throw new Error('Database columns are not verified for this restore version.');
+    return requested;
+  }
   return (await serverHasMigration041(client)) ? requested : 40;
 }
 
@@ -363,6 +396,11 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
     return { success: false, error: validation.error };
   }
 
+  // This runs before auto-backup, fencing and any delete/insert. It also covers
+  // old backups which the compatible release would migrate to its new shape.
+  if (CURRENT_SCHEMA_VERSION >= 42 && !(await serverHasStagedColumns(CURRENT_SCHEMA_VERSION))) {
+    return { success: false, error: 'Database columns are not verified for this restore version.' };
+  }
   const exportCheck = canExport();
   if (!exportCheck.ok) {
     return { success: false, error: 'Sync pending — retry when sync completes.' };

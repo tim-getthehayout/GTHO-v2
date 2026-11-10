@@ -221,4 +221,13 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 41;
     return b;
   },
+  // Written only. Compiled restore ceiling stays 41 until compatible release.
+  41: (b) => {
+    for (const [table, field] of [['ai_bulls', 'epds'], ['animal_breeding_records', 'sire_name']]) {
+      for (const row of b.tables[table] || []) if (!Object.hasOwn(row, field)) row[field] = null;
+    }
+    b.schema_version = 42;
+    for (const op of b.tables.operations || []) op.schema_version = 42;
+    return b;
+  },
 };

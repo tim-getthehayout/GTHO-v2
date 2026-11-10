@@ -13,8 +13,8 @@ const CAT_ID    = '770e8400-e29b-41d4-a716-446655440000';
 
 describe('animal-breeding-record entity', () => {
   // --- FIELDS ---
-  it('exports 14 fields', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(14);
+  it('exports 15 fields', () => {
+    expect(Object.keys(FIELDS)).toHaveLength(15);
   });
 
   it('FIELDS.operationId has sbColumn operation_id', () => {

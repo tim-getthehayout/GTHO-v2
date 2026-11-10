@@ -1,6 +1,9 @@
+import { nullableText, releasedColumns } from '../data/schema-columns.js';
+
 /** @file Entity: ai_bulls — V2_SCHEMA_DESIGN.md §9.1 */
 
 export const FIELDS = {
+  epds: { type: 'text', required: false, sbColumn: 'epds' },
   id:          { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId: { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
   name:        { type: 'text',        required: true,  sbColumn: 'name' },
@@ -14,6 +17,7 @@ export const FIELDS = {
 
 export function create(data = {}) {
   return {
+    epds: nullableText(data.epds),
     id:          data.id          ?? crypto.randomUUID(),
     operationId: data.operationId ?? null,
     name:        data.name        ?? '',
@@ -32,11 +36,13 @@ export function validate(record) {
   if (!record.name || typeof record.name !== 'string' || record.name.trim() === '') {
     errors.push('name is required');
   }
+  if (record.epds != null && typeof record.epds !== 'string') errors.push('epds must be text or null');
   return { valid: errors.length === 0, errors };
 }
 
 export function toSupabaseShape(record) {
   return {
+    ...releasedColumns(42, { epds: nullableText(record.epds) }),
     id:           record.id,
     operation_id: record.operationId,
     name:         record.name,
@@ -51,6 +57,7 @@ export function toSupabaseShape(record) {
 
 export function fromSupabaseShape(row) {
   return {
+    epds: row.epds ?? null,
     id:          row.id,
     operationId: row.operation_id,
     name:        row.name,

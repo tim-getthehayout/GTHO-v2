@@ -145,8 +145,8 @@ describe('backup round-trip (CP-55)', () => {
       expect(typeof BACKUP_MIGRATIONS).toBe('object');
     });
 
-    it('has migration entries for 14→41 chain', () => {
-      expect(Object.keys(BACKUP_MIGRATIONS).length).toBe(27);
+    it('has migration entries for the released and held chain', () => {
+      expect(Object.keys(BACKUP_MIGRATIONS).map(Number)).toEqual(Array.from({ length: Math.max(...Object.keys(BACKUP_MIGRATIONS).map(Number)) - 13 }, (_, i) => 14 + i));
       expect(typeof BACKUP_MIGRATIONS[14]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[34]).toBe('function');
       expect(typeof BACKUP_MIGRATIONS[35]).toBe('function');

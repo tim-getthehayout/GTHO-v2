@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | Staged retained sire-name/EPD text and migration 042 (written, never applied), preserving legacy writes and keeping the compiled restore ceiling at 41. Added 41→42 null-default/preservation stamps, real form/payload round-trips and fail-closed write/restore gates; no database access or release. |
 | 2026-11-10 | Tagged stillbirths are created inactive with the entered cull date, existing Died (natural) reason and Stillborn/additional notes, linked to their birth without group membership or active-head/DMI increases. Calving compound saves are recoverable; retain live/untagged paths and protect reviewed transactions. | Calving form, existing active-DMI test seam and real-form/backup fixtures |
 | 2026-11-10 | AI sire manager saves and displays registration through existing regNum/reg_num, preserving sire name, breed and reference identity. Remove the unimplemented registration-snapshot claim; retained EPD input remains available pending the separate approved schema release. | Animals manager, locale and real-form/pull regressions |
 | 2026-11-10 | Soil-test shortcut and full editor share canonical organicMatter, date, unit and numeric mapping. Preserve entered zeros versus blank/null; reject nonfinite values, invalid dates and existing pH/organic-matter range violations before writing. | Soil forms, shared adapter, entity and real-form tests |

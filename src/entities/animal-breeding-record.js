@@ -1,8 +1,11 @@
+import { nullableText, releasedColumns } from '../data/schema-columns.js';
+
 /** @file Entity: animal_breeding_records — V2_SCHEMA_DESIGN.md §9.7 */
 
 import { isValidTimestamp, isCalendarDate } from '../utils/form-values.js';
 
 export const FIELDS = {
+  sireName: { type: 'text', required: false, sbColumn: 'sire_name' },
   id:               { type: 'uuid',        required: false, sbColumn: 'id' },
   operationId:      { type: 'uuid',        required: true,  sbColumn: 'operation_id' },
   animalId:         { type: 'uuid',        required: true,  sbColumn: 'animal_id' },
@@ -23,6 +26,7 @@ const VALID_METHODS = ['ai', 'bull'];
 
 export function create(data = {}) {
   return {
+    sireName: nullableText(data.sireName),
     id:              data.id              ?? crypto.randomUUID(),
     operationId:     data.operationId     ?? null,
     animalId:        data.animalId        ?? null,
@@ -52,11 +56,13 @@ export function validate(record) {
   } else if (!VALID_METHODS.includes(record.method)) {
     errors.push(`method must be one of: ${VALID_METHODS.join(', ')}`);
   }
+  if (record.sireName != null && typeof record.sireName !== 'string') errors.push('sireName must be text or null');
   return { valid: errors.length === 0, errors };
 }
 
 export function toSupabaseShape(record) {
   return {
+    ...releasedColumns(42, { sire_name: nullableText(record.sireName) }),
     id:               record.id,
     operation_id:     record.operationId,
     animal_id:        record.animalId,
@@ -76,6 +82,7 @@ export function toSupabaseShape(record) {
 
 export function fromSupabaseShape(row) {
   return {
+    sireName: row.sire_name ?? null,
     id:              row.id,
     operationId:     row.operation_id,
     animalId:        row.animal_id,

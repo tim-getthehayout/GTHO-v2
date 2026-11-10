@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import { HELD_SCHEMA_VERSIONS } from '../../src/data/schema-release.js';
+import { BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';
 import { BACKUP_TABLES } from '../../src/data/backup-export.js';
 import { BROWSER_FK_ORDER, CURRENT_SCHEMA_VERSION } from '../../src/data/backup-import.js';
 
@@ -17,13 +19,15 @@ describe('backup-sync invariants', () => {
     expect(exportKeys).toEqual(importOrder);
   });
 
-  test('CURRENT_SCHEMA_VERSION matches latest migration file', () => {
+  test('released ceiling plus explicitly held migrations accounts for every written file', () => {
     // If a migration lands without bumping this constant, current-version
     // backups are not round-trippable through the importer. See OI-0088.
     const migrationsDir = path.resolve(__dirname, '../../supabase/migrations');
     const nums = fs.readdirSync(migrationsDir)
       .map(f => parseInt(f.split('_')[0], 10))
       .filter(n => !Number.isNaN(n));
-    expect(CURRENT_SCHEMA_VERSION).toBe(Math.max(...nums));
+    expect(CURRENT_SCHEMA_VERSION).toBe(41);
+    expect(nums.filter(n => n > CURRENT_SCHEMA_VERSION).sort()).toEqual(HELD_SCHEMA_VERSIONS);
+    for (const n of HELD_SCHEMA_VERSIONS) expect(BACKUP_MIGRATIONS[n - 1]).toBeTypeOf('function');
   });
 });

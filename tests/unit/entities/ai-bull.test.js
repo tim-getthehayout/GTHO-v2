@@ -13,8 +13,8 @@ const CAT_ID    = '770e8400-e29b-41d4-a716-446655440000';
 
 describe('ai-bull entity', () => {
   // --- FIELDS ---
-  it('exports 9 fields', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(9);
+  it('exports 10 fields', () => {
+    expect(Object.keys(FIELDS)).toHaveLength(10);
   });
 
   it('FIELDS.operationId has sbColumn operation_id', () => {

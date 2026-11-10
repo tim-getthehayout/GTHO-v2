@@ -145,9 +145,10 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
     session ??= newSession();
     end.hidden = false;
     const result = await session.talk();
-    if (result !== 'no-mic') return;
-    const failure = session.micFailure ?? { message: 'No microphone found.' };
-    // OI-0200: no-mic close goes through endLiveSession (clears transport/mic/timer, hides End).
+    // Mic failure or auth/connect failure: Type instead? (OI-0196 / OI-0204).
+    if (result !== 'no-mic' && result !== 'unavailable') return;
+    const failure = session.micFailure ?? { message: result === 'unavailable' ? 'Voice is unavailable right now; you can type instead.' : 'No microphone found.' };
+    // OI-0200: close goes through endLiveSession (clears transport/mic/timer, hides End).
     await endLiveSession();
     const answer = await askTypeInstead({ message: failure.message });
     if (answer === 'yes') {

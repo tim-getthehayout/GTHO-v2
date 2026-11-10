@@ -200,8 +200,54 @@ export const MIC_MISSING_MESSAGE = 'No microphone found.';
 export const MIC_BLOCKED_MESSAGE = 'Microphone access is blocked.';
 export const TYPE_INSTEAD_QUESTION = 'Type instead?';
 export const OFFLINE_NO_MIC_MESSAGE = "No microphone found, so the voice note wasn't recorded. You can use the normal screens.";
+export const VOICE_UNAVAILABLE_MESSAGE = 'Voice is unavailable right now; you can type instead.';
 
 const MIC_AUDIO = Object.freeze({ channelCount: 1, echoCancellation: true, noiseSuppression: true });
+
+/** Dev-only timing for Tim's phone (silent in production builds). */
+export function voiceStartTap() {
+  if (!import.meta.env.DEV) return null;
+  return globalThis.performance.now();
+}
+export function voiceStartMark(label, tapAt) {
+  if (tapAt == null || !import.meta.env.DEV) return;
+  const ms = globalThis.performance.now() - tapAt;
+  globalThis.console.info(`[gtho-voice] ${label}: ${ms.toFixed(1)}ms`);
+}
+
+/**
+ * PCM queue for faster-start: capture from mic-live, flush in order once the
+ * socket is connected, discard on auth/connect failure.
+ */
+export function createAudioChunkBuffer() {
+  const queue = [];
+  let mode = 'buffer';
+  let liveSend = null;
+  return {
+    get length() { return queue.length; },
+    onChunk(bytes) {
+      const copy = bytes instanceof Uint8Array ? bytes.slice() : new Uint8Array(bytes);
+      if (mode === 'live' && liveSend) {
+        liveSend(copy);
+        return;
+      }
+      queue.push(copy);
+    },
+    async flushTo(send) {
+      while (queue.length) {
+        const batch = queue.splice(0, queue.length);
+        for (const chunk of batch) await send(chunk);
+      }
+      liveSend = chunk => { void send(chunk); };
+      mode = 'live';
+    },
+    discard() {
+      queue.length = 0;
+      mode = 'buffer';
+      liveSend = null;
+    },
+  };
+}
 
 /** Map getUserMedia / missing-mediaDevices failures to the two locked messages. */
 export function classifyMicError(error) {

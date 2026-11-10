@@ -4,7 +4,7 @@
  * is spoken verbatim. Tapping again ends the turn, the same as saying "over". */
 import { VoiceTransport } from '../shared.js';
 import { createAssistantConversation, createFarmReviewFlow, createFeedbackFiling, feedbackSheetSession } from './conversation.js';
-import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, OFFLINE_NO_MIC_MESSAGE } from './realtime.js';
+import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, createAudioChunkBuffer, voiceStartTap, voiceStartMark, OFFLINE_NO_MIC_MESSAGE, VOICE_UNAVAILABLE_MESSAGE } from './realtime.js';
 import { recordNote } from './offline-notes.js';
 import { createTestingRecorder, uploadTestingAudio } from './testing-audio.js';
 import { resolveTestingConsent } from './consent.js';
@@ -99,6 +99,13 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     await player?.close();
     transport = null; player = null; driver = null;
   }
+  /** Drop an empty conversation started in parallel with a mic that then failed. */
+  async function discardEmptyStart() {
+    if (!conversation) return;
+    try { await conversation.cancel(); } catch { /* start may not have finished */ }
+    conversation = null;
+    attempts = null;
+  }
   let micFailure = null;
   const session = {
     get conversation() { return conversation; },
@@ -120,32 +127,62 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       onTranscript(visible());
       return conversation;
     },
-    /** First tap starts listening; every later tap ends the current turn (same as "over").
-     * Mic is acquired before any realtime connect / client-secret mint (OI-0196).
-     * Steps stay separable so a later faster-start can run acquireMicrophone
-     * concurrently with begin() / voice-authorization and buffer PCM until WS ready. */
+    /**
+     * First tap starts listening; every later tap ends the current turn (same as "over").
+     * Faster start (OI-0204): mic runs concurrently with begin(); Listening and local
+     * PCM buffering start as soon as the mic is live (not after awaitServerRows / WS).
+     * Mint + WS wait until the mic has settled successfully (OI-0196): a mic failure
+     * aborts any in-flight begin and never calls voiceAuthorization or opens a socket.
+     */
     async talk() {
       if (mic) { driver.endTurn(); say('Thinking…'); return 'turn-ended'; }
       micFailure = null;
-      // 1) Mic-first — never mint a secret or open a transport without a mic.
+      const tapAt = voiceStartTap();
+      const buffer = createAudioChunkBuffer();
+      let abandoned = false;
+      // begin() does not mint; safe to overlap with mic. Mint stays gated on mic OK.
+      const beginWork = (async () => {
+        if (!conversation) await session.begin();
+        if (abandoned) await discardEmptyStart();
+      })();
+
       let stream;
       try {
         stream = await acquireMicrophone();
       } catch (error) {
+        abandoned = true;
         micFailure = classifyMicError(error);
-        // Guard: if a transport/timer somehow already exists, tear it down now.
+        await beginWork.catch(() => {});
+        // begin may have finished before the mic failed — always drop the empty start.
+        await discardEmptyStart();
+        buffer.discard();
         await abandonLiveVoice();
         return 'no-mic';
       }
+
       try {
-        // 2) Conversation begin (server session). 3) Connect realtime (mints secret).
-        if (!conversation) await session.begin();
+        // Mic live → buffer + Listening immediately (does not wait on awaitServerRows).
+        mic = await startMicrophone({ stream, onChunk: bytes => buffer.onChunk(bytes) });
+        onListening(true);
+        say('Listening… say "over" or tap again when done.');
+        voiceStartMark('tap→Listening', tapAt);
+
+        await beginWork;
+        if (abandoned) {
+          buffer.discard();
+          await abandonLiveVoice();
+          return 'no-mic';
+        }
+        if (consent === 'accepted') recorder = createTestingRecorder({ stream: mic.stream });
+
         player ??= createPcmPlayer();
         const terminal = message => {
           if (onVoiceTerminal) onVoiceTerminal(message);
           else { say(message); void stopVoice(); }
         };
         driver = createXaiRealtimeDriver({ config, onStatus: state => { if (state === 'session-cap') terminal('Voice session ended at 10 minutes. Tap to start a new one.'); } });
+        // Fresh authorization every tap (no cross-tap cache / no mount prewarm).
+        // Within one connect, the driver still reuses the token across its 3 attempts.
         transport = new VoiceTransport({
           broker: () => conversation.voiceAuthorization(), driver,
           getSession: () => conversation.session,
@@ -153,19 +190,19 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           onAudio: bytes => player.play(bytes),
         });
         await transport.connect();
+        voiceStartMark('tap→WS ready', tapAt);
         if (transport.state !== 'connected') {
-          stream.getTracks().forEach(track => track.stop());
-          terminal('Voice is unavailable right now; you can type instead.');
+          buffer.discard();
+          micFailure = { name: 'VoiceUnavailable', message: VOICE_UNAVAILABLE_MESSAGE };
+          await abandonLiveVoice();
           return 'unavailable';
         }
-        // 4) Attach the already-open mic to the live transport.
-        mic = await startMicrophone({ stream, onChunk: bytes => { void transport.stream(bytes); } });
-        if (consent === 'accepted') recorder = createTestingRecorder({ stream: mic.stream });
-        onListening(true);
-        say('Listening… say "over" or tap again when done.');
+        await buffer.flushTo(bytes => transport.stream(bytes));
         return 'listening';
       } catch (error) {
-        stream.getTracks().forEach(track => { try { track.stop(); } catch { /* ignore */ } });
+        buffer.discard();
+        try { stream.getTracks().forEach(track => track.stop()); } catch { /* ignore */ }
+        await abandonLiveVoice();
         throw error;
       }
     },

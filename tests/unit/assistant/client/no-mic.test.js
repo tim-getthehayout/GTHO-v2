@@ -132,17 +132,20 @@ describe('classifyMicError / acquireMicrophone', () => {
 });
 
 describe('talk() mic-first', () => {
-  it('acquires the mic before begin and before minting a voice secret', async () => {
+  it('mints only after the mic settles (begin may overlap; Listening before mint)', async () => {
     const order = [];
+    let releaseMic;
+    const micGate = new Promise(resolve => { releaseMic = resolve; });
     const mediaDevices = {
       getUserMedia: vi.fn(async () => {
+        order.push('mic-start');
+        await micGate;
         order.push('mic');
         return { getTracks: () => [{ stop: vi.fn() }] };
       }),
     };
     const saved = globalThis.navigator;
     Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices }, configurable: true });
-    // Stub AudioContext for startMicrophone after connect.
     const AudioContextImpl = class {
       constructor() { this.destination = {}; this.currentTime = 0; }
       createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
@@ -157,18 +160,24 @@ describe('talk() mic-first', () => {
       order.push('begin');
       return {
         ref: 'c1', scope: { operationId: 'op', actorId: 'u' },
-        session: { intent: 'data-entry', phase: 'converse', transcript: [], capture: {} },
-        route: null, begin: vi.fn(async () => {}), turn: vi.fn(async () => null), switchIntent: vi.fn(),
+        session: { intent: 'data-entry', phase: 'converse', transcript: [], capture: {}, conversationRef: 'c1' },
+        route: null, begin: vi.fn(async () => { order.push('begin-done'); }), turn: vi.fn(async () => null), switchIntent: vi.fn(),
+        cancel: vi.fn(async () => {}),
         voiceAuthorization: async () => { order.push('mint'); return { provider: 'xai', token: 't', expiresAt: Date.now() + 60000 }; },
       };
     });
 
     try {
-      const session = createAssistantSession({ deps, config, intent: 'data-entry', say: vi.fn() });
-      await expect(session.talk()).resolves.toBe('listening');
-      expect(order[0]).toBe('mic');
-      expect(order.indexOf('mic')).toBeLessThan(order.indexOf('begin'));
-      expect(order.indexOf('begin')).toBeLessThan(order.indexOf('mint'));
+      const say = vi.fn();
+      const session = createAssistantSession({ deps, config, intent: 'data-entry', say });
+      const talking = session.talk();
+      await vi.waitFor(() => expect(order).toContain('begin'));
+      // begin overlapped while mic still pending — mint must not have run.
+      expect(order).not.toContain('mint');
+      releaseMic();
+      await expect(talking).resolves.toBe('listening');
+      expect(order.indexOf('mic')).toBeLessThan(order.indexOf('mint'));
+      expect(say).toHaveBeenCalledWith('Listening… say "over" or tap again when done.');
     } finally {
       Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true });
     }
@@ -180,7 +189,7 @@ describe('talk() mic-first', () => {
     ['NotReadableError', MIC_MISSING_MESSAGE],
     ['OverconstrainedError', MIC_MISSING_MESSAGE],
     ['SecurityError', MIC_MISSING_MESSAGE],
-  ])('returns no-mic for %s without minting a secret', async (name, message) => {
+  ])('returns no-mic for %s without minting a secret or opening a WS', async (name, message) => {
     const mediaDevices = { getUserMedia: vi.fn(async () => { throw micError(name); }) };
     const saved = globalThis.navigator;
     Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices }, configurable: true });
@@ -189,20 +198,20 @@ describe('talk() mic-first', () => {
       await expect(session.talk()).resolves.toBe('no-mic');
       expect(session.micFailure).toEqual({ name, message });
       expect(voiceAuth).not.toHaveBeenCalled();
-      expect(createAssistantConversation).not.toHaveBeenCalled();
+      // begin may have raced; mint/WS must not.
+      expect(session.conversation == null).toBe(true);
     } finally {
       Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true });
     }
   });
 
-  it('returns no-mic when mediaDevices is missing, with no begin or mint', async () => {
+  it('returns no-mic when mediaDevices is missing, with no mint', async () => {
     const saved = globalThis.navigator;
     Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true });
     try {
       const session = createAssistantSession({ deps, config, intent: 'data-entry', say: vi.fn() });
       await expect(session.talk()).resolves.toBe('no-mic');
       expect(session.micFailure.message).toBe(MIC_MISSING_MESSAGE);
-      expect(createAssistantConversation).not.toHaveBeenCalled();
       expect(voiceAuth).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true });

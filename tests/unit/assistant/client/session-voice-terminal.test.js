@@ -24,10 +24,22 @@ vi.mock('../../../../src/features/assistant/client/realtime.js', () => ({
     };
   }),
   acquireMicrophone: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })),
-  startMicrophone: vi.fn(async ({ stream } = {}) => ({ stream: stream || {}, stop: vi.fn(async () => {}) })),
+  startMicrophone: vi.fn(async ({ stream, onChunk } = {}) => ({ stream: stream || {}, stop: vi.fn(async () => {}) })),
   createPcmPlayer: vi.fn(() => ({ play: vi.fn(), close: vi.fn(async () => {}) })),
+  createAudioChunkBuffer: () => {
+    const queue = [];
+    return {
+      get length() { return queue.length; },
+      onChunk(bytes) { queue.push(bytes); },
+      async flushTo(send) { for (const c of queue.splice(0)) await send(c); },
+      discard() { queue.length = 0; },
+    };
+  },
+  voiceStartTap: () => null,
+  voiceStartMark: () => {},
   classifyMicError: vi.fn(error => ({ name: error?.name || 'NotFoundError', message: error?.name === 'NotAllowedError' ? 'Microphone access is blocked.' : 'No microphone found.' })),
   OFFLINE_NO_MIC_MESSAGE: "No microphone found, so the voice note wasn't recorded. You can use the normal screens.",
+  VOICE_UNAVAILABLE_MESSAGE: 'Voice is unavailable right now; you can type instead.',
   MIC_MISSING_MESSAGE: 'No microphone found.',
   MIC_BLOCKED_MESSAGE: 'Microphone access is blocked.',
   TYPE_INSTEAD_QUESTION: 'Type instead?',
@@ -116,7 +128,7 @@ describe('voice terminal notifications', () => {
     expect(say).not.toHaveBeenCalledWith('Voice session ended at 10 minutes. Tap to start a new one.');
   });
 
-  it('voice-unavailable notifies onVoiceTerminal', async () => {
+  it('voice-unavailable returns unavailable with Type-instead message (no stranded timer)', async () => {
     const { VoiceTransport } = await import('../../../../src/features/assistant/shared.js');
     const onVoiceTerminal = vi.fn();
     // Force text-fallback after connect.
@@ -128,7 +140,9 @@ describe('voice terminal notifications', () => {
         intent: 'data-entry', say: vi.fn(), onVoiceTerminal,
       });
       await expect(session.talk()).resolves.toBe('unavailable');
-      expect(onVoiceTerminal).toHaveBeenCalledWith('Voice is unavailable right now; you can type instead.');
+      expect(session.micFailure.message).toMatch(/type instead/i);
+      // Host prompts Type instead? via the return code; session-cap still uses onVoiceTerminal.
+      expect(onVoiceTerminal).not.toHaveBeenCalled();
     } finally {
       VoiceTransport.prototype.connect = original;
     }

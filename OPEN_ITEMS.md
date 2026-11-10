@@ -13,21 +13,21 @@
 | OI-0204 | Parallel startup, local PCM buffering and startup cancellation guards | Closed — PR #44, `8e5bd03d` |
 | OI-0205 | Animals current-placement display agrees with the dashboard | Open — ready for Build within the scope below |
 | OI-0206 | Feeding target normalization, clarification continuity and carryover | Open — ready for Build within the scope below |
-| OI-0207 | Direct typed start without picker flash; unified Cancel lifecycle | Open — ready for Build; phone retest required |
+| OI-0207 | One shared assistant entry lifecycle, neutral typing text and Cancel | Open — pending Tim: shared chooser or auto-detect; do not build yet |
 | OI-0208 | One running assistant chat with live transcription and answerable cards | Queued, not ready for Build — Design after the current fix batch ships |
-| OI-0209 | Confinement DMI, feed-days estimate and suppression of pasture UI | Open — ready for Build; no schema change or data repair |
+| OI-0209 | Confinement DMI/feed-days calculations; forage information greyed out and inactive | Open — ready for Build; no schema change or data repair |
 
 ---
 
-### OI-0209 — Confinement locations show pasture UI (DMI placeholder bars, forage capacity prompt)
+### OI-0209 — Confinement card calculations show DMI placeholders and a forage capacity prompt
 
 **Added:** 2026-11-10 | **Area:** v2-build / confinement / DMI / dashboard / events / calendar | **Priority:** P2 (valid confinement feed data is hidden behind irrelevant pasture gates and prompts)
 
 **Status:** open — ready for build (2026-11-10). Added to the OI-0205–OI-0207 fix batch; OI-0208 remains queued. No schema change or data repair. Phone retest required after implementation.
 
-**LOCKED (Tim, 2026-11-10):** confinement forage data is **null by design**. Never prompt for forage type or height, pre/post-graze observations or recovery on a confinement location. Classify by **`location.type`**, not a legacy flag, the presence of acreage or stale forage data.
+**LOCKED (Tim, 2026-11-10):** confinement forage data is **null by design**. Never prompt for forage type or height, pre/post-graze observations or recovery on a confinement location. On confinement event cards, keep forage information **visible but greyed out and inactive**, not hidden or suppressed; no editable controls or Fix/Set-forage CTA. DMI and feed calculations must still render from the actual fed feed. Classify by **`location.type`**, not a legacy flag, the presence of acreage or stale forage data.
 
-**Bug.** Confinement cards show 24px **"Set forage type" placeholders**, not computed DMI bars, and a forage-capacity prompt. This is **not a PR #44 regression** and is not caused by OI-0201 tints: the DMI gate comes from `65fc3b8` (OI-0119); the capacity prompt comes from `69cc154` (OI-0075).
+**Bug.** Creating the confinement event **did not ask for forage**. Tim's issue is the cards' display calculations: confinement cards show 24px **"Set forage type" placeholders**, not computed DMI bars, and a forage-capacity prompt. This is not a creation-form prompt bug. This is **not a PR #44 regression** and is not caused by OI-0201 tints: the DMI gate comes from `65fc3b8` (OI-0119); the capacity prompt comes from `69cc154` (OI-0075).
 
 Evidence on `1fe0a593`:
 
@@ -39,10 +39,10 @@ Evidence on `1fe0a593`:
 **Fix.**
 
 1. **Type-aware calculation:** carry `location.type` through the shared DMI context. Every confinement window contributes **zero pasture**, whether acreage/old forage values exist and whether `noPasture` is true or false. Skip forage type, height, pre-graze and area gates for those windows, but retain event-scoped stored-feed allocation, deliveries, removals and feed checks. Never fill a confinement shortfall with pasture; retain the model's real stored-feed/deficit result. Pure-pasture behavior and validation for the land windows in a mixed event stay intact.
-2. **One shared feed-days projection:** on a **pure confinement** card replace pasture capacity, AUDs and ADA with **"Est. feed remaining: ~N days"**, explicitly labelled as an **end-of-today daily-model estimate**. Dashboard and Event Detail consume the same projection, not two similar implementations. Use this event's DMI-8 daily cascade (`feed-forage.js:770–890`) through the end of today and FOR-4 with zero pasture; account for group changes, check re-anchors, later deliveries and removals. Do not use farm-wide inventory/days from the Feed screen or the dashboard feed-mass fallback at `index.js:293–299`. No implicit feed carryover from another event.
+2. **One shared feed-days projection:** on a **pure confinement** card replace the active pasture-capacity/AUDs/ADA claim with **"Est. feed remaining: ~N days"**, while retaining the forage information greyed out and inactive (no invented pasture values). The feed line is explicitly labelled as an **end-of-today daily-model estimate**. Dashboard and Event Detail consume the same projection, not two similar implementations. Use this event's DMI-8 daily cascade (`feed-forage.js:770–890`) through the end of today and FOR-4 with zero pasture; account for group changes, check re-anchors, later deliveries and removals. Do not use farm-wide inventory/days from the Feed screen or the dashboard feed-mass fallback at `index.js:293–299`. No implicit feed carryover from another event.
 3. **Validity / empty state:** show a number only with valid event feed/model inputs and finite positive demand. Hide the estimate if required weights, DM conversion data or other required inputs are missing/invalid, or demand is zero; do not fabricate a number, divide by zero or call unknown data depletion. When the inputs and demand are valid but feed is empty/depleted, show **0**. Apply FOR-4's existing precision rule. This is a daily-model estimate after today's intake, not a live clock countdown or a promised future delivery.
-4. **No confinement forage/graze/recovery UI:** suppress the irrelevant pasture-only prompts, placeholders, metrics and observation controls on every surface below, while preserving applicable Feed, Feed check, removal, movement and close actions. In mixed events the suppression is per confinement location/window; it must not remove the land windows' required validation or useful pasture controls.
-5. **Calendar:** use `location.type`, not `locationType`, in classification and rendering. Confinement blocks must not request forage/recovery inputs or use stale forage to show pasture capacity; land forecast/recovery behavior stays intact.
+4. **Confinement forage information stays visible, greyed out and inactive:** on dashboard and Event Detail confinement cards, retain the forage/graze/recovery information as disabled explanatory UI, not hidden/suppressed and not an invitation to enter forage. Apply the same greyed-out/inactive treatment to the listed confinement forage/graze controls where those surfaces display them; do not add a creation prompt. No interactive Set-forage/Fix CTA or required confinement observation is allowed. Replace the erroneous DMI placeholders with real stored-feed/deficit bars. Preserve applicable Feed, Feed check, removal, movement and close actions. In mixed events, disable only the confinement location/window's forage UI; retain land validation and controls. **Hide only the feed-days estimate line when its required data is invalid**, per the validity rule above, not the forage information.
+5. **Calendar:** use `location.type`, not `locationType`, in classification and rendering. Confinement forage/recovery information remains greyed out and inactive, with no data request or pasture capacity derived from stale forage; land forecast/recovery behavior stays intact.
 
 **Affected UI sweep (line references on `1fe0a593`):**
 
@@ -61,9 +61,9 @@ Evidence on `1fe0a593`:
 - [ ] Deliveries, later deliveries after a check, removals, check re-anchors and existing same-instant ordering are exercised with an event-scoped fixture; unrelated event/farm inventory cannot change its estimate. Group changes and composite head/weight demand are included.
 - [ ] Missing weights, missing DM percentage/conversion inputs and zero demand hide the numeric estimate safely. No NaN/infinite/negative days or invented pasture intake, including the bracketed-check actual path.
 - [ ] Pure-pasture and mixed-window regressions retain land forage validation and feed allocation; a confinement window contributes no pasture even if stale forage/acreage are present.
-- [ ] Every listed screen has no confinement forage-type/height, pre/post-graze or recovery prompt. Applicable feed checks/removals and move/close actions remain usable; land controls are not suppressed globally.
-- [ ] Pure confinement replaces capacity/AUDs/ADA with Est. feed remaining: ~N days, labelled end-of-today daily-model estimate. Dashboard and Event Detail agree from the **same shared projection**, including depleted and hidden-input states.
-- [ ] Light/dark DMI bars render and have usable contrast; the placeholder-vs-bar distinction is tested, not dismissed as a tint issue.
+- [ ] On confinement dashboard and Event Detail cards, forage information is **present, greyed out and inactive**, never hidden/suppressed; there is no active forage-type/height, pre/post-graze or recovery prompt. Listed edit/sub-move/close/calendar surfaces likewise keep displayed confinement forage controls inactive rather than prompting for input. Creation remains free of forage questions. Applicable feed checks/removals and move/close actions work; land controls remain active.
+- [ ] Pure confinement replaces the active capacity/AUDs/ADA claim with Est. feed remaining: ~N days, labelled end-of-today daily-model estimate; forage information remains present but greyed out/inactive, without invented pasture values. Dashboard and Event Detail agree from the **same shared projection**, including depleted and hidden-input states.
+- [ ] Light/dark DMI bars render from fed feed with usable contrast; disabled forage information stays visibly greyed out/inactive in both schemes. The placeholder-vs-bar distinction is tested, not dismissed as a tint issue.
 - [ ] Phone retest verifies the Corral DMI, feed-days line and all applicable confinement entry/close/calendar surfaces after the new build stamp is confirmed.
 
 **CP-55/CP-56 spec impact:** None — existing `location.type`, feed/check/removal and group/window data, derived on read. No schema change, new persisted estimate or live data repair. Null confinement forage is valid and must not be backfilled.
@@ -90,38 +90,68 @@ Evidence on `1fe0a593`:
 
 ---
 
-### OI-0207 — PTT Type-instead picker flash; header picker needs Cancel
+### OI-0207 — One shared assistant entry lifecycle; neutral composer text and Cancel
 
-**Added:** 2026-11-10 | **Area:** v2-build / assistant / typed-entry / sheet lifecycle | **Priority:** P2 (wrong transient choices and no explicit way to cancel the header picker)
+**Added:** 2026-11-10 | **Area:** v2-build / assistant / shared entry / typed-entry / sheet lifecycle | **Priority:** P2 (inconsistent entry paths, picker flash and incomplete cancellation)
 
-**Status:** open — ready for build (2026-11-10). Picker flash reproduced on live build `b2026-11-10.1025-1fe0a59`; a full disappearance of the sheet was not reproduced and needs a phone retest. Do not claim that symptom is already explained or fixed.
+**Status:** open — **PENDING TIM'S PRODUCT CHOICE; do not build the entry UX yet** (2026-11-10). Recommend option B below. Both options are technically feasible; the runtime requires a valid seed intent, **not** a user-picked intent. This replaces the earlier split spec (direct Type-instead composer versus header-only picker) and overrides that item's earlier ready-for-Build label. Picker flash is reproduced; a full disappearance of the sheet is not and still needs a phone retest.
 
-**Bug.** `src/features/assistant/client/panel.js:105–118` always renders the intent picker, even when `options.intent` requests a direct typed start. `begin()` only clears it after the awaited session start (`:70–72`). PTT Yes therefore flashes choices while begin is pending. The header picker has no Cancel below its choices; backdrop close at `:113` only closes the sheet and does not share a session-cleanup lifecycle.
+**LOCKED (Tim):** floating PTT, the Assistant button and Type-instead fallback must take **one shared path and lifecycle**, not separate picker policies. Once typing is active the composer says **"Type here"**, never "Type instead". The mic-failure decision may still ask "Type instead?"; that is a question about input modality, not the composer placeholder or an intent picker.
 
-**Fix.**
+**Option A:** Every entry point shows the same intent/choice dialog with Cancel, then enters the same composer/session lifecycle.
 
-1. **PTT Yes / direct typed start:** skip the intent picker entirely. Open the composer directly with a stable **"Starting…"** state while begin is pending; enable Send and focus the text box when ready. Keep the same runtime, inferred data-entry route and review-before-save. No microphone, realtime connection or voice timer is started by typing.
-2. **Header Assistant:** keep the intent choices and add **Cancel below the choices**. An untouched picker does not create a session, reserve usage or make a start/discard RPC.
-3. **One idempotent close lifecycle** for Cancel, backdrop and Escape. Return focus to the invoker after close. Repeated close events must not repeat cleanup or act on a subsequently opened sheet.
-4. **Untouched picker:** close locally only, with no RPC. **Empty started or pending session:** discard using the existing discard-empty RPC; preserve its membership, restore-fence, nonempty-session and billing protections. **Populated session:** never delete it; close through the existing safe session lifecycle and retain its recoverable transcript/proposal/attempt.
-5. **Async guards:** one begin per open/start action; disable repeated start/Send while pending. Use an open-generation/abort guard so a late begin, notes load or transcript callback cannot reopen a closed sheet, replace a newer sheet, render/focus detached controls or orphan an empty session. A begin that finishes after close must still have its empty start cleaned up once. Close local transport/timer immediately where applicable, without waiting for cleanup RPC success.
-6. **Cleanup failure:** retain the truthful, dismissible status **"Voice closed, but the empty session couldn't be removed."** Do not claim deletion succeeded, hide the error during close, or delete billing/usage rows. The visible × dismisses the message only, not a live turn.
+**Option B (recommended; pending Tim):** Every entry point skips the intent picker and opens the same composer/session lifecycle with auto-routing and a Cancel in the sheet header; review-before-save confirms any proposed write.
 
-**Acceptance criteria:**
+**Read-only findings on main `1fe0a593`:**
 
-- [ ] With a gated/delayed begin, PTT Yes never shows intent choices, shows stable Starting… UI, then focuses the enabled composer exactly once. Offline/error paths do not leave a stuck or silently vanished sheet.
-- [ ] Header choices remain; Cancel appears below them. Untouched Cancel, backdrop and Escape each perform zero start/discard RPCs and restore invoker focus.
-- [ ] Empty-start close calls the existing discard-empty path once. Close before/during begin, late completion, double click, repeated Escape and immediate reopen are covered; no stale completion can affect the newer sheet.
-- [ ] Populated sessions, proposals, attempts and ordinary farm records are never deleted by Cancel/backdrop/Escape. Existing review-before-save remains intact.
-- [ ] Missing-RPC/cleanup failure leaves the exact truthful message visible and dismissible with ×. Local voice transport/timer are stopped and billing/usage history is untouched.
-- [ ] Direct and header typed paths work with no `mediaDevices`; consent, authorization, offline-note preservation and feature-flag gates stay intact.
-- [ ] Retest the flash and the separately reported full-disappearance symptom on the phone; record whether disappearance reproduces rather than treating it as a confirmed cause.
+| Entry point | Current behavior / evidence |
+|---|---|
+| Floating PTT mic (desktop and compact/mobile global control) | `src/features/assistant/client/push-to-talk.js:131–147` starts with internal `data-entry` intent and calls `session.talk()` without a picker or the Assistant composer sheet. The offline branch (`:143–144`) records a note, not an online AI session. `client/wiring.js:46–50` mounts this control alongside the header Assistant. |
+| Header Assistant button | `src/ui/header.js:664–674` lazy-loads the control; `client/panel.js:22–28` calls `openAssistant` without an intent. `panel.js:105–110` renders choices; clicking a choice begins that intent. Until a choice is made there is no composer input or session begin from this path. |
+| Type-instead Yes after PTT failure | `client/push-to-talk.js:148–160` tears down the failed voice path, asks the modality question, then opens `openAssistant` with `data-entry` and focus requested. `panel.js:105–118` nevertheless renders the same choices before its direct begin finishes; `:70–72` clears them only after awaited begin, causing the reproduced flash. |
+| Use a saved offline note from the Assistant sheet | `client/panel.js:86–103` calls begin with the note's intent or the historical `feedback` fallback (`:95`), passing its reviewed transcript; it does not require a new picker choice. The sheet's choices can remain until begin finishes. |
+| Use a saved offline note from the PTT voice log | `client/push-to-talk.js:100–116` stops the current voice session, creates the standard seeded session and begins with the reviewed note text, without an intent picker. Notes are recorded without an intent (`:87–88`); their content routes when used online. `client/voice-log-panel.js:99–100` supplies the Use action. |
 
-**CP-55/CP-56 spec impact:** None intended — existing lifecycle/RPC and persisted artifacts only. No new table, field or shared-contract change is authorized.
+These are all production `openAssistant` call sites and direct assistant-session starts found in the entry wiring. Ordinary Get Help / Feedback buttons still open the existing feedback UI (`src/ui/header.js:139–140`), not the assistant runtime; do not silently convert those product surfaces under this item.
 
-**Related:** OI-0196 (typed peer and empty-start cleanup), OI-0200 (dismiss/teardown), OI-0204 (generation guards), OI-0208 (later running-chat design).
+**Placeholder today:** `src/features/assistant/client/panel.js:72` sets `placeholder: 'Type instead…'`. Replace that composer placeholder with **"Type here"** for every typed entry/resume/fallback path, not just PTT Yes.
 
-**Origin:** 2026-11-10 Tim live testing; two read-only reviewers agreed on the picker flash and source path. The full-disappearance report remains unconfirmed.
+**Is the picker required? No; a valid internal seed intent is required.**
+
+- `client/conversation.js:35–43` persists the conversation and sends `start` with its intent. The Edge entry `supabase/functions/gtho-assistant/index.js:4–18` uses the same composed/runtime backend; it adds no picker-choice requirement. `vendor/conversation-runtime/src/backend.js:119–129` forwards `body.intent`; `runtime.js:31–36` requires an allowed value. `shared.js:12–17` lists feedback, data-entry, data-questions and how-to. Passing no intent, null or a new `auto` intent is rejected as `invalid-session`; a read-only in-memory reproduction confirmed this. An untouched current header picker has no input, so simply deleting its buttons without supplying a seed is **not** a working implementation.
+- A UI with **no user-picked intent** can supply the existing `data-entry` bootstrap seed, as PTT already does. `client/session.js:290–293` sends typed input through the same turn path and begins lazily when needed. `intent-routing.js:8–17` defines the model-suggested `route-intent` tool for writes, farm questions, feedback and how-to. `server/host.js:130–145` exposes it in **every** intent and validates the requested enum; `server/compose.js:141–144` returns the route suggestion. `client/session.js:64–75` switches via the trusted runtime and replays once, preserving a pending draft through `client/conversation.js:57–64`. This is content routing, not a guarantee that a model will always classify correctly.
+- Existing typed reroute coverage is `tests/unit/assistant/client/session-routing.test.js:26–75`: data-entry bootstrap to farm questions, how-to and feedback, with draft preservation and no confirm on switch. No chooser selection is needed for these flows. Record-name matching remains **exact after deterministic normalization** (`entry-targets.js:21–23,67–72`; `spoken-numbers.js:72–77`); that is separate from semantic intent routing and must not be replaced with fuzzy matching.
+- Apply needs the current reviewed proposal/revision and confirmation, not evidence of a picker click (`server/apply.js:23–32`). Farm review records explicit confirmation before applying (`client/conversation.js:175–197`); feedback likewise retains its review/filing gate (`:147–163`). Auto-detect does **not** authorize a save, remove ambiguity/missing-field follow-ups or confirm the subject on the user's behalf. The normal populated review UI is the confirmation for a write; questions/how-to need no extra universal subject-confirm dialog.
+
+**Product decision / recommendation.** Choosing A versus B is **Tim's product call**, not forced by a broken option. Recommend B because routing already supports a known seed without requiring users to categorize their request, and the existing review-before-save remains authoritative. The missing/null-seed failure is an implementation constraint, not a reason to force a chooser. No code or shared-contract changes are authorized by this pending docs revision.
+
+**Recommended shared path (option B, only after Tim approves):**
+
+1. **One entry controller / lifecycle:** floating mic, header Assistant, PTT Type-instead Yes and both offline-note Use paths call the same entry path. All skip the intent picker and show the same sheet/composer with header **Cancel**. Only input modality/origin differs: the floating mic requests voice capture through that controller; the Assistant button and fallback request typing, never a second voice/intent-specific launch flow. Existing capture provenance and offline-note durability rules remain.
+2. **Lazy untouched state:** merely opening the composer without submitting text or requesting voice does not start a conversation, reserve usage, request a mic or call start/discard RPCs. An explicit PTT/voice capture request counts as starting interaction, not an untouched opening. First typed Send, an explicit voice action or Use of reviewed offline-note text supplies the existing internal `data-entry` seed for a fresh session; do not omit it, inherit the panel's historical note-only feedback default, or invent an `auto` enum. An existing live conversation keeps its current valid intent and routes the next turn normally. Maintain one session per open interaction and preserve the runtime's bounded reroute/draft behavior.
+3. **Stable startup:** use **"Starting…"** while begin is pending, prevent duplicate begin/Send, then focus/enable the typed composer when ready. Typed input says **"Type here"** everywhere. Mic-failure Yes stays on the same shared entry lifecycle in typed mode with no live voice timer; if its previous empty voice start was discarded, create at most one replacement start. Never flash a picker for just one launcher.
+4. **One idempotent close lifecycle** for header Cancel, backdrop and Escape, returning focus to the invoker. Untouched means local close only and **no RPC**. Empty started/pending means the existing discard-empty RPC with membership, restore-fence and nonempty-session protections. Populated conversations, proposals and attempts are **never deleted** by closing; preserve their recoverable state. Billing/usage rows are never deleted.
+5. **Generation/abort guards:** close immediately stops local voice transport/timer where applicable. A late begin/auth/connect, notes load or transcript callback cannot reopen a closed sheet, focus detached controls or overwrite a newer session. A begin finishing after close still cleans up its empty start once; repeated close events do not duplicate cleanup or affect a later open. Keep the mic-before-mint, PCM buffering and queued turn-end protections.
+6. **Truthful failure:** keep the dismissible status **"Voice closed, but the empty session couldn't be removed."** visible when cleanup fails, even after closing or choosing No. Never claim deletion succeeded; × dismisses only the message, not a live turn. Preserve consent, auth/allowlist, offline behavior, feature-flag and review-before-save guards.
+
+If Tim selects A, replace the B-specific pre-entry UI consistently for **all** entry points with the same chooser and Cancel; keep the same shared controller, neutral typing placeholder, seed validation, review gate and close/async protections. Do not implement a mixed A/B policy.
+
+**Acceptance criteria (after the product choice is approved):**
+
+- [ ] The floating mic, Assistant button, fallback Yes and both note-Use paths use one lifecycle and the same approved picker policy. For B, all skip the picker; for A, all show it. Entry-point-specific choices/flash are not allowed.
+- [ ] Under B, untouched composer close makes zero start/discard RPCs; typed Send/explicit voice starts once with a valid seed. Missing/null/auto seeds are rejected, while unpicked-but-seeded typed and spoken write/question/feedback/how-to requests route correctly. Preserve pending review drafts and the one-reroute bound.
+- [ ] The typed composer always says Type here, including header, fallback and resume; Type instead? remains only the modality question. A delayed begin shows stable Starting… and cannot erase entered text or cause a detached focus.
+- [ ] Cancel in the shared header, backdrop and Escape share idempotent cleanup and restore invoker focus. Empty/pending close invokes discard once; populated state is never deleted. Close-before/during-begin, auth/connect, double close, immediate reopen and late callbacks are covered.
+- [ ] Missing-RPC/refused cleanup leaves the exact truthful message visible and ×-dismissible, with local transport/timer stopped and billing/usage history retained.
+- [ ] Auto-routing or switching never confirms a write; farm and feedback proposals still require their existing populated-UI review and explicit confirmation. Unresolved names/fields still ask useful questions under the exact-normalization rule.
+- [ ] Typing never calls getUserMedia or starts a voice timer. Shared voice startup retains the current mic-first mint, buffer/early-end and generation guards; consent/offline-note preservation/feature gates remain intact.
+- [ ] Phone retest covers every launcher, picker flash and the separately reported full-disappearance symptom. Record whether disappearance reproduces; it is not yet a confirmed cause or fix.
+
+**CP-55/CP-56 spec impact:** None intended — existing runtime seed/routing, lifecycle/RPC and persisted artifacts only. No new enum, table, field or shared-contract change is authorized. Escalate any needed shared-contract change to Chief of Staff.
+
+**Related:** OI-0196 (typed peer and empty-start cleanup), OI-0200 (dismiss/teardown), OI-0204 (generation guards), OI-0208 (separate later running-chat design, unchanged by this item).
+
+**Origin:** 2026-11-10 live picker investigation, followed by Tim's request for one shared path and neutral composer wording. Read-only source review at `1fe0a593`; product choice pending Tim, not approved by this docs commit.
 
 ---
 

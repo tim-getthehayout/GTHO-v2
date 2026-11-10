@@ -96,7 +96,9 @@ export function openFeedCheckSheet(evt, operationId) {
     const groupLoc = group.locationId ? getById('locations', group.locationId) : null;
     const groupLocName = groupLoc?.name || '?';
     const feedName = (ft ? `${ft.name} (${unitLabel(batch?.unit)})` : (batch?.name || '?') + ` (${unitLabel(batch?.unit)})`) + ` → ${groupLocName}`;
-    const startedUnits = group.totalDelivered;
+    // A verified prior reading may exceed the surviving delivery history.
+    // Never clamp the shared strict-after anchor plus later deliveries away.
+    const startedUnits = Math.max(group.totalDelivered, liveRemaining[key] ?? 0);
     const lastItem = lastCheckItems.find(i => i.batchId === group.batchId && i.locationId === group.locationId);
     const lastCheckUnits = lastItem ? lastItem.remainingQuantity : null;
     const remaining = liveRemaining[key] ?? startedUnits;

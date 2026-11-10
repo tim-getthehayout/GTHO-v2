@@ -52,6 +52,9 @@ export function validate(record) {
   if (!record.unit || typeof record.unit !== 'string' || record.unit.trim() === '') {
     errors.push('unit is required');
   }
+  for (const key of ['dmPct', 'nPct', 'pPct', 'kPct', 'defaultWeightKg']) {
+    if (record[key] != null && (typeof record[key] !== 'number' || !Number.isFinite(record[key]) || record[key] < 0 || (key !== 'defaultWeightKg' && record[key] > 100))) errors.push(`${key} must be a finite valid number`);
+  }
   return { valid: errors.length === 0, errors };
 }
 

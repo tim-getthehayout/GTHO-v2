@@ -9,6 +9,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { formatShortDate } from '../../utils/date-format.js';
+import { optionalFormNumber } from '../../utils/form-values.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import * as LocationEntity from '../../entities/location.js';
 import * as ForageTypeEntity from '../../entities/forage-type.js'; // eslint-disable-line no-unused-vars
@@ -1144,10 +1145,10 @@ export function openFeedTypesSheet(operationId) {
     ]));
 
     inputs.cutting = el('select', {}, [el('option', { value: '' }, ['None']), ...[1, 2, 3, 4].map(n => el('option', { value: String(n), selected: editingFt?.cuttingNumber === n }, [`${n} cut`]))]);
-    inputs.defaultWeight = el('input', { type: 'number', placeholder: '850', min: '0', step: '1', value: editingFt?.defaultWeightKg ? Math.round(convert(editingFt.defaultWeightKg, 'weight', 'toImperial')) : '' });
+    inputs.defaultWeight = el('input', { type: 'number', placeholder: '850', min: '0', step: 'any', value: editingFt?.defaultWeightKg != null ? (unitSys === 'imperial' ? convert(editingFt.defaultWeightKg, 'weight', 'toImperial') : editingFt.defaultWeightKg) : '' });
     formEl.appendChild(el('div', { className: 'two' }, [
       el('div', { className: 'field' }, [el('label', {}, ['Cutting #']), inputs.cutting]),
-      el('div', { className: 'field' }, [el('label', {}, ['Default weight (lbs)']), inputs.defaultWeight]),
+      el('div', { className: 'field' }, [el('label', {}, [`${t('feed.defaultWeight')} (${unitLabel('weight', unitSys)})`]), inputs.defaultWeight]),
     ]));
 
     const statusEl = el('div', { className: 'auth-error' });
@@ -1158,15 +1159,15 @@ export function openFeedTypesSheet(operationId) {
         clear(statusEl);
         const name = inputs.name.value.trim();
         if (!name) { statusEl.appendChild(el('span', {}, ['Name is required'])); return; }
-        let defaultWeightKg = parseFloat(inputs.defaultWeight.value) || null;
+        try {
+        let defaultWeightKg = optionalFormNumber(inputs.defaultWeight.value);
         if (defaultWeightKg && unitSys === 'imperial') defaultWeightKg = convert(defaultWeightKg, 'weight', 'toMetric');
         const data = {
           operationId, name, unit: inputs.unit.value, category: inputs.cat.value,
-          dmPct: parseFloat(inputs.dm.value) || null, cuttingNumber: parseInt(inputs.cutting.value, 10) || null,
+          dmPct: optionalFormNumber(inputs.dm.value), cuttingNumber: parseInt(inputs.cutting.value, 10) || null,
           defaultWeightKg, forageTypeId: inputs.forageTypeId.value || null,
           harvestActive: true,
         };
-        try {
           if (isEdit) update('feedTypes', editingFt.id, data, FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
           else { const rec = FeedTypeEntity.create(data); add('feedTypes', rec, FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types'); }
           editingFt = null; renderFtList(); renderFtForm();

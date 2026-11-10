@@ -1,8 +1,9 @@
 /**
- * @file Empty-start cleanup must DELETE checkpoint/lock/voice attempt (and the
- * empty conversation), keep every billing/usage row, and refuse when any
- * transcript turn already exists. Asserts the persisted table state — not a
- * mocked cancel().
+ * @file Empty-start cleanup must call the atomic assistant_discard_empty_start
+ * RPC (not independent REST deletes). Migration 041 must delete testing consent
+ * in the same transaction (NO ACTION FK would otherwise block conversation
+ * DELETE), lock the conversation row, admit restore-fence, keep billing/usage,
+ * and refuse when any transcript turn already exists.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -12,70 +13,41 @@ import { discardEmptyStartRows } from '../../../../src/features/assistant/server
 import { RuntimeError } from '../../../../src/features/assistant/shared.js';
 
 const CONV = '00000000-0000-4000-8000-0000000000c1';
-const OTHER = '00000000-0000-4000-8000-0000000000c2';
-const ATTEMPT = '00000000-0000-4000-8000-0000000000a1';
-const LOCK = '00000000-0000-4000-8000-0000000000l1';
-const CHECKPOINT = '00000000-0000-4000-8000-0000000000k1';
-const RESERVATION = '00000000-0000-4000-8000-0000000000r1';
-const USAGE = '00000000-0000-4000-8000-0000000000u1';
 
-function seed({ withTurn = false } = {}) {
-  return fakeSupabase({
-    tables: {
-      assistant_conversations: [
-        { id: CONV, operation_id: OP },
-        { id: OTHER, operation_id: OP },
-      ],
-      assistant_transcript_turns: withTurn
-        ? [{ id: 't1', operation_id: OP, conversation_id: CONV }]
-        : [],
-      voice_entry_attempts: [
-        { id: ATTEMPT, operation_id: OP, conversation_id: CONV, status: 'unfinished' },
-        { id: 'keep-attempt', operation_id: OP, conversation_id: OTHER, status: 'unfinished' },
-      ],
-      assistant_session_checkpoints: [
-        { id: CHECKPOINT, operation_id: OP, conversation_id: CONV, lifecycle_phase: 'cancelled' },
-        { id: 'keep-cp', operation_id: OP, conversation_id: OTHER, lifecycle_phase: 'converse' },
-      ],
-      assistant_session_locks: [
-        { id: LOCK, operation_id: OP, conversation_ref: CONV },
-        { id: 'keep-lock', operation_id: OP, conversation_ref: OTHER },
-      ],
-      assistant_billing_reservations: [
-        { id: RESERVATION, operation_id: OP, lease: RESERVATION },
-      ],
-      assistant_billing_usage: [
-        { id: USAGE, operation_id: OP, lease: RESERVATION, audio_minutes: 0 },
-      ],
-    },
-  });
-}
-
-describe('discardEmptyStartRows persisted result', () => {
-  it('deletes checkpoint, lock, voice attempt, and empty conversation; keeps billing/usage and other conversations', async () => {
-    const client = seed();
+describe('discardEmptyStartRows routes through atomic RPC', () => {
+  it('calls assistant_discard_empty_start and returns discarded', async () => {
+    const client = fakeSupabase({
+      rpc: async (name, args) => {
+        expect(name).toBe('assistant_discard_empty_start');
+        expect(args).toEqual({ p_operation: OP, p_conversation: CONV });
+        return { data: 'discarded', error: null };
+      },
+    });
     await expect(discardEmptyStartRows(client, { operationId: OP, conversationRef: CONV }))
       .resolves.toEqual({ outcome: 'discarded' });
-
-    expect(client.tables.assistant_session_checkpoints.map(r => r.id)).toEqual(['keep-cp']);
-    expect(client.tables.assistant_session_locks.map(r => r.id)).toEqual(['keep-lock']);
-    expect(client.tables.voice_entry_attempts.map(r => r.id)).toEqual(['keep-attempt']);
-    expect(client.tables.assistant_conversations.map(r => r.id)).toEqual([OTHER]);
-    // Billing / usage ledger untouched.
-    expect(client.tables.assistant_billing_reservations).toHaveLength(1);
-    expect(client.tables.assistant_billing_usage).toHaveLength(1);
-    expect(client.tables.assistant_billing_usage[0].id).toBe(USAGE);
+    expect(client.calls.rpc).toEqual([
+      { name: 'assistant_discard_empty_start', args: { p_operation: OP, p_conversation: CONV } },
+    ]);
+    // Must not fall back to table deletes.
+    expect(client.calls.deletes || []).toEqual([]);
   });
 
-  it('refuses when any transcript turn exists and leaves every row in place', async () => {
-    const client = seed({ withTurn: true });
+  it('maps refused-turns-exist from the RPC and does not claim success', async () => {
+    const client = fakeSupabase({
+      rpc: async () => ({ data: null, error: { message: 'discard-empty-refused-turns-exist' } }),
+    });
     await expect(discardEmptyStartRows(client, { operationId: OP, conversationRef: CONV }))
       .rejects.toMatchObject({ code: 'discard-empty-refused-turns-exist' });
-    expect(client.tables.assistant_session_checkpoints).toHaveLength(2);
-    expect(client.tables.assistant_session_locks).toHaveLength(2);
-    expect(client.tables.voice_entry_attempts).toHaveLength(2);
-    expect(client.tables.assistant_conversations).toHaveLength(2);
-    expect(client.tables.assistant_billing_usage).toHaveLength(1);
+  });
+
+  it('surfaces unexpected RPC errors as RuntimeError', async () => {
+    const client = fakeSupabase({
+      rpc: async () => ({ data: null, error: { message: 'boom-from-rpc' } }),
+    });
+    await expect(discardEmptyStartRows(client, { operationId: OP, conversationRef: CONV }))
+      .rejects.toBeInstanceOf(RuntimeError);
+    await expect(discardEmptyStartRows(client, { operationId: OP, conversationRef: CONV }))
+      .rejects.toMatchObject({ code: 'boom-from-rpc' });
   });
 });
 
@@ -89,16 +61,41 @@ describe('migration 041 assistant_discard_empty_start', () => {
     expect(sql).toMatch(/accepted_at IS NOT NULL/);
   });
 
-  it('deletes checkpoint, lock, and voice_entry_attempts; never names billing tables in DELETE', () => {
+  it('admits restore-fence and locks the conversation row before deletes', () => {
+    expect(sql).toMatch(/assistant_assert_restore_unfenced\(p_operation\)/);
+    expect(sql).toMatch(/FOR UPDATE/);
+  });
+
+  it('deletes testing consent before conversation (NO ACTION FK) plus attempt/checkpoint/lock; never billing', () => {
+    expect(sql).toMatch(/DELETE FROM public\.assistant_testing_consents/);
     expect(sql).toMatch(/DELETE FROM public\.voice_entry_attempts/);
     expect(sql).toMatch(/DELETE FROM public\.assistant_session_checkpoints/);
     expect(sql).toMatch(/DELETE FROM public\.assistant_session_locks/);
     expect(sql).toMatch(/DELETE FROM public\.assistant_conversations/);
     expect(sql).not.toMatch(/DELETE FROM public\.assistant_billing_/);
     expect(sql).toMatch(/discard-empty-refused-turns-exist/);
+    // Consent DELETE must appear before conversation DELETE (FK order).
+    const consentAt = sql.indexOf('DELETE FROM public.assistant_testing_consents');
+    const convAt = sql.indexOf('DELETE FROM public.assistant_conversations');
+    expect(consentAt).toBeGreaterThan(-1);
+    expect(convAt).toBeGreaterThan(consentAt);
   });
 
-  it('grants execute to authenticated and service_role only', () => {
+  it('documents the testing_consents NO ACTION FK that blocks conversation DELETE without consent cleanup', () => {
+    const mig040 = readFileSync(resolve(process.cwd(), 'supabase/migrations/040_assistant_host_artifacts.sql'), 'utf8');
+    // 040 wires assistant_testing_consents → assistant_conversations with default NO ACTION.
+    expect(mig040).toMatch(
+      /ALTER TABLE assistant_testing_consents ADD FOREIGN KEY \(operation_id, conversation_id\) REFERENCES assistant_conversations\(operation_id, id\)/,
+    );
+    // No ON DELETE CASCADE on that FK — deleting the conversation while a consent
+    // row remains must fail. 041 therefore deletes consent in the same transaction.
+    const fkBlock = mig040.match(
+      /ALTER TABLE assistant_testing_consents ADD FOREIGN KEY \(operation_id, conversation_id\) REFERENCES assistant_conversations\(operation_id, id\)[^;]*/,
+    )?.[0] ?? '';
+    expect(fkBlock).not.toMatch(/ON DELETE\s+CASCADE/i);
+  });
+
+  it('grants execute to authenticated and service_role (edge service-role client) only', () => {
     expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) TO authenticated/);
     expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) TO service_role/);
     expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.assistant_discard_empty_start\(uuid, uuid\) FROM PUBLIC, anon/);

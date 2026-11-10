@@ -101,17 +101,21 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     await player?.close();
     transport = null; player = null; driver = null;
   }
-  /** Drop an empty conversation started in parallel with a mic that then failed. */
+  /** Drop an empty conversation started in parallel with a mic that then failed.
+   * Surfaces RPC/edge failure via say; never claims success by nulling on error. */
   async function discardEmptyStart() {
     if (!conversation) return;
-    // Design lock: delete empty conversation artifacts (checkpoint/lock/attempt),
+    // Design lock: delete empty conversation artifacts (consent/checkpoint/lock/attempt),
     // not vendor cancel()'s cancelled checkpoint. Billing/usage rows stay.
     try {
       if (typeof conversation.discardEmpty === 'function') await conversation.discardEmpty();
       else await conversation.cancel();
-    } catch { /* start may not have finished */ }
-    conversation = null;
-    attempts = null;
+      conversation = null;
+      attempts = null;
+    } catch (error) {
+      const message = error?.message || error?.code || 'Could not discard empty start';
+      say(String(message));
+    }
   }
   let micFailure = null;
   /** After a successful connect, unexpected transport drop must tear down like stop(). */

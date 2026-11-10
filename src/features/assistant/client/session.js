@@ -9,6 +9,7 @@ import { recordNote } from './offline-notes.js';
 import { createTestingRecorder, uploadTestingAudio } from './testing-audio.js';
 import { resolveTestingConsent } from './consent.js';
 import { createAttemptTracker } from './attempts.js';
+import { showDismissibleBanner } from '../../../ui/toast.js';
 import { mountFeedbackReview } from '../feedback-review.js';
 
 /** True only with durable local-save evidence: the local receipt from the
@@ -129,6 +130,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       }
       discardEmptyFailed = true;
       say(DISCARD_EMPTY_FAILED_MESSAGE);
+      showDismissibleBanner(DISCARD_EMPTY_FAILED_MESSAGE);
     }
   }
   let micFailure = null;

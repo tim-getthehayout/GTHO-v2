@@ -169,6 +169,29 @@ describe('shared assistant entry (no picker, Type here, Cancel)', () => {
     expect(d.commands.indexOf('start')).toBeLessThan(d.commands.indexOf('discard-empty'));
   });
 
+  it('a late discard failure after close still shows the dismissible banner', async () => {
+    const d = deps();
+    let releaseStart;
+    d.api.command = vi.fn(async (ref, command) => {
+      d.commands.push(command);
+      if (command === 'start') await new Promise(resolve => { releaseStart = resolve; });
+      if (command === 'discard-empty') throw new Error('Could not find the function public.assistant_discard_empty_start');
+      return { session: { intent: 'data-entry', phase: 'converse', transcript: [], capture: {}, conversationRef: ref } };
+    });
+    const entry = openAssistant(d, {});
+    const starting = entry.begin('data-entry');
+    await vi.waitFor(() => expect(typeof releaseStart).toBe('function'));
+    const closing = entry.close();
+    await expect(closing).resolves.toBeUndefined();
+    expect(document.querySelector('[data-testid="assistant-cleanup-failure"]')).toBeNull();
+    releaseStart();
+    await expect(starting).resolves.toBeDefined();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="assistant-cleanup-failure"]')).toBeTruthy());
+    const banner = document.querySelector('[data-testid="assistant-cleanup-failure"]');
+    expect(banner.querySelector('[data-testid="assistant-cleanup-failure-text"]').textContent).toBe(DISCARD_EMPTY_FAILED_MESSAGE);
+    expect(document.getElementById('assistant-sheet-wrap')?.classList.contains('open')).toBeFalsy();
+  });
+
   it('a later open is not closed by an older handle', async () => {
     const first = openAssistant(deps(), {});
     const second = openAssistant(deps(), {});

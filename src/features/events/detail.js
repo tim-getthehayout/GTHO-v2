@@ -150,6 +150,7 @@ export function openEventDetailSheet(event, operationId, farmId) {
   }));
   unsubs.push(subscribe('eventFeedEntries', () => {
     renderFeedEntries(ctx);
+    renderDmiChart(ctx);
     renderDmiNpk(ctx);
     renderSummary(ctx);
   }));
@@ -899,7 +900,8 @@ function renderFeedEntries(ctx) {
 
   const isActive = !event.dateOut;
   const feedEntries = getAll('eventFeedEntries')
-    .filter(fe => fe.eventId === ctx.eventId && fe.entryType !== 'removal');
+    .filter(fe => fe.eventId === ctx.eventId && fe.entryType !== 'removal')
+    .sort((a, b) => `${a.date}T${a.time || '00:00'}`.localeCompare(`${b.date}T${b.time || '00:00'}`));
   const batches = getAll('batches');
   const batchMap = new Map(batches.map(b => [b.id, b]));
 
@@ -978,7 +980,7 @@ function renderFeedEntries(ctx) {
         style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '7px 0', borderBottom: '0.5px solid var(--border)' },
       }, [
         el('div', { style: { flex: '1', minWidth: '0' } }, [
-          el('div', { style: { fontSize: '13px', fontWeight: '500' } }, [formatShortDate(fe.date) || '\u2014']),
+          el('div', { style: { fontSize: '13px', fontWeight: '500' } }, [`${formatShortDate(fe.date) || '\u2014'} ${fe.time || '00:00'}`]),
           el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [desc || '\u2014']),
         ]),
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: '0' } }, rightChildren),

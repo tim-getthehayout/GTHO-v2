@@ -24,6 +24,7 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import { balancesFor, availableDeliveryStock, exceedsAvailableStock, deductDelivery, applyRemainingDelta } from '../feed/batch-balances.js';
 import { t } from '../../i18n/i18n.js';
+import { explicitObservationTime, validateObservationTime } from '../../ui/explicit-observation-time.js';
 import { isCalendarDate } from '../../utils/form-values.js';
 
 // ─── Module-level form state ────────────────────────────────────────────────
@@ -31,7 +32,7 @@ import { isCalendarDate } from '../../utils/form-values.js';
 let state = {
   mode: null, // null | 'add' | 'edit'
   editingEntryId: null,
-  date: null,
+  date: null, time: null, explicitTimeDate: null,
   lines: [], // [{ batchId, qty }]
   error: null,
 };
@@ -46,7 +47,7 @@ export function isFormOpen() {
 
 /** Reset to a closed form. Exported for tests. */
 export function closeForm() {
-  state = { mode: null, editingEntryId: null, date: null, lines: [], error: null };
+  state = { mode: null, editingEntryId: null, date: null, time: null, explicitTimeDate: null, lines: [], error: null };
 }
 
 /**
@@ -64,6 +65,7 @@ export function openAddMode(event) {
     mode: 'add',
     editingEntryId: null,
     date: clampDateToEvent(getLocalTodayStr(), event),
+    time: new Date().toTimeString().slice(0, 5), explicitTimeDate: null,
     lines: [],
     error: null,
   };
@@ -73,7 +75,7 @@ export function openEditMode(entry) {
   state = {
     mode: 'edit',
     editingEntryId: entry.id,
-    date: entry.date,
+    date: entry.date, time: entry.time || null, explicitTimeDate: null,
     lines: [{ batchId: entry.batchId, qty: entry.quantity, ...(entry.sourceLocationId ? { sourceLocationId: entry.sourceLocationId } : {}) }],
     error: null,
   };
@@ -175,10 +177,10 @@ function preflight(entries, previous = null) {
 }
 const atomic = (operationId, work) => runDurableWrite(JSON.stringify([operationId, 'manual-feed', crypto.randomUUID(), 1]), work);
 
-export function commitAdd({ operationId, event, locationId, date, lines }) {
+export function commitAdd({ operationId, event, locationId, date, time = null, lines }) {
   if (lines.some(line => !Number.isFinite(Number(line.qty)) || Number(line.qty) < 0)) throw new Error(t('manualEntry.invalidNumber'));
   const entries = lines.filter(line => Number(line.qty) > 0).map(line => FeedEntryEntity.create({
-    operationId, eventId: event.id, locationId, date,
+    operationId, eventId: event.id, locationId, date, time,
     batchId: line.batchId, sourceLocationId: line.sourceLocationId || null, quantity: Number(line.qty),
   }));
   preflight(entries);
@@ -193,8 +195,8 @@ export function commitAdd({ operationId, event, locationId, date, lines }) {
   return entries;
 }
 
-export function commitEdit({ entry, newDate, newQty, newBatchId = entry.batchId, newSourceLocationId = entry.sourceLocationId }) {
-  const next = { ...entry, date: newDate, quantity: Number(newQty), batchId: newBatchId, sourceLocationId: newSourceLocationId || null };
+export function commitEdit({ entry, newDate, newTime = entry.time, newQty, newBatchId = entry.batchId, newSourceLocationId = entry.sourceLocationId }) {
+  const next = { ...entry, date: newDate, time: newTime || null, quantity: Number(newQty), batchId: newBatchId, sourceLocationId: newSourceLocationId || null };
   validRecord(next);
   // A date-only change to legacy data does not invent a stock location.
   const inventoryChanged = next.quantity !== entry.quantity || next.batchId !== entry.batchId || next.sourceLocationId !== (entry.sourceLocationId || null);
@@ -240,12 +242,16 @@ export function renderInlineFeedForm(container, { event, operationId, onAfterSav
   const dateInput = el('input', {
     type: 'date',
     value: state.date || getLocalTodayStr(),
-    onChange: (e) => { state.date = e.target.value; },
+
   });
   card.appendChild(el('div', { className: 'field' }, [
     el('label', {}, ['Date']),
     dateInput,
   ]));
+
+  const timeInput = el('input', { type: 'time', value: state.time || '', 'aria-label': t('manualEntry.time') });
+  card.appendChild(el('div', { className: 'field' }, [el('label', {}, [t('manualEntry.time')]), timeInput]));
+  card.appendChild(explicitObservationTime(state, dateInput, timeInput));
 
   // Batch selector — locked in edit mode (single fixed line)
   card.appendChild(buildBatchSelector(activeBatches, isEdit, () => renderInlineFeedForm(container, { event, operationId, onAfterSave, onAfterCancel })));
@@ -377,6 +383,7 @@ function handleSave(event, operationId, container, { onAfterSave }) {
   // Read current date input live in case it wasn't onChange-fired
   const dateEl = container.querySelector('input[type="date"]');
   if (dateEl) state.date = dateEl.value;
+  state.time = container.querySelector('input[type="time"]')?.value || null;
 
   const verdict = validateFeedEntryForm({
     event,
@@ -395,6 +402,7 @@ function handleSave(event, operationId, container, { onAfterSave }) {
   }
 
   try {
+    validateObservationTime(state);
     if (state.mode === 'edit') {
       const existing = getById('eventFeedEntries', state.editingEntryId);
       if (!existing) {
@@ -404,7 +412,7 @@ function handleSave(event, operationId, container, { onAfterSave }) {
       }
       commitEdit({
         entry: existing,
-        newDate: state.date,
+        newDate: state.date, newTime: state.time,
         newQty: state.lines[0].qty,
         newBatchId: state.lines[0].batchId,
         newSourceLocationId: state.lines[0].sourceLocationId || null,
@@ -422,7 +430,7 @@ function handleSave(event, operationId, container, { onAfterSave }) {
         operationId,
         event,
         locationId,
-        date: state.date,
+        date: state.date, time: state.time,
         lines: state.lines,
         batches,
       });

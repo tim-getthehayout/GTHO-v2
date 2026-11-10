@@ -14,7 +14,7 @@ it.each(['metric', 'imperial'])('actual %s Add, Edit and unchanged Save preserve
   const expected = units === 'metric' ? 100.25 : convert(100.25, 'weight', 'toMetric');
   let row = getAll('feedTypes')[0]; expect(row.defaultWeightKg).toBeCloseTo(expected, 10);
   expect(queued('feed_types').at(-1).default_weight_kg).toBeCloseTo(expected, 10);
-  expect(root().textContent).toContain(units === 'metric' ? '(kg)' : '(lb)');
+  expect(root().textContent).toContain(units === 'metric' ? '(kg)' : '(lbs)');
   button(root(), 'Edit').click(); button(root(), 'Save changes').click();
   expect(getById('feedTypes', row.id).defaultWeightKg).toBeCloseTo(expected, 10);
   button(root(), 'Edit').click(); weight('20.5'); button(root(), 'Save changes').click();

@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | test(feeding): assert the existing imperial lbs label in the real feed-type editor regression. | `tests/unit/manual-feed-type.test.js` |
 | 2026-11-10 | fix(feeding): align location feed-type weight values, labels and conversion with operation units; preserve zero and unchanged precision, reject invalid numbers. Extend manual inventory form regressions for rejected edits and durable rollback. | `src/features/locations/index.js`, `src/entities/feed-type.js`, `tests/unit/manual-{feed-actions,feed-type}.test.js` |
 | 2026-11-10 | fix(feeding): prevalidate and atomically save inline feed additions, edits, source/batch changes and deletions through located-stock helpers. Preserve original source reversals, reject overdraw and ambiguous legacy/historically divergent stock without repair, and test real controls, persisted holdings and mapped queue records. | `src/features/events/{feed-entry-inline-form,detail}.js`, `src/entities/event-feed-entry.js`, `src/utils/form-values.js`, `src/i18n/locales/en.json`, `tests/unit/{manual-feed-actions,feed-entry-inline-form}.test.js`, `tests/unit/manual-entry-helpers.js` |
 | 2026-11-10 | fix(feeding): sum unplaced delivery lines against one remaining pool even when they name different sources, matching how deduction draws stock, and write nothing if that pool is short. | `src/features/feed/{delivery,batch-balances}.js`, `tests/unit/features/feed/delivery-stock-preflight.test.js` |

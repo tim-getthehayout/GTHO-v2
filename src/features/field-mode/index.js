@@ -179,15 +179,17 @@ function handleSurveySingle(opId) {
   if (!panel) return;
   clear(panel);
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '10px' } }, ['Select paddock']));
+  const unitSys = getUnitSystem();
+  const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
   for (const loc of locs) {
     const locHa = loc.areaHectares ?? loc.areaHa;
-    const areaVal = locHa ? convert(locHa, 'area', 'toImperial').toFixed(1) : '';
+    const areaVal = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(1) : '';
     panel.appendChild(el('div', {
       style: { padding: '12px', background: 'var(--bg2)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', marginBottom: '6px' },
       onClick: () => { pickerSheet.close(); openSurveySheet(loc.id, opId); },
     }, [
       el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [loc.name]),
-      el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ac \u00B7 ${loc.landUse}`]),
+      el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ${areaUnit} \u00B7 ${loc.landUse}`]),
     ]));
   }
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '10px' } }, [
@@ -488,7 +490,13 @@ function renderActiveEvents(container) {
     const pws = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
     const gws = getAll('eventGroupWindows').filter(w => w.eventId === evt.id && !w.dateLeft);
     const locNames = pws.map(w => { const loc = getById('locations', w.locationId); return loc?.name || '?'; }).join(', ');
-    const locAcres = pws.reduce((sum, w) => { const loc = getById('locations', w.locationId); const locHa = loc?.areaHectares ?? loc?.areaHa; return sum + (locHa ? convert(locHa, 'area', 'toImperial') : 0); }, 0);
+    const locArea = pws.reduce((sum, w) => {
+      const loc = getById('locations', w.locationId);
+      const locHa = loc?.areaHectares ?? loc?.areaHa;
+      if (!locHa) return sum;
+      return sum + (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa);
+    }, 0);
+    const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
     const groupNames = gws.map(w => { const g = getById('groups', w.groupId); return g?.name || '?'; }).join(' \u00B7 ');
     const evtStartDate = getEventStartDate(evt.id);
     const dayCount = evtStartDate ? daysBetweenInclusive(evtStartDate, todayStr) : 0;
@@ -509,7 +517,7 @@ function renderActiveEvents(container) {
       el('div', { style: { flex: '1' } }, [
         el('div', { style: { display: 'flex', gap: '6px' } }, [
           el('span', { style: { fontSize: '13px', fontWeight: '500' } }, [`\uD83C\uDF3F ${locNames}`]),
-          locAcres > 0 ? el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, [`${locAcres.toFixed(1)} ac`]) : null,
+          locArea > 0 ? el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, [`${locArea.toFixed(1)} ${areaUnit}`]) : null,
         ].filter(Boolean)),
         el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginTop: '2px' } }, [
           `${groupNames} \u00B7 Day ${dayCount}${subMoves > 0 ? ` \u00B7 ${subMoves} sub-moves` : ''}`,

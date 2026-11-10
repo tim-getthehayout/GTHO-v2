@@ -295,7 +295,7 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
 function buildLocationCard(loc, operationId, farmId, unitSys) {
   const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
   const locHa = locationAreaHa(loc);
-  const areaVal = locHa ? convert(locHa, 'area', 'toImperial').toFixed(2) : '';
+  const areaVal = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(2) : '';
   const isConfinement = loc.type === 'confinement';
   const landUse = loc.type === 'storage'
     ? t('location.type.storage')
@@ -925,7 +925,7 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
     for (const loc2 of filtered) {
       const r = readings[loc2.id];
       const loc2Ha = locationAreaHa(loc2);
-      const areaVal = loc2Ha ? convert(loc2Ha, 'area', 'toImperial').toFixed(2) : '';
+      const areaVal = loc2Ha ? (unitSys === 'imperial' ? convert(loc2Ha, 'area', 'toImperial') : loc2Ha).toFixed(2) : '';
       const areaUnit2 = unitSys === 'imperial' ? 'ac' : 'ha';
       const isExpanded = expandedCards.has(loc2.id);
       const isComplete = r.forageQuality != null && r.forageHeightCm != null && r.forageCoverPct != null && r.forageCondition != null;
@@ -1270,10 +1270,12 @@ function openApplyInputSheet(operationId) {
 
   function renderLocCheckboxes() {
     clear(locListEl);
+    const unitSys = getUnitSystem();
+    const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
     for (const loc of allLocs) {
       const isChecked = selectedLocations.has(loc.id);
       const locHa = locationAreaHa(loc);
-      const areaVal = locHa ? convert(locHa, 'area', 'toImperial').toFixed(2) : '';
+      const areaVal = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(2) : '';
       locListEl.appendChild(el('div', {
         style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', cursor: 'pointer', background: isChecked ? 'var(--green-l)' : 'transparent' },
         onClick: () => { if (isChecked) selectedLocations.delete(loc.id); else selectedLocations.add(loc.id); renderLocCheckboxes(); },
@@ -1281,7 +1283,7 @@ function openApplyInputSheet(operationId) {
         el('div', { style: { width: '16px', height: '16px', borderRadius: '4px', border: `1.5px solid ${isChecked ? 'var(--green)' : 'var(--border2)'}`, background: isChecked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' } },
           isChecked ? [el('svg', { width: '10', height: '10', viewBox: '0 0 12 12', fill: 'none' }, [el('polyline', { points: '2,6 5,9 10,3', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })])] : []),
         el('div', { style: { flex: '1', fontSize: '13px', fontWeight: '500' } }, [loc.name]),
-        areaVal ? el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ac`]) : null,
+        areaVal ? el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${areaVal} ${areaUnit}`]) : null,
       ].filter(Boolean)));
     }
   }

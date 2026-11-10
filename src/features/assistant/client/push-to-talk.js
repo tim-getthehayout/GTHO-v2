@@ -12,10 +12,32 @@ import { createAssistantSession, createOfflineNoteRecorder } from './session.js'
 import { createVoiceLog } from './voice-log.js';
 import { openVoiceLog, voiceLogRows } from './voice-log-panel.js';
 import { recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
+import { openAssistant } from './panel.js';
+import { TYPE_INSTEAD_QUESTION } from './realtime.js';
 
 export const PTT_ID = 'gtho-push-to-talk';
 export const PTT_POSITION_KEY = 'gtho-ptt-position';
 const DRAG_THRESHOLD_PX = 6;
+
+/** Yes/No prompt after a mic failure. Dismiss (backdrop) counts as No. */
+export function askTypeInstead({ message }, root = document.body) {
+  return new Promise(resolve => {
+    const finish = answer => { dialog.remove(); resolve(answer); };
+    const dialog = el('div', { className: 'sheet-wrap open', 'data-testid': 'ptt-type-instead', style: { zIndex: '320' } }, [
+      el('div', { className: 'sheet-backdrop', 'data-testid': 'ptt-type-instead-dismiss', onClick: () => finish('no') }),
+      el('div', { className: 'sheet-panel', role: 'dialog', 'aria-modal': 'true' }, [
+        el('p', { 'data-testid': 'ptt-no-mic-message' }, [message]),
+        el('p', { 'data-testid': 'ptt-type-instead-question' }, [TYPE_INSTEAD_QUESTION]),
+        el('div', { className: 'btn-row' }, [
+          el('button', { className: 'btn btn-green', 'data-testid': 'ptt-type-instead-yes', onClick: () => finish('yes') }, ['Yes']),
+          el('button', { className: 'btn btn-outline', 'data-testid': 'ptt-type-instead-no', onClick: () => finish('no') }, ['No']),
+        ]),
+      ]),
+    ]);
+    root.appendChild(dialog);
+  });
+}
+
 
 export function isCompactScreen(win = globalThis.window) {
   return win?.matchMedia?.('(max-width: 899px)').matches === true;
@@ -122,7 +144,17 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
     if (!deps.online()) { await offline.toggle(null); setListening(offline.recording); if (!offline.recording) await refreshBadge(); return; }
     session ??= newSession();
     end.hidden = false;
-    await session.talk();
+    const result = await session.talk();
+    if (result !== 'no-mic') return;
+    const failure = session.micFailure ?? { message: 'No microphone found.' };
+    // OI-0200: no-mic close goes through endLiveSession (clears transport/mic/timer, hides End).
+    await endLiveSession();
+    const answer = await askTypeInstead({ message: failure.message });
+    if (answer === 'yes') {
+      // Typed peer of voice: same data-entry runtime, review-before-save; no voice timer.
+      openAssistant(deps, config, { intent: 'data-entry', focusText: true });
+    }
+    // No / dismiss: empty conversation already discarded via endLiveSession; nothing unfinished.
   }
   async function stop() {
     await endLiveSession();

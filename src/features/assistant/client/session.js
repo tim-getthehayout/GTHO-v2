@@ -4,7 +4,7 @@
  * is spoken verbatim. Tapping again ends the turn, the same as saying "over". */
 import { VoiceTransport } from '../shared.js';
 import { createAssistantConversation, createFarmReviewFlow, createFeedbackFiling, feedbackSheetSession } from './conversation.js';
-import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer } from './realtime.js';
+import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, OFFLINE_NO_MIC_MESSAGE } from './realtime.js';
 import { recordNote } from './offline-notes.js';
 import { createTestingRecorder, uploadTestingAudio } from './testing-audio.js';
 import { resolveTestingConsent } from './consent.js';
@@ -92,6 +92,14 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       catch (error) { say(`Recording not kept: ${error.message}`); }
     }
   }
+  /** Tear down any live voice I/O immediately (mic failure guard + session end). */
+  async function abandonLiveVoice() {
+    await stopVoice();
+    await transport?.cancel();
+    await player?.close();
+    transport = null; player = null; driver = null;
+  }
+  let micFailure = null;
   const session = {
     get conversation() { return conversation; },
     get attempt() { return attempts?.current ?? null; },
@@ -112,36 +120,62 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       onTranscript(visible());
       return conversation;
     },
-    /** First tap starts listening; every later tap ends the current turn (same as "over"). */
+    /** First tap starts listening; every later tap ends the current turn (same as "over").
+     * Mic is acquired before any realtime connect / client-secret mint (OI-0196).
+     * Steps stay separable so a later faster-start can run acquireMicrophone
+     * concurrently with begin() / voice-authorization and buffer PCM until WS ready. */
     async talk() {
       if (mic) { driver.endTurn(); say('Thinking…'); return 'turn-ended'; }
-      if (!conversation) await session.begin();
-      player ??= createPcmPlayer();
-      const terminal = message => {
-        if (onVoiceTerminal) onVoiceTerminal(message);
-        else { say(message); void stopVoice(); }
-      };
-      driver = createXaiRealtimeDriver({ config, onStatus: state => { if (state === 'session-cap') terminal('Voice session ended at 10 minutes. Tap to start a new one.'); } });
-      transport = new VoiceTransport({
-        broker: () => conversation.voiceAuthorization(), driver,
-        getSession: () => conversation.session,
-        onTurn: entry => turn(entry).catch(error => say(error.message)),
-        onAudio: bytes => player.play(bytes),
-      });
-      await transport.connect();
-      if (transport.state !== 'connected') { terminal('Voice is unavailable right now; you can type instead.'); return 'unavailable'; }
-      mic = await startMicrophone({ onChunk: bytes => { void transport.stream(bytes); } });
-      if (consent === 'accepted') recorder = createTestingRecorder({ stream: mic.stream });
-      onListening(true);
-      say('Listening… say "over" or tap again when done.');
-      return 'listening';
+      micFailure = null;
+      // 1) Mic-first — never mint a secret or open a transport without a mic.
+      let stream;
+      try {
+        stream = await acquireMicrophone();
+      } catch (error) {
+        micFailure = classifyMicError(error);
+        // Guard: if a transport/timer somehow already exists, tear it down now.
+        await abandonLiveVoice();
+        return 'no-mic';
+      }
+      try {
+        // 2) Conversation begin (server session). 3) Connect realtime (mints secret).
+        if (!conversation) await session.begin();
+        player ??= createPcmPlayer();
+        const terminal = message => {
+          if (onVoiceTerminal) onVoiceTerminal(message);
+          else { say(message); void stopVoice(); }
+        };
+        driver = createXaiRealtimeDriver({ config, onStatus: state => { if (state === 'session-cap') terminal('Voice session ended at 10 minutes. Tap to start a new one.'); } });
+        transport = new VoiceTransport({
+          broker: () => conversation.voiceAuthorization(), driver,
+          getSession: () => conversation.session,
+          onTurn: entry => turn(entry).catch(error => say(error.message)),
+          onAudio: bytes => player.play(bytes),
+        });
+        await transport.connect();
+        if (transport.state !== 'connected') {
+          stream.getTracks().forEach(track => track.stop());
+          terminal('Voice is unavailable right now; you can type instead.');
+          return 'unavailable';
+        }
+        // 4) Attach the already-open mic to the live transport.
+        mic = await startMicrophone({ stream, onChunk: bytes => { void transport.stream(bytes); } });
+        if (consent === 'accepted') recorder = createTestingRecorder({ stream: mic.stream });
+        onListening(true);
+        say('Listening… say "over" or tap again when done.');
+        return 'listening';
+      } catch (error) {
+        stream.getTracks().forEach(track => { try { track.stop(); } catch { /* ignore */ } });
+        throw error;
+      }
     },
     async text(text) {
       if (!conversation) await session.begin();
       if (transport) return transport.text(text);
       return turn({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
     },
-    async end() { await stopVoice(); await transport?.cancel(); await player?.close(); transport = null; player = null; },
+    async end() { await abandonLiveVoice(); },
+    get micFailure() { return micFailure; },
   };
   return session;
 }
@@ -157,7 +191,14 @@ export function createOfflineNoteRecorder({ notes, say = () => {}, intent }) {
     get recording() { return !!recording; },
     async toggle(noteIntent = intent) {
       if (recording) { const current = recording; recording = null; await save(await current.stop()); return 'saved'; }
-      const stream = await globalThis.navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream;
+      try {
+        stream = await acquireMicrophone();
+      } catch {
+        // Offline has no typed assistant: message only, no Type-instead? prompt.
+        say(OFFLINE_NO_MIC_MESSAGE);
+        return 'no-mic';
+      }
       const current = recordNote({ stream });
       recording = current; intent = noteIntent;
       current.done.then(async blob => { stream.getTracks().forEach(track => track.stop()); if (recording === current) { recording = null; await save(blob); } });

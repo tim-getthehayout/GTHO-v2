@@ -195,12 +195,42 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
   };
 }
 
+/** Mic-failure copy for the Type-instead? prompt (OI-0196). */
+export const MIC_MISSING_MESSAGE = 'No microphone found.';
+export const MIC_BLOCKED_MESSAGE = 'Microphone access is blocked.';
+export const TYPE_INSTEAD_QUESTION = 'Type instead?';
+export const OFFLINE_NO_MIC_MESSAGE = "No microphone found, so the voice note wasn't recorded. You can use the normal screens.";
+
+const MIC_AUDIO = Object.freeze({ channelCount: 1, echoCancellation: true, noiseSuppression: true });
+
+/** Map getUserMedia / missing-mediaDevices failures to the two locked messages. */
+export function classifyMicError(error) {
+  const name = typeof error?.name === 'string' && error.name ? error.name : 'NotFoundError';
+  if (name === 'NotAllowedError') return { name, message: MIC_BLOCKED_MESSAGE };
+  return { name, message: MIC_MISSING_MESSAGE };
+}
+
+/**
+ * Mic-first: open the mic before minting a realtime secret or connecting.
+ * Structured as its own step so a later faster-start can run it concurrently
+ * with begin() / voice-authorization and buffer PCM until the socket is ready.
+ */
+export async function acquireMicrophone({ mediaDevices = globalThis.navigator?.mediaDevices } = {}) {
+  if (!mediaDevices?.getUserMedia) {
+    const err = new Error(MIC_MISSING_MESSAGE);
+    err.name = 'NotFoundError';
+    throw err;
+  }
+  return mediaDevices.getUserMedia({ audio: { ...MIC_AUDIO } });
+}
+
 /** Microphone -> PCM16 mono 24 kHz chunks. Also hands the raw stream to the
- * optional MediaRecorder consumer (testing audio). */
-export async function startMicrophone({ onChunk, mediaDevices = globalThis.navigator?.mediaDevices, AudioContextImpl = globalThis.AudioContext }) {
-  const stream = await mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+ * optional MediaRecorder consumer (testing audio). Pass `stream` when the mic
+ * was already acquired (mic-first / faster-start). */
+export async function startMicrophone({ onChunk, stream, mediaDevices = globalThis.navigator?.mediaDevices, AudioContextImpl = globalThis.AudioContext }) {
+  const owned = stream ?? await acquireMicrophone({ mediaDevices });
   const context = new AudioContextImpl({ sampleRate: SAMPLE_RATE });
-  const source = context.createMediaStreamSource(stream);
+  const source = context.createMediaStreamSource(owned);
   const processor = context.createScriptProcessor(4096, 1, 1);
   processor.onaudioprocess = event => {
     const input = event.inputBuffer.getChannelData(0);
@@ -209,7 +239,7 @@ export async function startMicrophone({ onChunk, mediaDevices = globalThis.navig
     onChunk(new Uint8Array(pcm.buffer));
   };
   source.connect(processor); processor.connect(context.destination);
-  return { stream, async stop() { processor.disconnect(); source.disconnect(); stream.getTracks().forEach(track => track.stop()); await context.close(); } };
+  return { stream: owned, async stop() { processor.disconnect(); source.disconnect(); owned.getTracks().forEach(track => track.stop()); await context.close(); } };
 }
 
 /** PCM16 24 kHz speaker output, chunks scheduled back to back. */

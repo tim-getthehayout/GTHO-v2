@@ -69,10 +69,14 @@ describe('global push-to-talk', () => {
 });
 
 describe('header assistant sheet', () => {
-  it('offers feedback, farm questions and how-to only; no Enter data affordance', () => {
+  it('offers typed farm entry alongside feedback, questions and how-to (typed peer of voice)', () => {
     openAssistant(deps(), {});
-    expect([...document.querySelectorAll('[data-testid^="assistant-intent-"]')].map(node => node.dataset.testid)).toEqual(['assistant-intent-feedback', 'assistant-intent-data-questions', 'assistant-intent-how-to']);
-    expect(document.body.textContent).not.toContain('Enter data');
+    expect([...document.querySelectorAll('[data-testid^="assistant-intent-"]')].map(node => node.dataset.testid)).toEqual([
+      'assistant-intent-data-entry',
+      'assistant-intent-feedback',
+      'assistant-intent-data-questions',
+      'assistant-intent-how-to',
+    ]);
   });
   it('has no voice control of its own: the global push-to-talk is the one voice entry point', async () => {
     const { createOfflineNoteRecorder } = await import('../../../../src/features/assistant/client/session.js');
@@ -341,6 +345,70 @@ describe('push-to-talk status dismiss and terminal end path', () => {
     expect(sessions[0].end).toHaveBeenCalled();
     expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
     expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toBe('No microphone found. Type instead?');
+    expect(control.session).toBeNull();
+  });
+});
+
+describe('no-mic Type instead? (OI-0196)', () => {
+  beforeEach(async () => {
+    const { createAssistantSession } = await import('../../../../src/features/assistant/client/session.js');
+    createAssistantSession.mockImplementation(options => {
+      const session = {
+        options,
+        micFailure: null,
+        talk: vi.fn(async () => {
+          session.micFailure = { name: 'NotFoundError', message: 'No microphone found.' };
+          return 'no-mic';
+        }),
+        end: vi.fn(async () => {}),
+        begin: vi.fn(async () => ({ ref: 'c1' })),
+        text: vi.fn(async () => {}),
+      };
+      sessions.push(session);
+      return session;
+    });
+  });
+
+  it('no-mic close goes through endLiveSession: End hidden, session cleared, then Type instead? prompt', async () => {
+    const control = mountPushToTalk(deps(), { earlyTesting: false });
+    const tapPromise = control.tap();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="ptt-type-instead"]')).not.toBeNull());
+    expect(sessions[0].end).toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
+    expect(control.session).toBeNull();
+    expect(document.querySelector('[data-testid="ptt-no-mic-message"]').textContent).toBe('No microphone found.');
+    expect(document.querySelector('[data-testid="ptt-type-instead-question"]').textContent).toBe('Type instead?');
+    document.querySelector('[data-testid="ptt-type-instead-no"]').click();
+    await tapPromise;
+    expect(document.querySelector('[data-testid="ptt-type-instead"]')).toBeNull();
+    expect(document.querySelector('#assistant-sheet-wrap')).toBeNull();
+  });
+
+  it('Yes opens the Assistant sheet on data-entry with the text box focused and no voice timer', async () => {
+    const control = mountPushToTalk(deps(), { earlyTesting: false });
+    const tapPromise = control.tap();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="ptt-type-instead-yes"]')).not.toBeNull());
+    document.querySelector('[data-testid="ptt-type-instead-yes"]').click();
+    await tapPromise;
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="assistant-text"]')).not.toBeNull());
+    // begin was called for the typed sheet session (second createAssistantSession call).
+    expect(sessions.length).toBeGreaterThanOrEqual(1);
+    const typed = sessions.find(s => s.begin.mock.calls.length && s.options.intent === 'data-entry');
+    // Sheet session is created by openAssistant → begin('data-entry').
+    expect(document.querySelector('[data-testid="assistant-intent-data-entry"]') || document.querySelector('[data-testid="assistant-text"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="assistant-text"]')).toBe(document.activeElement);
+    // No live PTT session / End button after the handoff.
+    expect(control.session).toBeNull();
+    expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
+  });
+
+  it('dismissing the prompt counts as No and leaves no sheet', async () => {
+    const control = mountPushToTalk(deps(), {});
+    const tapPromise = control.tap();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="ptt-type-instead-dismiss"]')).not.toBeNull());
+    document.querySelector('[data-testid="ptt-type-instead-dismiss"]').click();
+    await tapPromise;
+    expect(document.querySelector('#assistant-sheet-panel')).toBeNull();
     expect(control.session).toBeNull();
   });
 });

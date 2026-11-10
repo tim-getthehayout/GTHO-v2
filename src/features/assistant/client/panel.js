@@ -11,7 +11,12 @@ import { createVoiceLog } from './voice-log.js';
 export { CONSENT_TEXT, CONSENT_KEEP, CONSENT_DECLINE, askTestingConsent, resolveTestingConsent } from './consent.js';
 
 export const OFFLINE_TEXT = 'You are offline. Tap the push-to-talk to record a voice note, or use the normal screens.';
-export const PANEL_INTENTS = Object.freeze([['feedback', 'Leave feedback'], ['data-questions', 'Ask about my farm'], ['how-to', 'How do I…']]);
+export const PANEL_INTENTS = Object.freeze([
+  ['data-entry', 'Record a farm entry'],
+  ['feedback', 'Leave feedback'],
+  ['data-questions', 'Ask about my farm'],
+  ['how-to', 'How do I…'],
+]);
 
 /** Reveals the control only when the backend returns config (not 403). */
 export async function mountAssistantControl(button, deps) {
@@ -46,7 +51,9 @@ export function renderTranscript(container, transcript) {
  *  pullReviewRows, revisionIdFor, createFarmUiPorts, authorize, openFeedbackSheet, feedbackHost(),
  *  storage, buildStamp, online(), offlineNotes?}
  */
-export function openAssistant(deps, config) {
+/** options.intent: begin that intent immediately (skip the picker).
+ * options.focusText: focus the Type instead… box after begin (mic-failure Yes path). */
+export function openAssistant(deps, config, options = {}) {
   const { sheet, panel, wrap } = ensureSheet();
   clear(panel);
   const status = el('div', { className: 'auth-error', 'data-testid': 'assistant-status', role: 'status' });
@@ -73,6 +80,7 @@ export function openAssistant(deps, config) {
         try { await session.text(text); } catch (error) { say(error.message); }
       } }, ['Send'])]),
     );
+    if (options.focusText) input.focus();
     return session;
   }
   async function renderNotes() {
@@ -104,5 +112,10 @@ export function openAssistant(deps, config) {
   void renderNotes();
   wrap.querySelector('.sheet-backdrop').onclick = () => sheet.close();
   sheet.open();
+  // Mic-failure Yes / direct typed start: same runtime as voice, text box focused.
+  if (options.intent) {
+    if (!deps.online()) say(OFFLINE_TEXT);
+    else begin(options.intent).catch(error => say(error.message));
+  }
   return { begin, get session() { return session; } };
 }

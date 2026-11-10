@@ -23,8 +23,14 @@ vi.mock('../../../../src/features/assistant/client/realtime.js', () => ({
       })),
     };
   }),
-  startMicrophone: vi.fn(async () => ({ stream: {}, stop: vi.fn(async () => {}) })),
+  acquireMicrophone: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })),
+  startMicrophone: vi.fn(async ({ stream } = {}) => ({ stream: stream || {}, stop: vi.fn(async () => {}) })),
   createPcmPlayer: vi.fn(() => ({ play: vi.fn(), close: vi.fn(async () => {}) })),
+  classifyMicError: vi.fn(error => ({ name: error?.name || 'NotFoundError', message: error?.name === 'NotAllowedError' ? 'Microphone access is blocked.' : 'No microphone found.' })),
+  OFFLINE_NO_MIC_MESSAGE: "No microphone found, so the voice note wasn't recorded. You can use the normal screens.",
+  MIC_MISSING_MESSAGE: 'No microphone found.',
+  MIC_BLOCKED_MESSAGE: 'Microphone access is blocked.',
+  TYPE_INSTEAD_QUESTION: 'Type instead?',
 }));
 
 vi.mock('../../../../src/features/assistant/shared.js', async () => {
@@ -75,7 +81,7 @@ vi.mock('../../../../src/features/assistant/client/consent.js', () => ({
 }));
 
 const { createAssistantSession } = await import('../../../../src/features/assistant/client/session.js');
-const { createXaiRealtimeDriver, startMicrophone } = await import('../../../../src/features/assistant/client/realtime.js');
+const { createXaiRealtimeDriver, startMicrophone, acquireMicrophone } = await import('../../../../src/features/assistant/client/realtime.js');
 
 const deps = {
   api: {},
@@ -89,6 +95,8 @@ beforeEach(() => {
   onStatusHolders.length = 0;
   createXaiRealtimeDriver.mockClear();
   startMicrophone.mockClear();
+  acquireMicrophone.mockClear();
+  acquireMicrophone.mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
 });
 
 describe('voice terminal notifications', () => {

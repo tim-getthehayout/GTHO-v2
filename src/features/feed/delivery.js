@@ -455,15 +455,25 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               statusEl.appendChild(el('span', {}, ['How should the remaining quantity be split across the paddocks?']));
               return;
             }
-            if (leftoverItems.some(item => (
-              item.remainingQuantity == null || !Number.isFinite(Number(item.remainingQuantity))
-              || !visibleBatchIds.has(item.batchId)
-              || !visibleLocationIds.has(item.locationId)
-            ))) {
-              statusEl.appendChild(el('span', {}, ['Remaining feed must use a batch and paddock shown on this review.']));
-              return;
+            const seenLeftover = new Set();
+            for (const item of leftoverItems) {
+              if (!visibleBatchIds.has(item.batchId) || !visibleLocationIds.has(item.locationId)) {
+                statusEl.appendChild(el('span', {}, ['Remaining feed must use a batch and paddock shown on this review.']));
+                return;
+              }
+              if (typeof item.remainingQuantity !== 'number' || !Number.isFinite(item.remainingQuantity) || item.remainingQuantity < 0) {
+                statusEl.appendChild(el('span', {}, ['Remaining feed quantity must be a non-negative number.']));
+                return;
+              }
+              const key = `${item.batchId}:${item.locationId}`;
+              if (seenLeftover.has(key)) {
+                statusEl.appendChild(el('span', {}, ['Remaining feed cannot repeat the same batch and paddock.']));
+                return;
+              }
+              seenLeftover.add(key);
             }
           }
+          const plannedEntries = [];
           for (const part of plan.allocations) {
             for (const line of part.lines.filter(item => item.qty > 0 || item.quantity > 0)) {
               const qty = line.qty ?? line.quantity;
@@ -475,34 +485,55 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
                 statusEl.appendChild(el('span', {}, [t('feed.locationRequired')]));
                 return;
               }
-              const deducted = deductDelivery(line.batchId, sourceLocationId, qty);
-              if (deducted) {
-                statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
-                return;
-              }
-              const entry = FeedEntryEntity.create({
-                operationId, eventId: evt.id,
-                batchId: line.batchId, locationId: part.locationId,
+              plannedEntries.push({
+                batchId: line.batchId,
                 sourceLocationId,
-                date: dateInput.value, time: timeInput.value || null,
-                quantity: qty,
+                qty,
+                record: FeedEntryEntity.create({
+                  operationId, eventId: evt.id,
+                  batchId: line.batchId, locationId: part.locationId,
+                  sourceLocationId,
+                  date: dateInput.value, time: timeInput.value || null,
+                  quantity: qty,
+                }),
               });
-              add('eventFeedEntries', entry, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
             }
           }
-          if (leftover) {
-            const check = FeedCheckEntity.create({
-              operationId, eventId: evt.id,
-              date: dateInput.value, time: leftover.timing === 'same-instant' ? (timeInput.value || null) : leftover.time,
-            });
-            add('eventFeedChecks', check, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
-            for (const item of leftoverItems) {
-              const checkItem = FeedCheckItemEntity.create({
-                operationId, feedCheckId: check.id,
-                batchId: item.batchId, locationId: item.locationId,
-                remainingQuantity: item.remainingQuantity,
-              });
-              add('eventFeedCheckItems', checkItem, FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+          const plannedCheck = leftover ? FeedCheckEntity.create({
+            operationId, eventId: evt.id,
+            date: dateInput.value, time: leftover.timing === 'same-instant' ? (timeInput.value || null) : leftover.time,
+          }) : null;
+          const plannedItems = leftover
+            ? leftoverItems.map(item => FeedCheckItemEntity.create({
+              operationId, feedCheckId: plannedCheck.id,
+              batchId: item.batchId, locationId: item.locationId,
+              remainingQuantity: item.remainingQuantity,
+            }))
+            : [];
+          const pendingRows = [
+            ...plannedEntries.map(row => ({ validate: FeedEntryEntity.validate, record: row.record })),
+            ...(plannedCheck ? [{ validate: FeedCheckEntity.validate, record: plannedCheck }] : []),
+            ...plannedItems.map(record => ({ validate: FeedCheckItemEntity.validate, record })),
+          ];
+          for (const row of pendingRows) {
+            const result = row.validate(row.record);
+            if (!result.valid) {
+              statusEl.appendChild(el('span', {}, [result.errors.join(', ')]));
+              return;
+            }
+          }
+          for (const row of plannedEntries) {
+            const deducted = deductDelivery(row.batchId, row.sourceLocationId, row.qty);
+            if (deducted) {
+              statusEl.appendChild(el('span', {}, [t('feed.moveTooMuch')]));
+              return;
+            }
+            add('eventFeedEntries', row.record, FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+          }
+          if (plannedCheck) {
+            add('eventFeedChecks', plannedCheck, FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
+            for (const item of plannedItems) {
+              add('eventFeedCheckItems', item, FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
             }
           }
           if (!options.review) deliverFeedSheet.close();

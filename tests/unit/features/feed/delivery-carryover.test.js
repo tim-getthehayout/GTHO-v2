@@ -169,4 +169,70 @@ describe('feeding review carryover is visible and editable', () => {
     expect(getAll('eventFeedChecks')).toHaveLength(0);
     expect(panel.textContent).toMatch(/batch and paddock shown on this review/i);
   });
+
+  it('does not write stock, a delivery, or a check when leftover remaining is the string "2"', () => {
+    let binding;
+    const evt = getAll('events').find(e => e.id === EVT);
+    openDeliverFeedSheet(evt, OP, {
+      review: { bind(value) { binding = value; }, requestConfirmation: save => save() },
+    });
+    binding.fields.lines.set([{ batchId: BATCH, qty: 2 }]);
+    binding.fields.locationIds.set([LOC_G1]);
+    binding.fields.carryover.set({
+      timing: 'same-instant',
+      items: [{ batchId: BATCH, locationId: LOC_G1, remainingQuantity: '2' }],
+    });
+    const panel = document.getElementById('deliver-feed-sheet-panel');
+    const saveBtn = Array.from(panel.querySelectorAll('button')).find(b => /save|deliver|log/i.test(b.textContent || ''));
+    saveBtn.click();
+    expect(getAll('batches').find(row => row.id === BATCH).remaining).toBe(10);
+    expect(getAll('eventFeedEntries')).toHaveLength(0);
+    expect(getAll('eventFeedChecks')).toHaveLength(0);
+    expect(getAll('eventFeedCheckItems')).toHaveLength(0);
+  });
+
+  it('does not write stock, a delivery, or a check when leftover remaining is negative', () => {
+    let binding;
+    const evt = getAll('events').find(e => e.id === EVT);
+    openDeliverFeedSheet(evt, OP, {
+      review: { bind(value) { binding = value; }, requestConfirmation: save => save() },
+    });
+    binding.fields.lines.set([{ batchId: BATCH, qty: 2 }]);
+    binding.fields.locationIds.set([LOC_G1]);
+    binding.fields.carryover.set({
+      timing: 'same-instant',
+      items: [{ batchId: BATCH, locationId: LOC_G1, remainingQuantity: -2 }],
+    });
+    const panel = document.getElementById('deliver-feed-sheet-panel');
+    const saveBtn = Array.from(panel.querySelectorAll('button')).find(b => /save|deliver|log/i.test(b.textContent || ''));
+    saveBtn.click();
+    expect(getAll('batches').find(row => row.id === BATCH).remaining).toBe(10);
+    expect(getAll('eventFeedEntries')).toHaveLength(0);
+    expect(getAll('eventFeedChecks')).toHaveLength(0);
+    expect(getAll('eventFeedCheckItems')).toHaveLength(0);
+  });
+
+  it('does not write stock, a delivery, or a check when leftover repeats a batch and paddock', () => {
+    let binding;
+    const evt = getAll('events').find(e => e.id === EVT);
+    openDeliverFeedSheet(evt, OP, {
+      review: { bind(value) { binding = value; }, requestConfirmation: save => save() },
+    });
+    binding.fields.lines.set([{ batchId: BATCH, qty: 2 }]);
+    binding.fields.locationIds.set([LOC_G1]);
+    binding.fields.carryover.set({
+      timing: 'same-instant',
+      items: [
+        { batchId: BATCH, locationId: LOC_G1, remainingQuantity: 2 },
+        { batchId: BATCH, locationId: LOC_G1, remainingQuantity: 3 },
+      ],
+    });
+    const panel = document.getElementById('deliver-feed-sheet-panel');
+    const saveBtn = Array.from(panel.querySelectorAll('button')).find(b => /save|deliver|log/i.test(b.textContent || ''));
+    saveBtn.click();
+    expect(getAll('batches').find(row => row.id === BATCH).remaining).toBe(10);
+    expect(getAll('eventFeedEntries')).toHaveLength(0);
+    expect(getAll('eventFeedChecks')).toHaveLength(0);
+    expect(getAll('eventFeedCheckItems')).toHaveLength(0);
+  });
 });

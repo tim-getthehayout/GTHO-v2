@@ -90,6 +90,33 @@ describe('feeding paddock aliases and multi-target resolution (OI-0206)', () => 
     expect(result.question).toMatch(/Corral/);
   });
 
+  it('replaces the colliding alias with a short disambiguating answer and keeps date and lines', async () => {
+    const rows = async table => {
+      if (table === 'eventPaddockWindows') {
+        return [...data.eventPaddockWindows, { id: 'pw8', eventId: 'e4', locationId: 'l8', dateClosed: null }];
+      }
+      return data[table] ?? [];
+    };
+    const result = await resolveEntryTarget({
+      ui: 'feeding',
+      names: {},
+      fields: {},
+      utterance: 'Corral',
+      pendingClarification: {
+        field: 'paddock',
+        ui: 'feeding',
+        names: { paddock: 'e1' },
+        fields: { date: '2026-11-09', time: '13:00', lines: [{ batchId: 'b1', qty: 4 }] },
+      },
+      rows,
+    });
+    expect(result).toMatchObject({
+      status: 'resolved',
+      target: { ui: 'feeding', id: 'e4' },
+      fill: { locationId: 'l8' },
+    });
+  });
+
   it('keeps two named paddocks on the same open event and does not collapse them', async () => {
     const rows = async table => {
       if (table === 'locations') return data.locations.filter(row => row.id !== 'l8');

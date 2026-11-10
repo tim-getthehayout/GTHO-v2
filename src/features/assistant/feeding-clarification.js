@@ -124,7 +124,7 @@ export function applyPendingClarification(pending, names = {}, fields = {}, utte
   const merged = { ...(pending?.fields && typeof pending.fields === 'object' ? pending.fields : {}), ...fields };
   const answer = named(utterance) ? utterance.trim() : (named(said.answer) ? said.answer.trim() : '');
   const field = pending?.field;
-  if (field === 'paddock' && !parseSaidList(said).length && named(answer)) said.paddock = answer;
+  if (field === 'paddock' && named(answer)) said.paddock = answer;
   if (field === 'quantityBasis' && !merged.quantityBasis) {
     const basis = parseQuantityBasis(merged.quantityBasis ?? said.quantityBasis ?? answer);
     if (basis) merged.quantityBasis = basis;

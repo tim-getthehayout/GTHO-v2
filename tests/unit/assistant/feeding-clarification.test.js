@@ -48,14 +48,14 @@ describe('quantity basis and allocation', () => {
 });
 
 describe('clarification continuity', () => {
-  it('fills the pending paddock from a short reply and keeps date, time, lines and intent fields', () => {
+  it('replaces an unresolved colliding paddock name with a short disambiguating answer', () => {
     const next = applyPendingClarification(
-      { field: 'paddock', ui: 'feeding', names: { paddock: 'e1, e2' }, fields: { date: '2026-11-09', time: '13:00', lines } },
+      { field: 'paddock', ui: 'feeding', names: { paddock: 'e1' }, fields: { date: '2026-11-09', time: '13:00', lines } },
       {},
       {},
-      'e1',
+      'Corral',
     );
-    expect(next.names.paddock).toBe('e1, e2'); // existing names kept; short answer only fills when paddock was missing
+    expect(next.names.paddock).toBe('Corral');
     expect(next.fields).toMatchObject({ date: '2026-11-09', time: '13:00', lines });
   });
 

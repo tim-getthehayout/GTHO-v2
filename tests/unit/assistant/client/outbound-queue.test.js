@@ -95,3 +95,12 @@ it('a dispatched send keeps the full deadline instead of the pre-dispatch handof
   await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS - OUTBOUND_PRE_DISPATCH_BUDGET_MS);
   expect(await result).toEqual({ status: 'dropped', started: true }); work.resolve(); await flush();
 });
+
+it('revocation during asynchronous pre-dispatch cleanup silently cancels only that submission', async () => {
+  const before = gate(), deliver = vi.fn(async () => {}), onDrop = vi.fn(); let current = true;
+  const queue = createOutboundQueue({ conversation: {}, generation: 14, deliver, onDrop });
+  const cancelled = queue.enqueue(entry('cancelled', 'text'), { beforeDeliver: () => before.promise, isCurrent: () => current }); await flush();
+  current = false; before.resolve(); await expect(cancelled).resolves.toEqual({ status: 'invalidated', started: false });
+  expect(deliver).not.toHaveBeenCalled(); expect(onDrop).not.toHaveBeenCalled();
+  await expect(queue.enqueue(entry('still-owned', 'text'))).resolves.toEqual({ status: 'delivered', started: true }); expect(deliver).toHaveBeenCalledTimes(1);
+});

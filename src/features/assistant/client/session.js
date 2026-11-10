@@ -14,6 +14,7 @@ import { createAttemptTracker } from './attempts.js';
 import { showDismissibleBanner } from '../../../ui/toast.js';
 import { mountFeedbackReview } from '../feedback-review.js';
 
+const OWNED_SUBMISSION = Symbol('owned-submission');
 const outboundFailure = () => Object.assign(new Error(OUTBOUND_DROPPED_MESSAGE), { code: 'outbound-dropped' });
 async function withinOutboundDeadline(work, deadline) {
   let timer;
@@ -41,11 +42,12 @@ export const DISCARD_EMPTY_FAILED_MESSAGE = "Voice closed, but the empty session
 export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null, onDurableSave = async () => {}, onVoiceTerminal = null, onVoiceState = () => {}, onRecoveryInvalidated = () => {} }) {
   let conversation, transport, driver, mic, player, recorder, consent, attempts, origin = {};
   let outbound = null, outboundGeneration = 0;
-  let recoveryGeneration = 0, recoveryConversation = null;
+  let recoveryGeneration = 0, recoveryConversation = null, submissionEpoch = 0;
   const recoveryIdentity = () => ({ generation: recoveryGeneration, conversation: recoveryConversation });
-  function invalidateRecovery(reason) {
+  function invalidateRecovery(reason, preserveSubmission = false, preservePanel = preserveSubmission) {
     recoveryGeneration++;
-    onRecoveryInvalidated({ session, reason, ...recoveryIdentity() });
+    if (!preserveSubmission) submissionEpoch++;
+    onRecoveryInvalidated({ session, reason, preserveSubmission: preservePanel, ...recoveryIdentity() });
   }
   const retiringQueues = new Map();
   const visible = (owner = outbound) => (owner?.conversation?.session?.transcript ?? []).filter(entry => !owner.replays.has(entry.id));
@@ -75,29 +77,31 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     // The same point that deletes a used offline note finishes the attempt.
     try { await attempts?.finish(); await onDurableSave(outcome, conversation); } catch (error) { say(error.message); }
   }
-  async function turn(entry, owner) {
+  async function turn(entry, owner, isCurrent = () => true) {
     const { conversation, attempts, origin, replays } = owner;
     const live = () => owner === outbound && owner.queue?.state !== 'expired';
     try {
       // One attempt per entry an utterance starts (an offline note keeps its recording time).
       const first = !attempts.current, before = attempts.current;
       const attempt = await attempts.ensure({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, ...(first ? origin : {}) });
-      if (owner.queue?.state === 'expired') return;
+      if (owner.queue?.state === 'expired' || !isCurrent()) return;
       if (attempt !== before) voiceLog?.setPreview?.(attempt.id, entry.text);
       let answer = await conversation.turn(entry);
-      if (owner.queue?.state === 'expired') return;
+      if (owner.queue?.state === 'expired' || !isCurrent()) return;
       const route = conversation.route;
       if (route) {
         // One push-to-talk: switch through the runtime intent command, then send
         // the same words once under the routed intent (never more than one reroute).
         await conversation.switchIntent(route);
+        if (!isCurrent()) return;
         if (live()) onIntent(route);
         await attempts.reroute(route);
-        if (owner.queue?.state === 'expired') return;
+        if (owner.queue?.state === 'expired' || !isCurrent()) return;
         const replay = { ...entry, id: crypto.randomUUID() };
         replays.add(replay.id);
         voiceLog?.hostEvent({ conversationRef: conversation.ref, intent: route, type: 'reroute-replay', text: `Replayed turn ${entry.id} as ${replay.id}` });
         answer = await conversation.turn(replay, { replayOf: entry.id });
+        if (!isCurrent()) return;
       }
       if (answer && live()) speak(answer, owner);
       // A question or how-to is finished once answered.
@@ -196,7 +200,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   /** True only after transport is connected AND the PCM buffer has been flushed. */
   let voiceReady = false;
   /** Typed send arrived while voice was live; talk() must not discard the conversation. */
-  let typedTakeover = false;
+  let typedTakeover = false, typedTakeoverOwner = null, reportingVoiceTerminal = false;
   /** AbortController for the current tap's connect budget; also cancelled on typed takeover. */
   let connectAbort = null;
   let pcmBuffer = null;
@@ -210,7 +214,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       conversation: owner.conversation, generation: owner.generation,
       deliver: (entry, identity) => {
         if (identity.conversation !== owner.conversation || identity.generation !== owner.generation) throw new Error('outbound-owner-mismatch');
-        return turn(entry, owner);
+        return turn(entry, owner, identity.isCurrent);
       },
       onDrop: ({ reason, count }) => {
         logVoice('outbound-drop', { reason, eventCount: count });
@@ -224,7 +228,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     });
   }
   let startupOwner = null;
-  let beginWork = null;
+  let beginWork = null, beginOwner = null;
   let consentWork = null;
   const getConsent = () => consentWork ??= resolveTestingConsent(config);
   const session = {
@@ -237,30 +241,45 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     // origin: {capturedAt, previousAttemptId} when the first turn is an offline note.
     async begin(firstTurn, context = typeof deps.feedbackHost === 'function' ? { feedbackHost: deps.feedbackHost() } : {}, from = {}) {
       if (firstTurn?.modality === 'text') {
-        invalidateRecovery('begin');
-        const result = await session.text(firstTurn.text, { entry: firstTurn, context, from, submittedAt: from.submittedAt ?? Date.now(), onOwnership: from.onOwnership });
-        return result?.status === 'dropped' ? null : conversation;
+        invalidateRecovery('begin', false, !!from.isCurrent);
+        const result = await session.text(firstTurn.text, { entry: firstTurn, context, from, submittedAt: from.submittedAt ?? Date.now(), onOwnership: from.onOwnership, isCurrent: from.isCurrent });
+        return ['dropped', 'invalidated'].includes(result?.status) ? null : conversation;
       }
-      if (beginWork) return beginWork;
-      invalidateRecovery('begin');
-      const startupGeneration = recoveryGeneration;
-      from.onOwnership?.(recoveryIdentity());
+      const submission = from[OWNED_SUBMISSION];
+      if (submission && !submission.isCurrent()) return null;
+      // Public begin invalidates recovery even when it adopts pending startup.
+      // Internal startup transfers only this still-current submission's ownership.
+      invalidateRecovery('begin', !!submission, !!submission || !!from.isCurrent);
+      if (beginWork) {
+        beginOwner.cancelled = false; beginOwner.submissionOwned = !!submission;
+        beginOwner.isCurrent = submission?.isCurrent ?? (() => true);
+        beginOwner.onOwnership = from.onOwnership;
+        beginOwner.generation = recoveryGeneration;
+        endingLive = false;
+        from.onOwnership?.(recoveryIdentity());
+        return beginWork;
+      }
+      const startup = { cancelled: false, submissionOwned: !!submission, isCurrent: submission?.isCurrent ?? (() => true), onOwnership: from.onOwnership, generation: recoveryGeneration };
+      beginOwner = startup;
+      const startupIsCurrent = () => !startup.cancelled && startup.isCurrent();
+      startup.onOwnership?.(recoveryIdentity());
       origin = { ...(from.capturedAt ? { capturedAt: from.capturedAt } : {}), ...(from.previousAttemptId ? { previousAttemptId: from.previousAttemptId } : {}) };
       const work = (async () => {
         const stored = await getConsent();
+        if (startup.submissionOwned && !startupIsCurrent()) return null;
         consent = stored?.decision ?? null;
         const started = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });
         conversation = started;
-        if (recoveryGeneration === startupGeneration) { recoveryConversation = started; from.onOwnership?.(recoveryIdentity()); }
+        if (recoveryGeneration === startup.generation && startupIsCurrent()) { recoveryConversation = started; startup.onOwnership?.(recoveryIdentity()); }
         const owner = { conversation: started, generation: ++outboundGeneration, attempts: null, origin: { ...origin }, replays: new Set(), queue: null, cleanup: null };
         outbound = owner;
         // talk() already shows Connecting…; do not clobber it with Starting… or a blank status.
-        if (!connectAbort && !from.quiet) say('Starting…');
+        if (startupIsCurrent() && !connectAbort && !from.quiet) say('Starting…');
         await started.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
         // end() may have run while start was in flight. Clean up here so a
         // late start cannot use a nulled conversation, and End can return
         // without waiting on a gated start.
-        if ((endingLive && !typedTakeover) || conversation !== started) {
+        if (!startupIsCurrent() || (endingLive && !typedTakeover) || conversation !== started) {
           if (conversation === started) await discardEmptyStart(owner);
           return started;
         }
@@ -268,15 +287,18 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         owner.attempts = attempts;
         owner.queue = makeQueue(owner);
         if (!connectAbort && !from.quiet) say('');
-        if (firstTurn && (await owner.queue.enqueue(firstTurn)).status === 'dropped') return null;
-        onTranscript(visible());
+        if (firstTurn) {
+          const result = await owner.queue.enqueue(firstTurn, { isCurrent: startupIsCurrent });
+          if (!startupIsCurrent() || result.status !== 'delivered') return null;
+        }
+        if (startupIsCurrent()) onTranscript(visible());
         return started;
       })();
       beginWork = work;
       try {
         return await work;
       } finally {
-        if (beginWork === work) beginWork = null;
+        if (beginWork === work) { beginWork = null; beginOwner = null; }
       }
     },
     /**
@@ -472,7 +494,10 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         const terminal = message => {
           if (driver !== voiceDriver || outbound !== voiceOwner) return;
           void abandonAttempt();
-          if (onVoiceTerminal) onVoiceTerminal(message);
+          if (onVoiceTerminal) {
+            reportingVoiceTerminal = true;
+            try { onVoiceTerminal(message); } finally { reportingVoiceTerminal = false; }
+          }
           else say(message);
         };
         voiceDriver = createXaiRealtimeDriver({
@@ -594,12 +619,20 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         if (connectAbort === budget) connectAbort = null;
       }
     },
-    async text(text, { onEnqueued = () => {}, onOwnership = () => {}, submittedAt = Date.now(), entry: suppliedEntry, context, from = {} } = {}) {
-      // Every typed entry, including firstTurn, shares this submission budget.
-      onOwnership(recoveryIdentity());
+    async text(text, { onEnqueued = () => {}, onOwnership = () => {}, isCurrent = () => true, submittedAt = Date.now(), entry: suppliedEntry, context, from = {} } = {}) {
+      // A submission capability survives its own startup/fallback only. Public
+      // lifecycle changes revoke it synchronously, including pending Retry work.
+      const epoch = submissionEpoch;
+      const current = () => epoch === submissionEpoch && isCurrent();
+      const notifyOwnership = identity => { if (current()) onOwnership(identity ?? recoveryIdentity()); };
+      const submission = { isCurrent: current };
+      const invalidated = () => ({ status: 'invalidated', started: false });
+      if (!current()) return invalidated();
+      notifyOwnership();
+      if (!current()) return invalidated();
       const deadline = submittedAt + OUTBOUND_TURN_BUDGET_MS;
       const handoffAt = submittedAt + OUTBOUND_PRE_DISPATCH_BUDGET_MS;
-      typedTakeover = true;
+      typedTakeover = true; typedTakeoverOwner = submission;
       talkGeneration += 1;
       startupOwner = talkGeneration;
       const textGeneration = talkGeneration;
@@ -615,51 +648,71 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           if (driver) {
             // Finalization is independently bounded in the real driver. The
             // callback enqueues its final BEFORE this text, even after close.
-            try { await withinOutboundDeadline(driver.endTurn({ replay: false }), deadline); } catch (error) { if (error.code === 'outbound-dropped') throw error; /* mid-teardown */ }
+            try { await withinOutboundDeadline(driver.endTurn({ replay: false }), deadline); if (!current()) return invalidated(); } catch (error) { if (error.code === 'outbound-dropped') throw error; /* mid-teardown */ }
           }
-          if (!ownedDriver) await withinOutboundDeadline(closeOwnedVoice(), deadline);
+          if (!ownedDriver) { await withinOutboundDeadline(closeOwnedVoice(), deadline); if (!current()) return invalidated(); }
+          if (!current()) return invalidated();
           say('');
         }
-        if (beginWork) await withinOutboundDeadline(beginWork, Math.min(deadline, handoffAt));
+        if (beginWork) {
+          if (!current()) return invalidated();
+          beginOwner.cancelled = false; beginOwner.submissionOwned = true; beginOwner.isCurrent = current;
+          beginOwner.onOwnership = notifyOwnership; beginOwner.generation = recoveryGeneration;
+          await withinOutboundDeadline(beginWork, Math.min(deadline, handoffAt));
+          if (!current()) return invalidated();
+        }
         // A terminal end may have detached the old generation. Drain its
         // bounded jobs before starting text in a replacement conversation.
         if (!owner?.queue) {
           const replacingRetired = retiringQueues.size > 0;
           for (const retiring of retiringQueues.values()) retiring.queue.retire({ deadline: handoffAt });
           await withinOutboundDeadline(Promise.all([...retiringQueues.keys()]), deadline);
+          if (!current()) return invalidated();
           if (!outbound || outbound.queue?.state !== 'open') {
             clearCurrent(outbound);
             emptyStartCleanup = null;
-            await withinOutboundDeadline(session.begin(undefined, context, { ...from, onOwnership }), replacingRetired ? deadline : Math.min(deadline, handoffAt));
+            await withinOutboundDeadline(session.begin(undefined, context, { ...from, onOwnership: notifyOwnership, [OWNED_SUBMISSION]: submission }), replacingRetired ? deadline : Math.min(deadline, handoffAt));
           }
+          if (!current()) return invalidated();
           owner = outbound;
           release?.(); release = owner?.queue?.reserveText();
         }
+        if (!current()) return invalidated();
         if (!owner?.queue) return null;
         const entry = suppliedEntry ?? { id: crypto.randomUUID(), role: 'user', modality: 'text', text };
+        notifyOwnership();
         onEnqueued();
-        let result = await owner.queue.enqueue(entry, { reserved: true, beforeDeliver: closeOwnedVoice, deadline, handoffAt });
+        if (!current()) return invalidated();
+        let result = await owner.queue.enqueue(entry, { reserved: true, beforeDeliver: closeOwnedVoice, deadline, handoffAt, isCurrent: current });
+        if (!current()) return invalidated();
         void closeOwnedVoice().catch(() => {});
         if (result.status === 'dropped' && !result.started && Date.now() < deadline) {
           // A hung predecessor poisoned its old generation. Do not append to
           // that uncertain backend; text can start fresh without replaying it.
           clearCurrent(owner); release?.(); release = null;
           emptyStartCleanup = null;
-          if (!outbound) await withinOutboundDeadline(session.begin(undefined, context, { ...from, quiet: true, onOwnership }), deadline);
-          if (outbound?.queue && outbound.queue.state === 'open') result = await outbound.queue.enqueue(entry, { deadline });
+          if (!outbound) await withinOutboundDeadline(session.begin(undefined, context, { ...from, quiet: true, onOwnership: notifyOwnership, [OWNED_SUBMISSION]: submission }), deadline);
+          if (!current()) return invalidated();
+          if (outbound?.queue && outbound.queue.state === 'open') result = await outbound.queue.enqueue(entry, { deadline, isCurrent: current });
+          if (!current()) return invalidated();
         }
         // A drop is a handled receipt, not a rejected fire-and-forget send.
         return result.status === 'dropped' ? result : undefined;
       } catch (error) {
+        if (!current()) return invalidated();
         if (error.code !== 'outbound-dropped') throw error;
         // A late startup must not revive a timed-out submission or clear its failure.
         if (!owner?.queue && talkGeneration === textGeneration) void session.end({ preserveRecovery: true }).catch(() => {});
         say(OUTBOUND_DROPPED_MESSAGE);
         return { status: 'dropped', started: false };
-      } finally { release?.(); typedTakeover = false; }
+      } finally { release?.(); if (typedTakeoverOwner === submission) { typedTakeover = false; typedTakeoverOwner = null; } }
     },
     async end({ preserveRecovery = false } = {}) {
-      if (!preserveRecovery) invalidateRecovery('end');
+      // Terminal transport cleanup is not an explicit cancellation of an
+      // already-submitted typed takeover; a user End always revokes it.
+      const preserveTakeover = reportingVoiceTerminal && typedTakeover;
+      if (!preserveRecovery && !preserveTakeover) invalidateRecovery('end');
+      if (beginOwner && !preserveTakeover) beginOwner.cancelled = true;
       const owner = outbound;
       talkGeneration += 1;
       pendingEndTurn = false;

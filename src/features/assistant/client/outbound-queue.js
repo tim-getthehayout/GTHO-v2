@@ -41,7 +41,7 @@ export function createOutboundQueue({ conversation, generation, deliver, onDrop 
         finishIfDrained();
       };
     },
-    enqueue(entry, { reserved = false, beforeDeliver = async () => {}, deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS, handoffAt = deadline } = {}) {
+    enqueue(entry, { reserved = false, beforeDeliver = async () => {}, isCurrent = () => true, deadline = Date.now() + OUTBOUND_TURN_BUDGET_MS, handoffAt = deadline } = {}) {
       if (jobs.has(entry.id)) return jobs.get(entry.id).done;
       if (state === 'expired' || (state === 'retiring' && !reserved)) {
         onDrop({ reason: 'outbound-retired', count: 1 });
@@ -62,11 +62,13 @@ export function createOutboundQueue({ conversation, generation, deliver, onDrop 
       tail = tail.then(async () => {
         if (job.finished) return;
         try {
+          if (!isCurrent()) { complete(job, { status: 'invalidated' }); return; }
           await beforeDeliver();
           if (job.finished) return;
+          if (!isCurrent()) { complete(job, { status: 'invalidated' }); return; }
           if (Date.now() >= job.deadline) { expire('outbound-timeout'); return; }
           job.started = true; globalThis.clearTimeout(job.handoffTimer);
-          await deliver(job.entry, { conversation: job.conversation, generation: job.generation });
+          await deliver(job.entry, { conversation: job.conversation, generation: job.generation, isCurrent });
           complete(job, { status: 'delivered' });
         } catch { expire('outbound-failed'); }
       });

@@ -7,7 +7,7 @@ vi.mock('../../../../src/features/assistant/client/session.js', async importOrig
     ...actual,
     createAssistantSession: vi.fn(options => {
       let live = false;
-      const session = { options, discardEmptyFailed: false, talk: vi.fn(async () => { if (live) return 'turn-ended'; live = true; options.onListening(true); return 'listening'; }), end: vi.fn(async () => {}), begin: vi.fn(async firstTurn => ({ ref: 'c1', scope: { operationId: '00000000-0000-4000-8000-000000000001', actorId: 'u' }, firstTurn })) };
+      const session = { options, discardEmptyFailed: false, conversation: { ref: 'c1', scope: { operationId: '00000000-0000-4000-8000-000000000001', actorId: 'u' } }, attempt: { id: 'a1' }, talk: vi.fn(async () => { if (live) return 'turn-ended'; live = true; options.onListening(true); return 'listening'; }), end: vi.fn(async () => {}), begin: vi.fn(async firstTurn => ({ ref: 'c1', scope: { operationId: '00000000-0000-4000-8000-000000000001', actorId: 'u' }, firstTurn })) };
       sessions.push(session);
       return session;
     }),
@@ -74,14 +74,13 @@ describe('global push-to-talk', () => {
 });
 
 describe('header assistant sheet', () => {
-  it('offers typed farm entry alongside feedback, questions and how-to (typed peer of voice)', () => {
+  it('opens the shared composer with Type here and no intent picker', () => {
     openAssistant(deps(), {});
-    expect([...document.querySelectorAll('[data-testid^="assistant-intent-"]')].map(node => node.dataset.testid)).toEqual([
-      'assistant-intent-data-entry',
-      'assistant-intent-feedback',
-      'assistant-intent-data-questions',
-      'assistant-intent-how-to',
-    ]);
+    expect(document.querySelectorAll('[data-testid^="assistant-intent-"]')).toHaveLength(0);
+    const input = document.querySelector('[data-testid="assistant-text"]');
+    expect(input).not.toBeNull();
+    expect(input.placeholder).toBe('Type here');
+    expect(document.querySelector('[data-testid="assistant-cancel"]').textContent).toBe('Cancel');
   });
   it('has no voice control of its own: the global push-to-talk is the one voice entry point', async () => {
     const { createOfflineNoteRecorder } = await import('../../../../src/features/assistant/client/session.js');
@@ -96,7 +95,6 @@ describe('header assistant sheet', () => {
     // Offline, the sheet points to the push-to-talk instead of recording.
     document.body.innerHTML = '';
     openAssistant(deps(false), {});
-    document.querySelector('[data-testid="assistant-intent-how-to"]').click();
     expect(document.querySelector('[data-testid="assistant-status"]').textContent).toContain('push-to-talk');
     expect(createOfflineNoteRecorder.mock.calls.length).toBe(before);
   });

@@ -5,18 +5,24 @@
 import { el, clear } from '../../../ui/dom.js';
 import { Sheet } from '../../../ui/sheet.js';
 import { createOfflineNoteStore } from './offline-notes.js';
-import { createAssistantSession } from './session.js';
+import { createAssistantSession, DISCARD_EMPTY_FAILED_MESSAGE } from './session.js';
 import { renderNoteReview, recordNoteUse, settleNoteAfterSave, noteOrigin } from './offline-note-review.js';
 import { createVoiceLog } from './voice-log.js';
 export { CONSENT_TEXT, CONSENT_KEEP, CONSENT_DECLINE, askTestingConsent, resolveTestingConsent } from './consent.js';
 
 export const OFFLINE_TEXT = 'You are offline. Tap the push-to-talk to record a voice note, or use the normal screens.';
+export const COMPOSER_PLACEHOLDER = 'Type here';
+/** Historical labels only; the shared entry path no longer renders a picker. */
 export const PANEL_INTENTS = Object.freeze([
   ['data-entry', 'Record a farm entry'],
   ['feedback', 'Leave feedback'],
   ['data-questions', 'Ask about my farm'],
   ['how-to', 'How do I…'],
 ]);
+
+function offline(deps) {
+  return typeof deps.online === 'function' && !deps.online();
+}
 
 /** Reveals the control only when the backend returns config (not 403). */
 export async function mountAssistantControl(button, deps) {
@@ -25,7 +31,7 @@ export async function mountAssistantControl(button, deps) {
   try { config = await deps.api.config(); } catch { config = null; }
   if (!config) return null;
   button.hidden = false;
-  button.addEventListener('click', () => openAssistant(deps, config));
+  button.addEventListener('click', () => openAssistant(deps, config, { invoker: button, mode: 'text' }));
   return config;
 }
 
@@ -47,75 +53,177 @@ export function renderTranscript(container, transcript) {
 }
 
 /**
- * deps: {api, scope(), persist, awaitServerRows, flush, getAll, getById, add, runDurableWrite,
- *  pullReviewRows, revisionIdFor, createFarmUiPorts, authorize, openFeedbackSheet, feedbackHost(),
- *  storage, buildStamp, online(), offlineNotes?}
+ * Shared assistant entry (option B). Every launcher skips the intent picker
+ * and opens this composer with header Cancel. The internal seed is always
+ * data-entry; opening the composer does not begin a session. Send, an
+ * explicit voice request, or Use of a reviewed note starts once.
  */
-/** options.intent: begin that intent immediately (skip the picker).
- * options.focusText: focus the Type instead… box after begin (mic-failure Yes path). */
 export function openAssistant(deps, config, options = {}) {
   const { sheet, panel, wrap } = ensureSheet();
+  const invoker = options.invoker ?? null;
   clear(panel);
   const status = el('div', { className: 'auth-error', 'data-testid': 'assistant-status', role: 'status' });
   const transcript = el('div', { 'data-testid': 'assistant-transcript' });
-  const body = el('div');
-  panel.append(el('div', { className: 'sheet-handle' }), el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '10px' } }, ['Assistant']), body, transcript, status);
-  const say = text => { status.textContent = text; };
+  const body = el('div', { 'data-testid': 'assistant-body' });
+  const cancel = el('button', { type: 'button', className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-cancel', onClick: () => { void close(); } }, ['Cancel']);
+  panel.append(
+    el('div', { className: 'sheet-handle' }),
+    el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', gap: '8px' } }, [
+      el('div', { style: { fontSize: '16px', fontWeight: '600' } }, ['Assistant']),
+      cancel,
+    ]),
+    body, transcript, status,
+  );
+  const say = text => { status.textContent = text ?? ''; };
   const notes = deps.offlineNotes ?? createOfflineNoteStore({ onQuota: () => say('This device is out of storage. Your voice note was not saved; free up space and record it again.') });
   const voiceLog = deps.voiceLog ?? createVoiceLog({ operationId: deps.scope().operationId });
   let session = null;
+  let closed = false;
+  let starting = false;
+  let openId = 0;
+  const generation = { id: 0 };
+  const thisOpen = (generation.id += 1);
+  openId = thisOpen;
+  const stale = () => closed || generation.id !== openId;
 
-  async function begin(intent, firstTurn, extra = {}, from = {}) {
-    session = createAssistantSession({ deps, config, intent, say, onTranscript: turns => renderTranscript(transcript, turns), voiceLog, ...extra });
-    await session.begin(firstTurn, undefined, from);
-    clear(body);
-    const input = el('input', { type: 'text', placeholder: 'Type instead…', 'data-testid': 'assistant-text' });
-    body.append(
-      // Text/tap only: the one voice entry point is the global push-to-talk.
-      el('div', { className: 'btn-row' }, [
-        el('button', { className: 'btn btn-outline', 'data-testid': 'assistant-end', onClick: async () => { await session.end(); sheet.close(); } }, ['End']),
-      ]),
-      el('div', { className: 'field' }, [input, el('button', { className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-send', onClick: async () => {
-        const text = input.value.trim(); if (!text) return; input.value = '';
-        try { await session.text(text); } catch (error) { say(error.message); }
-      } }, ['Send'])]),
-    );
-    if (options.focusText) input.focus();
+  const input = el('input', { type: 'text', placeholder: COMPOSER_PLACEHOLDER, 'data-testid': 'assistant-text' });
+  const send = el('button', { className: 'btn btn-outline btn-xs', 'data-testid': 'assistant-send', onClick: () => { void submit(); } }, ['Send']);
+  body.append(el('div', { className: 'field' }, [input, send]));
+
+  async function ensureSession(extra = {}, from = {}) {
+    if (session) return session;
+    if (offline(deps)) { say(OFFLINE_TEXT); return null; }
+    starting = true;
+    say('Starting…');
+    const startedFor = openId;
+    session = createAssistantSession({
+      deps, config, intent: 'data-entry', say,
+      onTranscript: turns => { if (!stale() && startedFor === generation.id) renderTranscript(transcript, turns); },
+      voiceLog, ...extra,
+    });
+    await session.begin(undefined, undefined, from);
+    if (stale() || startedFor !== generation.id) {
+      try { await session.end(); } catch { /* late begin still cleans up once */ }
+      session = null;
+      return null;
+    }
+    say('');
+    starting = false;
     return session;
   }
+
+  async function submit() {
+    const text = input.value.trim();
+    if (!text || starting) return;
+    const kept = input.value;
+    if (offline(deps)) { say(OFFLINE_TEXT); return; }
+    starting = true;
+    say('Starting…');
+    try {
+      const current = await ensureSession();
+      if (!current) { input.value = kept; starting = false; return; }
+      input.value = '';
+      await current.text(text);
+      if (!status.textContent) say('');
+    } catch (error) {
+      input.value = kept;
+      say(error.message);
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function begin(intent, firstTurn, extra = {}, from = {}) {
+    if (offline(deps)) { say(OFFLINE_TEXT); return session; }
+    starting = true;
+    say('Starting…');
+    try {
+      session = createAssistantSession({
+        deps, config, intent: 'data-entry', say,
+        onTranscript: turns => { if (!stale()) renderTranscript(transcript, turns); },
+        voiceLog, ...extra,
+      });
+      await session.begin(firstTurn, undefined, from);
+      if (stale()) {
+        try { await session.end(); } catch { /* closed while starting */ }
+        session = null;
+        return null;
+      }
+      say('');
+      return session;
+    } catch (error) {
+      say(error.message);
+      throw error;
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function close() {
+    if (closed) return;
+    closed = true;
+    generation.id += 1;
+    wrap.querySelector('.sheet-backdrop').onclick = null;
+    document.removeEventListener('keydown', onEscape, true);
+    sheet.close();
+    try { invoker?.focus?.(); } catch { /* invoker may be detached */ }
+    if (!session) return;
+    const current = session;
+    try {
+      await current.end();
+    } catch (error) {
+      if (current.discardEmptyFailed) say(DISCARD_EMPTY_FAILED_MESSAGE);
+      else if (error) say(error.message);
+      return;
+    }
+    session = null;
+  }
+
+  function onEscape(event) {
+    if (event.key === 'Escape' && !closed) {
+      event.preventDefault();
+      void close();
+    }
+  }
+
   async function renderNotes() {
+    if (stale()) return;
     let list;
     try { list = await notes.list(); } catch { return; }
-    if (!list.length) return;
+    if (stale() || !list.length) return;
     const section = el('div', { 'data-testid': 'assistant-offline-notes' }, [el('div', {}, ['Voice notes saved on this device'])]);
     for (const note of list) {
       section.appendChild(renderNoteReview(note, { deps, say, use: async (picked, text) => {
-        // Deleted from the device only after a durable local save from this conversation.
+        if (stale()) return;
         let record = null, settled = false;
-        const started = await begin(picked.context?.intent ?? 'feedback', { id: crypto.randomUUID(), role: 'user', modality: 'voice', text }, { onDurableSave: async (outcome, conversation) => {
-          if (settled) return;
+        const started = await begin('data-entry', { id: crypto.randomUUID(), role: 'user', modality: 'voice', text }, { onDurableSave: async (outcome, conversation) => {
+          if (settled || stale()) return;
           settled = true;
           await settleNoteAfterSave({ deps, notes, note: picked, record, conversation, outcome });
         } }, noteOrigin({ deps, note: picked }));
+        if (!started) return;
         record = await recordNoteUse({ deps, note: picked, conversation: started.conversation, attemptId: started.attempt?.id ?? null });
       } }));
     }
-    body.appendChild(section);
-  }
-  for (const [intent, label] of PANEL_INTENTS) {
-    body.appendChild(el('button', { className: 'btn btn-outline', 'data-testid': `assistant-intent-${intent}`, onClick: () => {
-      // Offline voice notes are recorded from the push-to-talk, never here.
-      if (!deps.online()) return say(OFFLINE_TEXT);
-      begin(intent).catch(error => say(error.message));
-    } }, [label]));
+    if (!stale()) body.appendChild(section);
   }
   void renderNotes();
-  wrap.querySelector('.sheet-backdrop').onclick = () => sheet.close();
+  wrap.querySelector('.sheet-backdrop').onclick = () => { void close(); };
+  document.addEventListener('keydown', onEscape, true);
   sheet.open();
-  // Mic-failure Yes / direct typed start: same runtime as voice, text box focused.
-  if (options.intent) {
-    if (!deps.online()) say(OFFLINE_TEXT);
-    else begin(options.intent).catch(error => say(error.message));
+  if (offline(deps)) say(OFFLINE_TEXT);
+  if (options.focusText) input.focus();
+  let ready = Promise.resolve(null);
+  if (options.firstTurn) {
+    ready = begin('data-entry', options.firstTurn, options.extra ?? {}, options.from ?? {}).catch(error => { say(error.message); return null; });
   }
-  return { begin, get session() { return session; } };
+  if (options.mode === 'voice') {
+    ready = (async () => {
+      const current = await ensureSession();
+      if (!current || stale()) return null;
+      try { await current.talk(); } catch (error) { say(error.message); }
+      return current;
+    })();
+  }
+  return { begin, close, ready, get session() { return session; }, get input() { return input; } };
 }

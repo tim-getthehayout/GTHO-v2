@@ -104,16 +104,22 @@ export function mountPushToTalk(deps, config, { root = document.body, compact = 
         // The note stays on this device (unfinished, counted) until a confirmed
         // write or filing from this conversation has durably saved locally.
         let record = null, settled = false;
-        session = newSession({ onDurableSave: async (outcome, conversation) => {
-          if (settled) return;
-          settled = true;
-          await settleNoteAfterSave({ deps, notes, note, record, conversation, outcome });
-          await refreshBadge();
-        } });
+        const entry = openAssistant(deps, config, {
+          firstTurn: { id: crypto.randomUUID(), role: 'user', modality: 'voice', text },
+          from: noteOrigin({ deps, note }),
+          extra: { onDurableSave: async (outcome, conversation) => {
+            if (settled) return;
+            settled = true;
+            await settleNoteAfterSave({ deps, notes, note, record, conversation, outcome });
+            await refreshBadge();
+          } },
+          focusText: true,
+        });
+        const started = await entry.ready;
+        session = started ?? entry.session;
         end.hidden = false;
-        const started = session;
-        const conversation = await started.begin({ id: crypto.randomUUID(), role: 'user', modality: 'voice', text }, undefined, noteOrigin({ deps, note }));
-        record = await recordNoteUse({ deps, note, conversation, attemptId: started.attempt?.id ?? null });
+        const conversation = session?.conversation;
+        if (conversation) record = await recordNoteUse({ deps, note, conversation, attemptId: session?.attempt?.id ?? null });
       } });
   }
   // Reusable terminal path (session cap, voice-ending errors; OI-0196 no-mic later).

@@ -224,6 +224,57 @@ const PLAIN = stripComments(CSS);
 const { light: LIGHT, dark: DARK } = lightAndDarkTokens(CSS);
 const RULES = parseRules(PLAIN);
 
+/** jsdom 29's evaluateMediaList only matches plain media types (`all`/`screen`);
+ * `@media (prefers-color-scheme: dark)` never matches, and getComputedStyle
+ * does not resolve var() (TODO in CSSStyleDeclaration-impl). Equivalent of a
+ * matching prefers-color-scheme: unwrap the *entire* dark media block into the
+ * cascade (tokens + all nested rules, not one extracted selector) and flatten
+ * var()/color-mix to literals so computed colors are real rgb values. */
+function unwrapDarkMedia(css, { applyDark }) {
+  const parts = [];
+  let i = 0;
+  const headerRe = /@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*\{/;
+  while (i < css.length) {
+    const rest = css.slice(i);
+    const found = rest.search(headerRe);
+    if (found < 0) {
+      parts.push(css.slice(i));
+      break;
+    }
+    const start = i + found;
+    parts.push(css.slice(i, start));
+    const header = rest.slice(found).match(headerRe)[0];
+    let j = start + header.length - 1;
+    let depth = 0;
+    for (; j < css.length; j++) {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}') {
+        depth--;
+        if (depth === 0) { j++; break; }
+      }
+    }
+    const body = css.slice(start + header.length, j - 1);
+    if (applyDark) parts.push(body);
+    i = j;
+  }
+  return parts.join('');
+}
+
+function flattenCssVars(css, tokens) {
+  return css.replace(/:\s*([^;{}]+)/g, (full, val) => {
+    if (!/var\(|color-mix\(/i.test(val)) return full;
+    const resolved = resolveValue(val.trim(), tokens);
+    const hex = parseHex(resolved);
+    return `: ${hex || resolved}`;
+  });
+}
+
+function cssForColorScheme(css, scheme) {
+  const tokens = scheme === 'dark' ? DARK : LIGHT;
+  return flattenCssVars(unwrapDarkMedia(stripComments(css), { applyDark: scheme === 'dark' }), tokens);
+}
+
+
 describe('theme tokens and base rule from real main.css', () => {
   it('sets color-scheme: light dark on :root', () => {
     expect(CSS).toMatch(/:root\s*\{[^}]*color-scheme:\s*light\s+dark/s);
@@ -501,13 +552,16 @@ describe('dark category selections use surface-selected + text (not hue tint)', 
 
 describe('rendered sample screens — jsdom getComputedStyle contrast', () => {
   let styleEl;
+
+  function applyColorScheme(scheme) {
+    styleEl.textContent = cssForColorScheme(CSS, scheme);
+    document.documentElement.removeAttribute('style');
+  }
+
   beforeAll(() => {
     styleEl = document.createElement('style');
-    styleEl.textContent = CSS;
+    applyColorScheme('light');
     document.head.appendChild(styleEl);
-    for (const [k, v] of Object.entries(LIGHT)) {
-      if (k.startsWith('--')) document.documentElement.style.setProperty(k, v);
-    }
   });
   afterAll(() => {
     styleEl?.remove();
@@ -535,23 +589,18 @@ describe('rendered sample screens — jsdom getComputedStyle contrast', () => {
     return screen;
   }
 
-  function rgbToHex(rgb) {
-    const m = String(rgb).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-    if (!m) return null;
-    return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
-  }
-
-  /** Always call getComputedStyle; resolve jsdom's unresolved var()/transparent. */
-  function resolvedComputedHex(el, cssProp, tokens, declaredFallback) {
+  /** Actual computed color only — never substitute an expected value. */
+  function computedHex(el, cssProp) {
     const raw = getComputedStyle(el)[cssProp];
     expect(raw, `${cssProp} from getComputedStyle`).toBeTruthy();
-    const asHex = rgbToHex(raw);
-    if (asHex && asHex !== '#000000') return asHex;
-    if (typeof raw === 'string' && /var\(/.test(raw)) return parseHex(resolveValue(raw, tokens));
-    return parseHex(resolveValue(declaredFallback, tokens));
+    const m = String(raw).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    expect(m, `${cssProp} must be a resolved rgb color, got ${raw}`).toBeTruthy();
+    const hex = `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
+    return hex;
   }
 
   it('mounts sample controls and locks light chip colors; all samples ≥4.5:1', () => {
+    applyColorScheme('light');
     mountSampleScreen();
     const chip = document.querySelector('[data-testid="sample-now-chip"]');
     const styles = surfaceStyles(RULES, '.now-chip', { tag: 'span', darkOnly: false });
@@ -559,9 +608,8 @@ describe('rendered sample screens — jsdom getComputedStyle contrast', () => {
     const expectedFg = parseHex(resolveValue(styles.color, LIGHT));
     expect(expectedBg).toBe('#ffffff');
     expect(expectedFg).toBe('#3b6d11');
-    // Unconditional computed-style asserts (both channels).
-    expect(resolvedComputedHex(chip, 'backgroundColor', LIGHT, styles.background)).toBe(expectedBg);
-    expect(resolvedComputedHex(chip, 'color', LIGHT, styles.color)).toBe(expectedFg);
+    expect(computedHex(chip, 'backgroundColor')).toBe(expectedBg);
+    expect(computedHex(chip, 'color')).toBe(expectedFg);
     for (const [sel, tag] of [
       ['.now-chip', 'span'],
       ['.dash-chip-green', 'span'],
@@ -581,6 +629,15 @@ describe('rendered sample screens — jsdom getComputedStyle contrast', () => {
     }
   });
 
+  it('does not substitute an expected color when computed text is black', () => {
+    applyColorScheme('light');
+    mountSampleScreen();
+    const chip = document.querySelector('[data-testid="sample-now-chip"]');
+    chip.style.color = 'rgb(0, 0, 0)';
+    expect(computedHex(chip, 'color')).toBe('#000000');
+    expect(computedHex(chip, 'color')).not.toBe('#3b6d11');
+  });
+
   it('dark cat-pill sample getComputedStyle resolves to surface-selected + text (≥4.5:1)', () => {
     const darkRule = findRule(RULES, '.cat-pill.cp-idea.sel', { darkOnly: true });
     const expectedFg = parseHex(resolveValue(declared(darkRule, 'color'), DARK));
@@ -589,21 +646,11 @@ describe('rendered sample screens — jsdom getComputedStyle contrast', () => {
     expect(expectedFg).toBe(parseHex(resolveValue('var(--text)', DARK)));
     expect(contrastRatio(expectedFg, expectedBg)).toBeGreaterThanOrEqual(4.5);
 
-    // Apply dark tokens and the dark-only rule outside the media query so jsdom
-    // paints the sample; then assert getComputedStyle unconditionally.
-    for (const [k, v] of Object.entries(DARK)) {
-      if (k.startsWith('--')) document.documentElement.style.setProperty(k, v);
-    }
-    const inject = document.createElement('style');
-    inject.textContent = `.cat-pill.cp-idea.sel { color: ${declared(darkRule, 'color')}; background: ${declared(darkRule, 'background')}; }`;
-    document.head.appendChild(inject);
+    applyColorScheme('dark');
     mountSampleScreen();
     const pill = document.querySelector('[data-testid="sample-cat-pill"]');
-    expect(resolvedComputedHex(pill, 'backgroundColor', DARK, declared(darkRule, 'background'))).toBe(expectedBg);
-    expect(resolvedComputedHex(pill, 'color', DARK, declared(darkRule, 'color'))).toBe(expectedFg);
-    inject.remove();
-    for (const [k, v] of Object.entries(LIGHT)) {
-      if (k.startsWith('--')) document.documentElement.style.setProperty(k, v);
-    }
+    expect(computedHex(pill, 'backgroundColor')).toBe(expectedBg);
+    expect(computedHex(pill, 'color')).toBe(expectedFg);
+    applyColorScheme('light');
   });
 });

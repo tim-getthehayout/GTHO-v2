@@ -7,6 +7,7 @@
  */
 
 import { isPureConfinementOnDate, hasInvalidFeedConversion } from './location-type.js';
+import { hasUnknownLiveWindowWeights } from './window-helpers.js';
 
 const HIDDEN = Object.freeze({
   visible: false,
@@ -77,6 +78,18 @@ export function projectEventFeedDays({ dmi8Fn, for4Fn, ctx, today } = {}) {
   const demandKg = Number(result.totalDmiKg);
   if (!Number.isFinite(demandKg) || demandKg <= 0) {
     return hide('zero_demand', { isPureConfinement, dmi8: result });
+  }
+
+  const openGroups = (ctx.groupWindows || []).filter(gw => gw.eventId === eventId && !gw.dateLeft);
+  const weightOpts = {
+    memberships: ctx.memberships,
+    animals: ctx.animals,
+    animalClasses: ctx.animalClasses,
+    animalWeightRecords: ctx.animalWeightRecords,
+    now: today,
+  };
+  if (openGroups.some(gw => hasUnknownLiveWindowWeights(gw, weightOpts))) {
+    return hide('unknown_weight', { isPureConfinement, dmi8: result, demandKg });
   }
 
   const remainingStoredDmKg = Number(result.remainingStoredDmKg);

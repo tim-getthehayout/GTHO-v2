@@ -190,3 +190,26 @@ export function getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses
   if (count === 0) return gw.avgWeightKg ?? 0;
   return sum / count;
 }
+
+/** True when any live animal in an open window lacks a weight record and a class default. */
+export function hasUnknownLiveWindowWeights(gw, opts) {
+  if (gw.dateLeft != null) return false;
+  if (!opts?.memberships || !opts?.animals || !opts?.now) return false;
+  const liveAnimalIds = opts.memberships
+    .filter(m => isMembershipLive(m, gw.groupId, opts.now))
+    .map(m => m.animalId);
+  if (!liveAnimalIds.length) return false;
+  const animalById = new Map(opts.animals.map(a => [a.id, a]));
+  const classes = opts.animalClasses;
+  const classById = new Map(Array.isArray(classes) ? classes.map(c => [c.id, c]) : Object.entries(classes || {}).map(([id, c]) => [c.id || id, c]));
+  for (const id of liveAnimalIds) {
+    const rec = latestWeightForAnimal(opts.animalWeightRecords, id, opts.now);
+    if (rec && typeof rec.weightKg === 'number') continue;
+    const animal = animalById.get(id);
+    const cls = animal?.classId ? classById.get(animal.classId) : null;
+    if (cls && typeof cls.defaultWeightKg === 'number' && cls.defaultWeightKg > 0) continue;
+    return true;
+  }
+  return false;
+}
+

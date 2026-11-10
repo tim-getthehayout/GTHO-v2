@@ -120,14 +120,19 @@ export function openCloseEventSheet(evt, operationId) {
 
   // Post-graze observation card (OI-0112 surface #3).
   const farmSettings = getAll('farmSettings')[0] || null;
+  const closingWindows = (getAll('eventPaddockWindows') || [])
+    .filter((w) => w.eventId === evt.id && !w.dateClosed);
   const postGraze = renderPostGrazeCard({ farmSettings });
-  const closingLocs = (getAll('eventPaddockWindows') || [])
-    .filter((w) => w.eventId === evt.id && !w.dateClosed)
-    .map((w) => getById('locations', w.locationId));
-  const postGrazeNode = el('div', { 'data-testid': 'close-event-postgraze' }, [postGraze.container]);
-  panel.appendChild(closingLocs.length && closingLocs.every(isConfinementLocation)
-    ? wrapInactiveForage(postGrazeNode, 'close-event-postgraze-inactive')
-    : postGrazeNode);
+  const postGrazeWrap = el('div', { 'data-testid': 'close-event-postgraze' });
+  const landWindows = closingWindows.filter((w) => !isConfinementLocation(getById('locations', w.locationId)));
+  const confinementWindows = closingWindows.filter((w) => isConfinementLocation(getById('locations', w.locationId)));
+  if (landWindows.length) postGrazeWrap.appendChild(postGraze.container);
+  for (const pw of confinementWindows) {
+    const loc = getById('locations', pw.locationId);
+    const node = el('div', {}, [loc?.name || pw.locationId]);
+    postGrazeWrap.appendChild(wrapInactiveForage(node, `close-event-postgraze-inactive-${pw.locationId}`));
+  }
+  panel.appendChild(postGrazeWrap);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'close-event-status' });
   panel.appendChild(statusEl);
@@ -136,7 +141,7 @@ export function openCloseEventSheet(evt, operationId) {
     el('button', {
       className: 'btn btn-red',
       'data-testid': 'close-event-save',
-      onClick: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze),
+      onClick: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows),
     }, [t('event.closeEvent')]),
     el('button', {
       className: 'btn btn-outline',
@@ -148,7 +153,7 @@ export function openCloseEventSheet(evt, operationId) {
   closeEventSheet.open();
 }
 
-function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze) {
+function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows) {
   clear(statusEl);
   const dateOut = inputs.dateOut.value;
   const timeOut = inputs.timeOut.value || null;
@@ -157,8 +162,7 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
     return;
   }
 
-  // Validate post-graze observation fields
-  if (postGraze) {
+  if (postGraze && (landWindows ?? []).length) {
     const obsValidation = postGraze.validate();
     if (!obsValidation.valid) {
       statusEl.appendChild(el('span', {}, [obsValidation.errors.join(', ')]));
@@ -198,7 +202,7 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
       conflicts: closeConflicts,
       operationId,
       event: evt,
-      onResume: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze),
+      onResume: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows),
     });
     return;
   }
@@ -234,6 +238,7 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
     const openPWs = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
     for (const pw of openPWs) {
       closePaddockWindow(pw.locationId, evt.id, dateOut, timeOut);
+      if (isConfinementLocation(getById('locations', pw.locationId))) continue;
       createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
         postGraze ? postGraze.getValues() : {});
     }

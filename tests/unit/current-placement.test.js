@@ -1,5 +1,6 @@
 /** @file OI-0205 — shared current-placement resolver. Pure fixtures; no git or absolute paths. */
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   resolveCurrentPlacement,
   listOpenPaddocksForEvent,
@@ -428,5 +429,29 @@ describe('store farm scope and write-context use the valid current window', () =
     maybeSplitForGroup(GROUP_ID, '2026-11-10');
     expect(JSON.stringify(getAll('eventGroupWindows'))).toBe(before);
     expect(resolveGroupCurrentPlacement(GROUP_ID).placed).toBe(false);
+  });
+});
+
+describe('hasConflictingOpenEvents stays computed and unshown', () => {
+  it('is computed on a latest-joined conflict and is not read by the animal or dashboard UI', () => {
+    const result = resolveCurrentPlacement({
+      groupId: GROUP,
+      events: [ev(EVENT_CURRENT), ev(EVENT_OTHER)],
+      groupWindows: [
+        gw('gw-older', { eventId: EVENT_OTHER, dateJoined: '2026-10-01' }),
+        gw('gw-newer', { eventId: EVENT_CURRENT, dateJoined: '2026-11-02' }),
+      ],
+      paddockWindows: [
+        pw('pw-e1', { eventId: EVENT_CURRENT, locationId: LOC_E1, dateOpened: '2026-11-02' }),
+        pw('pw-f1', { eventId: EVENT_OTHER, locationId: LOC_F1, dateOpened: '2026-10-01' }),
+      ],
+      locations: [loc(LOC_E1, 'E-1'), loc(LOC_F1, 'F-1')],
+    });
+    expect(result.hasConflictingOpenEvents).toBe(true);
+    expect(result.eventId).toBe(EVENT_CURRENT);
+
+    for (const rel of ['src/features/animals/index.js', 'src/features/dashboard/index.js']) {
+      expect(readFileSync(rel, 'utf8')).not.toMatch(/hasConflictingOpenEvents/);
+    }
   });
 });

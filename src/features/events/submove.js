@@ -62,33 +62,39 @@ export function openSubmoveOpenSheet(evt, operationId) {
   });
   panel.appendChild(inputs.timeOpened);
 
-  // Pre-graze observation card (OI-0112 surface #4). Rendered BEFORE the
-  // location picker wiring so the picker's onSelect callback can late-bind
-  // paddockAcres into the existing card via setPaddockAcres — OI-0114 NC-1.
+  // One active pre-graze card for land locations (shared values). Each
+  // confinement location stays visible but inactive and gets no observation.
   const farmSettings = getAll('farmSettings')[0] || null;
   const preGraze = renderPreGrazeCard({ farmSettings, paddockAcres: null, initialValues: {} });
+  const preGrazeWrap = el('div', { 'data-testid': 'submove-open-pregraze' });
+  function selectedIds() {
+    return selection.locationIds.length ? selection.locationIds : (selection.locationId ? [selection.locationId] : []);
+  }
+  function landIds() {
+    return selectedIds().filter(id => !isConfinementLocation(getById('locations', id)));
+  }
+  function renderPreGrazeCards() {
+    clear(preGrazeWrap);
+    const confinement = selectedIds().filter(id => isConfinementLocation(getById('locations', id)));
+    if (landIds().length) {
+      preGraze.setPaddockAcres(summedPaddockAcres(landIds()));
+      preGrazeWrap.appendChild(preGraze.container);
+    }
+    for (const id of confinement) {
+      const loc = getById('locations', id);
+      const node = el('div', { 'data-testid': `submove-open-pregraze-inactive-${id}` }, [loc?.name || id]);
+      preGrazeWrap.appendChild(wrapInactiveForage(node, `submove-open-pregraze-inactive-${id}`));
+    }
+  }
 
   // Location picker
   panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectLocation')]));
   const locPickerEl = el('div', { 'data-testid': 'submove-open-location-picker' });
   renderLocationPicker(locPickerEl, locations, selection, {
     multi: true,
-    onSelect: () => {
-      // Summed acres for the imperial-native BRC-1 calc. One pick matches
-      // the single-paddock card; a second pick adds that paddock's area.
-      preGraze.setPaddockAcres(summedPaddockAcres(selection.locationIds));
-      const locs = selection.locationIds.map((id) => getById('locations', id));
-      const allConfinement = locs.length > 0 && locs.every(isConfinementLocation);
-      preGrazeWrap.classList.toggle('confinement-forage-inactive', allConfinement);
-      preGrazeWrap.setAttribute('aria-disabled', allConfinement ? 'true' : 'false');
-      preGrazeWrap.querySelectorAll('button, input, select, textarea').forEach((node) => {
-        if ('disabled' in node) node.disabled = allConfinement;
-      });
-    },
+    onSelect: () => { renderPreGrazeCards(); },
   });
   panel.appendChild(locPickerEl);
-
-  const preGrazeWrap = el('div', { 'data-testid': 'submove-open-pregraze' }, [preGraze.container]);
   panel.appendChild(preGrazeWrap);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-open-status' });
@@ -107,8 +113,10 @@ export function openSubmoveOpenSheet(evt, operationId) {
           statusEl.appendChild(el('span', {}, [t('event.selectLocation')]));
           return;
         }
-        const pgv = preGraze.validate();
-        if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
+        if (landIds().length) {
+          const pgv = preGraze.validate();
+          if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
+        }
         try {
           // Neighbors opened in this Save. Does not retitle the event,
           // move the group, or rewrite windows that are already open.
@@ -120,8 +128,9 @@ export function openSubmoveOpenSheet(evt, operationId) {
             timeOpened: inputs.timeOpened.value || null,
           });
           const observedAt = new Date().toISOString();
-          const values = preGraze.getValues();
+          const values = landIds().length ? preGraze.getValues() : null;
           for (const pw of windows) {
+            if (isConfinementLocation(getById('locations', pw.locationId))) continue;
             createObservation(operationId, pw.locationId, 'open', pw.id, observedAt, values);
           }
           submoveOpenSheet.close();
@@ -194,14 +203,18 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   });
   panel.appendChild(inputs.timeClosed);
 
-  // Post-graze observation card (OI-0112 surface #5).
   const farmSettings2 = getAll('farmSettings')[0] || null;
   const postGraze = renderPostGrazeCard({ farmSettings: farmSettings2 });
-  const closeLoc = first ? getById('locations', first.locationId) : null;
-  const postGrazeNode = el('div', { 'data-testid': 'submove-close-postgraze' }, [postGraze.container]);
-  panel.appendChild(isConfinementLocation(closeLoc)
-    ? wrapInactiveForage(postGrazeNode, 'submove-close-postgraze-inactive')
-    : postGrazeNode);
+  const postGrazeWrap = el('div', { 'data-testid': 'submove-close-postgraze' });
+  const landWindows = windows.filter(pw => !isConfinementLocation(getById('locations', pw.locationId)));
+  const confinementWindows = windows.filter(pw => isConfinementLocation(getById('locations', pw.locationId)));
+  if (landWindows.length) postGrazeWrap.appendChild(postGraze.container);
+  for (const pw of confinementWindows) {
+    const loc = getById('locations', pw.locationId);
+    const node = el('div', {}, [loc?.name || pw.locationId]);
+    postGrazeWrap.appendChild(wrapInactiveForage(node, `submove-close-postgraze-inactive-${pw.locationId}`));
+  }
+  panel.appendChild(postGrazeWrap);
 
   // OI-0119: forced feed-check card when the event has any stored-feed
   // deliveries. Strikes a clean actual/estimated boundary on sub-move close.
@@ -268,8 +281,10 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
       'data-testid': 'submove-close-save',
       onClick: () => {
         clear(statusEl);
-        const pgv = postGraze.validate();
-        if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
+        if (landWindows.length) {
+          const pgv = postGraze.validate();
+          if (!pgv.valid) { statusEl.appendChild(el('span', {}, [pgv.errors.join(', ')])); return; }
+        }
 
         // OI-0119: block Save when stored feed exists and any feed-check input
         // is blank or negative.
@@ -286,12 +301,13 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
         try {
           // One residual, copied onto every window this Save closes.
           // The feed check is the event's reading, written once.
-          const values = postGraze.getValues();
           const observedAt = new Date().toISOString();
           const dateClosed = inputs.dateClosed.value;
           const timeClosed = inputs.timeClosed.value || null;
+          const values = landWindows.length ? postGraze.getValues() : null;
           for (const pw of windows) {
             closePaddockWindow(pw.locationId, pw.eventId, dateClosed, timeClosed);
+            if (isConfinementLocation(getById('locations', pw.locationId))) continue;
             createObservation(pw.operationId, pw.locationId, 'close', pw.id, observedAt, values);
           }
 

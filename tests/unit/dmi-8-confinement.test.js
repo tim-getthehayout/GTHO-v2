@@ -318,6 +318,34 @@ describe('shared end-of-today feed-days projection (OI-0209)', () => {
     });
     expect(again).toEqual(projection);
   });
+  it('hides the estimate when a live animal has no weight, and shows it once the weight is filled', () => {
+    const animals = [
+      { id: 'a1', isBulk: false },
+      { id: 'a2', isBulk: false },
+    ];
+    const memberships = [
+      { animalId: 'a1', groupId: 'grp-1', dateJoined: '2026-11-01', dateLeft: null },
+      { animalId: 'a2', groupId: 'grp-1', dateJoined: '2026-11-01', dateLeft: null },
+    ];
+    const hidden = project({
+      animals,
+      memberships,
+      animalWeightRecords: [{ animalId: 'a1', weightKg: 500, recordedAt: '2026-11-09T00:00:00Z' }],
+    });
+    expect(hidden.projection.visible).toBe(false);
+    expect(hidden.projection.reason).toBe('unknown_weight');
+
+    const shown = project({
+      animals,
+      memberships,
+      animalWeightRecords: [
+        { animalId: 'a1', weightKg: 500, recordedAt: '2026-11-09T00:00:00Z' },
+        { animalId: 'a2', weightKg: 500, recordedAt: '2026-11-09T00:00:00Z' },
+      ],
+    });
+    expect(shown.projection.visible).toBe(true);
+  });
+
 });
 
 describe('DMI chart placeholder vs fed-feed bars (OI-0209)', () => {

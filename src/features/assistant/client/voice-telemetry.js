@@ -8,7 +8,7 @@ const ALLOWED_KEYS = Object.freeze([
 ]);
 const ENUMS = {
   audioContextState: new Set(['running', 'suspended', 'closed', 'interrupted']),
-  reason: new Set(['connect-budget', 'audio-context', 'no-mic', 'session-created-timeout', 'socket-closed', 'session-cap', 'socket-close', 'connect-failed', 'first-chunk-timeout']),
+  reason: new Set(['connect-budget', 'audio-context', 'no-mic', 'session-created-timeout', 'socket-closed', 'session-cap', 'socket-close', 'connect-failed', 'first-chunk-timeout', 'outbound-timeout', 'outbound-retired', 'outbound-failed']),
   event: new Set(['updated', 'completed']),
 };
 const ALLOWED = new Set(ALLOWED_KEYS);

@@ -2,6 +2,7 @@
  * (feedback, questions, how-to) and the global push-to-talk (farm voice entry).
  * Voice is I/O only: final transcripts go to the backend turn; the backend answer
  * is spoken verbatim. Tapping again ends the turn, the same as saying "over". */
+import { createOutboundQueue, OUTBOUND_DROPPED_MESSAGE } from './outbound-queue.js';
 import { VoiceTransport } from '../shared.js';
 import { createAssistantConversation, createFarmReviewFlow, createFeedbackFiling, feedbackSheetSession } from './conversation.js';
 import { createXaiRealtimeDriver, startMicrophone, createPcmPlayer, acquireMicrophone, classifyMicError, createAudioChunkBuffer, voiceStartTap, voiceStartMark, prepareCaptureContext, closeCaptureContext, anySignal, waitForAbort, SAMPLE_RATE, VOICE_CONNECT_BUDGET_MS, OFFLINE_NO_MIC_MESSAGE, VOICE_UNAVAILABLE_MESSAGE } from './realtime.js';
@@ -31,12 +32,14 @@ export const DISCARD_EMPTY_FAILED_MESSAGE = "Voice closed, but the empty session
  * filing from this conversation has durably saved on this device. */
 export function createAssistantSession({ deps, config, intent, say = () => {}, onTranscript = () => {}, onListening = () => {}, onIntent = () => {}, voiceLog = null, onDurableSave = async () => {}, onVoiceTerminal = null, onVoiceState = () => {} }) {
   let conversation, transport, driver, mic, player, recorder, consent, attempts, origin = {};
-  // Reroute replays are host-marked so the log shows the user's words once.
-  const replays = new Set();
-  const visible = () => (conversation?.session?.transcript ?? []).filter(entry => !replays.has(entry.id));
-  const speak = text => driver?.speak(text);
-  async function afterSession() {
-    onTranscript(visible());
+  let outbound = null, outboundGeneration = 0;
+  const retiringQueues = new Set();
+  const visible = (owner = outbound) => (owner?.conversation?.session?.transcript ?? []).filter(entry => !owner.replays.has(entry.id));
+  const speak = (text, owner) => { if (owner === outbound && owner.queue?.state !== 'expired') driver?.speak(text); };
+  async function afterSession(owner) {
+    if (owner !== outbound || owner.queue?.state === 'expired') return;
+    const conversation = owner.conversation;
+    onTranscript(visible(owner));
     const session = conversation.session;
     if (session.phase !== 'review' || !session.reviewReady) return;
     if (session.intent === 'feedback') {
@@ -44,47 +47,53 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       const persistDraft = async snapshot => { globalThis.localStorage.setItem(draftKey, JSON.stringify(snapshot)); return { saved: true, savedAt: new Date().toISOString() }; };
       deps.openFeedbackSheet('feedback', conversation.scope.operationId, {
         feedbackSession: await feedbackSheetSession({ session, persistDraft }), persistDraft, mountFeedbackReview,
-        fileConfirmed: createFeedbackFiling({ conversation, persist: deps.persist, awaitServerRows: deps.awaitServerRows, getAll: deps.getAll, runDurableWrite: deps.runDurableWrite, add: deps.add, flush: deps.flush, revisionIdFor: deps.revisionIdFor, onLocalSave: outcome => settle(outcome) }),
+        fileConfirmed: createFeedbackFiling({ conversation, persist: deps.persist, awaitServerRows: deps.awaitServerRows, getAll: deps.getAll, runDurableWrite: deps.runDurableWrite, add: deps.add, flush: deps.flush, revisionIdFor: deps.revisionIdFor, onLocalSave: outcome => settle(outcome, owner) }),
       });
     } else if (session.intent === 'data-entry') {
       // Opens the existing sheet populated from its own fields; saves through its existing path.
       await createFarmReviewFlow({ conversation, createFarmUiPorts: deps.createFarmUiPorts, authorize: deps.authorize, awaitServerRows: deps.awaitServerRows, getAll: deps.getAll, getById: deps.getById, flush: deps.flush, pullReviewRows: deps.pullReviewRows,
-        onResult: outcome => { say('Saved.'); onTranscript(visible()); void settle(outcome); }, onError: error => say(error.message) }).render(session.pending);
+        onResult: outcome => { if (owner === outbound) { say('Saved.'); onTranscript(visible(owner)); } void settle(outcome, owner); }, onError: error => say(error.message) }).render(session.pending);
     }
   }
-  async function settle(outcome) {
+  async function settle(outcome, owner) {
     if (!durableLocalSave(outcome)) return;
+    const { conversation, attempts } = owner;
     // The same point that deletes a used offline note finishes the attempt.
     try { await attempts?.finish(); await onDurableSave(outcome, conversation); } catch (error) { say(error.message); }
   }
-  async function turn(entry) {
+  async function turn(entry, owner) {
+    const { conversation, attempts, origin, replays } = owner;
+    const live = () => owner === outbound && owner.queue?.state !== 'expired';
     try {
       // One attempt per entry an utterance starts (an offline note keeps its recording time).
       const first = !attempts.current, before = attempts.current;
       const attempt = await attempts.ensure({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, ...(first ? origin : {}) });
+      if (owner.queue?.state === 'expired') return;
       if (attempt !== before) voiceLog?.setPreview?.(attempt.id, entry.text);
       let answer = await conversation.turn(entry);
+      if (owner.queue?.state === 'expired') return;
       const route = conversation.route;
       if (route) {
         // One push-to-talk: switch through the runtime intent command, then send
         // the same words once under the routed intent (never more than one reroute).
         await conversation.switchIntent(route);
-        onIntent(route);
+        if (live()) onIntent(route);
         await attempts.reroute(route);
+        if (owner.queue?.state === 'expired') return;
         const replay = { ...entry, id: crypto.randomUUID() };
         replays.add(replay.id);
         voiceLog?.hostEvent({ conversationRef: conversation.ref, intent: route, type: 'reroute-replay', text: `Replayed turn ${entry.id} as ${replay.id}` });
         answer = await conversation.turn(replay, { replayOf: entry.id });
       }
-      if (answer) speak(answer);
+      if (answer && live()) speak(answer, owner);
       // A question or how-to is finished once answered.
       if (answer && ['data-questions', 'how-to'].includes(conversation.session?.intent)) await attempts.finish();
-      await afterSession();
+      await afterSession(owner);
     } catch (error) {
       if (error.code !== 'entry-target-unresolved') throw error;
       // Never default: ask the host's plain-words missing-field question (fallback only if none).
       const ask = typeof error.question === 'string' && error.question.trim() ? error.question.trim() : UNRESOLVED_TARGET_QUESTION;
-      say(ask); speak(ask);
+      if (live()) { say(ask); speak(ask, owner); }
       voiceLog?.hostEvent({ conversationRef: conversation.ref, intent: conversation.session?.intent ?? intent, type: 'entry-target-question', text: ask });
     }
   }
@@ -94,6 +103,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     if (state !== 'connecting') onListening(voiceReady);
   }
   async function stopVoice() {
+    const recordingConversation = conversation;
     const ownedMic = mic; mic = null;
     const ownedRecorder = recorder; recorder = null;
     voiceState('idle');
@@ -103,7 +113,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     const recorded = ownedRecorder?.stop();
     if (ownedRecorder) {
       const recording = await recorded; const capturedAt = ownedRecorder.capturedAt;
-      try { await uploadTestingAudio({ api: deps.api, storage: deps.storage, persist: deps.persist, scope: conversation.scope, conversationRef: conversation.ref, recording, capturedAt }); }
+      try { await uploadTestingAudio({ api: deps.api, storage: deps.storage, persist: deps.persist, scope: recordingConversation.scope, conversationRef: recordingConversation.ref, recording, capturedAt }); }
       catch (error) { say(`Recording not kept: ${error.message}`); }
     }
     await stopping;
@@ -114,51 +124,59 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     liveTeardownArmed = false;
     voiceReady = false;
     pendingEndTurn = false;
-    invalidateVoiceDeliveries();
     pcmBuffer?.discard();
     pcmBuffer = null;
     const ownedTransport = transport, ownedPlayer = player;
     transport = null; player = null; driver = null;
-    await Promise.all([stopVoice(), ownedTransport?.cancel(), ownedPlayer?.close()]);
+    await Promise.allSettled([stopVoice(), ownedTransport?.cancel(), ownedPlayer?.close()]);
   }
   /** Drop an empty conversation started in parallel with a mic that then failed.
    * Surfaces cleanup failure with the locked status-bubble copy; never claims
    * success by nulling on error. Local teardown is unchanged. */
   let emptyStartCleanup = null;
-  async function discardEmptyStart() {
-    if (emptyStartCleanup) return emptyStartCleanup;
-    if (!conversation) return;
-    emptyStartCleanup = (async () => {
-    // Design lock: delete empty conversation artifacts (consent/checkpoint/lock/attempt),
-    // not vendor cancel()'s cancelled checkpoint. Billing/usage rows stay.
-    try {
-      if (typeof conversation.discardEmpty === 'function') await conversation.discardEmpty();
-      else await conversation.cancel();
-      conversation = null;
-      attempts = null;
-      discardEmptyFailed = false;
-    } catch (error) {
-      // A populated (or failed-but-traced) request must not be deleted; this is
-      // not a cleanup failure (OI-0206 / OI-0207 populated path).
-      if (error?.code === 'discard-empty-refused-turns-exist') {
-        conversation = null;
-        attempts = null;
-        discardEmptyFailed = false;
-        return;
-      }
-      discardEmptyFailed = true;
-      say(DISCARD_EMPTY_FAILED_MESSAGE);
-      showDismissibleBanner(DISCARD_EMPTY_FAILED_MESSAGE);
-    }
-    })();
-    return emptyStartCleanup;
+  function clearCurrent(owner) {
+    if (owner !== outbound) return;
+    outbound = null; conversation = null; attempts = null;
   }
+  async function discardEmptyStart(owner = outbound) {
+    if (!owner) return;
+    if (owner.cleanup) return owner.cleanup;
+    if (owner.queue?.busy) {
+      const drained = retireOutbound(owner);
+      clearCurrent(owner);
+      return drained.then(() => discardEmptyStart(owner));
+    }
+    const cleanup = (async () => {
+      try {
+        if (typeof owner.conversation.discardEmpty === 'function') await owner.conversation.discardEmpty();
+        else await owner.conversation.cancel();
+        clearCurrent(owner);
+        if (!outbound) discardEmptyFailed = false;
+      } catch (error) {
+        if (error?.code === 'discard-empty-refused-turns-exist') { clearCurrent(owner); return; }
+        if (owner === outbound || !outbound) discardEmptyFailed = true;
+        say(DISCARD_EMPTY_FAILED_MESSAGE); showDismissibleBanner(DISCARD_EMPTY_FAILED_MESSAGE);
+      }
+    })();
+    owner.cleanup = cleanup;
+    if (owner === outbound) emptyStartCleanup = cleanup;
+    return cleanup;
+  }
+  function retireOutbound(owner) {
+    if (!owner?.queue) return;
+    const done = owner.queue.retire();
+    retiringQueues.add(done);
+    void done.then(() => { retiringQueues.delete(done); return discardEmptyStart(owner); }).catch(() => {});
+    return done;
+  }
+
   let micFailure = null;
   /** After a successful connect, unexpected transport drop must tear down like stop(). */
   let liveTeardownArmed = false;
   let endingLive = false;
   /** Bumped by end() / a new talk() so in-flight begin/auth/connect aborts. */
   let talkGeneration = 0;
+  let liveVoiceGeneration = 0;
   /** Second tap while Listening but before connect+flush — endTurn when ready. */
   let pendingEndTurn = false;
   /** True only after transport is connected AND the PCM buffer has been flushed. */
@@ -170,35 +188,26 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   let pcmBuffer = null;
   /** True when discardEmptyStart failed; PTT keeps the locked bubble after No. */
   let discardEmptyFailed = false;
-  // Final turns are owned/serialized here, not by a transport epoch. Duplicate
-  // vendor callbacks join the same work; invalidation releases receipt waiters.
-  const voiceDeliveries = new Map();
-  function voiceDelivery(id) {
-    if (!voiceDeliveries.has(id)) {
-      let resolve;
-      const done = new Promise(finish => { resolve = finish; });
-      voiceDeliveries.set(id, { done, resolve });
-    }
-    return voiceDeliveries.get(id);
+  function deliverVoiceTurn(entry, owner) {
+    return owner.queue.enqueue(entry);
   }
-  let voiceTurnWork = Promise.resolve();
-  function deliverVoiceTurn(entry) {
-    const delivery = voiceDelivery(entry.id);
-    if (!delivery.work) {
-      // Host-owned serialization survives VoiceTransport invalidating its epoch.
-      delivery.work = voiceTurnWork = voiceTurnWork.then(() => turn(entry)).catch(error => say(error.message));
-      void delivery.work.then(delivery.resolve);
-    }
-    return delivery.work;
-  }
-  function invalidateVoiceDeliveries() {
-    for (const delivery of voiceDeliveries.values()) delivery.resolve();
-  }
-  async function waitForVoiceDelivery(delivery) {
-    let timer;
-    try {
-      await Promise.race([delivery.done, new Promise(resolve => { timer = globalThis.setTimeout(resolve, VOICE_CONNECT_BUDGET_MS); })]);
-    } finally { globalThis.clearTimeout(timer); }
+  function makeQueue(owner) {
+    return createOutboundQueue({
+      conversation: owner.conversation, generation: owner.generation,
+      deliver: (entry, identity) => {
+        if (identity.conversation !== owner.conversation || identity.generation !== owner.generation) throw new Error('outbound-owner-mismatch');
+        return turn(entry, owner);
+      },
+      onDrop: ({ reason, count }) => {
+        logVoice('outbound-drop', { reason, eventCount: count });
+        say(OUTBOUND_DROPPED_MESSAGE);
+        if (owner === outbound && owner.queue?.state === 'expired') {
+          // Do not let a later Talk adopt an uncertain/timed-out backend.
+          void abandonLiveVoice().catch(() => {});
+          retireOutbound(owner); clearCurrent(owner); emptyStartCleanup = null;
+        }
+      },
+    });
   }
   let startupOwner = null;
   let beginWork = null;
@@ -219,6 +228,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         consent = stored?.decision ?? null;
         const started = createAssistantConversation({ api: deps.api, scope: deps.scope(), persist: deps.persist, awaitServerRows: deps.awaitServerRows, intent, buildStamp: deps.buildStamp, capture: { capturedAt: new Date().toISOString(), source: 'assistant', context } });
         conversation = started;
+        const owner = { conversation: started, generation: ++outboundGeneration, attempts: null, origin: { ...origin }, replays: new Set(), queue: null, cleanup: null };
+        outbound = owner;
         // talk() already shows Connecting…; do not clobber it with Starting… or a blank status.
         if (!connectAbort) say('Starting…');
         await started.begin(stored ? { consent: stored.decision, decidedAt: stored.decidedAt } : {});
@@ -226,12 +237,14 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         // late start cannot use a nulled conversation, and End can return
         // without waiting on a gated start.
         if ((endingLive && !typedTakeover) || conversation !== started) {
-          if (conversation === started) await discardEmptyStart();
+          if (conversation === started) await discardEmptyStart(owner);
           return started;
         }
         attempts = createAttemptTracker({ persist: deps.persist, scope: started.scope, getAll: typeof deps.getAll === 'function' ? deps.getAll : () => [] });
+        owner.attempts = attempts;
+        owner.queue = makeQueue(owner);
         if (!connectAbort) say('');
-        if (firstTurn) await turn(firstTurn);
+        if (firstTurn) await owner.queue.enqueue(firstTurn);
         onTranscript(visible());
         return started;
       })();
@@ -265,6 +278,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         return 'turn-ended';
       }
       const gen = ++talkGeneration;
+      liveVoiceGeneration = gen;
+      const abandonAttempt = () => liveVoiceGeneration === gen ? abandonLiveVoice() : Promise.resolve();
       pendingEndTurn = false;
       voiceReady = false;
       discardEmptyFailed = false;
@@ -323,7 +338,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         buffer.discard();
         stream?.getTracks().forEach(track => track.stop());
         // No startup promise, close(), or server cleanup can delay mic release.
-        void abandonLiveVoice();
+        void abandonAttempt();
         void closeCaptureContext(capture.context);
       }, VOICE_CONNECT_BUDGET_MS);
       const withinBudget = work => Promise.race([work, waitForAbort(budget.signal)]);
@@ -348,7 +363,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         buffer.discard();
         micFailure = { name: 'VoiceUnavailable', message: VOICE_UNAVAILABLE_MESSAGE };
         say(VOICE_UNAVAILABLE_MESSAGE);
-        void abandonLiveVoice();
+        void abandonAttempt();
         void closeCaptureContext(capture.context);
         void startup.then(cleanupStartup, cleanupStartup).catch(() => {});
         logVoice('teardown', { reason }, now, tapClock);
@@ -362,7 +377,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         if (gen !== talkGeneration) {
           clearTimeout(budgetTimer);
           if (connectAbort === budget) connectAbort = null;
-          void abandonLiveVoice();
+          void abandonAttempt();
           void closeCaptureContext(capture.context);
           return 'aborted';
         }
@@ -375,7 +390,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         abandoned = true;
         micFailure = classifyMicError(error);
         buffer.discard();
-        void abandonLiveVoice();
+        void abandonAttempt();
         void closeCaptureContext(capture.context);
         void startup.then(cleanupStartup, cleanupStartup).catch(() => {});
         clearTimeout(budgetTimer);
@@ -399,14 +414,14 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         if (typedTakeover) {
           buffer.discard();
           await startup.catch(() => {});
-          await abandonLiveVoice();
+          await abandonAttempt();
           return 'aborted';
         }
         if (aborted()) {
           buffer.discard();
           await startup.catch(() => {});
           await discardEmptyStart();
-          await abandonLiveVoice();
+          await abandonAttempt();
           return 'aborted';
         }
         if (budgetHit()) return await failUnavailable();
@@ -415,38 +430,42 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         logVoice('begin-done', {}, now, tapClock);
         if (typedTakeover) {
           buffer.discard();
-          await abandonLiveVoice();
+          await abandonAttempt();
           return 'aborted';
         }
         if (abandoned || aborted()) {
           buffer.discard();
           await discardEmptyStart();
-          await abandonLiveVoice();
+          await abandonAttempt();
           return abandoned ? 'no-mic' : 'aborted';
         }
         if (budgetHit()) return await failUnavailable();
 
         player ??= createPcmPlayer();
+        const voiceOwner = outbound;
+        let voiceDriver;
         const terminal = message => {
-          void abandonLiveVoice();
+          if (driver !== voiceDriver || outbound !== voiceOwner) return;
+          void abandonAttempt();
           if (onVoiceTerminal) onVoiceTerminal(message);
           else say(message);
         };
-        driver = createXaiRealtimeDriver({
+        voiceDriver = createXaiRealtimeDriver({
           config,
           onStatus: state => { if (state === 'session-cap') terminal('Voice session ended at 10 minutes. Tap to start a new one.'); },
           now, tapAt: tapClock,
-          onTurnEnd: () => { voiceState('idle'); say('Thinking…'); },
+          onTurnEnd: () => { if (driver === voiceDriver && outbound === voiceOwner) { voiceState('idle'); say('Thinking…'); } },
           // Keep final voice turns in a host queue before handing them to the
           // vendor transport, whose queued callback may be dropped on close.
-          onFinalTurn: entry => { if (!endingLive || typedTakeover) void deliverVoiceTurn(entry); },
+          onFinalTurn: entry => { void deliverVoiceTurn(entry, voiceOwner); },
         });
+        driver = voiceDriver;
         // Fresh authorization every tap (no cross-tap cache / no mount prewarm).
         // Within one connect, the driver still reuses the token across its 3 attempts.
         transport = new VoiceTransport({
           broker: signal => {
             logVoice('mint-start', {}, now, tapClock);
-            return conversation.voiceAuthorization(anySignal(signal, budget.signal)).then(value => {
+            return voiceOwner.conversation.voiceAuthorization(anySignal(signal, budget.signal)).then(value => {
               logVoice('mint-done', { ok: true }, now, tapClock);
               return value;
             }, error => {
@@ -454,13 +473,14 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
               throw error;
             });
           }, driver,
-          getSession: () => conversation.session,
-          onTurn: deliverVoiceTurn,
-          onAudio: bytes => player.play(bytes),
+          getSession: () => voiceOwner.conversation.session,
+          onTurn: entry => deliverVoiceTurn(entry, voiceOwner),
+          onAudio: bytes => { if (driver === voiceDriver && outbound === voiceOwner) player?.play(bytes); },
           // Unexpected socket close / transport error: VoiceTransport only flips
           // to text-fallback. Route that through the same terminal teardown as
           // session-cap so mic + End do not stay live (Design HOLD on PR #44).
           onState: state => {
+            if (driver !== voiceDriver || outbound !== voiceOwner) return;
             if (!liveTeardownArmed || endingLive) return;
             if (state !== 'text-fallback' && state !== 'cancelled') return;
             terminal('Voice connection ended. Tap to start a new one.');
@@ -471,7 +491,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         } catch (error) {
           if (typedTakeover || gen !== talkGeneration) {
             buffer.discard();
-            void abandonLiveVoice();
+            void abandonAttempt();
             return 'aborted';
           }
           if (budgetHit() || error?.name === 'AbortError') {
@@ -482,12 +502,12 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         voiceStartMark('tap→WS ready', tapAt);
         if (typedTakeover) {
           buffer.discard();
-          await abandonLiveVoice();
+          await abandonAttempt();
           return 'aborted';
         }
         if (aborted()) {
           buffer.discard();
-          await abandonLiveVoice();
+          await abandonAttempt();
           await discardEmptyStart();
           return 'aborted';
         }
@@ -501,12 +521,12 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         logVoice('first-chunk-sent', {}, now, tapClock);
         if (typedTakeover) {
           buffer.discard();
-          await abandonLiveVoice();
+          await abandonAttempt();
           return 'aborted';
         }
         if (aborted()) {
           buffer.discard();
-          await abandonLiveVoice();
+          await abandonAttempt();
           await discardEmptyStart();
           return 'aborted';
         }
@@ -532,11 +552,11 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         buffer.discard();
         try { stream?.getTracks().forEach(track => track.stop()); } catch { /* ignore */ }
         if (typedTakeover) {
-          await abandonLiveVoice();
+          await abandonAttempt();
           return 'aborted';
         }
         if (gen !== talkGeneration) {
-          void abandonLiveVoice();
+          void abandonAttempt();
           void startup.then(cleanupStartup, cleanupStartup).catch(() => {});
           return 'aborted';
         }
@@ -550,44 +570,71 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
       }
     },
     async text(text) {
+      typedTakeover = true;
+      talkGeneration += 1;
+      startupOwner = talkGeneration;
+      let owner = outbound?.queue?.state === 'open' ? outbound : null;
+      let release = owner?.queue?.reserveText();
+      const ownedTransport = transport, ownedDriver = driver, ownedBudget = connectAbort, ownedMic = mic;
+      const closeOwnedVoice = async () => {
+        if ((ownedTransport && transport === ownedTransport) || (ownedDriver && driver === ownedDriver) || (ownedBudget && connectAbort === ownedBudget) || (ownedMic && mic === ownedMic)) await abandonLiveVoice();
+      };
       try {
         if (mic || transport || connectAbort) {
-          typedTakeover = true;
-          talkGeneration += 1;
-          startupOwner = talkGeneration;
           try { connectAbort?.abort(); } catch { /* already aborted */ }
           if (driver) {
-            try {
-              const finalized = await driver.endTurn({ replay: false });
-              if (finalized?.id) {
-                await waitForVoiceDelivery(voiceDelivery(finalized.id));
-                // Independent of the transport's now possibly dead callback.
-                await deliverVoiceTurn({ ...finalized, role: 'user', modality: 'voice' });
-              } else await voiceTurnWork;
-            } catch { /* mid-teardown */ }
+            // Finalization is independently bounded in the real driver. The
+            // callback enqueues its final BEFORE this text, even after close.
+            try { await driver.endTurn({ replay: false }); } catch { /* mid-teardown */ }
           }
-          await abandonLiveVoice();
+          if (!ownedDriver) await closeOwnedVoice();
           say('');
         }
         if (beginWork) await beginWork;
-        if (!conversation) await session.begin();
-        if (!attempts || !conversation) return null;
-        return await turn({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
-      } finally { typedTakeover = false; }
+        // A terminal end may have detached the old generation. Drain its
+        // bounded jobs before starting text in a replacement conversation.
+        if (!owner?.queue) {
+          await Promise.all([...retiringQueues]);
+          if (!outbound || outbound.queue?.state !== 'open') {
+            clearCurrent(outbound);
+            emptyStartCleanup = null;
+            await session.begin();
+          }
+          owner = outbound;
+          release?.(); release = owner?.queue?.reserveText();
+        }
+        if (!owner?.queue) return null;
+        const result = await owner.queue.enqueue({ id: crypto.randomUUID(), role: 'user', modality: 'text', text }, { reserved: true, beforeDeliver: closeOwnedVoice });
+        void closeOwnedVoice().catch(() => {});
+        if (result.status === 'dropped' && !result.started) {
+          // A hung predecessor poisoned its old generation. Do not append to
+          // that uncertain backend; text can start fresh without replaying it.
+          clearCurrent(owner); release?.(); release = null;
+          emptyStartCleanup = null;
+          if (!outbound) await session.begin();
+          if (outbound?.queue && outbound.queue.state === 'open') await outbound.queue.enqueue({ id: crypto.randomUUID(), role: 'user', modality: 'text', text });
+        }
+        return undefined;
+      } finally { release?.(); typedTakeover = false; }
     },
     async end() {
-      // Invalidate any in-flight talk() (begin / auth / connect). Await an
-      // in-flight start first, then discard the empty conversation, so a late
-      // start cannot run after cleanup or throw on a nulled conversation.
+      const owner = outbound;
       talkGeneration += 1;
       pendingEndTurn = false;
       endingLive = true;
       connectAbort?.abort();
-      await abandonLiveVoice();
-      // Terminal UI callbacks call end() too. During a typed takeover they
-      // must not discard the conversation beneath queued final voice/text.
-      if (beginWork || typedTakeover) return;
-      await discardEmptyStart();
+      const closing = abandonLiveVoice();
+      if (beginWork) { void closing.catch(() => {}); return; }
+      if (!owner?.queue) { void closing.catch(() => {}); return; }
+      // Detach synchronously, so even an immediate retry cannot adopt a queue
+      // being retired. Captured final callbacks still address their old owner.
+      clearCurrent(owner); emptyStartCleanup = null;
+      const retired = owner.queue.retire({ closing });
+      retiringQueues.add(retired);
+      void retired.then(() => { retiringQueues.delete(retired); return discardEmptyStart(owner); }).catch(() => {});
+      if (owner.queue.busy) return;
+      await retired;
+      await discardEmptyStart(owner);
     },
     get micFailure() { return micFailure; },
     get discardEmptyFailed() { return discardEmptyFailed; },

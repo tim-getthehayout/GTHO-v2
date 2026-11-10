@@ -3,6 +3,8 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { createAssistantSession } from '../../../../src/features/assistant/client/session.js';
 import { openAssistant } from '../../../../src/features/assistant/client/panel.js';
 import { createPcm16Resampler, startMicrophone, VOICE_CONNECT_BUDGET_MS, TURN_FINALIZE_TIMEOUT_MS } from '../../../../src/features/assistant/client/realtime.js';
+import { OUTBOUND_TURN_BUDGET_MS, OUTBOUND_DROPPED_MESSAGE } from '../../../../src/features/assistant/client/outbound-queue.js';
+import { logger } from '../../../../src/utils/logger.js';
 import { createTestingRecorder } from '../../../../src/features/assistant/client/testing-audio.js';
 import { sanitizeVoiceLogContext } from '../../../../src/features/assistant/client/voice-telemetry.js';
 import { createAssistantConversation } from '../../../../src/features/assistant/client/conversation.js';
@@ -313,4 +315,151 @@ describe('reviewed disconnect and retry interleavings', () => {
     expect(entry.session.listening).toBe(true); expect(Recorder).not.toHaveBeenCalled();
     expect(conversation.begin).toHaveBeenCalledWith(expect.objectContaining({ consent: 'declined' }));
   });
+});
+
+// Additional adversarial orders: no transport state may select a turn's owner.
+describe('per-conversation outbound ownership', () => {
+  function replacement() {
+    return { ...conversation, ref: 'replacement', scope: { ...conversation.scope },
+      session: { ...conversation.session, conversationRef: 'replacement', transcript: [] },
+      begin: vi.fn(async () => {}), turn: vi.fn(async () => null), discardEmpty: vi.fn(async () => {}),
+    };
+  }
+  async function pendingFinals(session) {
+    const first = gate(); conversation.turn.mockImplementationOnce(() => first.promise);
+    await connect(session.talk());
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.updated', item_id: 'q-first', transcript: 'voice one over' });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    contexts[0].processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(128) } });
+    sockets[0].message({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'q-second', transcript: 'voice two over' });
+    await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS);
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    return first;
+  }
+  it('text after socket teardown stays behind every final voice turn', async () => {
+    const session = makeSession(); const first = await pendingFinals(session);
+    sockets[0].close(); await flush(); const typing = session.text('typed after disconnect'); await flush();
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    first.resolve(null); await typing;
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two', 'typed after disconnect']);
+  });
+  it('ordinary terminal end drains queued finals on their own conversation', async () => {
+    const session = makeSession({ onVoiceTerminal: () => { void session.end(); } });
+    const first = await pendingFinals(session); sockets[0].close(); await flush();
+    expect(session.conversation).toBeNull(); expect(conversation.discardEmpty).not.toHaveBeenCalled();
+    first.resolve(null); await flush();
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+  });
+  it('a real talk retry cannot receive an older generation final', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession({ onVoiceTerminal: () => { void session.end(); } });
+    const first = await pendingFinals(session); sockets[0].close(); await flush();
+    const retry = session.talk(); await flush(); expect(sockets).toHaveLength(2);
+    sockets[1].message({ type: 'session.created' }); await expect(retry).resolves.toBe('listening');
+    first.resolve(null); await flush();
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(next.turn).not.toHaveBeenCalled(); expect(session.conversation).toBe(next);
+    expect(next.discardEmpty).not.toHaveBeenCalled(); expect(session.listening).toBe(true);
+    await session.end();
+  });
+  it.each(['close-end', 'end-close', 'double-end'])('%s retires once and never cancels a replacement queue', async order => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session);
+    if (order === 'close-end') { sockets[0].close(); await flush(); await session.end(); }
+    else { await session.end(); if (order === 'double-end') await session.end(); else sockets[0].close(); }
+    const retry = session.talk(); await flush(); sockets[1].message({ type: 'session.created' }); await retry;
+    first.resolve(null); await flush();
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    expect(next.turn).not.toHaveBeenCalled(); expect(session.conversation).toBe(next); expect(session.listening).toBe(true);
+    await session.end();
+  });
+  it('post-end typed send waits for retired finals before using a fresh conversation', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session); await session.end();
+    const typing = session.text('fresh typed'); await flush(); expect(next.begin).not.toHaveBeenCalled();
+    first.resolve(null); await typing;
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'fresh typed', modality: 'text' }));
+  });
+  it('a hung backend cannot hold typed text forever; timed-out finals are visibly dropped, never migrated', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const say = vi.fn(), logged = vi.spyOn(logger, 'info');
+    const session = makeSession({ say }); const first = await pendingFinals(session);
+    sockets[0].close(); await flush(); let finished = false;
+    const typing = session.text('typed after timeout').then(() => { finished = true; }); await flush();
+    await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await typing;
+    expect(finished).toBe(true); expect(say).toHaveBeenCalledWith(OUTBOUND_DROPPED_MESSAGE);
+    expect(conversation.turn).toHaveBeenCalledTimes(1);
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'typed after timeout', modality: 'text' }));
+    const drops = logged.mock.calls.filter(([, phase]) => phase === 'outbound-drop');
+    expect(drops).toContainEqual(['assistant-voice', 'outbound-drop', { reason: 'outbound-timeout', eventCount: 3 }]);
+    first.resolve('late old answer'); await flush();
+    expect(next.turn).toHaveBeenCalledTimes(1); expect(conversation.turn).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
+  });
+  it('an already-dispatched typed request is bounded without replaying it on timeout', async () => {
+    const held = gate(); conversation.turn.mockReturnValue(held.promise);
+    const session = makeSession(); let finished = false; const typing = session.text('only once').then(() => { finished = true; });
+    await flush(); await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await typing;
+    expect(finished).toBe(true); expect(conversation.turn).toHaveBeenCalledTimes(1);
+    held.resolve(null); await flush(); expect(conversation.turn).toHaveBeenCalledTimes(1);
+  });
+  it('hung teardown before typed dispatch is inside the same bounded queue budget', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); await connect(session.talk());
+    const original = contexts[0].close; contexts[0].close = () => new Promise(() => {});
+    try {
+      const typing = session.text('typed after hung close'); await vi.advanceTimersByTimeAsync(TURN_FINALIZE_TIMEOUT_MS); await flush();
+      await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await typing;
+      expect(conversation.turn).not.toHaveBeenCalled();
+      expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'typed after hung close' }));
+      expect(tracks[0].stop).toHaveBeenCalled();
+    } finally { contexts[0].close = original; }
+  });
+  it('text cannot adopt a conversation whose empty cleanup already began', async () => {
+    const next = replacement(), cleanup = gate(); conversation.discardEmpty.mockReturnValue(cleanup.promise);
+    createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); await session.begin(); const ending = session.end(); await flush();
+    expect(conversation.discardEmpty).toHaveBeenCalledTimes(1);
+    const typing = session.text('during old cleanup'); await typing;
+    expect(conversation.turn).not.toHaveBeenCalled();
+    expect(next.turn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'during old cleanup' }));
+    cleanup.resolve(); await ending; expect(session.conversation).toBe(next);
+  });
+  it('a voice-only timeout retires the poisoned conversation before the next Talk', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session);
+    await vi.advanceTimersByTimeAsync(OUTBOUND_TURN_BUDGET_MS); await flush();
+    expect(session.listening).toBe(false); expect(session.conversation).toBeNull();
+    const retry = session.talk(); await flush(); sockets[1].message({ type: 'session.created' });
+    await expect(retry).resolves.toBe('listening');
+    first.resolve('late answer'); await flush();
+    expect(conversation.turn).toHaveBeenCalledTimes(1); expect(next.turn).not.toHaveBeenCalled();
+    expect(session.conversation).toBe(next); expect(session.listening).toBe(true);
+    await session.end();
+  });
+
+  it('retry in the same tick as end cannot adopt the retiring generation', async () => {
+    const next = replacement(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session);
+    const ending = session.end(); const retry = session.talk(); await flush();
+    expect(sockets).toHaveLength(2); sockets[1].message({ type: 'session.created' }); await retry; await ending;
+    first.resolve(null); await flush();
+    expect(session.conversation).toBe(next); expect(session.listening).toBe(true);
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(next.turn).not.toHaveBeenCalled(); await session.end();
+  });
+  it('late teardown and retirement completion cannot close the replacement voice session', async () => {
+    const next = replacement(), closed = gate(); createAssistantConversation.mockReturnValueOnce(conversation).mockReturnValue(next);
+    const session = makeSession(); const first = await pendingFinals(session);
+    contexts[0].close = () => closed.promise;
+    await session.end(); const retry = session.talk(); await flush(); sockets[1].message({ type: 'session.created' }); await retry;
+    first.resolve(null); await flush(); closed.resolve(); await flush();
+    expect(conversation.turn.mock.calls.map(([entry]) => entry.text)).toEqual(['voice one', 'voice two']);
+    expect(session.conversation).toBe(next); expect(session.listening).toBe(true); expect(sockets[1].readyState).toBe(1);
+    expect(next.discardEmpty).not.toHaveBeenCalled(); await session.end();
+  });
+
 });

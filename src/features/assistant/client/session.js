@@ -94,6 +94,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   }
   /** Tear down any live voice I/O immediately (mic failure guard + session end). */
   async function abandonLiveVoice() {
+    endingLive = true;
+    liveTeardownArmed = false;
     await stopVoice();
     await transport?.cancel();
     await player?.close();
@@ -107,6 +109,9 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
     attempts = null;
   }
   let micFailure = null;
+  /** After a successful connect, unexpected transport drop must tear down like stop(). */
+  let liveTeardownArmed = false;
+  let endingLive = false;
   const session = {
     get conversation() { return conversation; },
     get attempt() { return attempts?.current ?? null; },
@@ -188,6 +193,16 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           getSession: () => conversation.session,
           onTurn: entry => turn(entry).catch(error => say(error.message)),
           onAudio: bytes => player.play(bytes),
+          // Unexpected socket close / transport error: VoiceTransport only flips
+          // to text-fallback. Route that through the same terminal teardown as
+          // session-cap so mic + End do not stay live (Design HOLD on PR #44).
+          onState: state => {
+            if (!liveTeardownArmed || endingLive) return;
+            if (state !== 'text-fallback' && state !== 'cancelled') return;
+            const message = 'Voice connection ended. Tap to start a new one.';
+            if (onVoiceTerminal) onVoiceTerminal(message);
+            else { say(message); void abandonLiveVoice(); }
+          },
         });
         await transport.connect();
         voiceStartMark('tap→WS ready', tapAt);
@@ -197,6 +212,8 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
           await abandonLiveVoice();
           return 'unavailable';
         }
+        liveTeardownArmed = true;
+        endingLive = false;
         await buffer.flushTo(bytes => transport.stream(bytes));
         return 'listening';
       } catch (error) {

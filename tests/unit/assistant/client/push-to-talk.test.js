@@ -315,6 +315,35 @@ describe('push-to-talk status dismiss and terminal end path', () => {
     expect(document.querySelector('[data-testid="ptt-status-dismiss"]').hidden).toBe(false);
   });
 
+  it('after unexpected voice disconnect, End is hidden via the same endLiveSession path', async () => {
+    const transport = { alive: true };
+    const createAssistantSession = await sessionMock();
+    createAssistantSession.mockImplementation(options => {
+      const session = {
+        options,
+        talk: vi.fn(async () => {
+          options.onListening?.(true);
+          options.say?.('Listening…');
+          queueMicrotask(() => options.onVoiceTerminal?.('Voice connection ended. Tap to start a new one.'));
+          return 'listening';
+        }),
+        end: vi.fn(async () => { transport.alive = false; }),
+        begin: vi.fn(async () => ({ ref: 'c1' })),
+      };
+      sessions.push(session);
+      return session;
+    });
+    const control = mountPushToTalk(deps(), { earlyTesting: false });
+    await control.tap();
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-testid="ptt-end"]').hidden).toBe(true);
+    });
+    expect(sessions[0].end).toHaveBeenCalled();
+    expect(transport.alive).toBe(false);
+    expect(control.session).toBeNull();
+    expect(document.querySelector('[data-testid="ptt-status-text"]').textContent).toContain('Voice connection ended');
+  });
+
   it('Dismiss clears only the status message and never ends a live turn', async () => {
     const control = mountPushToTalk(deps(), { earlyTesting: false });
     await control.tap();

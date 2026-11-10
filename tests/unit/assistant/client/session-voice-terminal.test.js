@@ -1,6 +1,7 @@
 /**
- * @file Session cap and voice-unavailable go through onVoiceTerminal so the
- * host can run the shared endLiveSession path (transport/mic/timer + hide End).
+ * @file Session cap, unexpected socket close, and voice-unavailable go through
+ * onVoiceTerminal so the host can run the shared endLiveSession path
+ * (transport/mic/timer + hide End).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -45,12 +46,23 @@ vi.mock('../../../../src/features/assistant/client/realtime.js', () => ({
   TYPE_INSTEAD_QUESTION: 'Type instead?',
 }));
 
+const onStateHolders = [];
 vi.mock('../../../../src/features/assistant/shared.js', async () => {
   class VoiceTransport {
-    constructor() { this.state = 'connected'; this.cancel = vi.fn(async () => { this.state = 'cancelled'; }); }
+    constructor({ onState } = {}) {
+      this.state = 'connected';
+      this.onState = onState;
+      if (onState) onStateHolders.push(onState);
+      this.cancel = vi.fn(async () => { this.state = 'cancelled'; onState?.('cancelled'); });
+    }
     async connect() { this.state = 'connected'; }
     async stream() {}
     async text() {}
+    /** Test helper: simulate VoiceTransport #disconnect after unexpected socket close. */
+    simulateDisconnect(state = 'text-fallback') {
+      this.state = state;
+      this.onState?.(state);
+    }
   }
   return {
     VoiceTransport,
@@ -105,6 +117,7 @@ const deps = {
 
 beforeEach(() => {
   onStatusHolders.length = 0;
+  onStateHolders.length = 0;
   createXaiRealtimeDriver.mockClear();
   startMicrophone.mockClear();
   acquireMicrophone.mockClear();
@@ -146,5 +159,29 @@ describe('voice terminal notifications', () => {
     } finally {
       VoiceTransport.prototype.connect = original;
     }
+  });
+
+  it('unexpected transport drop after connect notifies onVoiceTerminal (shared stop path)', async () => {
+    const onVoiceTerminal = vi.fn();
+    const session = createAssistantSession({
+      deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', earlyTesting: false },
+      intent: 'data-entry', say: vi.fn(), onVoiceTerminal,
+    });
+    await expect(session.talk()).resolves.toBe('listening');
+    expect(onStateHolders).toHaveLength(1);
+    // Simulate VoiceTransport onDisconnect → #disconnect('text-fallback').
+    onStateHolders[0]('text-fallback');
+    expect(onVoiceTerminal).toHaveBeenCalledWith('Voice connection ended. Tap to start a new one.');
+  });
+
+  it('intentional session.end cancel does not re-fire onVoiceTerminal via onState', async () => {
+    const onVoiceTerminal = vi.fn();
+    const session = createAssistantSession({
+      deps, config: { model: 'grok-voice-3.0', voice: 'eve', reasoning: 'none', turnDetection: 'manual', earlyTesting: false },
+      intent: 'data-entry', say: vi.fn(), onVoiceTerminal,
+    });
+    await session.talk();
+    await session.end();
+    expect(onVoiceTerminal).not.toHaveBeenCalled();
   });
 });

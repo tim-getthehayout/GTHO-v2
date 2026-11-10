@@ -58,6 +58,7 @@ vi.mock('../../../../src/features/assistant/client/conversation.js', () => ({
     switchIntent: vi.fn(),
     voiceAuthorization: voiceAuth,
     cancel: vi.fn(async () => {}),
+    discardEmpty: vi.fn(async () => ({ value: { outcome: 'discarded' } })),
   })),
   createFarmReviewFlow: vi.fn(),
   createFeedbackFiling: vi.fn(),
@@ -163,6 +164,7 @@ describe('talk() mic-first', () => {
         session: { intent: 'data-entry', phase: 'converse', transcript: [], capture: {}, conversationRef: 'c1' },
         route: null, begin: vi.fn(async () => { order.push('begin-done'); }), turn: vi.fn(async () => null), switchIntent: vi.fn(),
         cancel: vi.fn(async () => {}),
+    discardEmpty: vi.fn(async () => ({ value: { outcome: 'discarded' } })),
         voiceAuthorization: async () => { order.push('mint'); return { provider: 'xai', token: 't', expiresAt: Date.now() + 60000 }; },
       };
     });

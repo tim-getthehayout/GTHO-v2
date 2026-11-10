@@ -84,6 +84,8 @@ vi.mock('../../../../src/features/assistant/client/conversation.js', () => ({
     begin: vi.fn(async () => {}),
     turn: vi.fn(async () => null),
     switchIntent: vi.fn(),
+    cancel: vi.fn(async () => ({})),
+    discardEmpty: vi.fn(async () => ({ value: { outcome: 'discarded' } })),
     voiceAuthorization: vi.fn(async () => ({ provider: 'xai', token: 't', expiresAt: Date.now() + 60000 })),
   })),
   createFarmReviewFlow: vi.fn(),

@@ -1,6 +1,6 @@
 /** Minimal in-memory stand-in for the service-role supabase-js client. */
 export function fakeSupabase({ tables = {}, users = {}, rpc = async () => ({ data: null, error: null }), storage } = {}) {
-  const calls = { rpc: [], updates: [], selects: [] };
+  const calls = { rpc: [], updates: [], selects: [], deletes: [] };
   function query(table) {
     const filters = [];
     let op = 'select', patch, order, limit, range;
@@ -18,6 +18,15 @@ export function fakeSupabase({ tables = {}, users = {}, rpc = async () => ({ dat
         calls.updates.push({ table, patch });
         return { data: hit, error: null };
       }
+      if (op === 'delete') {
+        const list = (tables[table] ||= []);
+        const hit = rows();
+        const keep = new Set(hit);
+        tables[table] = list.filter(row => !keep.has(row));
+        calls.deletes = calls.deletes || [];
+        calls.deletes.push({ table, count: hit.length });
+        return { data: hit, error: null };
+      }
       if (op === 'insert') { (tables[table] ||= []).push({ ...patch }); return { data: null, error: null }; }
       calls.selects.push(table);
       return { data: rows().map(row => ({ ...row })), error: null };
@@ -30,6 +39,7 @@ export function fakeSupabase({ tables = {}, users = {}, rpc = async () => ({ dat
       limit(value) { limit = value; return builder; },
       range(from, to) { range = [from, to]; return builder; },
       update(value) { op = 'update'; patch = value; return builder; },
+      delete() { op = 'delete'; return builder; },
       insert(value) { op = 'insert'; patch = value; return Promise.resolve(run()); },
       upsert(value, { onConflict = 'id' } = {}) {
         const keys = onConflict.split(',');

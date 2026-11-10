@@ -104,7 +104,12 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
   /** Drop an empty conversation started in parallel with a mic that then failed. */
   async function discardEmptyStart() {
     if (!conversation) return;
-    try { await conversation.cancel(); } catch { /* start may not have finished */ }
+    // Design lock: delete empty conversation artifacts (checkpoint/lock/attempt),
+    // not vendor cancel()'s cancelled checkpoint. Billing/usage rows stay.
+    try {
+      if (typeof conversation.discardEmpty === 'function') await conversation.discardEmpty();
+      else await conversation.cancel();
+    } catch { /* start may not have finished */ }
     conversation = null;
     attempts = null;
   }

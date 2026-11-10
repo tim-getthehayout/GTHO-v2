@@ -15,6 +15,7 @@ import { createApplyHandler } from './apply.js';
 import { createTestingAudioHandler } from './testing-audio.js';
 import { createTranscribeHandler } from './transcribe.js';
 import { RuntimeError } from '../shared.js';
+import { discardEmptyStartRows } from './discard-empty-start.js';
 
 const contentFreeLog = log => entry => { try { log?.(entry); } catch { /* logging never breaks a request */ } };
 
@@ -84,6 +85,19 @@ export function createAssistantFunction(deps) {
     // Client voice-usage reports are refused before any reservation: the worst
     // case was settled once at token issue.
     if (peeked?.command === 'voice-usage') return json(VOICE_USAGE_REFUSAL);
+    // Empty mic-failure start: delete checkpoint/lock/attempt (not billing). GTHO-side.
+    if (peeked?.command === 'discard-empty') {
+      const context = requestContext(deps, identity);
+      try {
+        const result = await discardEmptyStartRows(deps.client, {
+          operationId: context.scope.operationId,
+          conversationRef: peeked.conversationRef,
+        });
+        return json({ value: result });
+      } finally {
+        await context.database.close?.();
+      }
+    }
     const context = requestContext(deps, identity);
     // Host event: a reroute replay of an earlier user turn (ids only, no content).
     if (peeked?.command === 'turn' && typeof peeked.replayOf === 'string' && typeof peeked.turn?.id === 'string') {

@@ -65,6 +65,8 @@ export function createAssistantConversation({ api, scope, persist, awaitServerRo
     },
     async correct(correction) { session = (await api.command(ref, 'correct', { correction })).session; return session; },
     async cancel() { session = (await api.command(ref, 'cancel')).session; return session; },
+    /** Empty start only: server deletes checkpoint/lock/attempt; refuses if any turn exists. */
+    async discardEmpty() { return api.command(ref, 'discard-empty'); },
     setOpenSheet(value) { api.setOpenSheet?.(value); },
     async voiceAuthorization() { return (await api.command(ref, 'voice-authorization')).value; },
     /**

@@ -105,6 +105,7 @@ function mockConversation({ beginDelayMs = 0, auth = null } = {}) {
     turn: vi.fn(async () => null),
     switchIntent: vi.fn(),
     cancel: vi.fn(async () => {}),
+    discardEmpty: vi.fn(async () => ({ value: { outcome: 'discarded' } })),
     voiceAuthorization,
     releaseBegin: () => releaseBegin?.(),
   };
@@ -210,7 +211,8 @@ describe('faster start talk()', () => {
     expect(conv.voiceAuthorization).not.toHaveBeenCalled();
     expect(transportInstances).toHaveLength(0);
     expect(brokerCalls).toBe(0);
-    expect(conv.cancel).toHaveBeenCalled();
+    expect(conv.discardEmpty).toHaveBeenCalled();
+    expect(conv.cancel).not.toHaveBeenCalled();
   });
 
   it('each tap mints a fresh token (no cross-tap reuse); mount does not mint', async () => {

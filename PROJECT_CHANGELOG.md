@@ -2,6 +2,7 @@
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-11-10 | Staged nullable event-feed pool snapshot/kind/transfer/return contracts and migration 043 as an unapplied file, plus absent-only 42→43 backup defaults/stamps and compatibility fences. This is contract groundwork only; pool replay, real form integration, transfers/returns and report acceptance remain pending. Restore/write release ceiling stays 41. |
 | 2026-11-10 | Staged retained sire-name/EPD text and migration 042 (written, never applied), preserving legacy writes and keeping the compiled restore ceiling at 41. Added 41→42 null-default/preservation stamps, real form/payload round-trips and fail-closed write/restore gates; no database access or release. |
 | 2026-11-10 | Tagged stillbirths are created inactive with the entered cull date, existing Died (natural) reason and Stillborn/additional notes, linked to their birth without group membership or active-head/DMI increases. Calving compound saves are recoverable; retain live/untagged paths and protect reviewed transactions. | Calving form, existing active-DMI test seam and real-form/backup fixtures |
 | 2026-11-10 | AI sire manager saves and displays registration through existing regNum/reg_num, preserving sire name, breed and reference identity. Remove the unimplemented registration-snapshot claim; retained EPD input remains available pending the separate approved schema release. | Animals manager, locale and real-form/pull regressions |

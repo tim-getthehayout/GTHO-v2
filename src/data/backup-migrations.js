@@ -230,4 +230,16 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 42;
     return b;
   },
+  // Additive pool shape only: no grouping, backfill or history rewriting.
+  42: (b) => {
+    for (const row of b.tables.event_feed_check_items || []) {
+      for (const field of ['batch_id', 'feed_type_id', 'unit_snapshot', 'weight_per_unit_kg_snapshot', 'dm_pct_snapshot']) if (!Object.hasOwn(row, field)) row[field] = null;
+    }
+    for (const row of b.tables.event_feed_entries || []) {
+      for (const field of ['batch_id', 'feed_type_id', 'unit_snapshot', 'weight_per_unit_kg_snapshot', 'dm_pct_snapshot', 'kind', 'transfer_id', 'return_batch_id', 'return_storage_location_id']) if (!Object.hasOwn(row, field)) row[field] = null;
+    }
+    b.schema_version = 43;
+    for (const op of b.tables.operations || []) op.schema_version = 43;
+    return b;
+  },
 };

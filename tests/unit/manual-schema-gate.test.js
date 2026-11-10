@@ -29,5 +29,5 @@ function openAISiresSheet() { const root=document.createElement('main');document
 
 it('042 compatibility needs successful read-only column proofs, not an operation stamp or 041 RPC', async()=>{
  const from=vi.fn(()=>({select:vi.fn(()=>({limit:vi.fn().mockResolvedValue({data:[],error:null})}))}));expect(await serverHasStagedColumns(42,{from})).toBe(true);expect(from.mock.calls.map(([table])=>table)).toEqual(['ai_bulls','animal_breeding_records']);
- expect(await serverHasStagedColumns(42,{from:()=>({select:()=>({limit:async()=>({data:null,error:{code:'42703'}})})})})).toBe(false);expect(await serverHasStagedColumns(43,{from})).toBe(false);
+ expect(await serverHasStagedColumns(42,{from:()=>({select:()=>({limit:async()=>({data:null,error:{code:'42703'}})})})})).toBe(false);expect(await serverHasStagedColumns(44,{from})).toBe(false);
 });

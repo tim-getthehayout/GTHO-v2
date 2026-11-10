@@ -132,6 +132,9 @@ export function validateBackup(backup) {
   if ((backup.tables.operations || []).some(row => row.schema_version > CURRENT_SCHEMA_VERSION)) {
     return { valid: false, error: 'Operation schema version exceeds this compatible release.' };
   }
+  if (CURRENT_SCHEMA_VERSION < 43 && ['event_feed_entries', 'event_feed_check_items'].some(table => (backup.tables[table] || []).some(row => !row.batch_id))) {
+    return { valid: false, error: 'Batchless feed rows need verified schema 43 compatibility.' };
+  }
   for (const [version, tables] of Object.entries(STAGED_COLUMNS)) {
     if (Number(version) <= CURRENT_SCHEMA_VERSION) continue;
     for (const [table, columns] of Object.entries(tables)) {

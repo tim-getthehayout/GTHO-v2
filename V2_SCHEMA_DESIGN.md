@@ -16,7 +16,7 @@ These were established during the audit and confirmed in design sessions:
 5. **No name snapshots** — Link by FK only. Display names resolved from entity cache at render time.
 6. **No JSONB bags** — Normalize into proper child tables. JSONB only for truly unstructured data (conversation threads, etc.).
 7. **Consistent timestamps** — Every table gets `created_at` and `updated_at` with `DEFAULT now()`.
-8. **RLS by operation_id** — Every user-data table has `operation_id uuid NOT NULL` for row-level security. No exceptions — child and junction tables carry their own `operation_id` even though it's derivable from a parent FK, because every operation-scoped query (RLS policies, backup delete, parity checks) must filter directly without joins. Universal reference tables (`dose_units`, `input_product_units`) and global tables (`release_notes`) have RLS disabled.
+8. **RLS by operation_id** — Every operation-scoped user-data table carries `operation_id uuid NOT NULL` directly, including child and junction tables, so RLS and scoped queries need no parent joins. Units are the explicit nullable-scope exception: `dose_units` and `input_product_units` use NULL for read-only standards and a non-null operation FK for custom units, with member RLS and immutable ownership (044, §8.2/§9.4). They are not unprotected global write tables. Global `release_notes` has RLS enabled and authenticated SELECT only (§11.5).
 9. **Windows, not anchors** — Events have no anchor paddock. All paddock and group participation is tracked via time windows. An event is open while any paddock window + group window overlap is open.
 10. **Feed delivered to paddocks** — Every feed entry has a location_id (paddock within the event), never dangling at event level.
 
@@ -1348,7 +1348,7 @@ CREATE TABLE harvest_event_fields (
 
 The nutrient and amendment domain covers everything related to soil health, fertilizer application, and manure management. It replaces v1's partial nutrient tracking (N/P/K only) with a full 13-element nutrient panel (A36) across soil tests, input products, amendment applications, and manure batches. This enables fertilizer planning against soil test gaps — users can see what their soil needs and what each amendment delivers across all nutrients, not just the big three.
 
-Three reference tables support the domain: `input_product_categories` (user-extensible product grouping), `input_product_units` (shared measurement units), and `input_products` (commercial amendment catalog with full nutrient composition). A `spreaders` table replaces v1's single global manure load size (A22).
+Three reference tables support the domain: `input_product_categories` (user-extensible product grouping), `input_product_units` (read-only standards and operation-owned custom measurement units), and `input_products` (commercial amendment catalog with full nutrient composition). A `spreaders` table replaces v1's single global manure load size (A22).
 
 ### 8.1 input_product_categories
 
@@ -1382,28 +1382,18 @@ CREATE TABLE input_product_categories (
 
 ### 8.2 input_product_units
 
-**Purpose:** Shared reference table for input product purchase/application units. Universal — not scoped to any operation. Seeded with common units at app setup; users can add new ones without code changes.
+**Purpose:** Read-only standard and operation-owned custom input product purchase/application units. Migration 044 is merged at `6d5893ab` (PR #55, 2026-11-11), written but **not applied**; production is at stamp 43 and the compiled ceiling on main remains 41. Tim's 2026-11-10 5:46 PM ET decision: “Yes let's fix it properly.” Apply still needs Tim's explicit yes at the time plus a backup; coordinate apply and compatible client publish in one session (§9.4).
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
-| id | uuid | PK | |
-| name | text | NOT NULL, UNIQUE | 'ton', 'bag', 'lb', 'kg', 'gallon' |
-| archived | boolean | DEFAULT false | Soft delete |
+| id | uuid | PK | Fixed UUIDv5 for standards; custom identity preserved |
+| operation_id | uuid | Nullable, DEFAULT NULL, FK → operations | NULL = standard; non-null = custom; immutable |
+| name | text | NOT NULL; scoped folded uniqueness | Standards: 'ton', 'bag', 'lb', 'kg', 'gallon' |
+| archived | boolean | Nullable, DEFAULT false | Soft archive; name remains reserved |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
-**Design decisions:**
-- **No operation_id:** Same pattern as dose_units (A33). Purchase units are universal. Adding a new unit is a row insert, not a code deploy.
-
-```sql
-CREATE TABLE input_product_units (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name        text NOT NULL UNIQUE,
-  archived    boolean DEFAULT false,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  updated_at  timestamptz NOT NULL DEFAULT now()
-);
-```
+**Design decisions:** The existing input-product-unit section remains read-only; no new product-unit editor was added in 044. Pickers show standards plus current-operation customs, hide archived choices and preserve already-selected archived references read-only where editing exists. Onboarding no longer seeds either unit table. The common RLS/grants and reference guards are specified in §9.4. The authoritative DDL is `supabase/migrations/044_unit_reference_rls.sql`, not the retired global UNIQUE-name table definition.
 
 ### 8.3 input_products
 
@@ -1820,7 +1810,7 @@ CREATE TABLE npk_price_history (
 
 The livestock health domain replaces v1's mega `healthEvents[]` array on each animal with proper normalized tables. Each record type — BCS scores, treatments, breeding, heat observations, calving — gets its own table with appropriate columns and FKs. This eliminates the v1 anti-pattern of storing structurally different event types in a single JSONB array.
 
-Three reference tables support the record tables: `ai_bulls` (AI sire catalog), `treatment_categories` (user-extensible grouping), and `treatment_types` (specific treatments linked to categories). A shared `dose_units` table provides universal measurement units for treatment dosing.
+Three reference tables support the record tables: `ai_bulls` (AI sire catalog), `treatment_categories` (user-extensible grouping), and `treatment_types` (specific treatments linked to categories). `dose_units` provides read-only standards and operation-owned custom treatment units (§9.4).
 
 ### 9.1 ai_bulls
 
@@ -1916,29 +1906,26 @@ CREATE TABLE treatment_types (
 
 ### 9.4 dose_units
 
-**Purpose:** Shared reference table for treatment dosage units. Universal — not scoped to any operation. Seeded with common units at app setup; users can add new ones without code changes.
+**Purpose:** Read-only standard and operation-owned custom treatment dosage units. Migration 044 is merged at `6d5893ab` (PR #55, 2026-11-11), written but **not applied**; production is at stamp 43 and the compiled ceiling on main remains 41. Tim's 2026-11-10 5:46 PM ET decision: “Yes let's fix it properly.” Apply still needs Tim's explicit yes at the time plus a backup; coordinate apply and compatible client publish in one session (§9.4).
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
-| id | uuid | PK | |
-| name | text | NOT NULL, UNIQUE | 'ml', 'cc', 'mg', 'tablet', 'capsule', 'pump' |
-| archived | boolean | DEFAULT false | Soft delete |
+| id | uuid | PK | Fixed UUIDv5 for standards; custom identity preserved |
+| operation_id | uuid | Nullable, DEFAULT NULL, FK → operations | NULL = standard; non-null = custom; immutable |
+| name | text | NOT NULL; scoped folded uniqueness | Standards: 'ml', 'cc', 'mg', 'tablet', 'capsule', 'pump' |
+| archived | boolean | Nullable, DEFAULT false | Soft archive; name remains reserved |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() | |
 
-**Design decisions:**
-- **No operation_id (A33):** Dose units are universal — "ml" means the same thing everywhere. Shared across all operations. No RLS needed beyond authenticated access.
-- **Reference table, not hardcoded list (A33):** Adding a new unit (e.g., 'bolus', 'implant') is a row insert, not a code deploy.
+**044 scope and integrity (OI-0216):** Accepted members can SELECT standards plus their operation's customs, and INSERT/UPDATE only non-null-scope customs. Unit `operation_id` is immutable, including privileged writes. There is no unit DELETE. Anon has no table access; authenticated has SELECT/INSERT/UPDATE only, with DELETE/TRUNCATE/REFERENCES/TRIGGER revoked. Names are NFC-normalized in the app; DB uniqueness is `lower(btrim(name))` within standard and per-operation scopes, with a cross-namespace guard preventing custom/standard collisions. Archived names stay reserved. NFC is not a DB normalization guarantee. The private serialized name guard requires READ COMMITTED; stronger isolation fails closed. Real multi-backend contention remains unproven by the disposable single-backend tests.
 
-```sql
-CREATE TABLE dose_units (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name        text NOT NULL UNIQUE,
-  archived    boolean DEFAULT false,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  updated_at  timestamptz NOT NULL DEFAULT now()
-);
-```
+**References:** Existing single-ID child FKs remain. BEFORE INSERT/UPDATE guards on `animal_treatments.dose_unit_id`, `amendments.qty_unit_id` and `input_products.unit_id` recheck both the unit FK and child operation: a non-null reference must exist and be a standard or belong to the child's operation. Cross-farm/unknown references fail even for service-role writes. Scope is the operation, not a separate farm-id column.
+
+**Standards and apply:** Standard IDs are fixed UUIDv5 in the URL namespace `https://getthehayout.com/units/<table>/<name>`. Migration 044 locks unit and child tables and aborts unless all three reference columns have zero non-null references and the nonempty catalog is exactly the eleven legacy ID+name pairs. Only then are legacy IDs rewritten; a completely empty catalog gets fixed standards. No name-based identity remapping. This is a once-only transactional migration, not an idempotent script.
+
+**Client behavior:** Onboarding does not seed units. The dose-unit editor labels standards Standard/read-only and supports add, rename and archive for the current operation's customs. No input-product-unit editor is introduced. Pickers use standards plus current-operation customs and hide archived options while retaining an already-selected archived reference read-only where editing exists. Store/sync never mutate standards or delete units. Push All sends only current-operation custom units, none without a current operation. Queued/dead-letter replay keeps each action's original operation; it never retags to current selection. Legacy unscoped cache/queue entries are discarded with count-only logs; known fixed standard IDs remain safe read-only cache entries. Custom writes stay fail-closed behind the compiled ceiling.
+
+**Release and backup:** PR #56 raises the compiled ceiling from 41 to 44 only after applies are verified. Apply 044 and publish the compatible client in one session: the old client's unit seeds/editor break after 044. CP-55 exports operation customs only, not standards; CP-56 performs typed preflight and custom-only UPSERT/no-delete (including accepted bounded N2 disclosure), per `V2_MIGRATION_PLAN.md` §5.7b. FA-30's guarded server write function is cancelled; the read-only preflight RPC is not that function. Full transactional restore is a later unscheduled item (OI-0217).
 
 ### 9.5 animal_bcs_scores
 
@@ -3164,7 +3151,7 @@ CREATE TABLE todo_assignments (
 
 ### 11.5 release_notes
 
-**Purpose:** In-app release notes pushed by the developer. Replaces v1's hardcoded "what's new" modal. Global table — not per-operation.
+**Purpose:** Global published release-note content, not per-operation. The current client pulls these rows but has no release-note UI consumer; 044 does not add a modal or renderer.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -3177,7 +3164,8 @@ CREATE TABLE todo_assignments (
 **Design decisions:**
 - **No operation_id.** Release notes are global — all users see the same notes.
 - **No updated_at.** Release notes are write-once from the developer. If corrections are needed, publish a new entry.
-- **Markdown body.** Rendered in-app with a simple markdown renderer. Keeps the table lean — no JSONB for structured sections.
+- **Markdown body.** Stored as text; no UI consumer is implemented by 044.
+- **044 grant posture:** RLS enabled; authenticated SELECT policy `USING (true)` and SELECT grant. Anon is fully denied; INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER are revoked from both browser roles. Writes are privileged migration/service operations only, not browser writes. Before 044, RLS was enabled with zero policies, so API reads returned empty. Successful pulls can now hydrate rows; this does not change the PWA update mechanism or add a release-note UI. `release_notes` remains excluded from CP-55/CP-56.
 
 ```sql
 CREATE TABLE release_notes (

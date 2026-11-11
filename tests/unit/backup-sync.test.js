@@ -26,7 +26,7 @@ describe('backup-sync invariants', () => {
     const nums = fs.readdirSync(migrationsDir)
       .map(f => parseInt(f.split('_')[0], 10))
       .filter(n => !Number.isNaN(n));
-    expect(CURRENT_SCHEMA_VERSION).toBe(41);
+    expect(CURRENT_SCHEMA_VERSION).toBe(44);
     expect(nums.filter(n => n > CURRENT_SCHEMA_VERSION).sort()).toEqual(HELD_SCHEMA_VERSIONS);
     for (const n of HELD_SCHEMA_VERSIONS) expect(BACKUP_MIGRATIONS[n - 1]).toBeTypeOf('function');
   });

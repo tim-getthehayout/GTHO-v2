@@ -147,19 +147,19 @@ describe('assistant uses populated normal entry UIs', () => {
   }
   for (const choice of ['move','residual']) it(`Move normal ${choice} follow-up uses live remaining, retains post-graze observations and commits one durable receipt`,async () => {
     const batch = seedDeliveredFeed();
-    const review = await reviewEntry({ ui: 'move',id: EVT,farmId: FARM },{ destType: 'new',locationId: DST_LOC,dateOut: '2026-11-08',timeOut: '09:00',dateIn: '2026-11-08',timeIn: '09:00',postGraze: { notes: 'Checked after grazing' },[`feed:${batch.id}|${SRC_LOC}`]: { choice,residual: '2' } });
+    const review = await reviewEntry({ ui: 'move',id: EVT,farmId: FARM },{ destType: 'new',locationId: DST_LOC,dateOut: '2026-11-08',timeOut: '09:00',dateIn: '2026-11-08',timeIn: '09:00',postGraze: { notes: 'Checked after grazing' },[`feed:${batch.feedTypeId}|${SRC_LOC}`]: { choice,residual: '2' } });
     // The live open-sheet field set includes the dynamic follow-ups, all declared by the sheet's definition.
     const open = review.ports.openSheet();
     expect(open.ui).toBe('move');
-    expect(open.fields).toEqual(expect.arrayContaining(['dateIn','postGraze',`feed:${batch.id}|${SRC_LOC}`]));
+    expect(open.fields).toEqual(expect.arrayContaining(['dateIn','postGraze',`feed:${batch.feedTypeId}|${SRC_LOC}`]));
     expect(getAll('events')).toHaveLength(1);await confirm('[data-testid="move-wizard-save"]',review);
     const transferred = getAll('eventFeedEntries').filter(row => row.eventId !== EVT);
     if (choice === 'move') { expect(transferred).toHaveLength(1);expect(transferred[0].quantity).toBe(3); } else expect(transferred).toHaveLength(0);
-    expect(getAll('eventFeedCheckItems').at(-1).remainingQuantity).toBe(choice === 'move' ? 0 : 2);
+    expect(getAll('eventFeedCheckItems').at(-1).remainingQuantity).toBe(choice === 'move' ? 3 : 2);
     expect(getAll('paddockObservations').some(row => row.notes === 'Checked after grazing')).toBe(true);expect(review.saved().localSavedAt).toBeTruthy();
   });
   it('Move invalid residual follow-up refuses before any farm close/create writes',async () => {
-    const batch = seedDeliveredFeed();const review = await reviewEntry({ ui: 'move',id: EVT,farmId: FARM },{ destType: 'new',locationId: DST_LOC,dateOut: '2026-11-08',dateIn: '2026-11-08',[`feed:${batch.id}|${SRC_LOC}`]: { choice: 'residual',residual: '-1' } });
+    const batch = seedDeliveredFeed();const review = await reviewEntry({ ui: 'move',id: EVT,farmId: FARM },{ destType: 'new',locationId: DST_LOC,dateOut: '2026-11-08',dateIn: '2026-11-08',[`feed:${batch.feedTypeId}|${SRC_LOC}`]: { choice: 'residual',residual: '-1' } });
     document.querySelector('[data-testid="move-wizard-save"]').click();await vi.waitFor(() => expect(review.corrected()).toBe(1));document.querySelector('[data-testid="move-wizard-save"]').click();
     await vi.waitFor(() => expect(document.querySelector('[data-testid="move-wizard-status"]').textContent).not.toBe(''));
     expect(review.saved()).toBeUndefined();expect(getAll('events')).toHaveLength(1);expect(getById('events',EVT).dateOut).toBeNull();expect(getAll('eventFeedChecks')).toHaveLength(1);expect(getAll('paddockObservations')).toHaveLength(0);
@@ -190,7 +190,7 @@ describe('assistant uses populated normal entry UIs', () => {
   });
   function seedBatch() {
     const type = FeedTypeEntity.create({ operationId: OP,name: 'Hay',category: 'forage',unit: 'bale' });add('feedTypes',type,FeedTypeEntity.validate,FeedTypeEntity.toSupabaseShape,'feed_types');
-    const batch = BatchEntity.create({ operationId: OP,feedTypeId: type.id,name: 'Hay',quantity: 10,unit: 'bale' });add('batches',batch,BatchEntity.validate,BatchEntity.toSupabaseShape,'batches');
+    const batch = BatchEntity.create({ operationId: OP,feedTypeId: type.id,name: 'Hay',quantity: 10,unit: 'bale',weightPerUnitKg: 500,dmPct: 85 });add('batches',batch,BatchEntity.validate,BatchEntity.toSupabaseShape,'batches');
     placeInitialBalance({ operationId: OP,batchId: batch.id,locationId: SRC_LOC,quantity: 10 });return batch;
   }
   it('Feeding durably saves both the entry and original inventory deduction',async () => {

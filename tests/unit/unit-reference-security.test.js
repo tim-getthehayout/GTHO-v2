@@ -37,10 +37,11 @@ it('all eleven exact legacy IDs and fixed IDs are in the migration, with both ap
  for(const row of UNIT_STANDARDS){expect(sql).toContain(row.id);expect(sql).toContain(row.legacyId);}
  expect(sql).toContain('unit-migration-references-exist');expect(sql).toContain('unit-migration-unexpected-standard-set');expect(sql).toContain('SET schema_version = 44');
 });
-it('keeps the release ceiling at 41, held 42/43/44, and custom serialization fails closed',()=>{
- expect(RELEASED_SCHEMA_VERSION).toBe(41);expect(HELD_SCHEMA_VERSIONS).toEqual([42,43,44]);expect(STAGED_COLUMNS[44]).toEqual({dose_units:['operation_id'],input_product_units:['operation_id']});
- expect(()=>toSupabaseShape(create({name:'custom',operationId:'op'}))).toThrow(/44|unreleasedSchema/);
- expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:44,operation_id:'op',tables:{}}).valid).toBe(false);
+it('promotes 42–44 while preserving column proofs, custom ownership and future-version refusal',()=>{
+ expect(RELEASED_SCHEMA_VERSION).toBe(44);expect(HELD_SCHEMA_VERSIONS).toEqual([]);expect(STAGED_COLUMNS[44]).toEqual({dose_units:['operation_id'],input_product_units:['operation_id']});
+ expect(toSupabaseShape(create({name:'custom',operationId:'op'}))).toMatchObject({operation_id:'op'});
+ expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:44,operation_id:'op',tables:{}}).valid).toBe(true);
+ expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:45,operation_id:'op',tables:{}}).valid).toBe(false);
 });
 it('43→44 maps by exact legacy IDs only, skips standards, retains custom IDs and stamps all operations',()=>{
  const dose=UNIT_STANDARDS.find(row=>row.table==='dose_units'),product=UNIT_STANDARDS.find(row=>row.table==='input_product_units');
@@ -49,6 +50,6 @@ it('43→44 maps by exact legacy IDs only, skips standards, retains custom IDs a
 });
 it('names alone never map unknown IDs into standards',()=>{const out=BACKUP_MIGRATIONS[43]({schema_version:43,operation_id:'op',tables:{dose_units:[{id:'different',name:'ml'}]}});expect(out.tables.dose_units[0]).toEqual({id:'different',name:'ml',operation_id:'op'});});
 
-it('held custom writes fail before local persistence even without a serializer',()=>{
- _reset();localStorage.clear();expect(()=>add('doseUnits',create({name:'Custom',operationId:'op'}),validate)).toThrow(/44|unreleasedSchema/);expect(getAll('doseUnits')).toEqual([]);expect(localStorage.getItem('gtho_v2_doseUnits')).toBeNull();
+it('standard writes still fail before local persistence even after promotion',()=>{
+ _reset();localStorage.clear();expect(()=>add('doseUnits',create({name:'Standard'}),validate)).toThrow(/read.only|standardReadOnly/i);expect(getAll('doseUnits')).toEqual([]);expect(localStorage.getItem('gtho_v2_doseUnits')).toBeNull();
 });

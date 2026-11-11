@@ -15,7 +15,7 @@ import { placeInitialBalance, moveBatchQuantity, balancesFor } from '../../src/f
 import { openEventDetailSheet, closeEventDetailSheet } from '../../src/features/events/detail.js';
 import { closeForm, openAddMode, openEditMode, renderInlineFeedForm } from '../../src/features/events/feed-entry-inline-form.js';
 let event, mount, queued;
-const batch = id => seed('batches', Batch, { id, name: id, feedTypeId: 'hay', quantity: 10, remaining: 10, unit: 'bale' });
+const batch = id => seed('batches', Batch, { id, name: id, feedTypeId: 'hay', quantity: 10, remaining: 10, unit: 'bale', weightPerUnitKg: 500, dmPct: 85 });
 const source = (id, quantity) => balancesFor(id).find(row => row.locationId === quantity)?.quantity;
 function render() { renderInlineFeedForm(mount, { event, operationId: OP }); }
 function edit(entry, quantity, batchId, from) {
@@ -85,7 +85,7 @@ it('time-only actual editor save preserves all inventory and persists the explic
   const old = seed('eventFeedEntries', Entry, { eventId: event.id, locationId: 'pasture', batchId: 'hay-a', sourceLocationId: 'barn', date: '2026-01-02', time: '13:01', quantity: 2 });
   const check = seed('eventFeedChecks', Check, { eventId: event.id, date: old.date, time: '13:00' });
   seed('eventFeedCheckItems', CheckItem, { feedCheckId: check.id, batchId: old.batchId, locationId: old.locationId, remainingQuantity: 2 });
-  expect(getLiveRemainingForMove(event.id)['hay-a|pasture']).toBe(4);
+  expect(getLiveRemainingForMove(event.id)['hay|pasture']).toBe(4);
   const before = JSON.stringify(balancesFor('hay-a'));
   openEditMode(old); render(); expect(mount.querySelector('input[type="time"]').value).toBe('13:01');
   button(mount, 'Save changes').click(); expect(mount.textContent).toContain('Enter or confirm'); expect(queued('event_feed_entries')).toHaveLength(0);
@@ -94,5 +94,5 @@ it('time-only actual editor save preserves all inventory and persists the explic
   expect(JSON.stringify(balancesFor('hay-a'))).toBe(before); expect(getById('batches', 'hay-a').remaining).toBe(10);
   expect(queued('batches')).toHaveLength(0); expect(queued('batch_location_balances')).toHaveLength(0);
   expect(queued('event_feed_entries').at(-1)).toMatchObject({ time: '12:59' });
-  expect(getLiveRemainingForMove(event.id)['hay-a|pasture']).toBe(2);
+  expect(getLiveRemainingForMove(event.id)['hay|pasture']).toBe(2);
 });

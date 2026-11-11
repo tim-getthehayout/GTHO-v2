@@ -12,7 +12,6 @@ import { validateBackup } from '../../src/data/backup-import.js';
 import { renderReportsScreen } from '../../src/features/reports/index.js';
 import { openEventDetailSheet, closeEventDetailSheet } from '../../src/features/events/detail.js';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
-vi.mock('../../src/data/schema-release.js',async original=>({...await original(),RELEASED_SCHEMA_VERSION:43}));
 import '../../src/calcs/core.js';
 import { resetForms, seed, fill, button, queueSpy, OP, FARM } from './manual-entry-helpers.js';
 import { getAll, getById, update } from '../../src/data/store.js';

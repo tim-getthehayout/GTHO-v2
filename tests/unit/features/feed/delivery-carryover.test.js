@@ -1,5 +1,8 @@
+// Historical batch-row UI/API regression fixture. Released pool forms run
+// unmocked in manual-feed-pools and manual-pool-chart-refresh.
+vi.mock('../../../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 /** @file Feeding review must show an editable carryover (batch, paddock, remaining) before save. */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll, setSyncAdapter } from '../../../../src/data/store.js';
 import { openDeliverFeedSheet } from '../../../../src/features/feed/delivery.js';
 import * as OperationEntity from '../../../../src/entities/operation.js';

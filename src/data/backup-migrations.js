@@ -222,7 +222,7 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 41;
     return b;
   },
-  // Written only. Compiled restore ceiling stays 41 until compatible release.
+  // Released 041 → 042: absent-only retained text; preserve supplied values.
   41: (b) => {
     for (const [table, field] of [['ai_bulls', 'epds'], ['animal_breeding_records', 'sire_name']]) {
       for (const row of b.tables[table] || []) if (!Object.hasOwn(row, field)) row[field] = null;
@@ -244,7 +244,7 @@ export const BACKUP_MIGRATIONS = {
     return b;
   },
   // 043 → 044: operation-owned custom units and exact legacy standard-ID mapping.
-  // Held: exact legacy IDs map to fixed standards; other old rows become custom.
+  // Released: exact legacy IDs map to fixed standards; other old rows become custom.
   43: (b) => {
     migrateUnitBackup(b);
     b.schema_version = 44;

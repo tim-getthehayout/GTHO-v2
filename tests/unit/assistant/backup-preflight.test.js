@@ -1,3 +1,5 @@
+// Isolate the established 040/041 fence contract; released-44 preflight is covered by real restore flows.
+vi.mock('../../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 import { CURRENT_SCHEMA_VERSION } from '../../../src/data/backup-import.js';
 import { describe,it,expect,vi,beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ from: vi.fn(),rpc: vi.fn(),pull: vi.fn(),autoBackup: vi.fn(),download: vi.fn() }));

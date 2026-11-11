@@ -1,3 +1,5 @@
+// Historical ceiling-41 compatibility; actual released-44 flows run unmocked.
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 import { beforeEach, it, expect, vi } from 'vitest';
 import { resetForms, seed, fill, button, OP } from './manual-entry-helpers.js';
 import { getAll } from '../../src/data/store.js';

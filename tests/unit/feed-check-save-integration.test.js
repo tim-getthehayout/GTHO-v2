@@ -1,3 +1,6 @@
+// Historical batch-row UI/API regression fixture. Released pool forms run
+// unmocked in manual-feed-pools and manual-pool-chart-refresh.
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 /** @file Integration test for the full Feed check Save click path (OI-0103).
  *
  * OI-0103's unit test only covered the entity round-trip. This test drives the
@@ -5,7 +8,7 @@
  * drop or validate-reject failure. Follow-up to Tim's report that Save still
  * doesn't persist after the `checkDate:` → `date:` rename landed.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll, setSyncAdapter, mergeRemote } from '../../src/data/store.js';
 import { openFeedCheckSheet } from '../../src/features/feed/check.js';
 import * as OperationEntity from '../../src/entities/operation.js';

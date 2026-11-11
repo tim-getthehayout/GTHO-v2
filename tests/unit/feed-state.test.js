@@ -1,8 +1,11 @@
+// Historical batch-row UI/API regression fixture. Released pool forms run
+// unmocked in manual-feed-pools and manual-pool-chart-refresh.
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 /** @file OI-0135 — getLiveRemainingForMove helper resolves per (batch, location)
  * the most-recent feed check's remaining_quantity, falling back to the sum of
  * deliveries when no check exists.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _reset, add } from '../../src/data/store.js';
 import * as FeedEntryEntity from '../../src/entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../src/entities/event-feed-check.js';

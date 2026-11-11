@@ -1,3 +1,6 @@
+// Historical batch-row UI/API regression fixture. Released pool forms run
+// unmocked in manual-feed-pools and manual-pool-chart-refresh.
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 /** @file OI-0135 + OI-0136 — move-wizard forced residual input + live-remaining
  * wiring. Drives the real move-wizard DOM and verifies:
  *   - Step 3 "remaining: N unit" label reads live-remaining (most-recent check)
@@ -6,7 +9,7 @@
  *   - Residual with valid farmer-corrected input writes the entered value
  *   - Move selection hides the residual input (no regression)
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll } from '../../src/data/store.js';
 import * as OperationEntity from '../../src/entities/operation.js';
 import * as FarmEntity from '../../src/entities/farm.js';

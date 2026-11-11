@@ -1,5 +1,4 @@
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
-vi.mock('../../src/data/schema-release.js',async original=>({...await original(),RELEASED_SCHEMA_VERSION:43}));
 import * as FeedType from '../../src/entities/feed-type.js';
 import '../../src/calcs/core.js';
 import '../../src/calcs/feed-forage.js';

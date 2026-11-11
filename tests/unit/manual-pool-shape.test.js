@@ -1,5 +1,4 @@
-import { it, expect, vi } from 'vitest';
-vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 43 }));
+import { it, expect } from 'vitest';
 import * as Entry from '../../src/entities/event-feed-entry.js';
 import * as Item from '../../src/entities/event-feed-check-item.js';
 import { BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';

@@ -1,25 +1,29 @@
 /** Real flows against an in-memory transport double; no SQL or live DB access. */
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 44 }));
-const db = vi.hoisted(() => ({ rows: {}, calls: [], orders: [], client: null }));
+const db = vi.hoisted(() => ({ rows: {}, calls: [], orders: [], proofs: [], filters: [], missingColumn: null, client: null }));
 vi.mock('../../src/data/supabase-client.js', () => {
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: 'user', email: 'test@example.test' } } }) },
     from(table) {
-      let operation = 'select', payload, options, page, ordering, filters = [];
+      let operation = 'select', payload, options, page, ordering, selection, zeroProof = false, filters = [];
       const query = {
-        select(columns, opts) { operation = 'select'; options = opts; return query; },
+        select(columns, opts) { operation = 'select'; selection = columns; options = opts; return query; },
         insert(rows) { operation = 'insert'; payload = rows; return query; },
         update(rows) { operation = 'update'; payload = rows; return query; },
         upsert(rows, opts) { operation = 'upsert'; payload = rows; options = opts; return query; },
         delete() { operation = 'delete'; return query; },
-        eq(key, value) { filters.push([key, value]); return query; },
+        eq(key, value) { filters.push([key, value]); db.filters.push({table,key,value}); return query; },
         order(column,opts) { ordering={column,...opts}; db.orders.push({table,column,...opts}); return query; },
         range(start,end) { page=[start,end]; return query; },
-        limit() { return query; },
+        limit(n) { zeroProof = n === 0; return query; },
         then(resolve, reject) {
           return Promise.resolve().then(() => {
             db.calls.push({ table, operation, payload: structuredClone(payload), options });
+            if (zeroProof) {
+              db.proofs.push({table,columns:selection,limit:0});
+              const missing=db.missingColumn?.table===table && selection.split(',').includes(db.missingColumn.column);
+              return {data:missing?null:[],error:missing?{code:'42703'}:null};
+            }
             if (['dose_units', 'input_product_units'].includes(table) && !['select', 'insert', 'update', 'upsert'].includes(operation)) throw new Error('Forbidden unit operation');
             const rows = db.rows[table] || [];
             if (operation !== 'select') db.rows[table] = rows;
@@ -54,7 +58,7 @@ import { renderOnboarding } from '../../src/features/onboarding/index.js';
 import { UNIT_STANDARDS } from '../../src/utils/unit-standards.js';
 import { renderDoseUnitsSection, renderHealthRefSheetMarkups } from '../../src/features/health/reference-tables.js';
 import { pushAllToSupabase } from '../../src/data/push-all.js';
-import { importOperationBackup, BROWSER_FK_ORDER } from '../../src/data/backup-import.js';
+import { importOperationBackup, BROWSER_FK_ORDER, CURRENT_SCHEMA_VERSION, validateBackup, resolveOperationsSchemaStamp } from '../../src/data/backup-import.js';
 import { exportOperationBackup, BACKUP_TABLES } from '../../src/data/backup-export.js';
 import { groupUnitRestoreRows } from '../../src/data/unit-restore-payload.js';
 import { SYNC_REGISTRY } from '../../src/data/sync-registry.js';
@@ -62,13 +66,15 @@ import * as Dose from '../../src/entities/dose-unit.js';
 import * as Product from '../../src/entities/input-product-unit.js';
 import { setLocale } from '../../src/i18n/i18n.js';
 import en from '../../src/i18n/locales/en.json';
-import { button, fill } from './manual-entry-helpers.js';
+import { button, fill, OP } from './manual-entry-helpers.js';
+import { RELEASED_SCHEMA_VERSION, HELD_SCHEMA_VERSIONS, STAGED_COLUMNS } from '../../src/data/schema-release.js';
+import { releasedColumns } from '../../src/data/schema-columns.js';
 const tables = ['dose_units', 'input_product_units'];
 const unitCalls = () => db.calls.filter(call => tables.includes(call.table));
 let adapter;
 beforeEach(() => {
   localStorage.clear(); _reset(); document.body.replaceChildren(); setLocale('en', en);
-  db.rows = {}; db.calls = []; db.orders = []; db.client.rpc.mockClear();
+  db.rows = {}; db.calls = []; db.orders = []; db.proofs = []; db.filters = []; db.missingColumn = null; db.client.rpc.mockClear();
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
   adapter = new CustomSync(); setSyncAdapter(adapter);
 });
@@ -353,4 +359,62 @@ it('unit restore grouping ignores key order, keeps all eight metadata shapes and
  const before=structuredClone([...rows,...reordered]);const groups=groupUnitRestoreRows([...rows,...reordered]);
  expect(groups).toHaveLength(8);groups.forEach((group,index)=>expect(group).toEqual([rows[index],reordered[index]]));
  expect([...rows,...reordered]).toEqual(before);expect(groupUnitRestoreRows([])).toEqual([]);
+});
+
+// No schema-release mock: these exercise the exact client being prepared for publish.
+it('actual release promotes 42–44 without removing independent column proofs or future guards',async()=>{
+ expect(RELEASED_SCHEMA_VERSION).toBe(44);expect(CURRENT_SCHEMA_VERSION).toBe(44);expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+ expect(Object.keys(STAGED_COLUMNS).map(Number)).toEqual([42,43,44]);
+ expect(()=>releasedColumns(45,{future_field:'value'})).toThrow();
+ expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:45,operation_id:OP,tables:{}}).valid).toBe(false);
+ await expect(resolveOperationsSchemaStamp(45,db.client)).rejects.toThrow('Unverified');expect(db.calls).toEqual([]);expect(db.client.rpc).not.toHaveBeenCalled();
+});
+
+it.each([41,42,43])('real CP-56 %s→44 promotes retained text, legacy pool rows and exact standard references before restore',async(version)=>{
+ const operationId=crypto.randomUUID();
+ db.rows.operations=[{id:operationId,name:'Existing farm',schema_version:44}];
+ for(const table of tables)db.rows[table]=UNIT_STANDARDS.filter(unit=>unit.table===table).map(({id,name})=>({id,name,operation_id:null}));
+ const dose=UNIT_STANDARDS.find(unit=>unit.table==='dose_units'),product=UNIT_STANDARDS.find(unit=>unit.table==='input_product_units');
+ const custom=Dose.create({name:'Restored custom',operationId:operationId});
+ const backup={format:'gtho-v2-backup',format_version:1,schema_version:version,operation_id:operationId,tables:{
+  operations:[{id:operationId,name:'Farm',schema_version:version}],
+  ai_bulls:[{id:'sire',operation_id:operationId,name:'Sire',epds:' CE+8, BW-1.2 '}],
+  animal_breeding_records:[{id:'breeding',operation_id:operationId,sire_name:'Independent sire'}],
+  event_feed_entries:[{id:'feeding',operation_id:operationId,batch_id:'retained-batch'}],
+  event_feed_check_items:[{id:'check-item',operation_id:operationId,batch_id:'retained-batch'}],
+  dose_units:[{id:dose.legacyId,name:dose.name},{id:custom.id,name:custom.name}],input_product_units:[{id:product.legacyId,name:product.name}],
+  animal_treatments:[{id:'treatment',operation_id:operationId,dose_unit_id:dose.legacyId}],
+  amendments:[{id:'amendment',operation_id:operationId,qty_unit_id:product.legacyId}],input_products:[{id:'product',operation_id:operationId,unit_id:product.legacyId}],
+ }};
+ const before=structuredClone(backup);const result=await importOperationBackup(backup,operationId,null,{skipAutoBackup:true});
+ expect(result,result.error).toMatchObject({success:true});expect(backup).toEqual(before);
+ expect(db.rows.operations[0].schema_version).toBe(44);expect(db.rows.ai_bulls[0].epds).toBe(' CE+8, BW-1.2 ');expect(db.rows.animal_breeding_records[0].sire_name).toBe('Independent sire');
+ if(version<=42){expect(db.rows.event_feed_entries[0]).toMatchObject({batch_id:'retained-batch',kind:null,feed_type_id:null,return_batch_id:null});expect(db.rows.event_feed_check_items[0]).toMatchObject({batch_id:'retained-batch',feed_type_id:null});}
+ expect(db.rows.animal_treatments[0].dose_unit_id).toBe(dose.id);expect(db.rows.amendments[0].qty_unit_id).toBe(product.id);expect(db.rows.input_products[0].unit_id).toBe(product.id);
+ expect(db.rows.dose_units.find(row=>row.id===custom.id)).toMatchObject({operation_id:operationId,name:'Restored custom'});
+ const names=db.client.rpc.mock.calls.map(([name])=>name);expect(names.indexOf('unit_restore_id_conflicts')).toBeLessThan(names.indexOf('assistant_restore_prepare'));
+ for(const [table,columns]of Object.values(STAGED_COLUMNS).flatMap(tables=>Object.entries(tables)))expect(db.proofs).toContainEqual({table,columns:columns.join(','),limit:0});
+ expect(unitCalls().filter(call=>call.operation==='upsert').flatMap(call=>call.payload).map(row=>row.id)).toEqual([custom.id]);noUnitDeletes();
+});
+
+it.each(Object.values(STAGED_COLUMNS).flatMap(tables=>Object.entries(tables).flatMap(([table,columns])=>columns.map(column=>({table,column})))))('released restore refuses missing $table.$column before any fence or mutation',async({table,column})=>{
+ db.missingColumn={table,column};const before=structuredClone(db.rows);
+ const result=await importOperationBackup({format:'gtho-v2-backup',format_version:1,schema_version:41,operation_id:OP,tables:{operations:[{id:OP,schema_version:41}]}},OP,null,{skipAutoBackup:true});
+ expect(result.success).toBe(false);expect(result.error).toMatch(/columns|verified/i);expect(db.rows).toEqual(before);expect(db.client.rpc).not.toHaveBeenCalled();expect(db.calls.every(call=>call.operation==='select')).toBe(true);
+});
+
+it.each([{error:{code:'PGRST202'}},{error:{code:'42501'}},{data:true},{data:null}])('released custom-unit restore refuses an unavailable or conflicting preflight RPC (%j) before fence/write/delete',async(rpcResult)=>{
+ const operationId=crypto.randomUUID();
+ db.client.rpc.mockResolvedValueOnce(rpcResult);
+ const row=Dose.toSupabaseShape(Dose.create({name:'Custom',operationId:operationId}));
+ const result=await importOperationBackup({format:'gtho-v2-backup',format_version:1,schema_version:44,operation_id:operationId,tables:{dose_units:[row]}},operationId,null,{skipAutoBackup:true});
+ expect(result.success).toBe(false);expect(result.error).toContain('Unit restore validation');expect(db.client.rpc.mock.calls.map(([name])=>name)).toEqual(['unit_restore_id_conflicts']);expect(db.calls.every(call=>call.operation==='select')).toBe(true);expect(db.rows).toEqual({});
+});
+
+it('actual released CP-55 sends operation filters for both unit tables and excludes standards and foreign custom rows',async()=>{
+ db.rows.operations=[{id:OP,name:'Farm',schema_version:44}];
+ for(const table of tables)db.rows[table]=[{id:UNIT_STANDARDS.find(unit=>unit.table===table).id,name:'Standard',operation_id:null},{id:'own-custom',name:'Own',operation_id:OP},{id:'foreign-custom',name:'Foreign',operation_id:'other'}];
+ const backup=JSON.parse((await exportOperationBackup(OP)).json);expect(backup.schema_version).toBe(44);
+ for(const table of tables){expect(backup.tables[table].map(row=>row.id)).toEqual(['own-custom']);expect(db.filters.filter(filter=>filter.table===table)).toContainEqual({table,key:'operation_id',value:OP});}
+ expect(db.calls.every(call=>call.operation==='select')).toBe(true);
 });

@@ -101,7 +101,7 @@ function seedFeed(eventId, locationId) {
   }), FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
   add('batches', BatchEntity.create({
     id: BATCH, operationId: OP, feedTypeId: FEED_TYPE, name: 'May hay',
-    quantity: 20, remaining: 20, unit: 'bale',
+    quantity: 20, remaining: 20, unit: 'bale', weightPerUnitKg: 500, dmPct: 85,
   }), BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
   add('eventFeedEntries', FeedEntryEntity.create({
     operationId: OP, eventId, batchId: BATCH, locationId, date: '2026-05-02', quantity: 10,

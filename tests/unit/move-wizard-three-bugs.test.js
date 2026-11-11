@@ -185,7 +185,8 @@ describe('OI-0162-A — Step 3 skips 0-remaining feed groups', () => {
     const items = getAll('eventFeedCheckItems').filter(ci => ci.feedCheckId === checks[0].id);
     expect(items.length).toBe(1);
     expect(items[0].remainingQuantity).toBe(0);
-    expect(items[0].batchId).toBe(BATCH);
+    expect(items[0].batchId).toBeNull();
+    expect(items[0].feedTypeId).toBe(getById('batches',BATCH).feedTypeId);
     expect(items[0].locationId).toBe(SRC_LOC);
   });
 });

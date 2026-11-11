@@ -1,4 +1,6 @@
-import { it, expect } from 'vitest';
+// Historical ceiling-41 compatibility; actual released-44 flows run unmocked.
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
+import { it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as Entry from '../../src/entities/event-feed-entry.js';

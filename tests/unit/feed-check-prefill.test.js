@@ -1,8 +1,11 @@
+// Historical batch-row UI/API regression fixture. Released pool forms run
+// unmocked in manual-feed-pools and manual-pool-chart-refresh.
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 /** @file OI-0139 — feed-check sheet prefill must consume getLiveRemainingForMove
  * so post-check deliveries land on top of the latest check's reading. Six cases
  * mirror the helper-level cases but assert at the sheet's units stepper.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll, setSyncAdapter } from '../../src/data/store.js';
 import { openFeedCheckSheet } from '../../src/features/feed/check.js';
 import * as OperationEntity from '../../src/entities/operation.js';

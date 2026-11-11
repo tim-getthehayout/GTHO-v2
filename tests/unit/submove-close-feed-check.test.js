@@ -1,3 +1,6 @@
+// Historical batch-row UI/API regression fixture. Released pool forms run
+// unmocked in manual-feed-pools and manual-pool-chart-refresh.
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 /** @file OI-0119 — Sub-move Close sheet forced feed-check card.
  *
  * When the event has any stored-feed deliveries (`event.hasStoredFeed`),
@@ -6,7 +9,7 @@
  * combo. On Save, a new `event_feed_checks` + per-combo
  * `event_feed_check_items` must be written with `isCloseReading=false`.
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll, getById } from '../../src/data/store.js';
 import * as OperationEntity from '../../src/entities/operation.js';
 import * as FarmEntity from '../../src/entities/farm.js';

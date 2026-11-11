@@ -231,8 +231,8 @@ export async function serverHasMigration041(client = supabase) {
   }
 }
 
-/** Read-only zero-row column proof for a future compatible release. Schema
- * stamps and the 041 RPC alone do not prove any held columns exist. */
+/** Read-only zero-row proof for each compatible schema and its prerequisites.
+ * Stamps and the 041 RPC alone never prove the 042–044 column shapes. */
 export async function serverHasStagedColumns(version, client = supabase) {
   if (!STAGED_COLUMNS[version] || !client?.from) return false;
   try {

@@ -1,6 +1,5 @@
 import { beforeEach, it, expect, vi } from 'vitest';
-// Exercise the staged release without enabling it in the production build.
-vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 42 }));
+// Exercise the actual released ceiling; no test-only schema opt-in.
 import { resetForms, seed, button, fill, queueSpy, OP } from './manual-entry-helpers.js';
 import { getAll, getById, mergeRemote } from '../../src/data/store.js';
 import { loadFromStorage } from '../../src/data/local-storage.js';
@@ -31,7 +30,7 @@ it('nullable text accepts punctuation/blanks but rejects non-string values witho
 });
 it('CP-55/56 serialized fixture migrates missing text only, preserves supplied values and advances both stamps',()=>{
  const fixture=JSON.parse(JSON.stringify({format:'gtho-v2-backup',format_version:1,schema_version:41,operation_id:OP,tables:{operations:[{schema_version:41}],ai_bulls:[{id:'old'},{id:'new',epds:'CE+8 BW-1.2'},{id:'null',epds:null}],animal_breeding_records:[{id:'old'},{id:'new',sire_name:'Independent text'}]}}));
- const out=BACKUP_MIGRATIONS[41](fixture);expect(out.schema_version).toBe(42);expect(out.tables.operations[0].schema_version).toBe(42);expect(out.tables.ai_bulls.map(row=>row.epds)).toEqual([null,'CE+8 BW-1.2',null]);expect(out.tables.animal_breeding_records.map(row=>row.sire_name)).toEqual([null,'Independent text']);expect(validateBackup(out).valid).toBe(true);expect(migrateBackupForward(out).migrated).toBe(false);expect(Sire.toSupabaseShape(Sire.fromSupabaseShape(out.tables.ai_bulls[1])).epds).toBe('CE+8 BW-1.2');expect(Breeding.toSupabaseShape(Breeding.fromSupabaseShape(out.tables.animal_breeding_records[1])).sire_name).toBe('Independent text');
+ const out=BACKUP_MIGRATIONS[41](fixture);expect(out.schema_version).toBe(42);expect(out.tables.operations[0].schema_version).toBe(42);expect(out.tables.ai_bulls.map(row=>row.epds)).toEqual([null,'CE+8 BW-1.2',null]);expect(out.tables.animal_breeding_records.map(row=>row.sire_name)).toEqual([null,'Independent text']);expect(validateBackup(out).valid).toBe(true);expect(migrateBackupForward(out)).toMatchObject({migrated:true,from:42,to:44});expect(out.schema_version).toBe(44);expect(out.tables.operations[0].schema_version).toBe(44);expect(Sire.toSupabaseShape(Sire.fromSupabaseShape(out.tables.ai_bulls[1])).epds).toBe('CE+8 BW-1.2');expect(Breeding.toSupabaseShape(Breeding.fromSupabaseShape(out.tables.animal_breeding_records[1])).sire_name).toBe('Independent text');
 });
 
 function openAISiresSheet() { const root=document.createElement('main');document.body.append(root);renderAnimalsScreen(root);button(root,'🐂 AI Sires').click(); }

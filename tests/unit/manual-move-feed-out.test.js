@@ -1,3 +1,6 @@
+// Historical batch-row UI/API regression fixture. Released pool forms run
+// unmocked in manual-feed-pools and manual-pool-chart-refresh.
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { resetForms, seed, queueSpy, button, fill, OP, FARM } from './manual-entry-helpers.js';
 import { getAll, getById, init, update, remove } from '../../src/data/store.js';

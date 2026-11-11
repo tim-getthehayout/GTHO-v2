@@ -1,3 +1,5 @@
+import { createClient } from '@supabase/supabase-js';
+import { groupUnitRestoreRows } from '../../src/data/unit-restore-payload.js';
 import { preflightUnits } from '../../src/data/unit-backup.js';
 // Disposable PostgreSQL/WASM only. Never accepts a database URL.
 // PGLITE_MODULE points at a scratch-installed @electric-sql/pglite@0.5.15.
@@ -154,6 +156,39 @@ try {
     const result=await preflightUnits(backup,OP1,client,44);assert.equal(result.success,true);const payload=backup.tables[table][0];assert.equal(payload.id,id);assert.equal(payload.name,'Restored é');
     const fields=Object.keys(payload);await db.query(`INSERT INTO ${table} (${fields.join(',')}) VALUES (${fields.map((_,i)=>'$'+(i+1)).join(',')})`,Object.values(payload));
     assert.equal((await db.query(`SELECT archived IS NULL AND created_at=$2::timestamptz AND updated_at=$2::timestamptz AS ok FROM ${table} WHERE id=$1`,[id,stamp])).rows[0].ok,true);
+  });
+
+  for(const [index,table] of ['dose_units','input_product_units'].entries())await check(`${table} grouped SDK requests preserve omitted conflict metadata and default only fresh rows`,async()=>{
+    await as(db,'authenticated',U1);
+    const suffix=String(index+1),existing=`bc000000-0000-4000-8000-00000000000${suffix}`,fresh=`bd000000-0000-4000-8000-00000000000${suffix}`,explicit=`be000000-0000-4000-8000-00000000000${suffix}`,minimal=`bf000000-0000-4000-8000-00000000000${suffix}`;
+    const old='2020-01-01T00:00:00Z',stamp='2025-01-01T00:00:00Z';
+    for(const [id,name]of [[existing,'Preserve mixed metadata'],[explicit,'Replace mixed metadata']])await db.query(`INSERT INTO ${table}(id,operation_id,name,archived,created_at,updated_at) VALUES($1,$2,$3,true,$4,$4)`,[id,OP1,name,old]);
+    const backup={tables:{[table]:[{id:fresh,operation_id:OP1,name:'New full metadata',archived:false,created_at:stamp,updated_at:stamp},{id:existing,operation_id:OP1,name:'Preserve mixed metadata'},{id:minimal,operation_id:OP1,name:'New default metadata'},{id:explicit,operation_id:OP1,name:'Replace mixed metadata',archived:null,created_at:stamp,updated_at:stamp}]}};
+    const reader={from(name){return{select(){return this;},order(){return this;},async range(a,b){return{data:(await db.query(`SELECT * FROM ${name} ORDER BY id OFFSET ${a} LIMIT ${b-a+1}`)).rows,error:null};}};},async rpc(_name,args){return{data:(await db.query('SELECT public.unit_restore_id_conflicts($1,$2,$3,$4::jsonb,$5::jsonb) AS value',[args.p_operation,args.p_dose_ids,args.p_product_ids,JSON.stringify(args.p_dose_rows),JSON.stringify(args.p_product_rows)])).rows[0].value,error:null};}};
+    const validated=await preflightUnits(backup,OP1,reader,44);assert.equal(validated.success,true);
+    const requests=[];
+    const http=createClient('https://example.invalid','dummy',{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:async(url,init)=>{
+      // Real installed SDK request; reproduce PostgREST's defaults and actual
+      // request-column ON CONFLICT SET list in disposable PostgreSQL, no network.
+      const columns=new URL(url).searchParams.get('columns').replaceAll('"','').split(',');
+      const body=JSON.parse(init.body);requests.push({columns,body});
+      assert(new Headers(init.headers).get('Prefer').includes('missing=default'));
+      assert(columns.every(column=>['id','operation_id','name','archived','created_at','updated_at'].includes(column)));
+      for(const row of body)assert.deepEqual(Object.keys(row).sort(),[...columns].sort());
+      await db.query(`INSERT INTO ${table}(${columns.join(',')})
+        SELECT ${columns.map(column=>'x.'+column).join(',')} FROM jsonb_array_elements($1::jsonb) j(value)
+        CROSS JOIN LATERAL jsonb_to_record(jsonb_build_object('archived',false,'created_at',now(),'updated_at',now()) || j.value)
+        AS x(id uuid,operation_id uuid,name text,archived boolean,created_at timestamptz,updated_at timestamptz)
+        WHERE true ON CONFLICT(id) DO UPDATE SET ${columns.filter(column=>column!=='id').map(column=>`${column}=EXCLUDED.${column}`).join(',')}`,[JSON.stringify(body)]);
+      return new Response(null,{status:201});
+    }}});
+    for(const group of groupUnitRestoreRows(backup.tables[table])){const result=await http.from(table).upsert(group,{onConflict:'id',defaultToNull:false});assert.equal(result.error,null,JSON.stringify(result.error));}
+    assert.equal(requests.length,2);
+    assert.deepEqual(requests.find(request=>request.body.some(row=>row.id===existing)).columns.sort(),['id','name','operation_id']);
+    assert.equal((await db.query(`SELECT archived AND created_at=$2::timestamptz AND updated_at=$2::timestamptz AS ok FROM ${table} WHERE id=$1`,[existing,old])).rows[0].ok,true);
+    assert.equal((await db.query(`SELECT archived IS NULL AND created_at=$2::timestamptz AND updated_at=$2::timestamptz AS ok FROM ${table} WHERE id=$1`,[explicit,stamp])).rows[0].ok,true);
+    assert.equal((await db.query(`SELECT archived=false AND created_at=$2::timestamptz AND updated_at=$2::timestamptz AS ok FROM ${table} WHERE id=$1`,[fresh,stamp])).rows[0].ok,true);
+    assert.equal((await db.query(`SELECT archived=false AND created_at IS NOT NULL AND updated_at IS NOT NULL AND created_at<>$2::timestamptz AS ok FROM ${table} WHERE id=$1`,[minimal,old])).rows[0].ok,true);
   });
 
   console.log(`Unit migration 044: ${passed} PostgreSQL/WASM checks passed. No live database accessed.`);

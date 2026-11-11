@@ -1,5 +1,6 @@
 import { UNIT_TABLES } from '../utils/unit-standards.js';
 import { preflightUnits } from './unit-backup.js';
+import { groupUnitRestoreRows } from './unit-restore-payload.js';
 /**
  * @file Backup import — CP-56.
  * Implements V2_MIGRATION_PLAN.md §5.7 steps 1–10.
@@ -293,19 +294,24 @@ async function insertTableRows(table, rows, operationId) {
       })
     : rows;
 
-  for (let i = 0; i < insertRows.length; i += INSERT_BATCH_SIZE) {
-    const batch = insertRows.slice(i, i + INSERT_BATCH_SIZE);
+  // missing=default alone still overwrites omissions on heterogeneous conflicts.
+  // Partition validated unit payloads BEFORE batching; other tables are unchanged.
+  const groups = UNIT_TABLES.includes(table) ? groupUnitRestoreRows(insertRows) : [insertRows];
+  for (const group of groups) {
+    for (let i = 0; i < group.length; i += INSERT_BATCH_SIZE) {
+      const batch = group.slice(i, i + INSERT_BATCH_SIZE);
 
-    if (isReference) {
-      const { error } = await supabase
-        .from(table)
-        .upsert(batch, { onConflict: 'id', ...(UNIT_TABLES.includes(table) ? { defaultToNull: false } : {}) });
-      if (error) throw new Error(`Upsert failed on ${table} (batch ${i}): ${error.message}`);
-    } else {
-      const { error } = await supabase
-        .from(table)
-        .insert(batch);
-      if (error) throw new Error(`Insert failed on ${table} (batch ${i}): ${error.message}`);
+      if (isReference) {
+        const { error } = await supabase
+          .from(table)
+          .upsert(batch, { onConflict: 'id', ...(UNIT_TABLES.includes(table) ? { defaultToNull: false } : {}) });
+        if (error) throw new Error(`Upsert failed on ${table} (batch ${i}): ${error.message}`);
+      } else {
+        const { error } = await supabase
+          .from(table)
+          .insert(batch);
+        if (error) throw new Error(`Insert failed on ${table} (batch ${i}): ${error.message}`);
+      }
     }
   }
 

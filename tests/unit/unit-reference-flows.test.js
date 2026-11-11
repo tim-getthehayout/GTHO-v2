@@ -56,6 +56,7 @@ import { renderDoseUnitsSection, renderHealthRefSheetMarkups } from '../../src/f
 import { pushAllToSupabase } from '../../src/data/push-all.js';
 import { importOperationBackup, BROWSER_FK_ORDER } from '../../src/data/backup-import.js';
 import { exportOperationBackup, BACKUP_TABLES } from '../../src/data/backup-export.js';
+import { groupUnitRestoreRows } from '../../src/data/unit-restore-payload.js';
 import { SYNC_REGISTRY } from '../../src/data/sync-registry.js';
 import * as Dose from '../../src/entities/dose-unit.js';
 import * as Product from '../../src/entities/input-product-unit.js';
@@ -312,12 +313,44 @@ it('all unit backup pages request deterministic id ordering',async()=>{
  const imported=await importOperationBackup(backup,op,null,{skipAutoBackup:true});expect(imported,imported.error).toMatchObject({success:true});expect(db.orders.length).toBeGreaterThanOrEqual(4);expect(db.orders.every(order=>order.column==='id'&&order.ascending===true)).toBe(true);
 });
 
-it('mixed defaulted unit metadata uses missing=default on bulk restore, never implicit timestamp nulls',async()=>{
- const op='00000000-0000-4000-8000-000000000001';const stamp='2026-11-10T18:30:00Z';
- const rows=[{id:'ac000000-0000-4000-8000-000000000001',operation_id:op,name:'With metadata',archived:false,created_at:stamp,updated_at:stamp},{id:'ac000000-0000-4000-8000-000000000002',operation_id:op,name:'Default metadata'}];
- const result=await importOperationBackup({format:'gtho-v2-backup',format_version:1,schema_version:44,operation_id:op,tables:{dose_units:rows}},op,null,{skipAutoBackup:true});
- expect(result,result.error).toMatchObject({success:true});const sent=unitCalls().find(call=>call.operation==='upsert');expect(sent.options).toEqual({onConflict:'id',defaultToNull:false});expect(sent.payload).toEqual(rows);
- const {createClient}=await import('@supabase/supabase-js');let preference;
- const client=createClient('https://example.invalid','dummy',{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:async(_url,init)=>{preference=new Headers(init.headers).get('Prefer');return new Response(null,{status:201});}}});
- const upserted=await client.from('dose_units').upsert(sent.payload,sent.options);expect(upserted.error).toBeNull();expect(preference).toContain('missing=default');
+it.each(tables)('CP-56 %s mixed restore requests omit absent metadata from conflict updates',async(table)=>{
+ const op='00000000-0000-4000-8000-000000000001',old='2020-01-01T00:00:00Z',stamp='2026-11-10T18:30:00Z';
+ const existing='ac000000-0000-4000-8000-000000000001',fresh='ac000000-0000-4000-8000-000000000002',minimal='ac000000-0000-4000-8000-000000000003',explicit='ac000000-0000-4000-8000-000000000004';
+ db.rows[table]=[{id:existing,operation_id:op,name:'Keep metadata',archived:true,created_at:old,updated_at:old},{id:explicit,operation_id:op,name:'Replace metadata',archived:true,created_at:old,updated_at:old}];
+ const rows=[{id:fresh,operation_id:op,name:'Full new row',archived:false,created_at:stamp,updated_at:stamp},{id:existing,operation_id:op,name:'Keep metadata'},{id:minimal,operation_id:op,name:'Default new row'},{id:explicit,operation_id:op,name:'Replace metadata',archived:null,created_at:stamp,updated_at:stamp}];
+ const result=await importOperationBackup({format:'gtho-v2-backup',format_version:1,schema_version:44,operation_id:op,tables:{[table]:rows}},op,null,{skipAutoBackup:true});
+ expect(result,result.error).toMatchObject({success:true});
+ const sent=unitCalls().filter(call=>call.operation==='upsert');expect(sent).toHaveLength(2);
+ expect(sent.map(call=>call.payload.map(row=>row.id))).toEqual([[fresh,explicit],[existing,minimal]]);
+ expect(db.rows[table].find(row=>row.id===existing)).toMatchObject({archived:true,created_at:old,updated_at:old});
+ expect(db.rows[table].find(row=>row.id===explicit)).toMatchObject({archived:null,created_at:stamp,updated_at:stamp});
+ // Capture the installed SDK's real requests for the batches CP-56 actually sent.
+ // Object.assign in this flow double alone cannot prove PostgREST preservation.
+ const {createClient}=await import('@supabase/supabase-js');const requests=[];
+ const client=createClient('https://example.invalid','dummy',{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:async(url,init)=>{requests.push({url:new URL(url),preference:new Headers(init.headers).get('Prefer'),body:JSON.parse(init.body)});return new Response(null,{status:201});}}});
+ for(const call of sent){expect(call.options).toEqual({onConflict:'id',defaultToNull:false});expect((await client.from(table).upsert(call.payload,call.options)).error).toBeNull();}
+ for(const request of requests){
+  const columns=request.url.searchParams.get('columns').replaceAll('"','').split(',').sort();
+  expect(request.preference).toContain('resolution=merge-duplicates');expect(request.preference).toContain('missing=default');
+  for(const row of request.body)expect(Object.keys(row).sort()).toEqual(columns);
+  if(request.body.some(row=>row.id===existing))expect(columns).toEqual(['id','name','operation_id']);
+ }
+});
+
+it.each(tables)('CP-56 %s partitions before the 500-row batch limit, preserving every supplied field',async(table)=>{
+ const op='00000000-0000-4000-8000-000000000001';
+ const rows=Array.from({length:1002},(_,i)=>({id:'ae000000-0000-4000-8000-'+i.toString(16).padStart(12,'0'),operation_id:op,name:'Bulk '+i,...(i%2?{archived:false}:{})}));
+ const result=await importOperationBackup({format:'gtho-v2-backup',format_version:1,schema_version:44,operation_id:op,tables:{[table]:rows}},op,null,{skipAutoBackup:true});
+ expect(result,result.error).toMatchObject({success:true});const sent=unitCalls().filter(call=>call.operation==='upsert');
+ expect(sent.map(call=>call.payload.length)).toEqual([500,1,500,1]);
+ for(const call of sent)for(const row of call.payload)expect(Object.keys(row).sort()).toEqual(Object.keys(call.payload[0]).sort());
+ expect(sent.flatMap(call=>call.payload).sort((a,b)=>a.id.localeCompare(b.id))).toEqual(rows);
+});
+
+it('unit restore grouping ignores key order, keeps all eight metadata shapes and never invents fields',()=>{
+ const rows=Array.from({length:8},(_,mask)=>({id:'aa000000-0000-4000-8000-'+String(mask).padStart(12,'0'),operation_id:'00000000-0000-4000-8000-000000000001',name:'Unit',...(mask&1?{archived:null}:{}),...(mask&2?{created_at:'2025-01-01T00:00:00Z'}:{}),...(mask&4?{updated_at:'2025-01-01T00:00:00Z'}:{})}));
+ const reordered=rows.map(row=>Object.fromEntries(Object.entries(row).reverse()));
+ const before=structuredClone([...rows,...reordered]);const groups=groupUnitRestoreRows([...rows,...reordered]);
+ expect(groups).toHaveLength(8);groups.forEach((group,index)=>expect(group).toEqual([rows[index],reordered[index]]));
+ expect([...rows,...reordered]).toEqual(before);expect(groupUnitRestoreRows([])).toEqual([]);
 });

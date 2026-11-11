@@ -27,7 +27,7 @@ export function buildCustomUnitPayload(row, operationId) {
   if (typeof row.name !== 'string' || !normalizeUnitName(row.name)) return bad('name (nonempty text required)');
   const payload = { id, operation_id: operation, name: normalizeUnitName(row.name) };
   // archived is nullable in 008/009; both timestamp columns are NOT NULL.
-  // Absent optional fields retain database defaults rather than invented values.
+  // Absent metadata keeps target values on conflict, or DB defaults on insert.
   if (Object.hasOwn(row, 'archived')) {
     if (row.archived !== null && typeof row.archived !== 'boolean') return bad('archived (boolean or null required)');
     payload.archived = row.archived;
@@ -37,4 +37,18 @@ export function buildCustomUnitPayload(row, operationId) {
     payload[field] = row[field];
   }
   return { payload };
+}
+
+/** Validated unit rows only. Keep omitted metadata out of the request's union
+ * of columns (and therefore out of ON CONFLICT's UPDATE SET list). Key order
+ * does not change a column set; explicit null/false remain supplied values.
+ */
+export function groupUnitRestoreRows(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = JSON.stringify(Object.keys(row).sort());
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()];
 }

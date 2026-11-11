@@ -1,6 +1,6 @@
 /** @file Entity tests: operation */
 import { describe, it, expect } from 'vitest';
-import { FIELDS, create, validate, toSupabaseShape, fromSupabaseShape } from '../../../src/entities/operation.js';
+import { FIELDS, create, validate, toSupabaseShape, fromSupabaseShape, toOnboardingSupabaseShape, operationPushShape } from '../../../src/entities/operation.js';
 
 describe('entity: operation', () => {
   it('exports FIELDS with all columns', () => {
@@ -75,7 +75,7 @@ describe('entity: operation', () => {
     it('fromSupabaseShape(toSupabaseShape(record)) returns original', () => {
       const record = create({ name: 'Round Trip', timezone: 'US/Central', currency: 'CAD' });
       const roundTripped = fromSupabaseShape(toSupabaseShape(record));
-      expect(roundTripped).toEqual(record);
+      expect(roundTripped).toEqual({ ...record, schemaVersion: undefined });
     });
   });
 
@@ -95,23 +95,28 @@ describe('entity: operation', () => {
       const record = create({ name: 'Metric Op', unitSystem: 'metric' });
       const roundTripped = fromSupabaseShape(toSupabaseShape(record));
       expect(roundTripped.unitSystem).toBe('metric');
-      expect(roundTripped).toEqual(record);
+      expect(roundTripped).toEqual({ ...record, schemaVersion: undefined });
     });
   });
 
   describe('schemaVersion (CP-55)', () => {
-    it('defaults to 14', () => {
+    it('defaults to the compiled ceiling 44', () => {
       const record = create({ name: 'Test' });
-      expect(record.schemaVersion).toBe(14);
+      expect(record.schemaVersion).toBe(44);
     });
 
-    it('round-trips through Supabase shape', () => {
+    it('keeps the server stamp read-only and the onboarding stamp compiled', () => {
       const record = create({ name: 'Test', schemaVersion: 15 });
       const sb = toSupabaseShape(record);
-      expect(sb.schema_version).toBe(15);
-      const roundTripped = fromSupabaseShape(sb);
-      expect(roundTripped.schemaVersion).toBe(15);
-      expect(roundTripped).toEqual(record);
+      expect(sb).not.toHaveProperty('schema_version');
+      expect(fromSupabaseShape({ ...sb, schema_version: 43 }).schemaVersion).toBe(43);
+      expect(toOnboardingSupabaseShape(record).schema_version).toBe(44);
+      expect(record.schemaVersion).toBe(15);
+    });
+    it.each(['update','upsert','push'])('filters stale already-serialized %s payloads without mutating them', operation => {
+      const row = { id: 'fixture', name: 'Renamed', schema_version: 14 };
+      expect(operationPushShape(row,operation)).toEqual({id:'fixture',name:'Renamed'});
+      expect(row.schema_version).toBe(14);
     });
   });
 });

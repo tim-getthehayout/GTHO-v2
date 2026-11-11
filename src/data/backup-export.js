@@ -210,7 +210,8 @@ export async function exportOperationBackup(operationId, onProgress) {
   const opRow = (tables.operations || [])[0];
   if (!opRow) throw new Error('Operation not found in export');
 
-  const schemaVersion = opRow.schema_version ?? 14;
+  if (opRow.schema_version == null) throw new Error('operation schema stamp missing');
+  const schemaVersion = opRow.schema_version;
   const opName = opRow.name || 'unnamed';
 
   // Get current user

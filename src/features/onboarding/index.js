@@ -4,7 +4,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { add, getAll } from '../../data/store.js';
 import { getUser } from '../auth/session.js';
-import { create as createOperation, validate as validateOperation, toSupabaseShape as opToSb } from '../../entities/operation.js';
+import { create as createOperation, validate as validateOperation, toOnboardingSupabaseShape as opToSb } from '../../entities/operation.js';
 import { create as createFarm, validate as validateFarm, toSupabaseShape as farmToSb } from '../../entities/farm.js';
 import { create as createFarmSetting, validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
 import { create as createOpMember, validate as validateOpMember, toSupabaseShape as memberToSb } from '../../entities/operation-member.js';

@@ -1,3 +1,4 @@
+import { operationPushShape } from '../entities/operation.js';
 import { UNIT_TABLES } from '../utils/unit-standards.js';
 import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
 /** @file Custom Supabase sync implementation with offline queue + exponential backoff */
@@ -199,6 +200,7 @@ export class CustomSync extends SyncAdapter {
    * Enqueue an operation for later sync.
    */
   _enqueue(operation, table, record) {
+    if (table === 'operations') record = operationPushShape(record, operation);
     const queue = readQueue();
     queue.push({
       id: record.id,
@@ -219,6 +221,7 @@ export class CustomSync extends SyncAdapter {
   // Replay is deliberately independent of the currently selected operation; RLS
   // still requires membership and unit triggers forbid moving an existing ID.
   async _pushToRemote(table, record, operation = 'upsert') {
+    if (table === 'operations') record = operationPushShape(record, operation);
     if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) {
       this._enqueue(operation, table, record);
@@ -355,6 +358,7 @@ export class CustomSync extends SyncAdapter {
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   async _singlePush(table, record, operation = 'upsert') {
+    if (table === 'operations') record = operationPushShape(record, operation);
     if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) return { success: false, error: 'No Supabase client' };
     try {

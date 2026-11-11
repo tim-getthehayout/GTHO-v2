@@ -62,6 +62,7 @@ import { importOperationBackup, BROWSER_FK_ORDER, CURRENT_SCHEMA_VERSION, valida
 import { exportOperationBackup, BACKUP_TABLES } from '../../src/data/backup-export.js';
 import { groupUnitRestoreRows } from '../../src/data/unit-restore-payload.js';
 import { SYNC_REGISTRY } from '../../src/data/sync-registry.js';
+import * as Operation from '../../src/entities/operation.js';
 import * as Dose from '../../src/entities/dose-unit.js';
 import * as Product from '../../src/entities/input-product-unit.js';
 import { setLocale } from '../../src/i18n/i18n.js';
@@ -84,7 +85,7 @@ function noUnitDeletes() {
   expect(unitCalls().every(call => ['select', 'insert', 'update', 'upsert'].includes(call.operation))).toBe(true);
 }
 
-it('real onboarding never seeds or queues standard units', async () => {
+it('real onboarding stamps its one operation INSERT at 44 and never seeds or queues standard units', async () => {
   const root = document.createElement('main'); document.body.append(root);
   const done = vi.fn(); renderOnboarding(root, done);
   fill(root, '[data-testid="onboarding-operation-name"]', 'Farm');
@@ -96,6 +97,7 @@ it('real onboarding never seeds or queues standard units', async () => {
   root.querySelector('[data-testid="onboarding-confirm"]').click();
   await vi.waitFor(() => expect(done).toHaveBeenCalledOnce());
   expect(unitCalls()).toEqual([]); expect(getAll('doseUnits')).toEqual([]); expect(getAll('inputProductUnits')).toEqual([]);
+  expect(getAll('operations')[0].schemaVersion).toBe(44);expect(db.calls.find(call=>call.table==='operations'&&call.operation==='insert').payload.schema_version).toBe(44);
 });
 
 it('real dose-unit editor creates, edits and archives with insert/update only', async () => {
@@ -388,7 +390,7 @@ it.each([41,42,43])('real CP-56 %s→44 promotes retained text, legacy pool rows
  }};
  const before=structuredClone(backup);const result=await importOperationBackup(backup,operationId,null,{skipAutoBackup:true});
  expect(result,result.error).toMatchObject({success:true});expect(backup).toEqual(before);
- expect(db.rows.operations[0].schema_version).toBe(44);expect(db.rows.ai_bulls[0].epds).toBe(' CE+8, BW-1.2 ');expect(db.rows.animal_breeding_records[0].sire_name).toBe('Independent sire');
+ expect(db.rows.operations[0].schema_version).toBe(44);expect(db.calls.find(call=>call.table==='operations'&&call.operation==='update').payload.schema_version).toBe(44);expect(db.rows.ai_bulls[0].epds).toBe(' CE+8, BW-1.2 ');expect(db.rows.animal_breeding_records[0].sire_name).toBe('Independent sire');
  if(version<=42){expect(db.rows.event_feed_entries[0]).toMatchObject({batch_id:'retained-batch',kind:null,feed_type_id:null,return_batch_id:null});expect(db.rows.event_feed_check_items[0]).toMatchObject({batch_id:'retained-batch',feed_type_id:null});}
  expect(db.rows.animal_treatments[0].dose_unit_id).toBe(dose.id);expect(db.rows.amendments[0].qty_unit_id).toBe(product.id);expect(db.rows.input_products[0].unit_id).toBe(product.id);
  expect(db.rows.dose_units.find(row=>row.id===custom.id)).toMatchObject({operation_id:operationId,name:'Restored custom'});
@@ -417,4 +419,52 @@ it('actual released CP-55 sends operation filters for both unit tables and exclu
  const backup=JSON.parse((await exportOperationBackup(OP)).json);expect(backup.schema_version).toBe(44);
  for(const table of tables){expect(backup.tables[table].map(row=>row.id)).toEqual(['own-custom']);expect(db.filters.filter(filter=>filter.table===table)).toContainEqual({table,key:'operation_id',value:OP});}
  expect(db.calls.every(call=>call.operation==='select')).toBe(true);
+});
+
+function cachedOperation(stamp) {
+ const cached=Operation.create({id:OP,name:'Cached operation',schemaVersion:stamp});
+ mergeRemote('operations',[cached]);db.rows.operations=[{...Operation.toSupabaseShape(cached),schema_version:44}];
+ return cached;
+}
+const operationWrites=()=>db.calls.filter(call=>call.table==='operations'&&['insert','update','upsert'].includes(call.operation));
+
+it.each([14,41])('ordinary rename with cached stamp %s omits it in the direct settings/store update path',async(stamp)=>{
+ cachedOperation(stamp);update('operations',OP,{name:'Renamed'},Operation.validate,Operation.toSupabaseShape,'operations');
+ await vi.waitFor(()=>expect(operationWrites()).toHaveLength(1));expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');
+ expect(db.rows.operations[0]).toMatchObject({name:'Renamed',schema_version:44});expect(getAll('operations')[0].schemaVersion).toBe(stamp);
+ // Pull's ordinary merge adopts the server stamp; it is not re-pushed.
+ const calls=db.calls.length;mergeRemote('operations',db.rows.operations.map(Operation.fromSupabaseShape));expect(getAll('operations')[0].schemaVersion).toBe(44);expect(db.calls).toHaveLength(calls);
+});
+
+it.each([14,41])('ordinary rename with cached stamp %s omits it from the offline queue and later replay',async(stamp)=>{
+ cachedOperation(stamp);vi.spyOn(navigator,'onLine','get').mockReturnValue(false);
+ update('operations',OP,{name:'Queued rename'},Operation.validate,Operation.toSupabaseShape,'operations');
+ await vi.waitFor(()=>expect(adapter.getQueuedItems()).toHaveLength(1));expect(adapter.getQueuedItems()[0].record).not.toHaveProperty('schema_version');expect(operationWrites()).toEqual([]);
+ vi.spyOn(navigator,'onLine','get').mockReturnValue(true);await adapter.flush();
+ expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');expect(db.rows.operations[0]).toMatchObject({name:'Queued rename',schema_version:44});
+});
+
+it.each([14,41])('old serialized stamp %s cannot escape through queued update, auto dead-letter replay or manual retry',async(stamp)=>{
+ cachedOperation(stamp);
+ localStorage.setItem('_sync_queue',JSON.stringify([{table:'operations',id:OP,operation:'update',record:{id:OP,name:'Old queued rename',schema_version:stamp},attempts:0,errors:[]} ]));
+ localStorage.setItem('_dead_letter_queue',JSON.stringify([{table:'operations',id:OP,record:{id:OP,name:'Old dead-letter rename',schema_version:stamp},auto_drain_count:0}]));
+ await adapter.flush();expect(operationWrites()).toHaveLength(2);expect(operationWrites().every(call=>!Object.hasOwn(call.payload,'schema_version'))).toBe(true);expect(db.rows.operations[0].schema_version).toBe(44);
+ db.calls=[];localStorage.setItem('_dead_letter_queue',JSON.stringify([{table:'operations',id:OP,record:{id:OP,name:'Manual retry',schema_version:stamp},auto_drain_count:3}]));
+ adapter.retryDeadLetters();await adapter.flush();expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');expect(db.rows.operations[0].schema_version).toBe(44);
+});
+
+it('Push All and raw batch pushes omit every cached operations stamp without changing the local cache',async()=>{
+ cachedOperation(14);await pushAllToSupabase();expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');expect(getAll('operations')[0].schemaVersion).toBe(14);
+ db.calls=[];await adapter.pushBatch('operations',[{id:OP,name:'Raw recovery',schema_version:41}]);expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');expect(db.rows.operations[0].schema_version).toBe(44);
+ vi.spyOn(navigator,'onLine','get').mockReturnValue(false);await adapter.pushBatch('operations',[{id:OP,name:'Offline batch',schema_version:14}]);expect(adapter.getQueuedItems()[0].record).not.toHaveProperty('schema_version');
+});
+
+it.each([null,undefined])('CP-55 refuses a missing operation stamp (%s), never falls back to 14',async(stamp)=>{
+ db.rows.operations=[{id:OP,name:'Farm',schema_version:stamp}];await expect(exportOperationBackup(OP)).rejects.toThrow('operation schema stamp missing');expect(operationWrites()).toEqual([]);
+});
+
+it('queued onboarding INSERT uses the compiled stamp rather than a legacy serialized stamp',async()=>{
+ vi.spyOn(navigator,'onLine','get').mockReturnValue(false);await adapter.push('operations',{id:OP,name:'New operation',schema_version:14},'insert');
+ expect(adapter.getQueuedItems()[0].record.schema_version).toBe(44);vi.spyOn(navigator,'onLine','get').mockReturnValue(true);await adapter.flush();
+ expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0]).toMatchObject({operation:'insert',payload:{schema_version:44}});
 });

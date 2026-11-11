@@ -1,3 +1,4 @@
+import { RELEASED_SCHEMA_VERSION } from '../data/schema-release.js';
 /** @file Entity: operations — V2_SCHEMA_DESIGN.md §1.1, CP-55 schema_version */
 
 export const FIELDS = {
@@ -24,7 +25,7 @@ export function create(data = {}) {
     timezone: data.timezone ?? null,
     currency: data.currency ?? 'USD',
     unitSystem: data.unitSystem ?? 'imperial',
-    schemaVersion: data.schemaVersion ?? 14,
+    schemaVersion: data.schemaVersion ?? RELEASED_SCHEMA_VERSION,
     archived: data.archived ?? false,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
@@ -60,7 +61,6 @@ export function toSupabaseShape(record) {
     timezone: record.timezone,
     currency: record.currency,
     unit_system: record.unitSystem,
-    schema_version: record.schemaVersion,
     archived: record.archived,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
@@ -84,4 +84,20 @@ export function fromSupabaseShape(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** Ordinary server-shaped pushes must never replay a cached schema stamp.
+ * INSERT is the onboarding creation exception; its stamp is compiled, not cached.
+ * CP-56 bypasses this ordinary push path and resolves its stamp independently.
+ */
+export function operationPushShape(row, operation = 'upsert') {
+  const shape = { ...row };
+  delete shape.schema_version;
+  if (operation === 'insert') shape.schema_version = RELEASED_SCHEMA_VERSION;
+  return shape;
+}
+
+/** Only onboarding uses this serializer; ordinary toSupabaseShape omits the stamp. */
+export function toOnboardingSupabaseShape(record) {
+  return operationPushShape(toSupabaseShape(record), 'insert');
 }

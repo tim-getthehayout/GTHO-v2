@@ -2,7 +2,9 @@
 
 ## Open
 
-**Ledger reconciled:** 2026-11-10 against Forgejo `main` at `b6689b23` and reported live build `b2026-11-10.1517-b6689b2`. OI-0196–OI-0204 shipped in PR #44; OI-0205/0206/0207/0209 shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48). Retest remains in progress; shipped does not mean every phone acceptance passed. This is a docs-only record, not implementation or data repair. Edge redeploy from `b6689b23` (Build report relayed by Design): `gtho-assistant` v5; `gtho-assistant-apply`, `gtho-assistant-audio` and `gtho-assistant-transcribe` v4. PR #48 required no migration.
+**Units/schema checkpoint (2026-11-11):** PR #55 merged at `6d5893ab`; 042/043 applied, production stamp 43; 044 written, not applied; main compiled ceiling 41; PR #56 in review. OI-0215 is reserved in the separate action-layer docs branch; this pass starts at OI-0216. No production approval is implied.
+
+**Earlier ledger reconciliation:** 2026-11-10 against Forgejo `main` at `b6689b23` and reported live build `b2026-11-10.1517-b6689b2`. OI-0196–OI-0204 shipped in PR #44; OI-0205/0206/0207/0209 shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48). Retest remains in progress; shipped does not mean every phone acceptance passed. This is a docs-only record, not implementation or data repair. Edge redeploy from `b6689b23` (Build report relayed by Design): `gtho-assistant` v5; `gtho-assistant-apply`, `gtho-assistant-audio` and `gtho-assistant-transcribe` v4. PR #48 required no migration.
 
 | Item | Scope | Current status |
 |---|---|---|
@@ -18,13 +20,63 @@
 | OI-0209 | Confinement DMI/feed-days calculations; forage information greyed out and inactive | Shipped — awaiting Tim’s retest; not closed |
 | OI-0210 | Assistant entry across the whole app (schema-driven) | Being scoped by Design with Tim; not ready for Build |
 | OI-0211 | iPhone voice captures audio without a turn; truthful connection state | Open P1 — diagnosis continuing; root-cause fix required |
-| OI-0212 | RLS-disabled advisor findings on two unit tables | Open — tracking only; no Build work authorized |
+| OI-0212 | RLS-disabled advisor findings on two unit tables | Superseded by OI-0216; 044 merged, live apply/verification pending |
 | OI-0213 | Ordinary feeding-sheet mid-save storage failure is not atomic | Deferred — scope later; not ready for Build |
-| OI-0214 | Manual-entry fix batch from the [form audit](session_briefs/FORM_ENTRY_AUDIT_2026-11-10.md) (FA-01–FA-11, FA-24–FA-28); FA-15a tagged stillborn | Ready for Build in locked order; FA-26 type/location pools and returned-feed batch A locked; 042 (FA-10b) and 043 (FA-26) written but not applied, backup contracts staged behind compiled ceiling 41; each apply blocked: Tim approval + backup |
+| OI-0214 | Manual-entry fix batch from the [form audit](session_briefs/FORM_ENTRY_AUDIT_2026-11-10.md) (FA-01–FA-11, FA-24–FA-28); FA-15a tagged stillborn | Ready for Build in locked order; FA-26 type/location pools and returned-feed batch A locked; 042/043 now applied (prod stamp 43); client contracts still held at ceiling 41 pending PR #56 |
+| OI-0216 | Units 044 redesign and release-note grant posture | Merged at `6d5893ab`; 044 apply pending Tim's yes + backup; ceiling promotion in PR #56 |
+| OI-0217 | Full transactional CP-56 restore | Open — later, not scheduled; design required |
+| OI-0218 | DB-level never-decrease guard for operations.schema_version | Open — later, not scheduled; no SQL now |
+| OI-0219 | FA-29 batch unit picker and shared unit vocabulary | Queued after 044 and ceiling bump; pool-count checks required |
 
 ---
 
 OI-0210 — Assistant entry across the whole app (schema-driven). Status: being scoped by Design with Tim, 2026-11-10; not ready for Build. Origin: Tim's 11:37–11:41 iPhone retest (a feed receipt misrouted into feeding; clarifying replies taken whole as names).
+
+---
+
+### OI-0216 — Units 044 redesign and release-note grant posture
+
+**Added:** 2026-11-11 | **Area:** v2-security / units / CP-55 / CP-56 | **Priority:** coordinated apply/release
+
+**Status:** merged in [PR #55](https://git.sarnford.com/Homelab/GTHO-v2/pulls/55) at `6d5893ab464a85af5d3fc280251140e63e1d17ab` on 2026-11-11; **044 written, not applied**. Tim locked the redesign on 2026-11-10 at 5:46 PM ET: “Yes let's fix it properly.” This is design approval, not current production-apply approval. 042/043 are applied, production stamp 43. Main's compiled ceiling stays 41; [PR #56](https://git.sarnford.com/Homelab/GTHO-v2/pulls/56) is in review for ceiling 44 after verification.
+
+**Locked model:** Both unit tables have nullable operation ownership: NULL read-only standards, non-null operation customs. Accepted-member RLS; no DELETE; immutable ownership; child BEFORE INSERT/UPDATE guards on treatments, amendments and products block foreign/unknown units. Fixed UUIDv5 standards; apply re-keys the exact eleven legacy ID+name pairs only with zero references, otherwise aborts (empty catalog gets fixed standards). App NFC; DB `lower(btrim(name))` per scope plus cross-namespace guard, including archived reservations. Onboarding stops unit seeds. Dose editor labels standards read-only and supports custom add/rename/archive; no input-product-unit editor was added. Pickers scope standards plus current-operation customs and retain historical archived selections read-only where editing exists. Sync/Push All send current-operation customs only; queued/dead-letter actions keep original operation, never retagged. Anon denied; authenticated lacks DELETE/TRUNCATE/REFERENCES/TRIGGER on both unit tables and release_notes. Release notes have authenticated SELECT only, all browser writes revoked; previously RLS with zero policies produced empty API reads. No new release-note UI.
+
+**CP-55/CP-56 impact:** At ceiling 44 export customs only with server operation filter and unique-ID paging; standards excluded. `BACKUP_MIGRATIONS[43]` maps legacy IDs by ID only, drops standards, adopts other old rows as backup-operation customs and advances stamps 43→44. Typed six-column whitelist and read-only preflight run before any fence/mutation; custom-only ID UPSERT, no unit deletes, missing target customs retained. Group by present-column set before batching to preserve omitted metadata. Explicit supplied metadata wins; new rows use defaults. **Accepted residual N2:** the preflight RPC exposes one foreign-UUID existence bit, no names/owners/contents. Preflight is not atomic restore (OI-0217). FA-30's guarded server write function is cancelled.
+
+**Release gate:** Tim's explicit yes at the time plus a backup, apply 044 and verify, then promote/publish the compatible client in the same session. The old client's unit seeds/editor break once 044 is live. PASS in the independent report at the exact head is not apply/publish approval. Final report: `/home/tim/Work/review-044-probes/REPORT.md`; no live multi-backend contention proof is claimed.
+
+**Specs:** `V2_SCHEMA_DESIGN.md` principle 8, §8.2/§9.4/§11.5; `V2_MIGRATION_PLAN.md` §5.3/§5.7b/§5.9/§5.11. Supersedes OI-0212's tracking-only posture and the unit-specific global/RLS-off rationale in historical OI-0053/0056, not their unrelated fixes.
+
+---
+
+### OI-0217 — Full transactional CP-56 restore
+
+**Added:** 2026-11-11 | **Area:** v2-design / backup / restore | **Priority:** later, not scheduled
+
+**Status:** open — DESIGN REQUIRED, do not build. Unit preflight in OI-0216 prevents deterministic invalid unit inputs from reaching mutation, but later network, concurrency or unrelated-domain failures can still leave partial restore. Define the all-or-nothing server restore contract, authority/fence preservation and failure/recovery semantics before implementation; no SQL, interface or schedule is approved here. Existing auto-backup recovery remains. CP-55/CP-56 spec impact must be assessed with that later design.
+
+**Origin:** Accepted non-atomic restore limit in the 044 scope and independent review, carried as separate later work rather than expanding 044.
+
+---
+
+### OI-0218 — DB-level never-decrease guard for operations.schema_version
+
+**Added:** 2026-11-11 | **Area:** v2-design / schema integrity | **Priority:** later, not scheduled
+
+**Status:** open — DESIGN REQUIRED, do not build; **no SQL now**. Design's 2026-11-11 writer rule is being implemented in PR #56: ordinary operation writes omit the stamp; only migration SQL and CP-56 restore update it, with new operations initialized at the compiled ceiling rather than 14. CP-55 refuses a missing stamp. Track a DB-level never-decrease guard separately: the client omission rule is not database enforcement. Specify how the guard relates to restore/migration authority before building; no guard mechanism or exception policy is invented here. Assess CP-55/CP-56 impact during that design.
+
+**Origin:** Schema-stamp regression question raised during ceiling-44 review; Design writer-rule lock, 2026-11-11.
+
+---
+
+### OI-0219 — FA-29 batch unit picker and shared unit vocabulary
+
+**Added:** 2026-11-11 | **Area:** v2-design / feed / units | **Priority:** queued after 044 and ceiling bump
+
+**Status:** open — queued, not scheduled for implementation. Replace the batch sheet's free-text unit box with a picker defaulting to the feed type's unit and one shared unit vocabulary. Check whether sq bale, round bale and bag pools count correctly; do not assume correctness or rewrite existing records. Any unspecified vocabulary/mapping or persisted-shape choice returns to Tim before Build. CP-55/CP-56 impact remains to be assessed; no schema/data repair authorized.
+
+**Origin:** The `bal` unit was typed by hand into the batch sheet's free-text unit box on 2026-11-03. FA-30 (guarded server function) is cancelled; it is not part of FA-29 or an alternate restore design.
 
 ---
 
@@ -75,11 +127,9 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Added:** 2026-11-10 | **Area:** v2-security / Supabase / RLS | **Priority:** tracking (severity not investigated)
 
-**Status:** open — tracking only; **no Build work authorized**. GTHO Build reported Supabase security-advisor findings on project `sxkmultsfsmfcijvsauf`: RLS disabled on `public.input_product_units` and `public.dose_units`. No investigation or exposure assessment has been completed. This records the report, not an independently verified vulnerability or an approved policy design.
+**Status:** superseded/narrowed by OI-0216. The initial advisor report is historical; the approved redesign merged in PR #55 at `6d5893ab`. Live remediation is not complete until 044 is applied and verified with Tim's explicit yes plus backup and the coordinated compatible client release. Do not retain the old “no Build work authorized” wording as the current implementation state.
 
-**Next step:** bring investigation findings and any proposed fix to Tim through Orchestrator. Any fix needs Tim's approval; do not enable RLS, change grants/policies or ship a migration under this tracking item.
-
-**Schema / CP-55/CP-56 spec impact:** None from tracking; assess when a fix is scoped.
+**Schema / CP-55/CP-56 spec impact:** See OI-0216 and its linked specs; this advisor item does not independently authorize production changes.
 
 **Origin:** Build's 2026-11-10 read-only advisor observation; tracking authorized through Orchestrator at 11:46 AM ET.
 
@@ -104,6 +154,8 @@ The ordinary sheet then loops delivery rows at `:547–554`, calling `deductDeli
 ---
 
 ### OI-0214 — Manual-entry fix batch from the form audit (FA-01–FA-11)
+
+**2026-11-11 checkpoint:** 042 and 043 are applied; production stamp is 43. The earlier write-only/apply-gate paragraphs below are approval history, not current apply state. Their client release remains held at ceiling 41 until PR #56. 044 is still unapplied under OI-0216; FA-29 is queued separately in OI-0219.
 
 **Status:** Existing-field fixes ready for Build (Tim, 2026-11-10), ahead of OI-0210. Scope approval was relayed by Orchestrator at 12:27 PM ET. Tim's 12:42 PM ET decisions retain heat recording from Breeding and retain free-text sire name and EPDs through new fields. FA-10a can ship without a migration; FA-10b is specified below for Build to write the migration file only. **FA-10b apply is blocked: needs Tim's explicit approval at the time plus a backup first; Orchestrator brings that checkpoint to Tim.** FA-15a uses existing fields and needs no migration. Tim's feed decisions via Orchestrator on 2026-11-10 ET add FA-24/25/27/28 and lock FA-26: event/type/location pools (1:50 PM), returned-feed batch option A and migration 043 written only (1:55 PM). FA-26 is released to Build in the order below. Each 042/043 apply needs its own explicit yes from Tim at the time and a backup first. Nothing here authorizes production data repair or application of SQL.
 
@@ -6007,6 +6059,8 @@ The role-keyed seed-data table for **beef_cattle** (Tim's operation):
 **Checkpoint:** CP-56 / CP-57
 **Status:** closed — fixed 2026-04-14
 
+**2026-11-11 narrowing note:** The historical global-unit/REFERENCE_TABLES rationale below is superseded by OI-0216 / 044 (merged, apply pending). Units leave REFERENCE_TABLES but explicitly keep custom-only UPSERT/no-delete; target customs absent from the backup remain, standards never restored. The five other per-operation-table fixes are unchanged.
+
 **Problem:** `backup-import.js` `REFERENCE_TABLES` set includes 5 per-operation tables (`forage_types`, `animal_classes`, `treatment_categories`, `treatment_types`, `input_product_categories`). The `deleteTableRows()` function skips reference tables (they upsert instead of delete-then-insert). But these tables all have `operation_id` FK → `operations`. When the delete loop reaches `operations`, these undeletion rows block the delete with FK constraint violation: `forage_types_operation_id_fkey`.
 
 **Root cause:** These 5 tables were misclassified as global reference data. They are per-operation seed data — each operation has its own forage types, animal classes, etc. Only `dose_units` and `input_product_units` are truly global (no `operation_id`, RLS disabled, per V2_SCHEMA_DESIGN.md DP#8 exemption).
@@ -6068,6 +6122,8 @@ This violates Design Principle #8 ("every user-data table has `operation_id`") a
 **Added:** 2026-04-14 | **Area:** v2-build | **Priority:** P0
 **Checkpoint:** pre-Tier-3-testing
 **Status:** closed — partially fixed 2026-04-14, remaining work tracked in OI-0054
+
+**2026-11-11 supersession note:** The RLS-off/no-operation-id unit rationale below is historical and superseded by OI-0216 / migration 044 (merged, apply pending). The recursion/bootstrap fixes remain historical; unit tables now have the approved standard/custom scoped RLS model, not an unprotected-global exemption.
 
 Dropped `operation_members_all` (FOR ALL, self-referential → infinite recursion). Replaced with 4 granular policies: SELECT (own row + operation members), INSERT (self-bootstrap via `user_id = auth.uid()` + admin/owner invite), UPDATE (admin/owner), DELETE (owner only). Applied missing migrations 014–016 to Supabase. Disabled RLS on `dose_units` and `input_product_units` (no `operation_id` column). Migration 017 written. Migration 001 updated for fresh DB setups. Schema version bumped to 17.
 
@@ -6963,6 +7019,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-11 | GTHO Design — docs only | Record OI-0216 units 044 merged/apply pending and accepted N2; supersede OI-0212 and historical unit rationale; add later transactional restore OI-0217, DB stamp guard OI-0218 and FA-29 OI-0219 (FA-30 cancelled). 042/043 applied, prod stamp 43; ceiling 41 and PR #56 review unchanged. |
 | 2026-11-10 | GTHO Design — docs only | OI-0211 follow-up: record Build’s diagnosis and Design Q1–Q5 rulings, locked 10-second overall startup deadline, AudioContext/resampling, capped live-only testing recorder and existing app-logger requirements. Update acceptance, session brief and living status; no implementation or production change. |
 | 2026-11-10 | GTHO Design — docs only | PR #48 shipped/retest records; OI-0207 option B and hide-composer lock; reserve OI-0210 for schema-driven whole-app scoping (not ready); OI-0211 voice startup diagnosis/requirements; OI-0212 RLS tracking only; OI-0213 deferred feeding atomicity; trusted pendingClarification schema note. No code, data, secret or deployment changes. |
 | 2026-11-09 | OI-0195 ready-for-build gate locks after PR #12 — createHash Vite alias, pins, backup exception, restore fence, billing caps; Tim’s P1–P12 and unknown-usage handling; consent copy and second-tap end; T1–T13; Design rulings (single global push-to-talk, exact matching, attempt lifecycle, retry chains (a)–(c)); deferred list; live unknowns; go-live order. Host adapter merged as Forgejo PR #38 (`eb04c197`), not live; 040 not applied; GitHub publish held until 040 is live. Calving dam clear marked done. | GTHO Design — docs only |

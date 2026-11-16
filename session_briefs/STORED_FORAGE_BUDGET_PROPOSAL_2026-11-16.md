@@ -1,7 +1,7 @@
 # OI-0221 — Stored forage budgeting and management
 
 **Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's approval. **Build starts nothing until Tim approves this spec.** Docs only; no code, no SQL, no data change.
-**Depends on:** OI-0220 (feed unit cleanup) ships first. Voice / OI-0215 stays on hold and is not part of this.
+**Depends on:** OI-0220 (feed unit cleanup) ships first, then OI-0222 (historical hay-feeding backfill) before slice 1. Voice / OI-0215 stays on hold and is not part of this.
 **Base:** Forgejo `main` `ce1c987d` (read only; 044 applied and ceiling-44 client published 2026-11-11). Live figures: read-only SELECTs on production, 2026-11-16 ~3:08 PM ET; aggregates only.
 
 ## Tim's request (2026-11-16, 3:03–3:09 PM ET, relayed by Orchestrator)
@@ -31,7 +31,7 @@
 4. Cost: actual = what the bales fed cost (existing CST-1 logic); budget cost = budget DM × the season's price per DM.
 5. **Gamified card on the Feed screen** (mobile first; desktop adds the monthly chart): this-month and season-to-date vs budget vs last season, savings in $ and DM, today's on-hand variance, and the season surplus/deficit forecast (D4), plus a run-rate version.
 6. **Supplement the days-on-hand goal** first with "Hay covers through <date>" against the budget curve; retire or repurpose the fixed-day goal later (question).
-7. Phasing: OI-0220 → history report → budget + card + forecast → days-on-hand replacement.
+7. Phasing: OI-0220 → OI-0222 backfill → history report → budget + card + forecast → days-on-hand replacement.
 
 ## 1. What existing data supports monthly fed amounts
 
@@ -62,7 +62,7 @@ One operation, one farm. Feed entries run **2026-04-09 to 2026-11-13 (34 rows)**
 
 | Month | Feed entries | Units fed | DM fed | Cost | Head-days* | AU-days* |
 |---|---|---|---|---|---|---|
-| 2026-03 | 0 | — | — (not recorded) | — | 1,926 | 1,825 |
+| 2026-03 | 0 | — | — (dropped by the Apr 14 import; OI-0222) | — | 1,926 | 1,825 |
 | 2026-04 | 11 | 10.06 bale | 2,510 kg (5,534 lb) | $452.70 | 2,825 | 2,456 |
 | 2026-05 | 4 | 8 (bale + sq bale) | 384 kg (847 lb) | $80.00 | 2,619 | 2,274 |
 | 2026-06 | 0 | — | 0 | $0 | 1,686 | 1,557 |
@@ -79,10 +79,15 @@ One operation, one farm. Feed entries run **2026-04-09 to 2026-11-13 (34 rows)**
 
 ## 3. Data gaps and quality
 
-- **No full prior season.** v2 records start March 2026. The default prior period (Jun 2025 – May 2026) has only April–May feeding; December–March feeding is missing (batches bought 2025-12-31 and 2026-03-15 — 102 bales — show winter hay that was never recorded as fed). So the first budget can't come purely from history (question A).
+- **No full prior season in v2 yet** (corrected 2026-11-16 per Orchestrator's read-only audit of production and the Nov 11 backups; Design re-checked the counts by read-only SELECT):
+  - The "102 bales" are **not winter purchases**. They are Tim's v1 starting inventory entered Mar 15, 2026 — Oak Field 45, Tarped 40, Peanut 17 — with Dec 31 as a placeholder date on Peanut; the v1→v2 import labelled them `source = 'purchase'`.
+  - Winter 2025-26 was never recorded in any app; v1 records start Mar 2026 (events backdated to Mar 4). **Tim's own notes cover Oct 1, 2025 – Mar 28, 2026** (539 bales over 87 feeding lines, 300 bales received, four counts), so Oct–Feb is recoverable through OI-0222.
+  - The Apr 14, 2026 v1→v2 import brought 19 events and 41 checks but dropped all 48 v1 feed deliveries (171.3 units, Mar 4 – Apr 13) and all 35 check items, and set batch `remaining` to full.
+  - Tim's Nov 3 reconciles absorbed those dropped feedings: Oak Field, Tarped and Peanut to 0 effective May 3 (−37, −40, −17) and Alfalfa 93 → 15 (−78); −172 in total.
+  - OI-0222 restores Mar–Apr from v1 and Oct–Mar from the notes, with reconcile offsets so today's inventory doesn't change (question A).
 - **Units:** `Bale` vs `bale`, and `sq bale` not on the verified list — fixed by OI-0220 first. No `bal` remains.
 - **Peanut Hay under grass type:** left as is (D2); DM per bale carries it.
-- **Inventory drift (FA-01):** live batches' `remaining` totals 258 units but located balances total 179; two of four live batches have no located balance. Not repaired here; the budget's on-hand uses `remaining` and flags the mismatch (§7).
+- **Inventory drift (FA-01):** live batches' `remaining` totals 258 units but located balances total 179. The gap is exactly Alfalfa (15 sq bales) and the Grass Hay batch with 64 left, which have no `batch_location_balances` rows (per Orchestrator's audit, verified). The 258 also mixes small squares and round bales, so it is not one unit. Not repaired here; the budget's on-hand uses DM and flags the mismatch (§7).
 - **Feed types with no default weight** (both round-bale types): batches carry their own weights, but a new batch without a weight would be "unknown DM" — flag it.
 - **Deliveries ≠ consumption:** a month's figure is hay put out, not hay eaten; leftover still on a paddock at month end belongs to the month it was put out.
 
@@ -98,7 +103,7 @@ Recommend **DMI (dry-matter demand)** as the basis (question D):
 Recommend **"stored-feed share" per month**, pre-filled from history, editable (question E):
 - Share = stored DM fed ÷ herd DM demand for the month (e.g. July ~0%, October ~25%, January ~100%).
 - **Monthly budget DM = projected demand for the month × share.** Spring taper = share falling March→May as grass comes on; fall ramp = share rising Sept→December.
-- Pre-fill from the prior period where months are recorded; where missing (this year, Dec–Mar) use a simple default curve Tim edits. On desktop the curve is a 12-point editor; on mobile a month list with %.
+- Pre-fill from the prior period where months are recorded (after OI-0222, Oct 2025 – Apr 2026 comes from the backfill); where still missing use a simple default curve Tim edits. On desktop the curve is a 12-point editor; on mobile a month list with %.
 - Pro-rating partial months by days.
 
 ## 6. Budget storage — migration needed
@@ -166,7 +171,7 @@ CP-55/CP-56: slices 0–1 none; slice 2 adds the budget tables to export/restore
 
 ## Lettered questions (recommended answer first)
 
-- **A. First budget with thin history (no Dec–Mar records).** Recommend: start from DMI demand × a default share curve you edit, using the months we do have (Apr–May, Oct–Nov) to set those points; optionally you enter last winter's bale counts by month (from purchases/memory) as a one-time "prior season" estimate. Alternative: wait a full season.
+- **A. First budget with thin history.** Recommend: first run the OI-0222 backfill (Mar–Apr from the dropped v1 feedings, Oct–Feb from your notes), then pre-fill the share curve from that history plus Apr–Nov 2026 in v2; edit any month that looks off. Anything your notes don't cover stays a default you set. Alternative: start from DMI demand × a default curve now and refresh after the backfill; or wait a full season.
 - **B. What counts as "fed"?** Recommend: hay that left the stack (deliveries, minus returns to inventory; carries ignored; paddock waste counts as fed; barn shrink shown separately).
 - **C. Month attribution.** Recommend: the feeding date for now; spreading big set-outs across later checks is a later refinement.
 - **D. Animal adjustment basis.** Recommend: DMI (weight × class DMI%), with head and AU shown for reference.

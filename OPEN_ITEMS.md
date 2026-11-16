@@ -4,7 +4,7 @@
 
 **Units/schema checkpoint (2026-11-11, updated 2026-11-16):** PR #55 merged at `6d5893ab`; 042/043 applied; 044 applied 2026-11-11 9:54 AM ET (backup first, Tim's yes 9:52 AM); production stamp 44; compiled ceiling 44 on main (`ce1c987d`, PR #56); 44 client published as `b2026-11-11.1457-ce1c987`. OI-0215 is reserved in the separate action-layer docs branch; this pass starts at OI-0216. No production approval is implied.
 
-**Stored forage checkpoint (2026-11-16):** Tim moved priority to stored forage budgeting (3:03 PM ET); voice/OI-0215 on hold. OI-0220 (feed units) and OI-0221 (budget) are proposals awaiting Tim; Build starts nothing. Base `main` is `ce1c987d` (PR #56 merge). 044 is applied and the 44 client is published: Tim approved on 2026-11-11 at 9:52 AM ET (backup, merge PR #56, apply 044, publish). A pre-044 SQL/JSON table backup was taken at 9:53:09 AM ET to Orchestrator's box (`/workspace/gtho-backups/2026-11-11-pre-044/`; no pg_dump, no auth or storage backup). PR #56 (compiled ceiling 44) merged at `ce1c987d`; 044 applied at 9:54:01 AM ET (migration ledger 20261111145401) with schema_version 44, both unit `operation_id` columns and RLS verified; GitHub main fast-forwarded `ff2a5f44` → `ce1c987d`, Pages deploy succeeded, live build stamp `b2026-11-11.1457-ce1c987`. Reported by Orchestrator; Design independently verified production schema_version 44 and the 044 unit-table shape by read-only SELECT on 2026-11-16 and GitHub main = `ce1c987d` by ls-remote.
+**Stored forage checkpoint (2026-11-16):** Tim moved priority to stored forage budgeting (3:03 PM ET); voice/OI-0215 on hold. OI-0220 (feed units), OI-0222 (hay-feeding backfill) and OI-0221 (budget) are proposals awaiting Tim, in that order; Build starts nothing. Base `main` is `ce1c987d` (PR #56 merge). 044 is applied and the 44 client is published: Tim approved on 2026-11-11 at 9:52 AM ET (backup, merge PR #56, apply 044, publish). A pre-044 SQL/JSON table backup was taken at 9:53:09 AM ET to Orchestrator's box (`/workspace/gtho-backups/2026-11-11-pre-044/`; no pg_dump, no auth or storage backup). PR #56 (compiled ceiling 44) merged at `ce1c987d`; 044 applied at 9:54:01 AM ET (migration ledger 20261111145401) with schema_version 44, both unit `operation_id` columns and RLS verified; GitHub main fast-forwarded `ff2a5f44` → `ce1c987d`, Pages deploy succeeded, live build stamp `b2026-11-11.1457-ce1c987`. Reported by Orchestrator; Design independently verified production schema_version 44 and the 044 unit-table shape by read-only SELECT on 2026-11-16 and GitHub main = `ce1c987d` by ls-remote.
 
 **Earlier ledger reconciliation:** 2026-11-10 against Forgejo `main` at `b6689b23` and reported live build `b2026-11-10.1517-b6689b2`. OI-0196–OI-0204 shipped in PR #44; OI-0205/0206/0207/0209 shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48). Retest remains in progress; shipped does not mean every phone acceptance passed. This is a docs-only record, not implementation or data repair. Edge redeploy from `b6689b23` (Build report relayed by Design): `gtho-assistant` v5; `gtho-assistant-apply`, `gtho-assistant-audio` and `gtho-assistant-transcribe` v4. PR #48 required no migration.
 
@@ -30,7 +30,8 @@
 | OI-0218 | DB-level never-decrease guard for operations.schema_version | Open — later, not scheduled; no SQL now |
 | OI-0219 | FA-29 batch unit picker and shared unit vocabulary | Proposed to fold into OI-0220 (pending Tim); pool-count checks required |
 | OI-0220 | Feed unit cleanup and prevention (`Bale`/`bal`/`bale`, `sq bale`) | PROPOSED 2026-11-16 — awaiting Tim; no migration on recommended path; ships before OI-0221 |
-| OI-0221 | Stored forage budgeting and management (season budget, gamified view, surplus/deficit forecast) | PROPOSED 2026-11-16 — awaiting Tim; Build starts nothing; depends on OI-0220; budget storage needs a new migration (after applied 044) |
+| OI-0222 | One-time historical hay-feeding backfill (Tim's winter notes + dropped v1 feedings) | PROPOSED 2026-11-16 — awaiting Tim; dry run + Tim's yes + backup before any write; after OI-0220, before OI-0221 slice 1 |
+| OI-0221 | Stored forage budgeting and management (season budget, gamified view, surplus/deficit forecast) | PROPOSED 2026-11-16 — awaiting Tim; Build starts nothing; depends on OI-0220 and OI-0222; budget storage needs a new migration (after applied 044) |
 
 ---
 
@@ -52,17 +53,33 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 ---
 
+### OI-0222 — One-time historical hay-feeding backfill
+
+**Added:** 2026-11-16 | **Area:** v2-design / feed / data backfill | **Priority:** after OI-0220, before OI-0221 slice 1
+
+**Status:** **PROPOSED — awaiting Tim's answers. No production write without a dry-run report Tim approves, a fresh backup, and Tim's explicit yes.** Requested by Tim 2026-11-16 3:26 PM ET via Orchestrator. Plan: [Hay-feeding backfill, 2026-11-16](session_briefs/HAY_FEEDING_BACKFILL_PLAN_2026-11-16.md).
+
+**Sources:** (a) the 48 v1 feed deliveries (171.3 units, Mar 4 – Apr 13, 2026) and 35 v1 check items the Apr 14 import dropped (v1 items are keyed by feed type, which the importer skipped); (b) Tim's hay notes, Oct 1, 2025 – Mar 28, 2026 (87 feeding lines, 539 bales; 300 bales received; four counts), kept on Orchestrator's box at `/workspace/gtho-backfill/` and not copied into the repo.
+
+**Recommendation:** two lanes — Mar 4 – Apr 13 rows become real feed entries and pool check items on the 19 already-imported events (paired by date + paddock names, since the import kept no v1 ids); Oct – Mar 3 rows become historical feeding records (small history table, one migration after 044) rather than fake events. Match v1 vs notes on date ±1, place, type and quantity; conflicts go to Tim (four in Mar 4 – 20). Deterministic ids from source keys make re-runs no-ops. Append offset adjustments to the Nov 3 reconciles so `remaining` per batch is unchanged (Oak Field and Alfalfa over-run and need Tim). Relabel the v1 starting stock as `opening`, dated Mar 15, 2026 (no DB migration; batch-sheet picker change). Counts in the notes are reported as checkpoints (+67, −8, +22 variances). Bale DM: 647 lb · 85% round, 50 lb · 85% alfalfa squares, pending Tim. Questions A–L in the plan.
+
+**Schema / CP-55/CP-56 impact:** lane i none (existing 043 columns). Lane ii (recommended) adds a history table → new migration after the applied 044, CP-55/CP-56 export/restore step, Tim's yes + backup to apply. Apply: Orchestrator with Build-written one-time tooling; one transaction; verify invariants, counts, CP-55 export; rollback by deterministic ids or backup restore.
+
+**Origin:** Orchestrator's read-only audit of production, the Nov 11 backups and v1; Design re-verified counts read-only on 2026-11-16.
+
+---
+
 ### OI-0221 — Stored forage budgeting and management
 
 **Added:** 2026-11-16 | **Area:** v2-design / feed / planning | **Priority:** Tim's current priority (after OI-0220)
 
-**Status:** **PROPOSED — awaiting Tim's approval. Build starts nothing until Tim approves the spec.** Proposal: [Stored forage budget, 2026-11-16](session_briefs/STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md). **Depends on OI-0220.** Voice/OI-0215 not folded in.
+**Status:** **PROPOSED — awaiting Tim's approval. Build starts nothing until Tim approves the spec.** Proposal: [Stored forage budget, 2026-11-16](session_briefs/STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md). **Depends on OI-0220, then OI-0222 (backfill) before slice 1.** Voice/OI-0215 not folded in.
 
 **Decided by Tim (2026-11-16, relayed by Orchestrator):** default period June 1 – May 31 (3:05 PM); budget runs on dry matter, not hay type, Peanut Hay classification left as is (3:05 PM); forecast (3:09 PM): show budgeted on-hand vs actual on-hand today, season result = actual on-hand DM − remaining budgeted DM need through May 31 with the taper; savings to date explains the variance and is never added to on-hand.
 
 **Recommendation:** monthly history for any period; budget = projected DMI demand × editable monthly stored-feed share (taper), pre-filled from history; frozen stored budget; actual cost via CST-1; gamified Feed-screen card plus desktop chart/Reports; run-rate forecast as a second line; stale/missing on-hand degrades to a budget-only view with "Count your hay"; supplement days-on-hand with "Hay covers through <date>". Questions A–M in the proposal.
 
-**Data (read-only, aggregates):** feed entries 2026-04-09 → 2026-11-13 (34); no Dec–Mar records, so no full prior season; season to date (Jun 1–Nov 13) ~29,400 kg DM, $6,734; on hand ~59,800 kg DM in 258 units, last count 2026-11-03; `remaining` (258) vs located balances (179) disagree (FA-01 drift, not repaired).
+**Data (read-only, aggregates):** feed entries 2026-04-09 → 2026-11-13 (34); no full prior season in v2: per Orchestrator's audit (re-checked read-only), the 102 "Dec–Mar" bales are Tim's v1 starting inventory (Oak Field 45, Tarped 40, Peanut 17, entered Mar 15, 2026, Peanut dated Dec 31 as a placeholder, imported as `purchase`); the Apr 14 import dropped 48 v1 deliveries (171.3 units, Mar 4 – Apr 13) and 35 check items and reset `remaining`; Tim's Nov 3 reconciles (−37/−40/−17 effective May 3, Alfalfa 93→15) absorbed them; winter 2025-26 was never in any app but Tim's notes (Oct 1 – Mar 28) cover it — recovered via OI-0222; season to date (Jun 1–Nov 13) ~29,400 kg DM, $6,734; on hand ~59,800 kg DM in 258 units, last count 2026-11-03; `remaining` (258, mixed square and round) vs located balances (179) disagree — Alfalfa (15) and the Grass batch with 64 left have no located balances (FA-01 drift, not repaired).
 
 **Schema / CP-55/CP-56 impact:** slice 1 (history report) none. Slice 2 needs a stored budget (header + monthly rows), a new numbered migration after the already-applied 044 (stamp 45 or later), added to CP-55/CP-56 with a schema step; writing it needs this spec approved, applying it needs Tim's explicit yes at the time plus a backup. No SQL here.
 

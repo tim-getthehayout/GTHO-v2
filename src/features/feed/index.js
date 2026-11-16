@@ -25,6 +25,8 @@ import {
   deleteBatchWithLocations,
 } from './batch-balances.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { normalizeFeedUnit, FEED_UNIT_LABEL_KEYS } from '../../utils/feed-units.js';
+import { feedUnitSelect } from './feed-unit-picker.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -539,15 +541,9 @@ function openFeedTypeSheet(existingFt, operationId) {
 
   // Unit
   panel.appendChild(el('label', { className: 'form-label' }, [t('feed.unit')]));
-  inputs.unit = el('select', {
+  inputs.unit = feedUnitSelect({
     className: 'auth-select', 'data-testid': 'feed-type-sheet-unit',
-  }, [
-    el('option', { value: 'bale' }, [t('feed.unitBale')]),
-    el('option', { value: 'ton' }, [t('feed.unitTon')]),
-    el('option', { value: 'kg' }, [t('feed.unitKg')]),
-    el('option', { value: 'lb' }, [t('feed.unitLb')]),
-  ]);
-  if (existingFt?.unit) inputs.unit.value = existingFt.unit;
+  }, existingFt?.unit);
   panel.appendChild(inputs.unit);
 
   // DM %
@@ -665,11 +661,17 @@ function saveFeedType(existingFt, inputs, harvestState, operationId, unitSys, st
     defaultWeightKg = convert(defaultWeightKg, 'weight', 'toMetric');
   }
 
+  const unit = normalizeFeedUnit(inputs.unit.value);
+  if (!unit) {
+    statusEl.appendChild(el('span', {}, [t('feed.unitInvalid')]));
+    return;
+  }
+
   const data = {
     operationId,
     name: inputs.name.value.trim(),
     category: inputs.category.value,
-    unit: inputs.unit.value,
+    unit,
     dmPct: parseNum(inputs.dmPct),
     nPct: parseNum(inputs.nPct),
     pPct: parseNum(inputs.pPct),
@@ -1300,11 +1302,28 @@ function openBatchSheet(existingBatch, operationId) {
 
   // Unit
   panel.appendChild(el('label', { className: 'form-label' }, [t('feed.batchUnit')]));
-  inputs.unit = el('input', {
-    type: 'text', className: 'auth-input', value: existingBatch?.unit || '',
-    placeholder: 'bale, ton, kg...',
-    'data-testid': 'batch-sheet-unit',
+  const typeUnit = () => normalizeFeedUnit(getById('feedTypes', inputs.feedTypeId.value)?.unit);
+  inputs.unit = feedUnitSelect({
+    className: 'auth-select', 'data-testid': 'batch-sheet-unit',
+  }, existingBatch ? existingBatch.unit : typeUnit(), { requireChoice: true });
+  let acceptedUnit = inputs.unit.value;
+  // Moving away from the feed type's unit needs confirmation; declining restores it.
+  inputs.unit.addEventListener('change', () => {
+    const expected = typeUnit();
+    if (expected && inputs.unit.value && inputs.unit.value !== expected
+      && !window.confirm(t('feed.unitMismatchConfirm', { unit: t(FEED_UNIT_LABEL_KEYS[expected]) }))) {
+      inputs.unit.value = acceptedUnit;
+      return;
+    }
+    acceptedUnit = inputs.unit.value;
   });
+  // A new batch follows its feed type's unit; an existing batch's unit is never changed silently.
+  if (!existingBatch) {
+    inputs.feedTypeId.addEventListener('change', () => {
+      const expected = typeUnit();
+      if (expected) { inputs.unit.value = expected; acceptedUnit = expected; }
+    });
+  }
   panel.appendChild(inputs.unit);
 
   // Weight per unit
@@ -1395,6 +1414,11 @@ function saveBatch(existingBatch, inputs, operationId, unitSys, statusEl, locati
   }
 
   const quantity = parseNum(inputs.quantity) ?? 0;
+  const unit = normalizeFeedUnit(inputs.unit.value);
+  if (!unit) {
+    statusEl.appendChild(el('span', {}, [t('feed.unitInvalid')]));
+    return;
+  }
   if (!existingBatch && !locationSelection?.locationId) {
     statusEl.appendChild(el('span', {}, [t('feed.locationRequired')]));
     return;
@@ -1408,7 +1432,7 @@ function saveBatch(existingBatch, inputs, operationId, unitSys, statusEl, locati
     source: inputs.source.value,
     quantity,
     remaining: existingBatch ? existingBatch.remaining : quantity,
-    unit: inputs.unit.value.trim(),
+    unit,
     weightPerUnitKg,
     dmPct: parseNum(inputs.dmPct),
     costPerUnit: parseNum(inputs.costPerUnit),

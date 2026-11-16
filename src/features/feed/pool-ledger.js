@@ -4,6 +4,7 @@ import { RELEASED_SCHEMA_VERSION } from '../../data/schema-release.js';
 import { releasedColumns } from '../../data/schema-columns.js';
 import { poolKey, feedSnapshot, replayFeedPools, poolReading, poolConversion, poolHistory } from '../../calcs/feed-pools.js';
 import { rowInstant } from '../../utils/date-utils.js';
+import { foldFeedUnit, canonicalOrOriginal } from '../../utils/feed-units.js';
 import { localFormTimestamp } from '../../utils/form-values.js';
 import * as Check from '../../entities/event-feed-check.js';
 import * as Item from '../../entities/event-feed-check-item.js';
@@ -15,7 +16,7 @@ export const poolInput = eventId => ({ eventId, entries:getAll('eventFeedEntries
 export const liveFeedPools = (eventId, date, time, excludeCheckId) => replayFeedPools(poolInput(eventId), { through:date?rowInstant(date,time):undefined, excludeCheckId });
 export function inventoryPoolSnapshot(batch) {
   if (!poolWritesEnabled()) return {};
-  return {kind:'inventory_feeding',feedTypeId:batch.feedTypeId,unitSnapshot:batch.unit,weightPerUnitKgSnapshot:batch.weightPerUnitKg??null,dmPctSnapshot:batch.dmPct??null};
+  return {kind:'inventory_feeding',feedTypeId:batch.feedTypeId,unitSnapshot:canonicalOrOriginal(batch.unit),weightPerUnitKgSnapshot:batch.weightPerUnitKg??null,dmPctSnapshot:batch.dmPct??null};
 }
 function requireScope(type,id,operationId) {
   const row=getById(type,id);
@@ -43,7 +44,7 @@ export function writePoolCheck({operationId,eventId,date,time,notes=null,reading
   for(const reading of readings){requirePoolScope(eventId,reading.locationId,reading.feedTypeId,operationId,date,time);const key=poolKey({eventId,...reading});if(keys.has(key))throw new Error('Duplicate pool reading.');keys.add(key);}
   const oldChildren=existing?input.items.filter(row=>row.feedCheckId===checkId):[];
   const oldPools=existing?replayFeedPools({...input,entries:[],checks:[existing],items:oldChildren}):new Map();
-  if(existing && existing.date===date && (existing.time||'')===(time||'') && (existing.notes||'')===(notes||'') && readings.every(row=>{const old=oldPools.get(poolKey({eventId,...row}));return old && row.remainingQuantity===old.q && (!row.unit || row.unit===old.unit);} ))return existing.id;
+  if(existing && existing.date===date && (existing.time||'')===(time||'') && (existing.notes||'')===(notes||'') && readings.every(row=>{const old=oldPools.get(poolKey({eventId,...row}));return old && row.remainingQuantity===old.q && (!row.unit || foldFeedUnit(row.unit)===foldFeedUnit(old.unit));} ))return existing.id;
   const before=replayFeedPools(input,{through:rowInstant(date,time),excludeCheckId:checkId});
   const check=validate(Check,Check.create({...existing,operationId,eventId,date,time,notes,isCloseReading:existing?.isCloseReading??isCloseReading}));
   const children=readings.map(row=>{const pool=before.get(poolKey({eventId,...row}));if(!pool)throw new Error('No feed is available in this pool.');return validate(Item,Item.create({operationId,feedCheckId:check.id,...poolReading(pool,row.remainingQuantity,row.unit??pool.unit)}));});
@@ -65,7 +66,7 @@ export function unchangedPoolCheck(args) {
   if(!args.checkId || !args.readings?.length)return false;
   const existing=requireScope('eventFeedChecks',args.checkId,args.operationId);if(existing.eventId!==args.eventId)return false;
   const old=replayFeedPools({...poolInput(args.eventId),entries:[],checks:[existing]});
-  return existing.date===args.date && (existing.time||'')===(args.time||'') && (existing.notes||'')===(args.notes||'') && args.readings.every(row=>{const pool=old.get(poolKey({eventId:args.eventId,...row}));return pool && row.remainingQuantity===pool.q && (!row.unit || row.unit===(pool.unit||'kg'));});
+  return existing.date===args.date && (existing.time||'')===(args.time||'') && (existing.notes||'')===(args.notes||'') && args.readings.every(row=>{const pool=old.get(poolKey({eventId:args.eventId,...row}));return pool && row.remainingQuantity===pool.q && (!row.unit || foldFeedUnit(row.unit)===foldFeedUnit(pool.unit||'kg'));});
 }
 export const commitPoolCheck = (args,key) => unchangedPoolCheck(args)?args.checkId:runDurableWrite(key,()=>writePoolCheck(args));
 export function deletePoolObservation({operationId,checkId,feedTypeId,locationId},key){return runDurableWrite(key,()=>{

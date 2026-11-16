@@ -1,8 +1,8 @@
 /** Event feed is keyed by event, physical location and type, never original lot.
  * Pure replay: no writes, backfill, clock reads or mutable defaults for new rows. */
 import { rowInstant } from '../utils/date-utils.js';
+import { foldFeedUnit, POOL_COUNT_UNITS } from '../utils/feed-units.js';
 export const poolKey = row => `${row.eventId}|${row.locationId}|${row.feedTypeId}`;
-const canonicalUnits = new Set(['bale', 'kg', 'lb', 'ton']); // existing feed-type picker
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 const validWeight = value => finite(value) && value > 0;
 const validDm = value => finite(value) && value >= 0 && value <= 100;
@@ -13,7 +13,8 @@ export function feedSnapshot(row, batches) {
   const modern = !!(row.kind || row.feedTypeId);
   return {
     feedTypeId: modern ? row.feedTypeId : batch?.feedTypeId,
-    unit: modern ? row.unitSnapshot : batch?.unit,
+    // Fold on read: legacy spellings (e.g. `Bale`) count as their canonical unit; history is not rewritten.
+    unit: foldFeedUnit(modern ? row.unitSnapshot : batch?.unit),
     weight: modern ? row.weightPerUnitKgSnapshot : batch?.weightPerUnitKg,
     dmPct: modern ? row.dmPctSnapshot : batch?.dmPct,
   };
@@ -28,7 +29,8 @@ function empty(identity) { return { ...identity, q: 0, m: 0, d: 0, unit: null, m
 function add(pool, quantity, snap, feedTypes, sign = 1) {
   if (quantity === 0) return;
   const amount = mass(quantity, snap);
-  const verified = canonicalUnits.has(snap.unit) && (!feedTypes[snap.feedTypeId]?.unit || feedTypes[snap.feedTypeId].unit === snap.unit);
+  const typeUnit = foldFeedUnit(feedTypes[snap.feedTypeId]?.unit);
+  const verified = POOL_COUNT_UNITS.has(snap.unit) && (!typeUnit || typeUnit === snap.unit);
   const wasEmpty = pool.q === 0 && pool.m === 0;
   if (wasEmpty) Object.assign(pool, { unit: snap.unit, massBased: !verified, estimate: false });
   if (!verified || (pool.unit && pool.unit !== snap.unit)) pool.massBased = true;
@@ -49,7 +51,7 @@ export function poolReading(pool, quantity, unit = pool?.unit) {
   if (!pool) throw new Error('The selected feed pool is unavailable.');
   if (!finite(quantity) || quantity < 0) throw new Error('Pool quantity must be finite and nonnegative.');
   const conversion = poolConversion(pool);
-  if (quantity > 0 && (!conversion || unit !== conversion.unitSnapshot)) throw new Error('A positive pool reading needs verified conversion and the displayed unit.');
+  if (quantity > 0 && (!conversion || foldFeedUnit(unit) !== conversion.unitSnapshot)) throw new Error('A positive pool reading needs verified conversion and the displayed unit.');
   if (quantity > 0 && (pool.q == null || quantity > pool.q + 1e-8)) throw new Error('Pool quantity exceeds available feed.');
   return { feedTypeId: pool.feedTypeId, locationId: pool.locationId, batchId: null,
     unitSnapshot: conversion?.unitSnapshot ?? null, weightPerUnitKgSnapshot: conversion?.weightPerUnitKgSnapshot ?? null,

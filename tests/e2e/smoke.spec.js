@@ -262,7 +262,7 @@ test.describe('Phase 3.2 + 3.3 Integration Smoke Test', () => {
       await feedTypeSelect.selectOption({ index: 1 });
       await page.locator('[data-testid="batch-sheet-name"]').fill('E2E Hay Batch');
       await page.locator('[data-testid="batch-sheet-quantity"]').fill('100');
-      await page.locator('[data-testid="batch-sheet-unit"]').fill('bale');
+      await page.locator('[data-testid="batch-sheet-unit"]').selectOption('bale');
       await page.locator('[data-testid="batch-sheet-weight-per-unit"]').fill('500');
       await page.locator('[data-testid="batch-sheet-dm-pct"]').fill('88');
       await page.locator('[data-testid="batch-sheet-cost-per-unit"]').fill('15');

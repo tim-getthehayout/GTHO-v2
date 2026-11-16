@@ -12,6 +12,7 @@ import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import * as HarvestEventFieldEntity from '../../entities/harvest-event-field.js';
 import * as BatchEntity from '../../entities/batch.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { canonicalOrOriginal } from '../../utils/feed-units.js';
 
 let unsubs = [];
 let harvestSheet = null;
@@ -410,7 +411,7 @@ function renderTileGrid(panel, operationId, preSelectedLocationId) {
           const batchName = [ft ? ft.name : 'Harvest', dateInput.value].join(' ');
           const batch = BatchEntity.create({
             operationId, feedTypeId: row.feedTypeId, name: batchName, source: 'harvest',
-            quantity: row.quantity, remaining: row.quantity, unit: ft ? ft.unit : 'unit',
+            quantity: row.quantity, remaining: row.quantity, unit: ft ? canonicalOrOriginal(ft.unit) : 'unit',
             weightPerUnitKg: row.weightPerUnitKg, dmPct: null, purchaseDate: dateInput.value,
           });
           add('batches', batch, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');

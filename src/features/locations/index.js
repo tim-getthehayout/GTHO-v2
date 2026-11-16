@@ -17,6 +17,8 @@ import * as PaddockObsEntity from '../../entities/paddock-observation.js';
 import { soilTestFormValues } from '../amendments/soil-test-values.js';
 import * as SoilTestEntity from '../../entities/soil-test.js';
 import * as FeedTypeEntity from '../../entities/feed-type.js';
+import { normalizeFeedUnit } from '../../utils/feed-units.js';
+import { feedUnitSelect } from '../feed/feed-unit-picker.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import { openAmendmentSheet } from '../amendments/entry.js';
 import * as SurveyEntity from '../../entities/survey.js';
@@ -1112,7 +1114,7 @@ export function openFeedTypesSheet(operationId) {
 
     const inputs = {};
     inputs.name = el('input', { type: 'text', placeholder: 'Round bale', value: editingFt?.name || '' });
-    inputs.unit = el('select', {}, ['bale', 'sq bale', 'round-bale', 'ton', 'lb', 'bag'].map(u => el('option', { value: u, selected: editingFt?.unit === u }, [u])));
+    inputs.unit = feedUnitSelect({ 'data-testid': 'location-feed-type-unit' }, editingFt?.unit);
     formEl.appendChild(el('div', { className: 'two' }, [
       el('div', { className: 'field' }, [el('label', {}, ['Name']), inputs.name]),
       el('div', { className: 'field' }, [el('label', {}, ['Unit']), inputs.unit]),
@@ -1157,11 +1159,13 @@ export function openFeedTypesSheet(operationId) {
         clear(statusEl);
         const name = inputs.name.value.trim();
         if (!name) { statusEl.appendChild(el('span', {}, ['Name is required'])); return; }
+        const unit = normalizeFeedUnit(inputs.unit.value);
+        if (!unit) { statusEl.appendChild(el('span', {}, [t('feed.unitInvalid')])); return; }
         try {
         let defaultWeightKg = optionalFormNumber(inputs.defaultWeight.value);
         if (defaultWeightKg && unitSys === 'imperial') defaultWeightKg = convert(defaultWeightKg, 'weight', 'toMetric');
         const data = {
-          operationId, name, unit: inputs.unit.value, category: inputs.cat.value,
+          operationId, name, unit, category: inputs.cat.value,
           dmPct: optionalFormNumber(inputs.dm.value), cuttingNumber: parseInt(inputs.cutting.value, 10) || null,
           defaultWeightKg, forageTypeId: inputs.forageTypeId.value || null,
           harvestActive: true,

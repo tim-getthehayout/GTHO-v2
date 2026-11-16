@@ -16,8 +16,8 @@ export const FEED_UNIT_LABEL_KEYS = Object.freeze({
   bag: 'feed.unitBag',
 });
 
-/** Units an event feed pool may count in; others fall back to mass (kg). */
-export const POOL_COUNT_UNITS = Object.freeze(new Set(['bale', 'sq bale', 'kg', 'lb', 'ton']));
+/** Units an event feed pool may count in (every list unit); others fall back to mass (kg). */
+export const POOL_COUNT_UNITS = Object.freeze(new Set(FEED_UNITS));
 
 const ALIASES = Object.freeze({
   bal: 'bale',
@@ -27,12 +27,13 @@ const ALIASES = Object.freeze({
   'small square': 'sq bale',
 });
 
-const clean = value => value.trim().toLowerCase().replace(/\s+/g, ' ');
+// Hyphens fold to spaces first, so legacy `round-bale` / `sq-bale` reach the alias lookup.
+const clean = value => value.toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
 const known = value => (FEED_UNITS.includes(value) ? value : ALIASES[value] ?? null);
 
 /**
  * Normalize a typed or stored unit to its canonical list value.
- * Trim, lower-case, collapse internal spaces, singular form, then aliases.
+ * Lower-case, hyphens to spaces, trim and collapse spaces, singular form, then aliases.
  * @returns {string|null} canonical unit, or null when not on the list
  */
 export function normalizeFeedUnit(value) {

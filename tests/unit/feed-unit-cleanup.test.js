@@ -34,13 +34,17 @@ describe('normalizeFeedUnit / foldFeedUnit', () => {
   it.each([['tons', 'ton'], ['KG', 'kg'], ['kgs', 'kg'], ['lbs', 'lb'], ['Bags', 'bag']])('%j saves as %j', (value, unit) => {
     expect(normalizeFeedUnit(value)).toBe(unit);
   });
-  it.each(['', '   ', 'flake', 'round-bale', 'tonne', null, undefined, 5])('rejects %j', value => {
+  it.each([['round-bale', 'bale'], ['Round-Bales', 'bale'], ['sq-bale', 'sq bale'], ['Sq-Bales', 'sq bale'], [' round - bale ', 'bale']])('hyphenated legacy %j saves as %j', (value, unit) => {
+    expect(normalizeFeedUnit(value)).toBe(unit);
+  });
+  it.each(['', '   ', '-', 'flake', 'tonne', null, undefined, 5])('rejects %j', value => {
     expect(normalizeFeedUnit(value)).toBeNull();
   });
   it('folds unknown values to a cleaned form that never matches a list unit', () => {
     expect(foldFeedUnit('  Flake ')).toBe('flake');
     expect(foldFeedUnit(null)).toBeNull();
-    expect(FEED_UNITS).not.toContain(foldFeedUnit('round-bale'));
+    expect(foldFeedUnit('Round-Bales')).toBe('bale');
+    expect(FEED_UNITS).not.toContain(foldFeedUnit('half-ton'));
   });
 });
 
@@ -64,9 +68,17 @@ describe('pool counting folds legacy spellings and counts sq bale', () => {
     const pool = replayFeedPools(input([{ id: 'alf', unit: 'sq bale' }], [feeding('a', 'alf', 'sq bale', 10, 25), feeding('bb', 'alf', 'Sq Bales', 5, 25)])).get(key('alf'));
     expect(pool).toMatchObject({ q: 15, unit: 'sq bale', massBased: false });
   });
-  it('bag is on the list but is not a pool count unit, so a bag pool counts in kg', () => {
-    const pool = replayFeedPools(input([{ id: 'sup', unit: 'bag' }], [feeding('a', 'sup', 'bag', 4, 20)])).get(key('sup'));
-    expect(pool).toMatchObject({ q: 80, unit: 'kg', massBased: true });
+  it('a bag pool counts by bag when the type and snapshot units agree, and falls back to mass otherwise', () => {
+    expect(POOL_COUNT_UNITS.has('bag')).toBe(true);
+    const pool = replayFeedPools(input([{ id: 'sup', unit: 'bag' }], [feeding('a', 'sup', 'bag', 4, 20), feeding('bb', 'sup', 'Bags', 2, 20)])).get(key('sup'));
+    expect(pool).toMatchObject({ q: 6, unit: 'bag', massBased: false });
+    expect(poolReading(pool, 1, 'bag').unitSnapshot).toBe('bag');
+    const mismatch = replayFeedPools(input([{ id: 'sup', unit: 'lb' }], [feeding('a', 'sup', 'bag', 4, 20)])).get(key('sup'));
+    expect(mismatch).toMatchObject({ q: 80, unit: 'kg', massBased: true });
+  });
+  it('a legacy round-bale feed type agrees with bale feedings and counts by bale', () => {
+    const pool = replayFeedPools(input([{ id: 'g', unit: 'round-bale' }], [feeding('a', 'g', 'bale', 3)])).get(key('g'));
+    expect(pool).toMatchObject({ q: 3, unit: 'bale', massBased: false });
   });
   it('a unit that differs from its feed type still falls back to mass', () => {
     const pool = replayFeedPools(input([{ id: 'g', unit: 'bale' }], [feeding('a', 'g', 'sq bale')])).get(key('g'));
@@ -193,6 +205,16 @@ describe('real feed forms', () => {
     expect(options($('feed-type-sheet-unit')).map(([v]) => v)).toEqual(FEED_UNITS);
     $('feed-type-sheet-save').click();
     expect(getById('feedTypes', ALFALFA)).toMatchObject({ unit: 'sq bale', dmPct: 88 });
+  });
+
+  it('a legacy round-bale feed type opens as Round bale and an ordinary save stores bale', () => {
+    add('feedTypes', FeedTypeEntity.create({ id: OLD, operationId: OP, name: 'Old round', category: 'hay', unit: 'round-bale' }), FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
+    mount();
+    expect(getById('feedTypes', OLD).unit).toBe('round-bale'); // not rewritten on load
+    $(`feed-type-edit-${OLD}`).click();
+    expect($('feed-type-sheet-unit').value).toBe('bale');
+    $('feed-type-sheet-save').click();
+    expect(getById('feedTypes', OLD).unit).toBe('bale');
   });
 
   it('feed-type sheet normalizes and refuses values outside the list', () => {

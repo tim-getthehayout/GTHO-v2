@@ -1,12 +1,32 @@
 # OI-0220 — Feed unit cleanup and prevention (bale / Bale / bal)
 
-**Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's approval. Build starts nothing until Tim approves. Docs only; no SQL, no data change.
+**Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** APPROVED — Tim approved Design's plan as proposed (A–E), 2026-11-16 4:32 PM ET, relayed by Orchestrator. Implementation: GTHO Build [PR #60](https://git.sarnford.com/Homelab/GTHO-v2/pulls/60), branch `fix/feed-unit-cleanup`, in review; **merging needs Tim's separate yes.** Docs only; no SQL, no data change.
 **Sequenced:** ahead of OI-0221 (stored forage budget) build, because the budget's historical counts, pool counting and on-hand totals read these unit strings.
 **Relates to:** OI-0219 (FA-29 batch unit picker) — folded in here as the prevention half; OI-0216 (044 dose/input-product unit tables, applied 2026-11-11); OI-0214 FA-26 pools.
 
 ## Tim's decision (2026-11-16, 3:05 PM ET, relayed by Orchestrator)
 
 Fix the `bal` vs `bale` unit mix-up and make sure it can't happen again. Sequence it ahead of the budgeting build.
+
+## Tim's approval (2026-11-16, 4:32 PM ET, relayed by Orchestrator)
+
+At 4:31 PM ET Orchestrator presented Design's picks to Tim — A: retype the `Bale` batch; B: a closed unit list; C: round bale, square bale, ton, kg, lb, bag; D: read old spellings as the standard unit — and asked "Start Build on the unit fix with Design's plan?" At 4:32 PM ET Tim picked "Yes, start Build on the unit fix with Design's plan".
+
+- This is a **blanket yes to the plan as proposed (A–E)**. Tim did not answer each pick separately.
+- **E** (fold OI-0219, the FA-29 batch picker, into this item) was not named to him by letter, but it is part of the plan he accepted.
+- **A becomes optional once PR #60 merges:** the `Bale` batch then folds to `bale` on read, so retyping it is no longer needed for pool counting.
+
+## Implementation — [PR #60](https://git.sarnford.com/Homelab/GTHO-v2/pulls/60) (in review)
+
+GTHO Build, branch `fix/feed-unit-cleanup`. No SQL, no migration, no data write; existing rows are never rewritten. One shared list and picker for the batch sheet and both feed-type forms; all three saves refuse anything not on the list; save-time normalization and read-time folding as in B3–B4; the batch unit defaults to the feed type's unit. **Merging needs Tim's separate yes.**
+
+**Design's rulings on Build's implementation questions (2026-11-16, consistent with C):**
+- **`bag` counts as a pool unit** like the others: a pool counts in its unit when the feed type's unit and the feeding's snapshot unit agree (after folding); otherwise it falls back to mass (kg), as for `bale`, `sq bale`, `ton`, `kg` and `lb`.
+- **Legacy `round-bale` maps to `bale`.** Hyphens fold to spaces before the alias lookup (so `round-bale` → `round bale` → `bale`). Production holds none today.
+- **A stored unit not on the list** opens on "Choose a unit" and must be picked before the sheet can save. Production holds none today.
+- **The batch mismatch confirmation** fires when the unit picker changes away from the feed type's unit, not at save.
+- **Changing an existing batch's feed type** leaves its unit unchanged.
+- **Display text** (cards, details, reports) is unchanged in this PR: they still show the stored text. Showing the standard label is follow-up OI-0223 (low priority, not started, needs Tim's say-so).
 
 ## Recommendation (first)
 
@@ -59,10 +79,10 @@ Fix the `bal` vs `bale` unit mix-up and make sure it can't happen again. Sequenc
 - Pools fed from `Bale` history count as `bale`; `sq bale` pools count by bale.
 - No rewrite of existing rows; no SQL.
 
-## Lettered questions (recommended answer first)
+## Lettered questions (recommended answer first) — APPROVED as proposed (Tim's blanket yes, 4:32 PM ET)
 
-- **A. How to fix the `Bale` batch?** Recommend: you retype it as `bale` in the batch sheet now, before feeding from it. (Alternative: a one-off SQL fix — needs your yes + backup.)
-- **B. Closed list or allow custom feed units?** Recommend: closed list now; custom units later only if you hit a real need.
-- **C. Which standards?** Recommend: `bale` (round), `sq bale`, `ton`, `kg`, `lb`, `bag`. Should `bale` be renamed `round bale` on screen? Recommend: keep the stored value `bale`, show it as "Round bale" in the picker.
-- **D. Fold old spellings on read instead of rewriting history?** Recommend: yes.
-- **E. OI-0219 (FA-29 picker) folds into this item?** Recommend: yes — OI-0219 stays as history, delivered by OI-0220.
+- **A. How to fix the `Bale` batch?** Recommend: you retype it as `bale` in the batch sheet now, before feeding from it. (Alternative: a one-off SQL fix — needs your yes + backup.) **Approved; optional once PR #60 merges (`Bale` folds to `bale` on read).**
+- **B. Closed list or allow custom feed units?** Recommend: closed list now; custom units later only if you hit a real need. **Approved.**
+- **C. Which standards?** Recommend: `bale` (round), `sq bale`, `ton`, `kg`, `lb`, `bag`. Should `bale` be renamed `round bale` on screen? Recommend: keep the stored value `bale`, show it as "Round bale" in the picker. **Approved.**
+- **D. Fold old spellings on read instead of rewriting history?** Recommend: yes. **Approved.**
+- **E. OI-0219 (FA-29 picker) folds into this item?** Recommend: yes — OI-0219 stays as history, delivered by OI-0220. **Approved** (part of the accepted plan; not named to Tim by letter).

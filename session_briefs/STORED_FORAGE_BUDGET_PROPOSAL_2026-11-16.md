@@ -1,7 +1,7 @@
 # OI-0221 — Stored forage budgeting and management
 
 **Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's approval. **Build starts nothing until Tim approves this spec.** Docs only; no code, no SQL, no data change.
-**Depends on:** OI-0220 (feed unit cleanup) ships first, then OI-0222 (historical hay-feeding backfill) before slice 1. Voice / OI-0215 stays on hold and is not part of this.
+**Depends on:** OI-0220 (feed unit cleanup; approved 2026-11-16 4:32 PM ET, PR #60 in review) ships first, then OI-0222 (historical hay-feeding backfill) before slice 1. Voice / OI-0215 stays on hold and is not part of this.
 **Base:** Forgejo `main` `ce1c987d` (read only; 044 applied and ceiling-44 client published 2026-11-11). Live figures: read-only SELECTs on production, 2026-11-16 ~3:08 PM ET; aggregates only.
 
 ## Tim's request (2026-11-16, 3:03–3:09 PM ET, relayed by Orchestrator)
@@ -23,7 +23,8 @@
   - **Season forecast = actual on-hand DM − remaining budgeted DM need from today through May 31** (with the taper). Positive = surplus, negative = deficit.
   - **Savings to date is the explanation of the variance**, never an extra quantity.
 - **D5 — Cost basis** (3:52 PM ET, relayed by Orchestrator): budget and actuals use **each batch's recorded cost** (Tim: fall 2026 batches are entered correctly). **$56/bale is only the fallback** for a batch with no cost. **Last season is $45/bale** (prior-year comparison and the OI-0222 opening stock).
-- **D6 — Historical animal basis includes sheep** (3:51 PM ET): sheep were on the farm Oct 2025 – May 2026, goats were not. Last winter's basis = cattle + sheep in DMI; goats excluded. How the sheep head count is supplied is OI-0222 question J.
+- **D6 — Historical animal basis includes sheep** (3:51 PM ET): sheep were on the farm Oct 2025 – May 2026, goats were not. Last winter's basis = cattle + sheep in DMI; goats excluded. How the sheep head count is supplied is OI-0222 question J — answered (J = A, 4:05–4:06 PM ET): Tim enters it himself; sheep, Oct 2025 – May 2026, 80 head at an average of 110 lb (the difference from today's flock is last year's offspring, not ewes).
+- **D7 — Week of 11-12-26 cost confirmed** (4:05–4:06 PM ET, relayed by Orchestrator): $8,499 for 150 bales = **$56.66 a bale** is correct. The flag is closed; the recorded cost is used.
 
 ## Recommendation (summary)
 
@@ -87,7 +88,7 @@ One operation, one farm. Feed entries run **2026-04-09 to 2026-11-13 (34 rows)**
   - The Apr 14, 2026 v1→v2 import brought 19 events and 41 checks but dropped all 48 v1 feed deliveries (171.3 units, Mar 4 – Apr 13) and all 35 check items, and set batch `remaining` to full.
   - Tim's Nov 3 reconciles absorbed those dropped feedings: Oak Field, Tarped and Peanut to 0 effective May 3 (−37, −40, −17) and Alfalfa 93 → 15 (−78); −172 in total.
   - OI-0222 restores Mar–Apr from v1 and Oct–Mar from the notes. Tim decided (3:43 PM ET) that feedings are the basis: pre-summer stock is trued up to the fed numbers and ends at 0 before summer 2026; post-summer batches are untouched. The 12/16 set-out of 80 bales is pro-rated to Jan 4, so the backfilled monthly totals are Oct 58, Nov 80, Dec 122, Jan 102, Feb 92, Mar 85 bales (539 total; Dec 120.2 / Jan 103.8 if the set-out started 12/18) (question A).
-- **Units:** `Bale` vs `bale`, and `sq bale` not on the verified list — fixed by OI-0220 first. No `bal` remains.
+- **Units:** `Bale` vs `bale`, and `sq bale` not on the verified list — fixed by OI-0220 first (approved; PR #60 in review). No `bal` remains.
 - **Peanut Hay under grass type:** left as is (D2); DM per bale carries it.
 - **Inventory drift (FA-01):** live batches' `remaining` totals 258 units but located balances total 179. The gap is exactly Alfalfa (15 sq bales) and the Grass Hay batch with 64 left, which have no `batch_location_balances` rows (per Orchestrator's audit, verified). The 258 also mixes small squares and round bales, so it is not one unit. Not repaired here; the budget's on-hand uses DM and flags the mismatch (§7).
 - **Feed types with no default weight** (both round-bale types): batches carry their own weights, but a new batch without a weight would be "unknown DM" — flag it.
@@ -150,7 +151,7 @@ Everything in DM; dollars beside it.
 | Grass Hay 1010 (Oct 20) | 60 / 0 bale | $3,360 | $56.00 | $0.104 | $229 | — (known 62 fed vs 60, out of scope) |
 | Grass Hay 1012 (Oct 29) | 90 / 64 bale | $5,040 | $56.00 | $0.104 | $229 | — |
 | Peanut Hay 1012 (Oct 31) | 30 / 29 bale | $1,680 | $56.00 | $0.104 | $229 | — (shares batch number 1012 with the grass batch) |
-| Week of 11-12-26 (Nov 12) | 150 / 150 **`Bale`** | $8,499 | $56.66 | $0.105 | $231 | **unit issue** (`Bale`, OI-0220); **outlier, minor** — $0.66/bale (+1.2%) above its siblings; $8,499 looks like an invoice total ÷ 150 — Tim to confirm |
+| Week of 11-12-26 (Nov 12) | 150 / 150 **`Bale`** | $8,499 | $56.66 | $0.105 | $231 | **cost confirmed** by Tim (D7, 4:05–4:06 PM ET) — recorded $56.66 is used; unit `Bale` handled by OI-0220 |
 
 No fall batch is missing a cost. Illustrative price if locked today on the on-hand batches (Grass 1012 64, Peanut 1012 29, Week of 11-12-26 150, Alfalfa 15 sq at $5): $13,782 over ≈131,860 lb DM ≈ **$0.105/lb DM ($230/t DM)**.
 
@@ -199,4 +200,4 @@ CP-55/CP-56: slices 0–1 none; slice 2 adds the budget tables to export/restore
 - **J. Staleness thresholds.** Recommend: fresh ≤ 30 days since last count, amber 31–60, budget-only view with "Count your hay" beyond 60 days or when weight/DM is unknown or inventory locations disagree.
 - **K. Days-on-hand goal.** Recommend: keep it for now and add "Hay covers through <date>"; later replace it with a carry-over reserve past May 31.
 - **L. Where it lives.** Recommend: card at the top of the Feed screen (mobile and desktop), full view in Reports; not on the Home dashboard at first.
-- **M. Budget price — DECIDED basis (D5):** weighted **recorded** $ per DM weight of on-hand batches at lock, with any no-cost batch at the **$56/bale fallback**; editable. Prior-year comparison at **$45/bale**. Open only: confirm the Week of 11-12-26 price ($56.66) and its `Bale` unit (§8).
+- **M. Budget price — DECIDED basis (D5):** weighted **recorded** $ per DM weight of on-hand batches at lock, with any no-cost batch at the **$56/bale fallback**; editable. Prior-year comparison at **$45/bale**. Week of 11-12-26 price ($56.66) confirmed by Tim (D7); its `Bale` unit is handled by OI-0220 (§8). Nothing open.

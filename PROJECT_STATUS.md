@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-11 (Forgejo main `6d5893ab`; PR #55 merged; 042/043 applied, production stamp 43; 044 apply pending; compiled ceiling 41; PR #56 in review)
+**Last updated:** 2026-11-16 (stored forage proposals OI-0220/OI-0221 on docs branch, awaiting Tim; base Forgejo main `ce1c987d`). Prior: 2026-11-11 (Forgejo main `6d5893ab`; PR #55 merged; 042/043 applied, production stamp 43; 044 apply pending; compiled ceiling 41; PR #56 in review)
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.
@@ -23,6 +23,8 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 ## 3. Current State
 
+- **Current priority (Tim, 2026-11-16 3:03 PM ET):** stored forage budgeting. OI-0220 (feed unit cleanup/prevention) must ship before OI-0221 (season budget, gamified Feed-screen view, surplus/deficit forecast); both are PROPOSED and awaiting Tim, and Build starts nothing until he approves. Tim decided: period June 1 – May 31; budget on dry matter (Peanut Hay classification left as is); forecast = actual on-hand DM − remaining budgeted need, with savings explaining the on-hand variance and never added. OI-0221 slice 2 needs a stored-budget migration after 044 (Tim yes + backup to apply). Voice/OI-0215 is on hold. Specs: `session_briefs/FEED_UNIT_CLEANUP_PROPOSAL_2026-11-16.md`, `session_briefs/STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md`.
+- **044 status needs confirming:** a read-only check on 2026-11-16 found the production operation stamp at 44 and the 044 unit-table shape present, while the lines below still say 044 is unapplied and PR #56 in review (`ce1c987d` is now on main). Orchestrator to confirm the apply/publish record; these lines are not rewritten in this docs pass.
 - App: `https://getthehayout.com/`; canonical Forgejo `main` verified via fetched `origin/main` at `6d5893ab464a85af5d3fc280251140e63e1d17ab` (PR #55). The following PR #48 live-stamp report is historical, not evidence that current main has been published. [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48) merged 2026-11-10 and was reported live as `b2026-11-10.1517-b6689b2` (Build/Orchestrator retest report). Edge functions redeployed from that SHA: `gtho-assistant` v5; apply, audio and transcribe v4. PR #48 has no migration. This docs commit is not a new deployment or an independent live probe.
 - OI-0205/0206/0207/0209 implementation shipped in PR #48; phone retest is still in progress, so shipped is not blanket acceptance. OI-0207 option B is decided: one shared composer/lifecycle, no intent picker, auto-routing, header Cancel, Type here and review-before-save. Tim's 2026-11-10 sheet decision hides Type here during live listening and restores it when the turn/voice ends; implement with OI-0211 so Listening is truthful. OI-0209 remains shipped / awaiting retest, not closed.
 - OI-0210 — Assistant entry across the whole app (schema-driven). Status: being scoped by Design with Tim, 2026-11-10; not ready for Build. Origin: Tim's 11:37–11:41 iPhone retest (a feed receipt misrouted into feeding; clarifying replies taken whole as names).
@@ -90,6 +92,7 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 ## 5. Open Questions / Next Steps
 
+0. Tim to answer OI-0220 questions A–E and OI-0221 questions A–M (via Orchestrator). Sequence: OI-0220 → OI-0221 slice 1 (history report, no migration) → slice 2 (budget, card, forecast; migration after 044) → slice 3 (days-on-hand supplement).
 1. Finish Tim's PR #48 phone retest; OI-0205/0206/0207/0209 implementation is shipped, with remaining acceptance/findings recorded in `OPEN_ITEMS.md`. OI-0200–0204 remain shipped in PR #44; OI-0211 supersedes OI-0204's early Listening claim, not its buffer/cancellation protections.
 2. OI-0210 — Assistant entry across the whole app (schema-driven). Being scoped by Design with Tim, 2026-11-10; not ready for Build. No implementation plan is agreed or handed off for that item. Feed-receipt behavior is pending Tim within the new scope; no secret switch ahead of explicit production approval.
 3. OI-0211: report the root-cause repair and confirm it by iPhone retest; apply the locked 10-second overall startup bound and fix connection/capture/turn handling together with truthful Connecting/Listening and the OI-0207 hide-composer decision. Verify with first-use permission + spoken over on Tim's iPhone and forced hung-connect tests.

@@ -4,6 +4,8 @@
 
 **Units/schema checkpoint (2026-11-11):** PR #55 merged at `6d5893ab`; 042/043 applied, production stamp 43; 044 written, not applied; main compiled ceiling 41; PR #56 in review. OI-0215 is reserved in the separate action-layer docs branch; this pass starts at OI-0216. No production approval is implied.
 
+**Stored forage checkpoint (2026-11-16):** Tim moved priority to stored forage budgeting (3:03 PM ET); voice/OI-0215 on hold. OI-0220 (feed units) and OI-0221 (budget) are proposals awaiting Tim; Build starts nothing. A read-only check on 2026-11-16 found the production operation stamp at 44 with the 044 unit-table columns, RLS and scoped-name indexes present; this ledger still describes 044 as unapplied — Orchestrator to confirm the apply record before those lines are corrected. Base `main` is `ce1c987d` (PR #56 merge).
+
 **Earlier ledger reconciliation:** 2026-11-10 against Forgejo `main` at `b6689b23` and reported live build `b2026-11-10.1517-b6689b2`. OI-0196–OI-0204 shipped in PR #44; OI-0205/0206/0207/0209 shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48). Retest remains in progress; shipped does not mean every phone acceptance passed. This is a docs-only record, not implementation or data repair. Edge redeploy from `b6689b23` (Build report relayed by Design): `gtho-assistant` v5; `gtho-assistant-apply`, `gtho-assistant-audio` and `gtho-assistant-transcribe` v4. PR #48 required no migration.
 
 | Item | Scope | Current status |
@@ -26,11 +28,45 @@
 | OI-0216 | Units 044 redesign and release-note grant posture | Merged at `6d5893ab`; 044 apply pending Tim's yes + backup; ceiling promotion in PR #56 |
 | OI-0217 | Full transactional CP-56 restore | Open — later, not scheduled; design required |
 | OI-0218 | DB-level never-decrease guard for operations.schema_version | Open — later, not scheduled; no SQL now |
-| OI-0219 | FA-29 batch unit picker and shared unit vocabulary | Queued after 044 and ceiling bump; pool-count checks required |
+| OI-0219 | FA-29 batch unit picker and shared unit vocabulary | Proposed to fold into OI-0220 (pending Tim); pool-count checks required |
+| OI-0220 | Feed unit cleanup and prevention (`Bale`/`bal`/`bale`, `sq bale`) | PROPOSED 2026-11-16 — awaiting Tim; no migration on recommended path; ships before OI-0221 |
+| OI-0221 | Stored forage budgeting and management (season budget, gamified view, surplus/deficit forecast) | PROPOSED 2026-11-16 — awaiting Tim; Build starts nothing; depends on OI-0220; budget storage migration after 044 |
 
 ---
 
 OI-0210 — Assistant entry across the whole app (schema-driven). Status: being scoped by Design with Tim, 2026-11-10; not ready for Build. Origin: Tim's 11:37–11:41 iPhone retest (a feed receipt misrouted into feeding; clarifying replies taken whole as names).
+
+---
+
+### OI-0220 — Feed unit cleanup and prevention
+
+**Added:** 2026-11-16 | **Area:** v2-design / feed / units | **Priority:** ahead of OI-0221 build
+
+**Status:** **PROPOSED — awaiting Tim's approval; Build starts nothing.** Tim, 3:05 PM ET 2026-11-16 (relayed by Orchestrator): fix the `bal`/`bale` mix-up so it can't recur, as its own item, ahead of the budgeting build. Proposal: [Feed unit cleanup, 2026-11-16](session_briefs/FEED_UNIT_CLEANUP_PROPOSAL_2026-11-16.md).
+
+**Findings (read-only, aggregates):** no `bal` remains; `batches.unit` has `bale` 7, `Bale` 1 (created today, unfed), `sq bale` 1; feed types `bale` 2, `sq bale` 1; snapshots only `bale` or null. Feed units are free text on `feed_types.unit` / `batches.unit` (+ 043 snapshots), not in the 044 `dose_units`/`input_product_units` tables, so 044 does not cover them; its standard/custom folded-name pattern is the model if customs are ever wanted. `feed-pools.js` verifies only exact `bale`/`kg`/`lb`/`ton`, so `Bale` and `sq bale` push pools to mass mode; the feed-type picker lacks `sq bale` (Build to verify edit behaviour).
+
+**Recommendation:** Tim retypes the `Bale` batch in-app before feeding from it; shared closed feed-unit list for feed-type and batch sheets (FA-29 picker, defaulting to the type's unit); normalize at save; fold old spellings on read (no history rewrite); `sq bale` verified for pool counting. **No migration and no SQL data fix** on this path; any SQL fix or DB-level guard would need Tim's yes plus a backup and sequences after 044. Questions A–E in the proposal. **CP-55/CP-56:** no shape change on the recommended path.
+
+**Origin:** Tim's direction 2026-11-16; supersedes OI-0219's standalone queue position (OI-0219 kept as history, delivered here if Tim agrees).
+
+---
+
+### OI-0221 — Stored forage budgeting and management
+
+**Added:** 2026-11-16 | **Area:** v2-design / feed / planning | **Priority:** Tim's current priority (after OI-0220)
+
+**Status:** **PROPOSED — awaiting Tim's approval. Build starts nothing until Tim approves the spec.** Proposal: [Stored forage budget, 2026-11-16](session_briefs/STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md). **Depends on OI-0220.** Voice/OI-0215 not folded in.
+
+**Decided by Tim (2026-11-16, relayed by Orchestrator):** default period June 1 – May 31 (3:05 PM); budget runs on dry matter, not hay type, Peanut Hay classification left as is (3:05 PM); forecast (3:09 PM): show budgeted on-hand vs actual on-hand today, season result = actual on-hand DM − remaining budgeted DM need through May 31 with the taper; savings to date explains the variance and is never added to on-hand.
+
+**Recommendation:** monthly history for any period; budget = projected DMI demand × editable monthly stored-feed share (taper), pre-filled from history; frozen stored budget; actual cost via CST-1; gamified Feed-screen card plus desktop chart/Reports; run-rate forecast as a second line; stale/missing on-hand degrades to a budget-only view with "Count your hay"; supplement days-on-hand with "Hay covers through <date>". Questions A–M in the proposal.
+
+**Data (read-only, aggregates):** feed entries 2026-04-09 → 2026-11-13 (34); no Dec–Mar records, so no full prior season; season to date (Jun 1–Nov 13) ~29,400 kg DM, $6,734; on hand ~59,800 kg DM in 258 units, last count 2026-11-03; `remaining` (258) vs located balances (179) disagree (FA-01 drift, not repaired).
+
+**Schema / CP-55/CP-56 impact:** slice 1 (history report) none. Slice 2 needs a stored budget (header + monthly rows), a numbered migration after 044, added to CP-55/CP-56 with a schema step; writing it needs this spec approved, applying it needs Tim's explicit yes at the time plus a backup. No SQL here.
+
+**Origin:** Tim's request 2026-11-16 3:03–3:09 PM ET via Orchestrator.
 
 ---
 
@@ -74,7 +110,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Added:** 2026-11-11 | **Area:** v2-design / feed / units | **Priority:** queued after 044 and ceiling bump
 
-**Status:** open — queued, not scheduled for implementation. Replace the batch sheet's free-text unit box with a picker defaulting to the feed type's unit and one shared unit vocabulary. Check whether sq bale, round bale and bag pools count correctly; do not assume correctness or rewrite existing records. Any unspecified vocabulary/mapping or persisted-shape choice returns to Tim before Build. CP-55/CP-56 impact remains to be assessed; no schema/data repair authorized.
+**Status:** open — queued, not scheduled for implementation. **2026-11-16:** proposed to be delivered by OI-0220 (feed unit cleanup and prevention), pending Tim. Replace the batch sheet's free-text unit box with a picker defaulting to the feed type's unit and one shared unit vocabulary. Check whether sq bale, round bale and bag pools count correctly; do not assume correctness or rewrite existing records. Any unspecified vocabulary/mapping or persisted-shape choice returns to Tim before Build. CP-55/CP-56 impact remains to be assessed; no schema/data repair authorized.
 
 **Origin:** The `bal` unit was typed by hand into the batch sheet's free-text unit box on 2026-11-03. FA-30 (guarded server function) is cancelled; it is not part of FA-29 or an alternate restore design.
 

@@ -1,7 +1,7 @@
 # OI-0222 — One-time historical hay-feeding backfill (winter 2025-26 + dropped v1 feedings)
 
 **Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's answers. Docs only: no SQL file, no code, no production write. **Nothing writes to production without a fresh backup and Tim's explicit yes on the specific dry-run report.**
-**Requested:** Tim, 2026-11-16 3:26 PM ET (relayed by Orchestrator); notes delivered 3:27 PM ET. **Partly answered:** Tim, 3:43 PM ET via Orchestrator (see Decisions).
+**Requested:** Tim, 2026-11-16 3:26 PM ET (relayed by Orchestrator); notes delivered 3:27 PM ET. **Partly answered:** Tim, 3:43, 3:51 and 3:52 PM ET via Orchestrator (see Decisions).
 **Sequence:** OI-0220 (feed units) → **OI-0222 (this backfill)** → OI-0221 slice 1 (monthly history report), which then has Oct 2025 – Apr 2026 history.
 **Schema:** production stamp 44, compiled ceiling 44 (044 applied and published 2026-11-11). The v1-window part needs no migration; the winter part's recommended storage needs one (question C).
 
@@ -11,9 +11,18 @@
 2. **3/28 "10 bales to sheep" = alfalfa** (small squares).
 3. **"Old tarp bales" (Dec 9–11) = grass.**
 4. **2/18 "Fed 28" before/after the count:** doesn't matter under feeds-as-basis — closed.
-5. **12/16 "Fed 80 bales" is a pre-Christmas set-out:** pro-rate evenly from the set-out date to the day before the next recorded feeding (1/5). The notes say **12/16**; Tim said Dec 18 — default 12/16, Tim to confirm (question K). §3a has the numbers. 12/12 "E4 18" stays on its date.
+5. **12/16 "Fed 80 bales" is a pre-Christmas set-out:** pro-rate evenly from the set-out date to the day before the next recorded feeding (1/5). The notes say **12/16**; Tim first recalled Dec 18 and then confirmed 12/16 (3:51 PM ET, item 8). §3a has the numbers. 12/12 "E4 18" stays on its date.
 
-**Still pending (defaults kept):** B (conflicts, default v1, decided in the dry run), C (winter storage), F (bale weights). G and H are closed as no longer mattering (see questions).
+## Follow-up decisions (Tim, 2026-11-16 3:51–3:52 PM ET, relayed by Orchestrator; recorded after `b55732df` landed)
+
+6. **N = A — Alfalfa carried into summer.** The Alfalfa small squares (purchased Mar 24, 2026) are the named exception to 0-at-summer: true up to the fed number and keep today's 15 (the +49.5 path, §4).
+7. **I — the two $0 v1 alfalfa batches were not real hay** (Mar 31, E-3, 100 + 50 sq). Ignored: they map to nothing, and the alfalfa over-run is absorbed by the true-up.
+8. **K — set-out start is 12/16, confirmed** (Tim's thumbs-up): 4.00 bales/day, Dec 64 / Jan 16. The 12/18 figures stay in §3a as a note only.
+9. **2/18 "Fed 28" stays on its date** (not pro-rated; default accepted).
+10. **E — opening stock at $45/bale** (3:52 PM ET: last year's hay was $45 a bale). Relabel as `opening`, dated Mar 15, 2026.
+11. **J — sheep were on the farm last winter (Oct 2025 – May 2026); the goats were not** (3:51 PM ET). Sheep feedings count as fed, and sheep join the historical DMI basis even though no sheep group existed then; goats are excluded. How to supply the sheep head count and weight is question J (§7).
+
+**Still open:** A (scope), B (conflicts, default v1, decided in the dry run), J (how to supply historical sheep basis), M (zero-date label). **Defaults, no change requested yet:** C (history table), F (bale weights). G, H, L closed; D, E, I, K, N decided.
 
 ## Sources
 
@@ -27,7 +36,7 @@
 
 1. **Two lanes.** (i) **Mar 4 – Apr 13, 2026** (events exist in v2): insert real `event_feed_entries` and pool check items onto the already-imported v2 events. (ii) **Oct 1, 2025 – Mar 3, 2026** (no v2 events, no v2 batches): store as **historical feeding records** — date, quantity, unit, kg/unit, DM%, feed type, group/species, place, source key — used by reports and the OI-0221 monthly history, without inventing grazing events (question C).
 2. **De-duplicate, never auto-pick.** v1 rows and note rows are matched on date (±1 day), place/event, feed type/batch and quantity; anything that doesn't match exactly is a conflict for Tim. For Mar 4 – Mar 20 the explicit match table is below.
-3. **True up pre-summer batches to the fed numbers (decided).** For the three opening batches (Oak Field, Tarped, Peanut): reverse each Nov 3 reconcile with an offset and add one "true-up to fed" adjustment so receipt − fed + adjustments = **0 at the zero date** (recommend May 3, 2026; question M). **Alfalfa conflicts with 0-at-summer** (fed in July, 15 still on the books) — question N. Batches received after summer (Oct–Nov 2026) are **not touched**; their `remaining` is unchanged (§4).
+3. **True up pre-summer batches to the fed numbers (decided).** For the three opening batches (Oak Field, Tarped, Peanut): reverse each Nov 3 reconcile with an offset and add one "true-up to fed" adjustment so receipt − fed + adjustments = **0 at the zero date** (recommend May 3, 2026; question M). **Alfalfa is the named exception** (Tim, N = A): trued up to fed and ends at today's 15, not 0. Batches received after summer (Oct–Nov 2026) are **not touched**; their `remaining` is unchanged (§4).
 4. **Relabel the v1 starting stock** (Oak Field 45, Tarped 40, Peanut 17) as opening inventory dated Mar 15, 2026 (question E).
 5. **Inventory counts in the notes are informational only** (decided under feeds-as-basis): the dry run shows the interval arithmetic for context; no adjustment is derived from them.
 6. **Stable source keys and deterministic ids** (UUIDv5 from the source key, as 044 did for standard units) make a re-run a no-op.
@@ -47,7 +56,7 @@
 - 41 of 48 rows have no unit (read through the batch); 43 have no stored DM or cost (computed through the batch). Units seen: `bale`, `sq bale`, null — no `bal`.
 - 3 transfer pairs (6 rows, Apr 7–8) net to zero: event-to-event carries, not new feed.
 - **Why the import dropped them:** `src/data/v1-migration.js` reads `ev.feedEntries`/`ev.feedResidualChecks` from the v1 export; the 48 deliveries weren't carried, and v1 check items are keyed by **feed type** (`feedTypeId`, `remaining`, `total`) while the importer looked for `batchId`, so all 35 were skipped. The import created 19 v2 events and 41 checks with 0 items; batches came in at full `remaining`.
-- **v1 has two extra batches not in v2:** "Mar 31 · E-3 · Alfalfa" 100 and 50 sq bales, $0 (likely harvest/test records). Question I.
+- **v1 has two extra batches not in v2:** "Mar 31 · E-3 · Alfalfa" 100 and 50 sq bales, $0 — not real hay (Tim, question I decided); ignored.
 - **Event mapping:** the import gave v2 events random new ids and kept no v1 id. v1 has 19 events (Mar 4 – Apr 13); v2 has exactly 19 events with paddock windows opening before Apr 14 (created at import, Apr 14 10:07 PM ET). Map by natural key — v1 `date_in` + pasture name(s) ↔ v2 earliest paddock-window date + location name(s); the dry run lists every pair, and anything not one-to-one is a conflict.
 
 **Tim's notes (source b)** — parsed to 87 feeding rows, 10 receipt rows, 4 inventory blocks (Orchestrator's reading verified, with the differences noted below):
@@ -113,9 +122,9 @@ Spread 80 bales evenly from the set-out date through **Jan 4** (the day before t
 | Start | Days | Bales/day | Dec bales | Jan bales | Dec month total | Jan month total |
 |---|---|---|---|---|---|---|
 | **12/16 (notes; default)** | 20 (Dec 16–31 = 16, Jan 1–4 = 4) | **4.00** | **64** | **16** | 122 | 102 |
-| 12/18 (Tim's recollection) | 18 (Dec 18–31 = 14, Jan 1–4 = 4) | 4.44 | 62.2 | 17.8 | 120.2 | 103.8 |
+| 12/18 (note only — Tim confirmed 12/16) | 18 (Dec 18–31 = 14, Jan 1–4 = 4) | 4.44 | 62.2 | 17.8 | 120.2 | 103.8 |
 
-With a 12/18 start, 12/16–12/17 have no feeding; the notes line stays dated 12/16 as its source.
+Tim confirmed 12/16 (3:51 PM ET); the 12/18 row is kept for the record only.
 
 **Batches for winter:** none created. The 300 received bales and the counted stock are recorded only as informational snapshot data in the dry run, not as inventory (they were all used or rolled into the v1 opening stock).
 
@@ -123,7 +132,7 @@ With a 12/18 start, 12/16–12/17 have no feeding; the notes line stays dated 12
 
 Nov 3 reconciles (read-only): Oak Field 37 → 0 (−37, effective May 3); Tarped 40 → 0 (−40, May 3); Peanut 17 → 0 (−17, May 3); Alfalfa 93 → 15 (−78, effective Nov 3). Total −172 vs 171.3 v1 units dropped.
 
-**Rule (Tim):** fed records are truth; pre-summer stock ends at **0 at the zero date**. Per pre-summer batch: (1) append an offset that reverses its Nov 3 reconcile (adjustments are write-once; originals are never edited); (2) append one "true-up to fed" adjustment = fed − received, so received − fed + adjustments = 0 at the zero date. Positive true-up = bales fed that were never recorded as received; negative = recorded bales that were never there (or fed unrecorded).
+**Rule (Tim):** fed records are truth; pre-summer stock ends at **0 at the zero date**, except Alfalfa, which ends at today's 15 (N = A). Per pre-summer batch: (1) append an offset that reverses its Nov 3 reconcile (adjustments are write-once; originals are never edited); (2) append one "true-up to fed" adjustment = fed − received, so received − fed + adjustments = 0 at the zero date. Positive true-up = bales fed that were never recorded as received; negative = recorded bales that were never there (or fed unrecorded).
 
 **Which batches the true-up touches (read-only check, 2026-11-16):**
 
@@ -132,14 +141,14 @@ Nov 3 reconciles (read-only): Oak Field 37 → 0 (−37, effective May 3); Tarpe
 | Oak Field | 45, opening (Mar 15) | 57.86 = v1 41.8 + v2 11.06 (Apr 9 – May 3) + notes-only 5 (3/17 2, 3/18 2 grass "from barn", 3/28 1 to calves/Shenk) | +37 | **+12.86** | 0 at May 3 | 0 (unchanged) |
 | Tarped | 40, opening (Mar 15) | 51 = v1 36 + notes-only 3/13 15 grass (tarp sequence) | +40 | **+11** | 0 | 0 (unchanged) |
 | Peanut | 17, opening (placeholder Dec 31 → Mar 15) | 1 = v1 3/18 (3/19 corral peanut is in a conflict date; default v1) | +17 | **−16** | 0 | 0 (unchanged) |
-| Alfalfa Small Squares | 100, purchase **Mar 24, 2026** | 134.5 = v1 92.5 (Mar 19, 23, 24) + notes-only 21 (3/25 6, 3/27 5, 3/28 10) + v2 21 (May 13–14 7, **Jul 6 7, Jul 27 7**) | +78 | depends on question N | — | **15** |
+| Alfalfa Small Squares | 100, purchase **Mar 24, 2026** | 134.5 = v1 92.5 (Mar 19, 23, 24) + notes-only 21 (3/25 6, 3/27 5, 3/28 10) + v2 21 (May 13–14 7, **Jul 6 7, Jul 27 7**) | +78 | **+49.5** (N = A) | 15 | **15** (unchanged) |
 
 - Combined opening round bales: 102 received vs 109.86 fed → net +7.86. The notes-only batch assignments above are defaults the dry run shows for Tim to change.
-- **Alfalfa conflicts with 0-at-summer (question N, not resolved here).** It is the only pre-summer batch with `remaining` > 0; there is only one Alfalfa batch in v2 (purchased Mar 24, 2026), and v2 records 14 of its squares fed in July (entered Jul 19 and Aug 3), after Jun 1. The 15 left can't be pre-summer leftover if stock was 0 at summer. Also, the reconcile's "before" (93) = 100 − 7 (May only), so the July 14 were never deducted from `remaining`.
-- **Possible double entry:** v1 alfalfa 3/23 (26 sq) and 3/24 (48 sq), both Corral, plus notes 3/25 Corral 6 "not entered" — flagged in the dry run; removing a duplicate lowers that batch's true-up.
-- **v1's two extra alfalfa batches** (Mar 31, E-3, 100 + 50 sq, $0) may be the real source of the alfalfa over-run — question I now matters.
-- **Not touched (post-summer, received Oct–Nov 2026):** Grass Hay 1009 (30, 0 left), Grass Hay 1010 (60, 0 left), Grass Hay 1012 (90, 64 left), Peanut Hay 1012 (30, 29 left), "Week of 11-12-26" (150, 150 left). Their `remaining`, located balances and adjustments stay exactly as they are; invariant = before/after identical. (Seen, out of scope: 1010 shows 62 fed vs 60 received; 1009/1010 and Peanut 1012 have feedings dated before their purchase dates.)
-- **Invariants:** pre-summer batches: received − fed + Σ adjustments = 0 at the zero date, and no feeding from them after it (except Alfalfa per N); post-summer batches: identical before/after; located balances unchanged for every batch.
+- **Alfalfa — named exception (decided, N = A).** The only pre-summer batch with `remaining` > 0 and the only Alfalfa batch in v2 (purchased Mar 24, 2026). It carried into summer: 7 squares fed May 13–14 and 14 in July (Jul 6, Jul 27; entered Jul 19 and Aug 3). Arithmetic: 100 received − 134.5 fed + (−78 reconcile + 78 reversal) + 49.5 true-up = **15**, today's value. The reconcile's "before" (93) = 100 − 7 (May only): the July 14 were never deducted, which the true-up absorbs. Adjustments dated Nov 3, 2026 (the reconcile's own date), since this batch has no zero date.
+- **Possible double entry:** v1 alfalfa 3/23 (26 sq) and 3/24 (48 sq), both Corral, plus notes 3/25 Corral 6 "not entered" — flagged in the dry run; removing a duplicate lowers the Alfalfa true-up by the same amount (ending stays 15).
+- **v1's two extra alfalfa batches** (Mar 31, E-3, 100 + 50 sq, $0): **not real hay** (Tim, I) — ignored, map to nothing.
+- **Not touched (post-summer, received Oct–Nov 2026):** Grass Hay 1009 (30, 0 left), Grass Hay 1010 (60, 0 left), Grass Hay 1012 (90, 64 left), Peanut Hay 1012 (30, 29 left), "Week of 11-12-26" (150, 150 left). Their `remaining`, located balances and adjustments stay exactly as they are; invariant = before/after identical. (**Known, out of scope for now** per Orchestrator: Grass Hay 1010 shows 62 fed vs 60 received; Grass Hay 1009/1010 and Peanut Hay 1012 have feedings dated before their purchase dates. Not fixed by this backfill.)
+- **Invariants:** Oak Field, Tarped, Peanut: received − fed + Σ adjustments = 0 at the zero date, and no feeding from them after it. **Alfalfa (named exception): received − fed + Σ adjustments = 15 = today's `remaining`**, unchanged. Post-summer batches: identical before/after. Located balances unchanged for every batch.
 
 ## 5. Opening inventory
 
@@ -160,9 +169,20 @@ Under feeds-as-basis the counts don't create adjustments and don't gate the appl
 
 Assumes counts are taken after that day's feeding.
 
-## 7. Species and groups
+## 7. Species, groups and the historical animal basis
 
-- Each row keeps its group label and a species (cattle/sheep; default cattle where the note names no group). Sheep rows (Feb 8, Mar 16 bales) stay in the herd DM total; the OI-0221 DMI demand already includes sheep classes, so the stored-feed share stays farm-wide. A per-species view is a later filter (question J).
+**Decided (Tim, 3:51 PM ET):** sheep were on the farm Oct 2025 – May 2026; goats were not. Sheep feedings count as fed, and sheep join the historical DMI basis. Without sheep demand in the denominator, counting sheep hay as fed would inflate the historical stored-feed share % (the OI-0221 taper) and therefore next season's budget; including sheep DMI removes that bias.
+
+**What v2 has today (read-only, 2026-11-16):**
+- `species` exists only on `animal_classes` (app list: beef_cattle, dairy_cattle, sheep, goat, other). `groups` has no species; `animals` has `is_bulk` + `bulk_head_count`; `event_group_windows` carry `head_count` and `avg_weight_kg` per event.
+- No group existed for sheep last winter. A history row could technically reference today's Sheep group, but that group was created Nov 5, 2026 and would misdate the flock — so historical rows **do not link a group**.
+- **Current sheep (aggregates):** "Sheep" group (created Nov 5, 2026; first event window Nov 6): bulk Ewes 52 head, recorded total 6,500 lb (≈125 lb avg; class Ewe default 150 lb, DMI 3%), bulk Rams 2 head, 300 lb (≈150 lb; class Ram default 198 lb, DMI 2.5%). "Ram Lambs – Sale" group (since Nov 9, 2026): 16 ram lambs, 1,120 lb (≈70 lb) — almost certainly born in 2026, so not part of last winter's flock by default. Sheep group event windows peak at 82 head (≈126 lb avg) — differs from the 70 members; Tim to confirm.
+- **Goats:** one bulk Doe record, 59 head, "Goats" group created Nov 5, 2026 — excluded from last winter.
+- Rough sheep demand at the pre-fill (52 ewes × 125 lb × 3% + 2 rams × 150 lb × 2.5%) ≈ **203 lb DM/day** (≈ 0.37 round bale of 550 lb DM per day).
+
+**Exclusion rule (who counts in a historical period):** a species/group counts in a period only if it was on the farm then. Evidence, in order: (1) event group windows and membership dates inside the period; (2) Tim's per-period historical basis entries (below) for animals that had no records then. Anything with neither — e.g. goats, or any group whose first record is after the period — is excluded. Group start dates alone can't place the sheep (their records start Nov 2026), so for last winter Tim's entry is the evidence.
+
+**Design need (no SQL):** the history feeding table (question C) carries `species` (same value list as `animal_classes`), optional `class_id`, **nullable `group_id`**, and a free group label, so a sheep row is valid with no group. A sibling **historical animal-basis** table (or a row type in the same table): operation, period start/end, species, optional class, head count, average weight, DMI% snapshot, source (Tim entry / pre-fill), notes. OI-0221 adds its demand to group-window demand for that period. Both go in CP-55/CP-56; same migration as C.
 
 ## 8. Bale weight and DM (question F)
 
@@ -195,19 +215,22 @@ Illustrative winter DM at 550 lb DM/bale (round) and 42.5 lb (alfalfa squares), 
 
 ## Lettered questions (recommended answer first)
 
-Decided or closed by Tim on 3:43 PM ET: D (basis), G, H, L — kept below with their outcome so the letters stay stable.
+Decided or closed by Tim (3:43–3:52 PM ET): D, E, G, H, I, K, L, N; J direction decided. Open: A, B, J (supply), M. Defaults with no change requested: C, F. Letters stay stable.
 
 - **A. Scope:** backfill Oct 1, 2025 – Apr 13, 2026 from both sources? Recommend: yes, both lanes. *Open.*
 - **B. Conflicts in Mar 4 – 20** (3/4, 3/6, 3/19, 3/20): which wins? Recommend: decide each in the dry run; default v1 (entered at the time, tied to events). *Pending.*
-- **C. Winter storage:** A historical feeding records table (recommended), B backfilled events, or C monthly summaries? *Pending.*
+- **C. Winter storage:** A historical feeding records table (recommended; carries species with a nullable group link, §7), B backfilled events, or C monthly summaries? *Default A — no change requested yet.*
 - **D. Reconciles — DECIDED:** feeds are the basis; pre-summer batches are trued up to the fed numbers with reconcile reversals + true-up adjustments, ending at 0 at the zero date (§4). Over-runs (Oak Field, Alfalfa) resolve toward fed.
-- **E. Opening stock:** relabel Oak Field, Tarped, Peanut as `opening`, dated Mar 15, 2026, keep $45/bale as value (recommended)? *Open.*
-- **F. Bale weights:** 647 lb · 85% for winter round (grass and peanut), 50 lb · 85% alfalfa squares (recommended)? *Pending.*
+- **E. Opening stock — DECIDED:** relabel Oak Field, Tarped, Peanut as `opening`, dated Mar 15, 2026, valued at **$45/bale** (Tim, 3:52 PM ET).
+- **F. Bale weights:** 647 lb · 85% for winter round (grass and peanut), 50 lb · 85% alfalfa squares (recommended). *Default — no change requested yet.*
 - **G. Checkpoints — CLOSED:** snapshots are informational only. The Hines 60 peanut timing no longer matters (it only moved a snapshot variance; winter rows are history records with no inventory).
 - **H. Opening date — CLOSED as a reconciliation question:** under feeds-as-basis the true-up makes each opening batch end at 0, so whether the stock was as of Mar 15 or Feb 18 no longer changes any number. E still sets the label date (Mar 15).
-- **I. Extra v1 alfalfa batches** (Mar 31, E-3, 100 and 50 sq, $0): were they real hay? Recommend: if yes, bring the real one over as an `opening`/harvest batch and charge the alfalfa over-run to it instead of a large true-up; if not, ignore. *Open; now matters because of N.*
-- **J. Sheep:** keep sheep rows in the farm-wide DM history with a species tag (recommended)? *Open.*
-- **K. December set-out — DECIDED pro-rate; confirm start:** 12/16 (as written in the notes; recommended default) or 12/18 (as Tim recalled)? 4.00/day → Dec 64 / Jan 16, vs 4.44/day → Dec 62.2 / Jan 17.8. Also: 2/18 "Fed 28" is followed by 9 days with no cow feeding (next 2/27) — pro-rate it too (2/18–2/26, 3.11/day, all in Feb so monthly totals don't change), or keep on its date (recommended default)? 12/12 E4 18 stays on its date.
+- **I. Extra v1 alfalfa batches — DECIDED:** not real hay; ignored (Tim, 3:51 PM ET).
+- **J. Historical sheep basis — direction DECIDED, supply OPEN (Tim to choose).** Sheep count as fed and join the DMI basis for Oct 2025 – May 2026; goats excluded. How to supply sheep head count and DMI:
+  - **A (recommended):** you enter an approximate head count and average weight (or class) for last winter — one value, or one per month if it changed — stored as a historical animal-basis entry (§7).
+  - B: backdate the current flock (52 ewes ≈125 lb + 2 rams ≈150 lb, ram lambs excluded) to Oct 2025 – May 2026. Simple, but wrong if the flock size changed (lambing, sales).
+  - C: B as a pre-filled default that you confirm or edit per month.
+- **K. December set-out — DECIDED:** pro-rated from **12/16** (Tim confirmed), 4.00/day through Jan 4 → Dec 64 / Jan 16. 2/18 "Fed 28" stays on its date. 12/12 E4 18 stays on its date. (Note: a 12/18 start would have been 4.44/day, Dec 62.2 / Jan 17.8.)
 - **L. Ambiguous lines — DECIDED/CLOSED:** 3/28 "10 to sheep" = alfalfa; old tarp bales = grass; 2/18 "Fed 28" timing doesn't matter.
-- **M. Zero date for pre-summer stock:** May 3, 2026 (recommended — last recorded feeding from the opening round bales and the date the Nov 3 reconciles already use) or Jun 1, 2026 (OI-0221 season start)? For the three round-bale batches nothing changes between them (no feedings May 4 – Jun 1).
-- **N. Alfalfa vs "0 at summer":** v2 shows 7 squares fed May 13–14 and 14 in July (Jul 6, Jul 27) from the Mar 24, 2026 batch, and 15 still on the books. Options: **A (recommended)** — alfalfa squares are the exception that carried into summer: true up to fed and leave `remaining` = whatever you count today (15 if that's right; it has no storage location); B — the July feedings were from other hay: re-point them, and the alfalfa batch ends at 0 on May 14 (touches post-summer entries); C — keep 0-at-summer strictly (end at 0 on Jun 1) and treat July as unrecorded/new hay (−15 to today's inventory). Under A the true-up is +49.5 with 15 left (+34.5 with 0 left) before any Mar 23–24 de-dup or question I.
+- **M. Zero date for the three round-bale opening batches:** May 3, 2026 (recommended default — last recorded feeding from them and the date the Nov 3 reconciles use) or Jun 1, 2026? *Still open, but low-stakes:* N = A takes Alfalfa out of it, and for Oak Field, Tarped and Peanut no feeding falls May 4 – Jun 1, so the choice only sets the adjustments' date, not any number.
+- **N. Alfalfa — DECIDED (A):** carried into summer; trued up to fed (+49.5) and keeps today's 15 (Tim, 3:51 PM ET).

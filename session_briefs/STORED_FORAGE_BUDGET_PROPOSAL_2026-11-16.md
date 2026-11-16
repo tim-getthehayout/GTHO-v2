@@ -22,13 +22,15 @@
   - The budget implies a **budgeted on-hand level as of today**. Show **budgeted on-hand vs actual on-hand** today; the difference is the variance (e.g. budgeted 100, actual 120 thanks to better grazing → +20).
   - **Season forecast = actual on-hand DM − remaining budgeted DM need from today through May 31** (with the taper). Positive = surplus, negative = deficit.
   - **Savings to date is the explanation of the variance**, never an extra quantity.
+- **D5 — Cost basis** (3:52 PM ET, relayed by Orchestrator): budget and actuals use **each batch's recorded cost** (Tim: fall 2026 batches are entered correctly). **$56/bale is only the fallback** for a batch with no cost. **Last season is $45/bale** (prior-year comparison and the OI-0222 opening stock).
+- **D6 — Historical animal basis includes sheep** (3:51 PM ET): sheep were on the farm Oct 2025 – May 2026, goats were not. Last winter's basis = cattle + sheep in DMI; goats excluded. How the sheep head count is supplied is OI-0222 question J.
 
 ## Recommendation (summary)
 
 1. Build a **monthly stored-feed history** for any date range: DM fed, cost, and animal demand (DMI) per month, from existing feed entries, batches and group windows. No migration for this first slice.
 2. Budget each month as **projected herd DM demand × a "stored-feed share" % for that month**. The share curve is the seasonal taper (low in summer, ~100% in deep winter). It is pre-filled from the prior period's actual share where records exist and is editable by Tim. Using DMI demand adjusts for herd size and weight automatically.
 3. **Freeze the budget** at the start of the season (stored rows, one new migration numbered after the already-applied 044) so "beat the budget" stays honest when data changes.
-4. Cost: actual = what the bales fed cost (existing CST-1 logic); budget cost = budget DM × the season's price per DM.
+4. Cost (decided, D5): actual = each fed batch's recorded cost (CST-1), $56/bale fallback when a batch has none; budget cost = budget DM × weighted recorded price per DM at lock; last season compared at $45/bale.
 5. **Gamified card on the Feed screen** (mobile first; desktop adds the monthly chart): this-month and season-to-date vs budget vs last season, savings in $ and DM, today's on-hand variance, and the season surplus/deficit forecast (D4), plus a run-rate version.
 6. **Supplement the days-on-hand goal** first with "Hay covers through <date>" against the budget curve; retire or repurpose the fixed-day goal later (question).
 7. Phasing: OI-0220 → OI-0222 backfill → history report → budget + card + forecast → days-on-hand replacement.
@@ -97,6 +99,7 @@ Recommend **DMI (dry-matter demand)** as the basis (question D):
 - Head counts ignore size (a calf ≠ a cow); AU fixes size but not class intake differences. DMI uses each animal's weight and class DMI% (DMI-2), which the Feed screen already computes farm-wide today.
 - Historical demand per month: from group windows (head × avg weight × class DMI% × days in the month). Current/planned demand: today's farm-wide active-animal DMI (as the days-on-hand banner does), held flat across the remaining months, with optional planned changes (sales, weaning, calves) entered later.
 - Show AU and head beside it for readability; the math uses DMI.
+- **Historical basis by period (Tim, D6):** cattle + sheep DMI for each period. Cattle come from group windows. Sheep before Nov 2026 have no group records, so their demand comes from OI-0222's historical animal-basis entries (head × average weight × class DMI% per period). Goats are excluded from last winter. Rule: a species or group counts in a period only if group windows/memberships place it there or Tim's per-period basis entry says so; group start dates alone can't place last winter's sheep. Without sheep demand, counting sheep hay as fed would inflate the historical stored-feed share % and next season's budget.
 
 ## 5. Seasonal taper
 
@@ -131,12 +134,25 @@ Everything in DM; dollars beside it.
 - Fresh ≤ 30 days: normal. 31–60 days: show with an amber "last counted N days ago" tag. > 60 days, no count ever, any live batch with unknown weight/DM, or `remaining` vs located-balance mismatch: **degrade to the budget-only view** (budget vs actual fed, no on-hand variance, no surplus/deficit) with a "Count your hay" button that opens Reconcile.
 - Today this farm would be **fresh** (counted Nov 3) but flagged for the located-balance mismatch.
 
-## 8. Cost basis
+## 8. Cost basis (D5, decided)
 
-- **Actual cost** = Σ quantity × batch `cost_per_unit` for hay that left the stack (CST-1). Carries and returns cost nothing; a returned-feed batch has no purchase price, so re-feeding it costs $0 (its cost was counted when first fed).
-- **Budget price per DM** = weighted average $/kg DM of hay on hand at budget lock (cost_per_unit ÷ (kg/unit × DM%)), editable. Today's live batches run about $0.23 per kg DM for round bales and $0.26 for alfalfa squares (~$0.10–0.12 per lb DM).
+- **Actual cost** = Σ quantity × the fed batch's **recorded** `cost_per_unit` (CST-1). Carries and returns cost nothing; a returned-feed batch has no purchase price, so re-feeding it costs $0 (its cost was counted when first fed).
+- **Missing cost:** a batch with no recorded cost is priced at the **$56/bale fallback** (converted per DM through that batch's weight and DM%) and flagged; DM always counts.
+- **Budget price at lock** = weighted recorded $ per DM weight of on-hand batches (cost_per_unit ÷ (weight/unit × DM%)), with any no-cost batch at $56/bale. Editable before and after lock (re-lock).
+- **Prior-year comparison** = last season at **$45/bale** (the opening stock and backfilled winter feedings).
 - **Savings vs budget** = budget cost to date − actual cost to date. **Vs last season** = same-date cumulative actual for the prior period, scaled by DMI demand.
-- Batches with no cost are flagged and excluded from $ (DM still counts).
+
+**Fall 2026 batches (read-only, 2026-11-16; no data changed):**
+
+| Batch | Units (qty / left) | Total cost | $/bale | $/lb DM (600 lb · 90%) | $/t DM | Flag |
+|---|---|---|---|---|---|---|
+| Grass Hay 1009 (Oct 8) | 30 / 0 bale | $1,680 | $56.00 | $0.104 | $229 | — |
+| Grass Hay 1010 (Oct 20) | 60 / 0 bale | $3,360 | $56.00 | $0.104 | $229 | — (known 62 fed vs 60, out of scope) |
+| Grass Hay 1012 (Oct 29) | 90 / 64 bale | $5,040 | $56.00 | $0.104 | $229 | — |
+| Peanut Hay 1012 (Oct 31) | 30 / 29 bale | $1,680 | $56.00 | $0.104 | $229 | — (shares batch number 1012 with the grass batch) |
+| Week of 11-12-26 (Nov 12) | 150 / 150 **`Bale`** | $8,499 | $56.66 | $0.105 | $231 | **unit issue** (`Bale`, OI-0220); **outlier, minor** — $0.66/bale (+1.2%) above its siblings; $8,499 looks like an invoice total ÷ 150 — Tim to confirm |
+
+No fall batch is missing a cost. Illustrative price if locked today on the on-hand batches (Grass 1012 64, Peanut 1012 29, Week of 11-12-26 150, Alfalfa 15 sq at $5): $13,782 over ≈131,860 lb DM ≈ **$0.105/lb DM ($230/t DM)**.
 
 ## 9. Days-on-hand setting today and how this relates
 
@@ -174,7 +190,7 @@ CP-55/CP-56: slices 0–1 none; slice 2 adds the budget tables to export/restore
 - **A. First budget with thin history.** Recommend: first run the OI-0222 backfill (Mar–Apr from the dropped v1 feedings, Oct–Feb from your notes), then pre-fill the share curve from that history plus Apr–Nov 2026 in v2; edit any month that looks off. Anything your notes don't cover stays a default you set. Alternative: start from DMI demand × a default curve now and refresh after the backfill; or wait a full season.
 - **B. What counts as "fed"?** Recommend: hay that left the stack (deliveries, minus returns to inventory; carries ignored; paddock waste counts as fed; barn shrink shown separately).
 - **C. Month attribution.** Recommend: the feeding date for now; spreading big set-outs across later checks is a later refinement.
-- **D. Animal adjustment basis.** Recommend: DMI (weight × class DMI%), with head and AU shown for reference.
+- **D. Animal adjustment basis.** Recommend: DMI (weight × class DMI%), with head and AU shown for reference. Historical basis is cattle + sheep by period (D6); goats excluded from last winter.
 - **E. Seasonal taper.** Recommend: monthly stored-feed share %, pre-filled from history where it exists, default curve elsewhere, editable by you.
 - **F. Stored, locked budget (migration) vs computed on the fly.** Recommend: stored and locked at season start, editable with a re-lock, so the "beat the budget" target doesn't drift.
 - **G. Opening on-hand for budgeted on-hand.** Recommend: app reconstructs June 1 on-hand from records; you confirm or override when locking. Later seasons carry the locked figure.
@@ -183,4 +199,4 @@ CP-55/CP-56: slices 0–1 none; slice 2 adds the budget tables to export/restore
 - **J. Staleness thresholds.** Recommend: fresh ≤ 30 days since last count, amber 31–60, budget-only view with "Count your hay" beyond 60 days or when weight/DM is unknown or inventory locations disagree.
 - **K. Days-on-hand goal.** Recommend: keep it for now and add "Hay covers through <date>"; later replace it with a carry-over reserve past May 31.
 - **L. Where it lives.** Recommend: card at the top of the Feed screen (mobile and desktop), full view in Reports; not on the Home dashboard at first.
-- **M. Budget price.** Recommend: weighted $/DM of hay on hand at lock, editable.
+- **M. Budget price — DECIDED basis (D5):** weighted **recorded** $ per DM weight of on-hand batches at lock, with any no-cost batch at the **$56/bale fallback**; editable. Prior-year comparison at **$45/bale**. Open only: confirm the Week of 11-12-26 price ($56.66) and its `Bale` unit (§8).

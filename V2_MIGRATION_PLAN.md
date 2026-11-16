@@ -718,7 +718,7 @@ batch_nutritional_profiles
 **D11 — App Infrastructure**
 submissions, todos, todo_assignments
 
-**Units (044 / OI-0216):** `dose_units` and `input_product_units` have nullable `operation_id`: NULL standards are read-only, non-null rows are operation-owned customs. At compiled ceiling 44 CP-55 filters unit reads server-side to the exporting operation's custom rows, excluding standards, and paginates in unique-ID order. At main's held ceiling 41 it avoids querying the absent unit operation column and retains compatible read/filter behavior. CP-56 removes units from `REFERENCE_TABLES` but explicitly skips unit deletes and UPSERTs only validated customs by ID; extra target customs remain unchanged. See §5.7b. `release_notes` stays excluded.
+**Units (044 / OI-0216):** `dose_units` and `input_product_units` have nullable `operation_id`: NULL standards are read-only, non-null rows are operation-owned customs. At compiled ceiling 44 CP-55 filters unit reads server-side to the exporting operation's custom rows, excluding standards, and paginates in unique-ID order. Main's compiled ceiling is 44 and 044 is applied (2026-11-11), so this is current released behavior. CP-56 removes units from `REFERENCE_TABLES` but explicitly skips unit deletes and UPSERTs only validated customs by ID; extra target customs remain unchanged. See §5.7b. `release_notes` stays excluded.
 
 **Per-operation seed tables** (`treatment_categories`, `treatment_types`, `input_product_categories`, `forage_types`, `animal_classes`) have `operation_id` and follow the normal delete-then-insert path like all other operation-scoped tables. They are included in exports because users extend them beyond the default seed data.
 
@@ -817,7 +817,7 @@ Supabase enforces foreign-key integrity at write time. A wholesale replace that 
 
 All values are stored in **metric** (V2_INFRASTRUCTURE.md §1.1). The backup is unit-system-agnostic; `operations.unit_system` is exported like any other column and controls display only.
 
-**Held client columns from migrations 042 and 043 (applied; production stamp 43).** These columns are not part of the released write or restore shape while the compiled ceiling remains 41. After a verified compatible release they serialize under the ordinary rules above:
+**Client columns from migrations 042 and 043 (applied; production stamp now 44).** Released with compiled ceiling 44 (PR #56, `ce1c987d`, published 2026-11-11); they serialize under the ordinary rules above:
 
 - `animal_breeding_records.sire_name` and `ai_bulls.epds` (042 / stamp 42): optional unstructured text. Preserve the exact entered text and JSON `null`. Do not parse, coerce, infer names from sire references, or invent trait structure. Older backups that omit the keys migrate missing fields to `null` without overwriting a supplied value.
 - Pool contract columns (043 / stamp 43) on `event_feed_entries` and `event_feed_check_items`: `batch_id` becomes nullable on both; both gain `feed_type_id`, `unit_snapshot`, `weight_per_unit_kg_snapshot` and `dm_pct_snapshot`; entries also gain `kind`, `transfer_id`, `return_batch_id` and `return_storage_location_id`. `kind` values are `inventory_feeding`, `pool_carry` and `pool_removal`, or JSON `null` for a legacy row. `transfer_id` is a shared durable UUID token, not a cyclic entry FK. Return links are `return_batch_id` and `return_storage_location_id` (returned-feed batch option A). Preserve supplied values and links; default only absent keys to `null`. Inventory feedings and legacy (`kind` null) rows still require `batch_id`. The prior 042/043 apply gates are historical; 044 still requires Tim's explicit yes at the time plus a backup first.
@@ -866,7 +866,7 @@ The revert safety net for CP-56 is an **auto-downloaded pre-import backup file**
 
 ### 5.7b Units 044 preflight and custom-only restore (OI-0216)
 
-PR #55 merged at `6d5893ab` on 2026-11-11. Migration 044 is written, **not applied**. Production is at stamp 43 after 042/043; the compiled main ceiling is still 41. This contract describes merged staged behavior, not a live restore or permission to apply. PR #56 promotes the ceiling to 44 only after apply verification; 044 apply and compatible client publish must happen in the same session because the old client's seeding/editor breaks after 044.
+PR #55 merged at `6d5893ab` on 2026-11-11. **Migration 044 was applied 2026-11-11 at 9:54 AM ET** (migration ledger 20261111145401) after Tim's 9:52 AM ET yes and a pre-044 SQL/JSON table backup, and the compatible ceiling-44 client (PR #56, `ce1c987d`) was published in the same session (`b2026-11-11.1457-ce1c987`). Production stamp is 44. This contract describes released behavior, not permission for a live restore.
 
 Before auto-backup, the assistant restore fence, self-link detachment or any domain mutation: verify staged columns for the compiled version, clone the backup, run its forward chain, reject foreign scope, then complete read-only unit preflight. The caller's backup object is not mutated on failed classification. Target unit reads are paginated in unique-ID order. Known target standard IDs are removed from the unit write plan; references must resolve to a target standard or an incoming custom. Unknown/foreign references, duplicate IDs, same-name/different-ID conflicts, archived-name reservations and ownership errors fail closed. Identity is never inferred from names.
 
@@ -900,15 +900,15 @@ export const BACKUP_MIGRATIONS = {
 
 When the schema next changes, the diff flags "CP-55/CP-56 spec impact" and a migration entry is added here in lockstep. The initial CP-55 export ships with `schema_version = 14` (latest migration number applied as of 2026-04-13) and an empty `BACKUP_MIGRATIONS`. The live registry in `src/data/backup-migrations.js` has grown with later applied migrations; the empty example above is historical.
 
-**Compiled ceiling versus written files.** The released importer's restore and write ceiling is the compiled `RELEASED_SCHEMA_VERSION` (currently 41; also exposed as `CURRENT_SCHEMA_VERSION` in the importer), not the highest file in `supabase/migrations/`. File presence is not proof of live server compatibility or of a raised restore ceiling.
+**Compiled ceiling versus written files.** The released importer's restore and write ceiling is the compiled `RELEASED_SCHEMA_VERSION` (currently 44 on main since PR #56; also exposed as `CURRENT_SCHEMA_VERSION` in the importer), not the highest file in `supabase/migrations/`. File presence is not proof of live server compatibility or of a raised restore ceiling.
 
-**Staged 042 / 043 / 044 backup steps — not executed by the ceiling-41 importer (042/043 applied; 044 not applied):**
+**042 / 043 / 044 backup steps — released with compiled ceiling 44 (042/043/044 applied):**
 
 - `BACKUP_MIGRATIONS[41]` (41→42, FA-10b / migration 042): for `ai_bulls.epds` and `animal_breeding_records.sire_name`, default only absent keys to `null` and preserve supplied values. Advance both the envelope `schema_version` and each `operations.schema_version` to 42.
 - `BACKUP_MIGRATIONS[42]` (42→43, FA-26 / migration 043): on `event_feed_check_items` and `event_feed_entries`, default only absent identity, conversion, kind, transfer and return fields (including an absent `batch_id`) to `null` and preserve supplied values and links. No grouping, backfill or history rewrite. Advance envelope and operations stamps to 43.
 - `BACKUP_MIGRATIONS[43]` (43→44 / migration 044): `migrateUnitBackup` uses the exact legacy-ID map, never names, to rewrite child references in treatments/amendments/products. Drop known fixed/legacy standard rows by ID; assign all remaining old unit rows to the backup operation as customs and normalize names. Unknown IDs with standard-equivalent names fail preflight rather than being remapped. Advance envelope and operations stamps to 44. This step remains held until the compatible ceiling-44 release.
 
-While the compiled ceiling remains 41, do not run these held steps in the released importer. Reject higher operation stamps, mislabeled payloads that contain unreleased columns, and — while the ceiling is below 43 — batchless `event_feed_entries` or `event_feed_check_items` rows, as well as any requested stamp above the released ceiling. All of those refusals must happen before auto-backup, fence, delete or insert. A well-formed older backup that still has `batch_id` on every feed entry and check child can be migrated forward in a future 43-compatible release: preserved `batch_id`, new columns defaulted to `null`, and the 043 check constraints satisfied. Rows that lack both `batch_id` and the new identity fields fail closed on insert.
+These steps are released at compiled ceiling 44 (PR #56). The importer still rejects higher operation stamps, mislabeled payloads that contain unreleased columns, and — while the ceiling is below 43 — batchless `event_feed_entries` or `event_feed_check_items` rows, as well as any requested stamp above the released ceiling. All of those refusals must happen before auto-backup, fence, delete or insert. A well-formed older backup that still has `batch_id` on every feed entry and check child can be migrated forward in a future 43-compatible release: preserved `batch_id`, new columns defaulted to `null`, and the 043 check constraints satisfied. Rows that lack both `batch_id` and the new identity fields fail closed on insert.
 
 ### 5.10 Security & Privacy
 
@@ -921,7 +921,7 @@ While the compiled ceiling remains 41, do not run these held steps in the releas
 
 The live server stamp lives in `operations.schema_version` (column `INTEGER NOT NULL DEFAULT 1`) and advances when a migration actually runs. CP-55 reads that operation stamp into the backup envelope. CP-56 uses the envelope and operation stamps to select the migration chain.
 
-**File presence is not application, and it is not a restore or write ceiling.** Production is at stamp 43: 042 and 043 are applied. Migration 044 is written and merged, but **not applied**. The compiled `RELEASED_SCHEMA_VERSION` on main remains 41 (`CURRENT_SCHEMA_VERSION` in the importer), with 42/43/44 held. File presence alone proves neither server compatibility nor released client support. PR #56 raises the ceiling to 44 only after applies are verified. 044 still needs Tim's explicit yes at the time plus a backup; coordinate apply and client publish in one session.
+**File presence is not application, and it is not a restore or write ceiling.** Production is at stamp 44: 042, 043 and 044 are applied (044 on 2026-11-11 after a backup and Tim's yes). The compiled `RELEASED_SCHEMA_VERSION` on main is 44 (`CURRENT_SCHEMA_VERSION` in the importer) via PR #56, published 2026-11-11. File presence alone still proves neither server compatibility nor released client support for any later migration.
 
 **Writer rule (Design, 2026-11-11; being implemented in [PR #56](https://git.sarnford.com/Homelab/GTHO-v2/pulls/56), not yet main behavior):** For existing operations, only migration SQL and CP-56 restore write `operations.schema_version`. Ordinary operation updates, cached writes, queue replay and Push All omit it, so a stale cached stamp cannot lower the server stamp. New-operation creation is the initialization exception: stamp at the compiled ceiling, not the old default 14. CP-55 refuses export if the operation stamp is missing; do not substitute a guessed stamp. This client writer rule is not a DB-level monotonicity guarantee: OI-0218 tracks a later never-decrease guard, unscheduled, with no SQL now.
 
@@ -941,7 +941,7 @@ A future 042-compatible release also requires an independent successful read-onl
 
 **Enforcement:** CLAUDE.md "Code Quality Checks" item #6 repeats this rule. It is verified before every commit.
 
-**Held client release (042, 043, 044).** 042/043 are now applied; 044 remains apply-gated. The SQL file, the stamp inside that file, and the matching `BACKUP_MIGRATIONS` entry are still written in lockstep. The compiled restore and write ceiling stays at the last compatible release (41) until Tim approves, a backup is taken, the migration is applied and verified, and a coordinated release raises the ceiling. A runtime or localStorage flag must not opt an unapplied schema into writes or restore.
+**Client release (042, 043, 044).** All three are applied and released at compiled ceiling 44 (2026-11-11). The SQL file, the stamp inside that file, and the matching `BACKUP_MIGRATIONS` entry are still written in lockstep. The compiled restore and write ceiling stays at the last compatible release (now 44) until Tim approves, a backup is taken, the migration is applied and verified, and a coordinated release raises the ceiling. A runtime or localStorage flag must not opt an unapplied schema into writes or restore.
 
 ### 5.12 Round-Trip Test
 
@@ -956,13 +956,13 @@ This test is the canary for "did we forget to flag an export/import spec impact?
 
 ### 5.13 CP-55 acceptance addendum (migrations 042 and 043)
 
-Migrations 042 and 043 are applied (production stamp 43), but their client writes/restore remain held at compiled ceiling 41. Migration 044 is written, not applied; its apply requires Tim's explicit yes at the time plus a backup first. This addendum does not authorize a live export, restore, or new-shape consumer release.
+Migrations 042, 043 and 044 are applied (production stamp 44; 044 on 2026-11-11 after a backup and Tim's yes), and their client writes/restore are released at compiled ceiling 44 (PR #56, published 2026-11-11). This addendum does not authorize a live export, restore, or new-shape consumer release.
 
 After a verified compatible release, `exportOperationBackup` serializes `ai_bulls.epds` and `animal_breeding_records.sire_name`, and all nullable pool identity, conversion, kind, transfer and return fields and links, through the existing table arrays without changing the table set, exclusions, FK order or `format_version`. Round-trip punctuation, blanks as `null`, supplied `null`, and legacy absent fields. No live export or restore was run for this docs sync. Pool replay and forms, linked carry and returned-batch transactions, batchless report visibility, and real form-to-record acceptance remain pending beyond this contract-groundwork shape; this addendum does not claim the pool feature is complete.
 
 ### 5.14 CP-56 acceptance addendum (migrations 042 and 043)
 
-Migrations 042 and 043 are applied (production stamp 43), but their client writes/restore remain held at compiled ceiling 41. Migration 044 is written, not applied; its apply requires Tim's explicit yes at the time plus a backup first.
+Migrations 042, 043 and 044 are applied (production stamp 44; 044 on 2026-11-11 after a backup and Tim's yes), and their client writes/restore are released at compiled ceiling 44 (PR #56, published 2026-11-11).
 
 Verify absent-only defaults and supplied-value preservation in the staged 41→42 and 42→43 steps, envelope and operations stamps, and that a legacy restore into a still-41-compatible release is unchanged because the held steps do not run. Fail closed before auto-backup, fence, delete or insert for unsupported stamps, new-column or batchless payloads in a falsely older envelope, or missing live columns when a raised ceiling would restore the new shape. Keep the compiled ceiling at 41 until the coordinated post-apply release. A future 43-compatible restore of a well-formed older backup must preserve existing `batch_id` values and default only absent new fields to `null`. This addendum covers those nullable fields, links and fail-closed gates; it does not claim pool feature implementation is complete.
 

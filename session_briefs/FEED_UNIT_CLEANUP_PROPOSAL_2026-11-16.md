@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's approval. Build starts nothing until Tim approves. Docs only; no SQL, no data change.
 **Sequenced:** ahead of OI-0221 (stored forage budget) build, because the budget's historical counts, pool counting and on-hand totals read these unit strings.
-**Relates to:** OI-0219 (FA-29 batch unit picker) — folded in here as the prevention half; OI-0216 (044 dose/input-product unit tables); OI-0214 FA-26 pools.
+**Relates to:** OI-0219 (FA-29 batch unit picker) — folded in here as the prevention half; OI-0216 (044 dose/input-product unit tables, applied 2026-11-11); OI-0214 FA-26 pools.
 
 ## Tim's decision (2026-11-16, 3:05 PM ET, relayed by Orchestrator)
 
@@ -28,7 +28,7 @@ Fix the `bal` vs `bale` unit mix-up and make sure it can't happen again. Sequenc
 - **No `bal` string remains** in any of these columns. The batch created on 2026-11-03 (where `bal` was typed, per OI-0219) now reads `bale`; its last edit was 2026-11-04. Design cannot see who changed it or how — it looks like a hand correction in the app.
 - **A new variant appeared today:** the batch created 2026-11-16 (150 round bales, $56.66/bale) is saved as `Bale` (capital B). It has no feedings and no checks yet, and one located balance. This is the same free-text problem recurring.
 - **Feed units do not live in the 044 tables.** `dose_units` (treatments) and `input_product_units` (amendments/products) are separate catalogs. Feed units are plain text on `feed_types.unit` and `batches.unit`, plus the 043 snapshot columns on feed entries and check items. So 044 covers none of the feed-unit problem directly; its design (NULL-operation read-only standards + operation customs, `lower(btrim(name))` scoped uniqueness, archived names stay reserved) is the model to copy if custom feed units are ever wanted.
-- **044 status note:** the same read-only check found the production operation stamp at **44**, and both unit tables now have `operation_id`, RLS on, and `*_standard_name` / `*_custom_name` indexes. Docs on main still say 044 is not applied. Design has not seen the apply record; Orchestrator should confirm and the 044 status lines should be corrected in a separate pass. Nothing in this proposal depends on 044 either way.
+- **044 is applied and live:** Tim approved at 9:52 AM ET on 2026-11-11; a pre-044 backup was taken at 9:53:09 AM; 044 was applied at 9:54:01 AM ET (ledger 20261111145401) and the ceiling-44 client (PR #56, `ce1c987d`) published as `b2026-11-11.1457-ce1c987` (reported by Orchestrator). The same read-only check confirms production stamp **44**, both unit tables with `operation_id`, RLS on, and `*_standard_name` / `*_custom_name` indexes. The 044 tables still do not hold feed units, so nothing in this proposal depends on 044.
 
 ## Why it matters (code read on main `ce1c987d`, not edited)
 
@@ -51,7 +51,7 @@ Fix the `bal` vs `bale` unit mix-up and make sure it can't happen again. Sequenc
 5. Feed-type picker includes every list value (fixes the `sq bale` mismatch).
 6. Near-duplicate guard: with a closed list there are no user-created names to collide. If customs are later allowed, block a new name whose folded form or singular/plural matches an existing standard or custom (044 pattern).
 
-**C. Migration?** Not for the recommended path (app-only list + normalization + fold-on-read). Optional later hardening — a DB CHECK on allowed feed units or a table-backed `feed_units` catalog — would be a numbered migration, needs Tim's yes plus a backup to apply, and sequences after 044. CP-55/CP-56: no shape change on the recommended path; restore of an old backup with `bal`/`Bale` still reads correctly because of fold-on-read.
+**C. Migration?** Not for the recommended path (app-only list + normalization + fold-on-read). Optional later hardening — a DB CHECK on allowed feed units or a table-backed `feed_units` catalog — would be a new numbered migration after the already-applied 044 and needs Tim's yes plus a backup to apply. CP-55/CP-56: no shape change on the recommended path; restore of an old backup with `bal`/`Bale` still reads correctly because of fold-on-read.
 
 **D. Acceptance (for Build once approved)**
 - Batch and feed-type sheets cannot save a unit outside the list; `Bale`, ` bale `, `bales`, `bal` all save as `bale`.

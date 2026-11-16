@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's approval. **Build starts nothing until Tim approves this spec.** Docs only; no code, no SQL, no data change.
 **Depends on:** OI-0220 (feed unit cleanup) ships first. Voice / OI-0215 stays on hold and is not part of this.
-**Base:** Forgejo `main` `ce1c987d` (read only). Live figures: read-only SELECTs on production, 2026-11-16 ~3:08 PM ET; aggregates only.
+**Base:** Forgejo `main` `ce1c987d` (read only; 044 applied and ceiling-44 client published 2026-11-11). Live figures: read-only SELECTs on production, 2026-11-16 ~3:08 PM ET; aggregates only.
 
 ## Tim's request (2026-11-16, 3:03–3:09 PM ET, relayed by Orchestrator)
 
@@ -27,7 +27,7 @@
 
 1. Build a **monthly stored-feed history** for any date range: DM fed, cost, and animal demand (DMI) per month, from existing feed entries, batches and group windows. No migration for this first slice.
 2. Budget each month as **projected herd DM demand × a "stored-feed share" % for that month**. The share curve is the seasonal taper (low in summer, ~100% in deep winter). It is pre-filled from the prior period's actual share where records exist and is editable by Tim. Using DMI demand adjusts for herd size and weight automatically.
-3. **Freeze the budget** at the start of the season (stored rows, one migration after 044) so "beat the budget" stays honest when data changes.
+3. **Freeze the budget** at the start of the season (stored rows, one new migration numbered after the already-applied 044) so "beat the budget" stays honest when data changes.
 4. Cost: actual = what the bales fed cost (existing CST-1 logic); budget cost = budget DM × the season's price per DM.
 5. **Gamified card on the Feed screen** (mobile first; desktop adds the monthly chart): this-month and season-to-date vs budget vs last season, savings in $ and DM, today's on-hand variance, and the season surplus/deficit forecast (D4), plus a run-rate version.
 6. **Supplement the days-on-hand goal** first with "Hay covers through <date>" against the budget curve; retire or repurpose the fixed-day goal later (question).
@@ -105,7 +105,7 @@ Recommend **"stored-feed share" per month**, pre-filled from history, editable (
 
 Recommend a **stored, frozen budget** (question F). Computing on the fly would make "beat the budget" move every time a weight or animal changes.
 - Design level only, no SQL file: a budget header per farm and period (start/end dates, status draft/locked, price per DM basis, opening on-hand DM and its date, notes) and 12 monthly rows (month, demand DM, share %, budget DM, budget cost). Operation-owned, member RLS like other farm data; included in CP-55/CP-56 backup with a new schema step.
-- It is a numbered migration **after 044**. Writing the file needs Tim's approval of this spec; applying it needs Tim's explicit yes at the time plus a backup.
+- It is a new numbered migration after 044 (044 is already applied; production stamp 44, compiled ceiling 44 since 2026-11-11), so it would take stamp/ceiling 45 or later. Writing the file needs Tim's approval of this spec; applying it needs Tim's explicit yes at the time plus a backup.
 - Slice 1 (history report) needs **no** migration.
 
 ## 7. Forecast on the day the budget is opened (D4, decided)
@@ -159,7 +159,7 @@ Everything in DM; dollars beside it.
 
 0. **OI-0220** unit cleanup and prevention (no migration).
 1. **History report** for any period (no migration): monthly DM fed, cost, demand, share; data-quality flags.
-2. **Budget + gamified card + forecast** (stored budget migration after 044; Tim's yes + backup to apply).
+2. **Budget + gamified card + forecast** (new stored-budget migration after the applied 044; Tim's yes + backup to apply).
 3. **Days-on-hand supplement/replacement** and planned herd changes.
 
 CP-55/CP-56: slices 0–1 none; slice 2 adds the budget tables to export/restore with a schema step.

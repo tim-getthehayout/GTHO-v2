@@ -1382,7 +1382,7 @@ CREATE TABLE input_product_categories (
 
 ### 8.2 input_product_units
 
-**Purpose:** Read-only standard and operation-owned custom input product purchase/application units. Migration 044 is merged at `6d5893ab` (PR #55, 2026-11-11), written but **not applied**; production is at stamp 43 and the compiled ceiling on main remains 41. Tim's 2026-11-10 5:46 PM ET decision: “Yes let's fix it properly.” Apply still needs Tim's explicit yes at the time plus a backup; coordinate apply and compatible client publish in one session (§9.4).
+**Purpose:** Read-only standard and operation-owned custom input product purchase/application units. Migration 044 merged at `6d5893ab` (PR #55) and was **applied 2026-11-11 at 9:54 AM ET** after Tim's yes and a backup; production stamp is 44 and the compiled ceiling on main is 44 (PR #56, published 2026-11-11). Tim's 2026-11-10 5:46 PM ET design decision: “Yes let's fix it properly.” (§9.4)
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -1906,7 +1906,7 @@ CREATE TABLE treatment_types (
 
 ### 9.4 dose_units
 
-**Purpose:** Read-only standard and operation-owned custom treatment dosage units. Migration 044 is merged at `6d5893ab` (PR #55, 2026-11-11), written but **not applied**; production is at stamp 43 and the compiled ceiling on main remains 41. Tim's 2026-11-10 5:46 PM ET decision: “Yes let's fix it properly.” Apply still needs Tim's explicit yes at the time plus a backup; coordinate apply and compatible client publish in one session (§9.4).
+**Purpose:** Read-only standard and operation-owned custom treatment dosage units. Migration 044 merged at `6d5893ab` (PR #55) and was **applied 2026-11-11 at 9:54 AM ET** after Tim's yes and a backup; production stamp is 44 and the compiled ceiling on main is 44 (PR #56, published 2026-11-11). Tim's 2026-11-10 5:46 PM ET design decision: “Yes let's fix it properly.” (§9.4)
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -1925,7 +1925,7 @@ CREATE TABLE treatment_types (
 
 **Client behavior:** Onboarding does not seed units. The dose-unit editor labels standards Standard/read-only and supports add, rename and archive for the current operation's customs. No input-product-unit editor is introduced. Pickers use standards plus current-operation customs and hide archived options while retaining an already-selected archived reference read-only where editing exists. Store/sync never mutate standards or delete units. Push All sends only current-operation custom units, none without a current operation. Queued/dead-letter replay keeps each action's original operation; it never retags to current selection. Legacy unscoped cache/queue entries are discarded with count-only logs; known fixed standard IDs remain safe read-only cache entries. Custom writes stay fail-closed behind the compiled ceiling.
 
-**Release and backup:** PR #56 raises the compiled ceiling from 41 to 44 only after applies are verified. Apply 044 and publish the compatible client in one session: the old client's unit seeds/editor break after 044. CP-55 exports operation customs only, not standards; CP-56 performs typed preflight and custom-only UPSERT/no-delete (including accepted bounded N2 disclosure), per `V2_MIGRATION_PLAN.md` §5.7b. FA-30's guarded server write function is cancelled; the read-only preflight RPC is not that function. Full transactional restore is a later unscheduled item (OI-0217).
+**Release and backup:** 044 was applied and the compatible client published in one session on 2026-11-11: PR #56 raised the compiled ceiling from 41 to 44 (`ce1c987d`, live `b2026-11-11.1457-ce1c987`), with a pre-044 backup taken first. CP-55 exports operation customs only, not standards; CP-56 performs typed preflight and custom-only UPSERT/no-delete (including accepted bounded N2 disclosure), per `V2_MIGRATION_PLAN.md` §5.7b. FA-30's guarded server write function is cancelled; the read-only preflight RPC is not that function. Full transactional restore is a later unscheduled item (OI-0217).
 
 ### 9.5 animal_bcs_scores
 

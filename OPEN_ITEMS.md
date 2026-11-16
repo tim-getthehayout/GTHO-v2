@@ -2,9 +2,9 @@
 
 ## Open
 
-**Units/schema checkpoint (2026-11-11):** PR #55 merged at `6d5893ab`; 042/043 applied, production stamp 43; 044 written, not applied; main compiled ceiling 41; PR #56 in review. OI-0215 is reserved in the separate action-layer docs branch; this pass starts at OI-0216. No production approval is implied.
+**Units/schema checkpoint (2026-11-11, updated 2026-11-16):** PR #55 merged at `6d5893ab`; 042/043 applied; 044 applied 2026-11-11 9:54 AM ET (backup first, Tim's yes 9:52 AM); production stamp 44; compiled ceiling 44 on main (`ce1c987d`, PR #56); 44 client published as `b2026-11-11.1457-ce1c987`. OI-0215 is reserved in the separate action-layer docs branch; this pass starts at OI-0216. No production approval is implied.
 
-**Stored forage checkpoint (2026-11-16):** Tim moved priority to stored forage budgeting (3:03 PM ET); voice/OI-0215 on hold. OI-0220 (feed units) and OI-0221 (budget) are proposals awaiting Tim; Build starts nothing. A read-only check on 2026-11-16 found the production operation stamp at 44 with the 044 unit-table columns, RLS and scoped-name indexes present; this ledger still describes 044 as unapplied — Orchestrator to confirm the apply record before those lines are corrected. Base `main` is `ce1c987d` (PR #56 merge).
+**Stored forage checkpoint (2026-11-16):** Tim moved priority to stored forage budgeting (3:03 PM ET); voice/OI-0215 on hold. OI-0220 (feed units) and OI-0221 (budget) are proposals awaiting Tim; Build starts nothing. Base `main` is `ce1c987d` (PR #56 merge). 044 is applied and the 44 client is published: Tim approved on 2026-11-11 at 9:52 AM ET (backup, merge PR #56, apply 044, publish). A pre-044 SQL/JSON table backup was taken at 9:53:09 AM ET to Orchestrator's box (`/workspace/gtho-backups/2026-11-11-pre-044/`; no pg_dump, no auth or storage backup). PR #56 (compiled ceiling 44) merged at `ce1c987d`; 044 applied at 9:54:01 AM ET (migration ledger 20261111145401) with schema_version 44, both unit `operation_id` columns and RLS verified; GitHub main fast-forwarded `ff2a5f44` → `ce1c987d`, Pages deploy succeeded, live build stamp `b2026-11-11.1457-ce1c987`. Reported by Orchestrator; Design independently verified production schema_version 44 and the 044 unit-table shape by read-only SELECT on 2026-11-16 and GitHub main = `ce1c987d` by ls-remote.
 
 **Earlier ledger reconciliation:** 2026-11-10 against Forgejo `main` at `b6689b23` and reported live build `b2026-11-10.1517-b6689b2`. OI-0196–OI-0204 shipped in PR #44; OI-0205/0206/0207/0209 shipped in [PR #48](https://git.sarnford.com/Homelab/GTHO-v2/pulls/48). Retest remains in progress; shipped does not mean every phone acceptance passed. This is a docs-only record, not implementation or data repair. Edge redeploy from `b6689b23` (Build report relayed by Design): `gtho-assistant` v5; `gtho-assistant-apply`, `gtho-assistant-audio` and `gtho-assistant-transcribe` v4. PR #48 required no migration.
 
@@ -22,15 +22,15 @@
 | OI-0209 | Confinement DMI/feed-days calculations; forage information greyed out and inactive | Shipped — awaiting Tim’s retest; not closed |
 | OI-0210 | Assistant entry across the whole app (schema-driven) | Being scoped by Design with Tim; not ready for Build |
 | OI-0211 | iPhone voice captures audio without a turn; truthful connection state | Open P1 — diagnosis continuing; root-cause fix required |
-| OI-0212 | RLS-disabled advisor findings on two unit tables | Superseded by OI-0216; 044 merged, live apply/verification pending |
+| OI-0212 | RLS-disabled advisor findings on two unit tables | Superseded by OI-0216; 044 applied and verified 2026-11-11 |
 | OI-0213 | Ordinary feeding-sheet mid-save storage failure is not atomic | Deferred — scope later; not ready for Build |
-| OI-0214 | Manual-entry fix batch from the [form audit](session_briefs/FORM_ENTRY_AUDIT_2026-11-10.md) (FA-01–FA-11, FA-24–FA-28); FA-15a tagged stillborn | Ready for Build in locked order; FA-26 type/location pools and returned-feed batch A locked; 042/043 now applied (prod stamp 43); client contracts still held at ceiling 41 pending PR #56 |
-| OI-0216 | Units 044 redesign and release-note grant posture | Merged at `6d5893ab`; 044 apply pending Tim's yes + backup; ceiling promotion in PR #56 |
+| OI-0214 | Manual-entry fix batch from the [form audit](session_briefs/FORM_ENTRY_AUDIT_2026-11-10.md) (FA-01–FA-11, FA-24–FA-28); FA-15a tagged stillborn | Ready for Build in locked order; FA-26 type/location pools and returned-feed batch A locked; 042/043 applied; prod stamp now 44; client contracts released at ceiling 44 (PR #56, published 2026-11-11) |
+| OI-0216 | Units 044 redesign and release-note grant posture | 044 applied 2026-11-11 (backup + Tim's yes); prod stamp 44; ceiling 44 on main via PR #56 (`ce1c987d`); 44 client published |
 | OI-0217 | Full transactional CP-56 restore | Open — later, not scheduled; design required |
 | OI-0218 | DB-level never-decrease guard for operations.schema_version | Open — later, not scheduled; no SQL now |
 | OI-0219 | FA-29 batch unit picker and shared unit vocabulary | Proposed to fold into OI-0220 (pending Tim); pool-count checks required |
 | OI-0220 | Feed unit cleanup and prevention (`Bale`/`bal`/`bale`, `sq bale`) | PROPOSED 2026-11-16 — awaiting Tim; no migration on recommended path; ships before OI-0221 |
-| OI-0221 | Stored forage budgeting and management (season budget, gamified view, surplus/deficit forecast) | PROPOSED 2026-11-16 — awaiting Tim; Build starts nothing; depends on OI-0220; budget storage migration after 044 |
+| OI-0221 | Stored forage budgeting and management (season budget, gamified view, surplus/deficit forecast) | PROPOSED 2026-11-16 — awaiting Tim; Build starts nothing; depends on OI-0220; budget storage needs a new migration (after applied 044) |
 
 ---
 
@@ -46,7 +46,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Findings (read-only, aggregates):** no `bal` remains; `batches.unit` has `bale` 7, `Bale` 1 (created today, unfed), `sq bale` 1; feed types `bale` 2, `sq bale` 1; snapshots only `bale` or null. Feed units are free text on `feed_types.unit` / `batches.unit` (+ 043 snapshots), not in the 044 `dose_units`/`input_product_units` tables, so 044 does not cover them; its standard/custom folded-name pattern is the model if customs are ever wanted. `feed-pools.js` verifies only exact `bale`/`kg`/`lb`/`ton`, so `Bale` and `sq bale` push pools to mass mode; the feed-type picker lacks `sq bale` (Build to verify edit behaviour).
 
-**Recommendation:** Tim retypes the `Bale` batch in-app before feeding from it; shared closed feed-unit list for feed-type and batch sheets (FA-29 picker, defaulting to the type's unit); normalize at save; fold old spellings on read (no history rewrite); `sq bale` verified for pool counting. **No migration and no SQL data fix** on this path; any SQL fix or DB-level guard would need Tim's yes plus a backup and sequences after 044. Questions A–E in the proposal. **CP-55/CP-56:** no shape change on the recommended path.
+**Recommendation:** Tim retypes the `Bale` batch in-app before feeding from it; shared closed feed-unit list for feed-type and batch sheets (FA-29 picker, defaulting to the type's unit); normalize at save; fold old spellings on read (no history rewrite); `sq bale` verified for pool counting. **No migration and no SQL data fix** on this path; any SQL fix or DB-level guard would be a new migration after the already-applied 044 and need Tim's yes plus a backup. Questions A–E in the proposal. **CP-55/CP-56:** no shape change on the recommended path.
 
 **Origin:** Tim's direction 2026-11-16; supersedes OI-0219's standalone queue position (OI-0219 kept as history, delivered here if Tim agrees).
 
@@ -64,7 +64,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Data (read-only, aggregates):** feed entries 2026-04-09 → 2026-11-13 (34); no Dec–Mar records, so no full prior season; season to date (Jun 1–Nov 13) ~29,400 kg DM, $6,734; on hand ~59,800 kg DM in 258 units, last count 2026-11-03; `remaining` (258) vs located balances (179) disagree (FA-01 drift, not repaired).
 
-**Schema / CP-55/CP-56 impact:** slice 1 (history report) none. Slice 2 needs a stored budget (header + monthly rows), a numbered migration after 044, added to CP-55/CP-56 with a schema step; writing it needs this spec approved, applying it needs Tim's explicit yes at the time plus a backup. No SQL here.
+**Schema / CP-55/CP-56 impact:** slice 1 (history report) none. Slice 2 needs a stored budget (header + monthly rows), a new numbered migration after the already-applied 044 (stamp 45 or later), added to CP-55/CP-56 with a schema step; writing it needs this spec approved, applying it needs Tim's explicit yes at the time plus a backup. No SQL here.
 
 **Origin:** Tim's request 2026-11-16 3:03–3:09 PM ET via Orchestrator.
 
@@ -74,13 +74,13 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Added:** 2026-11-11 | **Area:** v2-security / units / CP-55 / CP-56 | **Priority:** coordinated apply/release
 
-**Status:** merged in [PR #55](https://git.sarnford.com/Homelab/GTHO-v2/pulls/55) at `6d5893ab464a85af5d3fc280251140e63e1d17ab` on 2026-11-11; **044 written, not applied**. Tim locked the redesign on 2026-11-10 at 5:46 PM ET: “Yes let's fix it properly.” This is design approval, not current production-apply approval. 042/043 are applied, production stamp 43. Main's compiled ceiling stays 41; [PR #56](https://git.sarnford.com/Homelab/GTHO-v2/pulls/56) is in review for ceiling 44 after verification.
+**Status:** merged in [PR #55](https://git.sarnford.com/Homelab/GTHO-v2/pulls/55) at `6d5893ab464a85af5d3fc280251140e63e1d17ab` on 2026-11-11; **044 applied 2026-11-11 at 9:54 AM ET**. Tim locked the redesign on 2026-11-10 at 5:46 PM ET: “Yes let's fix it properly.” That was design approval; the apply approval came separately. **Apply and publish (2026-11-11):** Tim approved on 2026-11-11 at 9:52 AM ET (backup, merge PR #56, apply 044, publish). A pre-044 SQL/JSON table backup was taken at 9:53:09 AM ET to Orchestrator's box (`/workspace/gtho-backups/2026-11-11-pre-044/`; no pg_dump, no auth or storage backup). PR #56 (compiled ceiling 44) merged at `ce1c987d`; 044 applied at 9:54:01 AM ET (migration ledger 20261111145401) with schema_version 44, both unit `operation_id` columns and RLS verified; GitHub main fast-forwarded `ff2a5f44` → `ce1c987d`, Pages deploy succeeded, live build stamp `b2026-11-11.1457-ce1c987`. Reported by Orchestrator; Design independently verified production schema_version 44 and the 044 unit-table shape by read-only SELECT on 2026-11-16 and GitHub main = `ce1c987d` by ls-remote. Production stamp is 44 and main's compiled ceiling is 44 ([PR #56](https://git.sarnford.com/Homelab/GTHO-v2/pulls/56)).
 
 **Locked model:** Both unit tables have nullable operation ownership: NULL read-only standards, non-null operation customs. Accepted-member RLS; no DELETE; immutable ownership; child BEFORE INSERT/UPDATE guards on treatments, amendments and products block foreign/unknown units. Fixed UUIDv5 standards; apply re-keys the exact eleven legacy ID+name pairs only with zero references, otherwise aborts (empty catalog gets fixed standards). App NFC; DB `lower(btrim(name))` per scope plus cross-namespace guard, including archived reservations. Onboarding stops unit seeds. Dose editor labels standards read-only and supports custom add/rename/archive; no input-product-unit editor was added. Pickers scope standards plus current-operation customs and retain historical archived selections read-only where editing exists. Sync/Push All send current-operation customs only; queued/dead-letter actions keep original operation, never retagged. Anon denied; authenticated lacks DELETE/TRUNCATE/REFERENCES/TRIGGER on both unit tables and release_notes. Release notes have authenticated SELECT only, all browser writes revoked; previously RLS with zero policies produced empty API reads. No new release-note UI.
 
 **CP-55/CP-56 impact:** At ceiling 44 export customs only with server operation filter and unique-ID paging; standards excluded. `BACKUP_MIGRATIONS[43]` maps legacy IDs by ID only, drops standards, adopts other old rows as backup-operation customs and advances stamps 43→44. Typed six-column whitelist and read-only preflight run before any fence/mutation; custom-only ID UPSERT, no unit deletes, missing target customs retained. Group by present-column set before batching to preserve omitted metadata. Explicit supplied metadata wins; new rows use defaults. **Accepted residual N2:** the preflight RPC exposes one foreign-UUID existence bit, no names/owners/contents. Preflight is not atomic restore (OI-0217). FA-30's guarded server write function is cancelled.
 
-**Release gate:** Tim's explicit yes at the time plus a backup, apply 044 and verify, then promote/publish the compatible client in the same session. The old client's unit seeds/editor break once 044 is live. PASS in the independent report at the exact head is not apply/publish approval. Final report: `/home/tim/Work/review-044-probes/REPORT.md`; no live multi-backend contention proof is claimed.
+**Release gate (met 2026-11-11):** Tim's explicit yes at the time plus a backup, apply 044 and verify, then promote/publish the compatible client in the same session — done as recorded in the status line above. PASS in the independent report at the exact head is not apply/publish approval. Final report: `/home/tim/Work/review-044-probes/REPORT.md`; no live multi-backend contention proof is claimed.
 
 **Specs:** `V2_SCHEMA_DESIGN.md` principle 8, §8.2/§9.4/§11.5; `V2_MIGRATION_PLAN.md` §5.3/§5.7b/§5.9/§5.11. Supersedes OI-0212's tracking-only posture and the unit-specific global/RLS-off rationale in historical OI-0053/0056, not their unrelated fixes.
 
@@ -191,7 +191,7 @@ The ordinary sheet then loops delivery rows at `:547–554`, calling `deductDeli
 
 ### OI-0214 — Manual-entry fix batch from the form audit (FA-01–FA-11)
 
-**2026-11-11 checkpoint:** 042 and 043 are applied; production stamp is 43. The earlier write-only/apply-gate paragraphs below are approval history, not current apply state. Their client release remains held at ceiling 41 until PR #56. 044 is still unapplied under OI-0216; FA-29 is queued separately in OI-0219.
+**2026-11-11 checkpoint (updated 2026-11-16):** 042 and 043 are applied; 044 was applied on 2026-11-11 (OI-0216) and production stamp is 44. The earlier write-only/apply-gate paragraphs below are approval history, not current apply state. The 42/43/44 client release shipped with PR #56 (compiled ceiling 44, `ce1c987d`, published `b2026-11-11.1457-ce1c987`). FA-29 (OI-0219) is proposed to be delivered by OI-0220.
 
 **Status:** Existing-field fixes ready for Build (Tim, 2026-11-10), ahead of OI-0210. Scope approval was relayed by Orchestrator at 12:27 PM ET. Tim's 12:42 PM ET decisions retain heat recording from Breeding and retain free-text sire name and EPDs through new fields. FA-10a can ship without a migration; FA-10b is specified below for Build to write the migration file only. **FA-10b apply is blocked: needs Tim's explicit approval at the time plus a backup first; Orchestrator brings that checkpoint to Tim.** FA-15a uses existing fields and needs no migration. Tim's feed decisions via Orchestrator on 2026-11-10 ET add FA-24/25/27/28 and lock FA-26: event/type/location pools (1:50 PM), returned-feed batch option A and migration 043 written only (1:55 PM). FA-26 is released to Build in the order below. Each 042/043 apply needs its own explicit yes from Tim at the time and a backup first. Nothing here authorizes production data repair or application of SQL.
 
@@ -6095,7 +6095,7 @@ The role-keyed seed-data table for **beef_cattle** (Tim's operation):
 **Checkpoint:** CP-56 / CP-57
 **Status:** closed — fixed 2026-04-14
 
-**2026-11-11 narrowing note:** The historical global-unit/REFERENCE_TABLES rationale below is superseded by OI-0216 / 044 (merged, apply pending). Units leave REFERENCE_TABLES but explicitly keep custom-only UPSERT/no-delete; target customs absent from the backup remain, standards never restored. The five other per-operation-table fixes are unchanged.
+**2026-11-11 narrowing note:** The historical global-unit/REFERENCE_TABLES rationale below is superseded by OI-0216 / 044 (applied 2026-11-11). Units leave REFERENCE_TABLES but explicitly keep custom-only UPSERT/no-delete; target customs absent from the backup remain, standards never restored. The five other per-operation-table fixes are unchanged.
 
 **Problem:** `backup-import.js` `REFERENCE_TABLES` set includes 5 per-operation tables (`forage_types`, `animal_classes`, `treatment_categories`, `treatment_types`, `input_product_categories`). The `deleteTableRows()` function skips reference tables (they upsert instead of delete-then-insert). But these tables all have `operation_id` FK → `operations`. When the delete loop reaches `operations`, these undeletion rows block the delete with FK constraint violation: `forage_types_operation_id_fkey`.
 
@@ -6159,7 +6159,7 @@ This violates Design Principle #8 ("every user-data table has `operation_id`") a
 **Checkpoint:** pre-Tier-3-testing
 **Status:** closed — partially fixed 2026-04-14, remaining work tracked in OI-0054
 
-**2026-11-11 supersession note:** The RLS-off/no-operation-id unit rationale below is historical and superseded by OI-0216 / migration 044 (merged, apply pending). The recursion/bootstrap fixes remain historical; unit tables now have the approved standard/custom scoped RLS model, not an unprotected-global exemption.
+**2026-11-11 supersession note:** The RLS-off/no-operation-id unit rationale below is historical and superseded by OI-0216 / migration 044 (applied 2026-11-11). The recursion/bootstrap fixes remain historical; unit tables now have the approved standard/custom scoped RLS model, not an unprotected-global exemption.
 
 Dropped `operation_members_all` (FOR ALL, self-referential → infinite recursion). Replaced with 4 granular policies: SELECT (own row + operation members), INSERT (self-bootstrap via `user_id = auth.uid()` + admin/owner invite), UPDATE (admin/owner), DELETE (owner only). Applied missing migrations 014–016 to Supabase. Disabled RLS on `dose_units` and `input_product_units` (no `operation_id` column). Migration 017 written. Migration 001 updated for fresh DB setups. Schema version bumped to 17.
 

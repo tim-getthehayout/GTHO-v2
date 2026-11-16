@@ -1,7 +1,7 @@
 # OI-0222 — One-time historical hay-feeding backfill (winter 2025-26 + dropped v1 feedings)
 
-**Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's answers. Docs only: no SQL file, no code, no production write. **Nothing writes to production without a fresh backup and Tim's explicit yes on the specific dry-run report.**
-**Requested:** Tim, 2026-11-16 3:26 PM ET (relayed by Orchestrator); notes delivered 3:27 PM ET. **Partly answered:** Tim, 3:43, 3:51 and 3:52 PM ET via Orchestrator (see Decisions).
+**Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — Tim's questions answered or at defaults (through 4:06 PM ET); none open for Tim before the dry run. Docs only: no SQL file, no code, no production write. **Nothing writes to production without a fresh backup and Tim's explicit yes on the specific dry-run report.**
+**Requested:** Tim, 2026-11-16 3:26 PM ET (relayed by Orchestrator); notes delivered 3:27 PM ET. **Answered:** Tim, 3:43, 3:51, 3:52 and 4:05–4:06 PM ET via Orchestrator (see Decisions).
 **Sequence:** OI-0220 (feed units) → **OI-0222 (this backfill)** → OI-0221 slice 1 (monthly history report), which then has Oct 2025 – Apr 2026 history.
 **Schema:** production stamp 44, compiled ceiling 44 (044 applied and published 2026-11-11). The v1-window part needs no migration; the winter part's recommended storage needs one (question C).
 
@@ -20,9 +20,15 @@
 8. **K — set-out start is 12/16, confirmed** (Tim's thumbs-up): 4.00 bales/day, Dec 64 / Jan 16. The 12/18 figures stay in §3a as a note only.
 9. **2/18 "Fed 28" stays on its date** (not pro-rated; default accepted).
 10. **E — opening stock at $45/bale** (3:52 PM ET: last year's hay was $45 a bale). Relabel as `opening`, dated Mar 15, 2026.
-11. **J — sheep were on the farm last winter (Oct 2025 – May 2026); the goats were not** (3:51 PM ET). Sheep feedings count as fed, and sheep join the historical DMI basis even though no sheep group existed then; goats are excluded. How to supply the sheep head count and weight is question J (§7).
+11. **J — sheep were on the farm last winter (Oct 2025 – May 2026); the goats were not** (3:51 PM ET). Sheep feedings count as fed, and sheep join the historical DMI basis even though no sheep group existed then; goats are excluded. How to supply the sheep head count and weight is question J (§7) — answered below.
 
-**Still open:** A (scope), B (conflicts, default v1, decided in the dry run), J (how to supply historical sheep basis), M (zero-date label). **Defaults, no change requested yet:** C (history table), F (bale weights). G, H, L closed; D, E, I, K, N decided.
+## Answers (Tim, 2026-11-16 4:05–4:06 PM ET, relayed by Orchestrator)
+
+12. **J = A — Tim enters last winter's sheep basis himself.** The historical animal-basis record needs an entry point for it (§7). Recorded value: **sheep, Oct 2025 – May 2026, 80 head at an average of 110 lb.** The difference from today's flock is last year's offspring, not ewes. Goats excluded.
+13. **M, A and B stay at their defaults, decided in the dry run:** M — zero date May 3, 2026; A — scope Oct 1, 2025 – Apr 13, 2026, both sources; B — Mar 4–20 conflicts default to v1.
+14. **C and F remain at their defaults** unless Tim changes them.
+
+**Nothing open for Tim before the dry run.** **Defaults (decided in the dry run):** A (scope), B (conflicts, default v1), M (zero date May 3). **Defaults, no change requested:** C (history table), F (bale weights). G, H, L closed; D, E, I, J, K, N decided.
 
 ## Sources
 
@@ -115,7 +121,7 @@ Dec/Jan above use the default 12/16 start; with a 12/18 start Dec = 120.2 and Ja
 - B. Backfilled events: fake winter events with paddock and group windows. Distorts grazing history, NPK, rest periods and animal records; group windows need head counts we don't have. Not recommended.
 - C. One period summary per month (no daily rows): simplest, but loses dates, groups and the audit trail.
 
-### 3a. December set-out pro-rating (decided; start date to confirm)
+### 3a. December set-out pro-rating (decided; 12/16 start confirmed, K)
 
 Spread 80 bales evenly from the set-out date through **Jan 4** (the day before the next recorded feeding, "1/5 – 2 bales"). Stored as one history row per day with source key `notes:<hash>:<line>:<day>`.
 
@@ -176,13 +182,14 @@ Assumes counts are taken after that day's feeding.
 **What v2 has today (read-only, 2026-11-16):**
 - `species` exists only on `animal_classes` (app list: beef_cattle, dairy_cattle, sheep, goat, other). `groups` has no species; `animals` has `is_bulk` + `bulk_head_count`; `event_group_windows` carry `head_count` and `avg_weight_kg` per event.
 - No group existed for sheep last winter. A history row could technically reference today's Sheep group, but that group was created Nov 5, 2026 and would misdate the flock — so historical rows **do not link a group**.
-- **Current sheep (aggregates):** "Sheep" group (created Nov 5, 2026; first event window Nov 6): bulk Ewes 52 head, recorded total 6,500 lb (≈125 lb avg; class Ewe default 150 lb, DMI 3%), bulk Rams 2 head, 300 lb (≈150 lb; class Ram default 198 lb, DMI 2.5%). "Ram Lambs – Sale" group (since Nov 9, 2026): 16 ram lambs, 1,120 lb (≈70 lb) — almost certainly born in 2026, so not part of last winter's flock by default. Sheep group event windows peak at 82 head (≈126 lb avg) — differs from the 70 members; Tim to confirm.
+- **Current sheep (aggregates):** "Sheep" group (created Nov 5, 2026; first event window Nov 6): bulk Ewes 52 head, recorded total 6,500 lb (≈125 lb avg; class Ewe default 150 lb, DMI 3%), bulk Rams 2 head, 300 lb (≈150 lb; class Ram default 198 lb, DMI 2.5%). "Ram Lambs – Sale" group (since Nov 9, 2026): 16 ram lambs, 1,120 lb (≈70 lb) — almost certainly born in 2026, so not part of last winter's flock by default. Sheep group event windows peak at 82 head (≈126 lb avg) — differs from the 70 members; this only mattered for a pre-fill, which J = A replaces.
 - **Goats:** one bulk Doe record, 59 head, "Goats" group created Nov 5, 2026 — excluded from last winter.
-- Rough sheep demand at the pre-fill (52 ewes × 125 lb × 3% + 2 rams × 150 lb × 2.5%) ≈ **203 lb DM/day** (≈ 0.37 round bale of 550 lb DM per day).
+- **Last winter's sheep basis (Tim, J = A, 4:05–4:06 PM ET):** sheep, Oct 2025 – May 2026, **80 head at an average of 110 lb** (≈ 8,800 lb live weight). The difference from today's flock is last year's offspring, not ewes. Illustrative only, at the Ewe class 3% DMI: ≈ **264 lb DM/day** (≈ 0.48 round bale of 550 lb DM per day); the stored DMI% snapshot is set when the entry is made.
+- Superseded pre-fill (current flock, not used): 52 ewes × 125 lb × 3% + 2 rams × 150 lb × 2.5% ≈ 203 lb DM/day.
 
-**Exclusion rule (who counts in a historical period):** a species/group counts in a period only if it was on the farm then. Evidence, in order: (1) event group windows and membership dates inside the period; (2) Tim's per-period historical basis entries (below) for animals that had no records then. Anything with neither — e.g. goats, or any group whose first record is after the period — is excluded. Group start dates alone can't place the sheep (their records start Nov 2026), so for last winter Tim's entry is the evidence.
+**Exclusion rule (who counts in a historical period):** a species/group counts in a period only if it was on the farm then. Evidence, in order: (1) event group windows and membership dates inside the period; (2) Tim's per-period historical basis entries (below) for animals that had no records then. Anything with neither — e.g. goats, or any group whose first record is after the period — is excluded. Group start dates alone can't place the sheep (their records start Nov 2026), so for last winter Tim's entry (80 head ≈110 lb, Oct 2025 – May 2026) is the evidence.
 
-**Design need (no SQL):** the history feeding table (question C) carries `species` (same value list as `animal_classes`), optional `class_id`, **nullable `group_id`**, and a free group label, so a sheep row is valid with no group. A sibling **historical animal-basis** table (or a row type in the same table): operation, period start/end, species, optional class, head count, average weight, DMI% snapshot, source (Tim entry / pre-fill), notes. OI-0221 adds its demand to group-window demand for that period. Both go in CP-55/CP-56; same migration as C.
+**Design need (no SQL):** the history feeding table (question C) carries `species` (same value list as `animal_classes`), optional `class_id`, **nullable `group_id`**, and a free group label, so a sheep row is valid with no group. A sibling **historical animal-basis** table (or a row type in the same table): operation, period start/end, species, optional class, head count, average weight, DMI% snapshot, source (Tim entry / pre-fill), notes. **J = A: Tim enters it himself, so this record needs an entry point in the app** (where it lives is not yet specified). OI-0221 adds its demand to group-window demand for that period. Both go in CP-55/CP-56; same migration as C.
 
 ## 8. Bale weight and DM (question F)
 
@@ -215,10 +222,10 @@ Illustrative winter DM at 550 lb DM/bale (round) and 42.5 lb (alfalfa squares), 
 
 ## Lettered questions (recommended answer first)
 
-Decided or closed by Tim (3:43–3:52 PM ET): D, E, G, H, I, K, L, N; J direction decided. Open: A, B, J (supply), M. Defaults with no change requested: C, F. Letters stay stable.
+Decided or closed by Tim (3:43–4:06 PM ET): D, E, G, H, I, J, K, L, N. At defaults, decided in the dry run (Tim, 4:05–4:06 PM ET): A, B, M. Defaults with no change requested: C, F. No questions open for Tim. Letters stay stable.
 
-- **A. Scope:** backfill Oct 1, 2025 – Apr 13, 2026 from both sources? Recommend: yes, both lanes. *Open.*
-- **B. Conflicts in Mar 4 – 20** (3/4, 3/6, 3/19, 3/20): which wins? Recommend: decide each in the dry run; default v1 (entered at the time, tied to events). *Pending.*
+- **A. Scope:** backfill Oct 1, 2025 – Apr 13, 2026 from both sources? Recommend: yes, both lanes. *Default — stays at the recommendation (Tim, 4:05–4:06 PM ET); confirmed in the dry run.*
+- **B. Conflicts in Mar 4 – 20** (3/4, 3/6, 3/19, 3/20): which wins? Recommend: decide each in the dry run; default v1 (entered at the time, tied to events). *Default v1 (Tim, 4:05–4:06 PM ET); each decided in the dry run.*
 - **C. Winter storage:** A historical feeding records table (recommended; carries species with a nullable group link, §7), B backfilled events, or C monthly summaries? *Default A — no change requested yet.*
 - **D. Reconciles — DECIDED:** feeds are the basis; pre-summer batches are trued up to the fed numbers with reconcile reversals + true-up adjustments, ending at 0 at the zero date (§4). Over-runs (Oak Field, Alfalfa) resolve toward fed.
 - **E. Opening stock — DECIDED:** relabel Oak Field, Tarped, Peanut as `opening`, dated Mar 15, 2026, valued at **$45/bale** (Tim, 3:52 PM ET).
@@ -226,11 +233,11 @@ Decided or closed by Tim (3:43–3:52 PM ET): D, E, G, H, I, K, L, N; J directio
 - **G. Checkpoints — CLOSED:** snapshots are informational only. The Hines 60 peanut timing no longer matters (it only moved a snapshot variance; winter rows are history records with no inventory).
 - **H. Opening date — CLOSED as a reconciliation question:** under feeds-as-basis the true-up makes each opening batch end at 0, so whether the stock was as of Mar 15 or Feb 18 no longer changes any number. E still sets the label date (Mar 15).
 - **I. Extra v1 alfalfa batches — DECIDED:** not real hay; ignored (Tim, 3:51 PM ET).
-- **J. Historical sheep basis — direction DECIDED, supply OPEN (Tim to choose).** Sheep count as fed and join the DMI basis for Oct 2025 – May 2026; goats excluded. How to supply sheep head count and DMI:
+- **J. Historical sheep basis — DECIDED (A, Tim, 4:05–4:06 PM ET):** Tim enters it himself; recorded value: sheep, Oct 2025 – May 2026, 80 head at an average of 110 lb (the difference from today's flock is last year's offspring, not ewes); goats excluded. Options as presented:
   - **A (recommended):** you enter an approximate head count and average weight (or class) for last winter — one value, or one per month if it changed — stored as a historical animal-basis entry (§7).
   - B: backdate the current flock (52 ewes ≈125 lb + 2 rams ≈150 lb, ram lambs excluded) to Oct 2025 – May 2026. Simple, but wrong if the flock size changed (lambing, sales).
   - C: B as a pre-filled default that you confirm or edit per month.
 - **K. December set-out — DECIDED:** pro-rated from **12/16** (Tim confirmed), 4.00/day through Jan 4 → Dec 64 / Jan 16. 2/18 "Fed 28" stays on its date. 12/12 E4 18 stays on its date. (Note: a 12/18 start would have been 4.44/day, Dec 62.2 / Jan 17.8.)
 - **L. Ambiguous lines — DECIDED/CLOSED:** 3/28 "10 to sheep" = alfalfa; old tarp bales = grass; 2/18 "Fed 28" timing doesn't matter.
-- **M. Zero date for the three round-bale opening batches:** May 3, 2026 (recommended default — last recorded feeding from them and the date the Nov 3 reconciles use) or Jun 1, 2026? *Still open, but low-stakes:* N = A takes Alfalfa out of it, and for Oak Field, Tarped and Peanut no feeding falls May 4 – Jun 1, so the choice only sets the adjustments' date, not any number.
+- **M. Zero date for the three round-bale opening batches:** May 3, 2026 (recommended default — last recorded feeding from them and the date the Nov 3 reconciles use) or Jun 1, 2026? *Default May 3 (Tim, 4:05–4:06 PM ET), decided in the dry run; low-stakes:* N = A takes Alfalfa out of it, and for Oak Field, Tarped and Peanut no feeding falls May 4 – Jun 1, so the choice only sets the adjustments' date, not any number.
 - **N. Alfalfa — DECIDED (A):** carried into summer; trued up to fed (+49.5) and keeps today's 15 (Tim, 3:51 PM ET).

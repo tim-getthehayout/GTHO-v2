@@ -15,11 +15,11 @@ export function formatIntervalClock(date, time) {
   return `${month} ${d.getDate()} ${hour}:${minutes} ${ampm}`;
 }
 
-export function formatDmPerDay(kg, { expected = false, unitSystem = getUnitSystem() } = {}) {
+export function formatDmPerDay(kg, { unitSystem = getUnitSystem() } = {}) {
   const imperial = unitSystem === 'imperial';
   const value = Math.round(imperial ? convert(kg, 'weight', 'toImperial') : kg);
   const unit = imperial ? 'lb' : 'kg';
-  return expected ? `${value} ${unit}/day` : `${value} ${unit} DM/day`;
+  return `${value} ${unit} DM/day`;
 }
 
 function appendMessage(node, text, implied, expected) {
@@ -42,7 +42,7 @@ export function renderPlausibilityWarnings(container, warnings, { unitSystem = g
     const from = formatIntervalClock(warning.interval.from.date, warning.interval.from.time);
     const to = formatIntervalClock(warning.interval.to.date, warning.interval.to.time);
     const implied = formatDmPerDay(warning.impliedDmKgPerDay, { unitSystem });
-    const expected = formatDmPerDay(warning.expectedDmKgPerDay, { expected: true, unitSystem });
+    const expected = formatDmPerDay(warning.expectedDmKgPerDay, { unitSystem });
     const pct = String(Math.round(warning.pct));
     const line = el('p', { className: 'form-hint', 'data-testid': 'pool-plausibility-warning' });
     appendMessage(line, t('pool.plausibility', { from, to, implied: '%%I%%', expected: '%%E%%', pct }), implied, expected);

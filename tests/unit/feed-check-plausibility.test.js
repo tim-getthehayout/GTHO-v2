@@ -93,7 +93,7 @@ function lb(kg) {
 
 describe('feedCheckPlausibility helper', () => {
   it('is registered with a formula string', () => {
-    const calc = getCalcByName('feedCheckPlausibility');
+    const calc = getCalcByName('FED-7');
     expect(calc.category).toBe('feed');
     expect(calc.formula).toMatch(/impliedDmPerDay/);
     expect(calc.fn).toBe(feedCheckPlausibility);
@@ -261,6 +261,9 @@ describe('existing intake blocks and no-op preview', () => {
   });
 
   it('a no-op edit preview returns no warnings and writes nothing', () => {
+    // A later Nov 17 0.66 reading is present, so re-saving 0.75 would otherwise warn (~30%).
+    seedRow('eventFeedChecks', Check, { id: 'chk-17', eventId: EVENT, date: '2026-11-17', time: '12:04' }, 'event_feed_checks');
+    seedRow('eventFeedCheckItems', Item, { id: 'item-chk-17', feedCheckId: 'chk-17', locationId: LOC, feedTypeId: HAY, batchId: null, remainingQuantity: 0.66, unitSnapshot: 'bale', weightPerUnitKgSnapshot: BALE_KG, dmPctSnapshot: DM_PCT }, 'event_feed_check_items');
     const before = JSON.stringify(getAll('eventFeedCheckItems'));
     const warnings = previewPoolCheck({
       operationId: OP, eventId: EVENT, date: '2026-11-16', time: '09:12',

@@ -13,7 +13,7 @@ import '../../src/calcs/feed-check-plausibility.js';
 
 describe('calculation engine', () => {
   it('registers 45 formulas', () => {
-    // OI-0157-B1: ANI-AU / ANI-AUD / ANI-ADA bumped the count from 39 → 42; FED-6 (feed run rate) → 43; DMI-9 (implied pasture) → 44; feedCheckPlausibility → 45.
+    // OI-0157-B1: ANI-AU / ANI-AUD / ANI-ADA bumped the count from 39 → 42; FED-6 (feed run rate) → 43; DMI-9 (implied pasture) → 44; FED-7 → 45.
     const calcs = getAllCalcs();
     expect(calcs.length).toBe(45);
   });

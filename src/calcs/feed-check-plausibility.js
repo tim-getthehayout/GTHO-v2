@@ -208,7 +208,7 @@ export function feedCheckPlausibility({
 }
 
 registerCalc({
-  name: 'feedCheckPlausibility',
+  name: 'FED-7',
   category: 'feed',
   description: 'Non-blocking check of implied stored-feed intake between consecutive pool readings against the event’s expected daily DMI',
   formula: 'impliedDmPerDay = (prevRemainingDm + Σ stored DM fed in (prev, new] − newRemainingDm) / (elapsedHours / 24); warn < 50% or > 400% of hour-weighted groupWindowsDailyDmiKg on a pure-confinement single-pool event, and > 400% only when pasture or another pool is active; skip first reading, < 12 h, and unknown or zero demand',

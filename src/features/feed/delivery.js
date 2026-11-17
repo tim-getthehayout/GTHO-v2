@@ -561,21 +561,28 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
             }
           }
           if(poolWritesEnabled() && leftover && plannedCheck && !force){
-            const warnings=previewPoolCheck({
-              operationId,eventId:evt.id,date:plannedCheck.date,time:plannedCheck.time,notes:null,
-              extraEntries:plannedEntries.map(row=>row.record),
-              readings:leftoverItems.map(item=>({
-                feedTypeId:item.feedTypeId||getById('batches',item.batchId)?.feedTypeId,
-                locationId:item.locationId,
-                remainingQuantity:item.remainingQuantity,
-                unit:item.unit,
-              })),
-            });
+            let warnings=[];
+            try {
+              warnings=previewPoolCheck({
+                operationId,eventId:evt.id,date:plannedCheck.date,time:plannedCheck.time,notes:null,
+                extraEntries:plannedEntries.map(row=>row.record),
+                readings:leftoverItems.map(item=>({
+                  feedTypeId:item.feedTypeId||getById('batches',item.batchId)?.feedTypeId,
+                  locationId:item.locationId,
+                  remainingQuantity:item.remainingQuantity,
+                  unit:item.unit,
+                })),
+              });
+            } catch {
+              warnings=[];
+            }
             if(warnings.length){
               renderPlausibilityWarnings(warningEl,warnings,{
                 onFix:()=>{
-                  const remaining=carryoverEl.querySelector('[data-testid="feed-carryover-remaining"]');
-                  remaining?.focus();
+                  const first=warnings[0];
+                  const rows=[...carryoverEl.querySelectorAll('[data-testid="feed-carryover-item"]')];
+                  const row=rows.find(node=>poolKey({eventId:evt.id,locationId:node.querySelector('[data-testid="feed-carryover-location"]')?.value,feedTypeId:node.querySelector('[data-testid="feed-carryover-type"]')?.value})===first.poolKey);
+                  (row||rows[0])?.querySelector('[data-testid="feed-carryover-remaining"]')?.focus();
                 },
                 onSaveAnyway:()=>saveFeeding(true),
               });

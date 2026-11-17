@@ -559,14 +559,14 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
       try {
         const groups=wizardPoolGroups(sourceEvent.id,dateOut,timeOut);
         const toggles=new Map((transferToggles||[]).map(row=>[row.key,row]));
-        const readings=Object.entries(groups).map(([key,group])=>{const toggle=toggles.get(key);return {feedTypeId:group.feedTypeId,locationId:group.locationId,unit:group.unit,remainingQuantity:toggle?.choice==='residual'?Number(toggle.residualInput.value):group.total};});
+        const readings=Object.entries(groups).flatMap(([key,group])=>{const toggle=toggles.get(key);if(toggle?.choice!=='residual')return [];return [{feedTypeId:group.feedTypeId,locationId:group.locationId,unit:group.unit,remainingQuantity:Number(toggle.residualInput.value)}];});
         if(readings.length && readings.every(row=>Number.isFinite(row.remainingQuantity) && row.remainingQuantity>=0)){
           const warnings=previewPoolCheck({operationId,eventId:sourceEvent.id,date:dateOut,time:timeOut,readings,isCloseReading:true});
           if(warnings.length){
             renderPlausibilityWarnings(warningEl,warnings,{
               onFix:()=>{
                 const first=warnings[0];
-                const toggle=(transferToggles||[]).find(row=>`${sourceEvent.id}|${row.locationId}|${row.feedTypeId}`===first.poolKey);
+                const toggle=(transferToggles||[]).find(row=>row.choice==='residual' && `${sourceEvent.id}|${row.locationId}|${row.feedTypeId}`===first.poolKey);
                 toggle?.residualInput?.focus();
               },
               onSaveAnyway:()=>attemptSave(true),

@@ -106,8 +106,8 @@ describe('backup-import (CP-56)', () => {
   });
 
   describe('FK_ORDER — §5.3a ordering', () => {
-    it('has exactly 72 tables', () => {
-      expect(FK_ORDER.length).toBe(72);
+    it('has exactly 74 tables', () => {
+      expect(FK_ORDER.length).toBe(74);
     });
 
     it('matches the export table list', () => {

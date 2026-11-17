@@ -1295,6 +1295,7 @@ function openBatchSheet(existingBatch, operationId) {
   }, [
     el('option', { value: 'purchase' }, [t('feed.batchSourcePurchase')]),
     el('option', { value: 'harvest' }, [t('feed.batchSourceHarvest')]),
+    el('option', { value: 'opening' }, [t('feed.batchSourceOpening')]),
     el('option', { value: 'transfer' }, [t('feed.batchSourceTransfer')]),
   ]);
   if (existingBatch?.source) inputs.source.value = existingBatch.source;

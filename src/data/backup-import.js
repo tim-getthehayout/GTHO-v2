@@ -13,7 +13,7 @@ import { supabase } from './supabase-client.js';
 import { canExport, exportOperationBackup, downloadBackup } from './backup-export.js';
 import { BACKUP_MIGRATIONS } from './backup-migrations.js';
 import { pullAllRemote } from './pull-remote.js';
-import { RELEASED_SCHEMA_VERSION, STAGED_COLUMNS } from './schema-release.js';
+import { RELEASED_SCHEMA_VERSION, STAGED_COLUMNS, isTableReleased } from './schema-release.js';
 import { logger } from '../utils/logger.js';
 
 const SUPPORTED_FORMAT_VERSION = 1;
@@ -43,6 +43,8 @@ const FK_ORDER = [
   'batch_adjustments',
   'batch_location_balances',
   'batch_moves',
+  'historical_feedings',
+  'historical_animal_basis',
   'batch_nutritional_profiles',
   'soil_tests',
   'surveys',
@@ -180,6 +182,7 @@ export function migrateBackupForward(backup) {
 
 async function deleteTableRows(table, operationId) {
   if (REFERENCE_TABLES.has(table) || UNIT_TABLES.includes(table)) return;
+  if (!isTableReleased(table, CURRENT_SCHEMA_VERSION)) return;
   if (table === 'operations') return;
   if (table === 'operation_members') return;
 
@@ -283,6 +286,7 @@ async function insertTableRows(table, rows, operationId) {
   }
 
   if (UNIT_TABLES.includes(table) && CURRENT_SCHEMA_VERSION < 44) return;
+  if (!isTableReleased(table, CURRENT_SCHEMA_VERSION)) return;
   const isReference = REFERENCE_TABLES.has(table) || UNIT_TABLES.includes(table);
   const twoPassCols = TWO_PASS_TABLES[table];
 
@@ -338,6 +342,7 @@ async function parityCheck(backup, operationId) {
 
   for (const table of BROWSER_FK_ORDER) {
     if (UNIT_TABLES.includes(table) && CURRENT_SCHEMA_VERSION < 44) continue;
+    if (!isTableReleased(table, CURRENT_SCHEMA_VERSION)) continue;
     const backupRows = backup.tables[table] || [];
     const expected = backupRows.length;
 

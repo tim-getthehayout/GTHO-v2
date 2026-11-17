@@ -251,4 +251,12 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 44;
     return b;
   },
+  // 044 → 045: new historical feeding and animal basis tables. Old backups have none.
+  44: (b) => {
+    b.tables.historical_feedings ??= [];
+    b.tables.historical_animal_basis ??= [];
+    b.schema_version = 45;
+    for (const op of b.tables.operations || []) op.schema_version = 45;
+    return b;
+  },
 };

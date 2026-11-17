@@ -365,8 +365,8 @@ it('unit restore grouping ignores key order, keeps all eight metadata shapes and
 
 // No schema-release mock: these exercise the exact client being prepared for publish.
 it('actual release promotes 42–44 without removing independent column proofs or future guards',async()=>{
- expect(RELEASED_SCHEMA_VERSION).toBe(44);expect(CURRENT_SCHEMA_VERSION).toBe(44);expect(HELD_SCHEMA_VERSIONS).toEqual([]);
- expect(Object.keys(STAGED_COLUMNS).map(Number)).toEqual([42,43,44]);
+ expect(RELEASED_SCHEMA_VERSION).toBe(44);expect(CURRENT_SCHEMA_VERSION).toBe(44);expect(HELD_SCHEMA_VERSIONS).toEqual([45]);
+ expect(Object.keys(STAGED_COLUMNS).map(Number)).toEqual([42,43,44,45]);
  expect(()=>releasedColumns(45,{future_field:'value'})).toThrow();
  expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:45,operation_id:OP,tables:{}}).valid).toBe(false);
  await expect(resolveOperationsSchemaStamp(45,db.client)).rejects.toThrow('Unverified');expect(db.calls).toEqual([]);expect(db.client.rpc).not.toHaveBeenCalled();
@@ -395,11 +395,12 @@ it.each([41,42,43])('real CP-56 %s→44 promotes retained text, legacy pool rows
  expect(db.rows.animal_treatments[0].dose_unit_id).toBe(dose.id);expect(db.rows.amendments[0].qty_unit_id).toBe(product.id);expect(db.rows.input_products[0].unit_id).toBe(product.id);
  expect(db.rows.dose_units.find(row=>row.id===custom.id)).toMatchObject({operation_id:operationId,name:'Restored custom'});
  const names=db.client.rpc.mock.calls.map(([name])=>name);expect(names.indexOf('unit_restore_id_conflicts')).toBeLessThan(names.indexOf('assistant_restore_prepare'));
- for(const [table,columns]of Object.values(STAGED_COLUMNS).flatMap(tables=>Object.entries(tables)))expect(db.proofs).toContainEqual({table,columns:columns.join(','),limit:0});
+ for(const [table,columns]of Object.entries(STAGED_COLUMNS).filter(([step])=>Number(step)<=CURRENT_SCHEMA_VERSION).flatMap(([,tables])=>Object.entries(tables)))expect(db.proofs).toContainEqual({table,columns:columns.join(','),limit:0});
+ for(const table of Object.keys(STAGED_COLUMNS[45]))expect(db.proofs.some(proof=>proof.table===table)).toBe(false);
  expect(unitCalls().filter(call=>call.operation==='upsert').flatMap(call=>call.payload).map(row=>row.id)).toEqual([custom.id]);noUnitDeletes();
 });
 
-it.each(Object.values(STAGED_COLUMNS).flatMap(tables=>Object.entries(tables).flatMap(([table,columns])=>columns.map(column=>({table,column})))))('released restore refuses missing $table.$column before any fence or mutation',async({table,column})=>{
+it.each(Object.entries(STAGED_COLUMNS).filter(([step])=>Number(step)<=CURRENT_SCHEMA_VERSION).flatMap(([,tables])=>Object.entries(tables).flatMap(([table,columns])=>columns.map(column=>({table,column})))))('released restore refuses missing $table.$column before any fence or mutation',async({table,column})=>{
  db.missingColumn={table,column};const before=structuredClone(db.rows);
  const result=await importOperationBackup({format:'gtho-v2-backup',format_version:1,schema_version:41,operation_id:OP,tables:{operations:[{id:OP,schema_version:41}]}},OP,null,{skipAutoBackup:true});
  expect(result.success).toBe(false);expect(result.error).toMatch(/columns|verified/i);expect(db.rows).toEqual(before);expect(db.client.rpc).not.toHaveBeenCalled();expect(db.calls.every(call=>call.operation==='select')).toBe(true);

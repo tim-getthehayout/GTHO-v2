@@ -733,6 +733,7 @@
     "batchSource": "Source",
     "batchSourcePurchase": "Purchase",
     "batchSourceHarvest": "Harvest",
+    "batchSourceOpening": "Opening",
     "batchSourceTransfer": "Transfer",
     "batchQuantity": "Quantity",
     "batchRemaining": "Remaining",

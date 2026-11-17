@@ -2,11 +2,15 @@
  * Release/publish is gated on Tim's approval, backup, and verified 042–044 applies.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
 export const RELEASED_SCHEMA_VERSION = 44;
-export const HELD_SCHEMA_VERSIONS = [];
+export const HELD_SCHEMA_VERSIONS = [45];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.
 export const STAGED_COLUMNS = {
+  45: {
+    historical_feedings: ['operation_id', 'source_key', 'species', 'unit_snapshot', 'weight_per_unit_kg_snapshot', 'dm_pct_snapshot'],
+    historical_animal_basis: ['operation_id', 'source_key', 'species', 'head_count', 'avg_weight_kg', 'dmi_pct_snapshot'],
+  },
   44: { dose_units: ['operation_id'], input_product_units: ['operation_id'] },
   42: { ai_bulls: ['epds'], animal_breeding_records: ['sire_name'] },
   43: {
@@ -14,3 +18,14 @@ export const STAGED_COLUMNS = {
     event_feed_entries: ['feed_type_id', 'unit_snapshot', 'weight_per_unit_kg_snapshot', 'dm_pct_snapshot', 'kind', 'transfer_id', 'return_batch_id', 'return_storage_location_id'],
   },
 };
+
+// Whole tables created by a held migration. Until the ceiling reaches the
+// version, backup export/restore must not touch them (they may not exist yet).
+export const STAGED_TABLES = {
+  45: ['historical_feedings', 'historical_animal_basis'],
+};
+
+/** True when `table` is not created by a schema above the compiled ceiling. */
+export function isTableReleased(table, ceiling = RELEASED_SCHEMA_VERSION) {
+  return !Object.entries(STAGED_TABLES).some(([version, tables]) => Number(version) > ceiling && tables.includes(table));
+}

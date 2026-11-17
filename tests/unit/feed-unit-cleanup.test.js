@@ -176,6 +176,16 @@ describe('real feed forms', () => {
     expect(getAll('batchLocationBalances')).toHaveLength(0);
   });
 
+  it('the source picker offers opening, and editing a relabeled opening batch keeps opening', () => {
+    add('batches', BatchEntity.create({ id: OLD, operationId: OP, feedTypeId: GRASS, name: 'Carried lot', source: 'opening', quantity: 37, remaining: 0, unit: 'bale', costPerUnit: 45, purchaseDate: '2026-03-15' }), BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+    mount();
+    $(`feed-batch-edit-${OLD}`).click();
+    expect(options($('batch-sheet-source'))).toEqual([['purchase', 'Purchase'], ['harvest', 'Harvest'], ['opening', 'Opening'], ['transfer', 'Transfer']]);
+    expect($('batch-sheet-source').value).toBe('opening');
+    $('batch-sheet-save').click();
+    expect(getById('batches', OLD)).toMatchObject({ source: 'opening', quantity: 37, costPerUnit: 45, purchaseDate: '2026-03-15' });
+  });
+
   it('an existing Bale batch opens as Round bale and an ordinary save stores bale', () => {
     add('batches', BatchEntity.create({ id: OLD, operationId: OP, feedTypeId: GRASS, name: 'Nov lot', source: 'purchase', quantity: 150, remaining: 150, unit: 'Bale', costPerUnit: 56.66 }), BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
     mount();

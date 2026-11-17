@@ -108,7 +108,7 @@ describe('DMI-9 implied pasture, window lane', () => {
     expect(p.bySpecies).not.toHaveProperty('goat');
     expect(Object.keys(p.bySpecies)).toEqual(['cattle', 'sheep']);
   });
-  it('a window with no class takes species from its live members, split by head', () => {
+  it('a window with no class takes species from its live members, DM by live-weight share and heads by count', () => {
     const input = hay();
     input.animalClasses = { cow: { ...classes.cow, defaultWeightKg: 500 }, ewe: { ...classes.ewe, defaultWeightKg: 50 } };
     input.groupWindows = [{ id: 'g', eventId: 'e', groupId: 'grp', dateJoined: '2026-11-01', dateLeft: null, headCount: 2, avgWeightKg: 275 }];
@@ -119,7 +119,32 @@ describe('DMI-9 implied pasture, window lane', () => {
     expect(p.demandDmKgPerDay).toBeCloseTo(2 * 275 * 0.025);
     expect(p.bySpecies.cattle.avgHead).toBeCloseTo(1);
     expect(p.bySpecies.sheep.avgHead).toBeCloseTo(1);
-    expect(p.bySpecies.cattle.demandDmKgPerDay).toBeCloseTo(p.bySpecies.sheep.demandDmKgPerDay);
+    // 1 cow at 500 kg and 1 ewe at 50 kg: 13.75 kg/day splits 12.5 / 1.25 by weight.
+    expect(p.bySpecies.cattle.demandDmKgPerDay).toBeCloseTo(12.5);
+    expect(p.bySpecies.sheep.demandDmKgPerDay).toBeCloseTo(1.25);
+    expect(p.bySpecies.sheep.storedDmKgPerDay).toBeCloseTo(400 * 1.25 / 13.75);
+  });
+  it('a closed window still takes species from the members live on that date (a sheep group that moved mid-window)', () => {
+    const input = hay();
+    input.events.push({ id: 'e2', dateIn: '2026-11-10', dateOut: null });
+    input.animalClasses = { ewe: { ...classes.ewe, defaultWeightKg: 50 } };
+    input.animals = [{ id: 'flock', classId: 'ewe', isBulk: true, bulkHeadCount: 40 }];
+    input.memberships = [{ id: 'm', animalId: 'flock', groupId: 'sheep', dateJoined: '2026-11-01' }];
+    input.animalWeightRecords = [];
+    input.groupWindows = [
+      { id: 'g1', eventId: 'e', groupId: 'sheep', dateJoined: '2026-11-01', dateLeft: '2026-11-10', headCount: 40, avgWeightKg: 50 },
+      { id: 'g2', eventId: 'e2', groupId: 'sheep', dateJoined: '2026-11-10', dateLeft: null, headCount: 40, avgWeightKg: 50 },
+    ];
+    const p = computeFeedRunRate(input).impliedPasture;
+    // Nov 5–9 on the closed window are sheep; Nov 10–14 the feed on e has no animals (dropped).
+    expect(p.dropped.storedWithoutDemand).toBe(5);
+    expect(p.countedDays).toBe(5);
+    expect(Object.keys(p.bySpecies)).toEqual(['sheep']);
+    expect(p.bySpecies.sheep.avgHead).toBe(40);
+    expect(p.bySpecies.sheep.demandDmKg).toBeCloseTo(p.demandDmKg);
+    // With no member live that day, the closed window has no species row.
+    input.memberships = [{ id: 'm', animalId: 'flock', groupId: 'sheep', dateJoined: '2026-11-20' }];
+    expect(computeFeedRunRate(input).impliedPasture.bySpecies).toEqual({});
   });
   it('maps species to display groups', () => {
     expect(['beef_cattle', 'dairy_cattle', 'sheep', 'goat', 'other', null].map(pastureSpeciesGroup)).toEqual(['cattle', 'cattle', 'sheep', 'goat', 'other', null]);

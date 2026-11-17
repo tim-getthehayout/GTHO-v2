@@ -177,15 +177,26 @@ export function pastureSpeciesGroup(species) {
   return null;
 }
 
-/** A demand row split by species: window class species, else live members' species by head share. */
+/**
+ * A demand row split by species: the window class species, else the members
+ * live that day. DM splits by live-weight share (demand is head × weight ×
+ * DMI%); heads split by head count. With no member weights, DM follows heads.
+ */
 function speciesParts(row) {
-  if (row.species) return [{ key: pastureSpeciesGroup(row.species), share: 1 }];
-  const heads = row.speciesHeads;
-  const total = heads ? [...heads.values()].reduce((sum, n) => sum + n, 0) : 0;
-  if (!(total > 0)) return [{ key: null, share: 1 }];
+  if (row.species) return [{ key: pastureSpeciesGroup(row.species), dmShare: 1, headShare: 1 }];
+  const mix = row.speciesMix;
+  const sum = map => (map ? [...map.values()].reduce((a, b) => a + b, 0) : 0);
+  const totalHeads = sum(mix?.heads), totalWeight = sum(mix?.weights);
+  if (!(totalHeads > 0)) return [{ key: null, dmShare: 1, headShare: 1 }];
   const parts = new Map();
-  for (const [species, n] of heads) { const key = pastureSpeciesGroup(species); parts.set(key, (parts.get(key) ?? 0) + n / total); }
-  return [...parts].map(([key, share]) => ({ key, share }));
+  for (const [species, heads] of mix.heads) {
+    const key = pastureSpeciesGroup(species);
+    const part = parts.get(key) ?? { key, dmShare: 0, headShare: 0 };
+    part.headShare += heads / totalHeads;
+    part.dmShare += totalWeight > 0 ? (mix.weights.get(species) ?? 0) / totalWeight : heads / totalHeads;
+    parts.set(key, part);
+  }
+  return [...parts.values()];
 }
 
 function pastureFigures({ demandDmKg, storedDmKg, headDays }, countedDays) {
@@ -233,15 +244,15 @@ function impliedPastureWindow({ dates, perDate, events, demandOpts, paddockWindo
       const own = rows.filter(row => row.eventId === eventId && row.kg > 0);
       const ownKg = own.reduce((sum, row) => sum + row.kg, 0);
       if (!(ownKg > 0)) { if (dm > 1e-9) orphan = true; continue; }
-      for (const row of own) for (const { key, share } of speciesParts(row)) stored.set(key, (stored.get(key) ?? 0) + dm * row.kg * share / ownKg);
+      for (const row of own) for (const { key, dmShare } of speciesParts(row)) stored.set(key, (stored.get(key) ?? 0) + dm * row.kg * dmShare / ownKg);
     }
     if (orphan) { dropped.storedWithoutDemand += 1; continue; }
     countedDays += 1;
     if (noHay) noHayDays += 1; else measuredCounted += 1;
     for (const row of rows) {
-      for (const { key, share } of speciesParts(row)) {
+      for (const { key, dmShare, headShare } of speciesParts(row)) {
         const sp = species.get(key) ?? { demandDmKg: 0, storedDmKg: 0, headDays: 0 };
-        sp.demandDmKg += row.kg * share; sp.headDays += row.head * share; species.set(key, sp);
+        sp.demandDmKg += row.kg * dmShare; sp.headDays += row.head * headShare; species.set(key, sp);
       }
       total.demandDmKg += row.kg;
     }

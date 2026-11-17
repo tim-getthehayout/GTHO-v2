@@ -213,25 +213,37 @@ export function hasUnknownLiveWindowWeights(gw, opts) {
   return false;
 }
 
-/** Live members' heads by class species on `dt` (open windows only); null when unknown. */
-function liveSpeciesHeads(gw, dt, { memberships, animals, animalClasses }) {
-  if (gw.dateLeft != null || !memberships || !animals) return null;
+/**
+ * Members live on `dt` by class species: heads, and live weight (latest weight
+ * record on or before `dt`, else class default × heads, as the average-weight
+ * helper). Works for closed windows too (membership dates decide). Null when
+ * no member is live that day.
+ */
+function liveSpeciesMix(gw, dt, { memberships, animals, animalClasses, animalWeightRecords }) {
+  if (!memberships || !animals) return null;
   const byId = new Map(animals.map(a => [a.id, a]));
-  const heads = new Map();
+  const heads = new Map(), weights = new Map();
   for (const m of memberships) {
     if (!isMembershipLive(m, gw.groupId, dt)) continue;
     const animal = byId.get(m.animalId);
-    const species = animal?.classId && animalClasses ? animalClasses[animal.classId]?.species ?? null : null;
-    heads.set(species, (heads.get(species) ?? 0) + animalHeadCount(animal));
+    const cls = animal?.classId && animalClasses ? animalClasses[animal.classId] : null;
+    const species = cls?.species ?? null;
+    const n = animalHeadCount(animal);
+    heads.set(species, (heads.get(species) ?? 0) + n);
+    const rec = animalWeightRecords ? latestWeightForAnimal(animalWeightRecords, m.animalId, dt) : null;
+    const kg = rec && typeof rec.weightKg === 'number' ? rec.weightKg
+      : (cls && typeof cls.defaultWeightKg === 'number' && cls.defaultWeightKg > 0 ? cls.defaultWeightKg * n : 0);
+    weights.set(species, (weights.get(species) ?? 0) + kg);
   }
-  return heads.size ? heads : null;
+  return heads.size ? { heads, weights } : null;
 }
 
 /**
  * Per-window predicted DMI on `dt`: one row per group window active on `dt`
  * with head, average weight, class DMI% (2.5 when unset), kg, the window
- * class species (null when the window has no class) and, for open windows
- * with live memberships, the live members' heads by their class species. `groupWindowsDailyDmiKg` is the
+ * class species (null when the window has no class) and, when members are
+ * live that day (open or closed window), their heads and live weight by
+ * class species (`speciesMix`). `groupWindowsDailyDmiKg` is the
  * sum of `kg`, so DMI-8, FED-6 and DMI-9 share one demand.
  * `animalClasses` is a map keyed by class id.
  */
@@ -253,7 +265,7 @@ export function groupWindowsDailyDemand(dt, { groupWindows, memberships, animals
           animalWeightRecords, now: dt,
         })
       : (gw.avgWeightKg ?? 0);
-    rows.push({ groupWindow: gw, eventId: gw.eventId, species: cls?.species ?? null, speciesHeads: liveSpeciesHeads(gw, dt, { memberships, animals, animalClasses }),
+    rows.push({ groupWindow: gw, eventId: gw.eventId, species: cls?.species ?? null, speciesMix: liveSpeciesMix(gw, dt, { memberships, animals, animalClasses, animalWeightRecords }),
       head, avgWeightKg: avg, dmiPct: pct, kg: head * avg * (pct / 100) });
   }
   return rows;

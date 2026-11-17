@@ -1,8 +1,8 @@
 /** @file Feed Day Goal card: run-rate section mounted on the real Feed screen. */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { _reset, add, update, setSyncAdapter } from '../../../../src/data/store.js';
 import { renderFeedScreen } from '../../../../src/features/feed/index.js';
-import { renderRunRatePanel } from '../../../../src/features/feed/run-rate-panel.js';
+import { renderRunRatePanel, feedRunRateInput } from '../../../../src/features/feed/run-rate-panel.js';
 import { setLocale } from '../../../../src/i18n/i18n.js';
 import en from '../../../../src/i18n/locales/en.json';
 import { getLocalTodayStr } from '../../../../src/utils/date-utils.js';
@@ -77,6 +77,21 @@ describe('feed run rate on the Feed Day Goal card', () => {
     document.body.replaceChildren();
     setSyncAdapter(null);
     globalThis.localStorage?.clear();
+    // Fixed clock: pills are clipped to the default budget period start (Oct 1).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-17T15:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('pills are clipped to the default budget period start: the 60-day pill shows 48 days on Nov 17, 2026', () => {
+    expect(feedRunRateInput(60, '2026-11-17').periodStart).toBe('2026-10-01');
+    expect(feedRunRateInput(30, '2027-09-30').periodStart).toBe('2026-10-01');
+    seed();
+    mount();
+    document.querySelector('[data-testid="feed-run-rate-pill-60"]').click();
+    expect(getLocalTodayStr()).toBe('2026-11-17');
+    expect(text('feed-run-rate-measured')).toBe(`Measured 10 of 48 days, through ${formatShortDate(localDay(-16))}`);
+    expect(text('feed-implied-pasture-detail')).toContain('of 48 days');
   });
 
   it('shows measured bales/day, consumed, residual, DMI vs forecast, and the renamed need cell', () => {

@@ -11,6 +11,7 @@ import { display } from '../../utils/units.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { computeFeedRunRate, RUN_RATE_WINDOWS, DEFAULT_RUN_RATE_DAYS } from '../../calcs/feed-run-rate.js';
+import { periodContaining } from '../../calcs/budget-period.js';
 import { getEventStartDate } from '../events/event-start.js';
 
 // ---------------------------------------------------------------------------
@@ -28,14 +29,15 @@ function setRunRateDays(days) {
   try { globalThis.localStorage?.setItem(RUN_RATE_DAYS_KEY, String(days)); } catch { /* device storage unavailable */ }
 }
 
-/** Gather store rows for the shared run-rate calc. Event start is derived (dateIn). */
+/** Gather store rows for the shared run-rate calc. Event start is derived (dateIn).
+ * Pills are clipped to the start of the default budget period containing today (D10). */
 export function feedRunRateInput(days, today = getLocalTodayStr()) {
   const classes = {};
   for (const cls of getAll('animalClasses')) classes[cls.id] = cls;
   const locations = {};
   for (const loc of getAll('locations')) locations[loc.id] = loc;
   return {
-    today, days,
+    today, days, periodStart: periodContaining(today).start,
     events: getAll('events').map(event => ({ id: event.id, dateIn: getEventStartDate(event.id), dateOut: event.dateOut ?? null })),
     entries: getAll('eventFeedEntries'), checks: getAll('eventFeedChecks'), items: getAll('eventFeedCheckItems'),
     batches: getAll('batches'), feedTypes: getAll('feedTypes'),

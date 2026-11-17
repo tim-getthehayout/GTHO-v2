@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { _reset, add, setSyncAdapter } from '../../../../src/data/store.js';
 import { renderFeedScreen } from '../../../../src/features/feed/index.js';
+import { renderRunRatePanel } from '../../../../src/features/feed/run-rate-panel.js';
 import { setLocale } from '../../../../src/i18n/i18n.js';
 import en from '../../../../src/i18n/locales/en.json';
 import { getLocalTodayStr } from '../../../../src/utils/date-utils.js';
@@ -102,5 +103,19 @@ describe('feed run rate on the Feed Day Goal card', () => {
     document.body.replaceChildren();
     mount();
     expect(document.querySelector('[data-testid="feed-run-rate-pill-7"]').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('the same panel component renders standalone for the scorecard to reuse', () => {
+    seed();
+    const panel = renderRunRatePanel({ unitSys: 'metric' });
+    document.body.appendChild(panel);
+    expect(panel.getAttribute('data-testid')).toBe('feed-run-rate-section');
+    expect(text('feed-run-rate-line')).toBe('Run rate: 1 round bales/day · 400 kg DM/day');
+    expect(text('feed-run-rate-dmi')).toBe('DMI: actual 400 kg DM/day vs forecast 125 kg DM/day (320%)');
+    // The window choice is shared with the Feed card (one device preference).
+    document.querySelector('[data-testid="feed-run-rate-pill-14"]').click();
+    document.body.replaceChildren();
+    mount();
+    expect(document.querySelector('[data-testid="feed-run-rate-pill-14"]').getAttribute('aria-pressed')).toBe('true');
   });
 });

@@ -5,7 +5,7 @@
  */
 import { registerCalc } from '../utils/calc-registry.js';
 import { feedSnapshot, poolHistory, poolDailyObservation, replayFeedPools } from './feed-pools.js';
-import { groupWindowsDailyDmiKg, groupWindowsDailyDemand } from './window-helpers.js';
+import { groupWindowsDailyDmiKg, groupWindowsDailyDemand, eventOpenOn } from './window-helpers.js';
 import { isPureConfinementOnDate } from './location-type.js';
 import { foldFeedUnit } from '../utils/feed-units.js';
 import { rowInstant } from '../utils/date-utils.js';
@@ -23,7 +23,7 @@ export function shiftDate(date, days) {
   return d.toISOString().slice(0, 10);
 }
 // Run-rate days follow group windows: the close day itself is not an open day.
-const openOn = (event, date) => !!event.dateIn && event.dateIn <= date && (!event.dateOut || date < event.dateOut);
+const openOn = eventOpenOn;
 /** Count figures are shown only for bale-like units; ton/kg/lb pools add to DM only (decision D). */
 export const RUN_RATE_COUNT_UNITS = Object.freeze(new Set(['bale', 'sq bale', 'bag']));
 const countUnit = unit => (unit && RUN_RATE_COUNT_UNITS.has(unit) ? unit : null);
@@ -74,7 +74,7 @@ function finishCost(total) {
  * Farm-measured day: at least one active pool and every active pool measured.
  */
 export function computeFeedRunRate({ today, days = DEFAULT_RUN_RATE_DAYS, periodStart = null, events = [], entries = [], checks = [], items = [],
-  batches = {}, feedTypes = {}, groupWindows = [], memberships = null, animals = [], animalWeightRecords = [], animalClasses = {},
+  batches = {}, feedTypes = {}, groupWindows = [], memberships = null, animals = [], animalWeightRecords = [], animalClasses = {}, groups = [],
   paddockWindows = [], locations = {} }) {
   let start = shiftDate(today, -(days - 1));
   if (periodStart && periodStart > start) start = periodStart > today ? today : periodStart;
@@ -147,14 +147,15 @@ export function computeFeedRunRate({ today, days = DEFAULT_RUN_RATE_DAYS, period
       const day = perDate.get(date);
       measuredDm += day.dmKg;
       for (const [unit, value] of Object.entries(day.units)) addUnits(units, unit, value);
-      forecast += groupWindowsDailyDmiKg(date, { groupWindows, memberships, animals, animalClasses, animalWeightRecords });
+      // Farm demand: only windows on events open that day, once per group (orphans excluded).
+      forecast += groupWindowsDailyDmiKg(date, { groupWindows, memberships, animals, animalClasses, animalWeightRecords, events, groups });
     }
     rate.dmKgPerDay = measuredDm / measuredDays;
     rate.unitsPerDay = Object.fromEntries(Object.entries(units).map(([unit, value]) => [unit, value / measuredDays]));
     rate.forecastDmKgPerDay = forecast / measuredDays;
     rate.pctOfForecast = rate.forecastDmKgPerDay > 0 ? rate.dmKgPerDay / rate.forecastDmKgPerDay * 100 : null;
   }
-  const demandOpts = { groupWindows, memberships, animals, animalClasses, animalWeightRecords };
+  const demandOpts = { groupWindows, memberships, animals, animalClasses, animalWeightRecords, events, groups };
   const impliedPasture = impliedPastureWindow({ dates, perDate, events: relevant, demandOpts, paddockWindows, locations });
   return {
     days, windowDays: dates.length, start, end: today, measuredDays, lastMeasuredDate: measuredDates.at(-1) ?? null,

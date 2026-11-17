@@ -1,7 +1,8 @@
 /** @file Feed run rate from feed checks — pure shared calc. */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { computeFeedRunRate, poolDmPrices, shiftDate, FALLBACK_COST_PER_BALE } from '../../src/calcs/feed-run-rate.js';
 import { poolDailyObservation, poolDailyActual, poolKey } from '../../src/calcs/feed-pools.js';
+import { groupWindowsDailyDmiKg, farmDemandWindowsOn, eventOpenOn } from '../../src/calcs/window-helpers.js';
 
 const types = [{ id: 'hay', unit: 'bale' }, { id: 'sq', unit: 'sq bale' }];
 const feed = (id, eventId, feedTypeId, date, q, { w = 500, dm = 80, unit = 'bale', batchId = id, time = '09:00', loc = 'p' } = {}) =>
@@ -209,5 +210,67 @@ describe('computeFeedRunRate', () => {
     expect(r.rate.unitsPerDay).toEqual({});
     expect(r.rate.dmKgPerDay).toBe(400);
     expect(JSON.stringify(input)).toBe(before);
+  });
+});
+
+/** Orphan fixture: group G left open on event A (closed Jul 27) by a split; G now on event B from Nov 9. */
+function orphanHerd() {
+  return {
+    today: '2026-11-17', days: 30, feedTypes: types,
+    events: [{ id: 'evt-a', dateIn: '2026-07-01', dateOut: '2026-07-27' }, { id: 'evt-b', dateIn: '2026-11-09', dateOut: null }],
+    entries: [{ ...feed('b1', 'evt-b', 'hay', '2026-11-09', 10), id: 'f-b' }],
+    checks: [check('c1', 'evt-b', '2026-11-10'), check('c2', 'evt-b', '2026-11-15')],
+    items: [item('c1', 'hay', 6), item('c2', 'hay', 1)],
+    batches: [{ id: 'b1', feedTypeId: 'hay', unit: 'bale', costPerUnit: 60, weightPerUnitKg: 500, dmPct: 80 }],
+    groups: [{ id: 'grp-g', name: 'Test Herd' }],
+    groupWindows: [
+      { id: 'gw-orphan', eventId: 'evt-a', groupId: 'grp-g', dateJoined: '2026-07-29', dateLeft: null, headCount: 10, avgWeightKg: 500 },
+      { id: 'gw-b', eventId: 'evt-b', groupId: 'grp-g', dateJoined: '2026-11-09', dateLeft: null, headCount: 10, avgWeightKg: 500 },
+    ],
+  };
+}
+/** Per-event DMI-8 demand (each event's own windows, as DMI-8 filters them) summed over events open on d. */
+const perEventDemandSum = (input, d) => input.events.filter(e => eventOpenOn(e, d))
+  .reduce((sum, e) => sum + groupWindowsDailyDmiKg(d, { groupWindows: input.groupWindows.filter(w => w.eventId === e.id) }), 0);
+
+describe('farm demand counts only windows on open events, once per group', () => {
+  it('an orphan window on a closed event adds nothing: the forecast is event B\'s demand only', () => {
+    const input = orphanHerd();
+    const r = computeFeedRunRate(input);
+    expect(r.measuredDays).toBe(5);
+    // 10 head × 500 kg × 2.5% = 125 kg/day, not 250 with the orphan.
+    expect(r.rate.forecastDmKgPerDay).toBe(125);
+    for (let d = '2026-10-19'; d <= '2026-11-17'; d = shiftDate(d, 1)) {
+      const farm = groupWindowsDailyDmiKg(d, { groupWindows: input.groupWindows, events: input.events, groups: input.groups });
+      expect(farm).toBe(perEventDemandSum(input, d));
+      expect(farm).toBe(d >= '2026-11-09' ? 125 : 0);
+    }
+  });
+  it('clips each window to its event: days before the event opens or from its close day do not count', () => {
+    const events = [{ id: 'evt-c', dateIn: '2026-11-09', dateOut: '2026-11-12' }];
+    const groupWindows = [{ id: 'gw-c', eventId: 'evt-c', groupId: 'grp-g', dateJoined: '2026-11-05', dateLeft: null, headCount: 10, avgWeightKg: 500 }];
+    const on = d => groupWindowsDailyDmiKg(d, { groupWindows, events });
+    expect([on('2026-11-08'), on('2026-11-09'), on('2026-11-11'), on('2026-11-12')]).toEqual([0, 125, 125, 0]);
+    // A window whose event is missing never counts.
+    expect(groupWindowsDailyDmiKg('2026-11-10', { groupWindows: [{ ...groupWindows[0], eventId: 'evt-gone' }], events })).toBe(0);
+  });
+  it('a group with two qualifying windows on the same day counts once and warns with the name and date only', () => {
+    const input = orphanHerd();
+    input.events.push({ id: 'evt-d', dateIn: '2026-11-01', dateOut: null });
+    input.groupWindows.push({ id: 'gw-d', eventId: 'evt-d', groupId: 'grp-g', dateJoined: '2026-11-01', dateLeft: null, headCount: 10, avgWeightKg: 500 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { windows, duplicates } = farmDemandWindowsOn('2026-11-12', input);
+      expect(duplicates).toBe(1);
+      // The latest-joined window counts.
+      expect(windows.map(w => w.id)).toEqual(['gw-b']);
+      expect(computeFeedRunRate(input).rate.forecastDmKgPerDay).toBe(125);
+      expect(warn).toHaveBeenCalled();
+      const messages = warn.mock.calls.map(call => call.join(' '));
+      expect(messages.some(m => m.includes('Test Herd') && m.includes('2026-11-12'))).toBe(true);
+      for (const m of messages) expect(m).not.toMatch(/grp-g|gw-|evt-/);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

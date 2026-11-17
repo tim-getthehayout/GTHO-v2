@@ -11,11 +11,13 @@ import { _reset, add, getById, getAll, setSyncAdapter } from '../../src/data/sto
 import * as AnimalEntity from '../../src/entities/animal.js';
 import * as MembershipEntity from '../../src/entities/animal-group-membership.js';
 import * as GroupWindowEntity from '../../src/entities/event-group-window.js';
+import * as EventEntity from '../../src/entities/event.js';
 
 const OP = '00000000-0000-0000-0000-0000000000aa';
 const ANIMAL_ID = '00000000-0000-0000-0000-0000000000bb';
 const GROUP_A = '00000000-0000-0000-0000-0000000000c1';
 const GROUP_B = '00000000-0000-0000-0000-0000000000c2';
+const FARM_ID = '00000000-0000-0000-0000-0000000000f1';
 
 function mkAnimal(overrides = {}) {
   return AnimalEntity.create({
@@ -191,6 +193,7 @@ describe('cull-sheet: confirmCull', () => {
     add('animalGroupMemberships', memCulled, MembershipEntity.validate);
     add('animalGroupMemberships', memRemaining, MembershipEntity.validate);
 
+    add('events', EventEntity.create({ id: EVT_ID, operationId: OP, farmId: FARM_ID, dateIn: '2026-01-01' }), EventEntity.validate);
     // Open event_group_window for GROUP_A joined "today" — mirrors live data shape.
     const openGW = GroupWindowEntity.create({
       id: 'gw-open', operationId: OP, eventId: EVT_ID, groupId: GROUP_A,
@@ -216,6 +219,34 @@ describe('cull-sheet: confirmCull', () => {
     // The new open window reflects the post-cull live count of 1 remaining animal.
     expect(openWindowsAfter[0].headCount).toBe(1);
     expect(openWindowsAfter[0].dateJoined).toBe(todayStr);
+  });
+
+  it('skips an orphan open window whose event is closed: only the open event\'s window is split', () => {
+    const OPEN_EVT = '00000000-0000-0000-0000-0000000000d2';
+    const CLOSED_EVT = '00000000-0000-0000-0000-0000000000d3';
+    const SECOND_ANIMAL = '00000000-0000-0000-0000-0000000000e2';
+    const todayStr = getLocalTodayStr();
+    const culled = mkAnimal();
+    add('animals', culled, AnimalEntity.validate);
+    add('animals', AnimalEntity.create({ id: SECOND_ANIMAL, operationId: OP, sex: 'female', tagNum: '205', name: 'A-0044', active: true }), AnimalEntity.validate);
+    add('animalGroupMemberships', mkMembership('mem-c1', GROUP_A), MembershipEntity.validate);
+    add('animalGroupMemberships', MembershipEntity.create({ id: 'mem-c2', operationId: OP, animalId: SECOND_ANIMAL, groupId: GROUP_A, dateJoined: '2026-01-01' }), MembershipEntity.validate);
+    add('events', EventEntity.create({ id: CLOSED_EVT, operationId: OP, farmId: FARM_ID, dateIn: '2026-01-01', dateOut: '2026-07-27' }), EventEntity.validate);
+    add('events', EventEntity.create({ id: OPEN_EVT, operationId: OP, farmId: FARM_ID, dateIn: '2026-07-27' }), EventEntity.validate);
+    // The orphan: still open on the closed event (left behind by an earlier split).
+    add('eventGroupWindows', GroupWindowEntity.create({ id: 'gw-orphan', operationId: OP, eventId: CLOSED_EVT, groupId: GROUP_A, dateJoined: '2026-07-01', headCount: 2, avgWeightKg: 450 }), GroupWindowEntity.validate);
+    add('eventGroupWindows', GroupWindowEntity.create({ id: 'gw-live', operationId: OP, eventId: OPEN_EVT, groupId: GROUP_A, dateJoined: '2026-07-27', headCount: 2, avgWeightKg: 450 }), GroupWindowEntity.validate);
+
+    confirmCull({ animal: culled, cullDate: todayStr, cullReason: 'Sold', cullNotes: null });
+
+    // The orphan is untouched: no successor carries the ghost forward.
+    expect(getById('eventGroupWindows', 'gw-orphan').dateLeft ?? null).toBeNull();
+    const onClosed = getAll('eventGroupWindows').filter(w => w.eventId === CLOSED_EVT);
+    expect(onClosed).toHaveLength(1);
+    // The live window was split to the post-cull head count.
+    const liveOpen = getAll('eventGroupWindows').filter(w => w.eventId === OPEN_EVT && !w.dateLeft);
+    expect(liveOpen).toHaveLength(1);
+    expect(liveOpen[0].headCount).toBe(1);
   });
 });
 

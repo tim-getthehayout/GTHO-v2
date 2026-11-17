@@ -16,6 +16,8 @@
  * animalWeightRecords + `now`.
  */
 
+import { logger } from '../utils/logger.js';
+
 function isMembershipLive(m, groupId, now) {
   if (m.groupId !== groupId) return false;
   if (m.dateJoined && m.dateJoined > now) return false;
@@ -213,6 +215,51 @@ export function hasUnknownLiveWindowWeights(gw, opts) {
   return false;
 }
 
+/** An event is open on `dt` when dateIn ≤ dt and it has no dateOut or dt < dateOut. */
+export function eventOpenOn(event, dt) {
+  return !!event?.dateIn && event.dateIn <= dt && (!event.dateOut || dt < event.dateOut);
+}
+
+const warnedDuplicateGroupDays = new Set();
+
+/**
+ * Farm-wide filter for daily demand: the group windows that count on `dt`.
+ * A window counts only if its event exists and is open on `dt` and the
+ * window itself is active on `dt` (so each window is clipped to the overlap
+ * of its own dates and its event's). A group counts at most once per day:
+ * when two windows qualify for the same group, the latest-joined one counts
+ * and a logger warning (console + log buffer) gives the group name, window
+ * count and date (never ids).
+ * `events` is an array or an id-keyed map; `groups` (optional) supplies names.
+ */
+export function farmDemandWindowsOn(dt, { groupWindows, events, groups } = {}) {
+  const eventById = Array.isArray(events) ? new Map(events.map(e => [e.id, e])) : new Map(Object.entries(events || {}));
+  const byGroup = new Map();
+  const counts = new Map();
+  for (const gw of groupWindows || []) {
+    if (gw.dateJoined > dt) continue;
+    if (gw.dateLeft && gw.dateLeft <= dt) continue;
+    if (!eventOpenOn(eventById.get(gw.eventId), dt)) continue;
+    const key = gw.groupId ?? gw.id;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const prior = byGroup.get(key);
+    if (!prior || (gw.dateJoined || '') > (prior.dateJoined || '')) byGroup.set(key, gw);
+  }
+  let duplicates = 0;
+  for (const [key, n] of counts) {
+    if (n < 2) continue;
+    duplicates += n - 1;
+    const warnKey = `${key}|${dt}`;
+    if (warnedDuplicateGroupDays.has(warnKey)) continue;
+    warnedDuplicateGroupDays.add(warnKey);
+    const groupList = Array.isArray(groups) ? groups : Object.values(groups || {});
+    const name = groupList.find(g => g.id === key)?.name || 'A group';
+    // Diagnostic only: the group name, count and date (no ids).
+    logger.warn('demand', `${name} has ${n} open windows on ${dt}; counted once`, { windows: n, date: dt });
+  }
+  return { windows: [...byGroup.values()], duplicates };
+}
+
 /**
  * Members live on `dt` by class species: heads, and live weight (latest weight
  * record on or before `dt`, else class default × heads, as the average-weight
@@ -239,17 +286,20 @@ function liveSpeciesMix(gw, dt, { memberships, animals, animalClasses, animalWei
 }
 
 /**
- * Per-window predicted DMI on `dt`: one row per group window active on `dt`
- * with head, average weight, class DMI% (2.5 when unset), kg, the window
- * class species (null when the window has no class) and, when members are
- * live that day (open or closed window), their heads and live weight by
+ * Per-window predicted DMI on `dt`: one row per group window that counts
+ * on `dt` with head, average weight, class DMI% (2.5 when unset), kg, the
+ * window class species (null when the window has no class) and, when members
+ * are live that day (open or closed window), their heads and live weight by
  * class species (`speciesMix`). `groupWindowsDailyDmiKg` is the
  * sum of `kg`, so DMI-8, FED-6 and DMI-9 share one demand.
- * `animalClasses` is a map keyed by class id.
+ * `animalClasses` is a map keyed by class id. When `events` is given (farm
+ * demand), only windows on events open on `dt` count, once per group
+ * (farmDemandWindowsOn); DMI-8 passes one event's windows and no `events`.
  */
-export function groupWindowsDailyDemand(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords } = {}) {
+export function groupWindowsDailyDemand(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords, events, groups } = {}) {
   const rows = [];
-  for (const gw of groupWindows || []) {
+  const counted = events ? farmDemandWindowsOn(dt, { groupWindows, events, groups }).windows : groupWindows;
+  for (const gw of counted || []) {
     if (gw.dateJoined > dt) continue;
     if (gw.dateLeft && gw.dateLeft <= dt) continue;
     const cls = gw.animalClassId && animalClasses ? animalClasses[gw.animalClassId] : null;
@@ -272,10 +322,13 @@ export function groupWindowsDailyDemand(dt, { groupWindows, memberships, animals
 }
 
 /**
- * Predicted daily DMI (kg) of every group window active on `dt`:
+ * Predicted daily DMI (kg) of every group window that counts on `dt`:
  * head × average weight × class DMI% (2.5 when unset), live for open windows
  * (OI-0091). Shared by DMI-8's daily demand and the feed run rate forecast.
- * `animalClasses` is a map keyed by class id.
+ * `animalClasses` is a map keyed by class id. When `events` is given (farm
+ * demand), only windows on events open on `dt` count, once per group
+ * (farmDemandWindowsOn); DMI-8 passes one event's windows and no `events`.
+ * Sums `groupWindowsDailyDemand` so DMI-8, FED-6 and DMI-9 share one demand.
  */
 export function groupWindowsDailyDmiKg(dt, opts = {}) {
   let total = 0;

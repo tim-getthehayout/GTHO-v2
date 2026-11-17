@@ -5,7 +5,8 @@
  */
 import { registerCalc } from '../utils/calc-registry.js';
 import { feedSnapshot, poolHistory, poolDailyObservation, replayFeedPools } from './feed-pools.js';
-import { groupWindowsDailyDmiKg } from './window-helpers.js';
+import { groupWindowsDailyDmiKg, groupWindowsDailyDemand } from './window-helpers.js';
+import { isPureConfinementOnDate } from './location-type.js';
 import { foldFeedUnit } from '../utils/feed-units.js';
 import { rowInstant } from '../utils/date-utils.js';
 
@@ -73,13 +74,14 @@ function finishCost(total) {
  * Farm-measured day: at least one active pool and every active pool measured.
  */
 export function computeFeedRunRate({ today, days = DEFAULT_RUN_RATE_DAYS, periodStart = null, events = [], entries = [], checks = [], items = [],
-  batches = {}, feedTypes = {}, groupWindows = [], memberships = null, animals = [], animalWeightRecords = [], animalClasses = {} }) {
+  batches = {}, feedTypes = {}, groupWindows = [], memberships = null, animals = [], animalWeightRecords = [], animalClasses = {},
+  paddockWindows = [], locations = {} }) {
   let start = shiftDate(today, -(days - 1));
   if (periodStart && periodStart > start) start = periodStart > today ? today : periodStart;
   const dates = [];
   for (let date = start; date <= today; date = shiftDate(date, 1)) dates.push(date);
   const relevant = events.filter(event => event.dateIn && event.dateIn <= today && (!event.dateOut || event.dateOut >= start));
-  const perDate = new Map(dates.map(date => [date, { active: 0, measured: 0, dmKg: 0, units: {}, unknown: false, rows: [] }]));
+  const perDate = new Map(dates.map(date => [date, { active: 0, measured: 0, dmKg: 0, units: {}, unknown: false, rows: [], byEvent: new Map() }]));
   const consumed = amountTotals();
   const residual = { ...amountTotals(), eventsClosed: 0, closesWithoutReading: 0, knownPools: 0 };
   const byEvent = [];
@@ -112,6 +114,7 @@ export function computeFeedRunRate({ today, days = DEFAULT_RUN_RATE_DAYS, period
         if (!obs || obs.dm == null) { if (obs) day.unknown = true; continue; }
         day.measured += 1;
         day.dmKg += obs.dm;
+        day.byEvent.set(event.id, (day.byEvent.get(event.id) ?? 0) + obs.dm);
         if (obs.units != null && countUnit(obs.unit)) addUnits(day.units, obs.unit, obs.units);
         const price = prices.get(key);
         addAmount(consumed, obs.dm, obs.units, obs.unit, price);
@@ -151,6 +154,8 @@ export function computeFeedRunRate({ today, days = DEFAULT_RUN_RATE_DAYS, period
     rate.forecastDmKgPerDay = forecast / measuredDays;
     rate.pctOfForecast = rate.forecastDmKgPerDay > 0 ? rate.dmKgPerDay / rate.forecastDmKgPerDay * 100 : null;
   }
+  const demandOpts = { groupWindows, memberships, animals, animalClasses, animalWeightRecords };
+  const impliedPasture = impliedPastureWindow({ dates, perDate, events: relevant, demandOpts, paddockWindows, locations });
   return {
     days, windowDays: dates.length, start, end: today, measuredDays, lastMeasuredDate: measuredDates.at(-1) ?? null,
     hasChecks: checks.some(check => check.date >= start && check.date <= today && relevant.some(event => event.id === check.eventId)),
@@ -159,7 +164,102 @@ export function computeFeedRunRate({ today, days = DEFAULT_RUN_RATE_DAYS, period
     consumed: { ...finishCost(consumed), includesPartialDays: consumed.dmKg - measuredDm > 1e-6 },
     residual: finishResidual(residual, residual.closesWithoutReading > 0),
     byEvent,
+    impliedPasture,
   };
+}
+
+/** Display species group for DMI-9 rows: Cattle, Sheep, Goats, Other (null = no class species). */
+export function pastureSpeciesGroup(species) {
+  if (species === 'beef_cattle' || species === 'dairy_cattle') return 'cattle';
+  if (species === 'sheep') return 'sheep';
+  if (species === 'goat') return 'goat';
+  if (species === 'other') return 'other';
+  return null;
+}
+
+/** A demand row split by species: window class species, else live members' species by head share. */
+function speciesParts(row) {
+  if (row.species) return [{ key: pastureSpeciesGroup(row.species), share: 1 }];
+  const heads = row.speciesHeads;
+  const total = heads ? [...heads.values()].reduce((sum, n) => sum + n, 0) : 0;
+  if (!(total > 0)) return [{ key: null, share: 1 }];
+  const parts = new Map();
+  for (const [species, n] of heads) { const key = pastureSpeciesGroup(species); parts.set(key, (parts.get(key) ?? 0) + n / total); }
+  return [...parts].map(([key, share]) => ({ key, share }));
+}
+
+function pastureFigures({ demandDmKg, storedDmKg, headDays }, countedDays) {
+  const signed = demandDmKg - storedDmKg;
+  const shown = Math.max(0, signed);
+  const out = {
+    demandDmKg, storedDmKg, signedDmKg: signed,
+    demandDmKgPerDay: demandDmKg / countedDays, storedDmKgPerDay: storedDmKg / countedDays,
+    signedDmKgPerDay: signed / countedDays, signedPct: demandDmKg > 0 ? signed / demandDmKg * 100 : null,
+    pastureDmKgPerDay: shown / countedDays, pasturePct: demandDmKg > 0 ? shown / demandDmKg * 100 : null,
+    overDemandDmKgPerDay: signed < 0 ? -signed / countedDays : 0, overDemandPct: signed < 0 && demandDmKg > 0 ? -signed / demandDmKg * 100 : 0,
+  };
+  if (headDays != null) {
+    out.avgHead = headDays / countedDays;
+    out.pasturePerHeadKg = out.avgHead > 0 ? out.pastureDmKgPerDay / out.avgHead : null;
+  }
+  return out;
+}
+
+/**
+ * DMI-9 window lane: implied pasture = predicted herd DMI − stored feed eaten
+ * (FED-6 consumed) over the counted days: farm-measured days plus no-hay days
+ * (no pool active on any open event). Netted over the window, then floored at 0;
+ * the signed value is kept. Unknown, never 0. History basis rows (045) are not
+ * part of the window lane on the client.
+ */
+function impliedPastureWindow({ dates, perDate, events, demandOpts, paddockWindows, locations }) {
+  const dropped = { noWeight: 0, confinement: 0, storedWithoutDemand: 0 };
+  const total = { demandDmKg: 0, storedDmKg: 0 };
+  const species = new Map();
+  let countedDays = 0, noHayDays = 0, measuredCounted = 0, anyCandidate = false;
+  for (const date of dates) {
+    const day = perDate.get(date);
+    const measured = day.active > 0 && day.measured === day.active && !day.unknown;
+    const noHay = day.active === 0;
+    if (!measured && !noHay) continue;
+    anyCandidate = true;
+    if (noHay && events.some(event => openOn(event, date) && isPureConfinementOnDate({ paddockWindows, locations, eventId: event.id, date }))) { dropped.confinement += 1; continue; }
+    const rows = groupWindowsDailyDemand(date, demandOpts);
+    if (rows.some(row => row.head > 0 && !(finite(row.avgWeightKg) && row.avgWeightKg > 0))) { dropped.noWeight += 1; continue; }
+    // Stored by species: each event's eaten DM split by its windows' demand share on d.
+    const stored = new Map();
+    let orphan = false;
+    for (const [eventId, dm] of day.byEvent) {
+      const own = rows.filter(row => row.eventId === eventId && row.kg > 0);
+      const ownKg = own.reduce((sum, row) => sum + row.kg, 0);
+      if (!(ownKg > 0)) { if (dm > 1e-9) orphan = true; continue; }
+      for (const row of own) for (const { key, share } of speciesParts(row)) stored.set(key, (stored.get(key) ?? 0) + dm * row.kg * share / ownKg);
+    }
+    if (orphan) { dropped.storedWithoutDemand += 1; continue; }
+    countedDays += 1;
+    if (noHay) noHayDays += 1; else measuredCounted += 1;
+    for (const row of rows) {
+      for (const { key, share } of speciesParts(row)) {
+        const sp = species.get(key) ?? { demandDmKg: 0, storedDmKg: 0, headDays: 0 };
+        sp.demandDmKg += row.kg * share; sp.headDays += row.head * share; species.set(key, sp);
+      }
+      total.demandDmKg += row.kg;
+    }
+    for (const [key, dm] of stored) {
+      const sp = species.get(key) ?? { demandDmKg: 0, storedDmKg: 0, headDays: 0 };
+      sp.storedDmKg += dm; species.set(key, sp);
+      total.storedDmKg += dm;
+    }
+  }
+  const base = { windowDays: dates.length, countedDays, measuredDays: measuredCounted, noHayDays, dropped };
+  if (!countedDays) return { ...base, status: 'unknown', reason: anyCandidate ? 'no_usable_days' : 'no_counted_days', bySpecies: {} };
+  if (!(total.demandDmKg > 0)) return { ...base, status: 'no_animals', reason: null, bySpecies: {} };
+  const bySpecies = {};
+  for (const [key, sp] of species) {
+    if (key == null || !(sp.demandDmKg > 0)) continue;
+    bySpecies[key] = pastureFigures(sp, countedDays);
+  }
+  return { ...base, status: 'ok', reason: null, ...pastureFigures(total, countedDays), bySpecies };
 }
 
 /** Residual with no known pool is unknown (null DM and $), never 0. A real 0-left reading stays 0. */
@@ -168,6 +268,18 @@ function finishResidual(total, anyUnknown) {
   if (total.knownPools === 0 && anyUnknown) return { ...done, dmKg: null, cost: null, unknown: true };
   return { ...done, unknown: false };
 }
+
+registerCalc({
+  name: 'DMI-9',
+  category: 'dmi',
+  description: 'Implied pasture DMI over a run-rate window: predicted herd DMI minus stored feed eaten (FED-6 consumed), herd lb DM/day, per-head per species, % of demand',
+  formula: 'signed = Σ demand − Σ stored over counted days D (farm-measured + no-hay days); pasture/day = max(0, signed) ÷ |D|; % = max(0, signed) ÷ Σ demand × 100; over-demand when signed < 0',
+  source: 'session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md §1',
+  notes: 'Window lane; computed in the same day loop as FED-6 (field impliedPasture). Unknown, never 0. The period lane (fed basis, 045 history) waits for the budget view.',
+  inputs: [{ name: 'FED-6 inputs', type: 'object', unit: 'plus paddockWindows / locations for the confinement rule' }],
+  output: { type: 'object', shape: '{ status, reason, countedDays, windowDays, measuredDays, noHayDays, dropped, demandDmKg, storedDmKg, signedDmKgPerDay, signedPct, pastureDmKgPerDay, pasturePct, overDemandDmKgPerDay, overDemandPct, bySpecies }', unit: 'kg DM' },
+  fn: input => computeFeedRunRate(input).impliedPasture,
+});
 
 registerCalc({
   name: 'FED-6',

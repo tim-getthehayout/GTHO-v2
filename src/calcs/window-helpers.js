@@ -213,14 +213,30 @@ export function hasUnknownLiveWindowWeights(gw, opts) {
   return false;
 }
 
+/** Live members' heads by class species on `dt` (open windows only); null when unknown. */
+function liveSpeciesHeads(gw, dt, { memberships, animals, animalClasses }) {
+  if (gw.dateLeft != null || !memberships || !animals) return null;
+  const byId = new Map(animals.map(a => [a.id, a]));
+  const heads = new Map();
+  for (const m of memberships) {
+    if (!isMembershipLive(m, gw.groupId, dt)) continue;
+    const animal = byId.get(m.animalId);
+    const species = animal?.classId && animalClasses ? animalClasses[animal.classId]?.species ?? null : null;
+    heads.set(species, (heads.get(species) ?? 0) + animalHeadCount(animal));
+  }
+  return heads.size ? heads : null;
+}
+
 /**
- * Predicted daily DMI (kg) of every group window active on `dt`:
- * head × average weight × class DMI% (2.5 when unset), live for open windows
- * (OI-0091). Shared by DMI-8's daily demand and the feed run rate forecast.
+ * Per-window predicted DMI on `dt`: one row per group window active on `dt`
+ * with head, average weight, class DMI% (2.5 when unset), kg, the window
+ * class species (null when the window has no class) and, for open windows
+ * with live memberships, the live members' heads by their class species. `groupWindowsDailyDmiKg` is the
+ * sum of `kg`, so DMI-8, FED-6 and DMI-9 share one demand.
  * `animalClasses` is a map keyed by class id.
  */
-export function groupWindowsDailyDmiKg(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords } = {}) {
-  let total = 0;
+export function groupWindowsDailyDemand(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords } = {}) {
+  const rows = [];
   for (const gw of groupWindows || []) {
     if (gw.dateJoined > dt) continue;
     if (gw.dateLeft && gw.dateLeft <= dt) continue;
@@ -237,7 +253,20 @@ export function groupWindowsDailyDmiKg(dt, { groupWindows, memberships, animals,
           animalWeightRecords, now: dt,
         })
       : (gw.avgWeightKg ?? 0);
-    total += head * avg * (pct / 100);
+    rows.push({ groupWindow: gw, eventId: gw.eventId, species: cls?.species ?? null, speciesHeads: liveSpeciesHeads(gw, dt, { memberships, animals, animalClasses }),
+      head, avgWeightKg: avg, dmiPct: pct, kg: head * avg * (pct / 100) });
   }
+  return rows;
+}
+
+/**
+ * Predicted daily DMI (kg) of every group window active on `dt`:
+ * head × average weight × class DMI% (2.5 when unset), live for open windows
+ * (OI-0091). Shared by DMI-8's daily demand and the feed run rate forecast.
+ * `animalClasses` is a map keyed by class id.
+ */
+export function groupWindowsDailyDmiKg(dt, opts = {}) {
+  let total = 0;
+  for (const row of groupWindowsDailyDemand(dt, opts)) total += row.kg;
   return total;
 }

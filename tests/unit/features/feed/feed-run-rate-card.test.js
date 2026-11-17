@@ -94,6 +94,37 @@ describe('feed run rate on the Feed Day Goal card', () => {
     expect(text('feed-run-rate-dmi')).toBe('DMI: actual 400 kg DM/day vs forecast 125 kg DM/day (320%)');
   });
 
+  it('implied pasture is the headline: 0 and muted when stored eaten exceeds demand, with the over-demand line', () => {
+    seed();
+    mount();
+    const section = document.querySelector('[data-testid="feed-run-rate-section"]');
+    const head = document.querySelector('[data-testid="feed-implied-pasture"]');
+    // Headline sits above the run-rate line.
+    expect(section.children[1]).toBe(head);
+    expect(head.textContent).toBe('Pasture (implied): 0 kg DM/day · 0% of demand');
+    expect(head.style.color).toBe('var(--text3)');
+    expect(text('feed-implied-pasture-detail')).toBe('Demand 125 kg DM/day · stored eaten 400 kg DM/day · counted 10 of 30 days');
+    expect(text('feed-implied-pasture-over')).toBe('Stored feed over demand: 275 kg DM/day (220% of demand)');
+    expect(text('feed-implied-pasture-over-hint')).toContain('feeding waste');
+    expect(text('feed-implied-pasture-cattle')).toBe('Cattle: 0.0 kg DM/head/day · 0% of demand');
+  });
+
+  it('implied pasture above 0 is green with per-head cattle figures; no counted day is Unknown, not 0', () => {
+    seed();
+    update('animals', HERD, { bulkHeadCount: 100 }, AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
+    mount();
+    const head = document.querySelector('[data-testid="feed-implied-pasture"]');
+    expect(head.textContent).toBe('Pasture (implied): 850 kg DM/day · 68% of demand');
+    expect(head.style.color).toBe('var(--green)');
+    expect(text('feed-implied-pasture-over')).toBeNull();
+    expect(text('feed-implied-pasture-cattle')).toBe('Cattle: 8.5 kg DM/head/day · 68% of demand');
+    expect(text('feed-implied-pasture-sheep')).toBeNull();
+    document.querySelector('[data-testid="feed-run-rate-pill-7"]').click();
+    expect(text('feed-implied-pasture')).toBe('Pasture (implied): Unknown');
+    expect(text('feed-implied-pasture-reason')).toBe('Needs two checks of the same feed, or a day with no hay out');
+    expect(text('feed-implied-pasture')).not.toContain('0 kg');
+  });
+
   it('pills switch the window, show the empty state without zeros, and are remembered on the device', () => {
     seed();
     mount();

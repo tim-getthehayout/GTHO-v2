@@ -65,6 +65,7 @@ vi.mock('../../src/data/supabase-client.js', () => {
 
 import { CustomSync, SYNC_REQUEST_TIMEOUT_MS } from '../../src/data/custom-sync.js';
 import { commitDurableWrite } from '../../src/data/local-storage.js';
+import { resetWriteOrderClock } from '../../src/data/write-order.js';
 import { _reset, init, setSyncAdapter, add, setUnitSystem } from '../../src/data/store.js';
 import * as Operation from '../../src/entities/operation.js';
 import { RELEASED_SCHEMA_VERSION } from '../../src/data/schema-release.js';
@@ -96,6 +97,7 @@ const queued = () => JSON.parse(localStorage.getItem('_sync_queue') || '[]');
 
 beforeEach(() => {
   localStorage.clear();
+  resetWriteOrderClock();
   Object.assign(srv, { holdNext: 0, failNext: 0, hangNext: 0, delays: null, calls: 0, inFlight: 0, maxInFlight: 0, holdWhen: null });
   srv.rows.clear(); srv.log.length = 0; srv.holds.length = 0;
 });
@@ -668,5 +670,102 @@ describe('operations schema stamp on the dead-letter path', () => {
     sync.retryDeadLetters();
     await sync.flush();
     expect(srv.rows.get('operations/op-2').schema_version).toBe(RELEASED_SCHEMA_VERSION);
+  });
+});
+
+describe('write-order clock (rows with no updated_at)', () => {
+  const IT = 'event_feed_check_items';
+  const ik = id => `${IT}/${id}`;
+  const T0 = Date.parse('2026-11-17T21:00:00.000Z');
+  const durableItem = (key, remaining, operation) => commitDurableWrite(JSON.stringify(['op', 'feed-check', key, 1]),
+    { eventFeedCheckItems: [{ id: WINDOW_ID }] }, [{ table: IT, record: { id: WINDOW_ID, remaining }, operation }], WINDOW_ID);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  it('the device clock stepping back 60 s mid-session does not drop the newer save', async () => {
+    const sync = makeSync();
+    await sync.push(IT, { id: WINDOW_ID, remaining: 2.25 }, 'upsert');
+    vi.setSystemTime(T0 - 60_000);
+    await sync.push(IT, { id: WINDOW_ID, remaining: 0.75 }, 'upsert');
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+  });
+
+  it('a forward jump corrected between two offline saves still ends at the newer save', async () => {
+    const sync = makeSync();
+    sync.isOnline.mockResolvedValue(false);
+    vi.setSystemTime(T0 + 86_400_000);
+    await sync.push(IT, { id: WINDOW_ID, remaining: 2.25 }, 'upsert');
+    vi.setSystemTime(T0);
+    await sync.push(IT, { id: WINDOW_ID, remaining: 0.75 }, 'upsert');
+    sync.isOnline.mockResolvedValue(true);
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+  });
+
+  it('after a small backward step, a newer durable save is not dropped against an earlier live push', async () => {
+    const sync = makeSync();
+    await sync.push(IT, { id: WINDOW_ID, remaining: 2.25 }, 'upsert');
+    vi.setSystemTime(T0 - 500);
+    durableItem('c5', 0.75, 'update');
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+  });
+
+  it('a durable save and a newer live push in the same millisecond: the older durable copy never lands last', async () => {
+    const sync = makeSync();
+    durableItem('c6', 2.25, 'insert');
+    await sync.push(IT, { id: WINDOW_ID, remaining: 0.75 }, 'update');
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    expect(queued()).toEqual([]);
+  });
+
+  it('a reload after the clock stepped back 60 s: the post-reload save is still the newest', async () => {
+    const before = makeSync();
+    before.isOnline.mockResolvedValue(false);
+    await before.push(IT, { id: WINDOW_ID, remaining: 2.25 }, 'upsert');
+    vi.setSystemTime(T0 - 60_000);
+    resetWriteOrderClock(); // reload: the clock re-seeds from storage
+    const after = makeSync();
+    await after.push(IT, { id: WINDOW_ID, remaining: 0.75 }, 'upsert');
+    expect(queued()).toEqual([]);
+    await after.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+  });
+
+  it('manual retry re-queues a letter with its original write order, so a later offline save is sent after it', async () => {
+    const sync = makeSync();
+    srv.failNext = 5;
+    const first = sync.push(IT, { id: WINDOW_ID, remaining: 2.25 }, 'upsert');
+    await vi.runAllTimersAsync();
+    await first;
+    const origin = deadLetters()[0].origin_at;
+    expect(origin).toBe(new Date(T0).toISOString());
+    sync.retryDeadLetters();
+    expect(queued()[0].enqueued_at).toBe(origin);
+    vi.setSystemTime(T0 + 60_000);
+    sync.isOnline.mockResolvedValue(false);
+    await sync.push(IT, { id: WINDOW_ID, remaining: 0.75 }, 'upsert');
+    sync.isOnline.mockResolvedValue(true);
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+  });
+
+  it('a drained letter records its write order as sent, so an older queued save is dropped afterwards', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([
+      { id: WINDOW_ID, table: IT, record: { id: WINDOW_ID, remaining: 0.75 }, origin_at: new Date(T0 - 1000).toISOString(), dead_lettered_at: new Date(T0 - 500).toISOString() },
+    ]));
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: IT, operation: 'upsert', record: { id: WINDOW_ID, remaining: 2.25 }, enqueued_at: new Date(T0 - 2000).toISOString(), attempts: 0, errors: [] },
+    ]));
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    expect(sent(WINDOW_ID).map(e => e.rec.remaining)).toEqual([0.75]);
   });
 });

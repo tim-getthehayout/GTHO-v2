@@ -7,6 +7,7 @@ import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
 import { SyncAdapter } from './sync-adapter.js';
 import { supabase } from './supabase-client.js';
 import { logger } from '../utils/logger.js';
+import { nextWriteOrder } from './write-order.js';
 
 const SYNC_QUEUE_KEY = '_sync_queue';
 const DEAD_LETTER_KEY = '_dead_letter_queue';
@@ -166,19 +167,6 @@ function letterOrigin(letter) {
   return isoMs(letter?.origin_at || letter?.dead_lettered_at);
 }
 
-let lastOriginMs = 0;
-/**
- * Local write-order clock (ISO). Strictly increasing within a session so two
- * writes in the same millisecond still order; a large backwards clock jump
- * resets it to the wall clock.
- */
-function nextOrigin() {
-  const now = Date.now();
-  if (now > lastOriginMs || lastOriginMs - now > 1000) lastOriginMs = now;
-  else lastOriginMs += 1;
-  return new Date(lastOriginMs).toISOString();
-}
-
 function maxStamp(a, b) {
   if (a == null) return b;
   if (b == null) return a;
@@ -215,7 +203,8 @@ export class CustomSync extends SyncAdapter {
     // delete was issued. Saves at or before it are dropped.
     this._tombstones = new Map();
     // Newest write order (epoch ms) successfully sent per row; the clock for
-    // rows with no updated_at.
+    // rows with no updated_at (see write-order.js). Like the clock, this is
+    // per tab: separate tabs keep separate clocks and sent records.
     this._sentOrigins = new Map();
     // Queue entries already sent by the running flush (by entrySig).
     this._flushSent = null;
@@ -356,7 +345,7 @@ export class CustomSync extends SyncAdapter {
       operation,
       table,
       record,
-      enqueued_at: nextOrigin(),
+      enqueued_at: nextWriteOrder(),
       attempts: 0,
       errors: [],
     });
@@ -482,7 +471,7 @@ export class CustomSync extends SyncAdapter {
     const gen = gate.deleteGen;
     const stamp = stampMs(record);
     // Write order: the call time for a live push, enqueued_at for a flush entry.
-    const originAt = opts.originAt || nextOrigin();
+    const originAt = opts.originAt || nextWriteOrder();
     gate.maxSeen = maxStamp(gate.maxSeen, stamp);
     return this._runInRowGate(key, async () => {
       const reason = gate.deleteGen !== gen ? 'deleted' : this._supersededReason(key, stamp, isoMs(originAt));
@@ -832,7 +821,7 @@ export class CustomSync extends SyncAdapter {
         table: letter.table,
         record: letter.record,
         // Keep the letter's own write order so it never outranks a newer write.
-        enqueued_at: letter.origin_at || letter.dead_lettered_at || nextOrigin(),
+        enqueued_at: letter.origin_at || letter.dead_lettered_at || nextWriteOrder(),
         attempts: 0,
         errors: [],
         ...(letter.shape ? { shape: letter.shape } : {}),

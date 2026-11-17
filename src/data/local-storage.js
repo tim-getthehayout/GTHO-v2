@@ -1,4 +1,5 @@
 /** @file localStorage wrapper for entity persistence */
+import { nextWriteOrder } from './write-order.js';
 
 const PREFIX = 'gtho_v2_';
 
@@ -71,7 +72,7 @@ export function commitDurableWrite(key, writes, commands, savedRecordId) {
   if (receipt) return receipt;
   const queue = commands.map((command, index) => ({
     ...command, operation: command.operation === 'insert' ? 'upsert' : command.operation,
-    id: command.record.id, enqueued_at: new Date().toISOString(), attempts: 0, errors: [],
+    id: command.record.id, enqueued_at: nextWriteOrder(), attempts: 0, errors: [],
     durable_key: JSON.stringify([key,index]),
   }));
   // Write-ahead: no entity/queue changes have happened if this fails (e.g. quota).

@@ -15,6 +15,10 @@ import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from './event-start.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import {
+  findGroupDayOverlaps,
+  overlapWarningText,
+} from './window-integrity.js';
 
 let pickerSheet = null;
 
@@ -137,7 +141,7 @@ export function commitRetroPlace({ sourceWindow, newDateJoined, newDestWindow })
   return { sourceUpdated, destAdded };
 }
 
-function openConfirmDialog({ groupName, destEvent, paddockName, gapStart, gapEnd, priorJoin, newJoin, onConfirm }) {
+function openConfirmDialog({ groupName, destEvent, paddockName, gapStart, gapEnd, priorJoin, newJoin, groupId, sourceWindowId, onConfirm }) {
   const overlay = el('div', {
     id: 'retro-place-confirm',
     style: { position: 'fixed', top: '0', left: '0', right: '0', bottom: '0', background: 'rgba(0,0,0,0.5)', zIndex: '320', display: 'flex', alignItems: 'center', justifyContent: 'center' },
@@ -155,6 +159,18 @@ function openConfirmDialog({ groupName, destEvent, paddockName, gapStart, gapEnd
   card.appendChild(el('p', { style: { fontSize: '13px', lineHeight: '1.6', marginBottom: 'var(--space-4)', color: 'var(--text2)' } }, [
     `${groupName}'s join date on the current event changes from ${priorJoin} to ${newJoin}.`,
   ]));
+
+  const overlaps = findGroupDayOverlaps(
+    { groupId, dateJoined: gapStart, dateLeft: gapEnd },
+    { ignoreWindowIds: sourceWindowId ? [sourceWindowId] : [], todayStr: gapEnd },
+  );
+  if (overlaps.length) {
+    const first = overlaps[0];
+    card.appendChild(el('p', {
+      'data-testid': 'retro-place-overlap-warning',
+      style: { fontSize: '13px', lineHeight: '1.6', marginBottom: 'var(--space-4)', color: 'var(--amber-d)' },
+    }, [overlapWarningText({ start: first.start, end: first.end, eventLabel: first.eventLabel })]));
+  }
 
   card.appendChild(el('div', { className: 'btn-row' }, [
     el('button', {
@@ -305,6 +321,8 @@ function handleEventPicked(destEvent, panel, ctx, groupName) {
       gapStart, gapEnd,
       priorJoin: sourceWindow.dateJoined,
       newJoin: newDateJoined,
+      groupId: sourceWindow.groupId,
+      sourceWindowId: sourceWindow.id,
       onConfirm: () => {
         // Retro-placed historical window: use sourceWindow's state at gapStart via helpers
         // (for open sourceWindow this computes live; for closed it returns the stored snapshot).

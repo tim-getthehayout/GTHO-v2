@@ -7,6 +7,7 @@ import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { sumMembershipHeads } from '../../calcs/window-helpers.js';
+import { leftEqualsClose, isZeroLengthAt, findLaterGroupWindow } from './window-integrity.js';
 
 /**
  * OI-0095 paddock classifier: for each event_paddock_window closed on
@@ -61,15 +62,24 @@ export function classifyPwsForReopen(event) {
  */
 export function classifyGwsForReopen(event) {
   const oldDateOut = event.dateOut;
-  const candidates = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id && gw.dateLeft === oldDateOut);
+  const oldTimeOut = event.timeOut || null;
+  const allWindows = getAll('eventGroupWindows');
+  // Reopen only windows whose left instant equals the old close exactly
+  // (date and time; dates only when a time is missing on either side).
+  const candidates = allWindows.filter((gw) => gw.eventId === event.id && leftEqualsClose(gw, oldDateOut, oldTimeOut));
   const memberships = getAll('animalGroupMemberships');
 
   const reopen = [];
   const keepClosed = [];
   for (const gw of candidates) {
     const group = getById('groups', gw.groupId);
-    const otherOpen = getAll('eventGroupWindows').find(g => g.groupId === gw.groupId && g.id !== gw.id && !g.dateLeft);
-    if (otherOpen) {
+    // Zero-length at the old close stays closed and is not listed.
+    if (isZeroLengthAt(gw, oldDateOut, oldTimeOut)) {
+      continue;
+    }
+    const later = findLaterGroupWindow(gw, allWindows);
+    const otherOpen = allWindows.find((g) => g.groupId === gw.groupId && g.id !== gw.id && !g.dateLeft);
+    if (later || otherOpen) {
       keepClosed.push({ gw, group, reason: 'moved' });
       continue;
     }

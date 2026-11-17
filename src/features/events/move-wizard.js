@@ -9,7 +9,7 @@ import { MOVE_ENTRY_FIELDS } from './move-wizard-entry-fields.js';
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, closeGroupWindow, closePaddockWindow, runDurableWrite } from '../../data/store.js';
+import { getAll, getById, add, update, closePaddockWindow, runDurableWrite, beginBatch, endBatch } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { logger } from '../../utils/logger.js';
 import { maybeShowEmptyGroupPrompt } from '../animals/empty-group-prompt.js';
@@ -30,6 +30,16 @@ import {
 } from './wizard-shared.js';
 import { checkWindowCloses } from './window-close-guard.js';
 import { openDateConflictDialog } from './date-conflict-dialog.js';
+import { openJoinedAfterCloseDialog } from './joined-after-close-dialog.js';
+import {
+  classifyEventGroupWindowsForClose,
+  applyGroupWindowClosePlan,
+  arrivalEarlierThanDeparture,
+  findGroupDayOverlaps,
+  overlapWarningText,
+  eventDisplayName,
+  renderOverlapWarning,
+} from './window-integrity.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 // ---------------------------------------------------------------------------
@@ -124,6 +134,51 @@ function transferWizardPools(toggles,sourceEvent,destinationEventId,destinationL
     const arrived=arrival && rowInstant(arrival.date,arrival.time)!==rowInstant(date,time)?arrival:afterObservation(date,time);
     writePoolTransfer({operationId,eventId:sourceEvent.id,feedTypeId:toggle.feedTypeId,locationId:toggle.locationId,date,time,quantity:toggle.total,unit:toggle.unit,destinationEventId,destinationLocationId,arrival:arrived,allowClosed:true});
   }
+}
+
+
+function currentMoveTimes(state, inputs) {
+  const dateOut = inputs.dateOut?.value || state.dateOut;
+  const timeOut = (inputs.timeOut?.value || state.timeOut) || null;
+  const dateIn = inputs.dateIn?.value || state.dateIn || dateOut;
+  const timeIn = (inputs.timeIn?.value || state.timeIn) || null;
+  const arrivalDate = state.destType === 'new' ? dateIn : dateOut;
+  const arrivalTime = state.destType === 'new' ? timeIn : timeOut;
+  return { dateOut, timeOut, arrivalDate, arrivalTime };
+}
+
+function updateMoveOverlapWarning(warningEl, state, inputs, sourceEvent, sourceGWs) {
+  if (!warningEl) return;
+  const { dateOut, timeOut, arrivalDate, arrivalTime } = currentMoveTimes(state, inputs);
+  if (state.destType === 'new' && arrivalEarlierThanDeparture(arrivalDate, arrivalTime, dateOut, timeOut)) {
+    renderOverlapWarning(warningEl, overlapWarningText({
+      start: arrivalDate,
+      end: dateOut,
+      eventLabel: eventDisplayName(sourceEvent.id),
+    }));
+    return;
+  }
+  const ignoreWindowIds = (sourceGWs || []).map((w) => w.id);
+  const todayStr = getLocalTodayStr();
+  const seen = new Set();
+  for (const gw of sourceGWs || []) {
+    if (seen.has(gw.groupId)) continue;
+    seen.add(gw.groupId);
+    const overlaps = findGroupDayOverlaps(
+      { groupId: gw.groupId, dateJoined: arrivalDate, dateLeft: null },
+      { ignoreWindowIds, todayStr },
+    );
+    if (overlaps.length) {
+      const first = overlaps[0];
+      renderOverlapWarning(warningEl, overlapWarningText({
+        start: first.start,
+        end: first.end,
+        eventLabel: first.eventLabel,
+      }));
+      return;
+    }
+  }
+  renderOverlapWarning(warningEl, '');
 }
 
 function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, opts = {},parentRender) {
@@ -240,6 +295,13 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
     closeSection.appendChild(postGraze.container);
   }
 
+  const overlapWarningEl = el('div', {
+    className: 'form-hint',
+    'data-testid': 'move-wizard-overlap-warning',
+    hidden: 'true',
+    style: { color: 'var(--amber-d)', marginTop: 'var(--space-3)', marginBottom: 'var(--space-2)' },
+  });
+
   panel.appendChild(closeSection);
 
   // Open destination section (only for new location)
@@ -290,6 +352,16 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
 
     panel.appendChild(openSection);
   }
+
+  panel.appendChild(overlapWarningEl);
+  const sourceGWsForWarning = state.scopedGroupWindowId
+    ? allOpenGWs.filter((w) => w.id === state.scopedGroupWindowId)
+    : allOpenGWs;
+  const refreshOverlapWarning = () => updateMoveOverlapWarning(overlapWarningEl, state, inputs, sourceEvent, sourceGWsForWarning);
+  for (const key of ['dateOut', 'timeOut', 'dateIn', 'timeIn']) {
+    inputs[key]?.addEventListener('input', refreshOverlapWarning);
+  }
+  refreshOverlapWarning();
 
   // Feed transfer section (CP-29; OI-0104: 2-way radio + residual capture)
   const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
@@ -494,7 +566,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
 
 }
 
-function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze, review = null) {
+function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze, review = null, acceptZeroLength = false) {
   clear(statusEl);
   statusEl.className = 'auth-error';
 
@@ -597,19 +669,41 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
   // — that's the `lastGroupLeaving` predicate the write path uses below.
   const remainingAfterClose = allOpenSourceGWs.filter(w => !sourceGWs.some(closed => closed.id === w.id));
   const willCloseSourcePaddocks = remainingAfterClose.length === 0;
+  const windowPlan = classifyEventGroupWindowsForClose(sourceEvent.id, dateOut, timeOut, {
+    eventClosing: willCloseSourcePaddocks,
+    scopedGroupWindowIds: isScoped ? [state.scopedGroupWindowId] : null,
+  });
+  if (windowPlan.toReview.length && !acceptZeroLength) {
+    openJoinedAfterCloseDialog({
+      windows: windowPlan.toReview,
+      closeDate: dateOut,
+      closeTime: timeOut,
+      onConfirm: () => {
+        const again = () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze, review, true);
+        if (review) review.requestConfirmation(again);
+        else again();
+      },
+    });
+    return;
+  }
+
   const conflicts = checkWindowCloses(sourceEvent.id, dateOut, timeOut, {
     scopedGroupWindowIds: isScoped ? [state.scopedGroupWindowId] : null,
     includePaddockWindows: willCloseSourcePaddocks,
-  });
+  }).filter((c) => c.kind !== 'group');
   if (conflicts.length > 0) {
-    // OI-0186 — guided correction. Resume re-enters executeMoveWizard with the
-    // same args; the pre-flight runs again, so a residual conflict simply
-    // re-opens the dialog rather than slipping through.
+    // Guided paddock-window correction. Resume re-enters executeMoveWizard
+    // with the same args; the pre-flight runs again, so a residual conflict
+    // simply re-opens the dialog rather than slipping through.
     openDateConflictDialog({
       conflicts,
       operationId,
       event: sourceEvent,
-      onResume: () => review ? review.requestConfirmation(() => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze, review)) : executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze),
+      onResume: () => {
+        const again = () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _unitSys, statusEl, transferToggles, postGraze, preGraze, review, acceptZeroLength);
+        if (review) review.requestConfirmation(again);
+        else again();
+      },
     });
     return;
   }
@@ -617,6 +711,8 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
   let moveSucceeded=false;
   try {
     const write=()=>{
+    beginBatch();
+    try {
     // --- CLOSE SOURCE (Steps 1-5 of save sequence) ---
 
     // OI-0066: scoped moves leave the source event open for remaining groups
@@ -721,9 +817,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         sourceGroupState.push({ groupId: gw.groupId, operationId: gw.operationId, headCount: liveHead, avgWeightKg: liveAvg });
       }
     }
-    for (const gw of sourceGWs) {
-      closeGroupWindow(gw.groupId, sourceEvent.id, dateOut, timeOut);
-    }
+    applyGroupWindowClosePlan(windowPlan, dateOut, timeOut, { acceptZeroLength });
     // OI-0090: if a source group is now empty (e.g., all animals were culled
     // mid-event), surface the archive prompt.
     const emptiedSourceGroups = sourceGroupState.filter(s => s.headCount < 1).map(s => s.groupId);
@@ -816,6 +910,9 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     }
 
     return sourceEvent.id;
+    } finally {
+      endBatch();
+    }
     };
     if(poolWritesEnabled() && !review)runDurableWrite(state.executionKey,write);else write();
     moveSucceeded=true;

@@ -4,7 +4,7 @@ import { poolWritesEnabled, liveFeedPools, writePoolCheck, poolExecutionKey } fr
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, closeGroupWindow, closePaddockWindow, runDurableWrite } from '../../data/store.js';
+import { getAll, getById, add, update, closePaddockWindow, runDurableWrite, beginBatch, endBatch } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
@@ -15,6 +15,11 @@ import { createObservation } from './index.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { checkWindowCloses } from './window-close-guard.js';
 import { openDateConflictDialog } from './date-conflict-dialog.js';
+import { openJoinedAfterCloseDialog } from './joined-after-close-dialog.js';
+import {
+  classifyEventGroupWindowsForClose,
+  applyGroupWindowClosePlan,
+} from './window-integrity.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { isConfinementLocation, wrapInactiveForage } from './confinement-forage-ui.js';
 
@@ -156,7 +161,7 @@ export function openCloseEventSheet(evt, operationId) {
   closeEventSheet.open();
 }
 
-function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows) {
+function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, acceptZeroLength = false) {
   clear(statusEl);
   const dateOut = inputs.dateOut.value;
   const timeOut = inputs.timeOut.value || null;
@@ -193,25 +198,38 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
     if (!window.confirm(msg)) return;
   }
 
-  // OI-0185 + OI-0186 — pre-flight every open source window's proposed close
-  // BEFORE any write fires. On conflict, abort with zero writes and hand the
-  // structured conflict list to the guided-correction dialog. The dialog
-  // resumes the close (via onResume) after a one-tap fix or "Fix all"; the
-  // re-entered executeClose runs the pre-flight again so a partial fix that
-  // left a residual conflict simply re-opens the dialog.
-  const closeConflicts = checkWindowCloses(evt.id, dateOut, timeOut);
+  // Reconcile every group window on the event, closed ones included.
+  // Windows that joined after the close are listed for the user (default
+  // zero-length at the close, or cancel). No silent change and no delete.
+  const windowPlan = classifyEventGroupWindowsForClose(evt.id, dateOut, timeOut, { eventClosing: true });
+  if (windowPlan.toReview.length && !acceptZeroLength) {
+    openJoinedAfterCloseDialog({
+      windows: windowPlan.toReview,
+      closeDate: dateOut,
+      closeTime: timeOut,
+      onConfirm: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, true),
+    });
+    return;
+  }
+
+  // Paddock windows that opened after the close still use the existing
+  // guided dialog. Group joined-after cases are handled above, so group
+  // conflicts are not sent there (that path would write the join date first).
+  const closeConflicts = checkWindowCloses(evt.id, dateOut, timeOut).filter((c) => c.kind !== 'group');
   if (closeConflicts.length > 0) {
     openDateConflictDialog({
       conflicts: closeConflicts,
       operationId,
       event: evt,
-      onResume: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows),
+      onResume: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, acceptZeroLength),
     });
     return;
   }
 
   try {
     const write=()=>{
+    beginBatch();
+    try {
     // 1. Create feed check if feed was delivered
     if(feedCheckInputs.length && poolWritesEnabled())writePoolCheck({operationId,eventId:evt.id,date:dateOut,time:timeOut,isCloseReading:true,readings:feedCheckInputs.map(row=>({feedTypeId:row.feedTypeId,locationId:row.locationId,remainingQuantity:row.input.value.trim()===''?NaN:Number(row.input.value),unit:row.unit}))});
     else if (feedCheckInputs.length) {
@@ -248,11 +266,8 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
         postGraze ? postGraze.getValues() : {});
     }
 
-    // 3. Close all open group windows (OI-0091: stamp live head/avg values)
-    const openGWs = getAll('eventGroupWindows').filter(w => w.eventId === evt.id && !w.dateLeft);
-    for (const gw of openGWs) {
-      closeGroupWindow(gw.groupId, evt.id, dateOut, timeOut);
-    }
+    // 3. Reconcile every group window on the event (open and closed).
+    applyGroupWindowClosePlan(windowPlan, dateOut, timeOut, { acceptZeroLength });
 
     // 4. Set event date_out
     update('events', evt.id, {
@@ -287,6 +302,9 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
     }
 
     return evt.id;
+    } finally {
+      endBatch();
+    }
     };
     if(poolWritesEnabled())runDurableWrite(inputs.poolExecutionKey,write);else write();
     closeEventSheet.close();

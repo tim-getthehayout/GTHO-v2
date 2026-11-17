@@ -28,6 +28,11 @@ import {
 } from './wizard-shared.js';
 import { openLocationNames } from './open-cohort.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import {
+  findGroupDayOverlaps,
+  overlapWarningText,
+  renderOverlapWarning,
+} from './window-integrity.js';
 
 let placeWizardSheet = null;
 
@@ -181,6 +186,30 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender, opt
   }
 
   panel.appendChild(openSection);
+
+  const overlapWarningEl = el('div', {
+    className: 'form-hint',
+    'data-testid': 'place-wizard-overlap-warning',
+    hidden: 'true',
+    style: { color: 'var(--amber-d)', marginTop: 'var(--space-3)' },
+  });
+  const refreshOverlapWarning = () => {
+    const dateIn = inputs.dateIn.value || state.dateIn;
+    const overlaps = findGroupDayOverlaps(
+      { groupId: state.groupId, dateJoined: dateIn, dateLeft: null },
+      { todayStr: getLocalTodayStr() },
+    );
+    const first = overlaps[0];
+    renderOverlapWarning(overlapWarningEl, first ? overlapWarningText({
+      start: first.start,
+      end: first.end,
+      eventLabel: first.eventLabel,
+    }) : '');
+  };
+  inputs.dateIn.addEventListener('input', refreshOverlapWarning);
+  inputs.timeIn.addEventListener('input', refreshOverlapWarning);
+  panel.appendChild(overlapWarningEl);
+  refreshOverlapWarning();
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'place-wizard-status' });
   panel.appendChild(statusEl);

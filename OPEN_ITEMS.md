@@ -35,6 +35,7 @@
 | OI-0223 | Show standard feed-unit labels in cards, details and reports instead of stored text | Open — low priority, not started; needs Tim's say-so (follow-up from PR #60) |
 | OI-0224 | Feed run rate from feed checks (7/14/30/60-day pills; consumed and residual in bales, $ and DM; DMI actual vs forecast) | **MERGED, awaiting publish** — Forgejo PR #65 merged at `368b801b` (`f353c72c`); not yet published to GitHub. Earlier: APPROVED 2026-11-17 6:12 AM ET (Tim, via Orchestrator); 6:27 AM ET hold lifted 6:29 AM ET (Tim, via Orchestrator); **handed to Build** as a shared calc the OI-0221 scorecard reuses; C residual = hay left or wasted when an event closes; A, B, D–H at defaults; no migration; docs landing approved; also on the OI-0221 scorecard (6:28 AM ET), one shared calc and component; PR #65 passed Design review at `f353c72c` (2026-11-17) |
 | OI-0225 | Implied pasture DMI (predicted herd DMI − stored feed; headline of the run-rate panel and the budget view) + OI-0221 D10 configurable budget dates | **APPROVED 2026-11-17** (Tim, 2026-11-17 9:18 AM ET, via Orchestrator; asked 9:04 AM ET); new calc DMI-9; [brief](session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md); Q1–Q6 decided; landing on Forgejo approved, no GitHub publish; sheep Jun–Oct 2026 basis is a follow-up write after 045 (Tim's yes + backup) |
+| OI-0226 | Window integrity: group windows never outlive their event (backdated-close clamp, ordered save, arrival default, DB guard + stale-write refusal) | **APPROVED 2026-11-17** (Tim, 11:01 AM ET, via Orchestrator); [brief](session_briefs/WINDOW_INTEGRITY_2026-11-17.md); Build starts after the `fix/forecast-orphan-windows` PR; PR A (a)+(c), PR B (b), PR C (d) migration gated on a clean audit, Tim's yes + backup per apply |
 
 ---
 
@@ -101,6 +102,28 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 **Schema / CP-55/CP-56 impact:** slice 1 (history report) none. Slice 2 needs a stored budget (header + monthly rows), a new numbered migration after the already-applied 044 (stamp 45 or later), added to CP-55/CP-56 with a schema step; writing it needs this spec approved, applying it needs Tim's explicit yes at the time plus a backup. No SQL here.
 
 **Origin:** Tim's request 2026-11-16 3:03–3:09 PM ET via Orchestrator.
+
+---
+
+### OI-0226 — Window integrity: group windows never outlive their event
+
+**Added:** 2026-11-17 | **Area:** v2-build / events / sync / schema | **Priority:** after the forecast orphan-window fix PR (`fix/forecast-orphan-windows`)
+
+**Status:** **APPROVED (Tim, 2026-11-17 11:01 AM ET, via Orchestrator):** "Yes, have Design spec the window-integrity item for Build after the forecast fix". Spec: [Window integrity, 2026-11-17](session_briefs/WINDOW_INTEGRITY_2026-11-17.md). Build starts it after the forecast fix PR merges; suggested PR A = (a)+(c) client, PR B = (b) sync ordering, PR C = (d) audit + migration + stale-write refusal; Design reviews each. Any prod apply in PR C needs Tim's yes plus a backup.
+
+**Why:** the FED-6 forecast read 2,041.56 lb DM/day (shown 2,042) against about 1,334 (1,333.56) because a Cow-Calf Herd window stayed open on the F - 1..5 event after it closed Jul 27. Five stray Cow-Calf Herd windows on the F - 1..5 and K - 1..5 events were cleaned on prod 2026-11-17 10:54 AM ET with a backup first (Tim approved all five 10:51 AM ET via Orchestrator; two zero-length at the close, Option 1, no deletes); all post-checks passed. Root causes on `2f341de7`: (1) a backdated close clamps only OPEN windows (`window-close-guard.js:69`, `move-wizard.js:576–580` and `:725`, `close.js:252–254`); (2) the date-conflict one-tap fix (`date-conflict-dialog.js:51–63`) and the close upsert the same row unordered (`store.js:100–110`, `custom-sync.js:242`) and the server keeps the last arrival. The forecast fix masks this but does not prevent it; the cull-sheet orphan-split skip is in the forecast fix PR.
+
+**Scope (brief §3):**
+- **(a) Backdated-close clamp:** setting or moving an event's close earlier reconciles every window on the event in one write, closed ones included (left after the close → clamped; open → closed at the close). A window that joined after the close is listed for the user (default zero-length at the close, or cancel), never changed silently. Reopen reopens only windows that ended exactly at the old close.
+- **(b) One ordered save:** the one-tap fix and the close or move are one ordered save; a later local write to a row is never overtaken by an earlier one (coalesce or chain per row). Acceptance reproduces the A1 race.
+- **(c) Arrival defaults to departure:** earlier arrival allowed with a non-blocking "This group would be in two places from X to Y." warning; same warning wherever a group would have two windows on one day. The pool-write refusal (`move-wizard.js:548`) stays.
+- **(d) DB guard + stale-write refusal, gated:** only after a SELECT audit shows zero violations. Step 0: the 5 May time-quirk rows (4 on J3 - 4, 1 on Corral); dates compare only when a time is missing; any normalisation needs Tim's yes plus a backup. Trigger checks each `event_group_windows` write against its own event's current `date_out`; no rule on `events`. Server refuses an update older than the stored `updated_at`; client dead-letters it with a clear error (clock-skew risk noted). Next migration after 045 (046 if free), file only; each apply needs Tim's yes plus a backup. Future: close/move/reopen as one server transaction.
+
+**Out of scope:** the 27 older March–July overlaps (9 from the Apr 14 import, 18 from arrival-before-departure moves), left as history unless Tim asks; class DMI rates (separate item).
+
+**Schema / CP-55/CP-56 impact:** PR A and PR B none. PR C adds trigger functions only (no columns), so no backup shape change; Build confirms in the PR.
+
+**Origin:** Tim's forecast report and stray-group cleanup 2026-11-17 (10:41–10:51 AM ET), root cause by Design, spec approved 11:01 AM ET, all via Orchestrator.
 
 ---
 

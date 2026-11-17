@@ -27,6 +27,8 @@ import {
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { normalizeFeedUnit, FEED_UNIT_LABEL_KEYS } from '../../utils/feed-units.js';
 import { feedUnitSelect } from './feed-unit-picker.js';
+import { computeFeedRunRate, RUN_RATE_WINDOWS, DEFAULT_RUN_RATE_DAYS } from '../../calcs/feed-run-rate.js';
+import { getEventStartDate } from '../events/event-start.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -280,6 +282,9 @@ export function renderFeedScreen(container) {
   unsubs.push(subscribe('animals', () => refreshFeedDayGoalBanner(container)));
   unsubs.push(subscribe('animalWeightRecords', () => refreshFeedDayGoalBanner(container)));
   unsubs.push(subscribe('animalClasses', () => refreshFeedDayGoalBanner(container)));
+  for (const key of ['events', 'eventFeedChecks', 'eventFeedCheckItems', 'eventGroupWindows', 'animalGroupMemberships']) {
+    unsubs.push(subscribe(key, () => refreshFeedDayGoalBanner(container)));
+  }
 }
 
 
@@ -408,7 +413,7 @@ function renderFeedDayGoalBanner() {
       ]),
       el('div', { className: 'form-hint' }, [t('feed.feedDayGoalHint')]),
     ]),
-    // Three stat cells: DM on Hand, Daily Run Rate, Days on Hand
+    // Three stat cells: DM on Hand, Daily need (DMI), Days on Hand
     el('div', { style: { display: 'flex', gap: 'var(--space-4)', marginTop: 'var(--space-3)' } }, [
       el('div', { 'data-testid': 'feed-dm-on-hand' }, [
         el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('feed.dmOnHand')]),
@@ -429,7 +434,112 @@ function renderFeedDayGoalBanner() {
         style: { width: `${pct}%` },
       }),
     ]),
+    renderRunRateSection(unitSys),
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// Run rate from feed checks (Feed Day Goal card)
+// ---------------------------------------------------------------------------
+
+const RUN_RATE_DAYS_KEY = 'gtho_v2_feed_run_rate_days';
+
+/** Window choice remembered on this device; falls back to 30 days. */
+export function getRunRateDays() {
+  try {
+    const saved = Number(globalThis.localStorage?.getItem(RUN_RATE_DAYS_KEY));
+    return RUN_RATE_WINDOWS.includes(saved) ? saved : DEFAULT_RUN_RATE_DAYS;
+  } catch { return DEFAULT_RUN_RATE_DAYS; }
+}
+function setRunRateDays(days) {
+  try { globalThis.localStorage?.setItem(RUN_RATE_DAYS_KEY, String(days)); } catch { /* device storage unavailable */ }
+}
+
+/** Gather store rows for the shared run-rate calc. Event start is derived (dateIn). */
+export function feedRunRateInput(days, today = todayDateString()) {
+  const classes = {};
+  for (const cls of getAll('animalClasses')) classes[cls.id] = cls;
+  return {
+    today, days,
+    events: getAll('events').map(event => ({ id: event.id, dateIn: getEventStartDate(event.id), dateOut: event.dateOut ?? null })),
+    entries: getAll('eventFeedEntries'), checks: getAll('eventFeedChecks'), items: getAll('eventFeedCheckItems'),
+    batches: getAll('batches'), feedTypes: getAll('feedTypes'),
+    groupWindows: getAll('eventGroupWindows'), memberships: getAll('animalGroupMemberships'),
+    animals: getAll('animals'), animalWeightRecords: getAll('animalWeightRecords'), animalClasses: classes,
+  };
+}
+
+const RUN_RATE_UNIT_KEYS = { bale: 'feed.runRateUnitBale', 'sq bale': 'feed.runRateUnitSqBale', bag: 'feed.runRateUnitBag', ton: 'feed.runRateUnitTon', kg: 'feed.runRateUnitKg', lb: 'feed.runRateUnitLb' };
+const unitOrder = unit => { const i = Object.keys(RUN_RATE_UNIT_KEYS).indexOf(unit); return i < 0 ? 99 : i; };
+const fmtCount = value => (Math.round(value * 10) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 });
+const fmtMoney = value => `$${Math.round(value).toLocaleString('en-US')}`;
+function unitParts(units, suffix = '') {
+  return Object.entries(units).filter(([, value]) => value > 1e-9).sort((a, b) => unitOrder(a[0]) - unitOrder(b[0]))
+    .map(([unit, value]) => `${fmtCount(value)} ${RUN_RATE_UNIT_KEYS[unit] ? t(RUN_RATE_UNIT_KEYS[unit]) : unit}${suffix}`);
+}
+const dmText = (kg, unitSys) => t('feed.runRateDm', { amount: display(kg, 'weight', unitSys, 0) });
+
+function amountColumn(testId, title, total, unitSys, extra = []) {
+  const lines = [...unitParts(total.units), dmText(total.dmKg, unitSys)];
+  lines.push(total.cost == null ? t('feed.runRateNoCost') : fmtMoney(total.cost));
+  if (total.cost != null && total.unpricedDmKg > 1e-9) lines.push(t('feed.runRatePartlyUnpriced', { amount: display(total.unpricedDmKg, 'weight', unitSys, 0) }));
+  return el('div', { 'data-testid': testId, style: { flex: '1', minWidth: '0' } }, [
+    el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [title]),
+    ...lines.map(line => el('div', { style: { fontSize: '13px' } }, [line])),
+    ...extra,
+  ]);
+}
+
+function renderRunRateSection(unitSys) {
+  const days = getRunRateDays();
+  const result = computeFeedRunRate(feedRunRateInput(days));
+  const section = el('div', { 'data-testid': 'feed-run-rate-section', style: { marginTop: 'var(--space-4)' } });
+  const pills = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+    RUN_RATE_WINDOWS.map(n => el('button', {
+      type: 'button',
+      className: `btn btn-xs ${n === days ? 'btn-green' : 'btn-outline'}`,
+      'data-testid': `feed-run-rate-pill-${n}`,
+      'aria-pressed': n === days ? 'true' : 'false',
+      onClick: () => { setRunRateDays(n); section.replaceWith(renderRunRateSection(unitSys)); },
+    }, [t('feed.runRatePill', { days: n })])));
+  const body = [];
+  if (!result.measuredDays) {
+    body.push(el('div', { className: 'form-hint', 'data-testid': 'feed-run-rate-empty' }, [t('feed.runRateEmpty', { days })]));
+  } else {
+    const parts = [...unitParts(result.rate.unitsPerDay, t('feed.runRatePerDay')), `${dmText(result.rate.dmKgPerDay, unitSys)}${t('feed.runRatePerDay')}`];
+    body.push(el('div', { 'data-testid': 'feed-run-rate-line', style: { fontSize: '14px', fontWeight: '600' } }, [t('feed.runRateLine', { parts: parts.join(' · ') })]));
+    body.push(el('div', { className: 'form-hint', 'data-testid': 'feed-run-rate-measured' }, [t('feed.runRateMeasured', { measured: result.measuredDays, days, date: result.lastMeasuredDate })]));
+  }
+  const residual = result.residual;
+  const residualExtra = [];
+  if (residual.eventsClosed) residualExtra.push(el('div', { className: 'form-hint' }, [t('feed.runRateClosedEvents', { count: residual.eventsClosed })]));
+  if (residual.closesWithoutReading) residualExtra.push(el('div', { className: 'form-hint', 'data-testid': 'feed-run-rate-missing-close' }, [t('feed.runRateClosesWithoutReading', { count: residual.closesWithoutReading })]));
+  const columns = [];
+  if (result.measuredDays) columns.push(amountColumn('feed-run-rate-consumed', t('feed.runRateConsumed'), result.consumed, unitSys));
+  columns.push(residual.eventsClosed
+    ? amountColumn('feed-run-rate-residual', t('feed.runRateResidual'), residual, unitSys, residualExtra)
+    : el('div', { 'data-testid': 'feed-run-rate-residual', style: { flex: '1' } }, [
+      el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('feed.runRateResidual')]),
+      el('div', { className: 'form-hint' }, [t('feed.runRateNoCloses', { days })]),
+    ]));
+  body.push(el('div', { style: { display: 'flex', gap: 'var(--space-4)', marginTop: 'var(--space-2)' } }, columns));
+  if (result.measuredDays && result.rate.forecastDmKgPerDay != null) {
+    const actual = display(result.rate.dmKgPerDay, 'weight', unitSys, 0);
+    const forecast = display(result.rate.forecastDmKgPerDay, 'weight', unitSys, 0);
+    body.push(el('div', { 'data-testid': 'feed-run-rate-dmi', style: { fontSize: '13px', marginTop: 'var(--space-2)' } }, [
+      result.rate.pctOfForecast == null
+        ? t('feed.runRateDmiNoForecast', { actual })
+        : t('feed.runRateDmi', { actual, forecast, pct: Math.round(result.rate.pctOfForecast) }),
+    ]));
+  }
+  section.append(
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, [
+      el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--text2)' } }, [t('feed.runRateTitle')]),
+      pills,
+    ]),
+    ...body,
+  );
+  return section;
 }
 
 // ---------------------------------------------------------------------------

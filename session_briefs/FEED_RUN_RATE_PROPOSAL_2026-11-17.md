@@ -88,7 +88,7 @@ Under the existing three stat cells of the Feed Day Goal card:
 - **Grazing-gamification element.** The run-rate panel is part of the OI-0221 budget scorecard ("Season hay budget" card on mobile, Feed-screen panel and Reports on desktop), shown alongside budget, prior year and actual.
 - **One shared calculation and one shared component.** The registered window calc (§5) and the panel UI are built once and used by both the Feed card and the scorecard. No second implementation; the scorecard adds only its comparison row.
 - **Same content:** pills 7/14/30/60 (default 30), consumed (measured days only), residual at close, bales, $ and lb DM, DMI actual vs forecast, exactly as §2–§3.
-- **On the scorecard only:** a comparison row for the same window — budget, prior year and actual — and the gamification hooks (pace badge, waste %). Details and Tim's open questions N–S are in the [stored forage budget brief](STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md) (§10 and lettered questions).
+- **On the scorecard only:** a comparison row for the same window — budget, prior year and actual — and the gamification hooks (pace badge, waste %). Details and the decisions N–S (accepted at Design's recommendations, Tim, 2026-11-17 6:39 AM ET, via Orchestrator) are in the [stored forage budget brief](STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md) (§10, D9 and lettered questions).
 - **Status:** this placement is part of OI-0221 (PROPOSED) and ships with its slice 2. OI-0224 on the Feed card stays APPROVED as a spec and needs no OI-0221 work; it is handed to Build (hold lifted 6:29 AM ET); Build exposes the calc as a shared module for the scorecard to reuse.
 
 ## Lettered questions — all decided (Tim, 2026-11-17 6:12 AM ET, via Orchestrator)

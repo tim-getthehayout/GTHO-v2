@@ -33,6 +33,7 @@
 | OI-0222 | One-time historical hay-feeding backfill (Tim's winter notes + dropped v1 feedings) | PROPOSED, not approved for writes — dry-run answers 2026-11-17 5:00 AM ET via Orchestrator (O remove 12 v1 copies; notes for Mar 4/19/20; sheep alfalfa out; Mar 4 cattle groups back to Oct 1; two same-bale dedupes); R, S, T answered 5:58 AM ET (Mar 4 sheep peanut out; alfalfa true-up accepted; Mar 19 groups in the cattle basis from Oct 1); second rerun 558.3 units ≈294,605 lb DM, true-ups +8.86 / −5 / −15 / −39.5; V (calves 500 lb) and U (full herd through Mar 18) answered 6:12 AM ET — third rerun: rows and true-ups unchanged, cattle basis 1,533.8 lb DM/day; W, X open; docs landing approved 6:12 AM ET via Orchestrator (docs only); migration 045 (two history tables), backup and any write each need Tim's separate yes. Earlier: answered 3:43–4:06 PM ET (feeds are the basis; 0 at summer except Alfalfa, which keeps 15; Dec set-out from 12/16; $45 opening; sheep in last winter's basis at 80 head ≈110 lb, entered by Tim (J = A), goats out); A, B, M at defaults, decided in the dry run; C, F at defaults; no questions open for Tim; dry run + Tim's yes + backup before any write; after OI-0220, before OI-0221 slice 1 |
 | OI-0221 | Stored forage budgeting and management (season budget, gamified view, surplus/deficit forecast) | PROPOSED 2026-11-16 — awaiting Tim; Build starts nothing; depends on OI-0220 (done) and OI-0222; budget storage needs a new migration (after applied 044); $56.66 Week of 11-12-26 cost confirmed (4:05–4:06 PM ET) |
 | OI-0223 | Show standard feed-unit labels in cards, details and reports instead of stored text | Open — low priority, not started; needs Tim's say-so (follow-up from PR #60) |
+| OI-0224 | Feed run rate from feed checks (7/14/30/60-day pills; consumed and residual in bales, $ and DM; DMI actual vs forecast) | PROPOSED 2026-11-17 — awaiting Tim's answers A–H and approval; no migration; landing this spec needs Tim's yes |
 
 ---
 
@@ -91,6 +92,24 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 **Schema / CP-55/CP-56 impact:** slice 1 (history report) none. Slice 2 needs a stored budget (header + monthly rows), a new numbered migration after the already-applied 044 (stamp 45 or later), added to CP-55/CP-56 with a schema step; writing it needs this spec approved, applying it needs Tim's explicit yes at the time plus a backup. No SQL here.
 
 **Origin:** Tim's request 2026-11-16 3:03–3:09 PM ET via Orchestrator.
+
+---
+
+### OI-0224 — Feed run rate from feed checks
+
+**Added:** 2026-11-17 | **Area:** v2-design / feed / reporting | **Priority:** after Tim's approval; independent of OI-0222
+
+**Status:** **PROPOSED — awaiting Tim's answers (A–H) and approval. Build starts nothing until Tim approves the spec; landing this doc needs Tim's yes.** Proposal: [Feed run rate, 2026-11-17](session_briefs/FEED_RUN_RATE_PROPOSAL_2026-11-17.md).
+
+**Request (Tim, 2026-11-17 6:02 AM ET, via Orchestrator):** "In the feed data card I think we should also include a run rate feature. Pills to select date range- 7 days, 14, 30, 60 and display the bales per day based on feed checks. Show, consumed as well as residual, and totals for each in bales, dollars, and DMI (actual vs forecast)".
+
+**Findings (read-only, `73442873`):** the Feed screen's summary card (Feed Day Goal, CP-26) has DM on Hand, **Daily Run Rate** and Days on Hand; since 2026-11-04 "Daily Run Rate" shows the farm-wide **predicted** DMI, not consumption. Feed checks record **remaining** per pool (event + location + feed type, FA-26); "residual" in the code means remaining, and there is no waste field on checks. `poolDailyActual` / DMI-5 already give consumed DM per day between two checks of a pool. Check items carry no batch. Production has thin check coverage (Aug 1, Oct 2, Nov 13 checks since Aug 1).
+
+**Recommendation:** add a run-rate section to that card: pills 7/14/30/60 (default 30, trailing days ending today); consumed from checks only (measured days between two checks; gaps not filled; "measured N of D days"); run rate in bales/day by unit type plus lb DM/day; consumed and residual totals in bales, $ (pool DM priced at the delivery-weighted recorded batch cost, $56/bale fallback per OI-0221 D5) and lb DM; DMI actual (stored DM consumed/day) vs forecast (herd predicted DMI on the same days, DMI-2/DMI-3) as a %; rename the existing cell to "Daily need (DMI)". Farm-wide first. Tied to OI-0221: same DM basis and cost rule; adds "vs budget" once OI-0221's budget exists.
+
+**Schema / CP-55/CP-56 impact:** none (computed on read; new i18n strings only). No migration.
+
+**Origin:** Tim's request 2026-11-17 6:02 AM ET via Orchestrator.
 
 ---
 

@@ -66,12 +66,81 @@ describe('checkWindowCloses — no conflicts', () => {
     expect(checkWindowCloses(EVT, '2026-06-30')).toEqual([]);
   });
 
-  it('ignores already-closed windows', () => {
+  it('does not flag a closed paddock window that opened at or before the close', () => {
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
+      dateOpened: '2026-06-01', dateClosed: '2026-06-20', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    expect(checkWindowCloses(EVT, '2026-06-06')).toEqual([]);
+  });
+
+  it('flags a closed paddock window that opened after the close', () => {
     add('eventPaddockWindows', PaddockWindowEntity.create({
       id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
       dateOpened: '2026-06-14', dateClosed: '2026-06-20', areaPct: 100,
     }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-    expect(checkWindowCloses(EVT, '2026-06-06')).toEqual([]);
+    const conflicts = checkWindowCloses(EVT, '2026-06-06');
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      kind: 'paddock',
+      windowId: PW_A,
+      locationId: LOC_A,
+      openDate: '2026-06-14',
+      outDate: '2026-06-06',
+    });
+  });
+
+  it('flags a closed paddock window that opened later the same day as the close', () => {
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
+      dateOpened: '2026-11-16', timeOpened: '13:00',
+      dateClosed: '2026-11-17', timeClosed: '09:00', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    const conflicts = checkWindowCloses(EVT, '2026-11-16', '12:02');
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      kind: 'paddock',
+      windowId: PW_A,
+      locationId: LOC_A,
+      openDate: '2026-11-16',
+      outDate: '2026-11-16',
+    });
+    // The entity validator compares dates only, so this same-day case is
+    // valid there; the guard must flag it from the open-instant compare.
+    const proposed = {
+      ...PaddockWindowEntity.create({
+        id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
+        dateOpened: '2026-11-16', timeOpened: '13:00',
+        dateClosed: '2026-11-16', timeClosed: '12:02', areaPct: 100,
+      }),
+    };
+    expect(PaddockWindowEntity.validate(proposed).valid).toBe(true);
+  });
+});
+
+describe('checkWindowCloses — same-day open after the close', () => {
+  it('flags an open paddock window that opened later the same day as the close', () => {
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
+      dateOpened: '2026-11-16', timeOpened: '13:00', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    const conflicts = checkWindowCloses(EVT, '2026-11-16', '12:02');
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      kind: 'paddock',
+      windowId: PW_A,
+      locationId: LOC_A,
+      openDate: '2026-11-16',
+      outDate: '2026-11-16',
+    });
+    const proposed = {
+      ...PaddockWindowEntity.create({
+        id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
+        dateOpened: '2026-11-16', timeOpened: '13:00',
+        dateClosed: '2026-11-16', timeClosed: '12:02', areaPct: 100,
+      }),
+    };
+    expect(PaddockWindowEntity.validate(proposed).valid).toBe(true);
   });
 });
 

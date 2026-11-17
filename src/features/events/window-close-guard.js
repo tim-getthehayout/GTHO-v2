@@ -24,6 +24,7 @@
 import { getAll } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
+import { compareWindowInstants } from '../../utils/date-utils.js';
 
 /**
  * @typedef {Object} WindowCloseConflict
@@ -91,8 +92,28 @@ export function checkWindowCloses(eventId, outDate, outTime = null, opts = {}) {
   }
 
   if (includePaddockWindows) {
-    const openPWs = getAll('eventPaddockWindows').filter(w => w.eventId === eventId && !w.dateClosed);
-    for (const pw of openPWs) {
+    const paddockWindows = getAll('eventPaddockWindows').filter((w) => w.eventId === eventId);
+    for (const pw of paddockWindows) {
+      const openedAfter = compareWindowInstants(pw.dateOpened, pw.timeOpened, outDate, outTime) > 0;
+      // Flag any paddock window (open or closed) whose open instant is after C,
+      // time-aware (dates only when a time is missing). The entity validator
+      // compares dates only, so a same-day open after C would otherwise slip
+      // through and leave the window open after the event closes.
+      if (openedAfter) {
+        conflicts.push({
+          kind: 'paddock',
+          windowId: pw.id,
+          eventId,
+          locationId: pw.locationId,
+          openDate: pw.dateOpened,
+          outDate,
+          entityError: 'dateClosed must be on or after dateOpened',
+        });
+        continue;
+      }
+      // Closed windows that opened at or before C are clamped later, so they
+      // are not flagged.
+      if (pw.dateClosed) continue;
       const proposed = { ...pw, dateClosed: outDate, timeClosed: outTime };
       const v = PaddockWindowEntity.validate(proposed);
       if (!v.valid) {

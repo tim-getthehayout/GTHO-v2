@@ -11,6 +11,11 @@ import { openResolveDialog } from './resolve-window-change.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getEventStartFloorExcluding } from './event-start.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import {
+  findGroupDayOverlaps,
+  overlapWarningText,
+  renderOverlapWarning,
+} from './window-integrity.js';
 
 let editGwSheet = null;
 
@@ -102,8 +107,35 @@ export function openEditGroupWindowDialog(gw, event, operationId) {
     ]));
   }
 
+  const overlapWarningEl = el('div', {
+    className: 'form-hint',
+    'data-testid': 'edit-gw-overlap-warning',
+    hidden: 'true',
+    style: { color: 'var(--amber-d)', marginBottom: 'var(--space-2)' },
+  });
+  const refreshOverlapWarning = () => {
+    const overlaps = findGroupDayOverlaps(
+      {
+        groupId: gw.groupId,
+        dateJoined: dateJoinedInput.value,
+        dateLeft: dateLeftInput?.value || gw.dateLeft || null,
+      },
+      { ignoreWindowIds: [gw.id], todayStr: getLocalTodayStr() },
+    );
+    const first = overlaps[0];
+    renderOverlapWarning(overlapWarningEl, first ? overlapWarningText({
+      start: first.start,
+      end: first.end,
+      eventLabel: first.eventLabel,
+    }) : '');
+  };
+  dateJoinedInput.addEventListener('input', refreshOverlapWarning);
+  if (dateLeftInput) dateLeftInput.addEventListener('input', refreshOverlapWarning);
+
   const statusEl = el('div', { className: 'auth-error' });
+  panel.appendChild(overlapWarningEl);
   panel.appendChild(statusEl);
+  refreshOverlapWarning();
 
   // Save function with date validation
   function saveChanges() {

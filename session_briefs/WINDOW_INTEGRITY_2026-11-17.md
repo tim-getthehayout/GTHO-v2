@@ -4,6 +4,7 @@
 **Sequencing:** Build starts this **after** the forecast orphan-window fix PR (`fix/forecast-orphan-windows`) merges. That PR owns the cull-sheet orphan-split skip and the forecast masking; this item owns prevention.
 **Base:** Forgejo `main` `2f341de7` (PR #70 merge). Every file:line below was read on `2f341de7`. Diagnosis was SELECT-only on prod.
 **Related:** OI-0224 (FED-6 run rate, the panel that showed 2,042), OI-0137 (back-dated entries close the current window), OI-0185/OI-0186 (close pre-flight and date-conflict one-tap fix), OI-0184 (sync dead-letter queue and auto-drain), OI-0205 (`maybeSplitForGroup` adopts only a window on an open event), OI-0101 (move-wizard date-in/date-out mirror).
+**Addendum (2026-11-17, Design, found in PR #75 review):** §6 extends slice (a) to paddock windows in PR A, in the same batch as the group-window clamp, and adds PR A acceptance tests plus an open reports note. Not a new Tim product decision.
 
 ## 1. Background
 
@@ -93,6 +94,8 @@ There is no silent fix and no delete. Today's one-tap fix for a window that join
 6. Reopen: a window ending exactly at the old close reopens; one ending earlier does not; a zero-length window at the old close does not; a window whose group has a later window elsewhere does not and is listed.
 7. Time handling: a window with no `time_left` on the close date is not treated as after the close (date-only rule).
 
+See also the 2026-11-17 addendum (§6): paddock-window clamp in PR A with a required prod-sequence test, a `pool.arrival` earlier-arrival refusal test, a time-aware reopen test, and the open reports 'DMI by group' count.
+
 ### (b) One ordered save for the one-tap fix and the close or move
 
 The one-tap conflict fix and the close or move that follows write a given window as **one ordered save**. More generally: **a later local write to a row must never be overtaken by an earlier one in the sync queue.** Build picks the mechanism and says which in the PR:
@@ -156,6 +159,7 @@ It never looks at neighbouring events or other windows. **No rule on `events` it
 - **The 27 older March–July overlaps** (same group on two events on the same day). **9** came from the Apr 14 v1 import; **18** came from arrival-before-departure moves (6 from May 8 and May 14 moves, 12 from the Jul 19 back-entry). None comes from bug 1 or bug 2. They stay as history unless Tim asks; the forecast fix's once-a-day counting masks them in DMI. (c) prevents new ones.
 - **Class DMI rates** are a separate item.
 - The cull-sheet orphan-split skip and the forecast masking are in `fix/forecast-orphan-windows`.
+- **Prod cleanup of the two paddock windows that end after their event** (`1a5630f6`, `87a5d63a`; see §6). Any cleanup needs Tim's yes plus a backup, asked through Orchestrator; not in PR A.
 
 ## 5. Suggested slicing (Design reviews each)
 
@@ -167,6 +171,48 @@ It never looks at neighbouring events or other windows. **No rule on `events` it
 
 A and B can go in either order; C goes last, after A and B are live and the audit is clean.
 
+PR A also includes the 2026-11-17 addendum (§6): clamp closed paddock windows that outlive a backdated close, in the same batch as the group-window clamp, plus the added acceptance tests.
+
 ## OPEN_ITEMS changes
 
 - OI-0226 added (APPROVED, Tim 2026-11-17 11:01 AM ET via Orchestrator), sequenced after `fix/forecast-orphan-windows`. Build flips it per PR (A, B, C) and closes it when PR C's migration is applied and verified.
+- 2026-11-17 addendum (Design, found in PR #75 review): slice (a) extends to paddock windows in PR A; OI-0226 entry in `OPEN_ITEMS.md` points here. Reports 'DMI by group' over-count is marked open under this item.
+
+---
+
+## 6. Addendum — 2026-11-17 (Design, found in PR #75 review)
+
+Found while reviewing OI-0226 PR A ([PR #75](https://git.sarnford.com/Homelab/GTHO-v2/pulls/75)) at `37d7b00a` on main `803a822a`. This extends the already-approved spec. It is not a new Tim product decision.
+
+### 6.1 Extend slice (a) to paddock windows, in PR A, same batch as the group-window clamp
+
+Today both main and PR A only close or pre-flight **open** paddock windows on a backdated event close:
+
+- `src/features/events/close.js:261` on PR #75 `37d7b00a` (the same filter is `close.js:243` on main `803a822a`) only closes paddock windows with no `dateClosed`.
+- `src/features/events/window-close-guard.js:95` on both refs only checks those open windows (the `!w.dateClosed` filter is at `:94`).
+
+On a backdated event close at instant C, in the **same write batch** as the group-window clamp:
+
+| paddock window state vs C | action |
+|---|---|
+| **closed**, opened at or before C, closes after C | clamp `date_closed`/`time_closed` to C |
+| opened after C | keep the existing date-conflict dialog (not clamped silently) |
+| **open** | close at C, as today |
+
+**Required test:** replay of the prod sequence: a paddock window is closed at 12:01 on Nov 17, then its event is closed back to Nov 16 12:02 at 12:03; the paddock window must end at the event close.
+
+**Evidence (prod, 8-character prefixes):** 2 of 150 paddock windows currently end after their event:
+
+- `1a5630f6` (E - 3) on event `eeb2febe` today (2026-11-17);
+- `87a5d63a` (J2, Jul 4 to Jul 6 on an event closed Jul 5 09:00).
+
+**Out of scope:** prod cleanup of those two rows. Any cleanup needs Tim's yes plus a backup, asked through Orchestrator.
+
+### 6.2 PR A acceptance additions
+
+1. A `pool.arrival` earlier-arrival refusal test (`move-wizard.js:620` on PR #75 `37d7b00a`; the same refusal is `move-wizard.js:548` on main `803a822a`, already required by §3 (c) test 4). The existing refusal stays unchanged.
+2. A time-aware reopen test: a window left on the old close **date** at an **earlier time** than the close must not reopen. (§3 (a) already requires an exact instant match; today's `reopen-event.js:64` still matches on the date only.)
+
+### 6.3 Open: reports 'DMI by group' still sums closed-event windows
+
+`src/features/reports/index.js` ~L192–222 (same on main `803a822a` and PR #75 `37d7b00a`) builds 'DMI by group' by walking **all events** and **all** of their group windows, including windows on closed events. That over-counts the same way the pre-PR-#72 forecast did. Handle this under OI-0226, likely in PR A or as a small follow-up. **Open.**

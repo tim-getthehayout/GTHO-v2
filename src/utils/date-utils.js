@@ -131,3 +131,30 @@ export function rowInstant(date, time) {
   const [second, fraction = ''] = seconds.split('.');
   return `${date || ''}T${hour}:${minute}:${second}.${fraction.padEnd(3, '0')}`;
 }
+
+/** True when a clock time is present. */
+export function hasClock(time) {
+  return time != null && String(time).trim() !== '';
+}
+
+function normalizeClock(time) {
+  const [hour = '00', minute = '00', rest = '00'] = String(time).trim().split(':');
+  const [second = '00'] = rest.split('.');
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${String(second).padStart(2, '0')}`;
+}
+
+/**
+ * Compare two (date, time) instants.
+ * When a time is missing on either side, compare dates only.
+ * @returns {-1|0|1}
+ */
+export function compareWindowInstants(dateA, timeA, dateB, timeB) {
+  const a = dateA || '';
+  const b = dateB || '';
+  if (!hasClock(timeA) || !hasClock(timeB)) {
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  const instantA = `${a}T${normalizeClock(timeA)}`;
+  const instantB = `${b}T${normalizeClock(timeB)}`;
+  return instantA < instantB ? -1 : instantA > instantB ? 1 : 0;
+}

@@ -1,7 +1,7 @@
 # OI-0222 — One-time historical hay-feeding backfill (winter 2025-26 + dropped v1 feedings)
 
-**Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — not approved for writes. Dry run 2026-11-16; Tim answered its questions (O, C1–C4, P, Q, two same-bale dedupes) 2026-11-17 5:00 AM ET via Orchestrator; rerun 2026-11-17 (559.3 units, ≈295,155 lb DM); R, S, T open (see Dry run and Tim's answers). Docs only: no SQL file, no code, no production write. **Nothing writes to production without a fresh backup and Tim's explicit yes on the specific dry-run report.**
-**Requested:** Tim, 2026-11-16 3:26 PM ET (relayed by Orchestrator); notes delivered 3:27 PM ET. **Answered:** Tim, 3:43, 3:51, 3:52 and 4:05–4:06 PM ET via Orchestrator (see Decisions); dry-run answers 2026-11-17 5:00 AM ET via Orchestrator.
+**Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — not approved for writes. Dry run 2026-11-16; Tim answered its questions (O, C1–C4, P, Q, two same-bale dedupes) 2026-11-17 5:00 AM ET via Orchestrator; rerun 2026-11-17 (559.3 units, ≈295,155 lb DM); R, S, T answered 2026-11-17 5:58 AM ET via Orchestrator; second rerun (558.3 units, ≈294,605 lb DM); U, V open. Landing of this docs update is not yet approved (Tim skipped the landing question). Docs only: no SQL file, no code, no production write. **Nothing writes to production without a fresh backup and Tim's explicit yes on the specific dry-run report.**
+**Requested:** Tim, 2026-11-16 3:26 PM ET (relayed by Orchestrator); notes delivered 3:27 PM ET. **Answered:** Tim, 3:43, 3:51, 3:52 and 4:05–4:06 PM ET via Orchestrator (see Decisions); dry-run answers 2026-11-17 5:00 AM ET and R, S, T 5:58 AM ET via Orchestrator.
 **Sequence:** OI-0220 (feed units) → **OI-0222 (this backfill)** → OI-0221 slice 1 (monthly history report), which then has Oct 2025 – Apr 2026 history.
 **Schema:** production stamp 44, compiled ceiling 44 (044 applied and published 2026-11-11). The v1-window part needs no migration; the winter part's recommended storage needs one (question C).
 
@@ -30,7 +30,7 @@
 
 **Nothing open for Tim before the dry run.** **Defaults (decided in the dry run):** A (scope), B (conflicts, default v1), M (zero date May 3). **Defaults, no change requested:** C (history table), F (bale weights). G, H, L closed; D, E, I, J, K, N decided.
 
-## Dry run and Tim's answers (dry run 2026-11-16; Tim, 2026-11-17 5:00 AM ET, relayed by Orchestrator)
+## Dry run and Tim's answers (dry run 2026-11-16; Tim, 2026-11-17 5:00 and 5:58 AM ET, relayed by Orchestrator)
 
 The Nov 16 dry run (read-only; kept on Orchestrator's box at `/workspace/gtho-backfill/dry-run-2026-11-16/`) found 12 v1 machine-copy rows and raised O, P and Q. Tim answered on 2026-11-17 at 5:00 AM ET, via Orchestrator:
 
@@ -43,13 +43,20 @@ The Nov 16 dry run (read-only; kept on Orchestrator's box at `/workspace/gtho-ba
 
 **Dry-run rerun with these answers (read-only, 2026-11-17; report on Orchestrator's box at `/workspace/gtho-backfill/dry-run-2026-11-17/REPORT.md`, sha256 `b9dd01c7b80234ae5c486c42099cf1ec6cc98d8d365099f3dc28212d9bd38e9a`):** fresh v1 and v2 reads were identical to Nov 16. Stored rows: **559.3 units, ≈295,155 lb DM** — Oct 58 · Nov 80 · Dec 122 · Jan 102 · Feb 92 · Mar 88.5 · Apr 1–13 16.8 (units; Oct–Feb unchanged). Lanes: winter history 90 rows / 455 units (89 notes rows plus the Mar 4 sheep peanut, R); event lane 33 feeding rows / 104.3 units (23 v1, 10 notes) + 6 v1 transfer rows (net 0) + 35 check items. True-ups (reverse the Nov 3 reconcile, then true up to fed): **Oak Field +37 / +8.86, Tarped +40 / −5, Peanut +17 / −15, Alfalfa +78 / −39.5**; ends 0 / 0 / 0 on May 3, 2026 and Alfalfa 15; post-summer batches untouched. These replace the §4 default-basis figures (+12.86 / +11 / −16 / +49.5). **Correction:** §2's "Apr 1–13 Oak Field 15.8 net" should have read **17.8** (found in the Nov 16 dry run); with the J2 dedupe the stored Apr 1–13 figure is 16.8.
 
+**Follow-up answers (Tim, 2026-11-17 5:58 AM ET, via Orchestrator):**
+
+21. **R — "Leave the Mar 4 peanut to sheep out".** The notes' Mar 4 "1 peanut to sheep" row is excluded entirely. It was never charged to a batch, so the Peanut true-up is unchanged (−15).
+22. **S — "Accept the alfalfa true-up, no extra feeding rows".** Alfalfa true-up −39.5, ending at 15. No rows added.
+23. **T — "Yes, the Mar 19 groups were there all winter, include them from Oct 1".** Cattle basis for Oct 1, 2025 – Mar 3, 2026 = the Mar 4 Cow-Calf Herd (31 head, 421.39 kg, DMI 2.574%) **plus** each Mar 19 group at its first-seen window: Mixed Calves 28 head at 566.99 kg (1,250 lb), DMI 2.5%; Shenk Culls 10 at 342.46 kg (755 lb), 2.5%; Shenk Cows 4 at 430.91 kg (950 lb), 2.5%; Culls 3 at 430.91 kg (950 lb), 2.5% (no classed members, default); Bull Group 3 at 566.99 kg (1,250 lb), 2.333% (1 Bull 2.0 + 2 Steer 2.5). Where a group has two Mar 19 windows (Shenk Cows, Culls), the first listed is used. **Total 79 head, ≈1,035 lb average, DMI 2.518% → 2,058.8 lb DM/day** (was 741.3 with the Cow-Calf Herd alone).
+
+**Second rerun (read-only, 2026-11-17 ~6:05 AM ET; `/workspace/gtho-backfill/dry-run-2026-11-17b/REPORT.md` on Orchestrator's box, sha256 `ffc68ba24e41b18673d098d690ab92700943cad39c772433648732c3475cb411`):** fresh reads identical. Stored rows: **558.3 units, ≈294,605 lb DM** — cattle 550.3 units / 290,205 lb DM, sheep 8 units / 4,400 lb DM. Monthly units: Oct 58 · Nov 80 · Dec 122 · Jan 102 · Feb 92 · Mar 87.5 · Apr 1–13 16.8. Lanes: winter history 89 rows / 454 units; event lane 33 feeding rows / 104.3 units + 6 transfer rows (net 0) + 35 check items; excluded 12 copy rows (O), 2 sheep alfalfa rows (P), 1 sheep peanut row (R). True-ups unchanged: Oak Field +37 / +8.86, Tarped +40 / −5, Peanut +17 / −15, Alfalfa +78 / −39.5. **Cattle fed vs predicted intake:** Oct 50% · Nov 71% · **Dec 105% · Jan 88% · Feb 80%** · Mar 87% · Apr 1–30 32% (illustrative; OI-0221 computes the real share).
+
 **Open for Tim (Design's recommended default first):**
-- **R. Mar 4 "1 peanut to sheep"** (kept by C1) has no v2 sheep event. *Default: store it in the history lane tagged sheep, dated Mar 4, not charged to the Peanut batch.*
-- **S. Alfalfa write-down of 39.5 squares.** 85 squares are physically gone (100 − 15), 45.5 are recorded as fed; 15 of the gap are the sheep squares left out under P. *Default: accept the −39.5 true-up, no extra feeding rows* (−45.5 if the notes' 3/25 Corral 6 is the same feeding as v1 3/24).
-- **T. Winter cattle basis looks low.** With the Mar 4 roster (31 head), Dec–Feb stored DM is 180–215% of DMI demand; March, with every group, is 80%. *Default: keep Q as answered;* ask whether the groups first seen Mar 19 (Mixed Calves 28, Shenk Culls 10, Shenk Cows 4, Culls 3, Bull Group 3) were on hand all winter.
+- **U. Mar 4–18 roster.** If the Mar 19 groups were there all winter, they were there Mar 4–18 too, but v2 has no windows for them then, so March counts only the Cow-Calf Herd for those days. *Default: extend the T basis through Mar 18* (+≈19,763 lb DM predicted; March cattle intake 87% → 59%).
+- **V. Calf weight.** The calves' first-seen weight (566.99 kg, 1,250 lb) is shared by every group on the Corral event, so it reads as an event average. *Default: use their first own weight, 318.88 kg (703 lb, Apr 3)* → 1,675.9 lb DM/day; cattle intake Oct 61% · Nov 88% · Dec 129% · Jan 108% · Feb 98%. Applied as instructed (1,250 lb) until Tim says.
 - Flags: 3/25 Corral 6 alfalfa vs v1 3/24 (*default: keep the 3/25 row*); events chosen for the notes rows that now win (*default: accept the dry run's choices*).
 
-**Not approved for writes.** OI-0222 stays PROPOSED. Migration 045 (the two history tables, historical feedings and historical animal basis; stamp 44 → 45), the backup and any backfill write each still need Tim's separate yes, with a fresh backup before any production change.
+**Not approved for writes.** OI-0222 stays PROPOSED. Migration 045 (the two history tables, historical feedings and historical animal basis; stamp 44 → 45), the backup and any backfill write each still need Tim's separate yes, with a fresh backup before any production change. Landing this docs branch (`docs/oi-0222-answers`) is not yet approved.
 
 ## Sources
 
@@ -171,7 +178,7 @@ Nov 3 reconciles (read-only): Oak Field 37 → 0 (−37, effective May 3); Tarpe
 | Alfalfa Small Squares | 100, purchase **Mar 24, 2026** | 134.5 = v1 92.5 (Mar 19, 23, 24) + notes-only 21 (3/25 6, 3/27 5, 3/28 10) + v2 21 (May 13–14 7, **Jul 6 7, Jul 27 7**) | +78 | **+49.5** (N = A) | 15 | **15** (unchanged) |
 
 - Combined opening round bales: 102 received vs 109.86 fed → net +7.86. The notes-only batch assignments above are defaults the dry run shows for Tim to change.
-- **Superseded by the 2026-11-17 rerun with Tim's dry-run answers (decisions 15–20):** Oak Field +8.86, Tarped −5, Peanut −15, Alfalfa −39.5 (ends unchanged: 0 / 0 / 0, Alfalfa 15); opening round bales 102 received vs 90.86 fed → net −11.14.
+- **Superseded by the 2026-11-17 rerun with Tim's dry-run answers (decisions 15–20):** Oak Field +8.86, Tarped −5, Peanut −15, Alfalfa −39.5 (ends unchanged: 0 / 0 / 0, Alfalfa 15); opening round bales 102 received vs 90.86 fed → net −11.14. Unchanged by R, S, T (decisions 21–23).
 - **Alfalfa — named exception (decided, N = A).** The only pre-summer batch with `remaining` > 0 and the only Alfalfa batch in v2 (purchased Mar 24, 2026). It carried into summer: 7 squares fed May 13–14 and 14 in July (Jul 6, Jul 27; entered Jul 19 and Aug 3). Arithmetic: 100 received − 134.5 fed + (−78 reconcile + 78 reversal) + 49.5 true-up = **15**, today's value. The reconcile's "before" (93) = 100 − 7 (May only): the July 14 were never deducted, which the true-up absorbs. Adjustments dated Nov 3, 2026 (the reconcile's own date), since this batch has no zero date.
 - **Possible double entry:** v1 alfalfa 3/23 (26 sq) and 3/24 (48 sq), both Corral, plus notes 3/25 Corral 6 "not entered" — flagged in the dry run; removing a duplicate lowers the Alfalfa true-up by the same amount (ending stays 15).
 - **v1's two extra alfalfa batches** (Mar 31, E-3, 100 + 50 sq, $0): **not real hay** (Tim, I) — ignored, map to nothing.
@@ -244,7 +251,7 @@ Illustrative winter DM at 550 lb DM/bale (round) and 42.5 lb (alfalfa squares), 
 
 ## Lettered questions (recommended answer first)
 
-Decided or closed by Tim (3:43–4:06 PM ET): D, E, G, H, I, J, K, L, N. At defaults, decided in the dry run (Tim, 4:05–4:06 PM ET): A, B, M. Defaults with no change requested: C, F. Dry-run questions O, P, Q and B per row answered 2026-11-17 5:00 AM ET (via Orchestrator); R, S, T open. Letters stay stable.
+Decided or closed by Tim (3:43–4:06 PM ET): D, E, G, H, I, J, K, L, N. At defaults, decided in the dry run (Tim, 4:05–4:06 PM ET): A, B, M. Defaults with no change requested: C, F. Dry-run questions O, P, Q and B per row answered 2026-11-17 5:00 AM ET, and R, S, T 5:58 AM ET (via Orchestrator); U, V open. Letters stay stable.
 
 - **A. Scope:** backfill Oct 1, 2025 – Apr 13, 2026 from both sources? Recommend: yes, both lanes. *Default — stays at the recommendation (Tim, 4:05–4:06 PM ET); confirmed in the dry run.*
 - **B. Conflicts in Mar 4 – 20** (3/4, 3/6, 3/19, 3/20): which wins? Recommend: decide each in the dry run; default v1 (entered at the time, tied to events). *Default v1 (Tim, 4:05–4:06 PM ET); each decided in the dry run.* **Decided per row (Tim, 2026-11-17 5:00 AM ET, via Orchestrator): notes for Mar 4, 19 and 20; Mar 6 moot after O.**
@@ -266,6 +273,8 @@ Decided or closed by Tim (3:43–4:06 PM ET): D, E, G, H, I, J, K, L, N. At defa
 - **O. v1 copy rows — DECIDED:** remove the 12 (Tim, 2026-11-17 5:00 AM ET, via Orchestrator).
 - **P. Sheep alfalfa Mar 27–28 — DECIDED:** left out entirely (Tim, 2026-11-17 5:00 AM ET).
 - **Q. Winter cattle basis — DECIDED:** the Mar 4 cattle groups copied back to Oct 1 (Tim, 2026-11-17 5:00 AM ET).
-- **R. Mar 4 sheep peanut:** history lane tagged sheep (recommended default). *Open.*
-- **S. Alfalfa −39.5 write-down:** accept the true-up, no extra feeding rows (recommended default). *Open.*
-- **T. Winter cattle roster:** keep Q as answered (recommended default), or use the Mar 19 groups if they were on hand all winter. *Open.*
+- **R. Mar 4 sheep peanut — DECIDED:** left out entirely (Tim, 2026-11-17 5:58 AM ET, via Orchestrator).
+- **S. Alfalfa −39.5 write-down — DECIDED:** accepted, no extra feeding rows (Tim, 2026-11-17 5:58 AM ET, via Orchestrator).
+- **T. Winter cattle roster — DECIDED:** the Mar 19 groups were there all winter; included from Oct 1 at their first-seen windows (Tim, 2026-11-17 5:58 AM ET, via Orchestrator).
+- **U. Mar 4–18 roster:** extend the T basis through Mar 18 (recommended default). *Open.*
+- **V. Calf weight:** use the Mixed Calves' first own weight, 318.88 kg (recommended default), instead of the 566.99 kg Corral event average. *Open.*

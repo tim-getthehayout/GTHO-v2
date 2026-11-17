@@ -139,6 +139,46 @@ function isOlder(a, b) {
   return a != null && b != null && a < b;
 }
 
+/**
+ * Version order between a pending payload and a sent one: by updated_at when
+ * both stamps are known, otherwise by local write order (`origin`, epoch ms).
+ * Rows on tables with no updated_at column (and unparseable stamps) use the
+ * write order. Unknown on both sides is never older.
+ */
+function olderVersion(aStamp, aOrigin, bStamp, bOrigin) {
+  if (aStamp != null && bStamp != null) return aStamp < bStamp;
+  return isOlder(aOrigin, bOrigin);
+}
+
+function isoMs(iso) {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** Write order of a queue entry: when it was queued. */
+function entryOrigin(entry) {
+  return isoMs(entry?.enqueued_at);
+}
+
+/** Write order of a dead letter: when its push was issued (legacy: when it was dead-lettered). */
+function letterOrigin(letter) {
+  return isoMs(letter?.origin_at || letter?.dead_lettered_at);
+}
+
+let lastOriginMs = 0;
+/**
+ * Local write-order clock (ISO). Strictly increasing within a session so two
+ * writes in the same millisecond still order; a large backwards clock jump
+ * resets it to the wall clock.
+ */
+function nextOrigin() {
+  const now = Date.now();
+  if (now > lastOriginMs || lastOriginMs - now > 1000) lastOriginMs = now;
+  else lastOriginMs += 1;
+  return new Date(lastOriginMs).toISOString();
+}
+
 function maxStamp(a, b) {
   if (a == null) return b;
   if (b == null) return a;
@@ -174,6 +214,9 @@ export class CustomSync extends SyncAdapter {
     // After an online delete: the newest stamp known for the row when the
     // delete was issued. Saves at or before it are dropped.
     this._tombstones = new Map();
+    // Newest write order (epoch ms) successfully sent per row; the clock for
+    // rows with no updated_at.
+    this._sentOrigins = new Map();
     // Queue entries already sent by the running flush (by entrySig).
     this._flushSent = null;
   }
@@ -313,7 +356,7 @@ export class CustomSync extends SyncAdapter {
       operation,
       table,
       record,
-      enqueued_at: new Date().toISOString(),
+      enqueued_at: nextOrigin(),
       attempts: 0,
       errors: [],
     });
@@ -345,39 +388,67 @@ export class CustomSync extends SyncAdapter {
     return run;
   }
 
-  /** True when a payload stamped `stamp` must not be sent for this row. */
-  _isSuperseded(key, stamp) {
-    if (isOlder(stamp, this._sentStamps.get(key) ?? null)) return true;
+  /**
+   * Why a payload (updated_at `stamp`, write order `origin`) must not be sent
+   * for this row: 'older' than the newest version already sent, or 'deleted'
+   * (at or before a delete's tombstone). Null when it should be sent.
+   */
+  _supersededReason(key, stamp, origin = null) {
+    if (olderVersion(stamp, origin, this._sentStamps.get(key) ?? null, this._sentOrigins.get(key) ?? null)) return 'older';
+    // Tombstones compare updated_at only, so a save with no timestamp is not
+    // tombstone-blocked. Saves pending when the delete was issued are still
+    // dropped by deleteGen, and no app path re-saves a deleted id.
     const tomb = this._tombstones.get(key);
-    return stamp != null && tomb != null && stamp <= tomb;
+    if (stamp != null && tomb != null && stamp <= tomb) return 'deleted';
+    return null;
+  }
+
+  _isSuperseded(key, stamp, origin = null) {
+    return this._supersededReason(key, stamp, origin) != null;
   }
 
   /**
-   * Record a successful send of `record` and clear that row's dead letters
-   * stamped at or before it (a newer write has landed over them).
+   * Record a successful send of `record` (write order `originIso`) and prune
+   * the persisted state for that row, so nothing older survives a reload:
+   * - dead letters stamped at or before it (or, with no stamps, issued
+   *   before it) are cleared;
+   * - queued saves stamped strictly before it (or, with no stamps, queued
+   *   before it) are removed.
    */
-  _markSent(table, record) {
+  _markSent(table, record, originIso = null) {
     const stamp = stampMs(record);
-    if (stamp == null) return;
-    const key = rowKey(table, record.id);
-    this._sentStamps.set(key, maxStamp(stamp, this._sentStamps.get(key) ?? null));
+    const origin = isoMs(originIso);
+    if (stamp == null && origin == null) return;
+    const id = record.id;
+    const key = rowKey(table, id);
+    if (stamp != null) this._sentStamps.set(key, maxStamp(stamp, this._sentStamps.get(key) ?? null));
+    if (origin != null) this._sentOrigins.set(key, maxStamp(origin, this._sentOrigins.get(key) ?? null));
+    const sameRow = entry => entry.table === table && entryRowId(entry) === id;
+
     const letters = readDeadLetters();
-    const kept = letters.filter(letter => {
-      if (letter.table !== table || entryRowId(letter) !== record.id) return true;
+    const keptLetters = letters.filter(letter => {
+      if (!sameRow(letter)) return true;
       const letterStamp = stampMs(letter.record);
-      return letterStamp == null || letterStamp > stamp;
+      if (letterStamp != null && stamp != null) return letterStamp > stamp;
+      return !isOlder(letterOrigin(letter), origin);
     });
-    if (kept.length !== letters.length) writeDeadLetters(kept);
+    if (keptLetters.length !== letters.length) writeDeadLetters(keptLetters);
+
+    const queue = readQueue();
+    const keptQueue = queue.filter(entry => !(sameRow(entry) && normalizePushOp(entry.operation) !== 'delete'
+      && olderVersion(stampMs(entry.record), entryOrigin(entry), stamp, origin)));
+    if (keptQueue.length !== queue.length) writeQueue(keptQueue);
   }
 
   /**
    * An online `update` whose row may not exist on the server yet (an unsent
    * create for it is still queued or dead-lettered) is sent as an upsert, so
    * the row is created rather than matching nothing. On `operations`, a
-   * still-queued insert keeps its compiled schema_version stamp.
+   * still-queued or dead-lettered insert keeps its compiled schema_version
+   * stamp.
    */
-  _effectiveOp(table, record, operation) {
-    if (operation !== 'update') return { operation, shapeAs: operation };
+  _effectiveOp(table, record, operation, shapeAs = null) {
+    if (operation !== 'update') return { operation, shapeAs: shapeAs || operation };
     const id = record.id;
     let uncreated = false;
     let insertStamp = false;
@@ -389,8 +460,11 @@ export class CustomSync extends SyncAdapter {
     }
     for (const letter of readDeadLetters()) {
       if (letter.table !== table || entryRowId(letter) !== id) continue;
-      // Dead letters replay as upserts; a stamp in a letter is never trusted.
+      // Dead letters replay as upserts. Only a letter written from an insert
+      // (marked shape 'insert') carries the stamp; a stamp merely present in
+      // a letter's record is never trusted.
       uncreated = true;
+      if (letter.shape === 'insert') insertStamp = true;
     }
     if (!uncreated) return { operation, shapeAs: operation };
     return { operation: 'upsert', shapeAs: table === 'operations' && insertStamp ? 'insert' : 'upsert' };
@@ -402,20 +476,28 @@ export class CustomSync extends SyncAdapter {
    * before a delete's tombstone) is dropped instead of sent. Writes to
    * different rows are not serialised behind each other.
    */
-  _enqueueRowPush(table, record, operation = 'upsert') {
+  _enqueueRowPush(table, record, operation = 'upsert', opts = {}) {
     const key = rowKey(table, record.id);
     const gate = this._rowGate(key);
     const gen = gate.deleteGen;
     const stamp = stampMs(record);
+    // Write order: the call time for a live push, enqueued_at for a flush entry.
+    const originAt = opts.originAt || nextOrigin();
     gate.maxSeen = maxStamp(gate.maxSeen, stamp);
     return this._runInRowGate(key, async () => {
-      if (gate.deleteGen !== gen || this._isSuperseded(key, stamp)) {
-        logger.info('sync', 'Superseded row write dropped', { table });
+      const reason = gate.deleteGen !== gen ? 'deleted' : this._supersededReason(key, stamp, isoMs(originAt));
+      if (reason === 'older') {
+        // Usually a stale queued or retried copy; also how clock skew shows up.
+        logger.warn('sync', 'Older row write dropped', { table });
         return { id: record.id, success: true, superseded: true };
       }
-      const { operation: op, shapeAs } = this._effectiveOp(table, record, normalizePushOp(operation));
-      const result = await this._pushToRemote(table, record, op, shapeAs);
-      if (result?.success) this._markSent(table, record);
+      if (reason === 'deleted') {
+        logger.info('sync', 'Row write dropped after delete', { table });
+        return { id: record.id, success: true, superseded: true };
+      }
+      const { operation: op, shapeAs } = this._effectiveOp(table, record, normalizePushOp(operation), opts.shapeAs);
+      const result = await this._pushToRemote(table, record, op, shapeAs, originAt);
+      if (result?.success) this._markSent(table, record, originAt);
       return result;
     });
   }
@@ -462,7 +544,7 @@ export class CustomSync extends SyncAdapter {
   // Queued mutations retain their originating operation in the immutable payload.
   // Replay is deliberately independent of the currently selected operation; RLS
   // still requires membership and unit triggers forbid moving an existing ID.
-  async _pushToRemote(table, record, operation = 'upsert', shapeAs = operation) {
+  async _pushToRemote(table, record, operation = 'upsert', shapeAs = operation, originAt = null) {
     if (table === 'operations') record = operationPushShape(record, shapeAs);
     if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) {
@@ -485,7 +567,10 @@ export class CustomSync extends SyncAdapter {
         await wait(backoffDelay(attempt));
       } else {
         // Move to dead letter
-        this._deadLetter(table, record, error.message, attempt + 1);
+        this._deadLetter(table, record, error.message, attempt + 1, {
+          originAt,
+          shape: table === 'operations' && shapeAs === 'insert' ? 'insert' : undefined,
+        });
         this._setStatus('error');
         return { id: record.id, success: false, error: error.message };
       }
@@ -497,11 +582,13 @@ export class CustomSync extends SyncAdapter {
   /**
    * Move a failed record to the dead letter queue and log it.
    */
-  _deadLetter(table, record, errorMsg, retryCount) {
+  _deadLetter(table, record, errorMsg, retryCount, meta = {}) {
     const entry = {
       id: record.id,
       table,
       record,
+      ...(meta.originAt ? { origin_at: meta.originAt } : {}),
+      ...(meta.shape ? { shape: meta.shape } : {}),
       error: errorMsg,
       retry_count: retryCount,
       first_attempt_at: new Date().toISOString(),
@@ -537,7 +624,10 @@ export class CustomSync extends SyncAdapter {
         for (const entry of queue) {
           const op = entry.operation === 'push' ? 'upsert' : entry.operation;
           if (op === 'insert' || op === 'update' || op === 'upsert') {
-            const result = await this._enqueueRowPush(entry.table, entry.record, op);
+            const result = await this._enqueueRowPush(entry.table, entry.record, op, {
+              originAt: entry.enqueued_at || null,
+              shapeAs: entry.shape === 'insert' ? 'insert' : null,
+            });
             if (result.success) this._flushSent.add(entrySig(entry));
             if (!result.success) {
               entry.attempts++;
@@ -563,7 +653,11 @@ export class CustomSync extends SyncAdapter {
         // pending commands with the earlier flush snapshot.
         const claimed = new Set(queue.map(entry => entry.durable_key).filter(Boolean));
         const newlyJournalled = readQueue().filter(entry => entry.durable_key && !claimed.has(entry.durable_key));
-        writeQueue([...remaining,...newlyJournalled]);
+        // Never write back a save that a newer send for its row has already
+        // superseded; after a reload the in-memory stamps are gone.
+        const live = entry => normalizePushOp(entry.operation) === 'delete'
+          || !this._isSuperseded(rowKey(entry.table, entryRowId(entry)), stampMs(entry.record), entryOrigin(entry));
+        writeQueue([...remaining, ...newlyJournalled].filter(live));
       }
 
       // OI-0184: drain the DLQ after the main queue. A transient-failure
@@ -593,8 +687,8 @@ export class CustomSync extends SyncAdapter {
    * @param {string} operation
    * @returns {Promise<{success: boolean, error?: string}>}
    */
-  async _singlePush(table, record, operation = 'upsert') {
-    if (table === 'operations') record = operationPushShape(record, operation);
+  async _singlePush(table, record, operation = 'upsert', shapeAs = operation) {
+    if (table === 'operations') record = operationPushShape(record, shapeAs);
     if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) return { success: false, error: 'No Supabase client' };
     try {
@@ -638,18 +732,20 @@ export class CustomSync extends SyncAdapter {
     const id = entryRowId(letter);
     const key = rowKey(letter.table, id);
     const stamp = stampMs(letter.record);
-    if (this._isSuperseded(key, stamp)) {
+    const origin = letterOrigin(letter);
+    if (this._isSuperseded(key, stamp, origin)) {
       writeDeadLetters(readDeadLetters().filter(l => letterSig(l) !== sig));
       return;
     }
     const newerQueued = readQueue().some(entry => entry.table === letter.table && entryRowId(entry) === id
-      && normalizePushOp(entry.operation) !== 'delete' && isOlder(stamp, stampMs(entry.record)));
+      && normalizePushOp(entry.operation) !== 'delete' && olderVersion(stamp, origin, stampMs(entry.record), entryOrigin(entry)));
     if (newerQueued) return;
 
-    const result = await this._singlePush(letter.table, letter.record, 'upsert');
+    const shapeAs = letter.shape === 'insert' ? 'insert' : 'upsert';
+    const result = await this._singlePush(letter.table, letter.record, 'upsert', shapeAs);
     if (result.success) {
       writeDeadLetters(readDeadLetters().filter(l => letterSig(l) !== sig));
-      this._markSent(letter.table, letter.record);
+      this._markSent(letter.table, letter.record, letter.origin_at || letter.dead_lettered_at || null);
       return;
     }
     writeDeadLetters(readDeadLetters().map(l => (letterSig(l) === sig ? {
@@ -706,8 +802,9 @@ export class CustomSync extends SyncAdapter {
 
   /**
    * Re-queue dead letters for retry (manual recovery). Per row only the
-   * newest updated_at is kept (ties go to the later letter), and a letter is
-   * skipped when the queue already holds a newer write for its row.
+   * newest version is kept (by updated_at, else write order; ties go to the
+   * later letter), and a letter is skipped when the queue already holds a
+   * newer write for its row.
    */
   retryDeadLetters() {
     const letters = readDeadLetters();
@@ -719,23 +816,26 @@ export class CustomSync extends SyncAdapter {
       const key = rowKey(letter.table, id);
       const prev = newest.get(key);
       if (!prev) order.push(key);
-      if (!prev || !isOlder(stampMs(letter.record), stampMs(prev.record))) newest.set(key, letter);
+      if (!prev || !olderVersion(stampMs(letter.record), letterOrigin(letter), stampMs(prev.record), letterOrigin(prev))) newest.set(key, letter);
     }
     for (const key of order) {
       const letter = newest.get(key);
       const id = entryRowId(letter);
       const stamp = stampMs(letter.record);
+      const origin = letterOrigin(letter);
       const newerQueued = queue.some(entry => entry.table === letter.table && entryRowId(entry) === id
-        && normalizePushOp(entry.operation) !== 'delete' && isOlder(stamp, stampMs(entry.record)));
+        && normalizePushOp(entry.operation) !== 'delete' && olderVersion(stamp, origin, stampMs(entry.record), entryOrigin(entry)));
       if (newerQueued) continue;
       queue.push({
         id: letter.id,
         operation: 'push',
         table: letter.table,
         record: letter.record,
-        enqueued_at: new Date().toISOString(),
+        // Keep the letter's own write order so it never outranks a newer write.
+        enqueued_at: letter.origin_at || letter.dead_lettered_at || nextOrigin(),
         attempts: 0,
         errors: [],
+        ...(letter.shape ? { shape: letter.shape } : {}),
       });
     }
     writeQueue(queue);

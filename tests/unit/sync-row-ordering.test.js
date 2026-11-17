@@ -67,6 +67,7 @@ import { commitDurableWrite } from '../../src/data/local-storage.js';
 import { _reset, init, setSyncAdapter, add, setUnitSystem } from '../../src/data/store.js';
 import * as Operation from '../../src/entities/operation.js';
 import { RELEASED_SCHEMA_VERSION } from '../../src/data/schema-release.js';
+import { logger } from '../../src/utils/logger.js';
 
 const TABLE = 'event_group_windows';
 const WINDOW_ID = 'aaaaaaaa-1111-4000-8000-000000000001';
@@ -259,11 +260,13 @@ describe('newest sent stamp: an older payload never lands last', () => {
     const f = sync.flush();
     await tick();
     await sync.push(TABLE, v(2, 9), 'upsert');
+    const warn = vi.spyOn(logger, 'warn');
     srv.holds.forEach(r => r());
     await f;
     expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
     expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([2]);
     expect(sync.getQueuedItems()).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith('sync', 'Older row write dropped', { table: TABLE });
   });
 
   it('a persisted queue holding a newer version before an older one ends at the newer', async () => {
@@ -462,5 +465,185 @@ describe('row gate bookkeeping', () => {
     await Promise.all([a, b]);
     await tick();
     expect(sync._rowGates.size).toBe(0);
+  });
+});
+
+describe('persisted state is pruned on success, so nothing stale survives a reload', () => {
+  it('a queued save that failed in flush is not resent by a fresh adapter after a newer save landed', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.rows.set(k(WINDOW_ID), v(0, 0));
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(1, 1), enqueued_at: '2026-11-17T20:00:01.000Z', attempts: 0, errors: [] },
+    ]));
+    srv.failNext = 5;
+    const f = sync.flush();
+    await tick();
+    const newer = sync.push(TABLE, v(2, 5), 'update');
+    await vi.runAllTimersAsync();
+    await Promise.all([f, newer]);
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(queued()).toEqual([]);
+    expect(deadLetters()).toEqual([]);
+
+    const reloaded = makeSync();
+    await reloaded.flush();
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([2]);
+  });
+
+  it('a successful send removes that row\'s older queued saves from storage at once', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(1, 1), enqueued_at: '2026-11-17T20:00:01.000Z', attempts: 0, errors: [] },
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(3, 9), enqueued_at: '2026-11-17T20:00:09.000Z', attempts: 0, errors: [] },
+      { id: OTHER_ID, table: TABLE, operation: 'upsert', record: v(1, 1, OTHER_ID), enqueued_at: '2026-11-17T20:00:01.000Z', attempts: 0, errors: [] },
+    ]));
+    await sync.push(TABLE, v(2, 5), 'upsert');
+    expect(queued().map(e => [e.id, e.record.v])).toEqual([[WINDOW_ID, 3], [OTHER_ID, 1]]);
+  });
+
+  it('dead letters stay cleared after an online delete, across a reload', async () => {
+    const sync = makeSync();
+    srv.rows.set(k(WINDOW_ID), v(0, 0));
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, record: v(1, 1), dead_lettered_at: '2026-11-17T20:00:01.500Z' },
+    ]));
+    await sync.delete(TABLE, WINDOW_ID);
+    expect(deadLetters()).toEqual([]);
+    const reloaded = makeSync();
+    await reloaded.flush();
+    expect(srv.rows.has(k(WINDOW_ID))).toBe(false);
+  });
+});
+
+describe('rows with no updated_at use write order', () => {
+  const IT = 'event_feed_check_items';
+  const ik = id => `${IT}/${id}`;
+  const item = (remaining, id = WINDOW_ID) => ({ id, remaining });
+
+  it('feed-check correction: failed first save is dead-lettered, the correction lands, the drain does not restore it', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.rows.set(ik(WINDOW_ID), item(2.25));
+    srv.failNext = 5;
+    const first = sync.push(IT, item(1.5), 'upsert');
+    await vi.runAllTimersAsync();
+    await first;
+    expect(deadLetters()).toHaveLength(1);
+    await sync.push(IT, item(0.75), 'upsert');
+    expect(deadLetters()).toEqual([]);
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    await makeSync().flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+  });
+
+  it('a correction issued while the first save is still retrying clears the first save\'s dead letter', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.rows.set(ik(WINDOW_ID), item(2.25));
+    srv.failNext = 5;
+    const first = sync.push(IT, item(1.5), 'upsert');
+    await tick();
+    const correction = sync.push(IT, item(0.75), 'upsert');
+    await vi.runAllTimersAsync();
+    await Promise.all([first, correction]);
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    expect(deadLetters()).toEqual([]);
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+  });
+
+  it('flush snapshot: an older queued unstamped save is dropped after a newer online save', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: OTHER_ID, table: IT, operation: 'upsert', record: item(9, OTHER_ID), enqueued_at: '2026-11-17T20:00:00.000Z', attempts: 0, errors: [] },
+      { id: WINDOW_ID, table: IT, operation: 'upsert', record: item(1.5), enqueued_at: '2026-11-17T20:00:00.000Z', attempts: 0, errors: [] },
+    ]));
+    srv.holdNext = 1;
+    const f = sync.flush();
+    await tick();
+    await sync.push(IT, item(0.75), 'upsert');
+    srv.holds.forEach(r => r());
+    await f;
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    expect(sync.getQueuedItems()).toHaveLength(0);
+  });
+
+  it('a queued unstamped save that failed in flush is not resent by a fresh adapter', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: IT, operation: 'upsert', record: item(1.5), enqueued_at: '2026-11-17T20:00:00.000Z', attempts: 0, errors: [] },
+    ]));
+    srv.failNext = 5;
+    const f = sync.flush();
+    await tick();
+    const correction = sync.push(IT, item(0.75), 'upsert');
+    await vi.runAllTimersAsync();
+    await Promise.all([f, correction]);
+    expect(queued()).toEqual([]);
+    await makeSync().flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+  });
+});
+
+describe('dead-letter drain leaves a letter alone while a newer save is queued', () => {
+  it('the older letter is never sent when the queue still holds a newer save of the row', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(2, 9), enqueued_at: '2026-11-17T20:00:09.000Z', attempts: 0, errors: [] },
+    ]));
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, record: v(1, 1), dead_lettered_at: '2026-11-17T20:00:01.500Z' },
+    ]));
+    srv.failNext = 5; // the queued newer save fails in this flush and stays queued
+    const f = sync.flush();
+    await vi.runAllTimersAsync();
+    await f;
+    expect(sent(WINDOW_ID).map(e => e.rec.v)).not.toContain(1);
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+  });
+});
+
+describe('operations schema stamp on the dead-letter path', () => {
+  const op = { id: 'op-2', name: 'Farm', unit_system: 'imperial', updated_at: '2026-11-17T20:00:00.000Z' };
+
+  it('an insert dead-lettered online, then an update sent as upsert, keeps the compiled stamp', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.failNext = 5;
+    const first = sync.push('operations', op, 'insert');
+    await vi.runAllTimersAsync();
+    await first;
+    await sync.push('operations', { ...op, unit_system: 'metric', updated_at: '2026-11-17T20:00:01.000Z' }, 'update');
+    const row = srv.rows.get('operations/op-2');
+    expect(row.unit_system).toBe('metric');
+    expect(row.schema_version).toBe(RELEASED_SCHEMA_VERSION);
+  });
+
+  it('an insert dead-lettered online keeps the compiled stamp when the drain sends it', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.failNext = 5;
+    const first = sync.push('operations', op, 'insert');
+    await vi.runAllTimersAsync();
+    await first;
+    await sync.flush();
+    expect(srv.rows.get('operations/op-2').schema_version).toBe(RELEASED_SCHEMA_VERSION);
+  });
+
+  it('an insert dead-lettered online keeps the compiled stamp through manual retry', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.failNext = 5;
+    const first = sync.push('operations', op, 'insert');
+    await vi.runAllTimersAsync();
+    await first;
+    sync.retryDeadLetters();
+    await sync.flush();
+    expect(srv.rows.get('operations/op-2').schema_version).toBe(RELEASED_SCHEMA_VERSION);
   });
 });

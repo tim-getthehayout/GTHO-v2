@@ -27,6 +27,7 @@ import {
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { normalizeFeedUnit, FEED_UNIT_LABEL_KEYS } from '../../utils/feed-units.js';
 import { feedUnitSelect } from './feed-unit-picker.js';
+import { renderRunRatePanel } from './run-rate-panel.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -256,7 +257,10 @@ export function renderFeedScreen(container) {
   renderBatchList(container, operationId);
   renderFeedTypeList(container);
 
-  unsubs.push(subscribe('feedTypes', () => renderFeedTypeList(container)));
+  unsubs.push(subscribe('feedTypes', () => {
+    renderFeedTypeList(container);
+    refreshFeedDayGoalBanner(container);
+  }));
   const refreshBatches = () => {
     renderBatchList(container, operationId);
     refreshOpenDetail(operationId);
@@ -280,6 +284,9 @@ export function renderFeedScreen(container) {
   unsubs.push(subscribe('animals', () => refreshFeedDayGoalBanner(container)));
   unsubs.push(subscribe('animalWeightRecords', () => refreshFeedDayGoalBanner(container)));
   unsubs.push(subscribe('animalClasses', () => refreshFeedDayGoalBanner(container)));
+  for (const key of ['events', 'eventFeedChecks', 'eventFeedCheckItems', 'eventGroupWindows', 'animalGroupMemberships']) {
+    unsubs.push(subscribe(key, () => refreshFeedDayGoalBanner(container)));
+  }
 }
 
 
@@ -408,7 +415,7 @@ function renderFeedDayGoalBanner() {
       ]),
       el('div', { className: 'form-hint' }, [t('feed.feedDayGoalHint')]),
     ]),
-    // Three stat cells: DM on Hand, Daily Run Rate, Days on Hand
+    // Three stat cells: DM on Hand, Daily need (DMI), Days on Hand
     el('div', { style: { display: 'flex', gap: 'var(--space-4)', marginTop: 'var(--space-3)' } }, [
       el('div', { 'data-testid': 'feed-dm-on-hand' }, [
         el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('feed.dmOnHand')]),
@@ -429,6 +436,7 @@ function renderFeedDayGoalBanner() {
         style: { width: `${pct}%` },
       }),
     ]),
+    renderRunRatePanel({ unitSys }),
   ]);
 }
 

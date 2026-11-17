@@ -104,16 +104,39 @@ export function replayFeedPools(input, { through = '9999-12-31T23:59:59', exclud
 
 /** Independent linear observations, keeping strict-after/inclusive endpoints. */
 export function poolDailyActual(input, date) {
+  return new Map([...poolDailyObservation(input, date)].map(([key, row]) => [key, row.dm]));
+}
+
+/** The same observation as poolDailyActual, plus the count-unit rate when every
+ * anchor child and delivery in the interval is verified in one count unit
+ * (`units`/`unit`; both null for mass-based or mixed intervals). */
+export function poolDailyObservation(input, date) {
   const history = poolHistory(input), result = new Map();
   for (const [key] of history.identities) {
     const anchors = history.records.filter(row=>row.key===key && row.order===1);
     const prev = anchors.filter(row=>row.check.date<=date).at(-1), next = anchors.find(row=>row.check.date>date);
     if (!prev || !next) continue;
     const dm = anchor => anchor.children.reduce((sum,child)=>{ const value=mass(child.quantity,child.snap).d; return sum == null || value == null ? null : sum+value; },0);
+    const between = history.records.filter(row=>row.key===key && row.order===0 && row.stamp>prev.stamp && row.stamp<=next.stamp);
     let delivered=0;
-    for (const row of history.records.filter(row=>row.key===key && row.order===0 && row.stamp>prev.stamp && row.stamp<=next.stamp)) { const d=mass(row.quantity,row.snap).d; delivered=delivered==null||d==null?null:delivered+row.sign*d; }
+    for (const row of between) { const d=mass(row.quantity,row.snap).d; delivered=delivered==null||d==null?null:delivered+row.sign*d; }
     const a=dm(prev),b=dm(next),days=Math.max(1,Math.round((new Date(next.check.date+'T00:00:00')-new Date(prev.check.date+'T00:00:00'))/86400000));
-    result.set(key,a==null||b==null||delivered==null?null:Math.max(0,(a+delivered-b)/days));
+    const value = a==null||b==null||delivered==null?null:Math.max(0,(a+delivered-b)/days);
+    // Count units only when every non-zero row agrees on one verified count unit.
+    let unit = null, counted = true;
+    const count = (quantity, snap) => {
+      if (quantity === 0) return 0;
+      const typeUnit = foldFeedUnit(history.feedTypes[snap.feedTypeId]?.unit);
+      if (!POOL_COUNT_UNITS.has(snap.unit) || (typeUnit && typeUnit !== snap.unit) || (unit && unit !== snap.unit)) { counted = false; return 0; }
+      unit = snap.unit; return quantity;
+    };
+    const qa = prev.children.reduce((sum,child)=>sum+count(child.quantity,child.snap),0);
+    const qb = next.children.reduce((sum,child)=>sum+count(child.quantity,child.snap),0);
+    const qd = between.reduce((sum,row)=>sum+row.sign*count(row.quantity,row.snap),0);
+    // Replay's sticky mass mode (mixed units before this interval) also wins.
+    if (counted && value != null && replayFeedPools(input, { through: prev.stamp }).get(key)?.massBased) counted = false;
+    const units = counted && value != null ? Math.max(0,(qa+qd-qb)/days) : null;
+    result.set(key,{ dm:value, units, unit: units == null ? null : unit });
   }
   return result;
 }

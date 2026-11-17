@@ -56,6 +56,7 @@ import './calcs/feed-forage.js';
 import './calcs/advanced.js';
 import './calcs/capacity.js';
 import './calcs/survey-bale-ring.js';
+import './calcs/feed-run-rate.js';
 
 let showAppGen = 0;
 let lastRenderedUserId = null;

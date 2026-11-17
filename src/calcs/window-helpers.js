@@ -212,3 +212,32 @@ export function hasUnknownLiveWindowWeights(gw, opts) {
   }
   return false;
 }
+
+/**
+ * Predicted daily DMI (kg) of every group window active on `dt`:
+ * head × average weight × class DMI% (2.5 when unset), live for open windows
+ * (OI-0091). Shared by DMI-8's daily demand and the feed run rate forecast.
+ * `animalClasses` is a map keyed by class id.
+ */
+export function groupWindowsDailyDmiKg(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords } = {}) {
+  let total = 0;
+  for (const gw of groupWindows || []) {
+    if (gw.dateJoined > dt) continue;
+    if (gw.dateLeft && gw.dateLeft <= dt) continue;
+    const cls = gw.animalClassId && animalClasses ? animalClasses[gw.animalClassId] : null;
+    const pct = cls?.dmiPct ?? 2.5;
+    const head = memberships
+      ? getLiveWindowHeadCount(gw, { memberships, animals, now: dt })
+      : (gw.headCount ?? 0);
+    const avg = memberships
+      // OI-0130: the helper expects the { id, defaultWeightKg, ... } array shape.
+      ? getLiveWindowAvgWeight(gw, {
+          memberships, animals,
+          animalClasses: animalClasses ? Object.values(animalClasses) : null,
+          animalWeightRecords, now: dt,
+        })
+      : (gw.avgWeightKg ?? 0);
+    total += head * avg * (pct / 100);
+  }
+  return total;
+}

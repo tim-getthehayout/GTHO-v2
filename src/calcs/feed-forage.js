@@ -3,7 +3,7 @@ import { feedSnapshot, poolHistory, replayFeedPools, poolDailyActual } from './f
 
 import { rowInstant } from '../utils/date-utils.js';
 import { registerCalc } from '../utils/calc-registry.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from './window-helpers.js';
+import { groupWindowsDailyDmiKg } from './window-helpers.js';
 import { isConfinementLocation } from './location-type.js';
 
 // DMI-1: Consumed DM from Feed
@@ -587,27 +587,7 @@ registerCalc({
 
     // Daily demand (OI-0091: live recompute for open windows).
     function dailyDemand(dt) {
-      let total = 0;
-      for (const gw of groupWindows) {
-        if (gw.dateJoined > dt) continue;
-        if (gw.dateLeft && gw.dateLeft <= dt) continue;
-        const cls = gw.animalClassId && animalClasses ? animalClasses[gw.animalClassId] : null;
-        const pct = cls?.dmiPct ?? 2.5;
-        const head = memberships
-          ? getLiveWindowHeadCount(gw, { memberships, animals, now: dt })
-          : (gw.headCount ?? 0);
-        const avg = memberships
-          // OI-0130: animalClasses here is a map keyed by classId; convert
-          // to the { id, defaultWeightKg, ... } array shape the helper expects.
-          ? getLiveWindowAvgWeight(gw, {
-              memberships, animals,
-              animalClasses: animalClasses ? Object.values(animalClasses) : null,
-              animalWeightRecords, now: dt,
-            })
-          : (gw.avgWeightKg ?? 0);
-        total += head * avg * (pct / 100);
-      }
-      return total;
+      return groupWindowsDailyDmiKg(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords });
     }
 
     // paddock_observations picker — verbatim match to the OI-0107 canonical

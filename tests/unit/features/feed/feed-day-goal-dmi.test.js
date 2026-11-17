@@ -140,7 +140,7 @@ describe('feed day goal DMI denominator', () => {
     // 140 / 15 = 9.333 → 9. No group window, so the cow is not on an open event.
     expect(cell('feed-dm-on-hand')).toContain('140 kg');
     expect(cell('feed-run-rate')).toContain('15 kg/day');
-    expect(cell('feed-run-rate')).toContain('Daily Run Rate');
+    expect(cell('feed-run-rate')).toContain('Daily need (DMI)');
     expect(cell('feed-days-on-hand')).toContain('9');
     expect(document.querySelector('[data-testid="feed-day-goal-banner"]').textContent)
       .toContain('9 / 90 days');

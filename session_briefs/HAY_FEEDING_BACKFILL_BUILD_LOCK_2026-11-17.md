@@ -18,8 +18,8 @@ Conventions follow 037/043/044. The file is wrapped in `BEGIN;`/`COMMIT;`. Every
 | unit_snapshot | `text NOT NULL CHECK (length(btrim(unit_snapshot)) > 0)` (canonical FEED_UNITS value: `bale` or `sq bale`) |
 | weight_per_unit_kg_snapshot | `numeric NOT NULL CHECK (> 0 AND < 'Infinity')` |
 | dm_pct_snapshot | `numeric NOT NULL CHECK (> 0 AND <= 100)` |
-| feed_type_id | `uuid REFERENCES feed_types(id) ON DELETE SET NULL` (nullable; null for the 54 untyped bales) |
-| feed_type_label | `text` (snapshot: the type name, or `untyped round bale`) |
+| feed_type_id | `uuid REFERENCES feed_types(id) ON DELETE SET NULL` (nullable for later manual rows; the backfill sets it on every row — the 54 notes rows with no written type get Round bale- Grass, decision 3) |
+| feed_type_label | `text` (snapshot of the type name at write time, e.g. `Round bale- Grass`) |
 | species | `text NOT NULL CHECK (species IN ('beef_cattle','dairy_cattle','sheep','goat','other'))` (the animal_classes list) |
 | group_id | `uuid REFERENCES groups(id) ON DELETE SET NULL` (nullable) |
 | group_label | `text` (snapshot) |
@@ -65,7 +65,7 @@ Conventions follow 037/043/044. The file is wrapped in `BEGIN;`/`COMMIT;`. Every
 
 The cattle rows set `species = 'beef_cattle'` and link `group_id` to the live group. The cattle total is 1,533.8 lb DM/day. The sheep row has `group_id` null, `group_label 'Sheep flock'`, and comes to 264 lb DM/day.
 
-**Feeding rows** map species `cattle?`/`cattle` to `beef_cattle` and `sheep` to `sheep`. The weight snapshot is 647 lb = 293.4743 kg for round bales and 50 lb = 22.6796 kg for squares; dm_pct_snapshot is 85.
+**Feeding rows** map species `cattle?`/`cattle` to `beef_cattle` and `sheep` to `sheep`. The weight snapshot is 647 lb = 293.4743 kg for round bales and 50 lb = 22.6796 kg for squares; dm_pct_snapshot is 85. Feed type by the note's type: grass → `Round bale- Grass`, peanut → `Round Bale- Peanut`, and the **54 rows with no written type → `Round bale- Grass`** (decision 3, Tim, 2026-11-17 7:19 AM ET, via Orchestrator: "Those bales would be grass hay"). The script resolves the type id by name at run time and aborts unless exactly one non-archived feed type has that name; `feed_type_label` is that name; `notes` keeps the raw line, so the source wording (no type written) stays on the row. Snapshots stay 647 lb · 85% (plan F), not the grass type's or this fall's batch values.
 
 **Entry point for the basis.** For now only the backfill script writes basis rows. In-app entry and editing are deferred to a follow-up OI (Tim question 1). Until then the table is read-only in the UI.
 
@@ -136,14 +136,14 @@ The true-up `previous_qty` equals end minus delta, which is received minus fed: 
 | Measure | 17c target |
 |---|---|
 | Per month, units / lb DM | Oct 58 / 31,897 · Nov 80 / 43,996 · Dec 122 / 67,094 · Jan 102 / 56,095 · Feb 92 / 50,595 · Mar 87.5 / 35,688 · Apr 1–13 16.8 / 9,239. Total 558.3 / 294,605 (cattle 550.3 / 290,205, sheep 8 / 4,400) |
-| History lane | 89 rows · 454 units · 249,677 lb DM |
+| History lane | 89 rows · 454 units · 249,677 lb DM. By feed type after decision 3: Round bale- Grass 414 (17 rows typed grass = 102, plus the 54 no-type rows = 312) · Round Bale- Peanut 40 · 0 untyped |
 | Event lane | 33 inserts (23 v1 + 10 notes) · 104.3 units · 44,927 lb DM; 6 transfers; 35 check items |
 | Not written | superseded 7 (45.5 units) · matched-skipped 4 (16) · excluded copies 12 (74.5) · sheep alfalfa 2 (15) · sheep peanut 1 (1) |
 | True-up per batch | the table above: deltas, dates and end states exact |
 | Basis rows | 7 rows as in §1. Cattle 1,533.8 lb DM/day (79 head, 769 lb avg, 2.525%); sheep 264 lb DM/day |
 
-## 4. Tim questions (spec uses the default)
+## 4. Tim questions (1–2 at defaults; 3 decided)
 
 1. **Basis entry point.** Only the backfill writes last winter's basis now, and in-app entry/edit becomes a follow-up OI? *Default: yes.* (J = A said Tim enters it; he has given the values, so the script enters them.)
 2. **Adjustment reason.** The offset and true-up rows use the existing `reconcile` reason; there is no new reason value. *Default: `reconcile`.*
-3. **Untyped winter bales.** The 54 rows marked "fed N bales" with no type keep `feed_type_id` null (label "untyped round bale"). DM is the same 647 lb · 85% either way. *Default: leave untyped.*
+3. **Winter bales with no written type — DECIDED: grass hay** (Tim, 2026-11-17 7:19 AM ET, via Orchestrator: "Those bales would be grass hay"). The 54 history rows carry the `Round bale- Grass` feed type (not "untyped round bale", not null). Units, lb DM, true-ups and the §3 match figures are unchanged: 17c already valued them at 647 lb · 85%, the same as the typed grass and peanut rows, and history rows carry no batch or cost. The two Mar 17/19 notes rows in the event lane already use the Oak Field Barn batch (grass type).

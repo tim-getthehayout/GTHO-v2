@@ -191,7 +191,7 @@ No fall batch is missing a cost. Illustrative price if locked today on the on-ha
 
 0. **OI-0220** unit cleanup and prevention (no migration).
 1. **History report** for any period (no migration): monthly DM fed, cost, demand, share; data-quality flags.
-2. **Budget + gamified card + forecast** (new stored-budget migration after the applied 044; Tim's yes + backup to apply). Includes the shared OI-0224 run-rate panel on the scorecard (D8); OI-0224 itself ships independently with no migration (on hold for Build per Tim, 2026-11-17 6:27 AM ET).
+2. **Budget + gamified card + forecast** (new stored-budget migration after the applied 044; Tim's yes + backup to apply). Includes the shared OI-0224 run-rate panel on the scorecard (D8); OI-0224 itself ships independently with no migration; it was handed to Build after Tim lifted the 6:27 AM ET hold at 6:29 AM ET (via Orchestrator), with the run-rate calc exposed as a shared module this slice reuses.
 3. **Days-on-hand supplement/replacement** and planned herd changes.
 
 CP-55/CP-56: slices 0–1 none; slice 2 adds the budget tables to export/restore with a schema step.

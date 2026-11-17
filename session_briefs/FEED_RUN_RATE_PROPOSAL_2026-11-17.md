@@ -5,7 +5,7 @@
 **Base:** Forgejo `main` `73442873` (PR #60 merge; read only). Live figures: read-only SELECTs on production, 2026-11-17 ~6:20 AM ET; aggregates only.
 **Decided:** see "Decided by Tim" below.
 **Related:** OI-0221 (stored forage budget; DM basis, DMI-adjusted forecast, cost rule D5), OI-0220 (feed units, done), FA-26 (feed pools).
-**On hold (Tim, 2026-11-17 6:27 AM ET, via Orchestrator: "Actually wait"):** the Build handoff is ON HOLD until further notice. The spec stays APPROVED; Build does not start.
+**Handed to Build:** the 6:27 AM ET hold ("Actually wait") was lifted at 6:29 AM ET — Tim, 2026-11-17 6:29 AM ET, via Orchestrator: "Ok all set to go on run rate and backfill. Backup the database before backfill database changes and backfill"; OI-0224 and OI-0222 are handed to Build. Build must expose the run-rate window calc as a shared module that the OI-0221 slice 2 scorecard reuses (one calc, one component).
 **Also on the OI-0221 scorecard (Tim, 2026-11-17 6:28 AM ET, via Orchestrator):** see §6.
 
 ## Tim's request (verbatim, 2026-11-17 6:02 AM ET, via Orchestrator)
@@ -79,7 +79,7 @@ Under the existing three stat cells of the Feed Day Goal card:
 
 - **Schema:** none. **Migration:** none. **CP-55/CP-56:** no change. New i18n strings only.
 - **Calc:** the window aggregation should be a registered calc beside DMI-5/DMI-8 per `V2_CALCULATION_SPEC.md` (Build names it), reusing the pool replay; no duplicate consumption logic.
-- **Phasing:** independent of OI-0222 and OI-0221; approved by Tim 2026-11-17 6:12 AM ET (via Orchestrator); ready for Build. Per-event panel (F, decided) and "vs budget" (after OI-0221) are follow-ups. **Build handoff ON HOLD** (Tim, "Actually wait", 2026-11-17 6:27 AM ET, via Orchestrator) until further notice.
+- **Phasing:** independent of OI-0222 and OI-0221; approved by Tim 2026-11-17 6:12 AM ET (via Orchestrator); ready for Build. Per-event panel (F, decided) and "vs budget" (after OI-0221) are follow-ups. **Handed to Build** — the 6:27 AM ET hold ("Actually wait") was lifted at 6:29 AM ET — Tim, 2026-11-17 6:29 AM ET, via Orchestrator: "Ok all set to go on run rate and backfill. Backup the database before backfill database changes and backfill"; OI-0224 and OI-0222 are handed to Build. Build must expose the run-rate window calc as a shared module that the OI-0221 slice 2 scorecard reuses (one calc, one component).
 
 ## 6. Also on the OI-0221 budget scorecard (Tim, 2026-11-17 6:28 AM ET, via Orchestrator)
 
@@ -89,7 +89,7 @@ Under the existing three stat cells of the Feed Day Goal card:
 - **One shared calculation and one shared component.** The registered window calc (§5) and the panel UI are built once and used by both the Feed card and the scorecard. No second implementation; the scorecard adds only its comparison row.
 - **Same content:** pills 7/14/30/60 (default 30), consumed (measured days only), residual at close, bales, $ and lb DM, DMI actual vs forecast, exactly as §2–§3.
 - **On the scorecard only:** a comparison row for the same window — budget, prior year and actual — and the gamification hooks (pace badge, waste %). Details and Tim's open questions N–S are in the [stored forage budget brief](STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md) (§10 and lettered questions).
-- **Status:** this placement is part of OI-0221 (PROPOSED) and ships with its slice 2. OI-0224 on the Feed card stays APPROVED as a spec and needs no OI-0221 work; its Build handoff is on hold (6:27 AM ET).
+- **Status:** this placement is part of OI-0221 (PROPOSED) and ships with its slice 2. OI-0224 on the Feed card stays APPROVED as a spec and needs no OI-0221 work; it is handed to Build (hold lifted 6:29 AM ET); Build exposes the calc as a shared module for the scorecard to reuse.
 
 ## Lettered questions — all decided (Tim, 2026-11-17 6:12 AM ET, via Orchestrator)
 

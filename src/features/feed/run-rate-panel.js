@@ -8,6 +8,7 @@ import { t } from '../../i18n/i18n.js';
 import { getAll } from '../../data/store.js';
 import { display } from '../../utils/units.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { formatShortDate } from '../../utils/date-format.js';
 import { computeFeedRunRate, RUN_RATE_WINDOWS, DEFAULT_RUN_RATE_DAYS } from '../../calcs/feed-run-rate.js';
 import { getEventStartDate } from '../events/event-start.js';
 
@@ -51,8 +52,9 @@ function unitParts(units, suffix = '') {
 const dmText = (kg, unitSys) => t('feed.runRateDm', { amount: display(kg, 'weight', unitSys, 0) });
 
 function amountColumn(testId, title, total, unitSys, extra = []) {
-  const lines = [...unitParts(total.units), dmText(total.dmKg, unitSys)];
-  lines.push(total.cost == null ? t('feed.runRateNoCost') : fmtMoney(total.cost));
+  const lines = total.unknown
+    ? [t('feed.runRateUnknownDm'), t('feed.runRateUnknownCost')]
+    : [...unitParts(total.units), dmText(total.dmKg, unitSys), total.cost == null ? t('feed.runRateNoCost') : fmtMoney(total.cost)];
   if (total.cost != null && total.unpricedDmKg > 1e-9) lines.push(t('feed.runRatePartlyUnpriced', { amount: display(total.unpricedDmKg, 'weight', unitSys, 0) }));
   return el('div', { 'data-testid': testId, style: { flex: '1', minWidth: '0' } }, [
     el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [title]),
@@ -84,14 +86,19 @@ export function renderRunRatePanel({ unitSys, today } = {}) {
   } else {
     const parts = [...unitParts(result.rate.unitsPerDay, t('feed.runRatePerDay')), `${dmText(result.rate.dmKgPerDay, unitSys)}${t('feed.runRatePerDay')}`];
     body.push(el('div', { 'data-testid': 'feed-run-rate-line', style: { fontSize: '14px', fontWeight: '600' } }, [t('feed.runRateLine', { parts: parts.join(' · ') })]));
-    body.push(el('div', { className: 'form-hint', 'data-testid': 'feed-run-rate-measured' }, [t('feed.runRateMeasured', { measured: result.measuredDays, days, date: result.lastMeasuredDate })]));
+    body.push(el('div', { className: 'form-hint', 'data-testid': 'feed-run-rate-measured' }, [t('feed.runRateMeasured', { measured: result.measuredDays, days: result.windowDays, date: formatShortDate(result.lastMeasuredDate) })]));
   }
   const residual = result.residual;
   const residualExtra = [];
   if (residual.eventsClosed) residualExtra.push(el('div', { className: 'form-hint' }, [t('feed.runRateClosedEvents', { count: residual.eventsClosed })]));
   if (residual.closesWithoutReading) residualExtra.push(el('div', { className: 'form-hint', 'data-testid': 'feed-run-rate-missing-close' }, [t('feed.runRateClosesWithoutReading', { count: residual.closesWithoutReading })]));
   const columns = [];
-  if (result.measuredDays) columns.push(amountColumn('feed-run-rate-consumed', t('feed.runRateConsumed'), result.consumed, unitSys));
+  if (result.measuredDays) {
+    const hint = result.consumed.includesPartialDays
+      ? [el('div', { className: 'form-hint', 'data-testid': 'feed-run-rate-partial' }, [t('feed.runRatePartialDays')])]
+      : [];
+    columns.push(amountColumn('feed-run-rate-consumed', t('feed.runRateConsumed'), result.consumed, unitSys, hint));
+  }
   columns.push(residual.eventsClosed
     ? amountColumn('feed-run-rate-residual', t('feed.runRateResidual'), residual, unitSys, residualExtra)
     : el('div', { 'data-testid': 'feed-run-rate-residual', style: { flex: '1' } }, [

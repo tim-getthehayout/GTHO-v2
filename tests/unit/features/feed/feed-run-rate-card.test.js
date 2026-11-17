@@ -1,11 +1,12 @@
 /** @file Feed Day Goal card: run-rate section mounted on the real Feed screen. */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { _reset, add, setSyncAdapter } from '../../../../src/data/store.js';
+import { _reset, add, update, setSyncAdapter } from '../../../../src/data/store.js';
 import { renderFeedScreen } from '../../../../src/features/feed/index.js';
 import { renderRunRatePanel } from '../../../../src/features/feed/run-rate-panel.js';
 import { setLocale } from '../../../../src/i18n/i18n.js';
 import en from '../../../../src/i18n/locales/en.json';
 import { getLocalTodayStr } from '../../../../src/utils/date-utils.js';
+import { formatShortDate } from '../../../../src/utils/date-format.js';
 import * as OperationEntity from '../../../../src/entities/operation.js';
 import * as FarmEntity from '../../../../src/entities/farm.js';
 import * as EventEntity from '../../../../src/entities/event.js';
@@ -84,7 +85,8 @@ describe('feed run rate on the Feed Day Goal card', () => {
     expect(text('feed-run-rate')).toContain('Daily need (DMI)');
     expect(document.querySelector('[data-testid="feed-run-rate-pill-30"]').getAttribute('aria-pressed')).toBe('true');
     expect(text('feed-run-rate-line')).toBe('Run rate: 1 round bales/day · 400 kg DM/day');
-    expect(text('feed-run-rate-measured')).toBe(`Measured 10 of 30 days, through ${localDay(-15)}`);
+    expect(text('feed-run-rate-measured')).toBe(`Measured 10 of 30 days, through ${formatShortDate(localDay(-16))}`);
+    expect(text('feed-run-rate-partial')).toBeNull();
     expect(text('feed-run-rate-consumed')).toContain('10 round bales');
     expect(text('feed-run-rate-consumed')).toContain('4000 kg DM');
     expect(text('feed-run-rate-consumed')).toContain('$600');
@@ -117,5 +119,21 @@ describe('feed run rate on the Feed Day Goal card', () => {
     document.body.replaceChildren();
     mount();
     expect(document.querySelector('[data-testid="feed-run-rate-pill-14"]').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('residual at close with no reading shows Unknown, not 0, and a feed type change refreshes the card', async () => {
+    seed();
+    // Close the event yesterday without a close reading; feed is still in the pool.
+    update('events', EVT, { dateOut: localDay(-1) }, EventEntity.validate, EventEntity.toSupabaseShape, 'events');
+    mount();
+    const residual = text('feed-run-rate-residual');
+    expect(residual).toContain('Unknown DM');
+    expect(residual).toContain('Unknown $');
+    expect(residual).toContain('Closes without a reading: 1');
+    expect(residual).not.toContain('$0');
+    const before = document.querySelector('[data-testid="feed-run-rate-section"]');
+    update('feedTypes', FT, { name: 'Grass Hay 2' }, FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(document.querySelector('[data-testid="feed-run-rate-section"]')).not.toBe(before);
   });
 });

@@ -40,11 +40,12 @@ describe('pool daily observation', () => {
 });
 
 describe('computeFeedRunRate', () => {
-  it('measures only days bracketed by two checks (earlier date exclusive, later inclusive)', () => {
+  it('measures days bracketed by two checks with earlier check <= d < later check', () => {
     const r = computeFeedRunRate(openHay());
     expect(r.start).toBe('2026-11-01');
+    expect(r.windowDays).toBe(30);
     expect(r.measuredDays).toBe(10);
-    expect(r.lastMeasuredDate).toBe('2026-11-15');
+    expect(r.lastMeasuredDate).toBe('2026-11-14');
     expect(r.rate.unitsPerDay).toEqual({ bale: 1 });
     expect(r.rate.dmKgPerDay).toBe(400);
     expect(r.consumed.units).toEqual({ bale: 10 });
@@ -58,8 +59,9 @@ describe('computeFeedRunRate', () => {
   it('trailing windows end today inclusive', () => {
     const r = computeFeedRunRate({ ...openHay(), today: '2026-11-15', days: 7 });
     expect(r.start).toBe('2026-11-09');
-    expect(r.measuredDays).toBe(7);
-    expect(r.consumed.units.bale).toBeCloseTo(7);
+    // 11-15 (the later check day) holds 1 bale with no next check: active, unmeasured.
+    expect(r.measuredDays).toBe(6);
+    expect(r.consumed.units.bale).toBeCloseTo(6);
     expect(shiftDate('2026-03-01', -1)).toBe('2026-02-28');
   });
   it('a farm day is measured only when every pool holding feed is measured', () => {
@@ -78,7 +80,56 @@ describe('computeFeedRunRate', () => {
     input.items.push(item('c3', 'hay', 0));
     const r = computeFeedRunRate(input);
     expect(r.measuredDays).toBe(15);
+    expect(r.lastMeasuredDate).toBe('2026-11-19');
     expect(r.consumed.units.bale).toBeCloseTo(11);
+  });
+  it('a zero check on d turns the pool off from d, even with another pool unmeasured before', () => {
+    const input = openHay();
+    input.checks.push(check('c3', 'e', '2026-11-20'));
+    input.items.push(item('c3', 'hay', 0));
+    // A second pool with feed until a zero check on 11-25, never bracketed.
+    input.entries.push(feed('b2', 'e', 'sq', '2026-11-22', 4, { w: 25, dm: 90, unit: 'sq bale' }));
+    input.checks.push(check('c4', 'e', '2026-11-25'));
+    input.items.push(item('c4', 'sq', 0, { w: 25, dm: 90, unit: 'sq bale' }));
+    const r = computeFeedRunRate(input);
+    // 11-20 and 11-21 have no active pool; 11-22..11-24 the sq pool is active and unmeasured; 11-25 it is off.
+    expect(r.measuredDays).toBe(15);
+    expect(r.lastMeasuredDate).toBe('2026-11-19');
+  });
+  it('days with feed delivered before the first check are active but unmeasured', () => {
+    const r = computeFeedRunRate({ ...openHay(), today: '2026-11-04', days: 7 });
+    expect(r.measuredDays).toBe(0);
+    expect(r.hasChecks).toBe(false);
+    expect(r.consumed.dmKg).toBe(0);
+  });
+  it('the close day is not a run-rate day and does not inflate the forecast', () => {
+    const input = openHay();
+    input.events = [{ id: 'e', dateIn: '2026-11-01', dateOut: '2026-11-15' }];
+    input.checks[1] = { ...input.checks[1], isCloseReading: true };
+    input.groupWindows = [{ ...input.groupWindows[0], dateLeft: '2026-11-15' }];
+    const r = computeFeedRunRate(input);
+    expect(r.measuredDays).toBe(10);
+    expect(r.lastMeasuredDate).toBe('2026-11-14');
+    expect(r.rate.forecastDmKgPerDay).toBe(125);
+    expect(r.residual).toMatchObject({ eventsClosed: 1, closesWithoutReading: 0, unknown: false, units: { bale: 1 }, dmKg: 400 });
+  });
+  it('per-day DM matches poolDailyActual on the same days (parity)', () => {
+    const input = openHay();
+    const r = computeFeedRunRate(input);
+    const key = poolKey({ eventId: 'e', locationId: 'p', feedTypeId: 'hay' });
+    let sum = 0;
+    for (let i = 0; i < 30; i += 1) sum += poolDailyActual({ eventId: 'e', ...input }, shiftDate('2026-11-01', i)).get(key) ?? 0;
+    expect(r.consumed.dmKg).toBeCloseTo(sum);
+    expect(sum).toBeCloseTo(4000);
+  });
+  it('periodStart clips the window start and byEvent breaks consumed and residual out per event', () => {
+    const r = computeFeedRunRate({ ...openHay(), periodStart: '2026-11-10' });
+    expect(r.start).toBe('2026-11-10');
+    expect(r.windowDays).toBe(21);
+    expect(r.measuredDays).toBe(5);
+    expect(r.byEvent).toHaveLength(1);
+    expect(r.byEvent[0]).toMatchObject({ eventId: 'e', closed: false, residual: null });
+    expect(r.byEvent[0].consumed.dmKg).toBe(2000);
   });
   it('missing conversion leaves the day unmeasured; no checks gives the empty state', () => {
     const input = openHay();
@@ -116,6 +167,31 @@ describe('computeFeedRunRate', () => {
     // A sq-bale batch with no recorded cost has no fallback: "no cost", not $0.
     expect(r.residual.cost).toBeNull();
     expect(r.residual.unpricedDmKg).toBeCloseTo(67.5);
+    expect(r.residual.unknown).toBe(false);
+    const byId = Object.fromEntries(r.byEvent.map(row => [row.eventId, row]));
+    expect(byId.closed).toMatchObject({ closed: true, closeWithoutReading: false });
+    expect(byId.closed.residual.dmKg).toBeCloseTo(67.5);
+    expect(byId.noread).toMatchObject({ closed: true, closeWithoutReading: true });
+    expect(byId.noread.residual).toMatchObject({ unknown: true, dmKg: null, cost: null });
+    expect(byId.empty.residual).toMatchObject({ unknown: false, dmKg: 0 });
+    expect(byId.old).toBeUndefined();
+  });
+  it('residual with no known close reading is unknown, not 0; a real 0-left reading stays 0', () => {
+    const base = { today: '2026-11-30', days: 30, feedTypes: types, batches: [{ id: 'b1', unit: 'bale', costPerUnit: 60 }],
+      events: [{ id: 'x', dateIn: '2026-11-01', dateOut: '2026-11-20' }], entries: [{ ...feed('f', 'x', 'hay', '2026-11-02', 4), batchId: 'b1' }] };
+    const unknown = computeFeedRunRate({ ...base, checks: [], items: [] });
+    expect(unknown.residual).toMatchObject({ unknown: true, dmKg: null, cost: null, closesWithoutReading: 1, eventsClosed: 1 });
+    const zero = computeFeedRunRate({ ...base, checks: [check('z', 'x', '2026-11-20', true)], items: [item('z', 'hay', 0)] });
+    expect(zero.residual).toMatchObject({ unknown: false, dmKg: 0, cost: 0, closesWithoutReading: 0 });
+  });
+  it('count figures only for bale, sq bale and bag; ton/kg/lb pools add DM only', () => {
+    const input = openHay();
+    input.feedTypes = [{ id: 'hay', unit: 'ton' }];
+    for (const row of [...input.entries, ...input.items]) row.unitSnapshot = 'ton';
+    const r = computeFeedRunRate(input);
+    expect(r.rate.unitsPerDay).toEqual({});
+    expect(r.consumed.units).toEqual({});
+    expect(r.rate.dmKgPerDay).toBe(400);
   });
   it('prices pool DM at the delivery-weighted batch cost with the $56 round-bale fallback', () => {
     const entries = [feed('priced', 'e', 'hay', '2026-11-01', 1), feed('nocost', 'e', 'hay', '2026-11-01', 1, { w: 250 }),

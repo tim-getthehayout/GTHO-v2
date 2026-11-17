@@ -257,7 +257,10 @@ export function renderFeedScreen(container) {
   renderBatchList(container, operationId);
   renderFeedTypeList(container);
 
-  unsubs.push(subscribe('feedTypes', () => renderFeedTypeList(container)));
+  unsubs.push(subscribe('feedTypes', () => {
+    renderFeedTypeList(container);
+    refreshFeedDayGoalBanner(container);
+  }));
   const refreshBatches = () => {
     renderBatchList(container, operationId);
     refreshOpenDetail(operationId);

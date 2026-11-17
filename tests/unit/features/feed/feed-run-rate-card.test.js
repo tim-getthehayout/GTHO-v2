@@ -91,7 +91,7 @@ describe('feed run rate on the Feed Day Goal card', () => {
     expect(text('feed-run-rate-consumed')).toContain('4000 kg DM');
     expect(text('feed-run-rate-consumed')).toContain('$600');
     expect(text('feed-run-rate-residual')).toContain('No events closed in the last 30 days');
-    expect(text('feed-run-rate-dmi')).toBe('DMI: actual 400 kg DM/day vs forecast 125 kg DM/day (320%)');
+    expect(text('feed-run-rate-dmi')).toBe('DMI: actual 400 kg DM/day vs forecast (avg of 10 measured days) 125 kg DM/day (320%)');
   });
 
   it('pills switch the window, show the empty state without zeros, and are remembered on the device', () => {
@@ -113,7 +113,7 @@ describe('feed run rate on the Feed Day Goal card', () => {
     document.body.appendChild(panel);
     expect(panel.getAttribute('data-testid')).toBe('feed-run-rate-section');
     expect(text('feed-run-rate-line')).toBe('Run rate: 1 round bales/day · 400 kg DM/day');
-    expect(text('feed-run-rate-dmi')).toBe('DMI: actual 400 kg DM/day vs forecast 125 kg DM/day (320%)');
+    expect(text('feed-run-rate-dmi')).toBe('DMI: actual 400 kg DM/day vs forecast (avg of 10 measured days) 125 kg DM/day (320%)');
     // The window choice is shared with the Feed card (one device preference).
     document.querySelector('[data-testid="feed-run-rate-pill-14"]').click();
     document.body.replaceChildren();

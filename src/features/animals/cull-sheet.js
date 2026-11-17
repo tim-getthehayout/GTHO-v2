@@ -117,7 +117,10 @@ export function confirmCull({ animal, cullDate, cullReason, cullNotes }) {
   const splitResults = [];
   for (const groupId of affectedGroupIds) {
     const todayStr = getLocalTodayStr();
-    const openGWs = getAll('eventGroupWindows').filter(w => w.groupId === groupId && !w.dateLeft);
+    // Skip orphan windows whose event is missing or closed (as maybeSplitForGroup
+    // does): splitting them would carry a ghost placement forward.
+    const openEvents = new Set(getAll('events').filter(e => !e.dateOut).map(e => e.id));
+    const openGWs = getAll('eventGroupWindows').filter(w => w.groupId === groupId && !w.dateLeft && openEvents.has(w.eventId));
     const memberships = getAll('animalGroupMemberships');
     const animals = getAll('animals');
     const animalClasses = getAll('animalClasses');

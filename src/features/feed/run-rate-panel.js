@@ -38,6 +38,7 @@ export function feedRunRateInput(days, today = getLocalTodayStr()) {
     batches: getAll('batches'), feedTypes: getAll('feedTypes'),
     groupWindows: getAll('eventGroupWindows'), memberships: getAll('animalGroupMemberships'),
     animals: getAll('animals'), animalWeightRecords: getAll('animalWeightRecords'), animalClasses: classes,
+    groups: getAll('groups').map(group => ({ id: group.id, name: group.name })),
   };
 }
 
@@ -112,7 +113,7 @@ export function renderRunRatePanel({ unitSys, today } = {}) {
     body.push(el('div', { 'data-testid': 'feed-run-rate-dmi', style: { fontSize: '13px', marginTop: 'var(--space-2)' } }, [
       result.rate.pctOfForecast == null
         ? t('feed.runRateDmiNoForecast', { actual })
-        : t('feed.runRateDmi', { actual, forecast, pct: Math.round(result.rate.pctOfForecast) }),
+        : t('feed.runRateDmi', { actual, forecast, days: result.measuredDays, pct: Math.round(result.rate.pctOfForecast) }),
     ]));
   }
   section.append(

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  DECISIONS, URL_NAMESPACE, uuidv5, backfillId, transferToken, buildPlan, emitSql, rowsCsv, reportMarkdown, checkFeedTypes, parseArgs, notesHashPrefix,
+  DECISIONS, URL_NAMESPACE, uuidv5, backfillId, transferToken, buildPlan, emitSql, rowsCsv, reportMarkdown, checkFeedTypes, parseArgs, notesHashPrefix, eventLocation,
 } from '../../scripts/oi-0222-backfill.mjs';
 import { NOTES, IDS, decisions, extracts } from '../fixtures/hay-backfill/fixture.mjs';
 
@@ -51,10 +51,59 @@ describe("Tim's decision table", () => {
       .toEqual([
         ['Oak Field Barn', 37, 8.86, '2026-05-03', 0, 'opening', '2026-03-15'],
         ['Tarped', 40, -5, '2026-05-03', 0, 'opening', '2026-03-15'],
-        ['Peanut Hay (opening)', 17, -15, '2026-05-03', 0, 'opening', '2026-03-15'],
+        ['Peanut Hay', 17, -15, '2026-05-03', 0, 'opening', '2026-03-15'],
         ['Alfalfa Small Squares', 78, -39.5, '2026-11-03', 15, null, null],
       ]);
-    expect(DECISIONS.batches.filter(b => b.relabel && b.relabel.fromPurchaseDate !== b.relabel.purchaseDate).map(b => b.name)).toEqual(['Peanut Hay (opening)']);
+    expect(DECISIONS.batches.filter(b => b.relabel && b.relabel.fromPurchaseDate !== b.relabel.purchaseDate).map(b => b.key ?? b.name)).toEqual(['Peanut Hay (opening)']);
+  });
+  it("finds last season's Peanut Hay by name plus quantity 17 and its before/after purchase date; '(opening)' is only a label", () => {
+    const peanut = DECISIONS.batches.find(b => b.key === 'Peanut Hay (opening)');
+    expect(peanut).toMatchObject({ name: 'Peanut Hay', quantity: 17, match: { quantity: 17, purchaseDates: ['2025-12-31', '2026-03-15'] } });
+    expect(peanut.match.purchaseDates).toEqual([peanut.relabel.fromPurchaseDate, peanut.relabel.purchaseDate]);
+    expect(DECISIONS.batches.map(b => b.name)).not.toContain('Peanut Hay (opening)');
+    expect(DECISIONS.noteEvents['133:1'].batch).toBe('Peanut Hay (opening)');
+    expect(DECISIONS.v1.batches['Peanut Hay'].v2).toBe('Peanut Hay (opening)');
+  });
+  it('puts notes line 132 on K - 5', () => {
+    expect(DECISIONS.noteEvents['132:1'].location).toBe('K - 5');
+  });
+});
+
+describe('eventLocation', () => {
+  const ev = { id: 'abcdef12-0000-4000-8000-000000000000', locs: 'J3 - 4, K - 1, K - 3, K - 5', wins: 'J3 - 4@2026-03-19..; K - 5@2026-03-19..' };
+  it('returns a named paddock of the event', () => {
+    expect(eventLocation(ev, 'K - 5')).toBe('K - 5');
+  });
+  it('stops instead of falling back when the named location is not in the event', () => {
+    expect(() => eventLocation(ev, 'K - 9')).toThrow(/location "K - 9" is not a paddock of v2 event abcdef12/);
+    expect(() => eventLocation(ev, 'J3 - 4, K - 1, K - 3, K - 5')).toThrow(/is not a paddock/);
+  });
+  it('makes the dry run stop when a notes event names a location outside its event', () => {
+    const d = decisions();
+    d.noteEvents['5:1'].location = 'East';
+    expect(() => buildPlan({ notesText: NOTES, extracts: extracts(), decisions: d })).toThrow(/location "East" is not a paddock/);
+  });
+});
+
+describe('batch lookup disambiguator', () => {
+  it('carries name, quantity and purchase dates into the SQL lookup for a keyed batch', () => {
+    const d = decisions();
+    Object.assign(d.batches[0], { key: 'Grass lot (opening)', name: 'Grass lot', match: { quantity: 10, purchaseDates: ['2026-01-01', '2026-03-15'] } });
+    d.noteEvents['5:1'].batch = 'Grass lot (opening)';
+    d.v1.batches['Grass lot'].v2 = 'Grass lot (opening)';
+    const p = buildPlan({ notesText: NOTES, extracts: extracts(), decisions: d });
+    const base = buildPlan({ notesText: NOTES, extracts: extracts(), decisions: decisions() });
+    expect(p.summary.total).toEqual(base.summary.total);
+    const sql = emitSql(p, { operationId: '00000000-0000-4000-8000-000000000001' });
+    expect(sql).toContain("('batch', 'Grass lot (opening)', 'Grass lot', 10, ARRAY['2026-01-01'::date, '2026-03-15'::date])");
+    expect(sql).toMatch(/b\.name = ref\.name\s+AND \(ref\.quantity IS NULL OR b\.quantity = ref\.quantity\) AND \(ref\.dates IS NULL OR b\.purchase_date = ANY \(ref\.dates\)\)/);
+    expect(sql).toContain('adjustment:reverse:Grass lot');
+  });
+  it('refuses to emit SQL for a batch with no guarded decision', () => {
+    const d = decisions();
+    d.noteEvents['5:1'].batch = 'Unknown lot';
+    d.v1.batches['Grass lot'].v2 = 'Unknown lot';
+    expect(() => emitSql(buildPlan({ notesText: NOTES, extracts: extracts(), decisions: d }), { operationId: '00000000-0000-4000-8000-000000000001' })).toThrow();
   });
 });
 

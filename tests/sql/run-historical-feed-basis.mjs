@@ -222,4 +222,41 @@ for (const [name, mutation, pattern] of tampers) {
     });
   } finally { await db.close(); }
 }
+{ // Two batches share a name; the decision's quantity + purchase-date disambiguator picks one.
+  const twin = uid(65);
+  const d = decisions();
+  const key = 'Grass lot (opening)';
+  Object.assign(d.batches[0], { key, name: 'Grass lot', match: { quantity: 10, purchaseDates: ['2026-01-01', '2026-03-15'] } });
+  for (const n of Object.values(d.noteEvents)) if (n.batch === 'Grass lot') n.batch = key;
+  for (const b of Object.values(d.v1.batches)) if (b.v2 === 'Grass lot') b.v2 = key;
+  const twinPlan = buildPlan({ notesText: NOTES, extracts: extracts(), decisions: d });
+  const twinSql = emitSql(twinPlan, { operationId: IDS.op });
+  const addTwin = `INSERT INTO batches (id, operation_id, feed_type_id, name, source, quantity, remaining, unit, cost_per_unit, purchase_date) VALUES ('${twin}','${IDS.op}','${IDS.hay}','Grass lot','purchase',30,30,'bale',56,'2026-10-31')`;
+  const db = await fixture();
+  try {
+    await db.exec(migration);
+    await db.exec(addTwin);
+    await check('a name-only batch lookup aborts when two batches share the name', async () => {
+      const before = await snapshot(db);
+      await assert.rejects(db.exec(sql), /batch "Grass lot" matches 2 rows/);
+      await db.exec('ROLLBACK');
+      assert.equal(await snapshot(db), before);
+    });
+    await check('the disambiguated lookup writes to the one matching batch and leaves its twin alone', async () => {
+      const twinBefore = await one(db, 'SELECT * FROM batches WHERE id=$1', [twin]);
+      await db.exec(twinSql);
+      assert.equal(twinPlan.summary.total.lbDm, plan.summary.total.lbDm);
+      assert.equal(await count(db, 'event_feed_entries', `batch_id='${twin}'`), 0);
+      assert.equal(await count(db, 'batch_adjustments', `batch_id='${twin}'`), 0);
+      assert.deepEqual(await one(db, 'SELECT * FROM batches WHERE id=$1', [twin]), twinBefore);
+      assert.deepEqual(await one(db, 'SELECT source, purchase_date::text AS d FROM batches WHERE id=$1', [IDS.lot]), { source: 'opening', d: '2026-03-15' });
+      assert.equal(await count(db, 'batch_adjustments', `batch_id='${IDS.lot}'`), 3);
+    });
+    await check('the disambiguated lookup still finds exactly one batch after the relabel (re-run is a no-op)', async () => {
+      const before = await snapshot(db);
+      await db.exec(twinSql);
+      assert.equal(await snapshot(db), before);
+    });
+  } finally { await db.close(); }
+}
 console.log(`Migration 045 + backfill transaction: ${passed} PostgreSQL/WASM checks passed. No live database accessed.`);

@@ -161,7 +161,7 @@ export const DECISIONS = Object.freeze({
     '127:1': { action: 'insert', batch: 'Oak Field Barn', event: 'e00165ae', location: 'G - 2', why: 'notes only; event by date+group' },
     '129:1': { action: 'skip', why: 'matched to v1' },
     '129:2': { action: 'insert', batch: 'Oak Field Barn', event: 'e00165ae', location: 'G - 2', why: 'notes only; event by date+group' },
-    '132:1': { action: 'insert', batch: 'Oak Field Barn', event: '8f15a4ab', location: 'J3 - 4, K - 1, K - 3, K - 5', why: 'Tim C3: notes win; Cow-Calf Herd event' },
+    '132:1': { action: 'insert', batch: 'Oak Field Barn', event: '8f15a4ab', location: 'K - 5', why: 'Tim C3: notes win; Cow-Calf Herd event; K - 5 as the superseded v1 row and its check items' },
     '133:1': { action: 'insert', batch: 'Peanut Hay (opening)', event: '1f903fc6', location: 'Corral', why: 'Tim C3: notes win; corral group' },
     '134:1': { action: 'insert', batch: 'Oak Field Barn', event: 'a2350cd7', location: 'G - 2', why: 'Tim C3: notes win; Shenk group' },
     '136:1': { action: 'insert', batch: 'Oak Field Barn', event: '1f903fc6', location: 'Corral', why: 'Tim C4: notes win; culls+calves' },
@@ -200,12 +200,15 @@ export const DECISIONS = Object.freeze({
     { group: null, label: 'Sheep flock', species: 'sheep', start: '2025-10-01', end: '2026-05-31', head: 80, lb: 110, dmiPct: 3.0, dmiSource: 'class_default', source: 'tim_entry' },
   ],
   // Batch state the write is guarded against, and the locked true-ups.
+  // key = how entries name the batch here; name (+ optional match) finds it in the database.
   batches: [
     { name: 'Oak Field Barn', quantity: 45, remaining: 0, reconcile: { prev: 37, next: 0 }, v2Fed: 11.06, trueUp: 8.86, end: 0, adjustmentDate: '2026-05-03',
       relabel: { source: 'opening', purchaseDate: '2026-03-15', fromPurchaseDate: '2026-03-15', costPerUnit: 45 } },
     { name: 'Tarped', quantity: 40, remaining: 0, reconcile: { prev: 40, next: 0 }, v2Fed: 0, trueUp: -5, end: 0, adjustmentDate: '2026-05-03',
       relabel: { source: 'opening', purchaseDate: '2026-03-15', fromPurchaseDate: '2026-03-15', costPerUnit: 45 } },
-    { name: 'Peanut Hay (opening)', quantity: 17, remaining: 0, reconcile: { prev: 17, next: 0 }, v2Fed: 0, trueUp: -15, end: 0, adjustmentDate: '2026-05-03',
+    // Two batches are named 'Peanut Hay'; last season's is the one with 17 bales bought
+    // 2025-12-31 (2026-03-15 once relabeled). '(opening)' is a report label only.
+    { key: 'Peanut Hay (opening)', name: 'Peanut Hay', match: { quantity: 17, purchaseDates: ['2025-12-31', '2026-03-15'] }, quantity: 17, remaining: 0, reconcile: { prev: 17, next: 0 }, v2Fed: 0, trueUp: -15, end: 0, adjustmentDate: '2026-05-03',
       relabel: { source: 'opening', purchaseDate: '2026-03-15', fromPurchaseDate: '2025-12-31', costPerUnit: 45 } },
     { name: 'Alfalfa Small Squares', quantity: 100, remaining: 15, reconcile: { prev: 93, next: 15 }, v2Fed: 21, trueUp: -39.5, end: 15, adjustmentDate: '2026-11-03',
       relabel: null, keep: { source: 'purchase', purchaseDate: '2026-03-24' } },
@@ -308,15 +311,11 @@ function v2EventByPrefix(v2Events, prefix) {
   return hits[0];
 }
 
-/** Location name for an entry: the named paddock if the event has it, else its first window. */
-function eventLocation(v2Event, name) {
-  const locs = v2Event.locs.split(',').map(s => s.trim());
-  if (locs.includes(name)) return name;
-  const first = String(v2Event.wins || '').split(';').map(s => s.trim()).filter(Boolean)
-    .map(w => ({ loc: w.slice(0, w.lastIndexOf('@')), opened: w.slice(w.lastIndexOf('@') + 1, w.lastIndexOf('@') + 11) }))
-    .sort((a, b) => a.opened.localeCompare(b.opened) || a.loc.localeCompare(b.loc))[0];
-  if (!first) throw new Error(`v2 event ${v2Event.id.slice(0, 8)} has no paddock window`);
-  return first.loc;
+/** Location name for an entry: the named paddock, which must be one of the event's paddocks (no fallback). */
+export function eventLocation(v2Event, name) {
+  const locs = String(v2Event.locs || '').split(',').map(s => s.trim());
+  if (!locs.includes(name)) throw new Error(`location "${name}" is not a paddock of v2 event ${v2Event.id.slice(0, 8)}`);
+  return name;
 }
 
 function findCopies(deliveries, decisions) {
@@ -443,13 +442,14 @@ export function buildPlan({ notesText, extracts, decisions = DECISIONS }) {
 
 function trueUps({ entries, decisions }) {
   return decisions.batches.map(b => {
-    const fed = entries.filter(e => e.batch === b.name).reduce((sum, e) => sum + e.qty, 0);
+    const key = b.key ?? b.name;
+    const fed = entries.filter(e => e.batch === key).reduce((sum, e) => sum + e.qty, 0);
     const fedTotal = round(fed + b.v2Fed, 4);
     const trueUp = round(b.end - b.quantity + fedTotal, 4);
     if (Math.abs(trueUp - b.trueUp) > 1e-9) throw new Error(`${b.name} true-up ${trueUp} is not the locked ${b.trueUp}`);
     const offset = { prev: b.reconcile.next, next: b.reconcile.prev, delta: round(b.reconcile.prev - b.reconcile.next, 4) };
     const final = { prev: round(b.end - trueUp, 4), next: b.end, delta: trueUp };
-    return { ...b, fedBackfill: round(fed, 4), fedTotal, offset, final };
+    return { ...b, key, fedBackfill: round(fed, 4), fedTotal, offset, final };
   });
 }
 
@@ -496,7 +496,7 @@ export function summarize(plan) {
     transfers: { rows: plan.transfers.length * 2, pairs: plan.transfers.length, netUnits: round(plan.transfers.reduce((s, p) => s + p.removal.qty + p.carry.qty, 0), 4) },
     checkItems: { rows: plan.checkItems.length, checks: new Set(plan.checkItems.map(r => r.checkId)).size },
     notWritten: fix(notWritten),
-    trueUps: plan.batches.map(b => ({ batch: b.name, fedTotal: b.fedTotal, offset: b.offset, trueUp: b.final, adjustmentDate: b.adjustmentDate, remainingAfter: b.end })),
+    trueUps: plan.batches.map(b => ({ batch: b.key, fedTotal: b.fedTotal, offset: b.offset, trueUp: b.final, adjustmentDate: b.adjustmentDate, remainingAfter: b.end })),
     basis: {
       rows: plan.basis.length,
       cattleLbDmPerDay: round(plan.basis.filter(b => b.species !== 'sheep').reduce((s, b) => s + b.lbDmPerDay, 0), 1),
@@ -638,7 +638,7 @@ $schema$;`);
     // The offset sorts before its true-up: same transaction, so the true-up is stamped 1 ms later.
     for (const [kind, adj, stamp] of [['reverse', b.offset, 'now()'], ['true-up', b.final, "now() + interval '1 millisecond'"]]) {
       body.push(`INSERT INTO public.batch_adjustments (id, batch_id, operation_id, adjusted_by, previous_qty, new_qty, delta, reason, adjustment_date, created_at)
-  VALUES (${q(backfillId('batch_adjustments', `adjustment:${kind}:${b.name}`))}, ${ref('batch', b.name)}, ${op}, NULL, ${num(adj.prev)}, ${num(adj.next)}, ${num(adj.delta)}, 'reconcile', ${q(b.adjustmentDate)}, ${stamp})
+  VALUES (${q(backfillId('batch_adjustments', `adjustment:${kind}:${b.name}`))}, ${ref('batch', b.key)}, ${op}, NULL, ${num(adj.prev)}, ${num(adj.next)}, ${num(adj.delta)}, 'reconcile', ${q(b.adjustmentDate)}, ${stamp})
   ON CONFLICT (id) DO NOTHING;`);
     }
     const set = [`remaining = ${num(b.end)}`];
@@ -647,16 +647,23 @@ $schema$;`);
       set.push(`source = ${q(b.relabel.source)}`, `purchase_date = ${q(b.relabel.purchaseDate)}`);
       differs.push(`source IS DISTINCT FROM ${q(b.relabel.source)}`, `purchase_date IS DISTINCT FROM ${q(b.relabel.purchaseDate)}`);
     }
-    body.push(`UPDATE public.batches SET ${set.join(', ')}, updated_at = now() WHERE id = ${ref('batch', b.name)} AND (${differs.join(' OR ')});`);
+    body.push(`UPDATE public.batches SET ${set.join(', ')}, updated_at = now() WHERE id = ${ref('batch', b.key)} AND (${differs.join(' OR ')});`);
   }
 
   // ---- Guard: abort unless the live state is exactly pre-write or exactly post-write.
-  const refValues = refs.map(r => `  (${q(r.kind)}, ${q(r.key)})`).join(',\n');
-  sql.push(`CREATE TEMP TABLE bf_ref (kind text NOT NULL, key text NOT NULL, id uuid, PRIMARY KEY (kind, key)) ON COMMIT DROP;
-INSERT INTO bf_ref (kind, key) VALUES
+  const batchByKey = new Map(plan.batches.map(b => [b.key, b]));
+  const refValues = refs.map(r => {
+    if (r.kind !== 'batch') return `  (${q(r.kind)}, ${q(r.key)}, NULL, NULL, NULL)`;
+    const b = batchByKey.get(r.key);
+    if (!b) throw new Error(`batch ${r.key} has no guarded decision`);
+    const dates = b.match?.purchaseDates ? `ARRAY[${b.match.purchaseDates.map(d => `${q(d)}::date`).join(', ')}]` : 'NULL';
+    return `  (${q(r.kind)}, ${q(r.key)}, ${q(b.name)}, ${b.match?.quantity != null ? num(b.match.quantity) : 'NULL'}, ${dates})`;
+  }).join(',\n');
+  sql.push(`CREATE TEMP TABLE bf_ref (kind text NOT NULL, key text NOT NULL, name text, quantity numeric, dates date[], id uuid, PRIMARY KEY (kind, key)) ON COMMIT DROP;
+INSERT INTO bf_ref (kind, key, name, quantity, dates) VALUES
 ${refValues};`);
   const batchGuards = plan.batches.map(b => {
-    const name = q(b.name);
+    const name = q(b.key);
     const fail = what => `RAISE EXCEPTION 'backfill-guard: batch % ${what}', ${name}`;
     const values = [`r.quantity = ${num(b.quantity)}`, `r.remaining = ${num(b.remaining)}`];
     if (b.relabel) values.push(`r.cost_per_unit = ${num(b.relabel.costPerUnit)}`);
@@ -684,7 +691,7 @@ DECLARE
   ref record;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.operations WHERE id = ${op} AND schema_version >= 45) THEN RAISE EXCEPTION 'backfill-guard: operation missing or below schema 45'; END IF;
-  FOR ref IN SELECT kind, key FROM bf_ref LOOP
+  FOR ref IN SELECT kind, key, name, quantity, dates FROM bf_ref LOOP
     IF ref.kind = 'farm' THEN
       SELECT count(*) INTO n FROM public.farms WHERE operation_id = ${op};
       UPDATE bf_ref SET id = (SELECT id FROM public.farms WHERE operation_id = ${op} LIMIT 1) WHERE kind = ref.kind AND key = ref.key;
@@ -695,8 +702,10 @@ BEGIN
       SELECT count(*) INTO n FROM public.groups WHERE operation_id = ${op} AND name = ref.key;
       UPDATE bf_ref SET id = (SELECT id FROM public.groups WHERE operation_id = ${op} AND name = ref.key LIMIT 1) WHERE kind = ref.kind AND key = ref.key;
     ELSIF ref.kind = 'batch' THEN
-      SELECT count(*) INTO n FROM public.batches WHERE operation_id = ${op} AND name = ref.key;
-      UPDATE bf_ref SET id = (SELECT id FROM public.batches WHERE operation_id = ${op} AND name = ref.key LIMIT 1) WHERE kind = ref.kind AND key = ref.key;
+      SELECT count(*) INTO n FROM public.batches b WHERE b.operation_id = ${op} AND b.name = ref.name
+        AND (ref.quantity IS NULL OR b.quantity = ref.quantity) AND (ref.dates IS NULL OR b.purchase_date = ANY (ref.dates));
+      UPDATE bf_ref SET id = (SELECT b.id FROM public.batches b WHERE b.operation_id = ${op} AND b.name = ref.name
+        AND (ref.quantity IS NULL OR b.quantity = ref.quantity) AND (ref.dates IS NULL OR b.purchase_date = ANY (ref.dates)) LIMIT 1) WHERE kind = ref.kind AND key = ref.key;
     ELSIF ref.kind = 'location' THEN
       SELECT count(DISTINCT w.location_id) INTO n FROM public.event_paddock_windows w JOIN public.locations l ON l.id = w.location_id JOIN public.events e ON e.id = w.event_id
         WHERE e.operation_id = ${op} AND w.event_id = split_part(ref.key, '|', 1)::uuid AND l.name = substr(ref.key, position('|' in ref.key) + 1);

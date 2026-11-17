@@ -7,28 +7,38 @@ import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { sumMembershipHeads } from '../../calcs/window-helpers.js';
-import { leftEqualsClose, isZeroLengthAt, findLaterGroupWindow } from './window-integrity.js';
+import { leftEqualsClose, isZeroLengthAt, findLaterGroupWindow, closedEqualsClose, isZeroLengthPaddockAt } from './window-integrity.js';
 
 /**
- * OI-0095 paddock classifier: for each event_paddock_window closed on
- * `event.dateOut`, decide reopen vs keepClosed.
+ * OI-0095 paddock classifier: for each event_paddock_window whose close
+ * instant equals the old event close, decide reopen vs keepClosed.
  *
- *   - reopen: PW was closed by the event-close flow on `dateOut` AND no other
- *     PW on the same location has since been opened (either mid-event strip
- *     reuse or a later event on the same paddock).
+ *   - reopen: PW was closed by the event-close flow at the old close instant
+ *     AND no other PW on the same location has since been opened (either
+ *     mid-event strip reuse or a later event on the same paddock). A window
+ *     the clamp shortened is reopened as open.
  *   - keepClosed: another PW on this locationId was opened on-or-after this
  *     PW's dateClosed within the same event (strip reuse), OR another PW on
  *     this locationId is currently open anywhere (the paddock is in use).
+ *   - A zero-length window at the old close stays closed and is not listed.
+ *
+ * Candidates match the exact close instant (date and time; dates only when a
+ * time is missing on either side). A window left on the old close date at an
+ * earlier time is not a candidate.
  *
  * Exported for unit testing.
  */
 export function classifyPwsForReopen(event) {
   const oldDateOut = event.dateOut;
+  const oldTimeOut = event.timeOut || null;
   const allPws = getAll('eventPaddockWindows');
-  const candidates = allPws.filter(pw => pw.eventId === event.id && pw.dateClosed === oldDateOut);
+  const candidates = allPws.filter(pw => pw.eventId === event.id && closedEqualsClose(pw, oldDateOut, oldTimeOut));
   const toReopen = [];
   const toKeepClosed = [];
   for (const pw of candidates) {
+    if (isZeroLengthPaddockAt(pw, oldDateOut, oldTimeOut)) {
+      continue;
+    }
     const reusedInEvent = allPws.find(other =>
       other.eventId === event.id
       && other.locationId === pw.locationId

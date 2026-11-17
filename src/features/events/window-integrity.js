@@ -100,6 +100,17 @@ export function leftEqualsClose(gw, closeDate, closeTime = null) {
   return compareWindowInstants(gw.dateLeft, gw.timeLeft, closeDate, closeTime) === 0;
 }
 
+export function isZeroLengthPaddockAt(pw, date, time = null) {
+  if (!pw?.dateOpened || !pw?.dateClosed) return false;
+  return compareWindowInstants(pw.dateOpened, pw.timeOpened, date, time) === 0
+    && compareWindowInstants(pw.dateClosed, pw.timeClosed, date, time) === 0;
+}
+
+export function closedEqualsClose(pw, closeDate, closeTime = null) {
+  if (!pw?.dateClosed || !closeDate) return false;
+  return compareWindowInstants(pw.dateClosed, pw.timeClosed, closeDate, closeTime) === 0;
+}
+
 /**
  * A later window of the same group on another event: join instant is on or
  * after this window's leave (or, if still open, after this window's join).

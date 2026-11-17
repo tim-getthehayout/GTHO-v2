@@ -108,9 +108,9 @@ describe('classifyGwsForReopen', () => {
 });
 
 // OI-0095: paddock-side classifier — parallel to classifyGwsForReopen.
-function seedPw(id, { eventId, locationId, dateOpened = '2026-04-01', dateClosed = null, areaPct = 100 }) {
+function seedPw(id, { eventId, locationId, dateOpened = '2026-04-01', timeOpened = null, dateClosed = null, timeClosed = null, areaPct = 100 }) {
   add('eventPaddockWindows', PaddockWindowEntity.create({
-    id, operationId: OP, eventId, locationId, dateOpened, dateClosed, areaPct,
+    id, operationId: OP, eventId, locationId, dateOpened, timeOpened, dateClosed, timeClosed, areaPct,
   }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
 }
 
@@ -167,6 +167,65 @@ describe('classifyPwsForReopen', () => {
   it('returns empty arrays when no PWs are closed on dateOut', () => {
     seedEvent('e1', '2026-04-01', '2026-04-10');
     const event = { id: 'e1', dateOut: '2026-04-10' };
+    const { toReopen, toKeepClosed } = classifyPwsForReopen(event);
+    expect(toReopen).toHaveLength(0);
+    expect(toKeepClosed).toHaveLength(0);
+  });
+
+  it('reopens a paddock window that closed exactly at the old close, including a clamped window', () => {
+    seedEvent('e1', '2026-11-01', '2026-11-16');
+    seedPw('pw-exact', {
+      eventId: 'e1', locationId: 'L1',
+      dateOpened: '2026-11-01', timeOpened: '08:00',
+      dateClosed: '2026-11-16', timeClosed: '12:02',
+    });
+    const event = { id: 'e1', dateOut: '2026-11-16', timeOut: '12:02' };
+    const { toReopen, toKeepClosed } = classifyPwsForReopen(event);
+    expect(toReopen.map((r) => r.pw.id)).toEqual(['pw-exact']);
+    expect(toKeepClosed).toHaveLength(0);
+    expect(toReopen[0].pw.dateClosed).toBe('2026-11-16');
+    expect(toReopen[0].pw.timeClosed).toBe('12:02');
+  });
+
+  it('does not reopen paddock windows closed earlier the same day as the event close', () => {
+    seedEvent('e1', '2026-11-01', '2026-11-16');
+    seedPw('pw-a', {
+      eventId: 'e1', locationId: 'L4',
+      dateOpened: '2026-11-01', timeOpened: '08:00',
+      dateClosed: '2026-11-16', timeClosed: '12:01',
+    });
+    seedPw('pw-b', {
+      eventId: 'e1', locationId: 'L5',
+      dateOpened: '2026-11-01', timeOpened: '08:00',
+      dateClosed: '2026-11-16', timeClosed: '12:01',
+    });
+    const event = { id: 'e1', dateOut: '2026-11-16', timeOut: '12:02' };
+    const { toReopen, toKeepClosed } = classifyPwsForReopen(event);
+    expect(toReopen).toHaveLength(0);
+    expect(toKeepClosed).toHaveLength(0);
+  });
+
+  it('does not reopen a paddock window closed at 08:00 when the event closed at 09:00', () => {
+    seedEvent('e1', '2026-08-03', '2026-08-10');
+    seedPw('pw-early', {
+      eventId: 'e1', locationId: 'L1',
+      dateOpened: '2026-08-03', timeOpened: '07:00',
+      dateClosed: '2026-08-10', timeClosed: '08:00',
+    });
+    const event = { id: 'e1', dateOut: '2026-08-10', timeOut: '09:00' };
+    const { toReopen, toKeepClosed } = classifyPwsForReopen(event);
+    expect(toReopen).toHaveLength(0);
+    expect(toKeepClosed).toHaveLength(0);
+  });
+
+  it('does not reopen a zero-length paddock window at the old close', () => {
+    seedEvent('e1', '2026-08-03', '2026-08-10');
+    seedPw('pw-zero', {
+      eventId: 'e1', locationId: 'L1',
+      dateOpened: '2026-08-10', timeOpened: '09:00',
+      dateClosed: '2026-08-10', timeClosed: '09:00',
+    });
+    const event = { id: 'e1', dateOut: '2026-08-10', timeOut: '09:00' };
     const { toReopen, toKeepClosed } = classifyPwsForReopen(event);
     expect(toReopen).toHaveLength(0);
     expect(toKeepClosed).toHaveLength(0);

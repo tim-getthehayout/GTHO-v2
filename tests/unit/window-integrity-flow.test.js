@@ -127,6 +127,35 @@ function openMoveStep3() {
   document.querySelector('[data-testid="move-wizard-step-2-next"]').click();
 }
 
+function closeEventViaMoveWizard(date, time = '') {
+  openMoveStep3();
+  const dateOut = document.querySelector('[data-testid="move-wizard-date-out"]');
+  const timeOut = document.querySelector('[data-testid="move-wizard-time-out"]');
+  dateOut.value = date;
+  dateOut.dispatchEvent(new Event('input', { bubbles: true }));
+  timeOut.value = time;
+  timeOut.dispatchEvent(new Event('input', { bubbles: true }));
+  document.querySelector('[data-testid="move-wizard-save"]').click();
+}
+
+function openPaddockLaterSameDay() {
+  update(
+    'eventPaddockWindows', SRC_PW,
+    { dateOpened: '2026-11-16', timeOpened: '13:00', dateClosed: null, timeClosed: null },
+    PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows',
+  );
+}
+
+function expectSameDayOpenConflictUnchanged() {
+  expect(document.querySelector('[data-testid="date-conflict-dialog-title"]')).toBeTruthy();
+  expect(getById('events', EVT).dateOut).toBeFalsy();
+  const pw = getById('eventPaddockWindows', SRC_PW);
+  expect(pw.dateOpened).toBe('2026-11-16');
+  expect(pw.timeOpened).toBe('13:00');
+  expect(pw.dateClosed).toBeFalsy();
+  expect(getById('eventGroupWindows', GW_OPEN).dateLeft).toBeFalsy();
+}
+
 describe('close sheet clamp and review', () => {
   it('closes an open window and a later-left closed window at C in one write', () => {
     seedScene({ includeB2: false });
@@ -386,6 +415,42 @@ describe('paddock-window clamp on a backdated close', () => {
     expect(pw.dateClosed).toBe('2026-11-18');
     expect(pw.timeClosed).toBe('09:00');
     expect(pw.updatedAt).toBe(before.updatedAt);
+  });
+
+  it('replays the E-3 sequence through the move wizard', () => {
+    seedScene({ includeB1: false, includeEarly: false, includeB2: false });
+    update(
+      'eventPaddockWindows', SRC_PW,
+      { dateClosed: '2026-11-17', timeClosed: '12:01' },
+      PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows',
+    );
+    expect(getById('eventPaddockWindows', SRC_PW).dateClosed).toBe('2026-11-17');
+    expect(getById('eventPaddockWindows', SRC_PW).timeClosed).toBe('12:01');
+
+    closeEventViaMoveWizard('2026-11-16', '12:02');
+
+    const pw = getById('eventPaddockWindows', SRC_PW);
+    expect(pw.dateClosed).toBe('2026-11-16');
+    expect(pw.timeClosed).toBe('12:02');
+    expect(getById('events', EVT).dateOut).toBe('2026-11-16');
+    expect(getById('events', EVT).timeOut).toBe('12:02');
+    expect(getById('eventGroupWindows', GW_OPEN).dateLeft).toBe('2026-11-16');
+    expect(getById('eventGroupWindows', GW_OPEN).timeLeft).toBe('12:02');
+  });
+
+  it('same-day open paddock: close sheet shows the date-conflict dialog and writes nothing', () => {
+    seedScene({ includeB1: false, includeEarly: false, includeB2: false });
+    openPaddockLaterSameDay();
+    closeEventTo('2026-11-16', '12:02');
+    expectSameDayOpenConflictUnchanged();
+  });
+
+  it('same-day open paddock: move wizard shows the date-conflict dialog and writes nothing', () => {
+    seedScene({ includeB1: false, includeEarly: false, includeB2: false });
+    openPaddockLaterSameDay();
+    closeEventViaMoveWizard('2026-11-16', '12:02');
+    expectSameDayOpenConflictUnchanged();
+    expect(getAll('events').filter((e) => e.id !== EVT)).toHaveLength(0);
   });
 });
 

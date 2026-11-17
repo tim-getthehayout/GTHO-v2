@@ -95,13 +95,11 @@ export function checkWindowCloses(eventId, outDate, outTime = null, opts = {}) {
     const paddockWindows = getAll('eventPaddockWindows').filter((w) => w.eventId === eventId);
     for (const pw of paddockWindows) {
       const openedAfter = compareWindowInstants(pw.dateOpened, pw.timeOpened, outDate, outTime) > 0;
-      // Open windows: existing pre-flight. Closed windows that opened after C
-      // go to the date-conflict dialog (not clamped silently). Closed windows
-      // that opened at or before C are clamped later, so they are not flagged.
-      if (pw.dateClosed && !openedAfter) continue;
-      const proposed = { ...pw, dateClosed: outDate, timeClosed: outTime };
-      const v = PaddockWindowEntity.validate(proposed);
-      if (!v.valid || (pw.dateClosed && openedAfter)) {
+      // Flag any paddock window (open or closed) whose open instant is after C,
+      // time-aware (dates only when a time is missing). The entity validator
+      // compares dates only, so a same-day open after C would otherwise slip
+      // through and leave the window open after the event closes.
+      if (openedAfter) {
         conflicts.push({
           kind: 'paddock',
           windowId: pw.id,
@@ -109,7 +107,24 @@ export function checkWindowCloses(eventId, outDate, outTime = null, opts = {}) {
           locationId: pw.locationId,
           openDate: pw.dateOpened,
           outDate,
-          entityError: v.valid ? 'dateClosed must be on or after dateOpened' : v.errors.join(', '),
+          entityError: 'dateClosed must be on or after dateOpened',
+        });
+        continue;
+      }
+      // Closed windows that opened at or before C are clamped later, so they
+      // are not flagged.
+      if (pw.dateClosed) continue;
+      const proposed = { ...pw, dateClosed: outDate, timeClosed: outTime };
+      const v = PaddockWindowEntity.validate(proposed);
+      if (!v.valid) {
+        conflicts.push({
+          kind: 'paddock',
+          windowId: pw.id,
+          eventId,
+          locationId: pw.locationId,
+          openDate: pw.dateOpened,
+          outDate,
+          entityError: v.errors.join(', '),
         });
       }
     }

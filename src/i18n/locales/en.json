@@ -29,7 +29,10 @@
     "carry": "Carry feed pool",
     "destination": "Destination",
     "returnHint": "Returned feed creates a new labelled batch at the selected store, never credits an original lot, and has no invented purchase price.",
-    "confirmMove": "Confirm feed movement at"
+    "confirmMove": "Confirm feed movement at",
+    "plausibility": "From {from} to {to} this reading means about {implied} eaten, vs about {expected} expected ({pct}%). Check Remaining, or save anyway.",
+    "fix": "Fix",
+    "saveAnyway": "Save anyway"
   },
   "manualEntry": {
     "unreleasedSchema": "Saving this field needs verified database migration {version}. Your input has been kept; approval and a backup are required before release.",

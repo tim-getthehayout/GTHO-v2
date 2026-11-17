@@ -3,6 +3,7 @@ import { getAll, getById, add, update, remove, runDurableWrite } from '../../dat
 import { RELEASED_SCHEMA_VERSION } from '../../data/schema-release.js';
 import { releasedColumns } from '../../data/schema-columns.js';
 import { poolKey, feedSnapshot, replayFeedPools, poolReading, poolConversion, poolHistory } from '../../calcs/feed-pools.js';
+import { feedCheckPlausibility } from '../../calcs/feed-check-plausibility.js';
 import { rowInstant } from '../../utils/date-utils.js';
 import { foldFeedUnit, canonicalOrOriginal } from '../../utils/feed-units.js';
 import { localFormTimestamp } from '../../utils/form-values.js';
@@ -36,21 +37,51 @@ export const poolExecutionKey=(operationId,target)=>JSON.stringify([operationId,
 
 /** No-op observation edits preserve legacy child IDs and payloads exactly.
  * Explicit edits replace ONLY the selected pool's grouped children, never later observations. */
-export function writePoolCheck({operationId,eventId,date,time,notes=null,readings,checkId=null,isCloseReading=false}) {
+function proposePoolCheck({operationId,eventId,date,time,notes=null,readings,checkId=null,isCloseReading=false,extraEntries=[]}) {
   if(!Array.isArray(readings)||!readings.length)throw new Error('Select at least one feed pool.');
-  const input=poolInput(eventId),existing=checkId?requireScope('eventFeedChecks',checkId,operationId):null;
+  const base=poolInput(eventId),input=extraEntries.length?{...base,entries:[...base.entries,...extraEntries]}:base;
+  const existing=checkId?requireScope('eventFeedChecks',checkId,operationId):null;
   if(existing && existing.eventId!==eventId)throw new Error('Observation belongs to another event.');
   const keys=new Set();
   for(const reading of readings){requirePoolScope(eventId,reading.locationId,reading.feedTypeId,operationId,date,time);const key=poolKey({eventId,...reading});if(keys.has(key))throw new Error('Duplicate pool reading.');keys.add(key);}
   const oldChildren=existing?input.items.filter(row=>row.feedCheckId===checkId):[];
   const oldPools=existing?replayFeedPools({...input,entries:[],checks:[existing],items:oldChildren}):new Map();
-  if(existing && existing.date===date && (existing.time||'')===(time||'') && (existing.notes||'')===(notes||'') && readings.every(row=>{const old=oldPools.get(poolKey({eventId,...row}));return old && row.remainingQuantity===old.q && (!row.unit || foldFeedUnit(row.unit)===foldFeedUnit(old.unit));} ))return existing.id;
+  const unchanged=!!(existing && existing.date===date && (existing.time||'')===(time||'') && (existing.notes||'')===(notes||'') && readings.every(row=>{const old=oldPools.get(poolKey({eventId,...row}));return old && row.remainingQuantity===old.q && (!row.unit || foldFeedUnit(row.unit)===foldFeedUnit(old.unit));}));
   const before=replayFeedPools(input,{through:rowInstant(date,time),excludeCheckId:checkId});
   const check=validate(Check,Check.create({...existing,operationId,eventId,date,time,notes,isCloseReading:existing?.isCloseReading??isCloseReading}));
   const children=readings.map(row=>{const pool=before.get(poolKey({eventId,...row}));if(!pool)throw new Error('No feed is available in this pool.');return validate(Item,Item.create({operationId,feedCheckId:check.id,...poolReading(pool,row.remainingQuantity,row.unit??pool.unit)}));});
   const removed=oldChildren.filter(row=>{const snap=feedSnapshot(row,input.batches);return keys.has(poolKey({eventId,locationId:row.locationId,feedTypeId:snap.feedTypeId}));});
-  // Refuse a conflicting later observation; never offer to erase it.
   const proposed={...input,checks:[...input.checks.filter(row=>row.id!==check.id),check],items:[...input.items.filter(row=>!removed.some(old=>old.id===row.id)),...children]};
+  return {existing,input,check,children,removed,keys,proposed,unchanged,date,time};
+}
+
+/** Demand inputs from the live store, matching DMI-8's event-scoped group windows. */
+function demandFromStore(eventId) {
+  const event=getById('events',eventId);
+  return {
+    event,
+    paddockWindows:getAll('eventPaddockWindows'),
+    locations:Object.fromEntries(getAll('locations').map(row=>[row.id,row])),
+    groupWindows:getAll('eventGroupWindows').filter(row=>row.eventId===eventId),
+    memberships:getAll('animalGroupMemberships'),
+    animals:getAll('animals'),
+    animalClasses:Object.fromEntries(getAll('animalClasses').map(row=>[row.id,row])),
+    animalWeightRecords:getAll('animalWeightRecords'),
+  };
+}
+
+/** Build the same proposed state writePoolCheck would persist, then run the pure plausibility helper. */
+export function previewPoolCheck(args) {
+  if(unchangedPoolCheck(args)) return [];
+  const {proposed,check,unchanged}=proposePoolCheck(args);
+  if(unchanged) return [];
+  return feedCheckPlausibility({ poolInput:proposed, proposedCheck:check, ...demandFromStore(args.eventId) });
+}
+
+export function writePoolCheck({operationId,eventId,date,time,notes=null,readings,checkId=null,isCloseReading=false}) {
+  const {existing,check,children,removed,keys,proposed,unchanged}=proposePoolCheck({operationId,eventId,date,time,notes,readings,checkId,isCloseReading});
+  if(unchanged)return existing.id;
+  // Refuse a conflicting later observation; never offer to erase it.
   for(const anchor of poolHistory(proposed).records.filter(row=>row.order===1 && row.stamp>rowInstant(date,time) && keys.has(row.key))) {
     const stock=replayFeedPools(proposed,{through:anchor.stamp,excludeCheckId:anchor.id}).get(anchor.key);
     const measured=replayFeedPools({...proposed,entries:[],checks:[anchor.check]}).get(anchor.key);

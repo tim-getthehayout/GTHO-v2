@@ -1,4 +1,5 @@
-import { poolWritesEnabled, liveFeedPools, writePoolCheck, writePoolTransfer, poolExecutionKey, afterObservation } from '../feed/pool-ledger.js';
+import { poolWritesEnabled, liveFeedPools, writePoolCheck, writePoolTransfer, poolExecutionKey, afterObservation, previewPoolCheck } from '../feed/pool-ledger.js';
+import { renderPlausibilityWarnings, clearPlausibilityWarnings } from '../feed/plausibility-warning.js';
 import { poolConversion } from '../../calcs/feed-pools.js';
 import { rowInstant } from '../../utils/date-utils.js';
 import { reviewSave, inputField, stateField, observationField } from '../assistant/entry-review.js';
@@ -465,17 +466,56 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'move-wizard-status' });
   panel.appendChild(statusEl);
+  const warningEl = el('div', { 'data-testid': 'pool-plausibility' });
+  panel.appendChild(warningEl);
 
+  const saveBtn = el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'move-wizard-save',
+      onClick: () => attemptSave(false),
+    }, [t('action.done')]);
+  const dismissWarning=()=>{clearPlausibilityWarnings(warningEl);saveBtn.hidden=false;};
+  panel.addEventListener('input',dismissWarning);
+  panel.addEventListener('change',dismissWarning);
+  const attemptSave=(force=false)=>{
+    clear(statusEl);
+    const dateOut=inputs.dateOut.value,timeOut=inputs.timeOut.value||null;
+    const isScoped=!!state.scopedGroupWindowId;
+    const feedEntries=isScoped?[]:getAll('eventFeedEntries').filter(e=>e.eventId===sourceEvent.id);
+    if(poolWritesEnabled() && feedEntries.length && !force && dateOut){
+      try {
+        const groups=wizardPoolGroups(sourceEvent.id,dateOut,timeOut);
+        const toggles=new Map((transferToggles||[]).map(row=>[row.key,row]));
+        const readings=Object.entries(groups).map(([key,group])=>{const toggle=toggles.get(key);return {feedTypeId:group.feedTypeId,locationId:group.locationId,unit:group.unit,remainingQuantity:toggle?.choice==='residual'?Number(toggle.residualInput.value):group.total};});
+        if(readings.length && readings.every(row=>Number.isFinite(row.remainingQuantity) && row.remainingQuantity>=0)){
+          const warnings=previewPoolCheck({operationId,eventId:sourceEvent.id,date:dateOut,time:timeOut,readings,isCloseReading:true});
+          if(warnings.length){
+            renderPlausibilityWarnings(warningEl,warnings,{
+              onFix:()=>{
+                const first=warnings[0];
+                const toggle=(transferToggles||[]).find(row=>`${sourceEvent.id}|${row.locationId}|${row.feedTypeId}`===first.poolKey);
+                toggle?.residualInput?.focus();
+              },
+              onSaveAnyway:()=>attemptSave(true),
+            });
+            saveBtn.hidden=true;
+            return;
+          }
+        }
+      } catch (error) {
+        statusEl.appendChild(el('span', {}, [error.message]));
+        return;
+      }
+    }
+    if(opts.review) reviewSave(opts.review, () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl, transferToggles, postGraze, preGraze, opts.review))();
+    else executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl, transferToggles, postGraze, preGraze, opts.review);
+  };
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
     el('button', {
       className: 'btn btn-outline',
       onClick: () => { state.step = 2; parentRender(); },
     }, [t('action.back')]),
-    el('button', {
-      className: 'btn btn-green',
-      'data-testid': 'move-wizard-save',
-      onClick: reviewSave(opts.review, () => executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, unitSys, statusEl, transferToggles, postGraze, preGraze, opts.review)),
-    }, [t('action.done')]),
+    saveBtn,
   ]));
 
   const fields = Object.fromEntries(Object.entries(inputs).map(([key,input]) => [key,inputField(input)]));

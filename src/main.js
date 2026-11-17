@@ -57,6 +57,7 @@ import './calcs/advanced.js';
 import './calcs/capacity.js';
 import './calcs/survey-bale-ring.js';
 import './calcs/feed-run-rate.js';
+import './calcs/feed-check-plausibility.js';
 
 let showAppGen = 0;
 let lastRenderedUserId = null;

@@ -5,6 +5,8 @@
 **Base:** Forgejo `main` `ce1c987d` (read only; 044 applied and ceiling-44 client published 2026-11-11). Live figures: read-only SELECTs on production, 2026-11-16 ~3:08 PM ET; aggregates only.
 **Run-rate panel (Tim, 2026-11-17 6:28 AM ET, via Orchestrator):** the OI-0224 run-rate panel also appears on this budget scorecard as a grazing-gamification element (D8, §10); its questions N–S were accepted at Design's recommendations (Tim, 2026-11-17 6:39 AM ET, via Orchestrator, D9). OI-0221 stays PROPOSED; Build starts nothing.
 
+**Budget dates and implied pasture (Tim, 2026-11-17 9:04 AM ET, via Orchestrator):** "Also on the forecast module the start and end dates should be configurable. For this year I will probably use October 1st to September 30th as that is the data I have." Proposed as D10 in [Implied pasture DMI and budget dates, 2026-11-17](IMPLIED_PASTURE_DMI_2026-11-17.md) §2 (PROPOSED, Q4–Q5): configurable start/end; every "May 31" below reads "the period end"; default this year Oct 1, 2026 – Sep 30, 2027 vs Oct 1, 2025 – Sep 30, 2026. Implied pasture DMI (OI-0225, DMI-9) becomes this view's headline.
+
 ## Tim's request (2026-11-16, 3:03–3:09 PM ET, relayed by Orchestrator)
 
 1. Look at any period; default is one growing season and feeding cycle.
@@ -16,7 +18,7 @@
 
 ## Decided by Tim (recorded, not open)
 
-- **D1 — Default period is June 1 to May 31** (3:05 PM). Any other start/end can be picked.
+- **D1 — Default period is June 1 to May 31** (3:05 PM). Any other start/end can be picked. *Proposed change (D10, Tim 2026-11-17 9:04 AM ET via Orchestrator): default Oct 1 – Sep 30 and configurable budget dates — see the OI-0225 brief §2.*
 - **D2 — The budget runs on dry matter (DM), not hay type** (3:05 PM). DM per bale is what matters. Peanut Hay stays filed under the grass feed type; no reclassification.
 - **D3 — Fix the bale unit mix-up first**, as its own item (OI-0220), ahead of this build (3:05 PM).
 - **D4 — Forecast formula** (3:09 PM, correcting 3:07): savings are already sitting in the barn, so they are never added to on-hand.

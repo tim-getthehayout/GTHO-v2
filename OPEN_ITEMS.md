@@ -34,6 +34,7 @@
 | OI-0221 | Stored forage budgeting and management (season budget, gamified view, surplus/deficit forecast) | PROPOSED 2026-11-16 — awaiting Tim; Build starts nothing; depends on OI-0220 (done) and OI-0222; budget storage needs a new migration (after applied 044); $56.66 Week of 11-12-26 cost confirmed (4:05–4:06 PM ET); 2026-11-17 6:28 AM ET (via Orchestrator): the shared OI-0224 run-rate panel also on the budget scorecard as a grazing-gamification element; N–S accepted at Design's recommendations (Tim, 6:39 AM ET, via Orchestrator); OI-0221 otherwise PROPOSED |
 | OI-0223 | Show standard feed-unit labels in cards, details and reports instead of stored text | Open — low priority, not started; needs Tim's say-so (follow-up from PR #60) |
 | OI-0224 | Feed run rate from feed checks (7/14/30/60-day pills; consumed and residual in bales, $ and DM; DMI actual vs forecast) | **MERGED, awaiting publish** — Forgejo PR #65 merged at `368b801b` (`f353c72c`); not yet published to GitHub. Earlier: APPROVED 2026-11-17 6:12 AM ET (Tim, via Orchestrator); 6:27 AM ET hold lifted 6:29 AM ET (Tim, via Orchestrator); **handed to Build** as a shared calc the OI-0221 scorecard reuses; C residual = hay left or wasted when an event closes; A, B, D–H at defaults; no migration; docs landing approved; also on the OI-0221 scorecard (6:28 AM ET), one shared calc and component; PR #65 passed Design review at `f353c72c` (2026-11-17) |
+| OI-0225 | Implied pasture DMI (predicted herd DMI − stored feed; headline of the run-rate panel and the budget view) + OI-0221 D10 configurable budget dates | **PROPOSED 2026-11-17** — Tim 9:04 AM ET via Orchestrator; new calc DMI-9; [brief](session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md); Q1–Q6 open with defaults; Build starts nothing |
 
 ---
 
@@ -89,6 +90,8 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Run rate on the scorecard (Tim, 2026-11-17 6:28 AM ET, via Orchestrator):** "I would also like run rate on the view that's part of the larger feature as it's an important part of the 'grazing gamification'". Recorded as D8: the OI-0224 run-rate panel also appears on the budget scorecard, alongside budget, prior year and actual, as a grazing-gamification element — one shared calculation and component, not a second implementation (same pills 7/14/30/60, default 30; consumed; residual at close; bales, $ and lb DM; DMI actual vs forecast). **Decided N–S (Tim, 2026-11-17 6:39 AM ET, via Orchestrator):** "Accept Design's scorecard run-rate recommendations N–S" — N fed/day for budget, prior year and actual, consumed and residual beneath; O ≤ 95% green / 95–105% neutral / > 105% amber; P pills drive only the panel; Q waste % lower-is-better, not in the badge yet; R no new run-rate streaks or goals now; S one panel per screen. Landing: "Yes, land docs/run-rate-scorecard with these answers, no GitHub publish" (Forgejo only). OI-0221 stays PROPOSED.
 
+**D10 — Configurable budget dates (Tim, 2026-11-17 9:04 AM ET, via Orchestrator; PROPOSED):** "Also on the forecast module the start and end dates should be configurable. For this year I will probably use October 1st to September 30th as that is the data I have." Proposed in [the OI-0225 brief](session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md) §2: budget start/end configurable; every "May 31" in D4, K and §10 becomes "the period end"; default this year Oct 1, 2026 – Sep 30, 2027 with prior year Oct 1, 2025 – Sep 30, 2026 (all of 17c/OI-0222 inside it); new-farm default Oct 1 – Sep 30, amending D1's June 1 – May 31 (Q4); dates per farm in the DB with the budget (Q5); months clipped to the period with labelled partial edge months; prior-year comparison = same dates a year earlier (N); pills unchanged (P), `periodStart` = configured start; changing dates recomputes everything, and a locked budget is unlock → edit → re-lock. **Implied pasture DMI (OI-0225, DMI-9)** becomes the headline of this budget view (fed basis, like-for-like with budget and prior year). OI-0221 stays PROPOSED.
+
 **Decided by Tim (2026-11-16, relayed by Orchestrator):** default period June 1 – May 31 (3:05 PM); budget runs on dry matter, not hay type, Peanut Hay classification left as is (3:05 PM); forecast (3:09 PM): show budgeted on-hand vs actual on-hand today, season result = actual on-hand DM − remaining budgeted DM need through May 31 with the taper; savings to date explains the variance and is never added to on-hand.
 
 **Recommendation:** monthly history for any period; budget = projected DMI demand × editable monthly stored-feed share (taper), pre-filled from history; frozen stored budget; actual cost via CST-1; gamified Feed-screen card plus desktop chart/Reports; run-rate forecast as a second line; stale/missing on-hand degrades to a budget-only view with "Count your hay"; supplement days-on-hand with "Hay covers through <date>". **Decided 3:51–3:52 PM ET:** cost = each batch's recorded cost, $56/bale fallback for a batch with no cost, last season $45/bale; budget price at lock = weighted recorded $/DM of on-hand batches (editable); historical animal basis = cattle + sheep DMI by period, goats excluded. Fall 2026 batch costs verified (no missing cost). **Week of 11-12-26 at $8,499 = $56.66/bale confirmed correct by Tim (4:05–4:06 PM ET, via Orchestrator); flag closed, recorded cost is used.** Its `Bale` unit is handled by OI-0220. Questions A–M in the proposal.
@@ -101,11 +104,39 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 ---
 
+### OI-0225 — Implied pasture DMI (the "most important number")
+
+**Added:** 2026-11-17 | **Area:** v2-design / feed / grazing | **Priority:** Tim's top number; after OI-0222 PR #67, alongside OI-0221
+
+**Status:** **PROPOSED — awaiting Tim's answers to Q1–Q6. Build starts nothing until Tim approves.** Proposal: [Implied pasture DMI and budget dates, 2026-11-17](session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md). Docs only.
+
+**Request (Tim, 2026-11-17 9:04 AM ET, via Orchestrator):** "Just thought of something I missed on the run rate as well as forecast budget item. Implied DMI from pasture. This is the most important number. Also on the forecast module the start and end dates should be configurable. For this year I will probably use October 1st to September 30th as that is the data I have." The date half is OI-0221 D10.
+
+**Placement:** a new OI rather than reopening OI-0224 (merged, awaiting publish) or folding into OI-0221 (PROPOSED, A–L open, budget-only): implied pasture changes the shipped shared panel and heads the budget view. New calc **DMI-9** (V2_CALCULATION_SPEC §4.2, beside DMI-4/DMI-7; formulas 41 → 42).
+
+**Proposed definitions (brief §1):** implied pasture = predicted herd DMI − stored feed over the same counted days, netted then floored at 0. Demand = group-window DMI shared with FED-6/DMI-8 (no lactation) plus `historical_animal_basis` where no window is open. **Window lane** (run-rate panel pills): stored = FED-6 consumed from checks on farm-measured days (earlier check ≤ d < later check; dateIn ≤ d < dateOut) plus no-hay days. **Period lane** (budget view): stored = fed (OI-0221 B) plus `historical_feedings`. Units lb DM/day (herd), lb DM/head/day (per species), % of demand. Negative → pasture 0 and 0% plus "Stored feed over demand"; raw signed value kept in the output. Close residual is not subtracted again (FED-6 consumed already excludes it); waste stays in, so the figure is a floor. Unknown, never 0, for no counted days, missing weights or basis, or stored feed with no demand source. Cattle, sheep and total. Display: headline of the shared run-rate panel (same pills, once per screen per S) and of the OI-0221 budget view; neutral colour; no new streaks (R). 17c worked examples (illustrative): Oct 2025 504.9 lb DM/day, 32.9%; Dec 2025 0 with 630.5 lb/day (41.1%) over demand.
+
+**Open questions (recommended default first; brief "Open questions"):**
+1. Q1 — Two bases: panel uses hay eaten (checks), season/budget view uses hay fed. *Default: yes, both, labelled.*
+2. Q2 — Fed above predicted intake: pasture 0 / 0% plus "Stored feed over demand"; raw negative in reports. *Default: yes.*
+3. Q3 — Colour: neutral for now; budget beside it as text. *Default: neutral.*
+4. Q4 — This year's budget period Oct 1, 2026 – Sep 30, 2027 vs prior Oct 1, 2025 – Sep 30, 2026; Oct 1 – Sep 30 becomes the new-farm default (replacing D1's June 1 – May 31). *Default: yes.* (OI-0221 D10)
+5. Q5 — Dates per farm in the database with the budget; no overlapping budgets; shorter non-annual budgets up to 366 days; prior year = same dates a year earlier. *Default: yes.* (OI-0221 D10)
+6. Q6 — Sheep Jun–Oct 2026 have no basis: show cattle with "sheep basis missing" until a sheep basis row is added (OI-0222 follow-up entry point). *Default: yes.*
+
+**Schema / CP-55/CP-56 impact:** DMI-9 none (compute-on-read). The period's per-farm default rides in OI-0221's later budget migration (046 or later), not 045.
+
+**Origin:** Tim's request 2026-11-17 9:04 AM ET via Orchestrator.
+
+---
+
 ### OI-0224 — Feed run rate from feed checks
 
 **Added:** 2026-11-17 | **Area:** v2-design / feed / reporting | **Priority:** after Tim's approval; independent of OI-0222
 
 **Status:** **MERGED, awaiting publish — Forgejo PR #65 merged at `368b801b` (`f353c72c`); not yet published to GitHub.** **APPROVED as a spec (Tim, 2026-11-17 6:12 AM ET, via Orchestrator). Handed to Build:** the 6:27 AM ET hold ("Actually wait") was lifted at 6:29 AM ET — Tim, 2026-11-17 6:29 AM ET, via Orchestrator: "Ok all set to go on run rate and backfill. Backup the database before backfill database changes and backfill"; OI-0224 and OI-0222 are handed to Build. **Build must expose the run-rate window calc as a shared module that the OI-0221 slice 2 scorecard reuses (one calc, one component).** C answered; A, B, D–H accepted at Design's defaults; landing this doc approved (docs only, no GitHub publish). Proposal: [Feed run rate, 2026-11-17](session_briefs/FEED_RUN_RATE_PROPOSAL_2026-11-17.md). **Also on the OI-0221 scorecard (Tim, 2026-11-17 6:28 AM ET, via Orchestrator):** "I would also like run rate on the view that's part of the larger feature as it's an important part of the 'grazing gamification'" — the same panel (one shared calc and component) also appears on the budget scorecard as a grazing-gamification element; that placement ships with OI-0221 slice 2 (brief §6).
+
+**Follow-up (2026-11-17):** implied pasture DMI becomes the headline of this shared panel — proposed as OI-0225 (DMI-9), not a change to OI-0224's shipped scope.
 
 **Build (2026-11-17):** [PR #65](https://git.sarnford.com/Homelab/GTHO-v2/pulls/65) (`feat/feed-run-rate`) **passed Design review at `f353c72c`** after one round (edge day aligned to `poolDailyActual`/DMI-8 with the close day excluded; residual "Unknown", never 0; count figures only for bale, sq bale and bag); calc FED-6 (`src/calcs/feed-run-rate.js`), shared panel `src/features/feed/run-rate-panel.js`; no schema change. **Forgejo PR #65 merged at `368b801b` (`f353c72c`); not yet published to GitHub** — merged, awaiting publish.
 

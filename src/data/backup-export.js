@@ -1,4 +1,4 @@
-import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
+import { RELEASED_SCHEMA_VERSION, isTableReleased } from './schema-release.js';
 import { UNIT_TABLES } from '../utils/unit-standards.js';
 /**
  * @file Backup export — CP-55.
@@ -37,6 +37,8 @@ export const BACKUP_TABLES = {
   batch_adjustments:         { paginate: false },
   batch_location_balances:   { paginate: false },
   batch_moves:               { paginate: false },
+  historical_feedings:       { paginate: false },
+  historical_animal_basis:   { paginate: false },
   // D5
   events:                    { paginate: true },
   event_paddock_windows:     { paginate: true },
@@ -190,6 +192,8 @@ export async function exportOperationBackup(operationId, onProgress) {
   for (let i = 0; i < tableNames.length; i++) {
     const tableName = tableNames[i];
     const { paginate } = BACKUP_TABLES[tableName];
+    // A held migration's tables may not exist yet; export them only once released.
+    if (!isTableReleased(tableName, RELEASED_SCHEMA_VERSION)) continue;
 
     const rows = await fetchTable(tableName, operationId, paginate);
     tables[tableName] = rows;

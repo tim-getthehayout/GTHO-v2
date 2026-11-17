@@ -3,6 +3,7 @@
 **Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's approval. **Build starts nothing until Tim approves this spec.** Docs only; no code, no SQL, no data change.
 **Depends on:** OI-0220 (feed unit cleanup; approved 2026-11-16 4:32 PM ET; done — PR #60 merged at `73442873` and published 2026-11-16) ships first, then OI-0222 (historical hay-feeding backfill) before slice 1. Voice / OI-0215 stays on hold and is not part of this.
 **Base:** Forgejo `main` `ce1c987d` (read only; 044 applied and ceiling-44 client published 2026-11-11). Live figures: read-only SELECTs on production, 2026-11-16 ~3:08 PM ET; aggregates only.
+**Run-rate panel (Tim, 2026-11-17 6:28 AM ET, via Orchestrator):** the OI-0224 run-rate panel also appears on this budget scorecard as a grazing-gamification element (D8, §10). OI-0221 stays PROPOSED; Build starts nothing.
 
 ## Tim's request (2026-11-16, 3:03–3:09 PM ET, relayed by Orchestrator)
 
@@ -25,6 +26,7 @@
 - **D5 — Cost basis** (3:52 PM ET, relayed by Orchestrator): budget and actuals use **each batch's recorded cost** (Tim: fall 2026 batches are entered correctly). **$56/bale is only the fallback** for a batch with no cost. **Last season is $45/bale** (prior-year comparison and the OI-0222 opening stock).
 - **D6 — Historical animal basis includes sheep** (3:51 PM ET): sheep were on the farm Oct 2025 – May 2026, goats were not. Last winter's basis = cattle + sheep in DMI; goats excluded. How the sheep head count is supplied is OI-0222 question J — answered (J = A, 4:05–4:06 PM ET): Tim enters it himself; sheep, Oct 2025 – May 2026, 80 head at an average of 110 lb (the difference from today's flock is last year's offspring, not ewes).
 - **D7 — Week of 11-12-26 cost confirmed** (4:05–4:06 PM ET, relayed by Orchestrator): $8,499 for 150 bales = **$56.66 a bale** is correct. The flag is closed; the recorded cost is used.
+- **D8 — Run rate on the scorecard** (Tim, 2026-11-17 6:28 AM ET, via Orchestrator): "I would also like run rate on the view that's part of the larger feature as it's an important part of the 'grazing gamification'". The OI-0224 run-rate panel ([Feed run rate, 2026-11-17](FEED_RUN_RATE_PROPOSAL_2026-11-17.md)) is shown on this budget scorecard, alongside budget, prior year and actual, as a **grazing-gamification element**. One shared calculation and one shared component with the Feed card; never a second implementation (§10).
 
 ## Recommendation (summary)
 
@@ -32,7 +34,7 @@
 2. Budget each month as **projected herd DM demand × a "stored-feed share" % for that month**. The share curve is the seasonal taper (low in summer, ~100% in deep winter). It is pre-filled from the prior period's actual share where records exist and is editable by Tim. Using DMI demand adjusts for herd size and weight automatically.
 3. **Freeze the budget** at the start of the season (stored rows, one new migration numbered after the already-applied 044) so "beat the budget" stays honest when data changes.
 4. Cost (decided, D5): actual = each fed batch's recorded cost (CST-1), $56/bale fallback when a batch has none; budget cost = budget DM × weighted recorded price per DM at lock; last season compared at $45/bale.
-5. **Gamified card on the Feed screen** (mobile first; desktop adds the monthly chart): this-month and season-to-date vs budget vs last season, savings in $ and DM, today's on-hand variance, and the season surplus/deficit forecast (D4), plus a run-rate version.
+5. **Gamified card on the Feed screen** (mobile first; desktop adds the monthly chart): this-month and season-to-date vs budget vs last season, savings in $ and DM, today's on-hand variance, and the season surplus/deficit forecast (D4), plus a run-rate version. The scorecard also carries the shared **OI-0224 run-rate panel** (D8), a grazing-gamification element.
 6. **Supplement the days-on-hand goal** first with "Hay covers through <date>" against the budget curve; retire or repurpose the fixed-day goal later (question).
 7. Phasing: OI-0220 → OI-0222 backfill → history report → budget + card + forecast → days-on-hand replacement.
 
@@ -175,13 +177,21 @@ No fall batch is missing a cost. Illustrative price if locked today on the on-ha
 - Table by month: demand DM, share %, budget DM, actual DM, last season, $ budget, $ actual, $ saved.
 - Period picker (default Jun 1 – May 31, any range); budget editor (share curve, price, opening on-hand) behind an Edit button; lock/unlock.
 
+**Run-rate panel on the scorecard (D8; OI-0224, shared) — grazing-gamification element:**
+- **Same thing, not a copy.** The scorecard shows the OI-0224 run-rate panel: the same registered calc (the window aggregation beside DMI-5/DMI-8 over the FA-26 pool replay) and the same UI component as on the Feed card. No second consumption, residual or cost logic in OI-0221.
+- **Same content** (OI-0224, decided 2026-11-17 6:12 AM ET): pills **7 · 14 · 30 · 60 days** (default 30, trailing days ending today); **consumed** from feed checks (measured days only, "measured N of D days"); **residual = hay left or wasted when an event closes** (close readings of events closed in the window, less later moves out; unknown without a close reading); **bales** per unit type, **$** (recorded batch cost, $56/bale fallback, D5) and **lb DM**; **DMI actual vs forecast** (stored DM consumed/day vs the herd's predicted DMI on the same days).
+- **Alongside budget, prior year and actual.** For the selected window the panel adds a comparison row: **budget** (the locked monthly budget DM pro-rated to the window's days), **prior year** (the same calendar dates last season, from the history report / OI-0222 backfill, at $45/bale for cost) and **actual** — on the basis in question N.
+- **Gamification.** It is the short-horizon "how am I doing lately" signal next to the season headline: the pace badge (§10 mobile) can read from it (question O), and residual becomes a lower-is-better waste figure (question Q). Tone stays plain and encouraging, no points (§10).
+- **Before a budget is locked** the scorecard isn't shown; the panel stays on the Feed card (OI-0224) with actual only. Prior-year comparison needs slice 1 history (OI-0222 backfill), so it shows only where history exists.
+- **Where on the Feed screen:** question S.
+
 **Reports (any period, slice 1):** "Stored feed by month" — DM fed, as-fed, units by feed type, $ cost, demand, stored share, head/AU-days.
 
 ## 11. Phasing — Build starts nothing until Tim approves
 
 0. **OI-0220** unit cleanup and prevention (no migration).
 1. **History report** for any period (no migration): monthly DM fed, cost, demand, share; data-quality flags.
-2. **Budget + gamified card + forecast** (new stored-budget migration after the applied 044; Tim's yes + backup to apply).
+2. **Budget + gamified card + forecast** (new stored-budget migration after the applied 044; Tim's yes + backup to apply). Includes the shared OI-0224 run-rate panel on the scorecard (D8); OI-0224 itself ships independently with no migration (on hold for Build per Tim, 2026-11-17 6:27 AM ET).
 3. **Days-on-hand supplement/replacement** and planned herd changes.
 
 CP-55/CP-56: slices 0–1 none; slice 2 adds the budget tables to export/restore with a schema step.
@@ -201,3 +211,9 @@ CP-55/CP-56: slices 0–1 none; slice 2 adds the budget tables to export/restore
 - **K. Days-on-hand goal.** Recommend: keep it for now and add "Hay covers through <date>"; later replace it with a carry-over reserve past May 31.
 - **L. Where it lives.** Recommend: card at the top of the Feed screen (mobile and desktop), full view in Reports; not on the Home dashboard at first.
 - **M. Budget price — DECIDED basis (D5):** weighted **recorded** $ per DM weight of on-hand batches at lock, with any no-cost batch at the **$56/bale fallback**; editable. Prior-year comparison at **$45/bale**. Week of 11-12-26 price ($56.66) confirmed by Tim (D7); its `Bale` unit is handled by OI-0220 (§8). Nothing open.
+- **N. Like-for-like rates for the window (D8).** Recommend: budget, prior year and actual are all shown as **fed per day** (B: hay that left the stack) over the selected pill window, with OI-0224's check-based **consumed** and **residual at close** beneath as the "where it went" breakdown. Reason: last winter's history is feedings only (the OI-0222 Oct–Mar lane has no feed checks), and the budget is in fed terms, so only "fed" compares like-for-like across all three. Alternative: compare budget and prior year against consumed + residual (can't be done for last winter).
+- **O. Pace colour.** The pace badge (ahead / on / behind, §10) needs thresholds. Recommend: actual fed/day vs budget/day for the selected window: **ahead** ≤ 95% (green), **on** 95–105% (neutral), **behind** > 105% (amber). No red on the panel; red stays for a season deficit headline. No points.
+- **P. Which window drives what.** Recommend: the pills drive only the run-rate panel (shared choice with the Feed card, remembered on the device); the season headline, this month and season to date follow the budget period; the "At your recent pace" forecast line keeps its fixed 30 days (I) so the headline doesn't jump with the pills. A window reaching before the period start is clipped to season to date (as I).
+- **Q. Residual as a scored metric.** Recommend: show **waste %** = residual ÷ (consumed + residual) for events closed in the window, **lower is better**, with an arrow vs the previous window of the same length. Not part of the pace badge yet and no prior-year comparison (last winter has no close readings); revisit once a season of close readings exists.
+- **R. Run-rate streaks or goals.** The months-under-budget streak and $ saved are already in §10. Recommend: no new run-rate streaks (e.g. weeks under pace) or user-set run-rate goals now; revisit after one season with the scorecard.
+- **S. One panel or two on the Feed screen.** The OI-0221 card sits above (or replaces) the days-on-hand banner, which carries the OI-0224 panel. Recommend: show the panel **once** per screen — on the Feed Day Goal card until the scorecard exists, then inside the scorecard (the banner keeps its three numbers); desktop Reports full view shows it too.

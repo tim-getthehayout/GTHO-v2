@@ -812,6 +812,7 @@
     "runRatePartialDays": "Includes days when only some feed was measured",
     "runRatePartlyUnpriced": "{amount} DM has no cost",
     "runRateDmi": "DMI: actual {actual} DM/day vs forecast (avg of {days} measured days) {forecast} DM/day ({pct}%)",
+    "runRateDmiOne": "DMI: actual {actual} DM/day vs forecast (avg of {days} measured day) {forecast} DM/day ({pct}%)",
     "runRateDmiNoForecast": "DMI: actual {actual} DM/day (no forecast)",
     "runRateUnitBale": "round bales",
     "runRateUnitSqBale": "sq bales",

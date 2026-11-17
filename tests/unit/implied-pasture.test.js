@@ -22,6 +22,24 @@ function hay({ head = 10, avg = 500, cls = undefined } = {}) {
   };
 }
 
+
+/** Orphan fixture: event A closed 2026-07-27 with group G's window still open; event B open from Nov 9 with G's window. */
+function orphanHerd() {
+  return {
+    today: '2026-11-17', days: 9, feedTypes: types, animalClasses: classes,
+    events: [{ id: 'evt-a', dateIn: '2026-07-01', dateOut: '2026-07-27' }, { id: 'evt-b', dateIn: '2026-11-09', dateOut: null }],
+    entries: [feed('f-b', 'evt-b', '2026-11-09', 10)],
+    checks: [check('c1', 'evt-b', '2026-11-10'), check('c2', 'evt-b', '2026-11-15')],
+    items: [item('c1', 6), item('c2', 1)],
+    batches: [{ id: 'b1', feedTypeId: 'hay', unit: 'bale', costPerUnit: 60, weightPerUnitKg: 500, dmPct: 80 }],
+    groups: [{ id: 'grp-g', name: 'Test Herd' }],
+    groupWindows: [
+      { id: 'gw-orphan', eventId: 'evt-a', groupId: 'grp-g', dateJoined: '2026-07-01', dateLeft: null, headCount: 10, avgWeightKg: 500, animalClassId: 'cow' },
+      { id: 'gw-b', eventId: 'evt-b', groupId: 'grp-g', dateJoined: '2026-11-09', dateLeft: null, headCount: 10, avgWeightKg: 500, animalClassId: 'cow' },
+    ],
+  };
+}
+
 describe('DMI-9 implied pasture, window lane', () => {
   it('is registered as its own calc reading the FED-6 field', () => {
     const calc = getCalc('DMI-9');
@@ -146,6 +164,23 @@ describe('DMI-9 implied pasture, window lane', () => {
     input.memberships = [{ id: 'm', animalId: 'flock', groupId: 'sheep', dateJoined: '2026-11-20' }];
     expect(computeFeedRunRate(input).impliedPasture.bySpecies).toEqual({});
   });
+
+  it('an orphan window on a closed event is ignored: demand and implied pasture count only the open event, and the cattle row takes the change', () => {
+    const r = computeFeedRunRate(orphanHerd());
+    const p = r.impliedPasture;
+    // 10 head × 500 kg × 2.5% = 125 kg/day from event B only, not 250 with the orphan.
+    expect(r.measuredDays).toBe(5);
+    expect(r.rate.forecastDmKgPerDay).toBe(125);
+    expect(p.countedDays).toBe(5);
+    expect(p.demandDmKgPerDay).toBeCloseTo(125);
+    expect(p.demandDmKgPerDay).toBeCloseTo(r.rate.forecastDmKgPerDay);
+    expect(Object.keys(p.bySpecies)).toEqual(['cattle']);
+    expect(p.bySpecies.cattle.avgHead).toBe(10);
+    expect(p.bySpecies.cattle.demandDmKgPerDay).toBeCloseTo(125);
+    expect(p.bySpecies.cattle.demandDmKg).toBeCloseTo(p.demandDmKg);
+    expect(p.bySpecies.cattle.pasturePerHeadKg).toBeCloseTo(p.pastureDmKgPerDay / 10);
+  });
+
   it('maps species to display groups', () => {
     expect(['beef_cattle', 'dairy_cattle', 'sheep', 'goat', 'other', null].map(pastureSpeciesGroup)).toEqual(['cattle', 'cattle', 'sheep', 'goat', 'other', null]);
   });

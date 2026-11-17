@@ -307,6 +307,7 @@ registerCalc({
     { name: 'events', type: 'array', unit: '{ id, dateIn (derived start), dateOut }' },
     { name: 'entries / checks / items / batches / feedTypes', type: 'array', unit: 'feed pool replay rows' },
     { name: 'groupWindows / memberships / animals / animalWeightRecords / animalClasses', type: 'array', unit: 'DMI forecast rows' },
+    { name: 'groups', type: 'array', unit: '{ id, name } (optional; names for the duplicate-window warning)' },
   ],
   output: { type: 'object', shape: '{ windowDays, measuredDays, lastMeasuredDate, hasChecks, rate, consumed, residual, byEvent }', unit: 'kg DM / units / $' },
   fn: computeFeedRunRate,

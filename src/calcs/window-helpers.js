@@ -222,14 +222,31 @@ export function eventOpenOn(event, dt) {
 
 const warnedDuplicateGroupDays = new Set();
 
+/** Clear the duplicate-group-day warning set (tests). */
+export function resetWarnedDuplicateGroupDays() {
+  warnedDuplicateGroupDays.clear();
+}
+
+/** True when `gw` should replace `prior` for the same group on one day. */
+function preferDemandWindow(prior, gw) {
+  if (!prior) return true;
+  const date = (gw.dateJoined || '').localeCompare(prior.dateJoined || '');
+  if (date) return date > 0;
+  const time = (gw.timeJoined || '').localeCompare(prior.timeJoined || '');
+  if (time) return time > 0;
+  const created = (gw.createdAt || '').localeCompare(prior.createdAt || '');
+  if (created) return created > 0;
+  return String(gw.id || '').localeCompare(String(prior.id || '')) > 0;
+}
+
 /**
  * Farm-wide filter for daily demand: the group windows that count on `dt`.
  * A window counts only if its event exists and is open on `dt` and the
  * window itself is active on `dt` (so each window is clipped to the overlap
  * of its own dates and its event's). A group counts at most once per day:
  * when two windows qualify for the same group, the latest-joined one counts
- * and a logger warning (console + log buffer) gives the group name, window
- * count and date (never ids).
+ * (dateJoined, then timeJoined, then createdAt, then id) and a logger warning
+ * (console + log buffer) gives the group name, window count and date (never ids).
  * `events` is an array or an id-keyed map; `groups` (optional) supplies names.
  */
 export function farmDemandWindowsOn(dt, { groupWindows, events, groups } = {}) {
@@ -243,7 +260,7 @@ export function farmDemandWindowsOn(dt, { groupWindows, events, groups } = {}) {
     const key = gw.groupId ?? gw.id;
     counts.set(key, (counts.get(key) ?? 0) + 1);
     const prior = byGroup.get(key);
-    if (!prior || (gw.dateJoined || '') > (prior.dateJoined || '')) byGroup.set(key, gw);
+    if (preferDemandWindow(prior, gw)) byGroup.set(key, gw);
   }
   let duplicates = 0;
   for (const [key, n] of counts) {

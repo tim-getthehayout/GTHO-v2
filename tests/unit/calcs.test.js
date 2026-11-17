@@ -11,10 +11,10 @@ import '../../src/calcs/survey-bale-ring.js';
 import '../../src/calcs/feed-run-rate.js';
 
 describe('calculation engine', () => {
-  it('registers 43 formulas', () => {
-    // OI-0157-B1: ANI-AU / ANI-AUD / ANI-ADA bumped the count from 39 → 42; FED-6 (feed run rate) → 43.
+  it('registers 44 formulas', () => {
+    // OI-0157-B1: ANI-AU / ANI-AUD / ANI-ADA bumped the count from 39 → 42; FED-6 (feed run rate) → 43; DMI-9 (implied pasture) → 44.
     const calcs = getAllCalcs();
-    expect(calcs.length).toBe(43);
+    expect(calcs.length).toBe(44);
   });
 
   it('has formulas in all expected categories', () => {

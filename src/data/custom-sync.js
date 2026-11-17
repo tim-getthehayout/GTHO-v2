@@ -2,6 +2,7 @@ import { operationPushShape } from '../entities/operation.js';
 import { UNIT_TABLES } from '../utils/unit-standards.js';
 import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
 /** @file Custom Supabase sync implementation with offline queue + exponential backoff */
+/* global AbortController */
 
 import { SyncAdapter } from './sync-adapter.js';
 import { supabase } from './supabase-client.js';
@@ -98,7 +99,15 @@ function wait(ms) {
 }
 
 
-/** Per-row key used to coalesce and chain pushes for the same table + id. */
+/**
+ * Per-request timeout for every remote sync call. A request that never
+ * settles would otherwise hold its row's send chain (and flush) forever.
+ * A timeout aborts the request and counts as a failure, so the normal
+ * retry / dead-letter path runs.
+ */
+export const SYNC_REQUEST_TIMEOUT_MS = 15_000;
+
+/** Per-row key used to chain pushes for the same table + id. */
 function rowKey(table, id) {
   return `${table}\0${id}`;
 }
@@ -112,74 +121,41 @@ function normalizePushOp(operation) {
   return operation;
 }
 
-/**
- * Collapse pending writes for the same table + id to the latest payload,
- * keeping the last occurrence's place in the queue.
- * An unsent insert collapsed with a later update becomes an upsert so the
- * latest full row can land whether or not the server already has it.
- */
-function coalesceQueue(queue) {
-  const lastIndex = new Map();
-  for (let i = 0; i < queue.length; i++) {
-    const id = entryRowId(queue[i]);
-    if (!queue[i]?.table || id == null) continue;
-    lastIndex.set(rowKey(queue[i].table, id), i);
-  }
-  const groups = new Map();
-  for (const entry of queue) {
-    const id = entryRowId(entry);
-    if (!entry?.table || id == null) continue;
-    const key = rowKey(entry.table, id);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(entry);
-  }
-  const collapsedAt = new Map();
-  for (const [key, entries] of groups) {
-    collapsedAt.set(key, collapseRowEntries(entries));
-  }
-  const out = [];
-  for (let i = 0; i < queue.length; i++) {
-    const entry = queue[i];
-    const id = entryRowId(entry);
-    if (!entry?.table || id == null) {
-      out.push(entry);
-      continue;
-    }
-    const key = rowKey(entry.table, id);
-    if (lastIndex.get(key) !== i) continue;
-    out.push(collapsedAt.get(key));
-  }
-  return out;
+function isCreateOp(operation) {
+  const op = normalizePushOp(operation);
+  return op === 'insert' || op === 'upsert';
 }
 
-function collapseRowEntries(entries) {
-  const latest = entries[entries.length - 1];
-  const ops = entries.map(e => normalizePushOp(e.operation));
-  const lastOp = ops[ops.length - 1];
-  if (lastOp === 'delete') return { ...latest, operation: 'delete', id: entryRowId(latest) };
-  let operation = lastOp;
-  if (operation === 'update' && ops.slice(0, -1).some(op => op === 'insert' || op === 'upsert')) {
-    operation = 'upsert';
-  }
-  const durableKey = latest.durable_key || entries.find(e => e.durable_key)?.durable_key;
-  return {
-    ...latest,
-    id: latest.record?.id || latest.id,
-    operation,
-    record: latest.record,
-    durable_key: durableKey,
-  };
+/** A row's updated_at as epoch ms, or null when missing or unparseable. */
+function stampMs(record) {
+  const raw = record?.updated_at || record?.updatedAt;
+  if (!raw) return null;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? null : ms;
 }
 
-function recordStamp(record) {
-  return record?.updated_at || record?.updatedAt || '';
+/** True only when both stamps are known and `a` is strictly older than `b`. */
+function isOlder(a, b) {
+  return a != null && b != null && a < b;
 }
 
-/** Prefer the later stamp. On a tie or missing stamp, `b` wins. */
-function newerRow(a, b) {
-  if (recordStamp(a.record) > recordStamp(b.record)) return a;
-  return b;
+function maxStamp(a, b) {
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.max(a, b);
 }
+
+/** Identity of a queue entry within one flush snapshot. */
+function entrySig(entry) {
+  return JSON.stringify([entry.table, entryRowId(entry), entry.operation, entry.enqueued_at || null, entry.durable_key || null, entry.record?.updated_at || null]);
+}
+
+/** Identity of a dead letter across re-reads of the DLQ. */
+function letterSig(letter) {
+  return JSON.stringify([letter.table, entryRowId(letter), letter.dead_lettered_at || null, letter.record?.updated_at || null]);
+}
+
+function noop() {}
 
 
 export class CustomSync extends SyncAdapter {
@@ -188,9 +164,18 @@ export class CustomSync extends SyncAdapter {
     this._status = 'idle';
     this._statusListeners = new Set();
     this._flushing = false;
-    // Per-row send chain: later writes wait for an in-flight push of the
-    // same table + id, and pending payloads collapse to the latest full row.
+    // Per-row send chain: every write to a table + id waits for the previous
+    // write to that row to settle, so versions go out in order. Entries are
+    // dropped when a row's chain goes idle.
     this._rowGates = new Map();
+    // Newest updated_at (epoch ms) successfully sent per row. A payload older
+    // than this is dropped, so a stale copy can never land last.
+    this._sentStamps = new Map();
+    // After an online delete: the newest stamp known for the row when the
+    // delete was issued. Saves at or before it are dropped.
+    this._tombstones = new Map();
+    // Queue entries already sent by the running flush (by entrySig).
+    this._flushSent = null;
   }
 
   _setStatus(status) {
@@ -266,6 +251,12 @@ export class CustomSync extends SyncAdapter {
     return data || [];
   }
 
+  /**
+   * Online deletes join the row's send chain: the delete waits for an
+   * in-flight save of the row, saves queued for the row before the delete
+   * are dropped, and once it succeeds the row's queued saves and dead letters
+   * are cleared and a tombstone stops older saves from bringing it back.
+   */
   async delete(table, id) {
     if (UNIT_TABLES.includes(table)) return { id, success: false, error: 'Units cannot be deleted.' };
     const online = await this.isOnline();
@@ -277,15 +268,42 @@ export class CustomSync extends SyncAdapter {
 
     if (!supabase) return { id, success: false, error: 'No Supabase client' };
 
-    const { error } = await supabase.from(table).delete().eq('id', id);
-    if (error) {
-      return { id, success: false, error: error.message };
+    const key = rowKey(table, id);
+    const gate = this._rowGate(key);
+    gate.deleteGen += 1;
+    const seenAtCall = gate.maxSeen;
+    return this._runInRowGate(key, async () => {
+      const { error } = await this._request(table, () => supabase.from(table).delete().eq('id', id));
+      if (error) {
+        return { id, success: false, error: error.message };
+      }
+      this._afterDelete(table, id, seenAtCall);
+      return { id, success: true };
+    });
+  }
+
+  /** Tombstone the row and clear its queued saves and dead letters. */
+  _afterDelete(table, id, seenAtCall) {
+    const key = rowKey(table, id);
+    const sameRow = entry => entry.table === table && entryRowId(entry) === id;
+    let tomb = maxStamp(seenAtCall, this._sentStamps.get(key) ?? null);
+    const queue = readQueue();
+    for (const entry of queue) {
+      if (sameRow(entry) && normalizePushOp(entry.operation) !== 'delete') tomb = maxStamp(tomb, stampMs(entry.record));
     }
-    return { id, success: true };
+    const letters = readDeadLetters();
+    for (const letter of letters) {
+      if (sameRow(letter)) tomb = maxStamp(tomb, stampMs(letter.record));
+    }
+    if (tomb != null) this._tombstones.set(key, maxStamp(tomb, this._tombstones.get(key) ?? null));
+    const keptQueue = queue.filter(entry => !(sameRow(entry) && normalizePushOp(entry.operation) !== 'delete'));
+    if (keptQueue.length !== queue.length) writeQueue(keptQueue);
+    const keptLetters = letters.filter(letter => !sameRow(letter));
+    if (keptLetters.length !== letters.length) writeDeadLetters(keptLetters);
   }
 
   /**
-   * Enqueue an operation for later sync.
+   * Enqueue an operation for later sync. Every version is kept, in order.
    */
   _enqueue(operation, table, record) {
     if (table === 'operations') record = operationPushShape(record, operation);
@@ -299,63 +317,143 @@ export class CustomSync extends SyncAdapter {
       attempts: 0,
       errors: [],
     });
-    writeQueue(coalesceQueue(queue));
+    writeQueue(queue);
+  }
+
+  _rowGate(key) {
+    let gate = this._rowGates.get(key);
+    if (!gate) {
+      gate = { tail: Promise.resolve(), pending: 0, deleteGen: 0, maxSeen: null };
+      this._rowGates.set(key, gate);
+    }
+    return gate;
   }
 
   /**
-   * Queue a push behind any in-flight send for the same table + id, collapsing
-   * pending payloads to the latest full row. Writes to different rows are not
-   * serialised behind each other.
+   * Run `task` after every earlier task for the same row has settled. The
+   * chain releases on success, failure and throw; the gate entry is removed
+   * once nothing is pending for the row.
    */
-  _enqueueRowPush(table, record, operation = 'upsert') {
-    const key = rowKey(table, record.id);
-    let gate = this._rowGates.get(key);
-    if (!gate) {
-      gate = { tail: Promise.resolve(), latest: null };
-      this._rowGates.set(key, gate);
-    }
-    const planned = { table, record, operation };
-    gate.latest = planned;
-    const run = gate.tail.then(async () => {
-      const latest = gate.latest;
-      if (!latest || latest !== planned) {
-        return { id: record.id, success: true };
-      }
-      gate.latest = null;
-      const adopted = this._adoptQueuedRow(latest);
-      return this._pushToRemote(adopted.table, adopted.record, adopted.operation);
+  _runInRowGate(key, task) {
+    const gate = this._rowGate(key);
+    gate.pending += 1;
+    const run = gate.tail.then(() => task(gate));
+    gate.tail = run.then(noop, noop).then(() => {
+      gate.pending -= 1;
+      if (gate.pending === 0 && this._rowGates.get(key) === gate) this._rowGates.delete(key);
     });
-    gate.tail = run.then(() => {}, () => {});
     return run;
   }
 
+  /** True when a payload stamped `stamp` must not be sent for this row. */
+  _isSuperseded(key, stamp) {
+    if (isOlder(stamp, this._sentStamps.get(key) ?? null)) return true;
+    const tomb = this._tombstones.get(key);
+    return stamp != null && tomb != null && stamp <= tomb;
+  }
+
   /**
-   * If a later full-row write for this id is already on the durable / offline
-   * queue, send that instead and drop the superseded queue entries. Skipped
-   * while flush() holds the queue snapshot.
+   * Record a successful send of `record` and clear that row's dead letters
+   * stamped at or before it (a newer write has landed over them).
    */
-  _adoptQueuedRow(latest) {
-    if (this._flushing) return latest;
-    const queue = readQueue();
-    const id = latest.record.id;
-    const same = [];
-    const rest = [];
-    for (const entry of queue) {
-      const isSame = entry.table === latest.table && entryRowId(entry) === id;
-      const op = normalizePushOp(entry.operation);
-      if (isSame && op !== 'delete') same.push(entry);
-      else rest.push(entry);
-    }
-    if (!same.length) return latest;
-    const queued = collapseRowEntries(same);
-    if (normalizePushOp(queued.operation) === 'delete') return latest;
-    const chosen = newerRow(latest, {
-      table: latest.table,
-      record: queued.record,
-      operation: queued.operation,
+  _markSent(table, record) {
+    const stamp = stampMs(record);
+    if (stamp == null) return;
+    const key = rowKey(table, record.id);
+    this._sentStamps.set(key, maxStamp(stamp, this._sentStamps.get(key) ?? null));
+    const letters = readDeadLetters();
+    const kept = letters.filter(letter => {
+      if (letter.table !== table || entryRowId(letter) !== record.id) return true;
+      const letterStamp = stampMs(letter.record);
+      return letterStamp == null || letterStamp > stamp;
     });
-    writeQueue(rest);
-    return chosen;
+    if (kept.length !== letters.length) writeDeadLetters(kept);
+  }
+
+  /**
+   * An online `update` whose row may not exist on the server yet (an unsent
+   * create for it is still queued or dead-lettered) is sent as an upsert, so
+   * the row is created rather than matching nothing. On `operations`, a
+   * still-queued insert keeps its compiled schema_version stamp.
+   */
+  _effectiveOp(table, record, operation) {
+    if (operation !== 'update') return { operation, shapeAs: operation };
+    const id = record.id;
+    let uncreated = false;
+    let insertStamp = false;
+    for (const entry of readQueue()) {
+      if (entry.table !== table || entryRowId(entry) !== id || !isCreateOp(entry.operation)) continue;
+      if (this._flushSent?.has(entrySig(entry))) continue;
+      uncreated = true;
+      if (normalizePushOp(entry.operation) === 'insert') insertStamp = true;
+    }
+    for (const letter of readDeadLetters()) {
+      if (letter.table !== table || entryRowId(letter) !== id) continue;
+      // Dead letters replay as upserts; a stamp in a letter is never trusted.
+      uncreated = true;
+    }
+    if (!uncreated) return { operation, shapeAs: operation };
+    return { operation: 'upsert', shapeAs: table === 'operations' && insertStamp ? 'insert' : 'upsert' };
+  }
+
+  /**
+   * Send a write through its row's chain. Every version goes out in order;
+   * a payload older than the newest one already sent for the row (or at or
+   * before a delete's tombstone) is dropped instead of sent. Writes to
+   * different rows are not serialised behind each other.
+   */
+  _enqueueRowPush(table, record, operation = 'upsert') {
+    const key = rowKey(table, record.id);
+    const gate = this._rowGate(key);
+    const gen = gate.deleteGen;
+    const stamp = stampMs(record);
+    gate.maxSeen = maxStamp(gate.maxSeen, stamp);
+    return this._runInRowGate(key, async () => {
+      if (gate.deleteGen !== gen || this._isSuperseded(key, stamp)) {
+        logger.info('sync', 'Superseded row write dropped', { table });
+        return { id: record.id, success: true, superseded: true };
+      }
+      const { operation: op, shapeAs } = this._effectiveOp(table, record, normalizePushOp(operation));
+      const result = await this._pushToRemote(table, record, op, shapeAs);
+      if (result?.success) this._markSent(table, record);
+      return result;
+    });
+  }
+
+  /**
+   * Run one remote request with SYNC_REQUEST_TIMEOUT_MS. On timeout the
+   * request is aborted and an error result is returned, so callers treat it
+   * as a failed attempt.
+   */
+  async _request(table, build) {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timer;
+    const timeout = new Promise(resolve => {
+      timer = setTimeout(() => {
+        controller?.abort();
+        logger.warn('sync', 'Sync request timed out', { table, timeoutMs: SYNC_REQUEST_TIMEOUT_MS });
+        resolve({ error: { message: `Sync request timed out after ${SYNC_REQUEST_TIMEOUT_MS} ms` } });
+      }, SYNC_REQUEST_TIMEOUT_MS);
+    });
+    try {
+      let query = build();
+      if (controller && query && typeof query.abortSignal === 'function') query = query.abortSignal(controller.signal);
+      return await Promise.race([Promise.resolve(query), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  _sendWrite(table, record, operation) {
+    return this._request(table, () => {
+      if (operation === 'insert') return supabase.from(table).insert(record);
+      if (operation === 'update') {
+        let query = supabase.from(table).update(record).eq('id', record.id);
+        if (UNIT_TABLES.includes(table)) query = query.eq('operation_id', record.operation_id);
+        return query;
+      }
+      return supabase.from(table).upsert(record, { onConflict: 'id' });
+    });
   }
 
   /**
@@ -364,8 +462,8 @@ export class CustomSync extends SyncAdapter {
   // Queued mutations retain their originating operation in the immutable payload.
   // Replay is deliberately independent of the currently selected operation; RLS
   // still requires membership and unit triggers forbid moving an existing ID.
-  async _pushToRemote(table, record, operation = 'upsert') {
-    if (table === 'operations') record = operationPushShape(record, operation);
+  async _pushToRemote(table, record, operation = 'upsert', shapeAs = operation) {
+    if (table === 'operations') record = operationPushShape(record, shapeAs);
     if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) {
       this._enqueue(operation, table, record);
@@ -375,16 +473,7 @@ export class CustomSync extends SyncAdapter {
     this._setStatus('syncing');
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      let result;
-      if (operation === 'insert') {
-        result = await supabase.from(table).insert(record);
-      } else if (operation === 'update') {
-        let query = supabase.from(table).update(record).eq('id', record.id);
-        if (UNIT_TABLES.includes(table)) query = query.eq('operation_id', record.operation_id);
-        result = await query;
-      } else {
-        result = await supabase.from(table).upsert(record, { onConflict: 'id' });
-      }
+      const result = await this._sendWrite(table, record, operation);
       const { error } = result;
 
       if (!error) {
@@ -439,8 +528,9 @@ export class CustomSync extends SyncAdapter {
       const online = await this.isOnline();
       if (!online) return;
 
-      const queue = coalesceQueue(readQueue());
+      const queue = readQueue();
       const remaining = [];
+      this._flushSent = new Set();
 
       if (queue.length > 0) {
         this._setStatus('syncing');
@@ -448,6 +538,7 @@ export class CustomSync extends SyncAdapter {
           const op = entry.operation === 'push' ? 'upsert' : entry.operation;
           if (op === 'insert' || op === 'update' || op === 'upsert') {
             const result = await this._enqueueRowPush(entry.table, entry.record, op);
+            if (result.success) this._flushSent.add(entrySig(entry));
             if (!result.success) {
               entry.attempts++;
               entry.errors.push({ attempt: entry.attempts, error: result.error, at: new Date().toISOString() });
@@ -487,6 +578,7 @@ export class CustomSync extends SyncAdapter {
       else this._setStatus(remaining.length > 0 ? 'error' : 'idle');
     } finally {
       this._flushing = false;
+      this._flushSent = null;
     }
   }
 
@@ -506,16 +598,7 @@ export class CustomSync extends SyncAdapter {
     if (UNIT_TABLES.includes(table) && (operation === 'delete' || record.operation_id == null || RELEASED_SCHEMA_VERSION < 44)) return { id: record.id, success: false, error: 'Unit write unavailable until schema 44; standards are read-only.' };
     if (!supabase) return { success: false, error: 'No Supabase client' };
     try {
-      let result;
-      if (operation === 'insert') {
-        result = await supabase.from(table).insert(record);
-      } else if (operation === 'update') {
-        let query = supabase.from(table).update(record).eq('id', record.id);
-        if (UNIT_TABLES.includes(table)) query = query.eq('operation_id', record.operation_id);
-        result = await query;
-      } else {
-        result = await supabase.from(table).upsert(record, { onConflict: 'id' });
-      }
+      const result = await this._sendWrite(table, record, operation);
       if (result && result.error) return { success: false, error: result.error.message };
       return { success: true };
     } catch (err) {
@@ -534,23 +617,47 @@ export class CustomSync extends SyncAdapter {
     const letters = readDeadLetters();
     if (letters.length === 0) return;
 
-    const eligible = letters.filter(l => (l.auto_drain_count || 0) < MAX_AUTO_DRAIN);
-    const ineligible = letters.filter(l => (l.auto_drain_count || 0) >= MAX_AUTO_DRAIN);
-    const stillFailing = [];
-
-    for (const letter of eligible) {
-      const result = await this._singlePush(letter.table, letter.record, 'upsert');
-      if (!result.success) {
-        stillFailing.push({
-          ...letter,
-          auto_drain_count: (letter.auto_drain_count || 0) + 1,
-          last_attempt_at: new Date().toISOString(),
-          error: result.error,
-        });
-      }
+    for (const letter of letters) {
+      if ((letter.auto_drain_count || 0) >= MAX_AUTO_DRAIN) continue;
+      const id = entryRowId(letter);
+      if (!letter.table || id == null) continue;
+      // Each letter goes through its row's chain, after any in-flight write.
+      await this._runInRowGate(rowKey(letter.table, id), () => this._drainOneLetter(letter));
     }
+  }
 
-    writeDeadLetters([...ineligible, ...stillFailing]);
+  /**
+   * Drain one dead letter, unless a newer write for its row has landed
+   * (drop it) or is still queued (leave it; that write clears it when it
+   * succeeds). A letter is never sent over a newer version of its row.
+   */
+  async _drainOneLetter(letter) {
+    const sig = letterSig(letter);
+    const current = readDeadLetters();
+    if (!current.some(l => letterSig(l) === sig)) return;
+    const id = entryRowId(letter);
+    const key = rowKey(letter.table, id);
+    const stamp = stampMs(letter.record);
+    if (this._isSuperseded(key, stamp)) {
+      writeDeadLetters(readDeadLetters().filter(l => letterSig(l) !== sig));
+      return;
+    }
+    const newerQueued = readQueue().some(entry => entry.table === letter.table && entryRowId(entry) === id
+      && normalizePushOp(entry.operation) !== 'delete' && isOlder(stamp, stampMs(entry.record)));
+    if (newerQueued) return;
+
+    const result = await this._singlePush(letter.table, letter.record, 'upsert');
+    if (result.success) {
+      writeDeadLetters(readDeadLetters().filter(l => letterSig(l) !== sig));
+      this._markSent(letter.table, letter.record);
+      return;
+    }
+    writeDeadLetters(readDeadLetters().map(l => (letterSig(l) === sig ? {
+      ...l,
+      auto_drain_count: (l.auto_drain_count || 0) + 1,
+      last_attempt_at: new Date().toISOString(),
+      error: result.error,
+    } : l)));
   }
 
   /**
@@ -598,12 +705,29 @@ export class CustomSync extends SyncAdapter {
   }
 
   /**
-   * Re-queue all dead letters for retry (manual recovery).
+   * Re-queue dead letters for retry (manual recovery). Per row only the
+   * newest updated_at is kept (ties go to the later letter), and a letter is
+   * skipped when the queue already holds a newer write for its row.
    */
   retryDeadLetters() {
     const letters = readDeadLetters();
     const queue = readQueue();
+    const newest = new Map();
+    const order = [];
     for (const letter of letters) {
+      const id = entryRowId(letter);
+      const key = rowKey(letter.table, id);
+      const prev = newest.get(key);
+      if (!prev) order.push(key);
+      if (!prev || !isOlder(stampMs(letter.record), stampMs(prev.record))) newest.set(key, letter);
+    }
+    for (const key of order) {
+      const letter = newest.get(key);
+      const id = entryRowId(letter);
+      const stamp = stampMs(letter.record);
+      const newerQueued = queue.some(entry => entry.table === letter.table && entryRowId(entry) === id
+        && normalizePushOp(entry.operation) !== 'delete' && isOlder(stamp, stampMs(entry.record)));
+      if (newerQueued) continue;
       queue.push({
         id: letter.id,
         operation: 'push',

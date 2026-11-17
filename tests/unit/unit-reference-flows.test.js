@@ -134,12 +134,8 @@ it('real offline store writes queue inserts and archive updates, then flush with
   add('doseUnits', Dose.create({ id: 'a0000000-0000-4000-8000-000000000100', name: 'mL', operationId: '00000000-0000-4000-8000-000000000001' }), Dose.validate, Dose.toSupabaseShape, 'dose_units');
   add('inputProductUnits', Product.create({ id: 'a0000000-0000-4000-8000-000000000102', name: 'kg', operationId: '00000000-0000-4000-8000-000000000001' }), Product.validate, Product.toSupabaseShape, 'input_product_units');
   update('doseUnits', 'a0000000-0000-4000-8000-000000000100', { archived: true }, Dose.validate, Dose.toSupabaseShape, 'dose_units');
-  await vi.waitFor(() => expect(JSON.parse(localStorage.getItem('_sync_queue'))).toHaveLength(2));
-  const queued = JSON.parse(localStorage.getItem('_sync_queue'));
-  expect(queued.map(row => row.operation)).toEqual(['insert', 'upsert']);
-  expect(queued[0].record.id).toBe('a0000000-0000-4000-8000-000000000102');
-  expect(queued[1].record.id).toBe('a0000000-0000-4000-8000-000000000100');
-  expect(queued[1].record.archived).toBe(true);
+  await vi.waitFor(() => expect(JSON.parse(localStorage.getItem('_sync_queue'))).toHaveLength(3));
+  expect(JSON.parse(localStorage.getItem('_sync_queue')).map(row => row.operation)).toEqual(['insert', 'insert', 'update']);
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true); await adapter.flush();
   expect(db.rows.dose_units[0].archived).toBe(true); expect(db.rows.input_product_units[0].name).toBe('kg');
   expect(JSON.parse(localStorage.getItem('_sync_queue'))).toEqual([]); noUnitDeletes();

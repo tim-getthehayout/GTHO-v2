@@ -1,245 +1,466 @@
 /**
  * Per-row sync ordering: a later local write to a row must never be
  * overtaken by an earlier one. Covers the window-integrity brief §3 (b)
- * acceptance vectors with invented ids.
+ * acceptance vectors and the round-2 review cases, against an op-aware
+ * fake server: insert fails on an existing id, update matches no missing
+ * row (and reports no error, like PostgREST), upsert does either.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { CustomSync } from '../../src/data/custom-sync.js';
+
+const srv = vi.hoisted(() => ({
+  rows: new Map(), log: [], holds: [], holdNext: 0, failNext: 0, hangNext: 0,
+  delays: null, calls: 0, inFlight: 0, maxInFlight: 0,
+}));
+
+vi.mock('../../src/data/supabase-client.js', () => {
+  const key = (t, id) => `${t}/${id}`;
+  function exec(table, op, payload, id) {
+    return async () => {
+      const rowId = id ?? payload?.id;
+      const index = srv.calls++;
+      if (srv.hangNext > 0) {
+        srv.hangNext--;
+        srv.log.push({ table, op, id: rowId, hung: true });
+        return new Promise(() => {});
+      }
+      srv.inFlight++;
+      srv.maxInFlight = Math.max(srv.maxInFlight, srv.inFlight);
+      try {
+        if (srv.delays) await new Promise(r => setTimeout(r, srv.delays[index] ?? 0));
+        if (srv.holdNext > 0) { srv.holdNext--; await new Promise(r => srv.holds.push(r)); }
+        if (srv.failNext > 0) {
+          srv.failNext--;
+          srv.log.push({ table, op, id: rowId, failed: true });
+          return { error: { message: 'new row violates row-level security policy (42501)' } };
+        }
+        const k = key(table, rowId);
+        if (op === 'insert') {
+          if (srv.rows.has(k)) return { error: { message: 'duplicate key (23505)' } };
+          srv.rows.set(k, { ...payload });
+        } else if (op === 'update') {
+          if (srv.rows.has(k)) srv.rows.set(k, { ...srv.rows.get(k), ...payload });
+        } else if (op === 'upsert') {
+          srv.rows.set(k, { ...(srv.rows.get(k) || {}), ...payload });
+        } else if (op === 'delete') {
+          srv.rows.delete(k);
+        }
+        srv.log.push({ table, op, id: rowId, rec: payload ? { ...payload } : null });
+        return { error: null };
+      } finally {
+        srv.inFlight--;
+      }
+    };
+  }
+  const thenable = fn => ({ then: (a, b) => fn().then(a, b), eq() { return this; } });
+  const supabase = { from(table) { return {
+    insert: p => thenable(exec(table, 'insert', p)),
+    upsert: p => thenable(exec(table, 'upsert', p)),
+    update: p => ({ eq: (_c, id) => thenable(exec(table, 'update', p, id)) }),
+    delete: () => ({ eq: (_c, id) => thenable(exec(table, 'delete', null, id)) }),
+    select: () => ({ gt: async () => ({ data: [] }) }),
+  }; } };
+  return { supabase };
+});
+
+import { CustomSync, SYNC_REQUEST_TIMEOUT_MS } from '../../src/data/custom-sync.js';
 import { commitDurableWrite } from '../../src/data/local-storage.js';
+import { _reset, init, setSyncAdapter, add, setUnitSystem } from '../../src/data/store.js';
+import * as Operation from '../../src/entities/operation.js';
+import { RELEASED_SCHEMA_VERSION } from '../../src/data/schema-release.js';
 
 const TABLE = 'event_group_windows';
 const WINDOW_ID = 'aaaaaaaa-1111-4000-8000-000000000001';
 const OTHER_ID = 'bbbbbbbb-2222-4000-8000-000000000002';
+const k = id => `${TABLE}/${id}`;
 
-const openFixed = {
-  id: WINDOW_ID,
-  date_joined: '2026-07-27',
-  time_joined: null,
-  date_left: null,
-  time_left: null,
-  updated_at: '2026-07-29T15:00:00.000Z',
+const joinedLate = {
+  id: WINDOW_ID, date_joined: '2026-07-29', time_joined: null, date_left: null, time_left: null,
+  updated_at: '2026-07-29T14:00:00.000Z',
 };
+const openFixed = { ...joinedLate, date_joined: '2026-07-27', updated_at: '2026-07-29T15:00:00.000Z' };
+const closedAtClose = { ...openFixed, date_left: '2026-07-27', time_left: '09:00', updated_at: '2026-07-29T15:00:01.000Z' };
 
-const closedAtClose = {
-  id: WINDOW_ID,
-  date_joined: '2026-07-27',
-  time_joined: null,
-  date_left: '2026-07-27',
-  time_left: '09:00',
-  updated_at: '2026-07-29T15:00:01.000Z',
-};
-
-function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+const v = (n, sec, id = WINDOW_ID) => ({ id, v: n, updated_at: `2026-11-17T20:00:${String(sec).padStart(2, '0')}.000Z` });
 
 function makeSync() {
   const sync = new CustomSync();
   vi.spyOn(sync, 'isOnline').mockResolvedValue(true);
   return sync;
 }
-
-/** Mock _pushToRemote as a last-write-wins server, with optional per-call delay. */
-function mockRemote(sync, { delayFor, hold = 'none' } = {}) {
-  const server = new Map();
-  let inFlight = 0;
-  let maxInFlight = 0;
-  const started = [];
-  const finished = [];
-  vi.spyOn(sync, '_pushToRemote').mockImplementation(async (_table, record, _operation) => {
-    inFlight += 1;
-    maxInFlight = Math.max(maxInFlight, inFlight);
-    const startIndex = started.length;
-    let release = () => {};
-    const gate = new Promise(resolve => { release = resolve; });
-    started.push({ record, release });
-    if (delayFor) await wait(delayFor(record, startIndex));
-    else if (hold === 'all' || (hold === 'first' && startIndex === 0)) await gate;
-    server.set(record.id, { ...record });
-    finished.push(record);
-    inFlight -= 1;
-    return { id: record.id, success: true };
-  });
-  const releaseAll = () => { for (const item of started) item.release(); };
-  return { server, started, finished, maxInFlight: () => maxInFlight, releaseAll };
-}
+const tick = async (n = 20) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
+const sent = id => srv.log.filter(e => e.id === id && !e.failed && !e.hung);
+const deadLetters = () => JSON.parse(localStorage.getItem('_dead_letter_queue') || '[]');
+const queued = () => JSON.parse(localStorage.getItem('_sync_queue') || '[]');
 
 beforeEach(() => {
   localStorage.clear();
+  Object.assign(srv, { holdNext: 0, failNext: 0, hangNext: 0, delays: null, calls: 0, inFlight: 0, maxInFlight: 0 });
+  srv.rows.clear(); srv.log.length = 0; srv.holds.length = 0;
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
-describe('per-row sync ordering', () => {
-  it('A1: one-tap fix then close, first push delayed, server ends closed with the newest updated_at', async () => {
+describe('per-row sync ordering: acceptance vectors', () => {
+  it('A1: one-tap fix then close, fix delayed; server ends closed with the newest updated_at', async () => {
     const sync = makeSync();
-    const { server, started } = mockRemote(sync, { hold: 'first' });
+    srv.rows.set(k(WINDOW_ID), { ...joinedLate });
+    srv.holdNext = 1;
+    const fix = sync.push(TABLE, openFixed, 'update');
+    await tick();
+    const close = sync.push(TABLE, closedAtClose, 'update');
+    await tick();
+    // The close waits behind the delayed fix: only one request has started.
+    expect(srv.calls).toBe(1);
+    srv.holds.forEach(r => r());
+    await Promise.all([fix, close]);
 
-    const first = sync.push(TABLE, openFixed, 'update');
-    await vi.waitFor(() => expect(started).toHaveLength(1));
-
-    const second = sync.push(TABLE, closedAtClose, 'update');
-    // If the two requests ran in parallel, the mock would already have a
-    // second in-flight start. The row gate must keep the close queued.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(started).toHaveLength(1);
-
-    started[0].release();
-    await Promise.all([first, second]);
-
-    expect(server.get(WINDOW_ID)).toEqual(closedAtClose);
-    expect(server.get(WINDOW_ID).date_left).toBe('2026-07-27');
-    expect(server.get(WINDOW_ID).updated_at).toBe(closedAtClose.updated_at);
-    expect(started).toHaveLength(2);
-    expect(started[1].record).toEqual(closedAtClose);
-  });
-
-  it('A1 race would lose the close if the row gate were removed (mutation)', async () => {
-    const sync = makeSync();
-    const arrivals = [];
-    vi.spyOn(sync, '_pushToRemote').mockImplementation(async (_table, record) => {
-      const n = arrivals.length;
-      arrivals.push({ record, release: null });
-      if (n === 0) {
-        await new Promise(resolve => { arrivals[0].release = resolve; });
-      }
-      return { id: record.id, success: true };
-    });
-
-    const first = sync.push(TABLE, openFixed, 'update');
-    await vi.waitFor(() => expect(arrivals).toHaveLength(1));
-    const second = sync.push(TABLE, closedAtClose, 'update');
-    await Promise.resolve();
-    await Promise.resolve();
-    // With the gate, the delayed first push is still the only one started.
-    expect(arrivals).toHaveLength(1);
-    arrivals[0].release();
-    await Promise.all([first, second]);
-    expect(arrivals).toHaveLength(2);
+    expect(srv.rows.get(k(WINDOW_ID))).toEqual(closedAtClose);
+    expect(sent(WINDOW_ID).map(e => e.rec.updated_at)).toEqual([openFixed.updated_at, closedAtClose.updated_at]);
   });
 
   it('ten rapid updates with randomised delays: server ends with the last local value', async () => {
     const sync = makeSync();
-    const delays = [45, 8, 70, 12, 55, 18, 90, 22, 6, 35];
-    const { server } = mockRemote(sync, { delayFor: (_record, index) => delays[index] });
-
-    const rows = Array.from({ length: 10 }, (_, i) => ({
-      id: WINDOW_ID,
-      value: i,
-      updated_at: `2026-11-17T20:00:00.${String(i * 10).padStart(3, '0')}Z`,
-    }));
+    srv.rows.set(k(WINDOW_ID), v(-1, 0));
+    srv.delays = [45, 8, 70, 12, 55, 18, 90, 22, 6, 35];
+    const rows = Array.from({ length: 10 }, (_, i) => v(i, i + 1));
     await Promise.all(rows.map(row => sync.push(TABLE, row, 'update')));
-
-    expect(server.get(WINDOW_ID)).toEqual(rows[9]);
-    expect(server.get(WINDOW_ID).value).toBe(9);
+    expect(srv.rows.get(k(WINDOW_ID))).toEqual(rows[9]);
+    expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
   it('writes to different rows are not serialised behind each other', async () => {
     const sync = makeSync();
-    const { server, maxInFlight, releaseAll, started } = mockRemote(sync, { hold: 'all' });
-
-    const rowA = { id: WINDOW_ID, value: 'a', updated_at: '2026-11-17T20:00:00.000Z' };
-    const rowB = { id: OTHER_ID, value: 'b', updated_at: '2026-11-17T20:00:00.000Z' };
+    srv.holdNext = 2;
     const pending = Promise.all([
-      sync.push(TABLE, rowA, 'update'),
-      sync.push(TABLE, rowB, 'update'),
+      sync.push(TABLE, v('a', 1, WINDOW_ID), 'upsert'),
+      sync.push(TABLE, v('b', 1, OTHER_ID), 'upsert'),
     ]);
-    await vi.waitFor(() => expect(started).toHaveLength(2));
-    expect(maxInFlight()).toBe(2);
-    releaseAll();
+    await vi.waitFor(() => expect(srv.holds).toHaveLength(2));
+    expect(srv.maxInFlight).toBe(2);
+    srv.holds.forEach(r => r());
     await pending;
-    expect(server.get(WINDOW_ID)).toEqual(rowA);
-    expect(server.get(OTHER_ID)).toEqual(rowB);
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe('a');
+    expect(srv.rows.get(k(OTHER_ID)).v).toBe('b');
   });
 
-  it('offline: fix and close are queued, then reconnect leaves the server closed', async () => {
+  it('offline: fix and close are both queued in order, then reconnect leaves the server closed', async () => {
     const sync = makeSync();
+    srv.rows.set(k(WINDOW_ID), { ...joinedLate });
     sync.isOnline.mockResolvedValue(false);
-    const { server, releaseAll, started } = mockRemote(sync);
-
     await sync.push(TABLE, openFixed, 'update');
     await sync.push(TABLE, closedAtClose, 'update');
-
-    const queued = sync.getQueuedItems();
-    expect(queued).toHaveLength(1);
-    expect(queued[0].table).toBe(TABLE);
-    expect(queued[0].record).toEqual(closedAtClose);
+    expect(sync.getQueuedItems().map(e => e.record)).toEqual([openFixed, closedAtClose]);
 
     sync.isOnline.mockResolvedValue(true);
-    const flushing = sync.flush();
-    await vi.waitFor(() => expect(started).toHaveLength(1));
-    expect(started[0].record).toEqual(closedAtClose);
-    releaseAll();
-    await flushing;
-
-    expect(server.get(WINDOW_ID)).toEqual(closedAtClose);
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID))).toEqual(closedAtClose);
+    expect(sent(WINDOW_ID).map(e => e.rec.updated_at)).toEqual([openFixed.updated_at, closedAtClose.updated_at]);
     expect(sync.getQueuedItems()).toHaveLength(0);
   });
 
-  it('flush waits for an in-flight push of the same row and then sends the later close', async () => {
+  it('flush waits for an in-flight push of the same row and then sends the journalled close', async () => {
     const sync = makeSync();
-    const { server, started } = mockRemote(sync, { hold: 'first' });
-
-    const first = sync.push(TABLE, openFixed, 'update');
-    await vi.waitFor(() => expect(started).toHaveLength(1));
-
-    localStorage.setItem('_sync_queue', JSON.stringify([{
-      id: WINDOW_ID,
-      table: TABLE,
-      operation: 'update',
-      record: closedAtClose,
-      enqueued_at: '2026-07-29T15:00:01.000Z',
-      attempts: 0,
-      errors: [],
-      durable_key: JSON.stringify([['op', 'move', 'close', 1], 0]),
-    }]));
-
+    srv.rows.set(k(WINDOW_ID), { ...joinedLate });
+    srv.holdNext = 1;
+    const fix = sync.push(TABLE, openFixed, 'update');
+    await tick();
+    commitDurableWrite(JSON.stringify(['op', 'move', 'close', 1]), { eventGroupWindows: [{ id: WINDOW_ID }] },
+      [{ table: TABLE, record: closedAtClose, operation: 'update' }], WINDOW_ID);
     const flushing = sync.flush();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(started).toHaveLength(1);
-
-    started[0].release();
-    await Promise.all([first, flushing]);
-
-    expect(server.get(WINDOW_ID)).toEqual(closedAtClose);
-    expect(server.get(WINDOW_ID).updated_at).toBe(closedAtClose.updated_at);
+    await tick();
+    expect(srv.calls).toBe(1);
+    srv.holds.forEach(r => r());
+    await Promise.all([fix, flushing]);
+    expect(srv.rows.get(k(WINDOW_ID))).toEqual(closedAtClose);
+    expect(sync.getQueuedItems()).toHaveLength(0);
   });
+});
 
-  it('same-turn journalled close is adopted so the first send carries the closed row', async () => {
-    const sync = makeSync();
-    const { server, started, releaseAll } = mockRemote(sync);
-
-    const first = sync.push(TABLE, openFixed, 'update');
-    commitDurableWrite(
-      JSON.stringify(['op', 'move', 'close', 1]),
-      { eventGroupWindows: [{ id: WINDOW_ID }] },
-      [{ table: TABLE, record: closedAtClose, operation: 'update' }],
-      WINDOW_ID,
-    );
-    await vi.waitFor(() => expect(started.length).toBeGreaterThan(0));
-    releaseAll();
-    await first;
-
-    expect(server.get(WINDOW_ID)).toEqual(closedAtClose);
-    expect(sync.getQueuedItems().filter(entry => entry.id === WINDOW_ID)).toHaveLength(0);
-  });
-
-  it('an unsent insert then update collapse to one upsert of the latest row', async () => {
+describe('chain-only: every version goes out, nothing is merged', () => {
+  it('an offline insert then update are both queued and sent in order', async () => {
     const sync = makeSync();
     sync.isOnline.mockResolvedValue(false);
-    const created = { id: WINDOW_ID, date_joined: '2026-07-29', updated_at: '2026-07-29T14:00:00.000Z' };
-    const updated = { ...created, date_joined: '2026-07-27', updated_at: '2026-07-29T15:00:00.000Z' };
+    await sync.push(TABLE, v(1, 0), 'insert');
+    await sync.push(TABLE, v(2, 5), 'update');
+    expect(sync.getQueuedItems().map(e => e.operation)).toEqual(['insert', 'update']);
+    sync.isOnline.mockResolvedValue(true);
+    await sync.flush();
+    expect(sent(WINDOW_ID).map(e => [e.op, e.rec.v])).toEqual([['insert', 1], ['update', 2]]);
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+  });
 
-    await sync.push(TABLE, created, 'insert');
-    await sync.push(TABLE, updated, 'update');
+  it('a durable-queued new row edited online before flush still reaches the server with the edit', async () => {
+    const sync = makeSync();
+    commitDurableWrite(JSON.stringify(['op', 'feed-check', 'c1', 1]), { eventGroupWindows: [{ id: WINDOW_ID }] },
+      [{ table: TABLE, record: v(1, 0), operation: 'insert' }], WINDOW_ID);
+    await sync.push(TABLE, v(2, 5), 'update');
+    expect(srv.rows.get(k(WINDOW_ID))?.v).toBe(2);
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID))?.v).toBe(2);
+    expect(sent(WINDOW_ID).map(e => e.op)).toEqual(['upsert']);
+    expect(sync.getQueuedItems()).toHaveLength(0);
+  });
 
-    const queued = sync.getQueuedItems();
-    expect(queued).toHaveLength(1);
-    expect(queued[0].operation).toBe('upsert');
-    expect(queued[0].record).toEqual(updated);
+  it('a failed queued insert does not leave a later update matching nothing', async () => {
+    const sync = makeSync();
+    sync.isOnline.mockResolvedValue(false);
+    await sync.push(TABLE, v(1, 0), 'insert');
+    await sync.push(TABLE, v(2, 5), 'update');
+    sync.isOnline.mockResolvedValue(true);
+    vi.useFakeTimers();
+    srv.failNext = 5;
+    const f = sync.flush();
+    await vi.runAllTimersAsync();
+    await f;
+    expect(srv.rows.get(k(WINDOW_ID))?.v).toBe(2);
+  });
+
+  it('operations: offline onboarding insert then unit-system change keeps the compiled schema_version stamp', async () => {
+    const sync = makeSync();
+    sync.isOnline.mockResolvedValue(false);
+    _reset(); init(); setSyncAdapter(sync);
+    const op = Operation.create({ name: 'Farm', unitSystem: 'imperial' });
+    add('operations', op, Operation.validate, Operation.toOnboardingSupabaseShape, 'operations');
+    setUnitSystem('metric');
+    await vi.waitFor(() => expect(sync.getQueuedItems()).toHaveLength(2));
+    sync.isOnline.mockResolvedValue(true);
+    await sync.flush();
+    const row = srv.rows.get(`operations/${op.id}`);
+    expect(row.unit_system).toBe('metric');
+    expect(row.schema_version).toBe(RELEASED_SCHEMA_VERSION);
+    _reset();
+  });
+
+  it('operations: a queued insert edited online before flush is created with the compiled stamp', async () => {
+    const sync = makeSync();
+    sync.isOnline.mockResolvedValue(false);
+    const op = { id: 'op-1', name: 'Farm', unit_system: 'imperial', updated_at: '2026-11-17T20:00:00.000Z' };
+    await sync.push('operations', op, 'insert');
+    sync.isOnline.mockResolvedValue(true);
+    await sync.push('operations', { ...op, unit_system: 'metric', updated_at: '2026-11-17T20:00:01.000Z' }, 'update');
+    await sync.flush();
+    const row = srv.rows.get('operations/op-1');
+    expect(row.unit_system).toBe('metric');
+    expect(row.schema_version).toBe(RELEASED_SCHEMA_VERSION);
+  });
+});
+
+describe('newest sent stamp: an older payload never lands last', () => {
+  it('flush snapshot: an older queued row is dropped after a newer online push', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: OTHER_ID, table: TABLE, operation: 'upsert', record: v(1, 0, OTHER_ID), attempts: 0, errors: [] },
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(1, 0), attempts: 0, errors: [] },
+    ]));
+    srv.holdNext = 1;
+    const f = sync.flush();
+    await tick();
+    await sync.push(TABLE, v(2, 9), 'upsert');
+    srv.holds.forEach(r => r());
+    await f;
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([2]);
+    expect(sync.getQueuedItems()).toHaveLength(0);
+  });
+
+  it('a persisted queue holding a newer version before an older one ends at the newer', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(2, 9), attempts: 0, errors: [] },
+      { id: WINDOW_ID, table: TABLE, operation: 'push', record: v(1, 0), attempts: 0, errors: [] },
+    ]));
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(sync.getQueuedItems()).toHaveLength(0);
+  });
+
+  it('an equal updated_at is not treated as older and is still sent', async () => {
+    const sync = makeSync();
+    await sync.push(TABLE, v(1, 5), 'upsert');
+    await sync.push(TABLE, { ...v(2, 5) }, 'upsert');
+    expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([1, 2]);
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+  });
+});
+
+describe('dead letters go through the row chain and never overwrite a newer row', () => {
+  it('an earlier push dead-letters, a later one succeeds; the drain does not restore the earlier one', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.rows.set(k(WINDOW_ID), v(0, 0));
+    srv.failNext = 5;
+    const a = sync.push(TABLE, v(1, 1), 'update');
+    await tick();
+    const b = sync.push(TABLE, v(2, 2), 'update');
+    await vi.runAllTimersAsync();
+    await Promise.all([a, b]);
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(deadLetters()).toHaveLength(0);
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+  });
+
+  it('pool-write path: one-tap fix push dead-letters, the journalled close succeeds, the drain does not restore the fix', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.rows.set(k(WINDOW_ID), { ...joinedLate });
+    srv.failNext = 5;
+    const fix = sync.push(TABLE, openFixed, 'update');
+    await vi.runAllTimersAsync();
+    await fix;
+    expect(deadLetters()).toHaveLength(1);
+
+    commitDurableWrite(JSON.stringify(['op', 'move', 'close', 1]), { eventGroupWindows: [{ id: WINDOW_ID }] },
+      [{ table: TABLE, record: closedAtClose, operation: 'update' }], WINDOW_ID);
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID)).date_left).toBe('2026-07-27');
+    expect(deadLetters()).toHaveLength(0);
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID))).toEqual(closedAtClose);
+  });
+
+  it('the drain waits for an in-flight newer push of the row and then drops the stale letter', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, record: v(1, 1), error: 'x', retry_count: 5, dead_lettered_at: '2026-11-17T20:00:01.500Z' },
+    ]));
+    srv.holdNext = 1;
+    const newer = sync.push(TABLE, v(2, 2), 'upsert');
+    await tick();
+    const f = sync.flush();
+    await tick();
+    expect(srv.calls).toBe(1);
+    srv.holds.forEach(r => r());
+    await Promise.all([newer, f]);
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([2]);
+    expect(deadLetters()).toHaveLength(0);
+  });
+
+  it('a letter with nothing newer still auto-drains (dead-letter recovery unchanged)', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, record: v(1, 1), error: 'x', retry_count: 5, dead_lettered_at: '2026-11-17T20:00:01.500Z' },
+    ]));
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(1);
+    expect(deadLetters()).toHaveLength(0);
+  });
+
+  it('manual retry keeps only the newest letter per row; ties go to the later letter', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, record: v(2, 9), dead_lettered_at: 'a' },
+      { id: WINDOW_ID, table: TABLE, record: v(1, 0), dead_lettered_at: 'b' },
+      { id: OTHER_ID, table: TABLE, record: v('first', 3, OTHER_ID), dead_lettered_at: 'c' },
+      { id: OTHER_ID, table: TABLE, record: v('second', 3, OTHER_ID), dead_lettered_at: 'd' },
+    ]));
+    sync.retryDeadLetters();
+    expect(queued().map(e => e.record.v)).toEqual([2, 'second']);
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(srv.rows.get(k(OTHER_ID)).v).toBe('second');
+  });
+
+  it('manual retry does not queue a letter behind a newer queued write of the same row', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(2, 9), attempts: 0, errors: [] },
+    ]));
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([{ id: WINDOW_ID, table: TABLE, record: v(1, 0) }]));
+    sync.retryDeadLetters();
+    expect(queued().map(e => e.record.v)).toEqual([2]);
+    await sync.flush();
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+  });
+});
+
+describe('deletes join the row chain', () => {
+  it('an in-flight save does not bring the row back after an online delete', async () => {
+    const sync = makeSync();
+    srv.holdNext = 1;
+    const up = sync.push(TABLE, v(1, 0), 'insert');
+    await tick();
+    const del = sync.delete(TABLE, WINDOW_ID);
+    await tick();
+    expect(srv.calls).toBe(1);
+    srv.holds.forEach(r => r());
+    await Promise.all([up, del]);
+    expect(srv.rows.has(k(WINDOW_ID))).toBe(false);
+    expect(srv.log.map(e => e.op)).toEqual(['insert', 'delete']);
+  });
+
+  it('pending saves are dropped, queued saves and dead letters cleared, and older saves stay out', async () => {
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(3, 3), attempts: 0, errors: [] },
+    ]));
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([{ id: WINDOW_ID, table: TABLE, record: v(0, 0) }]));
+    srv.holdNext = 1;
+    const first = sync.push(TABLE, v(1, 1), 'upsert');
+    await tick();
+    const pendingSave = sync.push(TABLE, v(2, 2), 'upsert');
+    const del = sync.delete(TABLE, WINDOW_ID);
+    srv.holds.forEach(r => r());
+    await Promise.all([first, pendingSave, del]);
+    expect(srv.log.map(e => [e.op, e.rec?.v ?? null])).toEqual([['upsert', 1], ['delete', null]]);
+    expect(queued()).toHaveLength(0);
+    expect(deadLetters()).toHaveLength(0);
+    await sync.push(TABLE, v(3, 3), 'upsert');
+    await sync.flush();
+    expect(srv.rows.has(k(WINDOW_ID))).toBe(false);
+  });
+});
+
+describe('request timeout', () => {
+  it('a hung request times out as a failure, so the row and later writes are not blocked', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.hangNext = 1;
+    const first = sync.push(TABLE, v(1, 1), 'upsert');
+    await tick();
+    let done = false;
+    const second = sync.push(TABLE, v(2, 2), 'upsert').then(r => { done = true; return r; });
+    await vi.advanceTimersByTimeAsync(SYNC_REQUEST_TIMEOUT_MS - 1);
+    expect(done).toBe(false);
+    await vi.runAllTimersAsync();
+    await Promise.all([first, second]);
+    expect(done).toBe(true);
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(srv.log.map(e => (e.hung ? 'hung' : e.rec.v))).toEqual(['hung', 1, 2]);
+  }, 10_000);
+
+  it('a request that hangs on every attempt ends in the dead-letter queue', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    srv.hangNext = 5;
+    const p = sync.push(TABLE, v(1, 1), 'upsert');
+    await vi.runAllTimersAsync();
+    const result = await p;
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/timed out/);
+    expect(deadLetters()).toHaveLength(1);
+  }, 10_000);
+
+  it('uses a named 15 s timeout', () => {
+    expect(SYNC_REQUEST_TIMEOUT_MS).toBe(15_000);
+  });
+});
+
+describe('row gate bookkeeping', () => {
+  it('drops a row gate once its chain goes idle', async () => {
+    const sync = makeSync();
+    srv.holdNext = 1;
+    const a = sync.push(TABLE, v(1, 1), 'upsert');
+    const b = sync.push(TABLE, v(2, 2), 'upsert');
+    await tick();
+    expect(sync._rowGates.size).toBe(1);
+    srv.holds.forEach(r => r());
+    await Promise.all([a, b]);
+    await tick();
+    expect(sync._rowGates.size).toBe(0);
   });
 });

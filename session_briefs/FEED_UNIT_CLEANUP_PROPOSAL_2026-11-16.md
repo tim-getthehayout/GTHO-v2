@@ -1,6 +1,6 @@
 # OI-0220 — Feed unit cleanup and prevention (bale / Bale / bal)
 
-**Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** APPROVED — Tim approved Design's plan as proposed (A–E), 2026-11-16 4:32 PM ET, relayed by Orchestrator. Implementation: GTHO Build [PR #60](https://git.sarnford.com/Homelab/GTHO-v2/pulls/60), branch `fix/feed-unit-cleanup`, in review; **merging needs Tim's separate yes.** Docs only; no SQL, no data change.
+**Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** DONE — Tim approved Design's plan as proposed (A–E), 2026-11-16 4:32 PM ET, relayed by Orchestrator. Implementation: GTHO Build [PR #60](https://git.sarnford.com/Homelab/GTHO-v2/pulls/60), branch `fix/feed-unit-cleanup`, **merged 2026-11-16 at `73442873`** (Forgejo and GitHub main) and **published as `b2026-11-16.2311-7344287`** (reported by Orchestrator; stamp read from the live site 2026-11-17). Docs only; no SQL, no data change.
 **Sequenced:** ahead of OI-0221 (stored forage budget) build, because the budget's historical counts, pool counting and on-hand totals read these unit strings.
 **Relates to:** OI-0219 (FA-29 batch unit picker) — folded in here as the prevention half; OI-0216 (044 dose/input-product unit tables, applied 2026-11-11); OI-0214 FA-26 pools.
 
@@ -16,9 +16,9 @@ At 4:31 PM ET Orchestrator presented Design's picks to Tim — A: retype the `Ba
 - **E** (fold OI-0219, the FA-29 batch picker, into this item) was not named to him by letter, but it is part of the plan he accepted.
 - **A becomes optional once PR #60 merges:** the `Bale` batch then folds to `bale` on read, so retyping it is no longer needed for pool counting.
 
-## Implementation — [PR #60](https://git.sarnford.com/Homelab/GTHO-v2/pulls/60) (in review)
+## Implementation — [PR #60](https://git.sarnford.com/Homelab/GTHO-v2/pulls/60) (merged at `73442873`, published 2026-11-16)
 
-GTHO Build, branch `fix/feed-unit-cleanup`. No SQL, no migration, no data write; existing rows are never rewritten. One shared list and picker for the batch sheet and both feed-type forms; all three saves refuse anything not on the list; save-time normalization and read-time folding as in B3–B4; the batch unit defaults to the feed type's unit. **Merging needs Tim's separate yes.**
+GTHO Build, branch `fix/feed-unit-cleanup`. No SQL, no migration, no data write; existing rows are never rewritten. One shared list and picker for the batch sheet and both feed-type forms; all three saves refuse anything not on the list; save-time normalization and read-time folding as in B3–B4; the batch unit defaults to the feed type's unit. Merged at `73442873` and published (`b2026-11-16.2311-7344287`).
 
 **Design's rulings on Build's implementation questions (2026-11-16, consistent with C):**
 - **`bag` counts as a pool unit** like the others: a pool counts in its unit when the feed type's unit and the feeding's snapshot unit agree (after folding); otherwise it falls back to mass (kg), as for `bale`, `sq bale`, `ton`, `kg` and `lb`.

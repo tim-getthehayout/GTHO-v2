@@ -1,7 +1,7 @@
 # OI-0221 — Stored forage budgeting and management
 
 **Date:** 2026-11-16 | **Owner:** GTHO Design | **Status:** PROPOSED — awaiting Tim's approval. **Build starts nothing until Tim approves this spec.** Docs only; no code, no SQL, no data change.
-**Depends on:** OI-0220 (feed unit cleanup; approved 2026-11-16 4:32 PM ET, PR #60 in review) ships first, then OI-0222 (historical hay-feeding backfill) before slice 1. Voice / OI-0215 stays on hold and is not part of this.
+**Depends on:** OI-0220 (feed unit cleanup; approved 2026-11-16 4:32 PM ET; done — PR #60 merged at `73442873` and published 2026-11-16) ships first, then OI-0222 (historical hay-feeding backfill) before slice 1. Voice / OI-0215 stays on hold and is not part of this.
 **Base:** Forgejo `main` `ce1c987d` (read only; 044 applied and ceiling-44 client published 2026-11-11). Live figures: read-only SELECTs on production, 2026-11-16 ~3:08 PM ET; aggregates only.
 
 ## Tim's request (2026-11-16, 3:03–3:09 PM ET, relayed by Orchestrator)

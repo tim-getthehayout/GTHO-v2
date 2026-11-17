@@ -1,8 +1,8 @@
 # OI-0225 — Implied pasture DMI, and configurable budget period dates (OI-0221)
 
-**Date:** 2026-11-17 | **Owner:** GTHO Design | **Status:** **PROPOSED — awaiting Tim's answers to Q1–Q6. Build starts nothing until Tim approves.** Docs only; no code, no SQL, no data change.
+**Date:** 2026-11-17 | **Owner:** GTHO Design | **Status:** **APPROVED (Tim, 2026-11-17 9:18 AM ET, via Orchestrator).** Q1–Q6 answered (see "Decided by Tim" below). Landing: "Yes, land docs/implied-pasture-dmi with these answers on Forgejo, no GitHub publish". OI-0221 as a whole stays PROPOSED (A–L open); only its D10 is approved. Docs only; no code, no SQL, no data change.
 **Requested:** Tim, 2026-11-17 9:04 AM ET, via Orchestrator.
-**Base:** Forgejo `main` `8903377f` (PR #67 merge `edca5ea` plus the 045 harness CI commit; read only). Code read: `src/calcs/feed-run-rate.js` (FED-6), `src/features/feed/run-rate-panel.js`, `src/calcs/window-helpers.js` (`groupWindowsDailyDmiKg`). Figures: the 17c dry-run report (`/workspace/gtho-backfill/dry-run-2026-11-17c/REPORT.md`, sha256 `db1717e2…01468191`), illustrative only. No production reads were needed.
+**Base:** Forgejo `main` `8903377f` (PR #67 merge `edca5ea` plus the 045 harness CI commit; read only). Code read: `src/calcs/feed-run-rate.js` (FED-6), `src/features/feed/run-rate-panel.js`, `src/calcs/window-helpers.js` (`groupWindowsDailyDmiKg`). Figures: the 17c dry-run report (`/workspace/gtho-backfill/dry-run-2026-11-17c/REPORT.md`, sha256 `db1717e2…01468191`), illustrative only. Production: one read-only aggregate SELECT on 2026-11-17 ~9:20 AM ET for the current sheep group (§4).
 **Related:** OI-0224 (run rate, FED-6, merged at `368b801b`), OI-0221 (stored forage budget, PROPOSED; D1, D4, D8, D9), OI-0222 (history tables in 045; PR #67 merged, 045 held, not applied). OI-0222 content is not changed here.
 
 ## Tim's request (verbatim, 2026-11-17 9:04 AM ET, via Orchestrator)
@@ -90,7 +90,7 @@ Show **Unknown** (with the reason) rather than 0 when:
 - Monthly chart/table (desktop) gains an implied-pasture column (lb DM/day and %).
 - The D4 season surplus/deficit forecast stays where OI-0221 puts it; implied pasture sits above it as the "how well am I grazing" number.
 
-**Colour (Q3):** none — neutral text. A high pasture share is good, but colouring it implies a target, and R says no new goals now. Budget vs actual implied pasture is shown as plain text ("budget 55%"). O's pace badge is unchanged (it reads fed/day vs budget).
+**Colour (Q3, decided — Tim, 2026-11-17 9:18 AM ET, via Orchestrator: "Pasture should be green"):** Design's reading of Tim's words: the implied pasture figure and its share-of-demand display are shown in **green, the pasture colour, whenever it is above 0**; at 0 it is shown **muted**. The "Stored feed over demand" line uses **no red** (consistent with D9 O). This is a **fixed identity colour for pasture, not a pace threshold**: no bands, no amber, and O's pace badge is unchanged (it reads fed/day vs budget). Budget vs actual implied pasture is shown beside it as plain text ("budget 55%").
 
 **No new streaks (R).** Implied pasture adds no streak, points or goal.
 
@@ -125,23 +125,24 @@ OI-0221 D1 already lets any start/end be picked for the history report, but the 
 - **This year:** current budget period **Oct 1, 2026 – Sep 30, 2027**; prior-year comparison **Oct 1, 2025 – Sep 30, 2026**. That prior year is the data Tim has: notes Oct–Mar (OI-0222 history lane), v1 Mar 4 – Apr 13 (event lane), v2 from Apr 9.
 - **New farms:** default Oct 1 – Sep 30 (replacing D1's June 1 – May 31); Tim can change it.
 
-### 2.3 Where it is stored (Q5)
+### 2.3 Where it is stored, and viewing any period (Q5, decided — Tim, 2026-11-17 9:18 AM ET, via Orchestrator: "Yes but changeable from the settings (for defaults) and also allow viewing any period with date picker on form")
 
-- The budget's own start/end are already on the OI-0221 §6 budget header (per farm and period). Recommend also a **per-farm default start (month/day) in the database**, in the same later migration as the budget tables (046 or later; 045 is the history tables), so it syncs across Tim's devices and survives a reinstall. The operation has one farm today, so per farm = per operation.
-- Until that migration is applied (slice 1, history report, no migration), the period picker defaults to the Oct 1 – Sep 30 period containing today and remembers the last choice on the device.
-- Alternative: device only (no migration, but each device can disagree).
+- **Default period = a per-farm setting, editable in Settings** (start and end month/day; Oct 1 – Sep 30 by default). It lives in the database with the farm, in the same later migration as the budget tables (046 or later; 045 is the history tables), so it syncs across Tim's devices. The operation has one farm today, so per farm = per operation. A saved budget's own start/end stay on the OI-0221 §6 budget header.
+- **The budget/forecast form has a start/end date picker** that lets Tim view **any period** ad hoc. It opens on the default period containing today.
+- **Viewing a period is calc and display only:** it does not change the Settings default or any locked budget, and writes nothing.
+- Until the budget migration is applied (slice 1, history report, no migration), the default is Oct 1 – Sep 30 and the form's picker remembers the last viewed period on the device.
 
 ### 2.4 Validation
 
 - End after start. Budget length 1–366 days (≤ 13 month rows); the history report keeps D1's any range.
-- One farm's budgets don't overlap; a shorter, non-annual budget is allowed (e.g. a first budget from today to Sep 30) (Q5).
+- **Saved budgets** for one farm don't overlap; a shorter, non-annual budget is allowed (e.g. a first budget from today to Sep 30) (Q5). The non-overlap rule applies only to saved budgets; a viewed period may be any range.
 - Leap day: Feb 29 maps to Feb 28 when shifting by a year.
 
 ### 2.5 Interactions
 
 - **Monthly history:** month rows are clipped to the period. A start or end mid-month gives a partial first/last row labelled with its dates (e.g. "Oct 15–31"); demand, fed and budget are by day, so partial rows are exact; the share % is applied to the partial row's demand (OI-0221 §5 pro-rating by days).
 - **17c / OI-0222 history (Oct 2025 – Apr 2026):** sits entirely inside the default prior period. Before 045 is applied and the backfill written, prior-year months before Apr 9, 2026 show "No history yet", not 0.
-- **Prior-year comparison (D8/D9 N):** "the same calendar dates last season" = the same dates one year earlier, so it moves with the configured dates. With an annual period this is exactly the previous period.
+- **Prior-year comparison (D8/D9 N):** "the same calendar dates last season" = the same dates one year earlier **for whatever period is being viewed** (Q5, decided), so it moves with the picker and the configured dates. With an annual period this is exactly the previous period.
 - **Pills (P):** still drive only the panel. `periodStart` (the FED-6 slice-2 hook) = the configured start: a pill reaching before it is clipped to season to date and the panel shows the clipped length (`windowDays`). Example: today Nov 17, 2026, start Oct 1, 2026: the 60-day pill shows 48 days.
 - **D4 forecast:** remaining budgeted need runs from today to the configured end; budgeted on-hand opens at the configured start (G).
 - **K:** carry-over reserve is past the configured end.
@@ -153,17 +154,29 @@ OI-0221 D1 already lets any start/end be picked for the history report, but the 
 ## 3. Schema, CP-55/CP-56, phasing
 
 - **DMI-9:** compute-on-read; no column, no migration. The panel headline ships with the OI-0224 shared panel as a follow-up PR once approved (no migration); its history lane reads 045 tables only after 045 is applied and the backfill is written, and shows "No history yet" before that.
-- **Period:** slice 1 (history report): no migration; device-remembered picker. Slice 2: budget header dates (already planned) plus the per-farm default start (Q5), in the budget migration (046 or later), added to CP-55/CP-56 with a schema step. Writing it needs OI-0221's approval; applying it needs Tim's explicit yes at the time plus a backup.
+- **Period:** slice 1 (history report): no migration; device-remembered picker. Slice 2: budget header dates (already planned) plus the per-farm default period setting editable in Settings (Q5), in the budget migration (046 or later), added to CP-55/CP-56 with a schema step. Writing it needs OI-0221's approval; applying it needs Tim's explicit yes at the time plus a backup.
+- **Sheep basis Jun–Oct 2026 (Q6):** a follow-up `historical_animal_basis` write (§4). It needs 045 applied (OI-0222 steps) and Tim's yes plus a backup at the time.
 - One calc, one component: DMI-9 is computed from the same day-by-day pool replay as FED-6 and registered as its own calc; Build chooses whether it is a field of the FED-6 result or a sibling function in the same module. No second consumption logic.
 
-## Open questions for Tim (recommended default first)
+## Decided by Tim (Tim, 2026-11-17 9:18 AM ET, via Orchestrator)
 
-1. **Q1 — Two bases.** Run-rate panel (pills) uses hay *eaten* from feed checks; the season/budget view uses hay *fed* (left the stack), so it compares like-for-like with budget and last winter. *Default: yes, both, each labelled.*
-2. **Q2 — More hay than predicted intake.** Show pasture as 0 lb/day and 0%, with a separate "Stored feed over demand: X lb/day (Y%)" line; keep the raw negative in reports. *Default: yes.*
-3. **Q3 — Colour.** No colour on implied pasture for now (neutral), with budget shown beside it as text; revisit after a season. *Default: neutral.*
-4. **Q4 — Budget period this year.** Current period Oct 1, 2026 – Sep 30, 2027, compared with Oct 1, 2025 – Sep 30, 2026; Oct 1 – Sep 30 also becomes the default for new farms, replacing June 1 – May 31. *Default: yes.*
-5. **Q5 — Where the dates live and the rules.** Per farm in the database (with the budget, synced across devices); budgets for one farm don't overlap; shorter non-annual budgets allowed up to 366 days; last-year comparison = same dates one year earlier. *Default: yes.*
-6. **Q6 — Sheep summer 2026.** The sheep basis ends May 31, 2026 and sheep group records start Nov 2026, so if sheep were on the farm Jun–Oct 2026 they have no demand: show cattle for those months with "sheep basis missing", and add a sheep basis row when the in-app basis entry (OI-0222 follow-up) exists. *Default: yes; Tim to give head and weight if he wants it filled sooner.*
+1. **Q1 — Two bases: yes**, both, each labelled: the run-rate panel uses hay *eaten* (checks), the season/budget view hay *fed*.
+2. **Q2 — yes:** pasture shows 0 lb/day and 0% plus the "Stored feed over demand: X lb/day (Y%)" line; the raw negative stays in the output and reports.
+3. **Q3 — "Pasture should be green"** (not neutral). Recorded as Design's reading (§1.8): green identity colour when above 0, muted at 0, no red on the over-demand line, not a pace threshold.
+4. **Q4 — yes:** this year Oct 1, 2026 – Sep 30, 2027 vs Oct 1, 2025 – Sep 30, 2026; Oct 1 – Sep 30 is the default for new farms (replacing D1's June 1 – May 31).
+5. **Q5 — "Yes but changeable from the settings (for defaults) and also allow viewing any period with date picker on form"** (§2.3–2.5): per-farm default period in Settings; start/end picker on the budget/forecast form to view any period; viewing changes nothing stored; non-overlap only for saved budgets; prior year follows the viewed period.
+6. **Q6 — "Same sheep group as now, plus 30 offspring at 60 lbs"** — the sheep basis for Jun–Oct 2026 (§4). The "sheep basis missing" default for those months is withdrawn.
+
+**Landing:** "Yes, land docs/implied-pasture-dmi with these answers on Forgejo, no GitHub publish" (Tim, 2026-11-17 9:18 AM ET, via Orchestrator).
+
+## 4. Sheep basis, Jun 1 – Oct 31, 2026 (Q6)
+
+- **Rule:** the current sheep group's head count and average weight **as they are when the basis is entered**, plus **30 offspring at 60 lb each**, held flat for **Jun 1 – Oct 31, 2026**, or until the sheep group records start if that is earlier. Goats are not included (D6). The entry uses the values at entry time, not the figures below.
+- **Today's values (read-only SELECT on production, 2026-11-17 ~9:20 AM ET; aggregates only):** group **Sheep** (active memberships, active animals): **52 ewes at 125 lb** (Ewe class, DMI 3.0%; weighed Nov 9) and **2 rams at 150 lb** (Ram class, DMI 2.5%; weighed Nov 6) = **54 head, ≈125.9 lb average**. Group windows and memberships for Sheep start **Nov 6, 2026**.
+- **Illustrative demand at today's values:** ewes 52 × 125 × 3.0% = 195.0 + rams 2 × 150 × 2.5% = 7.5 + offspring 30 × 60 × 3.0% = 54.0 → **256.5 lb DM/day, 84 head, ≈102.4 lb average (≈2.98% head-weighted mix)**. Offspring use the Ewe class DMI 3.0%, as last winter's flock row (Design's default; no lamb class exists).
+- **Not included:** the separate **Ram Lambs- Sale** group (16 head at 70 lb, from Nov 9) — Tim named "the same sheep group as now" plus 30 offspring; and the Goats group.
+- **Gap to note:** Oct 31 is earlier than Nov 6, so Nov 1–5, 2026 has no sheep demand source and shows sheep Unknown on those days (§1.6). Design's suggestion, for Tim to confirm when the entry is made: run the basis through Nov 5. Not decided here.
+- **Entry:** a follow-up `historical_animal_basis` write (`source` `tim_answer`, `dmi_source` `class_mix`), after 045 is applied, with Tim's yes plus a backup at the time; the deferred in-app basis entry (OI-0222 question 1) can carry it if it exists by then. OI-0222's own rows and steps are unchanged.
 
 ## Origin
 

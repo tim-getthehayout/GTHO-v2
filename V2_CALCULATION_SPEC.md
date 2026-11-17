@@ -2,7 +2,7 @@
 
 **Status:** APPROVED
 **Source:** Prior CALCULATION_REGISTRY.md + interactive design sessions
-**Purpose:** Catalog every formula in the app (42 formulas across 12 domains, counting proposed DMI-9; see the Change Log), document the registerCalc() pattern, specify the reference console, and flag v1 bugs to fix. Claude Code implements calculations from this spec.
+**Purpose:** Catalog every formula in the app (42 formulas across 12 domains, counting DMI-9 (approved, not yet built); see the Change Log), document the registerCalc() pattern, specify the reference console, and flag v1 bugs to fix. Claude Code implements calculations from this spec.
 
 ---
 
@@ -285,7 +285,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 
 - **v2-only:** No v1 equivalent. V1's chart was purely visual with no source split and no deficit representation.
 
-**DMI-9: Implied Pasture DMI over a Window or Period** (OI-0225, **PROPOSED** — not built; spec in `session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md`)
+**DMI-9: Implied Pasture DMI over a Window or Period** (OI-0225, **APPROVED** Tim 2026-11-17 9:18 AM ET via Orchestrator — not built yet; spec in `session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md`)
 - Computes: farm-wide pasture intake implied by mass balance — predicted herd DMI minus stored feed over the same days — in lb DM/day (herd), lb DM/head/day (per species) and % of demand, split cattle / sheep / total. The farm-wide, multi-day sibling of DMI-4 (event) and DMI-7 (paddock). Headline of the shared run-rate panel (OI-0224) and of the OI-0221 budget view.
 - Inputs: the FED-6 inputs (window lane) or the OI-0221 period inputs (period lane); `historical_animal_basis` and `historical_feedings` (045, OI-0222) once applied and written.
 - Lanes:
@@ -296,6 +296,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Species: demand by window class/member species or basis species; stored by `historical_feedings.species`, or a pool's daily consumption split across the event's species by demand share.
 - Residual: window lane subtracts nothing more (consumed already excludes the close reading; waste between checks stays in, so the figure is a floor); period lane uses fed, which includes waste and leftovers, for every year.
 - **Rule:** Unknown, never 0 — no counted day; a counted day with an open window (head > 0) and no usable weight is dropped (reported as counted N of D days); stored feed for a species with no demand source makes that species Unknown and the total "excludes" it; zero demand on all counted days = no animals. Compute-on-read; no stored columns.
+- Display: both lanes labelled ("eaten" / "fed"); pasture figure and % in green (pasture identity colour, not a threshold) when above 0, muted at 0; the over-demand line uses no red.
 - Example (illustrative, 17c, period lane, cattle): Dec 2025 demand 47,548 lb DM, fed 67,094 → signed −19,546 → pasture 0 lb/day, 0%; stored over demand 630.5 lb/day (41.1%). Oct 2025: 47,548 − 31,897 = 15,651 → 504.9 lb DM/day, 6.39 lb/head/day (79 head), 32.9%.
 
 ### 4.3 Forage Domain (6 formulas)
@@ -646,6 +647,7 @@ These three contracts also live in CLAUDE.md "Architecture Audit — Before Ever
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-17 | OI-0225 — DMI-9 approved | Tim, 2026-11-17 9:18 AM ET, via Orchestrator: Q1 both bases labelled; Q2 floor at 0 + over-demand line; Q3 "Pasture should be green" (green above 0, muted at 0, no red; identity colour, not a threshold); Q6 sheep basis Jun–Oct 2026 = Sheep group at entry + 30 offspring at 60 lb (a basis row, no formula change). Formula unchanged; count stays 42. |
 | 2026-11-17 | OI-0225 — DMI-9 implied pasture DMI (PROPOSED) | New DMI-9 in §4.2 (not built; Tim's request 9:04 AM ET via Orchestrator: "Implied DMI from pasture. This is the most important number."): predicted herd DMI (group windows as FED-6/DMI-8, plus `historical_animal_basis` where no window) minus stored feed over the same days; window lane uses FED-6 consumed on farm-measured days plus no-hay days (earlier check ≤ d < later check; dateIn ≤ d < dateOut), period lane uses fed (OI-0221 B) plus `historical_feedings`; netted then floored at 0 with a separate "stored over demand" figure and the raw signed value kept; lb DM/day, lb DM/head/day per species, % of demand; Unknown never 0. Header count corrected from the stale 37/11 to 42/12. Compute-on-read; CP-55/CP-56 impact: none; schema change: none. Total formulas: 41 → 42. Owner: GTHO Design. |
 | 2026-11-17 | OI-0224 — FED-6 feed run rate | New FED-6 (`src/calcs/feed-run-rate.js`) in §4.6, documented from the code at `f353c72c` (PR #65, passed Design review): measured pool-day earlier check ≤ d < later check (the `poolDailyActual` / DMI-8 convention), close day excluded, farm-measured days, count units only for bale / sq bale / bag, residual at close with "unknown" never 0, delivery-weighted batch cost with the $56/bale fallback, forecast shared with DMI-8 (no lactation), optional `periodStart` and per-event `byEvent` for the OI-0221 scorecard. Compute-on-read; CP-55/CP-56 impact: none; schema change: none. Total formulas: 40 → 41. Owner: GTHO Design. |
 | 2026-05-04 | Reconciliation Session D — SUR-2 bale-ring cover helper | New SUR-2 (`survey.baleRingCover`) added to §4.9 Survey/Forage Quality Domain. Documents the inputs (`ringCount`, `ringDiameterFt` defaulting to 12.0 from `farm_settings.bale_ring_residue_diameter_cm`, `paddockAcres`), the four-output shape (`ringAreaSqFt` / `totalAreaSqFt` / `coverReducedPct` / `computedForageCoverPct`), the model rationale (rings as bare ground; only the final cover-derivation line flips if domain intent inverts), the paddock-area fallback (null when `paddockAcres` is null/zero — the count is still saved on the observation, no auto-fill happens), and the storage rule (the count goes on `paddock_observations.bale_ring_residue_count` / `event_observations.bale_ring_residue_count`; the derived cover only flows in via auto-fill and is then persisted as a normal `forage_cover_pct` value — re-running the calc later does NOT retro-update prior observations). v2-only formula (no v1 equivalent). Total formulas: 39 → 40. Pairs with V2_UX_FLOWS.md §7.4 (the user-facing surface) and the retired `github/issues/GH-12_survey-sheet-v1-parity.md` (now a thin pointer). Origin: SP-9 (retired sprint spec). No code changes — documentation catch-up only. Owner: Cowork. |

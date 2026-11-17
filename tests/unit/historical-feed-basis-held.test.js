@@ -1,6 +1,8 @@
-/** Held 045 (historical feedings + animal basis) at the real compiled ceiling 44. */
+/** The held-table gate, replayed at a mocked ceiling 44 (the state before 045 was released).
+ * The real ceiling is 45 now; see historical-feed-basis-released.test.js. */
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({ rows: {}, calls: [], proofs: [], missingTables: [] }));
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 44, HELD_SCHEMA_VERSIONS: [45] }));
 vi.mock('../../src/data/supabase-client.js', async () => {
   const { makeBackupClient } = await import('./historical-backup-double.js');
   return { supabase: makeBackupClient(db) };
@@ -25,7 +27,7 @@ beforeEach(() => {
 });
 afterEach(() => { setSyncAdapter(null); vi.restoreAllMocks(); });
 
-it('045 is held: ceiling stays 44 with the locked staged columns and tables', () => {
+it('at ceiling 44, 045 is held with the locked staged columns and tables', () => {
   expect(RELEASED_SCHEMA_VERSION).toBe(44);
   expect(HELD_SCHEMA_VERSIONS).toEqual([45]);
   expect(STAGED_COLUMNS[45]).toEqual({
@@ -34,7 +36,7 @@ it('045 is held: ceiling stays 44 with the locked staged columns and tables', ()
   });
   expect(STAGED_TABLES[45]).toEqual(HISTORICAL_TABLES);
   for (const table of HISTORICAL_TABLES) {
-    expect(isTableReleased(table)).toBe(false);
+    expect(isTableReleased(table, 44)).toBe(false);
     expect(isTableReleased(table, 45)).toBe(true);
     expect(BACKUP_TABLES[table]).toEqual({ paginate: false });
   }
@@ -75,7 +77,7 @@ it('refuses a backup carrying 045 columns at ceiling 44', () => {
   expect(validateBackup({ ...envelope({}), schema_version: 45 }).valid).toBe(false);
 });
 
-it('held export never reads the unapplied tables', async () => {
+it('at ceiling 44, export never reads the unapplied tables', async () => {
   db.rows.operations = [{ id: OP, name: 'Farm', schema_version: 44 }];
   const { json } = await exportOperationBackup(OP);
   const backup = JSON.parse(json);
@@ -83,7 +85,7 @@ it('held export never reads the unapplied tables', async () => {
   expect(db.calls.some(call => HISTORICAL_TABLES.includes(call.table))).toBe(false);
 });
 
-it('held restore never deletes, inserts, proves or counts the unapplied tables', async () => {
+it('at ceiling 44, restore never deletes, inserts, proves or counts the unapplied tables', async () => {
   db.rows.operations = [{ id: OP, name: 'Farm', schema_version: 44 }];
   const backup = { format: 'gtho-v2-backup', format_version: 1, schema_version: 44, operation_id: OP, tables: { operations: [{ id: OP, name: 'Farm', schema_version: 44 }] } };
   const result = await importOperationBackup(backup, OP, null, { skipAutoBackup: true });

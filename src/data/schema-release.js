@@ -1,8 +1,8 @@
 /** Compiled compatibility ceiling, NOT the highest written migration.
- * Release/publish is gated on Tim's approval, backup, and verified 042–044 applies.
+ * Release/publish is gated on Tim's approval, backup, and verified 042–045 applies.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
-export const RELEASED_SCHEMA_VERSION = 44;
-export const HELD_SCHEMA_VERSIONS = [45];
+export const RELEASED_SCHEMA_VERSION = 45;
+export const HELD_SCHEMA_VERSIONS = [];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.
@@ -19,8 +19,9 @@ export const STAGED_COLUMNS = {
   },
 };
 
-// Whole tables created by a held migration. Until the ceiling reaches the
+// Whole tables created by a staged migration. Until the ceiling reaches the
 // version, backup export/restore must not touch them (they may not exist yet).
+// Kept after release, like STAGED_COLUMNS; entries <= the ceiling are released.
 export const STAGED_TABLES = {
   45: ['historical_feedings', 'historical_animal_basis'],
 };

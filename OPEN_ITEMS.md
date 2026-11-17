@@ -36,6 +36,7 @@
 | OI-0224 | Feed run rate from feed checks (7/14/30/60-day pills; consumed and residual in bales, $ and DM; DMI actual vs forecast) | **MERGED, awaiting publish** — Forgejo PR #65 merged at `368b801b` (`f353c72c`); not yet published to GitHub. Earlier: APPROVED 2026-11-17 6:12 AM ET (Tim, via Orchestrator); 6:27 AM ET hold lifted 6:29 AM ET (Tim, via Orchestrator); **handed to Build** as a shared calc the OI-0221 scorecard reuses; C residual = hay left or wasted when an event closes; A, B, D–H at defaults; no migration; docs landing approved; also on the OI-0221 scorecard (6:28 AM ET), one shared calc and component; PR #65 passed Design review at `f353c72c` (2026-11-17) |
 | OI-0225 | Implied pasture DMI (predicted herd DMI − stored feed; headline of the run-rate panel and the budget view) + OI-0221 D10 configurable budget dates | **APPROVED 2026-11-17** (Tim, 2026-11-17 9:18 AM ET, via Orchestrator; asked 9:04 AM ET); new calc DMI-9; [brief](session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md); Q1–Q6 decided; landing on Forgejo approved, no GitHub publish; sheep Jun–Oct 2026 basis is a follow-up write after 045 (Tim's yes + backup) |
 | OI-0226 | Window integrity: group windows never outlive their event (backdated-close clamp, ordered save, arrival default, DB guard + stale-write refusal) | **APPROVED 2026-11-17** (Tim, 11:01 AM ET, via Orchestrator); [brief](session_briefs/WINDOW_INTEGRITY_2026-11-17.md); Build starts after the `fix/forecast-orphan-windows` PR; PR A (a)+(c), PR B (b), PR C (d) migration gated on a clean audit, Tim's yes + backup per apply |
+| OI-0227 | Feed-check plausibility: non-blocking implausible-intake warning (B), Notes below Remaining (C), spread intake between checks by elapsed time (D); A declined | **APPROVED 2026-11-17** (Tim, 12:23 PM ET, via Orchestrator); [brief](session_briefs/FEED_CHECK_PLAUSIBILITY_2026-11-17.md); from the corral daily-bars report; suggested PR 1 = B+C, PR 2 = D; no migration, no data change (Tim edits the Nov 16 check himself) |
 
 ---
 
@@ -102,6 +103,29 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 **Schema / CP-55/CP-56 impact:** slice 1 (history report) none. Slice 2 needs a stored budget (header + monthly rows), a new numbered migration after the already-applied 044 (stamp 45 or later), added to CP-55/CP-56 with a schema step; writing it needs this spec approved, applying it needs Tim's explicit yes at the time plus a backup. No SQL here.
 
 **Origin:** Tim's request 2026-11-16 3:03–3:09 PM ET via Orchestrator.
+
+---
+
+### OI-0227 — Feed-check plausibility: intake warning, Notes below Remaining, elapsed-time spreading
+
+**Added:** 2026-11-17 | **Area:** v2-build / feed / calcs | **Priority:** next feed item for Build; independent of OI-0226
+
+**Status:** **APPROVED (Tim, 2026-11-17 12:23 PM ET, via Orchestrator):** B approved (non-blocking implausible-intake warning, Design sets the threshold), C approved (Notes below Remaining), D approved (spread between checks by elapsed time instead of calendar days); **A declined** (Remaining keeps its pre-fill). Spec: [Feed-check plausibility, 2026-11-17](session_briefs/FEED_CHECK_PLAUSIBILITY_2026-11-17.md). Suggested PR 1 = B + C, PR 2 = D; Design reviews each.
+
+**Why:** Tim's report (12:08 PM ET, via Orchestrator): the small corral event `c53fc6a7` showed a deficit on Nov 15 after hay on the 13th, then "enough" on Nov 16 with nothing fed. Diagnosis (SELECT-only, code at `9a5801d7`): check `15f81210` (Nov 16 09:12) saved the pre-filled expected Remaining (2.25 bales) with ".75" in Notes, giving zero intake Nov 13–15 and 1.59 bales on Nov 16. The calc followed the data; the gaps are the silent pre-fill with no plausibility check (`pool-forms.js:24`), Notes above Remaining (`pool-forms.js:19-20`), and calendar-day spreading (`feed-pools.js:123`, `feed-forage.js:820`).
+
+**Scope (brief §3):**
+- **(B) Warning:** implied DM/day over each interval (prev reading + stored feed fed in (prev, new] − new reading, ÷ elapsed days) vs the event's expected DMI from `groupWindowsDailyDmiKg` (2.5% BW, live windows). Pure confinement with one active stored-feed pool: warn **< 50% or > 400%**; with pasture or other active pools: **> 400%** only. Negative intake is already blocked (`feed-pools.js:55`, `pool-ledger.js:57`). Skip first reading, intervals < 12 h, no-op edits, unknown demand. Edits and inserts check both neighbouring intervals. Shows on Save with implied vs expected lb/day; Fix or Save anyway. One pure helper + ledger preview used by the pool check form, the feeding-sheet carryover (the assistant-filled path) and close readings that have a confirm step.
+- **(C) Notes** renders after the pool cards in the pool check form.
+- **(D) Elapsed-time spreading:** each interval's intake goes to local calendar days in proportion to the real hours of each day inside it (23/25-h DST days handled); missing time stays local midnight (`rowInstant`); the measured-day set, the first-reading day (first interval's rate) and the open stretch after the last reading (cascade estimate) are unchanged; one shared helper for `poolDailyObservation` (DMI-8 pool mode, FED-6) and the older non-pool path.
+
+**Corral check (Tim's corrected 0.75 on Nov 16):** intervals run 274%, 342%, 208% and 30% of 145.5 lb/day; only Nov 16 → 17 (0.09 bale in 26.9 h) warns. After D, Nov 16 reads 142.9 lb (2.6 short) instead of 48.6 (96.9 short).
+
+**Out of scope:** data edits (Tim edits check `15f81210` in the app); A; a numeric-Notes hint; class DMI rates; the east-of-UTC chart date roll.
+
+**Schema / CP-55/CP-56 impact:** none (no migration, no columns).
+
+**Origin:** Tim's corral bars report 2026-11-17 12:08 PM ET, diagnosis by Design, decisions 12:23 PM ET, all via Orchestrator.
 
 ---
 

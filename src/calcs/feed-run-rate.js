@@ -68,7 +68,9 @@ function finishCost(total) {
  * Run rate for the trailing `days` ending `today` (inclusive), farm-wide.
  * `periodStart` (optional, YYYY-MM-DD) clips the window start, e.g. to a season.
  * Measured pool-day d: the pool's checks bracket d with earlier check ≤ d < later
- * check (poolDailyObservation on d, the poolDailyActual / DMI-8 convention).
+ * check (poolDailyObservation on d, the poolDailyActual / DMI-8 convention). The
+ * day's value spreads each check-to-check interval's intake over local days by
+ * elapsed time (DMI-5, `elapsedDayShares`), not by calendar-day count.
  * Open event days run dateIn ≤ d < dateOut. A pool is active on d when it is
  * measured or still holds feed after replaying through the end of d.
  * Farm-measured day: at least one active pool and every active pool measured.
@@ -297,7 +299,7 @@ registerCalc({
   name: 'FED-6',
   category: 'feed',
   description: 'Feed run rate over a trailing window from feed checks: consumed and residual (left at close) in units, DM and $, plus stored DMI actual vs forecast',
-  formula: 'rate = Σ pool daily actual (DMI-5 pool model) on farm-measured days ÷ measured days; residual = pool amount after full replay for events closed in the window, where a close reading covers the pool; $ = DM × delivery-weighted batch $/kg DM ($56/bale fallback)',
+  formula: 'rate = Σ pool daily actual (DMI-5 pool model: each interval\'s intake spread over local days by elapsed hours) on farm-measured days ÷ measured days; residual = pool amount after full replay for events closed in the window, where a close reading covers the pool; $ = DM × delivery-weighted batch $/kg DM ($56/bale fallback)',
   source: 'session_briefs/FEED_RUN_RATE_PROPOSAL_2026-11-17.md §2',
   notes: 'Pure; no estimates fill unmeasured days. Forecast = group-window predicted DMI (shared with DMI-8) on the same measured days.',
   inputs: [

@@ -17,12 +17,14 @@ it('mixed/unverified units stay mass-based until empty, including a check and la
 it('missing conversion is unknown, blocks positive reading, and confirmed zero is usable',()=>{const input=base();input.entries[0].weightPerUnitKgSnapshot=null;const pool=replayFeedPools(input).get(key);expect(pool.m).toBeNull();expect(()=>poolReading(pool,1)).toThrow('conversion');expect(poolReading(pool,0).remainingQuantity).toBe(0);});
 it('partial checks do not zero other pools and strict endpoint ordering is independent of insertion order',()=>{
  const input=base();input.entries.push({...delivery('straw','2026-11-05','10:00',3,100,90),feedTypeId:'straw'});input.checks=[check('a','2026-11-05','10:00'),check('b','2026-11-09','13:00')];input.items=[item('a',2,400,80),item('b',1,500,86)];input.entries.push(delivery('later','2026-11-09','14:00',7,500,86));
- expect(replayFeedPools(input).get(poolKey({eventId:'e',locationId:'p',feedTypeId:'straw'})).q).toBe(3);expect(poolDailyActual(input,'2026-11-08').get(key)).toBeCloseTo((640+1080-430)/4);const before=JSON.stringify(input);const reverse={...input,entries:[...input.entries].reverse(),checks:[...input.checks].reverse(),items:[...input.items].reverse()};expect([...replayFeedPools(reverse)]).toEqual([...replayFeedPools(input)]);expect(JSON.stringify(input)).toBe(before);
+ expect(replayFeedPools(input).get(poolKey({eventId:'e',locationId:'p',feedTypeId:'straw'})).q).toBe(3);// Nov 5 10:00 → Nov 9 13:00 is 99 elapsed hours; Nov 8 holds 24 of them.
+ expect(poolDailyActual(input,'2026-11-08').get(key)).toBeCloseTo((640+1080-430)*24/99);const before=JSON.stringify(input);const reverse={...input,entries:[...input.entries].reverse(),checks:[...input.checks].reverse(),items:[...input.items].reverse()};expect([...replayFeedPools(reverse)]).toEqual([...replayFeedPools(input)]);expect(JSON.stringify(input)).toBe(before);
 });
 
 it.each([
- ['2026-11-05','08:59',25],['2026-11-05','09:00',25],['2026-11-05','09:01',50],
- ['2026-11-09','12:59',50],['2026-11-09','13:00',50],['2026-11-09','13:01',25],
+ // Nov 5 09:00 → Nov 9 13:00 is 100 elapsed hours; Nov 8 holds 24 of them (100 or 200 kg eaten).
+ ['2026-11-05','08:59',24],['2026-11-05','09:00',24],['2026-11-05','09:01',48],
+ ['2026-11-09','12:59',48],['2026-11-09','13:00',48],['2026-11-09','13:01',24],
 ])('pool interval uses strict opening and inclusive closing at %s %s', (date,time,expected)=>{
  const input={eventId:'e',feedTypes:types,entries:[delivery('d',date,time,1,100,100)],checks:[check('a','2026-11-05','09:00'),check('b','2026-11-09','13:00')],items:[item('a',2,100,100),item('b',1,100,100)]};expect(poolDailyActual(input,'2026-11-08').get(key)).toBe(expected);
 });

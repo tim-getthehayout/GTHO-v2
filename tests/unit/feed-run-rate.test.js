@@ -82,7 +82,10 @@ describe('computeFeedRunRate', () => {
     const r = computeFeedRunRate(input);
     expect(r.measuredDays).toBe(15);
     expect(r.lastMeasuredDate).toBe('2026-11-19');
-    expect(r.consumed.units.bale).toBeCloseTo(11);
+    // Elapsed-time split: Nov 5 (first check, 12:00) takes a full day at the first
+    // interval's rate (1); Nov 6–14 = 9; Nov 15 = 0.5 + 12 h of 1 bale / 120 h (0.1);
+    // Nov 16–19 = 0.8. Nov 20 is the last check's date and is not measured.
+    expect(r.consumed.units.bale).toBeCloseTo(11.4);
   });
   it('a zero check on d turns the pool off from d, even with another pool unmeasured before', () => {
     const input = openHay();

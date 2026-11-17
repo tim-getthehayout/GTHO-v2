@@ -53,6 +53,8 @@ async function refreshed(work) {
   expect(detail.firstChild).not.toBe(oldDetail); expect(card.firstChild).not.toBe(oldCard);
   expect(latest(true).map(day => day.result)).toEqual(latest(false).map(day => day.result));
 }
+// Nov 5 09:00 → Nov 9 13:00 is 100 elapsed hours; each full bar day inside it holds 24 of them:
+// 750 kg eaten → 180, 850 kg → 204.
 it('mounted charts refresh through real check Save, item-only Edit and Delete without reopening', async () => {
   expect(rendered.mock.calls).toHaveLength(2);
   openFeedCheckSheet(event, OP); const panel = document.querySelector('#feed-check-sheet-panel');
@@ -60,10 +62,10 @@ it('mounted charts refresh through real check Save, item-only Edit and Delete wi
   await refreshed(() => button(panel, 'Save').click());
   const check = getAll('eventFeedChecks').find(row => row.date === '2026-11-09'), item = getAll('eventFeedCheckItems').find(row => row.feedCheckId === check.id);
   expect(queued('event_feed_checks').at(-1)).toMatchObject({ date: '2026-11-09', time: '13:00' });
-  expect(latest(true)[0].result).toMatchObject({ status: 'actual', storedDmiKg: 187.5 });
+  expect(latest(true)[0].result).toMatchObject({ status: 'actual', storedDmiKg: 180 });
   openEditFeedCheckDialog(check, item, event, OP); let edit = document.querySelector('#edit-fc-panel');
   fill(edit, 'input[type="time"]', '13:00'); fill(edit, 'input[type="number"]', '6');
-  await refreshed(() => button(edit, 'Save').click()); expect(latest(true)[0].result.storedDmiKg).toBe(212.5);
+  await refreshed(() => button(edit, 'Save').click()); expect(latest(true)[0].result.storedDmiKg).toBe(204);
   openEditFeedCheckDialog(getById('eventFeedChecks', check.id), getAll('eventFeedCheckItems').find(row=>row.feedCheckId===check.id), event, OP); edit = document.querySelector('#edit-fc-panel');
   vi.spyOn(window, 'confirm').mockReturnValue(true); await refreshed(() => button(edit, 'Delete').click());
   expect(getById('eventFeedChecks', check.id)).toBeUndefined(); expect(latest(true)[0].result.storedDmiKg).toBe(12.5);
@@ -72,9 +74,9 @@ it('remote header/item and delivery changes redraw both charts; teardown and rep
   let check, item;
   await refreshed(() => { check = Check.create({ operationId: OP, eventId: event.id, date: '2026-11-09', time: '13:00' }); mergeRemote('eventFeedChecks', [check]); });
   await refreshed(() => { item = Item.create({ operationId: OP, feedCheckId: check.id, batchId:null,feedTypeId:'type',unitSnapshot:'bale',weightPerUnitKgSnapshot:100,dmPctSnapshot:100,locationId: 'pasture', remainingQuantity: 7 }); mergeRemote('eventFeedCheckItems', [item]); });
-  expect(latest(true)[0].result.storedDmiKg).toBe(187.5);
+  expect(latest(true)[0].result.storedDmiKg).toBe(180);
   await refreshed(() => mergeRemote('eventFeedCheckItems', [{ ...item, remainingQuantity: 6, updatedAt: new Date().toISOString() }]));
-  expect(latest(true)[0].result.storedDmiKg).toBe(212.5);
+  expect(latest(true)[0].result.storedDmiKg).toBe(204);
   await refreshed(() => update('eventFeedEntries', 'delivery', { time: '08:59' }, Entry.validate, Entry.toSupabaseShape, 'event_feed_entries'));
   expect(latest(true)[0].result.storedDmiKg).toBe(0);
   renderDashboard(dashboard); openEventDetailSheet(event, OP, FARM); const count = rendered.mock.calls.length;
@@ -88,7 +90,7 @@ it('remote header/item and delivery changes redraw both charts; teardown and rep
 it('the mounted inline delivery clock editor refreshes DMI without touching inventory or a focused draft on check refresh', async () => {
   const closing = seed('eventFeedChecks', Check, { eventId: event.id, date: '2026-11-09', time: '13:00' });
   const item = seed('eventFeedCheckItems', Item, { feedCheckId: closing.id, locationId: 'pasture', batchId: 'hay', remainingQuantity: 7 });
-  await flush(); expect(latest(true)[0].result.storedDmiKg).toBe(187.5);
+  await flush(); expect(latest(true)[0].result.storedDmiKg).toBe(180);
   button(document.querySelector('[data-testid="detail-feed-entries"]'), 'Edit').click();
   const form = document.querySelector('[data-testid="feed-entry-inline-form"]'), clock = form.querySelector('input[type="time"]');
   expect(clock.value).toBe('10:00'); fill(form, 'input[type="time"]', '08:59'); clock.focus();

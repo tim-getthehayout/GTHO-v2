@@ -102,26 +102,66 @@ export function replayFeedPools(input, { through = '9999-12-31T23:59:59', exclud
   return pools;
 }
 
-/** Independent linear observations, keeping strict-after/inclusive endpoints. */
+/** Local instant (ms) from a stored date + clock, built in the device's local
+ * zone (the app's local-calendar convention). A missing clock is local
+ * midnight, the same rule as `rowInstant`. */
+export function localInstantMs(date, time) {
+  const [y, m, d] = String(date).split('-').map(Number);
+  const [hour, minute, seconds] = rowInstant(date, time).slice(11).split(':');
+  const [second, fraction] = seconds.split('.');
+  return new Date(y, m - 1, d, Number(hour), Number(minute), Number(second), Number(`0.${fraction}`) * 1000).getTime();
+}
+
+/** Shared elapsed-time day split for stored-feed intake between readings
+ * (DMI-5 pool path and the older non-pool path). `readings` are instant-ordered
+ * `{ date, time }`; interval i runs readings[i] → readings[i + 1]. Returns null
+ * when `date` is not measured (no reading dated ≤ date, or none dated > date),
+ * else `[{ index, share }]` so that intake(date) = Σ intake_i × share, where
+ * share = real hours of the local day inside interval i ÷ the interval's real
+ * hours (a fall-back day has 25 h, a spring-forward day 23 h). Zero-length
+ * intervals contribute nothing. On the first reading's own date, the hours
+ * before that reading take the first interval's hourly rate. */
+export function elapsedDayShares(readings, date) {
+  if (!readings.some(row => row.date <= date) || !readings.some(row => row.date > date)) return null;
+  const [y, m, d] = date.split('-').map(Number);
+  const dayStart = new Date(y, m - 1, d).getTime(), dayEnd = new Date(y, m - 1, d + 1).getTime();
+  const at = readings.map(row => localInstantMs(row.date, row.time));
+  const shares = new Map();
+  const put = (index, share) => { if (share > 0) shares.set(index, (shares.get(index) ?? 0) + share); };
+  let first = -1;
+  for (let i = 0; i + 1 < at.length; i += 1) {
+    const span = at[i + 1] - at[i];
+    if (!(span > 0)) continue;
+    if (first < 0) first = i;
+    put(i, (Math.min(dayEnd, at[i + 1]) - Math.max(dayStart, at[i])) / span);
+  }
+  if (first >= 0 && readings[0].date === date) put(first, (at[0] - dayStart) / (at[first + 1] - at[first]));
+  return [...shares].map(([index, share]) => ({ index, share }));
+}
+
+/** Independent observations, keeping strict-after/inclusive endpoints. */
 export function poolDailyActual(input, date) {
   return new Map([...poolDailyObservation(input, date)].map(([key, row]) => [key, row.dm]));
 }
 
 /** The same observation as poolDailyActual, plus the count-unit rate when every
- * anchor child and delivery in the interval is verified in one count unit
- * (`units`/`unit`; both null for mass-based or mixed intervals). */
+ * anchor child and delivery in every interval overlapping the day is verified in
+ * one count unit (`units`/`unit`; both null for mass-based or mixed intervals).
+ * Each interval's intake is spread over local days by elapsed time
+ * (`elapsedDayShares`); the measured-day predicate is unchanged. */
 export function poolDailyObservation(input, date) {
-  const history = poolHistory(input), result = new Map();
-  for (const [key] of history.identities) {
-    const anchors = history.records.filter(row=>row.key===key && row.order===1);
-    const prev = anchors.filter(row=>row.check.date<=date).at(-1), next = anchors.find(row=>row.check.date>date);
-    if (!prev || !next) continue;
-    const dm = anchor => anchor.children.reduce((sum,child)=>{ const value=mass(child.quantity,child.snap).d; return sum == null || value == null ? null : sum+value; },0);
+  const history = poolHistory(input), result = new Map(), sticky = new Map();
+  const massBasedThrough = (stamp, key) => {
+    if (!sticky.has(stamp)) sticky.set(stamp, replayFeedPools(input, { through: stamp }));
+    return !!sticky.get(stamp).get(key)?.massBased;
+  };
+  const dm = anchor => anchor.children.reduce((sum,child)=>{ const value=mass(child.quantity,child.snap).d; return sum == null || value == null ? null : sum+value; },0);
+  const interval = (key, prev, next) => {
     const between = history.records.filter(row=>row.key===key && row.order===0 && row.stamp>prev.stamp && row.stamp<=next.stamp);
     let delivered=0;
     for (const row of between) { const d=mass(row.quantity,row.snap).d; delivered=delivered==null||d==null?null:delivered+row.sign*d; }
-    const a=dm(prev),b=dm(next),days=Math.max(1,Math.round((new Date(next.check.date+'T00:00:00')-new Date(prev.check.date+'T00:00:00'))/86400000));
-    const value = a==null||b==null||delivered==null?null:Math.max(0,(a+delivered-b)/days);
+    const a=dm(prev),b=dm(next);
+    const value = a==null||b==null||delivered==null?null:Math.max(0,a+delivered-b);
     // Count units only when every non-zero row agrees on one verified count unit.
     let unit = null, counted = true;
     const count = (quantity, snap) => {
@@ -134,9 +174,23 @@ export function poolDailyObservation(input, date) {
     const qb = next.children.reduce((sum,child)=>sum+count(child.quantity,child.snap),0);
     const qd = between.reduce((sum,row)=>sum+row.sign*count(row.quantity,row.snap),0);
     // Replay's sticky mass mode (mixed units before this interval) also wins.
-    if (counted && value != null && replayFeedPools(input, { through: prev.stamp }).get(key)?.massBased) counted = false;
-    const units = counted && value != null ? Math.max(0,(qa+qd-qb)/days) : null;
-    result.set(key,{ dm:value, units, unit: units == null ? null : unit });
+    if (counted && value != null && massBasedThrough(prev.stamp, key)) counted = false;
+    const units = counted && value != null ? Math.max(0,qa+qd-qb) : null;
+    return { dm: value, units, unit: units == null ? null : unit };
+  };
+  for (const [key] of history.identities) {
+    const anchors = history.records.filter(row=>row.key===key && row.order===1);
+    const shares = elapsedDayShares(anchors.map(row => ({ date: row.check.date, time: row.check.time })), date);
+    if (!shares) continue;
+    let value = 0, units = 0, unit = null, counted = true;
+    for (const { index, share } of shares) {
+      const part = interval(key, anchors[index], anchors[index + 1]);
+      value = value == null || part.dm == null ? null : value + part.dm * share;
+      if (part.units == null || (unit && part.unit && part.unit !== unit)) counted = false;
+      else { unit = unit || part.unit; units += part.units * share; }
+    }
+    const rate = counted && value != null ? units : null;
+    result.set(key,{ dm:value, units: rate, unit: rate == null ? null : unit });
   }
   return result;
 }

@@ -1,4 +1,4 @@
-import { feedSnapshot, poolHistory, replayFeedPools, poolDailyActual } from './feed-pools.js';
+import { feedSnapshot, poolHistory, replayFeedPools, poolDailyActual, elapsedDayShares } from './feed-pools.js';
 /** @file Feed/forage calculation registrations — CP-46/CP-54. 21 formulas (DMI, FOR, CST, FED domains). */
 
 import { rowInstant } from '../utils/date-utils.js';
@@ -132,14 +132,14 @@ registerCalc({
 registerCalc({
   name: 'DMI-5',
   category: 'dmi',
-  description: 'Stored feed consumption on a specific date via linear interpolation between feed checks',
-  formula: 'daily_stored_kg = (prevRemaining - nextRemaining) / (nextCheckDate - prevCheckDate)',
-  source: 'V2_CALCULATION_SPEC.md §4.2',
-  notes: 'Linear interpolation between checks. Acceptable for 1-3 day gaps.',
+  description: 'Stored feed consumption on a specific date, spreading each interval between feed checks over local days by elapsed time',
+  formula: 'intake_i = max(0, prevRemaining + delivered(prev, next] - nextRemaining); daily_stored_kg(d) = Σ_i intake_i × hours(d ∩ interval_i) / hours(interval_i)',
+  source: 'V2_CALCULATION_SPEC.md §4.2; session_briefs/FEED_CHECK_PLAUSIBILITY_2026-11-17.md §3.3',
+  notes: 'Shared split elapsedDayShares (feed-pools.js) for the pool path and the older non-pool path. Days are local calendar dates; hours are real elapsed hours (23 h / 25 h on DST days); a missing clock is local midnight, so time-less checks split by whole days. A day is measured only when a check dated on or before it and one dated after it exist. On the first check\'s date, hours before that check take the first interval\'s rate. This registry fn is the one-interval rate with daysBetweenChecks = elapsed hours ÷ 24.',
   inputs: [
     { name: 'prevCheckRemainingKg', type: 'number', unit: 'kg' },
     { name: 'nextCheckRemainingKg', type: 'number', unit: 'kg' },
-    { name: 'daysBetweenChecks', type: 'number', unit: 'days' },
+    { name: 'daysBetweenChecks', type: 'number', unit: 'days (elapsed hours ÷ 24)' },
   ],
   output: { type: 'number', unit: 'kg/day' },
   example: {
@@ -654,9 +654,6 @@ registerCalc({
       return d.toISOString().slice(0, 10);
     }
 
-    function daysBetween(aYmd, bYmd) {
-      return Math.round((new Date(bYmd + 'T00:00:00') - new Date(aYmd + 'T00:00:00')) / 86400000);
-    }
 
     // Allocate demand across pasture + stored buckets per spec's table.
     // Mutates the passed bucket refs' .value and returns the day's allocation.
@@ -803,22 +800,26 @@ registerCalc({
     const storedRef = { value: seedStoredKg };
 
     // ---- Actual path (bracketed) -------------------------------------------
-    // When prev + next checks bracket the date, use DMI-5 linear distribution
-    // across the interval for storedDmiKg. Pasture fills the rest.
+    // When prev + next checks bracket the date, use the DMI-5 elapsed-time
+    // split across the intervals for storedDmiKg. Pasture fills the rest.
     const nextCheck = sortedChecks.find(c => c.date > date) || null;
     // Bracketing checks still produce actual stored/pasture bars below, but
     // remaining end-of-day buckets come from the cascade walk (needed for the
     // shared confinement feed-days projection). Do not return early.
     let actualBars = null;
     if (!poolMode && prevCheck && nextCheck) {
-      const prevKg = sumCheckKg(prevCheck);
-      const nextKg = sumCheckKg(nextCheck);
-      let deliveriesBetween = 0;
-      for (const e of (feedEntries || [])) {
-        if (isAfterCheck(e, prevCheck) && !isAfterCheck(e, nextCheck)) deliveriesBetween += entryDmKg(e);
-      }
-      const days = Math.max(1, daysBetween(prevCheck.date, nextCheck.date));
-      const storedDmiKg = Math.max(0, (prevKg + deliveriesBetween - nextKg) / days);
+      // Each check-to-check interval's intake is spread over local days by
+      // elapsed time, the same shared split as the pool path.
+      const intervalKg = index => {
+        const from = sortedChecks[index], to = sortedChecks[index + 1];
+        let deliveriesBetween = 0;
+        for (const e of (feedEntries || [])) {
+          if (isAfterCheck(e, from) && !isAfterCheck(e, to)) deliveriesBetween += entryDmKg(e);
+        }
+        return Math.max(0, sumCheckKg(from) + deliveriesBetween - sumCheckKg(to));
+      };
+      const storedDmiKg = (elapsedDayShares(sortedChecks, date) || [])
+        .reduce((sum, { index, share }) => sum + intervalKg(index) * share, 0);
       // OI-0209: never fill a pure-confinement shortfall with invented pasture.
       let pastureDmiKg;
       let deficitKg = 0;

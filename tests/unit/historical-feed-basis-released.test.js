@@ -1,7 +1,6 @@
-/** 045 tables once the ceiling reaches 45 (PR 2): export and restore round-trip. */
+/** 045 released: the real compiled ceiling is 45; export and restore round-trip both tables. */
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({ rows: {}, calls: [], proofs: [], missingTables: [] }));
-vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 45, HELD_SCHEMA_VERSIONS: [] }));
 vi.mock('../../src/data/supabase-client.js', async () => {
   const { makeBackupClient } = await import('./historical-backup-double.js');
   return { supabase: makeBackupClient(db) };
@@ -9,7 +8,7 @@ vi.mock('../../src/data/supabase-client.js', async () => {
 vi.mock('../../src/features/auth/session.js', () => ({ getUser: () => ({ id: 'user', email: 'test@example.test' }) }));
 import { CustomSync } from '../../src/data/custom-sync.js';
 import { _reset, setSyncAdapter } from '../../src/data/store.js';
-import { STAGED_COLUMNS } from '../../src/data/schema-release.js';
+import { RELEASED_SCHEMA_VERSION, HELD_SCHEMA_VERSIONS, STAGED_COLUMNS, STAGED_TABLES, isTableReleased } from '../../src/data/schema-release.js';
 import { exportOperationBackup } from '../../src/data/backup-export.js';
 import { CURRENT_SCHEMA_VERSION, importOperationBackup } from '../../src/data/backup-import.js';
 import { HISTORICAL_TABLES, historicalRows } from './historical-backup-double.js';
@@ -23,6 +22,14 @@ beforeEach(() => {
   setSyncAdapter(new CustomSync());
 });
 afterEach(() => { setSyncAdapter(null); vi.restoreAllMocks(); });
+
+it('045 is released: ceiling 45, nothing held, staged manifests kept as proofs', () => {
+  expect(RELEASED_SCHEMA_VERSION).toBe(45);
+  expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+  expect(Object.keys(STAGED_COLUMNS[45])).toEqual(HISTORICAL_TABLES);
+  expect(STAGED_TABLES[45]).toEqual(HISTORICAL_TABLES);
+  for (const table of HISTORICAL_TABLES) expect(isTableReleased(table)).toBe(true);
+});
 
 it('released export reads both tables filtered by operation', async () => {
   expect(CURRENT_SCHEMA_VERSION).toBe(45);

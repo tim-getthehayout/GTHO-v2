@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const srv = vi.hoisted(() => ({
   rows: new Map(), log: [], holds: [], holdNext: 0, failNext: 0, hangNext: 0,
-  delays: null, calls: 0, inFlight: 0, maxInFlight: 0,
+  delays: null, calls: 0, inFlight: 0, maxInFlight: 0, holdWhen: null,
 }));
 
 vi.mock('../../src/data/supabase-client.js', () => {
@@ -28,6 +28,7 @@ vi.mock('../../src/data/supabase-client.js', () => {
       try {
         if (srv.delays) await new Promise(r => setTimeout(r, srv.delays[index] ?? 0));
         if (srv.holdNext > 0) { srv.holdNext--; await new Promise(r => srv.holds.push(r)); }
+        if (srv.holdWhen?.(table, rowId)) { srv.holdWhen = null; await new Promise(r => srv.holds.push(r)); }
         if (srv.failNext > 0) {
           srv.failNext--;
           srv.log.push({ table, op, id: rowId, failed: true });
@@ -95,7 +96,7 @@ const queued = () => JSON.parse(localStorage.getItem('_sync_queue') || '[]');
 
 beforeEach(() => {
   localStorage.clear();
-  Object.assign(srv, { holdNext: 0, failNext: 0, hangNext: 0, delays: null, calls: 0, inFlight: 0, maxInFlight: 0 });
+  Object.assign(srv, { holdNext: 0, failNext: 0, hangNext: 0, delays: null, calls: 0, inFlight: 0, maxInFlight: 0, holdWhen: null });
   srv.rows.clear(); srv.log.length = 0; srv.holds.length = 0;
 });
 
@@ -490,6 +491,28 @@ describe('persisted state is pruned on success, so nothing stale survives a relo
     await reloaded.flush();
     expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
     expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([2]);
+  });
+
+  it('flush does not write back a failed save when a newer save of the row landed before the write-back', async () => {
+    vi.useFakeTimers();
+    const sync = makeSync();
+    localStorage.setItem('_sync_queue', JSON.stringify([
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(1, 1), enqueued_at: '2026-11-17T20:00:01.000Z', attempts: 0, errors: [] },
+      { id: OTHER_ID, table: 'events', operation: 'upsert', record: v('e', 1, OTHER_ID), enqueued_at: '2026-11-17T20:00:01.000Z', attempts: 0, errors: [] },
+    ]));
+    srv.failNext = 5;
+    srv.holdWhen = table => table === 'events';
+    const f = sync.flush();
+    await tick();
+    const newer = sync.push(TABLE, v(2, 5), 'update');
+    await vi.runAllTimersAsync();
+    await newer;
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    srv.holds.forEach(r => r()); // the flush only now reaches its write-back
+    await f;
+    expect(queued()).toEqual([]);
+    await makeSync().flush();
+    expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
   });
 
   it('a successful send removes that row\'s older queued saves from storage at once', async () => {

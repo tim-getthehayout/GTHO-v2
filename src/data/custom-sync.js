@@ -97,12 +97,100 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+
+/** Per-row key used to coalesce and chain pushes for the same table + id. */
+function rowKey(table, id) {
+  return `${table}\0${id}`;
+}
+
+function entryRowId(entry) {
+  return entry?.id || entry?.record?.id;
+}
+
+function normalizePushOp(operation) {
+  if (operation === 'push' || operation == null) return 'upsert';
+  return operation;
+}
+
+/**
+ * Collapse pending writes for the same table + id to the latest payload,
+ * keeping the last occurrence's place in the queue.
+ * An unsent insert collapsed with a later update becomes an upsert so the
+ * latest full row can land whether or not the server already has it.
+ */
+function coalesceQueue(queue) {
+  const lastIndex = new Map();
+  for (let i = 0; i < queue.length; i++) {
+    const id = entryRowId(queue[i]);
+    if (!queue[i]?.table || id == null) continue;
+    lastIndex.set(rowKey(queue[i].table, id), i);
+  }
+  const groups = new Map();
+  for (const entry of queue) {
+    const id = entryRowId(entry);
+    if (!entry?.table || id == null) continue;
+    const key = rowKey(entry.table, id);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  const collapsedAt = new Map();
+  for (const [key, entries] of groups) {
+    collapsedAt.set(key, collapseRowEntries(entries));
+  }
+  const out = [];
+  for (let i = 0; i < queue.length; i++) {
+    const entry = queue[i];
+    const id = entryRowId(entry);
+    if (!entry?.table || id == null) {
+      out.push(entry);
+      continue;
+    }
+    const key = rowKey(entry.table, id);
+    if (lastIndex.get(key) !== i) continue;
+    out.push(collapsedAt.get(key));
+  }
+  return out;
+}
+
+function collapseRowEntries(entries) {
+  const latest = entries[entries.length - 1];
+  const ops = entries.map(e => normalizePushOp(e.operation));
+  const lastOp = ops[ops.length - 1];
+  if (lastOp === 'delete') return { ...latest, operation: 'delete', id: entryRowId(latest) };
+  let operation = lastOp;
+  if (operation === 'update' && ops.slice(0, -1).some(op => op === 'insert' || op === 'upsert')) {
+    operation = 'upsert';
+  }
+  const durableKey = latest.durable_key || entries.find(e => e.durable_key)?.durable_key;
+  return {
+    ...latest,
+    id: latest.record?.id || latest.id,
+    operation,
+    record: latest.record,
+    durable_key: durableKey,
+  };
+}
+
+function recordStamp(record) {
+  return record?.updated_at || record?.updatedAt || '';
+}
+
+/** Prefer the later stamp. On a tie or missing stamp, `b` wins. */
+function newerRow(a, b) {
+  if (recordStamp(a.record) > recordStamp(b.record)) return a;
+  return b;
+}
+
+
 export class CustomSync extends SyncAdapter {
   constructor() {
     super();
     this._status = 'idle';
     this._statusListeners = new Set();
     this._flushing = false;
+    // Per-row send chain: later writes wait for an in-flight push of the
+    // same table + id, and pending payloads collapse to the latest full row.
+    this._rowGates = new Map();
   }
 
   _setStatus(status) {
@@ -138,7 +226,7 @@ export class CustomSync extends SyncAdapter {
       return { id: record.id, success: true, error: undefined };
     }
 
-    return this._pushToRemote(table, record, operation);
+    return this._enqueueRowPush(table, record, operation);
   }
 
   async pushBatch(table, records) {
@@ -152,7 +240,7 @@ export class CustomSync extends SyncAdapter {
       return records.map(r => ({ id: r.id, success: true }));
     }
 
-    return Promise.all(records.map(r => this._pushToRemote(table, r)));
+    return Promise.all(records.map(r => this._enqueueRowPush(table, r, 'upsert')));
   }
 
   async pull(table, since) {
@@ -211,7 +299,63 @@ export class CustomSync extends SyncAdapter {
       attempts: 0,
       errors: [],
     });
-    writeQueue(queue);
+    writeQueue(coalesceQueue(queue));
+  }
+
+  /**
+   * Queue a push behind any in-flight send for the same table + id, collapsing
+   * pending payloads to the latest full row. Writes to different rows are not
+   * serialised behind each other.
+   */
+  _enqueueRowPush(table, record, operation = 'upsert') {
+    const key = rowKey(table, record.id);
+    let gate = this._rowGates.get(key);
+    if (!gate) {
+      gate = { tail: Promise.resolve(), latest: null };
+      this._rowGates.set(key, gate);
+    }
+    const planned = { table, record, operation };
+    gate.latest = planned;
+    const run = gate.tail.then(async () => {
+      const latest = gate.latest;
+      if (!latest || latest !== planned) {
+        return { id: record.id, success: true };
+      }
+      gate.latest = null;
+      const adopted = this._adoptQueuedRow(latest);
+      return this._pushToRemote(adopted.table, adopted.record, adopted.operation);
+    });
+    gate.tail = run.then(() => {}, () => {});
+    return run;
+  }
+
+  /**
+   * If a later full-row write for this id is already on the durable / offline
+   * queue, send that instead and drop the superseded queue entries. Skipped
+   * while flush() holds the queue snapshot.
+   */
+  _adoptQueuedRow(latest) {
+    if (this._flushing) return latest;
+    const queue = readQueue();
+    const id = latest.record.id;
+    const same = [];
+    const rest = [];
+    for (const entry of queue) {
+      const isSame = entry.table === latest.table && entryRowId(entry) === id;
+      const op = normalizePushOp(entry.operation);
+      if (isSame && op !== 'delete') same.push(entry);
+      else rest.push(entry);
+    }
+    if (!same.length) return latest;
+    const queued = collapseRowEntries(same);
+    if (normalizePushOp(queued.operation) === 'delete') return latest;
+    const chosen = newerRow(latest, {
+      table: latest.table,
+      record: queued.record,
+      operation: queued.operation,
+    });
+    writeQueue(rest);
+    return chosen;
   }
 
   /**
@@ -295,7 +439,7 @@ export class CustomSync extends SyncAdapter {
       const online = await this.isOnline();
       if (!online) return;
 
-      const queue = readQueue();
+      const queue = coalesceQueue(readQueue());
       const remaining = [];
 
       if (queue.length > 0) {
@@ -303,7 +447,7 @@ export class CustomSync extends SyncAdapter {
         for (const entry of queue) {
           const op = entry.operation === 'push' ? 'upsert' : entry.operation;
           if (op === 'insert' || op === 'update' || op === 'upsert') {
-            const result = await this._pushToRemote(entry.table, entry.record, op);
+            const result = await this._enqueueRowPush(entry.table, entry.record, op);
             if (!result.success) {
               entry.attempts++;
               entry.errors.push({ attempt: entry.attempts, error: result.error, at: new Date().toISOString() });

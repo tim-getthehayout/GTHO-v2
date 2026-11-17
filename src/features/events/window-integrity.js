@@ -1,12 +1,12 @@
-/** @file Shared helpers for group-window bounds when an event close changes,
- * and for same-day overlap warnings. */
+/** @file Shared helpers for group- and paddock-window bounds when an event
+ * close changes, and for same-day overlap warnings. */
 
 import { getAll, getById, update, closeGroupWindow, beginBatch, endBatch } from '../../data/store.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
+import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import { compareWindowInstants } from '../../utils/date-utils.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { t } from '../../i18n/i18n.js';
-import { openLocationNames } from './open-cohort.js';
 
 /**
  * Classify every group window on an event against a close instant C.
@@ -57,6 +57,36 @@ export function classifyEventGroupWindowsForClose(eventId, closeDate, closeTime 
     windows = windows.filter((w) => scoped.has(w.id));
   }
   return classifyGroupWindowsForClose(windows, closeDate, closeTime);
+}
+
+/**
+ * Classify every paddock window on an event against a close instant C.
+ *
+ * @param {object[]} windows
+ * @param {string} closeDate
+ * @param {string|null} closeTime
+ * @returns {{ toClose: object[], toClamp: object[], toConflict: object[], unchanged: object[] }}
+ */
+export function classifyPaddockWindowsForClose(windows, closeDate, closeTime = null) {
+  const toClose = [];
+  const toClamp = [];
+  const toConflict = [];
+  const unchanged = [];
+  for (const pw of windows || []) {
+    const openedAfter = compareWindowInstants(pw.dateOpened, pw.timeOpened, closeDate, closeTime) > 0;
+    if (openedAfter) {
+      toConflict.push(pw);
+      continue;
+    }
+    if (!pw.dateClosed) {
+      toClose.push(pw);
+      continue;
+    }
+    const closedAfter = compareWindowInstants(pw.dateClosed, pw.timeClosed, closeDate, closeTime) > 0;
+    if (closedAfter) toClamp.push(pw);
+    else unchanged.push(pw);
+  }
+  return { toClose, toClamp, toConflict, unchanged };
 }
 
 export function isZeroLengthAt(gw, date, time = null) {
@@ -117,11 +147,12 @@ export function planMoveCloseLater(windows, oldDate, oldTime, newDate, newTime, 
  * join ≤ C close at C (live head/weight stamped); closed windows with left > C
  * and join ≤ C have left clamped to C (head/weight unchanged); joined-after
  * windows become zero-length at C when acceptZeroLength is true. Unchanged
- * windows are not written.
+ * windows are not written. Optional paddockClamps are written in the same
+ * batch (date_closed/time_closed set to C).
  *
  * @returns {string[]} ids that were written
  */
-export function applyGroupWindowClosePlan(plan, closeDate, closeTime = null, { acceptZeroLength = false } = {}) {
+export function applyGroupWindowClosePlan(plan, closeDate, closeTime = null, { acceptZeroLength = false, paddockClamps = [] } = {}) {
   const written = [];
   beginBatch();
   try {
@@ -151,6 +182,14 @@ export function applyGroupWindowClosePlan(plan, closeDate, closeTime = null, { a
         );
         written.push(gw.id);
       }
+    }
+    for (const pw of paddockClamps || []) {
+      update(
+        'eventPaddockWindows', pw.id,
+        { dateClosed: closeDate, timeClosed: closeTime },
+        PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows',
+      );
+      written.push(pw.id);
     }
   } finally {
     endBatch();
@@ -228,9 +267,36 @@ export function findGroupDayOverlaps(proposed, { ignoreWindowIds = [], windows =
   return overlaps;
 }
 
-/** Paddock-name label for an event; never an id. */
+/**
+ * Short date, with time when present (HH:mm). Used by the overlap warning
+ * (dates) and the joined-after review (dates and times).
+ */
+export function formatWindowInstant(date, time = null) {
+  const dateLabel = formatShortDate(date);
+  const timeLabel = time ? String(time).slice(0, 5) : '';
+  if (!dateLabel) return timeLabel;
+  return timeLabel ? `${dateLabel} ${timeLabel}` : dateLabel;
+}
+
+/** Paddock-name label for an event; never an id. Live windows first, names deduped. */
 export function eventDisplayName(eventId) {
-  const names = openLocationNames(eventId, { includeClosed: true });
+  const windows = getAll('eventPaddockWindows')
+    .filter((w) => w.eventId === eventId)
+    .sort((a, b) => {
+      const aOpen = a.dateClosed ? 1 : 0;
+      const bOpen = b.dateClosed ? 1 : 0;
+      if (aOpen !== bOpen) return aOpen - bOpen;
+      return (a.dateOpened || '').localeCompare(b.dateOpened || '')
+        || (a.timeOpened || '').localeCompare(b.timeOpened || '');
+    });
+  const seen = new Set();
+  const names = [];
+  for (const w of windows) {
+    const name = getById('locations', w.locationId)?.name;
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
   if (names.length) return names.join(', ');
   return t('event.unnamedEvent');
 }

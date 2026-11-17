@@ -18,6 +18,7 @@ import { openDateConflictDialog } from './date-conflict-dialog.js';
 import { openJoinedAfterCloseDialog } from './joined-after-close-dialog.js';
 import {
   classifyEventGroupWindowsForClose,
+  classifyPaddockWindowsForClose,
   applyGroupWindowClosePlan,
 } from './window-integrity.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
@@ -257,17 +258,27 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
       }
     }
 
-    // 2. Close all open paddock windows + create close observations (OI-0095: helper)
-    const openPWs = getAll('eventPaddockWindows').filter(w => w.eventId === evt.id && !w.dateClosed);
-    for (const pw of openPWs) {
+    // 2. Close all open paddock windows + create close observations (OI-0095: helper).
+    // Closed paddock windows that opened at or before C and end after C are
+    // clamped in the same batch as the group-window plan. Windows that opened
+    // after C were already sent to the date-conflict dialog.
+    const paddockPlan = classifyPaddockWindowsForClose(
+      getAll('eventPaddockWindows').filter((w) => w.eventId === evt.id),
+      dateOut, timeOut,
+    );
+    for (const pw of paddockPlan.toClose) {
       closePaddockWindow(pw.locationId, evt.id, dateOut, timeOut);
       if (isConfinementLocation(getById('locations', pw.locationId))) continue;
       createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
         postGraze ? postGraze.getValues() : {});
     }
 
-    // 3. Reconcile every group window on the event (open and closed).
-    applyGroupWindowClosePlan(windowPlan, dateOut, timeOut, { acceptZeroLength });
+    // 3. Reconcile every group window on the event (open and closed), and
+    // clamp closed paddock windows that outlive the close, in one batch.
+    applyGroupWindowClosePlan(windowPlan, dateOut, timeOut, {
+      acceptZeroLength,
+      paddockClamps: paddockPlan.toClamp,
+    });
 
     // 4. Set event date_out
     update('events', evt.id, {

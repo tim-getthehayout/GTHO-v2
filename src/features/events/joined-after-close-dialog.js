@@ -5,6 +5,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getById } from '../../data/store.js';
+import { formatWindowInstant } from './window-integrity.js';
 
 let reviewSheet = null;
 
@@ -50,9 +51,9 @@ export function openJoinedAfterCloseDialog({ windows, closeDate, closeTime = nul
   for (const gw of windows) {
     const group = getById('groups', gw.groupId);
     const left = gw.dateLeft
-      ? `${gw.dateLeft}${gw.timeLeft ? ` ${gw.timeLeft}` : ''}`
+      ? formatWindowInstant(gw.dateLeft, gw.timeLeft)
       : t('event.joinedAfterCloseStillOpen');
-    const joined = `${gw.dateJoined || ''}${gw.timeJoined ? ` ${gw.timeJoined}` : ''}`;
+    const joined = formatWindowInstant(gw.dateJoined, gw.timeJoined);
     list.appendChild(el('div', {
       'data-testid': `joined-after-close-row-${gw.id}`,
       style: { borderTop: '0.5px solid var(--border)', padding: '10px 0', fontSize: '13px' },
@@ -60,7 +61,7 @@ export function openJoinedAfterCloseDialog({ windows, closeDate, closeTime = nul
       group: group?.name || t('event.unnamedGroup'),
       joined,
       left,
-      outDate: closeTime ? `${closeDate} ${closeTime}` : closeDate,
+      outDate: formatWindowInstant(closeDate, closeTime),
     })]));
   }
   panel.appendChild(list);

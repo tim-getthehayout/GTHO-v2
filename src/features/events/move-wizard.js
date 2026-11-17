@@ -33,6 +33,7 @@ import { openDateConflictDialog } from './date-conflict-dialog.js';
 import { openJoinedAfterCloseDialog } from './joined-after-close-dialog.js';
 import {
   classifyEventGroupWindowsForClose,
+  classifyPaddockWindowsForClose,
   applyGroupWindowClosePlan,
   arrivalEarlierThanDeparture,
   findGroupDayOverlaps,
@@ -817,7 +818,16 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         sourceGroupState.push({ groupId: gw.groupId, operationId: gw.operationId, headCount: liveHead, avgWeightKg: liveAvg });
       }
     }
-    applyGroupWindowClosePlan(windowPlan, dateOut, timeOut, { acceptZeroLength });
+    const paddockPlan = willCloseSourcePaddocks
+      ? classifyPaddockWindowsForClose(
+        getAll('eventPaddockWindows').filter((w) => w.eventId === sourceEvent.id),
+        dateOut, timeOut,
+      )
+      : { toClose: [], toClamp: [] };
+    applyGroupWindowClosePlan(windowPlan, dateOut, timeOut, {
+      acceptZeroLength,
+      paddockClamps: paddockPlan.toClamp,
+    });
     // OI-0090: if a source group is now empty (e.g., all animals were culled
     // mid-event), surface the archive prompt.
     const emptiedSourceGroups = sourceGroupState.filter(s => s.headCount < 1).map(s => s.groupId);
@@ -832,8 +842,9 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
 
     if (lastGroupLeaving) {
       // Step 2: Close all open paddock windows (OI-0095: route through closePaddockWindow).
-      const sourcePWs = getAll('eventPaddockWindows').filter(w => w.eventId === sourceEvent.id && !w.dateClosed);
-      for (const pw of sourcePWs) {
+      // Closed paddock windows that outlive the close were already clamped in
+      // the group-window batch above.
+      for (const pw of paddockPlan.toClose) {
         closePaddockWindow(pw.locationId, sourceEvent.id, dateOut, timeOut);
         createObservation(operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
           postGraze ? postGraze.getValues() : {});

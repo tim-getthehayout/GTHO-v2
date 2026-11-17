@@ -9,11 +9,13 @@ import * as LocationEntity from '../../src/entities/location.js';
 import * as EventEntity from '../../src/entities/event.js';
 import * as GroupEntity from '../../src/entities/group.js';
 import * as GroupWindowEntity from '../../src/entities/event-group-window.js';
+import * as PaddockWindowEntity from '../../src/entities/event-paddock-window.js';
 import * as AnimalEntity from '../../src/entities/animal.js';
 import * as MembershipEntity from '../../src/entities/animal-group-membership.js';
 import {
   classifyGroupWindowsForClose,
   classifyEventGroupWindowsForClose,
+  classifyPaddockWindowsForClose,
   applyGroupWindowClosePlan,
   planMoveCloseLater,
   applyMoveCloseLaterPlan,
@@ -24,6 +26,8 @@ import {
   findGroupDayOverlaps,
   overlapWarningText,
   arrivalEarlierThanDeparture,
+  eventDisplayName,
+  formatWindowInstant,
 } from '../../src/features/events/window-integrity.js';
 import { compareWindowInstants } from '../../src/utils/date-utils.js';
 import { classifyGwsForReopen } from '../../src/features/events/reopen-event.js';
@@ -32,6 +36,11 @@ import { formatShortDate } from '../../src/utils/date-format.js';
 const OP = '00000000-0000-0000-0000-000000022601';
 const FARM = '00000000-0000-0000-0000-000000022602';
 const LOC = '00000000-0000-0000-0000-0000000226a1';
+const LOC_E = '00000000-0000-0000-0000-0000000226a2';
+const PW_E = '00000000-0000-0000-0000-0000000226b1';
+const PW_J2_A = '00000000-0000-0000-0000-0000000226b2';
+const PW_J2_B = '00000000-0000-0000-0000-0000000226b3';
+const PW_J2_OPEN = '00000000-0000-0000-0000-0000000226b4';
 const EVT_K = '00000000-0000-0000-0000-000000022611';
 const EVT_LATER = '00000000-0000-0000-0000-000000022612';
 const GROUP = '00000000-0000-0000-0000-0000000226c1';
@@ -132,6 +141,12 @@ describe('applyGroupWindowClosePlan', () => {
     const unsub = subscribe('eventGroupWindows', () => { notifies += 1; });
 
     applyGroupWindowClosePlan(plan, '2026-08-10', '09:00');
+    // endBatch drains subscribers synchronously. Without the batch, notify
+    // waits for a microtask, so this would still be 0 here. The later
+    // microtask flush must not add a second notification.
+    expect(notifies).toBe(1);
+    expect(pushes).toHaveLength(2);
+    expect(pushes.map((p) => p.id).sort()).toEqual([GW_OPEN, GW_B1].sort());
     await Promise.resolve();
     await Promise.resolve();
     unsub();
@@ -145,7 +160,6 @@ describe('applyGroupWindowClosePlan', () => {
     expect(b1.avgWeightKg).toBe(620);
     expect(b1Before.headCount).toBe(17);
     expect(notifies).toBe(1);
-    expect(pushes.map((p) => p.id).sort()).toEqual([GW_OPEN, GW_B1].sort());
   });
 
   it('B1: closed window 08-03 10:00 → 09-16 ends 08-10 09:00 after a backdated close', () => {
@@ -207,6 +221,16 @@ describe('reopen and move-close-later', () => {
     addGw(GW_EARLY, { dateJoined: '2026-08-03', timeJoined: '10:00', dateLeft: '2026-08-09', timeLeft: null });
     const { reopen, keepClosed } = classifyGwsForReopen({ id: EVT_K, dateOut: '2026-08-10', timeOut: '09:00' });
     expect(reopen.map((r) => r.gw.id)).toEqual([GW_OPEN]);
+    expect(keepClosed).toHaveLength(0);
+  });
+
+  it('does not reopen a window left on the old close date at an earlier time', () => {
+    addGw(GW_OPEN, {
+      dateJoined: '2026-08-03', timeJoined: '10:00',
+      dateLeft: '2026-08-10', timeLeft: '08:00',
+    });
+    const { reopen, keepClosed } = classifyGwsForReopen({ id: EVT_K, dateOut: '2026-08-10', timeOut: '09:00' });
+    expect(reopen).toHaveLength(0);
     expect(keepClosed).toHaveLength(0);
   });
 
@@ -330,5 +354,94 @@ describe('overlap helpers', () => {
     expect(overlaps[0].start).toBe('2026-08-09');
     expect(overlaps[0].end).toBe('2026-08-20');
     expect(overlaps[0].eventLabel).toBe('another event');
+  });
+});
+
+describe('classifyPaddockWindowsForClose and paddock clamp', () => {
+  beforeEach(() => seedBase());
+
+  it('classifies open, clamp, conflict, and unchanged paddock windows', () => {
+    const windows = [
+      { id: 'open', dateOpened: '2026-11-01', timeOpened: null, dateClosed: null },
+      { id: 'clamp', dateOpened: '2026-11-01', timeOpened: null, dateClosed: '2026-11-17', timeClosed: '12:01' },
+      { id: 'after', dateOpened: '2026-11-17', timeOpened: '12:01', dateClosed: '2026-11-18', timeClosed: null },
+      { id: 'early', dateOpened: '2026-11-01', timeOpened: null, dateClosed: '2026-11-16', timeClosed: '12:00' },
+    ];
+    const plan = classifyPaddockWindowsForClose(windows, '2026-11-16', '12:02');
+    expect(plan.toClose.map((w) => w.id)).toEqual(['open']);
+    expect(plan.toClamp.map((w) => w.id)).toEqual(['clamp']);
+    expect(plan.toConflict.map((w) => w.id)).toEqual(['after']);
+    expect(plan.unchanged.map((w) => w.id)).toEqual(['early']);
+  });
+
+  it('clamps a closed paddock window in the same batch as the group-window plan', () => {
+    add('locations', LocationEntity.create({
+      id: LOC_E, operationId: OP, farmId: FARM, name: 'E - 3', type: 'land',
+      landUse: 'pasture', areaHectares: 4,
+    }), LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_E, operationId: OP, eventId: EVT_K, locationId: LOC_E,
+      dateOpened: '2026-11-01', dateClosed: '2026-11-17', timeClosed: '12:01', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    addGw(GW_OPEN, { dateJoined: '2026-11-01', dateLeft: null });
+    const groupPlan = classifyEventGroupWindowsForClose(EVT_K, '2026-11-16', '12:02', { eventClosing: true });
+    const paddockPlan = classifyPaddockWindowsForClose(
+      getAll('eventPaddockWindows').filter((w) => w.eventId === EVT_K),
+      '2026-11-16', '12:02',
+    );
+    expect(paddockPlan.toClamp.map((w) => w.id)).toEqual([PW_E]);
+
+    let midBatchNotifies = 0;
+    const unsub = subscribe('eventPaddockWindows', () => { midBatchNotifies += 1; });
+    applyGroupWindowClosePlan(groupPlan, '2026-11-16', '12:02', { paddockClamps: paddockPlan.toClamp });
+    expect(midBatchNotifies).toBe(1);
+    unsub();
+
+    const pw = getById('eventPaddockWindows', PW_E);
+    expect(pw.dateClosed).toBe('2026-11-16');
+    expect(pw.timeClosed).toBe('12:02');
+    expect(getById('eventGroupWindows', GW_OPEN).dateLeft).toBe('2026-11-16');
+    expect(getById('eventGroupWindows', GW_OPEN).timeLeft).toBe('12:02');
+  });
+});
+
+describe('eventDisplayName', () => {
+  beforeEach(() => seedBase());
+
+  it('dedupes paddock names and lists live windows first', () => {
+    add('locations', LocationEntity.create({
+      id: LOC_E, operationId: OP, farmId: FARM, name: 'E - 3', type: 'land',
+      landUse: 'pasture', areaHectares: 4,
+    }), LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_J2_A, operationId: OP, eventId: EVT_K, locationId: LOC,
+      dateOpened: '2026-07-01', dateClosed: '2026-07-04', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_J2_B, operationId: OP, eventId: EVT_K, locationId: LOC,
+      dateOpened: '2026-07-04', dateClosed: '2026-07-10', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_E, operationId: OP, eventId: EVT_K, locationId: LOC_E,
+      dateOpened: '2026-07-01', dateClosed: '2026-07-10', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_J2_OPEN, operationId: OP, eventId: EVT_K, locationId: LOC,
+      dateOpened: '2026-07-10', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+
+    expect(eventDisplayName(EVT_K)).toBe('K - 1..5, E - 3');
+  });
+
+  it('falls back when the event has no paddock names', () => {
+    expect(eventDisplayName(EVT_K)).toBe('another event');
+  });
+});
+
+describe('formatWindowInstant', () => {
+  it('uses short dates and includes time when present', () => {
+    expect(formatWindowInstant('2026-11-16', '12:02')).toBe(`${formatShortDate('2026-11-16')} 12:02`);
+    expect(formatWindowInstant('2026-09-16', null)).toBe(formatShortDate('2026-09-16'));
+    expect(formatWindowInstant('2026-11-16', '12:02:00')).toBe(`${formatShortDate('2026-11-16')} 12:02`);
   });
 });

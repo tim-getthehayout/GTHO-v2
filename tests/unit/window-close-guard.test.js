@@ -66,12 +66,28 @@ describe('checkWindowCloses — no conflicts', () => {
     expect(checkWindowCloses(EVT, '2026-06-30')).toEqual([]);
   });
 
-  it('ignores already-closed windows', () => {
+  it('does not flag a closed paddock window that opened at or before the close', () => {
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
+      dateOpened: '2026-06-01', dateClosed: '2026-06-20', areaPct: 100,
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    expect(checkWindowCloses(EVT, '2026-06-06')).toEqual([]);
+  });
+
+  it('flags a closed paddock window that opened after the close', () => {
     add('eventPaddockWindows', PaddockWindowEntity.create({
       id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
       dateOpened: '2026-06-14', dateClosed: '2026-06-20', areaPct: 100,
     }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
-    expect(checkWindowCloses(EVT, '2026-06-06')).toEqual([]);
+    const conflicts = checkWindowCloses(EVT, '2026-06-06');
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      kind: 'paddock',
+      windowId: PW_A,
+      locationId: LOC_A,
+      openDate: '2026-06-14',
+      outDate: '2026-06-06',
+    });
   });
 });
 

@@ -1,7 +1,7 @@
 /** @file Close-sheet and move-wizard flows for the backdated-close clamp,
  * joined-after review, arrival default, and overlap warning. */
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { _reset, add, getAll, getById, setSyncAdapter } from '../../src/data/store.js';
+import { _reset, add, update, getAll, getById, setSyncAdapter } from '../../src/data/store.js';
 import { setLocale } from '../../src/i18n/i18n.js';
 import enLocale from '../../src/i18n/locales/en.json';
 import * as OperationEntity from '../../src/entities/operation.js';
@@ -20,6 +20,11 @@ import { openMoveWizard } from '../../src/features/events/move-wizard.js';
 import { openPlaceWizard } from '../../src/features/events/place-wizard.js';
 import { openEditGroupWindowDialog } from '../../src/features/events/edit-group-window.js';
 import { formatShortDate } from '../../src/utils/date-format.js';
+import { formatWindowInstant } from '../../src/features/events/window-integrity.js';
+import * as FeedTypeEntity from '../../src/entities/feed-type.js';
+import * as BatchEntity from '../../src/entities/batch.js';
+import * as FeedEntryEntity from '../../src/entities/event-feed-entry.js';
+import { inventoryPoolSnapshot } from '../../src/features/feed/pool-ledger.js';
 
 const OP = '00000000-0000-0000-0000-000000022701';
 const FARM = '00000000-0000-0000-0000-000000022702';
@@ -162,7 +167,10 @@ describe('close sheet clamp and review', () => {
     expect(document.querySelector('[data-testid="joined-after-close-title"]')).toBeTruthy();
     const list = document.querySelector('[data-testid="joined-after-close-list"]');
     expect(list.textContent).toContain('Cow-Calf Herd');
-    expect(list.textContent).toContain('2026-09-16');
+    expect(list.textContent).toContain(formatWindowInstant('2026-09-16'));
+    expect(list.textContent).toContain(formatWindowInstant('2026-09-22'));
+    expect(list.textContent).toContain(formatWindowInstant('2026-08-10', '09:00'));
+    expect(list.textContent).not.toContain('2026-09-16');
     expect(getById('events', EVT).dateOut).toBeFalsy();
 
     document.querySelector('[data-testid="joined-after-close-cancel"]').click();
@@ -328,5 +336,103 @@ describe('edit-group-window and place-wizard overlap warning', () => {
     document.querySelector('[data-testid="place-wizard-save"]').click();
     const placed = getAll('eventGroupWindows').filter((w) => w.groupId === unplaced && w.eventId !== EVT_OTHER);
     expect(placed.length).toBe(1);
+  });
+});
+
+describe('paddock-window clamp on a backdated close', () => {
+  it('replays the E-3 sequence: paddock closed Nov 17 12:01, event closed back to Nov 16 12:02', () => {
+    seedScene({ includeB1: false, includeEarly: false, includeB2: false });
+    update(
+      'eventPaddockWindows', SRC_PW,
+      { dateClosed: '2026-11-17', timeClosed: '12:01' },
+      PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows',
+    );
+    expect(getById('eventPaddockWindows', SRC_PW).dateClosed).toBe('2026-11-17');
+    expect(getById('eventPaddockWindows', SRC_PW).timeClosed).toBe('12:01');
+
+    closeEventTo('2026-11-16', '12:02');
+
+    const pw = getById('eventPaddockWindows', SRC_PW);
+    expect(pw.dateClosed).toBe('2026-11-16');
+    expect(pw.timeClosed).toBe('12:02');
+    expect(getById('events', EVT).dateOut).toBe('2026-11-16');
+    expect(getById('events', EVT).timeOut).toBe('12:02');
+    expect(getById('eventGroupWindows', GW_OPEN).dateLeft).toBe('2026-11-16');
+    expect(getById('eventGroupWindows', GW_OPEN).timeLeft).toBe('12:02');
+    const queue = JSON.parse(localStorage.getItem('_sync_queue') || '[]');
+    const queuedIds = queue.map((row) => row.id || row.record?.id);
+    expect(queuedIds).toContain(SRC_PW);
+    expect(queuedIds).toContain(GW_OPEN);
+    expect(queuedIds).toContain(EVT);
+    const durableKeys = [...new Set(queue.map((row) => {
+      try { return JSON.parse(row.durable_key)[0]; } catch { return row.durable_key; }
+    }))];
+    expect(durableKeys).toHaveLength(1);
+  });
+
+  it('keeps the date-conflict dialog for a closed paddock window that opened after the close', () => {
+    seedScene({ includeB1: false, includeEarly: false, includeB2: false });
+    update(
+      'eventPaddockWindows', SRC_PW,
+      { dateOpened: '2026-11-17', timeOpened: '12:01', dateClosed: '2026-11-18', timeClosed: '09:00' },
+      PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows',
+    );
+    const before = getById('eventPaddockWindows', SRC_PW);
+    closeEventTo('2026-11-16', '12:02');
+    expect(document.querySelector('[data-testid="date-conflict-dialog-title"]')).toBeTruthy();
+    expect(getById('events', EVT).dateOut).toBeFalsy();
+    const pw = getById('eventPaddockWindows', SRC_PW);
+    expect(pw.dateOpened).toBe('2026-11-17');
+    expect(pw.dateClosed).toBe('2026-11-18');
+    expect(pw.timeClosed).toBe('09:00');
+    expect(pw.updatedAt).toBe(before.updatedAt);
+  });
+});
+
+describe('pool-write earlier-arrival refusal', () => {
+  const FEED_TYPE = '00000000-0000-0000-0000-0000000227f1';
+  const BATCH = '00000000-0000-0000-0000-0000000227f2';
+  const FEED_ENTRY = '00000000-0000-0000-0000-0000000227f3';
+
+  it('refuses a pool-write transfer when arrival is earlier than departure', () => {
+    seedScene({ includeB1: false, includeEarly: false, includeB2: false });
+    add('feedTypes', FeedTypeEntity.create({
+      id: FEED_TYPE, operationId: OP, name: 'Grass Hay', category: 'hay', unit: 'bale',
+    }), FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
+    const batch = BatchEntity.create({
+      id: BATCH, operationId: OP, feedTypeId: FEED_TYPE, name: 'Hay Batch',
+      unit: 'bale', quantity: 10, remaining: 8, weightPerUnitKg: 500, dmPct: 85,
+    });
+    add('batches', batch, BatchEntity.validate, BatchEntity.toSupabaseShape, 'batches');
+    add('eventFeedEntries', FeedEntryEntity.create({
+      id: FEED_ENTRY, operationId: OP, eventId: EVT, batchId: BATCH,
+      locationId: SRC_LOC, date: '2026-08-04', time: '09:00', quantity: 4,
+      ...inventoryPoolSnapshot(batch),
+    }), FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
+
+    openMoveStep3();
+    const dateOut = document.querySelector('[data-testid="move-wizard-date-out"]');
+    const dateIn = document.querySelector('[data-testid="move-wizard-date-in"]');
+    dateOut.value = '2026-08-10';
+    dateOut.dispatchEvent(new Event('input', { bubbles: true }));
+    dateIn.value = '2026-08-09';
+    dateIn.dispatchEvent(new Event('input', { bubbles: true }));
+
+    const snapshot = JSON.stringify({
+      event: getById('events', EVT),
+      windows: getAll('eventGroupWindows'),
+      paddocks: getAll('eventPaddockWindows'),
+      entries: getAll('eventFeedEntries'),
+    });
+    document.querySelector('[data-testid="move-wizard-save"]').click();
+    const status = document.querySelector('[data-testid="move-wizard-status"]');
+    expect(status.textContent).toBe('Feed cannot arrive before the source observation.');
+    expect(JSON.stringify({
+      event: getById('events', EVT),
+      windows: getAll('eventGroupWindows'),
+      paddocks: getAll('eventPaddockWindows'),
+      entries: getAll('eventFeedEntries'),
+    })).toBe(snapshot);
+    expect(getAll('events').filter((e) => e.id !== EVT)).toHaveLength(0);
   });
 });

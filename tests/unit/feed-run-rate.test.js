@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { computeFeedRunRate, poolDmPrices, shiftDate, FALLBACK_COST_PER_BALE } from '../../src/calcs/feed-run-rate.js';
 import { poolDailyObservation, poolDailyActual, poolKey } from '../../src/calcs/feed-pools.js';
-import { groupWindowsDailyDmiKg, farmDemandWindowsOn, eventOpenOn } from '../../src/calcs/window-helpers.js';
+import { groupWindowsDailyDmiKg, farmDemandWindowsOn, eventOpenOn, resetWarnedDuplicateGroupDays } from '../../src/calcs/window-helpers.js';
 
 const types = [{ id: 'hay', unit: 'bale' }, { id: 'sq', unit: 'sq bale' }];
 const feed = (id, eventId, feedTypeId, date, q, { w = 500, dm = 80, unit = 'bale', batchId = id, time = '09:00', loc = 'p' } = {}) =>
@@ -255,6 +255,7 @@ describe('farm demand counts only windows on open events, once per group', () =>
     expect(groupWindowsDailyDmiKg('2026-11-10', { groupWindows: [{ ...groupWindows[0], eventId: 'evt-gone' }], events })).toBe(0);
   });
   it('a group with two qualifying windows on the same day counts once and warns with the name and date only', () => {
+    resetWarnedDuplicateGroupDays();
     const input = orphanHerd();
     input.events.push({ id: 'evt-d', dateIn: '2026-11-01', dateOut: null });
     input.groupWindows.push({ id: 'gw-d', eventId: 'evt-d', groupId: 'grp-g', dateJoined: '2026-11-01', dateLeft: null, headCount: 10, avgWeightKg: 500 });
@@ -271,6 +272,47 @@ describe('farm demand counts only windows on open events, once per group', () =>
       for (const m of messages) expect(m).not.toMatch(/grp-g|gw-|evt-/);
     } finally {
       warn.mockRestore();
+    }
+  });
+
+
+  it('same-group-day ties break on timeJoined, then createdAt, then id, in either input order', () => {
+    const events = [{ id: 'evt-x', dateIn: '2026-11-01', dateOut: null }, { id: 'evt-y', dateIn: '2026-11-01', dateOut: null }];
+    const base = { groupId: 'grp-g', dateJoined: '2026-11-09', dateLeft: null, headCount: 10, avgWeightKg: 500 };
+    const earlierTime = { ...base, id: 'gw-early-time', eventId: 'evt-x', timeJoined: '08:00', createdAt: '2026-11-09T12:00:00.000Z' };
+    const laterTime = { ...base, id: 'gw-late-time', eventId: 'evt-y', timeJoined: '15:00', createdAt: '2026-11-09T09:00:00.000Z' };
+    for (const groupWindows of [[earlierTime, laterTime], [laterTime, earlierTime]]) {
+      expect(farmDemandWindowsOn('2026-11-12', { groupWindows, events }).windows.map(w => w.id)).toEqual(['gw-late-time']);
+    }
+    const earlierCreated = { ...base, id: 'gw-early-created', eventId: 'evt-x', timeJoined: '10:00', createdAt: '2026-11-09T09:00:00.000Z' };
+    const laterCreated = { ...base, id: 'gw-late-created', eventId: 'evt-y', timeJoined: '10:00', createdAt: '2026-11-09T18:00:00.000Z' };
+    for (const groupWindows of [[earlierCreated, laterCreated], [laterCreated, earlierCreated]]) {
+      expect(farmDemandWindowsOn('2026-11-12', { groupWindows, events }).windows.map(w => w.id)).toEqual(['gw-late-created']);
+    }
+    const idA = { ...base, id: 'gw-a', eventId: 'evt-x', timeJoined: '10:00', createdAt: '2026-11-09T12:00:00.000Z' };
+    const idB = { ...base, id: 'gw-b', eventId: 'evt-y', timeJoined: '10:00', createdAt: '2026-11-09T12:00:00.000Z' };
+    for (const groupWindows of [[idA, idB], [idB, idA]]) {
+      expect(farmDemandWindowsOn('2026-11-12', { groupWindows, events }).windows.map(w => w.id)).toEqual(['gw-b']);
+    }
+  });
+
+  it('the duplicate-group warning fires only once per group and date across repeated calls', () => {
+    resetWarnedDuplicateGroupDays();
+    const input = orphanHerd();
+    input.events.push({ id: 'evt-d', dateIn: '2026-11-01', dateOut: null });
+    input.groupWindows.push({ id: 'gw-d', eventId: 'evt-d', groupId: 'grp-g', dateJoined: '2026-11-01', dateLeft: null, headCount: 10, avgWeightKg: 500 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      farmDemandWindowsOn('2026-11-12', input);
+      farmDemandWindowsOn('2026-11-12', input);
+      const onTwelfth = warn.mock.calls.map(call => call.join(' ')).filter(m => m.includes('Test Herd') && m.includes('2026-11-12'));
+      expect(onTwelfth).toHaveLength(1);
+      farmDemandWindowsOn('2026-11-13', input);
+      const onThirteenth = warn.mock.calls.map(call => call.join(' ')).filter(m => m.includes('Test Herd') && m.includes('2026-11-13'));
+      expect(onThirteenth).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+      resetWarnedDuplicateGroupDays();
     }
   });
 });

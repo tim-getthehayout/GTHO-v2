@@ -1,5 +1,6 @@
-/** @file Shared run-rate panel (feed checks): pills 7/14/30/60, run rate,
- * consumed, residual at close, DMI actual vs forecast. Used by the Feed Day
+/** @file Shared run-rate panel (feed checks): pills 7/14/30/60, implied
+ * pasture DMI (DMI-9) as the headline, then run rate, consumed, residual at
+ * close, DMI actual vs forecast. Used by the Feed Day
  * Goal card and reused by the stored-forage scorecard; all math lives in the
  * shared calc `src/calcs/feed-run-rate.js`.
  */
@@ -10,6 +11,7 @@ import { display } from '../../utils/units.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { computeFeedRunRate, RUN_RATE_WINDOWS, DEFAULT_RUN_RATE_DAYS } from '../../calcs/feed-run-rate.js';
+import { periodContaining } from '../../calcs/budget-period.js';
 import { getEventStartDate } from '../events/event-start.js';
 
 // ---------------------------------------------------------------------------
@@ -27,17 +29,21 @@ function setRunRateDays(days) {
   try { globalThis.localStorage?.setItem(RUN_RATE_DAYS_KEY, String(days)); } catch { /* device storage unavailable */ }
 }
 
-/** Gather store rows for the shared run-rate calc. Event start is derived (dateIn). */
+/** Gather store rows for the shared run-rate calc. Event start is derived (dateIn).
+ * Pills are clipped to the start of the default budget period containing today (D10). */
 export function feedRunRateInput(days, today = getLocalTodayStr()) {
   const classes = {};
   for (const cls of getAll('animalClasses')) classes[cls.id] = cls;
+  const locations = {};
+  for (const loc of getAll('locations')) locations[loc.id] = loc;
   return {
-    today, days,
+    today, days, periodStart: periodContaining(today).start,
     events: getAll('events').map(event => ({ id: event.id, dateIn: getEventStartDate(event.id), dateOut: event.dateOut ?? null })),
     entries: getAll('eventFeedEntries'), checks: getAll('eventFeedChecks'), items: getAll('eventFeedCheckItems'),
     batches: getAll('batches'), feedTypes: getAll('feedTypes'),
     groupWindows: getAll('eventGroupWindows'), memberships: getAll('animalGroupMemberships'),
     animals: getAll('animals'), animalWeightRecords: getAll('animalWeightRecords'), animalClasses: classes,
+    paddockWindows: getAll('eventPaddockWindows'), locations,
     groups: getAll('groups').map(group => ({ id: group.id, name: group.name })),
   };
 }
@@ -64,6 +70,46 @@ function amountColumn(testId, title, total, unitSys, extra = []) {
   ]);
 }
 
+const PASTURE_SPECIES = [['cattle', 'feed.pastureSpeciesCattle'], ['sheep', 'feed.pastureSpeciesSheep'], ['goat', 'feed.pastureSpeciesGoat'], ['other', 'feed.pastureSpeciesOther']];
+const fmtPct = value => Math.round(value);
+const perDay = (kg, unitSys) => `${dmText(kg, unitSys)}${t('feed.runRatePerDay')}`;
+
+/** DMI-9 headline: green when above 0, muted at 0; Unknown or No animals, never a made-up 0. */
+function impliedPastureBlock(p, unitSys) {
+  const headline = (text, color) => el('div', { 'data-testid': 'feed-implied-pasture', style: { fontSize: '18px', fontWeight: '700', color, marginTop: 'var(--space-2)' } }, [text]);
+  const hint = (testId, text) => el('div', { className: 'form-hint', 'data-testid': testId }, [text]);
+  const droppedText = () => {
+    const parts = [];
+    if (p.dropped.noWeight) parts.push(t('feed.pastureDroppedNoWeight', { count: p.dropped.noWeight }));
+    if (p.dropped.confinement) parts.push(t('feed.pastureDroppedConfinement', { count: p.dropped.confinement }));
+    if (p.dropped.storedWithoutDemand) parts.push(t('feed.pastureDroppedNoDemand', { count: p.dropped.storedWithoutDemand }));
+    return parts.length ? hint('feed-implied-pasture-dropped', t('feed.pastureDropped', { parts: parts.join(' · ') })) : null;
+  };
+  if (p.status === 'unknown') {
+    return [headline(t('feed.pastureUnknown'), 'var(--text2)'),
+      p.reason === 'no_counted_days' ? hint('feed-implied-pasture-reason', t('feed.pastureNeedsDays')) : droppedText()].filter(Boolean);
+  }
+  if (p.status === 'no_animals') return [headline(t('feed.pastureNoAnimals'), 'var(--text2)')];
+  const positive = p.pastureDmKgPerDay > 1e-9;
+  const out = [
+    headline(t('feed.pastureHeadline', { amount: perDay(p.pastureDmKgPerDay, unitSys), pct: fmtPct(p.pasturePct) }), positive ? 'var(--green)' : 'var(--text3)'),
+    hint('feed-implied-pasture-detail', t('feed.pastureDetail', { demand: perDay(p.demandDmKgPerDay, unitSys), stored: perDay(p.storedDmKgPerDay, unitSys), counted: p.countedDays, days: p.windowDays })),
+  ];
+  if (p.signedDmKg < 0) {
+    out.push(el('div', { 'data-testid': 'feed-implied-pasture-over', style: { fontSize: '13px' } }, [t('feed.pastureOverDemand', { amount: perDay(p.overDemandDmKgPerDay, unitSys), pct: fmtPct(p.overDemandPct) })]));
+    out.push(hint('feed-implied-pasture-over-hint', t('feed.pastureOverDemandHint')));
+  }
+  const dropped = droppedText(); if (dropped) out.push(dropped);
+  const rows = PASTURE_SPECIES.filter(([key]) => p.bySpecies[key]).map(([key, label]) => {
+    const sp = p.bySpecies[key];
+    const perHead = sp.pasturePerHeadKg == null ? t('feed.pastureUnknownShort') : `${t('feed.runRateDm', { amount: display(sp.pasturePerHeadKg, 'weight', unitSys, 1) })}${t('feed.pasturePerHead')}`;
+    return el('div', { 'data-testid': `feed-implied-pasture-${key}`, style: { fontSize: '13px', color: sp.pastureDmKgPerDay > 1e-9 ? 'var(--green)' : 'var(--text3)' } },
+      [t('feed.pastureSpeciesRow', { species: t(label), perHead, pct: fmtPct(sp.pasturePct) })]);
+  });
+  if (rows.length) out.push(el('details', { 'data-testid': 'feed-implied-pasture-species' }, [el('summary', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('feed.pastureBySpecies')]), ...rows]));
+  return out;
+}
+
 /**
  * The run-rate panel: pills, rate line, consumed / residual columns and DMI.
  * One shared component for the Feed Day Goal card and the stored-forage
@@ -81,7 +127,7 @@ export function renderRunRatePanel({ unitSys, today } = {}) {
       'aria-pressed': n === days ? 'true' : 'false',
       onClick: () => { setRunRateDays(n); section.replaceWith(renderRunRatePanel({ unitSys, today })); },
     }, [t('feed.runRatePill', { days: n })])));
-  const body = [];
+  const body = [...impliedPastureBlock(result.impliedPasture, unitSys)];
   if (!result.measuredDays) {
     body.push(el('div', { className: 'form-hint', 'data-testid': 'feed-run-rate-empty' }, [t('feed.runRateEmpty', { days })]));
   } else {
@@ -113,7 +159,7 @@ export function renderRunRatePanel({ unitSys, today } = {}) {
     body.push(el('div', { 'data-testid': 'feed-run-rate-dmi', style: { fontSize: '13px', marginTop: 'var(--space-2)' } }, [
       result.rate.pctOfForecast == null
         ? t('feed.runRateDmiNoForecast', { actual })
-        : t('feed.runRateDmi', { actual, forecast, days: result.measuredDays, pct: Math.round(result.rate.pctOfForecast) }),
+        : t(result.measuredDays === 1 ? 'feed.runRateDmiOne' : 'feed.runRateDmi', { actual, forecast, days: result.measuredDays, pct: Math.round(result.rate.pctOfForecast) }),
     ]));
   }
   section.append(

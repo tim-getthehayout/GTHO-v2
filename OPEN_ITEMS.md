@@ -35,8 +35,9 @@
 | OI-0223 | Show standard feed-unit labels in cards, details and reports instead of stored text | Open — low priority, not started; needs Tim's say-so (follow-up from PR #60) |
 | OI-0224 | Feed run rate from feed checks (7/14/30/60-day pills; consumed and residual in bales, $ and DM; DMI actual vs forecast) | **MERGED, awaiting publish** — Forgejo PR #65 merged at `368b801b` (`f353c72c`); not yet published to GitHub. Earlier: APPROVED 2026-11-17 6:12 AM ET (Tim, via Orchestrator); 6:27 AM ET hold lifted 6:29 AM ET (Tim, via Orchestrator); **handed to Build** as a shared calc the OI-0221 scorecard reuses; C residual = hay left or wasted when an event closes; A, B, D–H at defaults; no migration; docs landing approved; also on the OI-0221 scorecard (6:28 AM ET), one shared calc and component; PR #65 passed Design review at `f353c72c` (2026-11-17) |
 | OI-0225 | Implied pasture DMI (predicted herd DMI − stored feed; headline of the run-rate panel and the budget view) + OI-0221 D10 configurable budget dates | **APPROVED 2026-11-17** (Tim, 2026-11-17 9:18 AM ET, via Orchestrator; asked 9:04 AM ET); new calc DMI-9; [brief](session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md); Q1–Q6 decided; landing on Forgejo approved, no GitHub publish; sheep Jun–Oct 2026 basis is a follow-up write after 045 (Tim's yes + backup) |
-| OI-0226 | Window integrity: group windows never outlive their event (backdated-close clamp, ordered save, arrival default, DB guard + stale-write refusal) | **PR A on `fix/window-integrity-a`** (awaiting review); PR B and PR C not started. APPROVED 2026-11-17 (Tim, 11:01 AM ET, via Orchestrator); [brief](session_briefs/WINDOW_INTEGRITY_2026-11-17.md); PR A (a)+(c) client, PR B (b) sync ordering, PR C (d) migration gated on a clean audit, Tim's yes + backup per apply |
+| OI-0226 | Window integrity: group windows never outlive their event (backdated-close clamp, ordered save, arrival default, DB guard + stale-write refusal) | **PR A on `fix/window-integrity-a`** (awaiting review); PR B and PR C not started. APPROVED 2026-11-17 (Tim, 11:01 AM ET, via Orchestrator); [brief](session_briefs/WINDOW_INTEGRITY_2026-11-17.md); PR A (a)+(c) client, PR B (b) sync ordering, PR C (d) migration gated on a clean audit, Tim's yes + backup per apply. **Addendum 2026-11-17 (Design, found in PR #75 review):** slice (a) extends to paddock windows in PR A, same batch as the group-window clamp; see brief §6 |
 | OI-0227 | Feed-check plausibility: non-blocking implausible-intake warning (B), Notes below Remaining (C), spread intake between checks by elapsed time (D); A declined | **APPROVED 2026-11-17** (Tim, 12:23 PM ET, via Orchestrator); [brief](session_briefs/FEED_CHECK_PLAUSIBILITY_2026-11-17.md); from the corral daily-bars report; suggested PR 1 = B+C, PR 2 = D; no migration, no data change (Tim edits the Nov 16 check himself) |
+| OI-0228 | Internal ids shown in UI strings (`store.js` window-closed toast; retro-place `Event #xxxx`) | Open — low priority, not started; no product decision needed. Rule: UI never shows ids; name events by paddock/location title with fallback 'another event' (same convention as PR A's overlap warning) |
 
 ---
 
@@ -106,6 +107,20 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 ---
 
+### OI-0228 — Internal ids shown in UI strings
+
+**Added:** 2026-11-17 | **Area:** v2-build / ui | **Priority:** low
+
+**Status:** open — not started; **no product decision needed.** The UI never shows internal ids. Name events by paddock/location title, with fallback "another event" (the same convention as PR A's overlap warning: `eventDisplayName` / `event.unnamedEvent` in PR #75).
+
+**Where (line refs verified this commit):**
+- `src/data/store.js:783` — the window-closed toast uses `event.id.slice(0, 8)` (`${groupName} ended on ${eventLabel} as of ${closeDate}`). This line is the same on origin/main `803a822a` and on PR #75 `37d7b00a`. (A review note said `:785`; that is the blank line after the toast.) On PR #75 the toast also fires from the clamp path (`window-integrity.js:129` calls `closeGroupWindow`).
+- `src/features/events/retro-place.js` shows `Event #` plus `destEvent.id.slice(0, 8)`. The cited `:157` ("Event #xxxx stays closed...") is on **PR #75 `37d7b00a`** (also `:154`, `:296`, `:310`). On origin/main `803a822a` the same strings are at `:150`, `:153`, `:280`, `:294`.
+
+**Origin:** Design review of OI-0226 PR #75, 2026-11-17.
+
+---
+
 ### OI-0227 — Feed-check plausibility: intake warning, Notes below Remaining, elapsed-time spreading
 
 **Added:** 2026-11-17 | **Area:** v2-build / feed / calcs | **Priority:** next feed item for Build; independent of OI-0226
@@ -133,7 +148,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Added:** 2026-11-17 | **Area:** v2-build / events / sync / schema | **Priority:** after the forecast orphan-window fix PR (`fix/forecast-orphan-windows`)
 
-**Status:** **PR A implemented on `fix/window-integrity-a`** (awaiting review). PR B (sync ordering) and PR C (audit + migration + stale-write refusal) not started. APPROVED (Tim, 2026-11-17 11:01 AM ET, via Orchestrator): "Yes, have Design spec the window-integrity item for Build after the forecast fix". Spec: [Window integrity, 2026-11-17](session_briefs/WINDOW_INTEGRITY_2026-11-17.md). Design reviews each PR. Any prod apply in PR C needs Tim's yes plus a backup.
+**Status:** **PR A implemented on `fix/window-integrity-a`** (awaiting review). PR B (sync ordering) and PR C (audit + migration + stale-write refusal) not started. APPROVED (Tim, 2026-11-17 11:01 AM ET, via Orchestrator): "Yes, have Design spec the window-integrity item for Build after the forecast fix". Spec: [Window integrity, 2026-11-17](session_briefs/WINDOW_INTEGRITY_2026-11-17.md). Design reviews each PR. Any prod apply in PR C needs Tim's yes plus a backup. **Addendum 2026-11-17 (Design, found in PR #75 review):** slice (a) extends to paddock windows in PR A, in the same batch as the group-window clamp; required prod-sequence test; two prod paddock rows that end after their event are out of scope (cleanup needs Tim's yes plus a backup). PR A acceptance also adds a `pool.arrival` earlier-arrival refusal test and a time-aware reopen test. `reports/index.js` ~L192–222 'DMI by group' still sums closed-event windows (open under this item, likely PR A or a small follow-up). See brief §6.
 
 **Why:** the FED-6 forecast read 2,041.56 lb DM/day (shown 2,042) against about 1,334 (1,333.56) because a Cow-Calf Herd window stayed open on the F - 1..5 event after it closed Jul 27. Five stray Cow-Calf Herd windows on the F - 1..5 and K - 1..5 events were cleaned on prod 2026-11-17 10:54 AM ET with a backup first (Tim approved all five 10:51 AM ET via Orchestrator; two zero-length at the close, Option 1, no deletes); all post-checks passed. Root causes on `2f341de7`: (1) a backdated close clamps only OPEN windows (`window-close-guard.js:69`, `move-wizard.js:576–580` and `:725`, `close.js:252–254`); (2) the date-conflict one-tap fix (`date-conflict-dialog.js:51–63`) and the close upsert the same row unordered (`store.js:100–110`, `custom-sync.js:242`) and the server keeps the last arrival. The forecast fix masks this but does not prevent it; the cull-sheet orphan-split skip is in the forecast fix PR.
 

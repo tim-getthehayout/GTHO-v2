@@ -2,10 +2,11 @@
 
 **Date:** 2026-11-18 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **APPROVED (Tim, 2026-11-18 1:00 PM ET, via Orchestrator):** "Yes, have Design write the sync durability OI and brief, and start Build on queue-first, 0-row failure and the Resync fix". Resync design confirmed (Tim, 2026-11-18 1:10 PM ET, via Orchestrator): "Ok on the sync fix". PR 1 = A + B + D (§4). Docs only in this commit; no code, no SQL, no data change.
 **Scope limits:** docs and code only. No DB change, migration or RLS work without Tim's yes plus a backup. PR 1 goes through Git Bridge with Tim's merge approval; Design reviews.
+**PR 1:** `fix/sync-durability` head `43003de4` on base `3714d96b`, **in review: CHANGES REQUESTED** (Design, 2026-11-18 2:15 PM ET; 4 blockers, all in Resync). Not merged; behaviour described as "PR 1 (in review)" is not as-built.
 **Base:** Forgejo `main` `b4cb9335` (PR #80). Every file:line below was read on `b4cb9335` with `git show`. Diagnosis was SELECT-only on prod.
 **Related:** OI-0231 (docs map and PR docs rule; this item's base-doc fixes are its first cleanup), OI-0226 (PR B #78 per-row ordering is the base this builds on; **PR C**, the DB guard and stale-write refusal, is the server backstop), OI-0184 (dead-letter queue, auto-drain, red indicator), OI-0049 / OI-0050 (where "Resync to server" came from), OI-0054 (insert vs update vs upsert), OI-0141 (sync indicator), OI-0214 (FA-01–FA-11 form fixes, never verified through sync), the confirmed-bred report (Tim, 2026-11-18 12:36 PM ET).
-**Working files (Design, not in the repo):** `SAVE-PATH-AUDIT.md` (findings F1–F15), `CONFIRMED-BRED-INVESTIGATION.md` (R1–R3), `CONFIRMED-BRED-RECOVERY.md` (device export steps; **pending**, being written in parallel; Orchestrator holds it when ready). §7 summarises what Build and Tim need.
-**Base docs (OI-0231 first cleanup):** this commit also corrects V2_APP_ARCHITECTURE §4.2, §4.6, §5.1, §5.2 and §5.4, V2_INFRASTRUCTURE §3.5, §3.6, §4.1 and §9, V2_UX_FLOWS §20.3 and §20.5, and V2_DESIGN_SYSTEM §4.7, so they describe today's sync (8 Nov durable writes, OI-0184, #78) and mark PR 1's behaviour as **"OI-0230 PR 1 (intended)"** until it lands. Build updates those labels in PR 1 (`DOCS_MAP.md` rows for `src/data/`); per the docs map rule, PR 1's description links them or says why they are unaffected.
+**Working files (Design, not in the repo):** `SAVE-PATH-AUDIT.md` (findings F1–F15), `CONFIRMED-BRED-INVESTIGATION.md` (R1–R3), `CONFIRMED-BRED-RECOVERY.md` (device export steps; written 2026-11-18, Orchestrator holds it), `PR-SYNC-DURABILITY-REVIEW.md` (Design's PR 1 review, 2026-11-18 2:15 PM ET). §7 summarises what Tim still needs to answer.
+**Base docs (OI-0231 first cleanup):** this commit also corrects V2_APP_ARCHITECTURE §4.2, §4.6, §5.1, §5.2 and §5.4, V2_INFRASTRUCTURE §3.5, §3.6, §4.1 and §9, V2_UX_FLOWS §20.3 and §20.5, and V2_DESIGN_SYSTEM §4.7, so they describe today's sync (8 Nov durable writes, OI-0184, #78) and mark PR 1's behaviour as **"OI-0230 PR 1 (intended)"** until it lands. **Design** (not Build) flips those labels to as-built in a docs-only follow-up after PR 1 merges, matching the merged behaviour (corrected 2026-11-18; Build's PR 1 question 1). Per the docs map rule, PR 1's description links this docs change or says why a section is unaffected.
 
 ## 1. Background
 
@@ -63,6 +64,21 @@ Tim, 2026-11-18 1:00 PM ET, via Orchestrator:
 
 Earlier answers that shape recovery (12:56 PM ET, via Orchestrator): preg checks "early spring"; browser "Safari"; a backup from before 23 Jun "Not sure".
 
+Tim, 2026-11-18 1:15 PM ET, via Orchestrator (recovery):
+
+6. **Devices in detail:** an **iPhone Home Screen app** and a **Mac Dock app** (each keeps its own storage, separate from Safari tabs and not subject to Safari's 7-day rule; §6 Phase 1). The Linux Chrome device seen in the logs on Nov 9–10 was **Tim on Omarchy**.
+7. **Exports:** Tim will do the Finder searches and the offline exports himself, per the recovery report §7A / §7B (`CONFIRMED-BRED-RECOVERY.md`, Design working file).
+8. **Paper or vet records** for the preg checks: "not sure".
+9. **v1:** leave it alone. The v1 Supabase is not opened; no v1 data is used for recovery.
+
+Tim, 2026-11-18 1:35 PM ET, via Orchestrator:
+
+10. **Docs rule (OI-0231):** "Yes, keep all three options" (update the mapped docs, link the Design docs change, or `Docs unaffected because …`).
+11. **Recovery method:** "I'll re-enter them by hand." **No DB update** for the confirmed-bred marks (§6 Phase 3, preferred route).
+12. **"Not sure" fields:** if the exports show no weaning, sire, heat, BCS or treatment entries, "Yes, never entered": they are treated as never entered in v2, not as lost.
+13. **Confirmed-bred date:** "Yes, add a confirmed date." Specced as **OI-0232** ([brief](CONFIRMED_BRED_DATE_2026-11-18.md)); the migration is file only and needs Tim's yes plus a backup to apply.
+14. **Server guards:** "Yes, spec both": **E** (the stale-write guard on all farm tables, = OI-0226 PR C widened) and **I** (tighter insert RLS, **OI-0233**). Spec: [SYNC_SERVER_GUARDS_2026-11-18.md](SYNC_SERVER_GUARDS_2026-11-18.md). Each apply needs Tim's yes plus a backup.
+
 Numbering: **OI-0230**, because OI-0229 is reserved by the unpushed implied-pasture docs branch (`445a025b`).
 
 ## 4. PR 1 scope: A + B + D
@@ -111,7 +127,7 @@ PR 1 changes client sync only: `src/data/custom-sync.js`, `src/data/store.js`, `
    - **skip (server same or newer):** server stamp equal or later. Never sent.
    - **send (create):** the row is **missing** on the server and the item is a create (`insert` / `upsert` queue entry, an insert-shaped letter, or a marked row whose create was never acked).
    - **don't send (gone):** the row is missing on the server and the item is an **update** (including B's `zero_rows` letters): the row was deleted elsewhere or is out of reach. It is never turned into a create. It stays (or goes) in the dead letters with its reason.
-   - **can't compare:** a stamp is missing or unparseable. Not sent.
+   - **can't compare:** a stamp is missing or unparseable. Not sent. **Also (clarified 2026-11-18, PR 1 review blocker 3):** a dead letter with **no recorded operation** (every letter written before PR 1) and no insert shape, whose row is missing on the server, is *can't compare*, not *gone*: it is left exactly as it is (never rewritten into a `zero_rows` / update-only letter), counted and listed. An unknown operation is not an update.
    - **The four tables with no `updated_at`** (`event_feed_check_items`, `batch_moves`, `batch_adjustments`, `todo_assignments`): send **only if missing on the server** (as a create); an existing server row is **never overwritten**.
    - **Never resend a row only because it is missing on the server.** A missing row is sent only when it is in the unconfirmed set as a create. Deletes are hard deletes with no server tombstone (`remove()` → `delete`, `store.js:273-284`; `.delete().eq('id', id)`, `custom-sync.js:308`; the only tombstone is in memory per tab, `:202-204`; `mergeRemote` never drops a local row the server no longer has, `store.js:596-625`), so anything wider would resurrect deletes.
 6. **Confirm sheet (required; nothing is sent without it).** Title "Resync to server". Counts:
@@ -120,7 +136,7 @@ PR 1 changes client sync only: `src/data/custom-sync.js`, `src/data/store.js`, `
    - "**G** were deleted on the server or can't be reached and won't be sent." (if any)
    - "**P** couldn't be compared and won't be sent." (if any)
    - Buttons **Cancel** and **Send N changes**; with N = 0, only **OK**. Cancel sends nothing and changes nothing.
-7. **Sending.** Each "send" item goes out as the stored payload with its **own** `updated_at` (never restamped): updates as `update` (B applies), creates as the create they were. Through the queue (A) and #78's row gates. Build may make each update conditional on the server stamp still being older (e.g. `.lt('updated_at', local)`, where 0 rows then means "server got newer: skipped", not a dead letter) to close the read-to-write race.
+7. **Sending.** Each "send" item goes out as the stored payload with its **own** `updated_at` (never restamped): updates as `update` (B applies), creates as the create they were. Through the queue (A) and #78's row gates. Build may make each update conditional on the server stamp still being older (e.g. `.lt('updated_at', local)`, where 0 rows then means "server got newer: skipped", not a dead letter) to close the read-to-write race. **Decided 2026-11-18 (Design, PR 1 review Q3): not built in PR 1; deferred to E / OI-0226 PR C**, whose server guard refuses older writes on every path including upserts ([SYNC_SERVER_GUARDS_2026-11-18.md](SYNC_SERVER_GUARDS_2026-11-18.md) E.0). PR 1 instead re-checks the planned rows at Send under the lock (review blocker 2), shrinking the gap to milliseconds.
 8. **Result (awaited).** Resync waits for every send to settle, then shows "**Sent X. Skipped M. Failed Y.**" (with G and P if non-zero), never a count of what it merely queued. Failures go to the dead letters with a reason (B's rules apply: auth failures stay queued and are reported as "waiting for sign-in", not failed). Skipped items are removed from the queue and dead letters (the server already has the same or newer) and kept in a local **"skipped by Resync"** list with an **Export** button on the result sheet, so nothing is dropped silently. Log one `resync` info line with the counts (no ids). Then run a normal pull.
 9. **Not airtight.** These are **client-side** checks. A stale tab, a second tab, or a device clock that runs fast or slow can still make an older edit look newer (or a newer one look older), and the read-to-write gap is a race. The real backstop is **OI-0226 PR C's server stale-write guard** (refuse an update older than the stored `updated_at`), a **DB change that needs Tim's yes plus a backup**; E extends it to all farm tables.
 10. **Comment fix (Build):** `custom-sync.js:692-697` says dead letters wait "for 'Push All' / explicit `retryDeadLetters()`". Resync has never called `retryDeadLetters()`; correct the comment to match PR 1.
@@ -186,9 +202,11 @@ Unit tests with a mock Supabase client unless noted. The existing suite stays gr
 
 ## 6. Recovery plan (Phase 0 / 1 / 3)
 
-Full device steps: `CONFIRMED-BRED-RECOVERY.md` (Design working file, **pending**; Orchestrator holds it). Key points:
+Full device steps: `CONFIRMED-BRED-RECOVERY.md` (Design working file, written 2026-11-18; Orchestrator holds it; Tim follows its §7A / §7B himself, 1:15 PM ET). Key points:
 
-**Phase 0: contain (now, no code).** On every device (Mac, phone, Omarchy) until its copy is saved:
+**Caution until PR 1 lands (added 2026-11-18): don't press "Resync to server" on any device.** On today's build it re-pushes the whole local copy (F1, the 23 Jun revert). PR 1's new Resync is still in review with blockers: a save made while its confirm sheet is open can be dropped (review blocker 1), and it would permanently demote pre-PR-1 dead letters, exactly what Tim's devices may hold, so their creates could never land (blocker 3). Only after PR 1 is merged **with those fixes** and published may Resync be used, and still **never** as a recovery tool (Phase 3).
+
+**Phase 0: contain (now, no code).** On every device (Mac, Dock app, iPhone Safari and Home Screen app, Omarchy) until its copy is saved:
 - **Do:** turn the device's network off **before** opening or focusing the app (the app flushes on start, on `online` and on tab-visible, `main.js:398-416`; queued entries are old full rows that could undo newer changes); use the same browser and profile as before; check both https://getthehayout.com and, if ever used, the old https://tim-getthehayout.github.io/GTHO-v2/ address (separate storage).
 - **Don't:** press "Resync to server"; tap the red sync dot (it replays dead letters); clear site data, cookies or cache; log out; remove or reinstall the app or home-screen icon; use a private window or another profile; go back online with the app open before the file is saved.
 
@@ -204,14 +222,15 @@ Full device steps: `CONFIRMED-BRED-RECOVERY.md` (Design working file, **pending*
 
 ## 7. Open questions for Tim
 
-1. **Exports.** When can you do the offline export on the Mac (Safari), the phone, and Omarchy? On the phone, do you use the Home Screen app, a Safari tab, or both? Which browser on Omarchy?
-2. **Old files.** Can you look in Downloads (Mac, phone Files, Omarchy) for any `gtho-v2-backup__…json` from before 23 Jun, or a v1 export file?
-3. **Recovery method.** Re-enter by hand on a freshly synced device (recommended), or a column-limited DB update from the export (needs your yes plus a backup)?
-4. **"Not sure" fields.** If the exports show no weaning, sires, heat, BCS or treatments, can we treat them as never entered in v2? Do you have paper or vet records for the preg checks?
-5. **Confirmed-bred date.** Your v1 request asked for "a confirmed bred flag, with date of confirmation". Add a date (a later schema item, Tim's yes plus a backup), or keep the flag only?
-6. **Later DB items.** OK for Design to spec E (OI-0226 PR C's stale-write guard extended to all farm tables) and I (RLS tightening)? Each prod apply still needs your yes plus a backup.
+Answered 2026-11-18 1:15 and 1:35 PM ET (recorded in §3, items 6–14): devices and Home Screen / Dock apps, who does the exports, old files and Finder searches (Tim, per recovery §7A/§7B), recovery method (by hand), the "not sure" fields (never entered if the exports show none), the confirmed-bred date (yes, OI-0232), the later DB items (spec E and I). Paper or vet records: "not sure" (no further question).
+
+Still open:
+1. **Exports timing.** When will the Mac Dock app, the Mac Safari tab (if used), the iPhone Home Screen app and Safari, and Omarchy be exported (network off first)? Design checks each file read-only when it arrives.
+2. **Confirmed-bred date details:** OI-0232 brief §8 (untick clears the date? calving clears it? wait for the date field before re-entering marks?).
+3. **Server guards:** [SYNC_SERVER_GUARDS_2026-11-18.md](SYNC_SERVER_GUARDS_2026-11-18.md) "Open questions" (restore stamps, the 10-minute clock tolerance, I before E).
 
 ## OPEN_ITEMS changes
 
 - OI-0230 added: "Sync durability: silent save loss and the 23 Jun Resync revert". APPROVED (Tim, 2026-11-18 1:00 PM ET; Resync design confirmed 1:10 PM ET; via Orchestrator). PR 1 (A + B + D) handed to Build.
 - OI-0231 added (docs map, PR docs rule, monthly drift check; Tim 1:09 PM ET via Orchestrator). This item's base-doc corrections are OI-0231's first cleanup. Linked to OI-0226 (PR C is the DB guard) and the confirmed-bred report. OI-0229 is reserved by the unpushed implied-pasture branch.
+- 2026-11-18 follow-up (GTHO Design, docs only): Tim's 1:15 and 1:35 PM ET answers recorded (§3); §7 trimmed to what is still open; header line 8 corrected (Design flips the "(intended)" labels after merge); §4 D5 legacy-letter rule and D7 `.lt()` deferral recorded; §6 "don't press Resync until PR 1 lands" caution. New: OI-0232 (confirmed-bred date), OI-0233 (insert RLS, I); E recorded under OI-0226 PR C. PR 1 (`43003de4`) in review, CHANGES REQUESTED.

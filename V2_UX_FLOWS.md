@@ -942,7 +942,7 @@ On a narrow mobile viewport (≤ 400px) the two columns may wrap and stack; both
 
 **Female-only sections (edit mode):**
 
-- **Confirmed bred status** — Toggle + confirmation date. Derived from latest breeding record with `confirmed_date`, but can be manually toggled.
+- **Confirmed bred status** — As built: a stored checkbox "Confirmed bred" ("Pregnancy check / palpation confirmed"), `animals.confirmed_bred`, written directly by Save (OI-0099; not derived from breeding records). Recording a calving clears it. **Proposed (OI-0232, not built):** a "Confirmed on" date under the checkbox, today by default on a fresh tick, back-datable, cleared on untick; brief `session_briefs/CONFIRMED_BRED_DATE_2026-11-18.md`.
 - **Calving history** — Chronological list of calving records. Each row: date, calf tag, calf sex, sire. "+ Record calving" button → Calving Recording Sheet (§14.7).
 - **Heat history** — Recent heat observations. Each row: date, days since, notes snippet. "+ Record heat" button → Heat Recording Sheet (§14.6, step 2 only).
 
@@ -1267,7 +1267,7 @@ The header bar is sticky top on both mobile and desktop. Two clusters: identity 
 
 | Element | Source | Notes |
 |---------|--------|-------|
-| Sync indicator | §3.14 sync dot | 8×8px circle. States: `.sync-ok` (green, online), `.sync-pending` (amber, queued writes), `.sync-off` (`--text3`, offline), `.sync-err` (red, error). Tap navigates to `#/settings` sync panel. |
+| Sync indicator | §3.14 sync dot | 8×8px circle. States: `.sync-ok` (green, online), `.sync-pending` (amber, queued writes), `.sync-off` (`--text3`, offline), `.sync-err` (red, error). Tap navigates to `#/settings` sync panel. **OI-0230 PR 1 (in review, `43003de4`; not as-built):** a **signed-out** state: when there is no session (or the JWT expired) and writes are waiting, the dot is the grey `.sync-off` dot and the label reads **"Signed out · {count} changes waiting"** (`sync.signedOut`; the Settings sync status reads "Signed out", `settings.syncSignedOut`). Writes stay queued, are never dead-lettered for an auth reason, and are sent after `SIGNED_IN` / `TOKEN_REFRESHED`. **Red still wins:** with any dead letter the dot is red `sync-failed`, signed out or not. |
 | Build stamp | `<meta name="app-version">` | 11px, `--text2`. Format: `bYYYYMMDD.HHMM`. Hidden below 360px viewport width. Diagnostic value only — always visible during testing. |
 | Field mode toggle | — | `btn btn-green btn-xs`. Navigates to `#/field`. Hidden while already in Field Mode. |
 | User menu | `auth.user.email` initials | 28×28 circle button, `--bg2` bg, 1px `--border`, initials in 11px/600 `--text2`. Tap opens user menu popover (§3.6 user menu popover pattern) with user email (read-only) and Log Out action. |

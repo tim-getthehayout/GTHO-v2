@@ -398,6 +398,8 @@ Complex card with expandable body:
 Dot-based (`.sync-dot`): 8×8px circle.
 States: `.sync-ok` (green), `.sync-pending` (amber), `.sync-off` (text3), `.sync-err` (red).
 
+**OI-0230 PR 1 (in review, `43003de4`; not as-built):** a **signed-out** state: when there is no session (or the JWT expired) and writes are waiting, the dot uses the grey `.sync-off` dot and the label reads **"Signed out · {count} changes waiting"** (`sync.signedOut`; the Settings sync status reads "Signed out", `settings.syncSignedOut`). Writes stay queued, are never dead-lettered for an auth reason, and are sent after `SIGNED_IN` / `TOKEN_REFRESHED`. **Red still wins:** with any dead letter the dot is red `sync-failed`, signed out or not. Full state table: V2_INFRASTRUCTURE.md §9.
+
 ### 3.15 Strip Grazing Progress (v2 only)
 
 New pattern — no v1 equivalent. Displays strip grazing state within a paddock card on the event card (see V2_UX_FLOWS.md §2.4, §11). Schema source: `event_paddock_windows` fields `is_strip_graze`, `strip_group_id`, `area_pct` (see OI-0001).

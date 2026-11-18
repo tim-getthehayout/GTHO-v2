@@ -169,6 +169,8 @@ Part of the SyncAdapter's (A10) retry lifecycle. Failed writes after 5 retries b
 - `retry_count`: how many attempts were made
 - `first_attempt_at`, `last_attempt_at`, `dead_lettered_at`: timestamps for the full retry timeline
 
+**OI-0230 PR 1 (in review, `43003de4`; not as-built):** the uploaded line becomes `logger.error('sync', 'Dead letter', { table, reason, retryCount, error })`. It **no longer carries the row id or the record** (`record_id` / `original_record` above are dropped; a privacy gain, since notes no longer leave the device in logs). Recovery data stays on the device: each `_dead_letter_queue` entry keeps `id`, `table`, `record`, `origin_at`, `error`, `retry_count`, the three timestamps, and new `operation`, `reason` and (insert-only `operations` rows) `shape`; replayed 0-row work carries `update_only`. Reason codes: `zero_rows` (an update that changed 0 rows with a valid session; replays only as an update). Auth failures are never dead-lettered. Retry, auto-drain and Resync read only the device queue; nothing reads `app_logs` dead-letter context. Planned (OI-0230 slice E, not built): reasons `stale_write` and `clock_ahead` for the server guard (`session_briefs/SYNC_SERVER_GUARDS_2026-11-18.md`).
+
 Dead letters are stored on the device in `_dead_letter_queue` (localStorage). The `logger.error` line for each one sits in the device's 200-entry log buffer until `src/data/log-flush.js` uploads it (on tab hide, page close and after a successful pull), so a device that can't reach Supabase usually can't report its dead letters either (OI-0230 F8). The Settings "Resync to server" button (`pushAllToSupabase`) does **not** retry dead letters; it re-pushes every local record (V2_APP_ARCHITECTURE.md §5.2). Dead-letter behaviour is tested in `tests/unit/sync-dead-letter.test.js` and `sync-row-ordering.test.js` (V2_APP_ARCHITECTURE.md §5.4).
 
 **Dead letters must not be silent (OI-0184, built 2026-06-23 in `819b329`).** A dead letter is a write that never reached Supabase — the most dangerous state in an offline-first app, because the local view still shows the change as saved. Before OI-0184, `getDeadLetters()` / `retryDeadLetters()` had no consumers. Since `819b329`, every `flush()` auto-drains each letter up to 3 times (`MAX_AUTO_DRAIN`), the header indicator shows red "Sync failed · N pending" from `getSyncHealth()`, and tapping it runs `retryDeadLetters()` then `flush()` (`src/ui/header.js:334-364`). The two contracts:
@@ -236,6 +238,8 @@ Queued offline, synced on reconnect (unlike app_logs, submissions go through the
 ### 5.1 Row-Level Security
 
 Every user-data table has RLS enabled. Three patterns:
+
+**Current state and planned tightening (verified on prod 2026-11-18, SELECT only):** the `WITH CHECK (true)` INSERT pattern below is live on 49 tables for role `public` (anon included), `anon` holds INSERT/UPDATE/DELETE grants on 53 tables, and `operation_members` lets a signed-in user insert their own membership in any operation. **OI-0233 (spec, not applied; Tim's yes plus a backup)** replaces this with member-scoped `WITH CHECK`, a bootstrap-only `operation_members` insert, and no `anon` writes: `session_briefs/SYNC_SERVER_GUARDS_2026-11-18.md` Part I. The 044/045 tables already use the scoped form.
 
 **Pattern A — operation-scoped tables (granular policies)**
 
@@ -663,6 +667,7 @@ The sync dot in the header (V2_DESIGN_SYSTEM.md §3.14) and the desktop sidebar'
 | `sync-pending` (amber) | Non-empty | Any | Push queue has work; not yet known if local view is fresh |
 | `sync-off` (`--text3`) | — | — | Offline (`navigator.onLine === false`) |
 | `sync-failed` (red) | — | — | Dead-letter queue non-empty (OI-0184) — N writes never reached the server. Shows the count; tap runs `retryDeadLetters()` + `flush()`. Takes precedence over green/amber. |
+| `sync-off` (`--text3`), label "Signed out · N changes waiting" | Non-empty | — | **OI-0230 PR 1 (in review, not as-built):** no session or an expired JWT; writes wait in the queue (no attempt counted, never dead-lettered) and go out after sign-in. `sync-failed` still takes precedence. |
 | `sync-err` (red) | — | — | Sync adapter reported an unrecoverable error |
 
 **Failed-write axis (OI-0184).** Green requires push queue empty AND dead-letter queue empty AND pull fresh. The indicator reads dead-letter count via `getDeadLetters().length` (or `getSyncHealth()`); a non-empty dead-letter queue forces `sync-failed` regardless of the push/pull axes, so a silently-dropped correction can never hide behind a green dot. See §3.5.

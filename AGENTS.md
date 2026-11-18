@@ -393,6 +393,17 @@ Three close-out rules keep OPEN_ITEMS.md from drifting stale. All three apply at
 
 **Origin:** 2026-04-20 reconciliation sweep flipped five OIs that had been stale a week or more: OI-0116 (piggyback — rode with OI-0117), OI-0052 (piggyback — rode with main.js auth rewrite), OI-0051 (orphan flip — shipped but never closed), OI-0087 and OI-0088 (downstream-moot — retired by OI-0113 dropping `event_observations` and migration 029 bumping schema_version to 29). Enforcing these three rules at commit time would have caught all five at the moment the fix landed.
 
+### Docs map rule (OI-0231)
+
+`DOCS_MAP.md` maps each code area (`src/`, `supabase/`, `scripts/`, `.github/`, `.githooks/`) to the base-doc sections, calculation ids and briefs that describe it.
+
+- Every pull request that changes a file in a mapped code area must do one of these: update the mapped doc section(s) in the same pull request; link the GTHO Design docs change (branch or pull request) that updates them; or put this line in the pull request description: `Docs unaffected because <reason>.`
+- Homelab Git Bridge does not merge a pull request without one of them.
+- Orchestrator checks for it before bringing a merge to Tim.
+- A CI check will enforce it (OI-0231 Build task, not built yet). Until then the check is manual.
+- A new top-level code area or `src/features/` folder gets a `DOCS_MAP.md` row in the same pull request.
+- Monthly docs drift check: GTHO Design, on the 1st of each month (about 9 AM ET), compares the docs against code changed on `main` that month using `DOCS_MAP.md`, prepares a docs-only fix branch when anything drifted, and sends it to Orchestrator for Tim's land yes.
+
 ## Build Phases
 
 Implementation follows the checkpoint sequence in V2_BUILD_INDEX.md. Each phase has spec files in `github/issues/` that define exactly what to build.

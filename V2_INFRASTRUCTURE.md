@@ -169,20 +169,19 @@ Part of the SyncAdapter's (A10) retry lifecycle. Failed writes after 5 retries b
 - `retry_count`: how many attempts were made
 - `first_attempt_at`, `last_attempt_at`, `dead_lettered_at`: timestamps for the full retry timeline
 
-"Push All" button in Settings re-queues dead letters for retry. Dead letter behavior is covered by the SyncAdapter's 14-scenario test suite (A10).
+Dead letters are stored on the device in `_dead_letter_queue` (localStorage). The `logger.error` line for each one sits in the device's 200-entry log buffer until `src/data/log-flush.js` uploads it (on tab hide, page close and after a successful pull), so a device that can't reach Supabase usually can't report its dead letters either (OI-0230 F8). The Settings "Resync to server" button (`pushAllToSupabase`) does **not** retry dead letters; it re-pushes every local record (V2_APP_ARCHITECTURE.md §5.2). Dead-letter behaviour is tested in `tests/unit/sync-dead-letter.test.js` and `sync-row-ordering.test.js` (V2_APP_ARCHITECTURE.md §5.4).
 
-**Dead letters must not be silent (OI-0184).** A dead letter is a write that never reached Supabase — the most dangerous state in an offline-first app, because the local view still shows the change as saved. As built, `getDeadLetters()` / `retryDeadLetters()` exist in `src/data/custom-sync.js` but have **no consumers**: nothing surfaces the count and nothing retries automatically, so the only recovery is the manual "Push All" (`pushAllToSupabase`). Two contracts close the gap:
+**Dead letters must not be silent (OI-0184, built 2026-06-23 in `819b329`).** A dead letter is a write that never reached Supabase — the most dangerous state in an offline-first app, because the local view still shows the change as saved. Before OI-0184, `getDeadLetters()` / `retryDeadLetters()` had no consumers. Since `819b329`, every `flush()` auto-drains each letter up to 3 times (`MAX_AUTO_DRAIN`), the header indicator shows red "Sync failed · N pending" from `getSyncHealth()`, and tapping it runs `retryDeadLetters()` then `flush()` (`src/ui/header.js:334-364`). The two contracts:
 
-- **Auto-retry on reconnect.** On every successful `flush()` and on `online` / `visibilitychange→visible`, the dead-letter queue is drained back through the push path (bounded) before the adapter declares idle. A transient-failure record heals itself on the next good connection with no user action. "Push All" becomes the manual fallback, not the only recovery.
+- **Auto-retry on reconnect.** On every `flush()` (which runs on boot, `online` and `visibilitychange→visible`), the dead-letter queue is drained back through the push path (bounded) before the adapter declares idle. A transient-failure record heals itself on the next good connection with no user action. The red-indicator tap is the manual fallback.
+- **OI-0230 PR 1 (intended).** An update that matches 0 rows with a valid session is dead-lettered at once with a `zero_rows` reason (never counted as sent) and replays only as an `update`; a write that fails for lack of a session or an expired JWT stays queued and is never dead-lettered for that reason. Resync sends the dead letters as part of "this device's unconfirmed work", newer-only, behind a confirm sheet (V2_APP_ARCHITECTURE.md §5.2).
 - **Surfaced, not green-masked.** The dead-letter count feeds the §9 sync indicator (`sync-failed`, red) and `getSyncHealth()` must never report green/idle while the dead-letter or pending queue is non-empty — a single later success cannot repaint green over a real backlog.
 
 ### 3.6 Log Viewer
 
-Admin screen in Settings:
-- Filter by level, category, date range
-- Sync errors highlighted
-- Dead letter count with expandable details
-- Export capability for debugging
+**As built:** there is no log viewer in Settings. The error-log viewer is a **developer-only** screen at `#/dev/logs` (`src/features/dev-mode/logs.js`, behind `requireDev`, `src/main.js:393`). It reads `app_logs` from Supabase with severity, source, operation, date-range and text filters, "Load more" paging and CSV export. It shows only what has already reached the server (§3.5), not this device's queue or dead letters.
+
+**Planned (OI-0230 slice G, later PR):** a **sync problems sheet** listing each queued and dead-lettered write on this device (table, record label, error, age) with Retry and Export. There is no logout block (declined by Tim, 2026-11-18).
 
 ---
 
@@ -195,7 +194,7 @@ Every submission auto-captures context via the `screen` and `version` columns pl
 - `version`: app build stamp (auto-populated)
 - `area`: app area/domain the submission relates to (user-selected or inferred)
 - Recent errors from logger (last 5, included in the submission for developer review)
-- Sync status (idle/syncing/error/offline) and queue length available in the log viewer (§3.6)
+- Sync status and queue length come from `getSyncHealth()` (V2_APP_ARCHITECTURE.md §5.1); they are not shown in a log viewer today (§3.6)
 
 ### 4.2 submissions Table
 
@@ -652,8 +651,8 @@ The sync dot in the header (V2_DESIGN_SYSTEM.md §3.14) and the desktop sidebar'
 
 **Two-axis state model:**
 
-- **Push queue.** Read from `getSyncAdapter().getStatus().pendingCount`. Empty = nothing waiting to upload. Non-empty = at least one record queued (failed write, offline interval, or in-flight retry).
-- **Last-pull timestamp.** Read from `getLastPulledAt()` in `src/data/pull-remote.js`. The timestamp is set after every successful `pullAllRemote()` cycle and persisted to localStorage so it survives reload. `null` means no pull has ever completed in this device session.
+- **Push queue.** Read from `getSyncAdapter().getSyncHealth().queueLength`. Empty = nothing waiting in `_sync_queue`. Non-empty = at least one record queued (offline interval, durable write awaiting flush, or a failed write being retried). As built, an online non-durable write being sent from memory is **not** counted (OI-0230 F2); **OI-0230 PR 1 (intended)** queues every write first, so the count includes it.
+- **Last-pull timestamp.** Read from `getLastPulledAt()` in `src/data/pull-remote.js`, persisted in localStorage (`gtho_last_pulled_at`). As built it is stamped after a `pullAllRemote()` cycle even when a table's pull failed, because `pullAll` returns `[]` on an error instead of throwing (OI-0230 F4; slice C makes pull errors real and adds an amber "Couldn't refresh" state). `null` means no pull has ever completed on this device.
 
 **Indicator state derivation:**
 
@@ -668,7 +667,7 @@ The sync dot in the header (V2_DESIGN_SYSTEM.md §3.14) and the desktop sidebar'
 
 **Failed-write axis (OI-0184).** Green requires push queue empty AND dead-letter queue empty AND pull fresh. The indicator reads dead-letter count via `getDeadLetters().length` (or `getSyncHealth()`); a non-empty dead-letter queue forces `sync-failed` regardless of the push/pull axes, so a silently-dropped correction can never hide behind a green dot. See §3.5.
 
-The 15-minute stale threshold is a balance between honesty and noise — short enough to surface a forgotten cold-boot (the user's been on the app for an hour without ever pulling), long enough to avoid amber flicker during normal background pulls. Tunable; lives as a constant in `src/data/pull-remote.js`.
+The 15-minute stale threshold is a balance between honesty and noise — short enough to surface a forgotten cold-boot (the user's been on the app for an hour without ever pulling), long enough to avoid amber flicker during normal background pulls. Tunable; lives as `STALE_THRESHOLD_MS` in `src/ui/header.js`.
 
 **Tap behavior — `pullAllRemote()`, not navigate-to-Settings.** Tapping the sync dot or the desktop sidebar's sync strip triggers an explicit `pullAllRemote()` call. The previous behavior was `navigate('#/settings')` which sent the user to a screen with no sync controls and effectively asked them to give up on what they'd come for. The honest action when a user taps the sync indicator is *"pull now"* — they're telling the app they don't trust the freshness state. The dot transitions to a brief in-flight animation, the pull runs, and the dot resolves to its post-pull state.
 
@@ -684,6 +683,7 @@ The 15-minute stale threshold is a balance between honesty and noise — short e
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-18 | GTHO Design — OI-0230 / OI-0231 sync chapters | §3.5 Resync doesn't retry dead letters; OI-0184 consumers since `819b329`; OI-0230 PR 1 intended rules. §3.6 the only log viewer is dev-only `#/dev/logs`; sync problems sheet planned (slice G). §4.1 sync status source. §9 queue count from `getSyncHealth()`, last-pulled stamped even on failed tables, threshold lives in `header.js`. |
 | 2026-11-09 | OI-0195 — ready-for-build gate locks | Host adapter merged on Forgejo as PR #38 (`eb04c197`); not live. New §8.3b records the post-PR-#12 locks: createHash via Vite alias, pins, backup exception and restore fence, billing caps, Tim’s P1–P12, unknown-usage handling, consent copy, T1–T13, Design rulings (single global push-to-talk, exact matching, attempt lifecycle, retry chains), deferred list, live unknowns and go-live order. §8.1/§8.3 updated to match: turn ends on “over” or a second tap (manual commit, not pause-tolerant VAD); realtime is voice I/O only; dated text/voice model pins; testing audio in a private bucket; offline notes in IndexedDB; calving dam clear implemented. |
 | 2026-11-08 | OI-0195 — final host locks | Physical host schema, populated-UI review and field-set method specified; first-slice attachments are launch wiring, not question scripts. Open set excludes calves; birth clears dam confirmed_bred. Runtime familiarization is not fine-tuning. Unimplemented/not handed to Build; testing-end audio disposal and later-rollout consent deferred/non-blocking. |
 | 2026-11-08 | OI-0195 — host adoption | Recorded released pins, existing-store additive mapping, capture-before-AI/review-before-filing, locked how-to routing, Edge Function first backend and replaceable provider. Updated offline consent/deletion and log filters/timing/90-day mapping retention; testing rules and remaining physical/tool design gaps. Not ready for Build; no implementation. |

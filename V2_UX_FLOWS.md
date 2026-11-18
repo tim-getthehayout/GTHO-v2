@@ -2354,7 +2354,19 @@ Field Mode (§16) inherits the active unit system. Toggling unit system while Fi
 
 **Migrate from v1** (CP-57): visible only when `operations` is empty (onboarding path) or when feature flag `v2.migration.enabled` is true. Launches the migration wizard. Not part of normal settings flow.
 
-**Manual "Push all to Supabase"**: recovery tool. Button label "Resync to server." On tap, confirm sheet then runs `pushAllToSupabase()` (re-queues every record). Shows a progress toast. Used when the sync queue is suspected of drift.
+**"Resync to server"** (button label unchanged). **As built** (main `b4cb9335`): one tap, no confirm sheet and no toast; the button text changes to "Syncing...", runs `pushAllToSupabase()` (upserts every local record as a full row, `src/features/settings/index.js:405-419`), then shows "Synced {count} records" for 3 s whatever the sends did. That is how a stale tab reverted about 980 prod rows on 2026-06-23 (OI-0230).
+
+**OI-0230 PR 1 (intended; Tim 2026-11-18 1:00 and 1:10 PM ET):** Resync sends **only this device's unconfirmed work** (its pending queue, its dead letters, and rows changed since their last confirmed server ack), each **only if newer than the server copy**.
+1. Tap → if offline or signed out, a message says so and nothing happens.
+2. The app reads the server's `updated_at` for just those rows, then opens a **confirm sheet**, "Resync to server":
+   - "N unsynced changes on this device are newer than the server and will be sent."
+   - "M are already the same or newer on the server and will be skipped."
+   - "G were deleted on the server or can't be reached and won't be sent." (only if G > 0)
+   - "P couldn't be compared and won't be sent." (only if P > 0)
+   - `[Cancel]` and `[Send N changes]`; with N = 0 only `[OK]`.
+3. **Send** → the button shows progress; the app **waits for every send** and then shows the result in the sheet: "Sent X. Skipped M. Failed Y." Failures are in the red sync indicator's dead letters with a reason; changes waiting for sign-in are reported as waiting, not failed. Skipped items can be exported from the result sheet.
+4. Rows that are only on this device but were never in its unconfirmed work are never sent (they may have been deleted on another device). A server read error stops Resync before anything is sent.
+Full rules: `session_briefs/SYNC_DURABILITY_2026-11-18.md` §4 D.
 
 ### 20.4 Mobile vs Desktop
 
@@ -2365,7 +2377,7 @@ Desktop: all sections rendered as a single scrollable column with section header
 ### 20.5 Accessibility
 
 - The unit-system toggle is a `role="radiogroup"` with two `role="radio"` segments, keyboard-navigable via arrow keys. Label "Unit system" is `aria-labelledby` on the group.
-- Destructive buttons (Replace All Data, Resync to server confirm) require a two-step interaction — either dialog confirm or press-and-hold for 500ms — never a single unprompted tap.
+- Destructive buttons require a two-step interaction — either dialog confirm or press-and-hold for 500ms — never a single unprompted tap. As built, **Replace All Data** has its confirm; **Resync to server** has none (one tap sends). **OI-0230 PR 1 (intended):** Resync's confirm sheet (§20.3) is its two-step interaction; `[Send N changes]` is the second step.
 - Section headers are `<h2>`; subsection field groups use `<fieldset>` + `<legend>`. Screen readers announce section context when focus enters a new section.
 
 ### 20.6 Out of Scope for This Screen
@@ -2474,6 +2486,7 @@ The sheet uses the same unit-aware descriptor pattern as the Farm Settings card 
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-18 | GTHO Design — OI-0230 / OI-0231 | §20.3 Resync as built (one tap, no confirm, no toast) and OI-0230 PR 1 intended flow (unconfirmed work only, newer-only, confirm sheet with counts, awaited sent / skipped / failed result); §20.5 two-step rule vs Resync. |
 | 2026-04-12 | Session 11 — UX flow gap fill | Added §14 (reusable health & recording components — 10 subsections covering weight, BCS, treatment, breeding, heat, calving, note, group sessions, quick-action bar), §15 (entity CRUD forms — animal, group, location, feed type), §16 (field mode — home screen, navigation, heat quick-access, feed loop). Component-first approach: each form documented once with entry points and context pre-fill mapped. |
 | 2026-04-13 | Session — Dashboard & todos spec | Added §17 (home screen / dashboard + todos). 14 subsections covering: screen layout (mobile/desktop), header bar, farm overview stats (desktop 5-metric, mobile 3-metric with thresholds), view toggle (groups/locations, default changed to locations for new users), group card anatomy (body elements, conditional logic, action buttons, collapse/expand), location card anatomy, open tasks dashboard section, todos screen with 3-axis filtering, todo create/edit sheet, todo card anatomy, survey draft card, weaning nudge. Derived from v1 `renderHome()` + `renderTodos()` code review against v2 schema D11.3/D11.4. FAB removed — feedback button moved to header. |
 | 2026-04-13 | Header + multi-farm context design | OI-0015 & OI-0019 resolved. §17.2 Header Bar rewritten — left cluster now shows operation name + farm picker, right cluster adds user menu button and restores build stamp. §1.2 and §1.3 (move wizard location + existing event pickers) gained a farm chip at the top enabling cross-farm targeting. New §18 Farm Switching & Multi-Farm Context added (8 subsections): active farm semantics, farm picker UX, switch-with-unsaved-work confirm, cross-farm whole-group moves (no-straddling-events rule, source_event_id linkage), cross-farm individual animal moves (membership-only), event card cross-farm markers, All farms aggregate mode behavior, Field Mode interaction. |

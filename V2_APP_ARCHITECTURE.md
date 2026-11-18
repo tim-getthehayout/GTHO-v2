@@ -261,13 +261,17 @@ subscribe(entityType, callback)   // → unsubscribe function
 
 ### 4.2 Action Sequence
 
-Every mutation follows this exact order:
+Every store mutation (`add`, `update`, `remove`; `src/data/store.js:202-284`) follows this order:
 
 1. **Validate** — entity's `validate()` function checks required fields, types, constraints
 2. **Mutate state** — update the in-memory state array
-3. **Persist to localStorage** — `saveToStorage(entityType, data)`
-4. **Queue sync** — `getSyncAdapter().push(table, toSupabaseShape(record))`
+3. **Persist to localStorage** — `saveToStorage(entityType, data)`. It throws on a storage error (quota) and the mutation is rolled back.
+4. **Hand to sync** — `persistMutation` (`store.js:100-112`) calls `syncAdapter.push(table, toSupabaseShape(record), operation)` (`insert` for `add`, `update` for `update`) or `syncAdapter.delete(table, id)` for `remove`, **without awaiting it**. `update` sends the **whole row** with a fresh client `updatedAt` (`store.js:243`). As built (main `b4cb9335`), an online push is held **in memory** until it is sent (§5.2); only offline pushes are written to the persisted queue first.
 5. **Notify subscribers** — all registered callbacks for this entity type fire
+
+**Durable writes (2026-11-08, `866ada7`).** Multi-record saves run inside `runDurableWrite(key, write)` (`store.js:66-92`). The store collects the touched entity arrays and their sync commands instead of persisting each one; then `commitDurableWrite` (`local-storage.js:69-82`) writes a write-ahead journal (`gtho_v2_write_journal`) holding the arrays and queue entries, applies both to localStorage and `_sync_queue` (creates become `upsert`; each entry gets `enqueued_at` from the write-order clock and a `durable_key`), stores a receipt in `gtho_v2_write_receipts`, and clears the journal. `init()` replays an unfinished journal on the next start (`recoverDurableWrite`, `local-storage.js:50-64`). A receipt means "saved on this device and queued", never "on the server". As built, durable writes do **not** start a send; they wait for the next flush trigger (§5.2). Callers include group weights, amendments, feed checks, manual feed, move feed out, calving, pool transfers and checks, and close, move, sub-move and delivery when pool writes are on; the assistant paths call `flush()` right after their local apply.
+
+**OI-0230 PR 1 (intended).** Step 4 becomes queue-first: the save's queue entry (and a per-row "unacked" marker) is written to localStorage **before** any network send, and the save fails visibly if that write fails. A flush then starts promptly for every save, durable or not. See `session_briefs/SYNC_DURABILITY_2026-11-18.md` §4 A.
 
 ### 4.3 Rules
 
@@ -382,7 +386,7 @@ This was already an architecture rule (§1.4 "Compute on Read"), but the rule th
 - **`getEventStart(eventId)` / `getEventStartDate(eventId)` (`src/features/events/event-start.js`).** An event's start datetime was stored on `events.date_in` / `events.time_in` and *also* derivable from the earliest child window (`event_paddock_windows.date_opened` / `event_group_windows.date_joined`). The two drifted: a sub-move Save fired a phantom change event on a teardown-replaced input which overwrote the parent `date_in`, while every downstream calc still read the stored copy. Migration 028 dropped both columns; reads now route through these helpers, and the hero-line edit writes through to the earliest child window via `setEventStart()`. (OI-0117, 2026-04-18.)
 - **`getGroupCurrentFarm(groupId)` (`src/data/store.js`).** A group's current farm was duplicated on `groups.farm_id` and *also* derivable from the open `event_group_window → event.farm_id`. Every cross-farm move that forgot to sync the parent silently desynced — the group rendered on the wrong farm's dashboard while its current event lived on the right farm. Migration 032 dropped `groups.farm_id`; reads use this helper. (OI-0133, 2026-04-22.)
 - **`getLiveRemainingForMove(eventId)` (`src/calcs/feed-state.js`).** Live remaining feed per (batchId, locationId) is a pure read-time derivation — `latestCheck.remainingQuantity + Σ deliveries with (date, time) strictly > latestCheck (date, time)`, falling back to `Σ all deliveries` when no prior check exists. The strict-`>` rule is load-bearing (a same-instant delivery is captured *by* the check, not in addition to it). Three current consumers — feed-check sheet, move-wizard Step 3, and sub-move close hint — must all import the helper rather than re-deriving the formula. See V2_CALCULATION_SPEC.md §4.6 for the full design statement. (OI-0139, 2026-04-30.)
-- **Sync indicator state (`src/data/pull-remote.js` + `src/ui/header.js`).** Sync state is *both* push-queue empty AND last-pull-recent. Storing a single "is in sync" boolean fails because an empty queue with a 6-hour-old pull is amber, not green. The dot/strip render derives state on every read from `adapter.getStatus().pendingCount` and `getLastPulledAt()` against the 15-min stale threshold — see V2_INFRASTRUCTURE.md §9. (OI-0141, 2026-05-01.)
+- **Sync indicator state (`src/data/pull-remote.js` + `src/ui/header.js`).** Sync state is *both* push-queue empty AND last-pull-recent. Storing a single "is in sync" boolean fails because an empty queue with a 6-hour-old pull is amber, not green. The dot/strip render derives state on every read from `adapter.getSyncHealth()` (`{ status, queueLength, deadLetterCount }`; a non-empty dead-letter queue forces `failed`, OI-0184) and `getLastPulledAt()` against the 15-min stale threshold (`STALE_THRESHOLD_MS`, `src/ui/header.js:18`) — see V2_INFRASTRUCTURE.md §9. (OI-0141, 2026-05-01; OI-0184, 2026-06-23.)
 
 **The architectural choice it forces.** When designing a new flow that handles a fact already stored elsewhere — head count, location, farm assignment, any "current X" — the default is to derive on read. Storing a copy on a parent is a deliberate exception that requires (a) a measurable performance reason the derivation can't satisfy, and (b) an explicit invariant write at every mutation site that touches the underlying source. Without both, the copy will drift, and the drift will be invisible.
 
@@ -399,23 +403,32 @@ This was already an architecture rule (§1.4 "Compute on Read"), but the rule th
 ```js
 // src/data/sync-adapter.js
 export class SyncAdapter {
-  async push(table, record) { throw new Error('Not implemented'); }
+  async push(table, record, operation) { throw new Error('Not implemented'); } // 'insert' | 'update' | 'upsert' (default)
   async pushBatch(table, records) { throw new Error('Not implemented'); }
   async pull(table, since) { throw new Error('Not implemented'); }
   async pullAll(table) { throw new Error('Not implemented'); }
   async delete(table, id) { throw new Error('Not implemented'); }
   async isOnline() { throw new Error('Not implemented'); }
-  getStatus() { throw new Error('Not implemented'); }     // 'idle' | 'syncing' | 'error' | 'offline'
+  getStatus() { throw new Error('Not implemented'); }     // transient flag: 'idle' | 'syncing' | 'error' | 'offline'
   onStatusChange(callback) { throw new Error('Not implemented'); }
 }
 ```
 
+`CustomSync` (`src/data/custom-sync.js`) also exposes `flush()`, `getQueuedItems()`, `getQueueLength()`, `getDeadLetters()`, `retryDeadLetters()` and `getSyncHealth()`. **UI reads `getSyncHealth()`** (`{ status: 'idle'|'syncing'|'offline'|'error'|'failed', queueLength, deadLetterCount }`), never `getStatus()` alone: `status` is forced to `failed` while any dead letter exists and to `syncing` while the queue is non-empty (OI-0184).
+
 ### 5.2 Custom Sync Implementation
 
-- **Offline queue:** Writes enqueued to localStorage when offline. Flushed on reconnect.
-- **Exponential backoff:** 1s → 2s → 4s → 8s → 16s, max 5 retries per write.
-- **Dead letter handling:** After 5 failures, write moves to dead-letter queue with full context (table, record, error, retry count, timestamps). Manual "Resync to server" in Settings re-queues dead letters.
-- **Conflict resolution:** Last-write-wins by `updated_at`, scoped by `operation_id`. Single user = rare conflicts.
+As built on main `b4cb9335` unless marked **OI-0230 PR 1 (intended)**.
+
+- **Queue.** `_sync_queue` (localStorage) holds offline writes and durable writes (§4.2). It is flushed on boot, on `online`, when the tab becomes visible (`src/main.js:398-416`), on a red-indicator tap (`src/ui/header.js:352-354`) and by the assistant after its local apply. Online non-durable writes are sent straight from memory and never enter the queue (OI-0230 F2). Online deletes are not queued either.
+  - **OI-0230 PR 1 (intended):** every write, online or offline, durable or not, including deletes, is enqueued first and then flushed promptly; an entry leaves the queue only when its send is confirmed, it is dead-lettered, or it is superseded; nothing enqueued during a flush is lost.
+- **Retries.** Each send gets up to 5 attempts with 1 s, 2 s, 4 s, 8 s backoff between them; every request has a 15 s timeout (`SYNC_REQUEST_TIMEOUT_MS`) that counts as a failure.
+- **Dead letters (OI-0184).** After the 5th failure the write moves to `_dead_letter_queue` with table, record, error, retry count, timestamps and its write order (`origin_at`). Each `flush()` auto-drains every letter once, up to 3 times per letter (`MAX_AUTO_DRAIN`), replayed as an upsert. After that only a tap on the red "Sync failed · N pending" indicator retries: `retryDeadLetters()` re-queues the newest letter per row, then `flush()`. Logout warns only when the queue (not the dead letters) is non-empty. A delete that fails 5 times in a flush is dropped (OI-0230 F7, slice G).
+- **Per-row ordering (OI-0226 PR B, #78, 2026-11-17).** Every write to a row (table + id) goes through that row's gate: it waits for the previous write to the same row to settle, so versions reach the server in the order they were made; nothing is coalesced, and different rows still go in parallel. A payload older than the newest version already sent for the row (by `updated_at`, else by write order) is dropped; an online delete leaves an in-memory tombstone so an older save can't bring the row back. A success prunes that row's older queued saves and older dead letters. The four tables with no `updated_at` (`event_feed_check_items`, `batch_moves`, `batch_adjustments`, `todo_assignments`) are ordered by a shared monotonic write-order clock (`src/data/write-order.js`: `max(now, last + 1)`, seeded from the persisted queue and dead letters). These guards are per tab and in memory. An `update` whose create is still queued or dead-lettered is sent as an upsert (`_effectiveOp`).
+- **Conflicts: what is and isn't guaranteed.** Last-write-wins by `updated_at` applies **only on pull**: `mergeRemote` replaces a local row when the remote `updated_at` is the same or later (`store.js:596-625`, `:612`), adds new rows, and never removes rows deleted on the server. **On push there is no cross-device check:** updates send the whole row, the server has no stale-write guard, and the last request to arrive wins whatever its stamp. A device with a stale copy can overwrite newer data. There is **no "no data loss" guarantee across devices** until OI-0226 PR C (server stale-write refusal; a DB change that needs Tim's yes plus a backup) and OI-0230 slice E (changed-fields-only updates).
+- **Updates that match 0 rows.** As built, `.update(record).eq('id', id)` with no error counts as success even when RLS hid the row (no session) or the row doesn't exist (OI-0230 F3).
+  - **OI-0230 PR 1 (intended):** check for a valid session before sending; no session or an expired JWT keeps the write queued (never dead-lettered for auth); an update that changes 0 rows with a valid session is dead-lettered at once with a `zero_rows` reason and is never marked sent; a 0-row letter replays only as an `update`, never as an upsert.
+- **Pull errors.** As built, `pullAll` returns `[]` on an error, so the pull still stamps `gtho_last_pulled_at` and the header can show green; pulls are not paginated (1,000-row cap). OI-0230 slice C fixes both (later PR).
 
 **Write method by operation type:**
 
@@ -424,7 +437,12 @@ export class SyncAdapter {
 | `add()` — new record | `.insert()` | New records must use INSERT so only the INSERT RLS policy is evaluated. Using `.upsert()` triggers INSERT + UPDATE policy checks, which fails during onboarding because UPDATE policies check `operation_members` (which may not exist yet). |
 | `update()` — existing record | `.update().eq('id', id)` | Existing records already passed INSERT; only UPDATE policy needed. |
 | `remove()` — delete | `.delete().eq('id', id)` | Already correct. |
-| Resync / recovery | `.upsert(record, { onConflict: 'id' })` | Recovery path re-pushes all records. By the time recovery runs, the user's `operation_members` row exists, so both INSERT and UPDATE policies pass. Upsert is correct here because we don't know if the record already exists in Supabase. |
+| Durable-write queue entry (create) | `.upsert(record, { onConflict: 'id' })` | `commitDurableWrite` queues creates as upserts so a replay after a crash can't fail on a duplicate id. |
+| Dead-letter replay (auto-drain and manual retry) | `.upsert(record, { onConflict: 'id' })` | OI-0184. **OI-0230 PR 1 (intended):** a `zero_rows` letter replays only as `.update()`, so it can't recreate a row deleted elsewhere. |
+| "Resync to server" (Settings) | As built: `.upsert()` of **every** local record (`pushAllToSupabase`, `src/data/push-all.js:99-128`) | See "Resync to server" below. |
+
+**"Resync to server".** Added 2026-04-14 (`2daa3e75`, OI-0050) as a one-time onboarding recovery for records created before sync worked. As built it walks every local record and upserts it as a full row with its local `updated_at`, sends without awaiting, then flushes; it reads nothing from the server, has no confirm step (`src/features/settings/index.js:405-419`), reports "Synced {count} records" whatever happened, and does **not** call `retryDeadLetters()` (the comment at `custom-sync.js:692-697` saying otherwise is wrong; Build fixes it in OI-0230 PR 1). On 2026-06-23 a stale tab's Resync reverted about 980 prod rows to a mid-May copy (OI-0230).
+- **OI-0230 PR 1 (intended; Tim 2026-11-18 1:00 and 1:10 PM ET):** the full-store push is removed. The button sends **only this device's unconfirmed work** — the pending queue, the dead letters, and rows changed locally since their last confirmed server ack (a new persisted per-row marker) — and each item only if it is **strictly newer than the server copy** (`updated_at`). On the four tables with no `updated_at`, an item is sent only as a create of a row missing on the server, never as an overwrite. A row is never resent just because it is missing on the server; an update for a missing row is never turned into a create. A **confirm sheet** shows the counts (to send, skipped as same or newer on the server, deleted or unreachable, not comparable) before anything is sent, and the result is **awaited** and reported as sent / skipped / failed; failures go to the dead letters with a reason. These client checks are **not airtight** (stale tabs, clock skew, the read-to-write gap); the backstop is OI-0226 PR C's server stale-write guard. Brief: `session_briefs/SYNC_DURABILITY_2026-11-18.md` §4 D.
 
 **Origin:** OI-0054 — discovered during Tier 3 testing. The sync adapter used `.upsert()` for all writes. During onboarding, every table's INSERT was rejected because Supabase evaluated both INSERT and UPDATE policies, and the UPDATE policy's `operation_members` check failed (the member row didn't exist yet). 24 records dead-lettered on every onboarding attempt.
 
@@ -437,24 +455,21 @@ PowerSync implements the same SyncAdapter interface. When costs justify it:
 
 One file swap. No feature code changes.
 
-### 5.4 Sync Test Suite (14 Scenarios)
+### 5.4 Sync Tests (as built)
 
-| # | Scenario | Pass Criteria |
-|---|----------|---------------|
-| 1 | Clean online write | Record appears in Supabase within 2s |
-| 2 | Offline write + reconnect | Queued writes flush in order |
-| 3 | Rapid-fire writes (20 in 1s) | All 20 arrive, correct final state |
-| 4 | Mid-flush disconnect | Retry from last uncommitted |
-| 5 | Two-device conflict (edit) | Last-write-wins, no data loss |
-| 6 | Delete vs update race | Delete wins, no ghost record |
-| 7 | Large payload (500 records) | Completes without timeout |
-| 8 | Token expiry mid-sync | Refresh + retry, no data loss |
-| 9 | Schema mismatch | Logged, sync continues for valid columns |
-| 10 | Duplicate push (idempotency) | Upsert prevents duplicates |
-| 11 | Pull with no changes | Empty result, no re-renders |
-| 12 | Pull with deletes | Local record removed, UI updates |
-| 13 | Dead letter | Write moves to dead_letter with context |
-| 14 | Recovery ("Push All") | Everything re-queued, dead letters retried |
+The original 14-scenario plan (clean write, offline replay, rapid writes, mid-flush disconnect, two-device edit, delete vs update, 500-record payload, token expiry, schema mismatch, duplicate push, empty pull, pull with deletes, dead letter, "Push All") was never built as one suite, and several of its pass criteria (last-write-wins with no data loss, token refresh with no data loss, pull removes deleted rows, "Push All" retries dead letters) do not hold for the code (§5.2). Sync coverage on main `b4cb9335` (Vitest, `tests/unit/`):
+
+| File | Covers |
+|---|---|
+| `sync-adapter.test.js` | Base `SyncAdapter` methods throw until implemented |
+| `sync-row-ordering.test.js` | OI-0226 PR B (#78): per-row chain, every version sent in order, newest-sent guard, dead letters through the chain, deletes in the chain, 15 s request timeout, gate bookkeeping, pruning on success, write-order fallback and clock, `operations` schema stamp on replay |
+| `sync-dead-letter.test.js` | OI-0184: `getSyncHealth`, auto-drain on flush, `retryDeadLetters` manual recovery, `getQueueLength` |
+| `sync-indicator.test.js` | Header indicator states (fresh, stale, non-idle pass-through) |
+| `pull-remote.test.js`, `pull-remote-timestamp.test.js` | Pull in-flight dedupe, batched merge, last-pulled stamp |
+| `assistant/durable-write.test.js`, `assistant/durable-sync.test.js` | Durable-write journal, receipts and recovery; a flush doesn't erase newly journalled commands |
+| `unit-reference-flows.test.js` | `pushAllToSupabase` unit-table filters |
+
+**Not covered today:** a reload or tab close mid-send, two-device conflicts, an expired session, 0-row updates, pull errors and pagination, and pulls after a server delete. **OI-0230 PR 1 (intended)** adds the A / B / D acceptance tests in `session_briefs/SYNC_DURABILITY_2026-11-18.md` §5 (reload mid-save, expired JWT, RLS 0-row, two-device cases, Resync with mixed unconfirmed items); slice C, E and the planned end-to-end save harness cover the rest.
 
 ### 5.5 Backup / Import / Export (CP-55, CP-56, CP-57)
 
@@ -620,6 +635,7 @@ One canonical name per concept. Grep must work. No aliases.
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-18 | GTHO Design — OI-0230 / OI-0231 sync chapters | §4.2 durable writes (`866ada7`) and the unawaited, in-memory online push; §4.6 indicator reads `getSyncHealth()`; §5.1 real adapter signature plus `CustomSync` extras; §5.2 rewritten to the code on `b4cb9335` (queue, retries, OI-0184 dead letters, #78 per-row ordering, LWW on pull only, 0-row updates, pull errors, Resync history) with OI-0230 PR 1 marked intended; §5.4 14-scenario plan replaced by the tests that exist. |
 | 2026-04-14 | Tier 3 migration testing — OI-0054 | §5.2: Added write-method-by-operation-type table (insert/update/upsert distinction). Documented OI-0054 origin (upsert bootstrap failure during onboarding). |
 | 2026-04-14 | Tier 3 migration testing — OI-0055 | New §5.5: Backup/Import/Export architecture covering CP-55/CP-56/CP-57. Documents FK_ORDER, TWO_PASS_TABLES, REFERENCE_TABLES, uniform operation_id delete/parity pattern, and the 10-step import flow. |
 | 2026-04-18 | OI-0091 event window split | New §4.4: Window-Split on State Change pattern. `event_group_window` is a period of stable state; state changes (cull/move/wean/event-close) close the current window with live values stamped and open a new window. Render and calc paths read through `getLiveWindowHeadCount` / `getLiveWindowAvgWeight` helpers — open windows recompute live, closed windows use stored snapshots. Ships with OI-0073 orphan cleanup (migration 025) as a coordinated P0 package. |

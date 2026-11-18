@@ -507,7 +507,7 @@ The rotation calendar does **not** appear in Reports — it lives on the Events 
 
 ### 4.7 Settings Screen
 
-Card sections stacked vertically: Account & Sync (connection status, display name, save), Sync Queue (diagnostic buttons: Refresh, Flush now, Export queue JSON, Clear queue (red), Push all to Supabase), Manual Backup (Export backup, Restore backup), Historical events. **v2 note:** Sync UI will change — v2 uses SyncAdapter (A10) with offline queue, exponential backoff, and dead letter handling. These v1 diagnostic controls will be replaced.
+v1 (live-app audit) had a Sync Queue card of diagnostic buttons (Refresh, Flush now, Export queue JSON, Clear queue, Push all to Supabase). **None of these were carried into v2.** v2's Settings → **Sync & Data** card (`src/features/settings/index.js:398-422`; flow in V2_UX_FLOWS.md §20.3) shows the sync status dot and label, **Export backup**, **Import backup**, **Migrate from v1** (when shown) and **Resync to server**. Sync health otherwise lives in the header indicator (§3.14; tap retries dead letters). **OI-0230 PR 1 (intended):** Resync gets a confirm sheet with counts and an awaited result; slice G (later) adds a sync problems sheet listing queued and failed writes.
 
 ### 4.8 Sheet Overlay (Edit Event)
 
@@ -670,6 +670,7 @@ Used by BCS Recording Sheet (§14.3). Row of numbered chips.
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-18 | GTHO Design — OI-0230 / OI-0231 | §4.7 v1 diagnostic controls replaced by the v2 Sync & Data card as built, with the OI-0230 Resync confirm marked intended. |
 | 2026-04-12 | Session 11 — Component gap fill | Added §7: quick-action bar, field mode home screen, field mode nav header, health recording sheet layout, group session progress bar, BCS chip selector. Patterns support V2_UX_FLOWS.md §14–§16. |
 | 2026-04-13 | Header + multi-farm context design | Extended §3.6 Navigation with header bar patterns: left cluster (operation name + farm picker), right cluster (sync dot, build stamp, Field Mode, user menu button), farm picker (sheet/dropdown specs), user menu popover (email + Log Out), and cross-farm event marker style for event cards. Supports V2_UX_FLOWS.md §17.2 and new §18. |
 | 2026-04-13 | Rotation calendar design (CP-54) | §4.3 Events Screen rewritten — the Events screen IS the rotation calendar. Covers header strip (View: toggle + mode indicator pill with multi-group compression rule), toolbar (two lightboxes: Timeline Selection + Dry Matter Forecaster, plus Show Confinement Locations on/off pill), conditional legend (Past always; Future swaps content by mode), 3-column calendar grid (paddock column / timeline / sidebar), past event blocks (multi-group label rule, proportional strip-graze bands, active NOW white ring, linked-paddock dashed outline + dotted connector), future forecast blocks (two view modes), today line with date pill, 1:1 sidebar mirror (40px header + 72px per paddock row + 28px totals footer), list view (v1 GRZ-10 pattern), mobile fallback (no calendar below 900px — GRZ-11 banner + GRZ-10 list). §4.6 Reports Screen: Rotation Calendar tab **removed** — calendar lives only on Events. Tab strip now 6 tabs (Feed & DMI Trends default, NPK Fertility, Animal Performance, Season Summary, Pasture Surveys, Weaning). Supports V2_UX_FLOWS.md §19. |

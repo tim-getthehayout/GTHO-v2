@@ -130,7 +130,7 @@ it('Resync sends only this operation\'s unconfirmed custom unit rows, and delete
   // A cached standard row is not unconfirmed work: never read, counted or sent.
   mergeRemote('doseUnits', [Dose.create({ id: 'a0000000-0000-4000-8000-000000000108', name: 'a0000000-0000-4000-8000-000000000108' })]);
   const { plan, outcome } = await resync();
-  expect(plan.counts).toEqual({ send: 2, skip: 0, gone: 0, cantCompare: 0 });
+  expect(plan.counts).toEqual({ send: 2, skip: 0, existing: 0, gone: 0, cantCompare: 0 });
   expect(outcome).toMatchObject({ sent: 2, failed: 0 });
   expect(db.rows.dose_units.map(row => row.name)).toEqual(['mL']); expect(db.rows.input_product_units).toHaveLength(1);
   expect(unitCalls().map(call => call.operation)).toEqual(['select', 'select', 'insert', 'insert']); noUnitDeletes();
@@ -284,7 +284,7 @@ it('Resync never sends cached unit rows, and a marked unit row of another operat
  expect(localSupabaseRow('dose_units','own-doseUnits')).toMatchObject({operation_id:op1});
  expect(localSupabaseRow('dose_units','foreign-doseUnits')).toBeNull();expect(localSupabaseRow('input_product_units','std-inputProductUnits')).toBeNull();
  localStorage.setItem('_sync_unacked',JSON.stringify({['dose_units\u0000foreign-doseUnits']:{table:'dose_units',id:'foreign-doseUnits',stamp:new Date().toISOString(),order:new Date().toISOString(),create:true}}));
- ({plan,outcome}=await resync());expect(plan.counts).toEqual({send:0,skip:0,gone:0,cantCompare:1});expect(unitCalls()).toEqual([]);
+ ({plan,outcome}=await resync());expect(plan.counts).toEqual({send:0,skip:0,existing:0,gone:0,cantCompare:1});expect(unitCalls()).toEqual([]);
 });
 
 it('queued and dead-letter actions replay under their original operation, never the selected one',async()=>{

@@ -216,7 +216,8 @@ export function isAuthError(error) {
   if (status === 401) return true;
   const code = String(error.code || '');
   if (code === 'PGRST301' || code === 'PGRST302' || code === 'PGRST303') return true;
-  return /\bjwt\b|token is expired|invalid token|not authenticated/i.test(String(error.message || ''));
+  // Only real session errors: a JWT that expired, is invalid or malformed.
+  return /\bjwt (?:expired|is expired|malformed|invalid)\b|\binvalid jwt\b|\btoken (?:is|has) expired\b/i.test(String(error.message || ''));
 }
 
 /** A re-sent insert whose row is already on the server (primary-key conflict). */
@@ -1080,44 +1081,68 @@ export class CustomSync extends SyncAdapter {
     if (!(await this.isOnline())) return { ok: false, reason: 'offline' };
     if (!supabase || !(await this.hasSession())) return { ok: false, reason: 'signedOut' };
 
+    // One entry per row. `entrySigs` / `letterSigs` record exactly what was
+    // compared, so a skip or gone removes only that, never a save made after
+    // the plan was built.
     const rows = new Map();
-    const consider = (table, id, candidate) => {
-      if (!table || id == null) return;
+    const rowFor = (table, id) => {
       const key = rowKey(table, id);
-      const row = rows.get(key) || { table, id, best: null, create: false };
-      row.create = row.create || candidate.create;
-      const best = row.best;
-      if (!best || !olderVersion(candidate.stamp, candidate.origin, best.stamp, best.origin)) row.best = candidate;
-      rows.set(key, row);
+      if (!rows.has(key)) rows.set(key, { table, id, best: null, create: false, insertShape: false, legacy: false, entrySigs: [], letterSigs: [] });
+      return rows.get(key);
     };
-    const cantCompare = [];
+    const consider = (row, candidate) => {
+      if (!row.best || !olderVersion(candidate.stamp, candidate.origin, row.best.stamp, row.best.origin)) row.best = candidate;
+    };
+    const unmatchedMarks = new Map();
     for (const mark of listUnacked()) {
       const record = localRow(mark.table, mark.id);
       if (!record) {
-        cantCompare.push({ table: mark.table, id: mark.id, source: 'mark' });
+        unmatchedMarks.set(rowKey(mark.table, mark.id), mark);
         continue;
       }
-      consider(mark.table, mark.id, {
+      const row = rowFor(mark.table, mark.id);
+      row.create = row.create || Boolean(mark.create);
+      consider(row, {
         source: 'mark', record, stamp: stampMs(record), origin: isoMs(mark.order), originIso: mark.order || null,
-        operation: mark.create ? 'upsert' : 'update', create: Boolean(mark.create),
+        operation: mark.create ? 'upsert' : 'update',
       });
     }
     for (const letter of readDeadLetters()) {
+      const id = entryRowId(letter);
+      if (!letter.table || id == null) continue;
       const op = letterOperation(letter);
-      const create = letter.reason !== ZERO_ROWS_REASON && (op ? isCreateOp(op) : letter.shape === 'insert');
-      consider(letter.table, entryRowId(letter), {
+      const row = rowFor(letter.table, id);
+      row.create = row.create || (letter.reason !== ZERO_ROWS_REASON && (op ? isCreateOp(op) : letter.shape === 'insert'));
+      row.insertShape = row.insertShape || letter.shape === 'insert';
+      // Written before operations were recorded: it may be a create or an update.
+      row.legacy = row.legacy || (!op && letter.shape !== 'insert');
+      row.letterSigs.push(letterSig(letter));
+      consider(row, {
         source: 'letter', letter, record: letter.record, stamp: stampMs(letter.record), origin: letterOrigin(letter),
         originIso: letter.origin_at || letter.dead_lettered_at || null,
-        operation: op || (letter.shape === 'insert' ? 'insert' : 'upsert'), create,
+        operation: op || (letter.shape === 'insert' ? 'insert' : 'upsert'),
       });
     }
     for (const entry of readQueue()) {
       const op = normalizePushOp(entry.operation);
-      if (op === 'delete') continue;
-      consider(entry.table, entryRowId(entry), {
+      const id = entryRowId(entry);
+      if (op === 'delete' || !entry.table || id == null) continue;
+      const row = rowFor(entry.table, id);
+      row.create = row.create || (isCreateOp(op) && entry.update_only !== true);
+      row.insertShape = row.insertShape || op === 'insert' || entry.shape === 'insert';
+      row.entrySigs.push(entrySig(entry));
+      consider(row, {
         source: 'queue', entry, record: entry.record, stamp: stampMs(entry.record), origin: entryOrigin(entry),
-        originIso: entry.enqueued_at || null, operation: op, create: isCreateOp(op) && entry.update_only !== true,
+        originIso: entry.enqueued_at || null, operation: op,
       });
+    }
+    // A mark whose local row is missing only adds its unconfirmed create to a
+    // row that has other work; alone it can't be compared. Each row counts once.
+    const cantCompare = [];
+    for (const [key, mark] of unmatchedMarks) {
+      const row = rows.get(key);
+      if (row) row.create = row.create || Boolean(mark.create);
+      else cantCompare.push({ table: mark.table, id: mark.id, source: 'mark' });
     }
 
     const byTable = new Map();
@@ -1143,42 +1168,70 @@ export class CustomSync extends SyncAdapter {
     const items = cantCompare.map(item => ({ ...item, action: 'cantCompare' }));
     for (const [key, row] of rows) {
       const found = server.get(key);
-      const base = { table: row.table, id: row.id, best: row.best, create: row.create };
       let action;
-      if (NO_UPDATED_AT_TABLES.includes(row.table)) {
-        action = found ? 'skip' : (row.create ? 'send' : 'gone');
+      let existing = false;
+      if (found && NO_UPDATED_AT_TABLES.includes(row.table)) {
+        // Never overwritten, and there is no stamp to compare.
+        action = 'skip';
+        existing = true;
       } else if (found) {
         const local = row.best.stamp;
         const remote = isoMs(found.updated_at);
         if (local == null || remote == null) action = 'cantCompare';
         else action = local > remote ? 'send' : 'skip';
+      } else if (row.create) {
+        action = 'send';
       } else {
-        action = row.create ? 'send' : 'gone';
+        // Missing on the server: an update is gone. A legacy letter of unknown
+        // operation may be an unlanded create, so it is left as it is.
+        action = row.legacy ? 'cantCompare' : 'gone';
       }
-      items.push({ ...base, action, serverExists: Boolean(found), serverUpdatedAt: found?.updated_at ?? null });
+      items.push({
+        table: row.table, id: row.id, best: row.best, create: row.create, insertShape: row.insertShape,
+        entrySigs: row.entrySigs, letterSigs: row.letterSigs,
+        action, existing, serverExists: Boolean(found), serverUpdatedAt: found?.updated_at ?? null,
+      });
     }
-    const count = action => items.filter(item => item.action === action).length;
-    return { ok: true, items, counts: { send: count('send'), skip: count('skip'), gone: count('gone'), cantCompare: count('cantCompare') } };
+    const count = (action, pick = () => true) => items.filter(item => item.action === action && pick(item)).length;
+    return {
+      ok: true,
+      items,
+      counts: {
+        send: count('send'),
+        skip: count('skip', item => !item.existing),
+        existing: count('skip', item => item.existing),
+        gone: count('gone'),
+        cantCompare: count('cantCompare'),
+      },
+    };
   }
 
-  /** Remove a row's queued saves (not deletes) and its dead letters. */
-  _dropRowWork(table, id) {
-    const sameRow = entry => entry.table === table && entryRowId(entry) === id;
-    const queue = readQueue();
-    const keptQueue = queue.filter(entry => !(sameRow(entry) && normalizePushOp(entry.operation) !== 'delete'));
-    if (keptQueue.length !== queue.length) writeQueue(keptQueue);
-    const letters = readDeadLetters();
-    const keptLetters = letters.filter(letter => !sameRow(letter));
-    if (keptLetters.length !== letters.length) writeDeadLetters(keptLetters);
+
+  /** Remove exactly the queue entries and dead letters a plan compared. */
+  _dropPlannedWork(item) {
+    const entrySigs = new Set(item.entrySigs || []);
+    const letterSigs = new Set(item.letterSigs || []);
+    if (entrySigs.size) {
+      const queue = readQueue();
+      const kept = queue.filter(entry => !entrySigs.has(entrySig(entry)));
+      if (kept.length !== queue.length) writeQueue(kept);
+    }
+    if (letterSigs.size) {
+      const letters = readDeadLetters();
+      const kept = letters.filter(letter => !letterSigs.has(letterSig(letter)));
+      if (kept.length !== letters.length) writeDeadLetters(kept);
+    }
   }
 
   /**
    * Carry out a confirmed Resync plan and wait for every send to settle.
    * - send: the stored payload with its own updated_at, as the operation it
    *   was (updates as updates), through the queue and the row chains;
-   * - skip: removed from the queue and dead letters, unmarked, and kept in
-   *   the "skipped by Resync" list for export;
-   * - gone: never sent or turned into a create; left as a 0-row dead letter;
+   * - skip: the queue entries and dead letters the plan compared are removed
+   *   (never a save made after the plan), the mark is cleared unless it is
+   *   newer, and the item is kept in the "skipped by Resync" list for export;
+   * - gone: never sent or turned into a create; the compared work becomes a
+   *   0-row dead letter;
    * - can't compare: left as it is.
    * Call inside runExclusive, after the user confirmed.
    * @returns {Promise<{ sent: number, skipped: number, failed: number, gone: number, cantCompare: number, waiting: number }>}
@@ -1189,12 +1242,13 @@ export class CustomSync extends SyncAdapter {
     const sends = [];
     for (const item of plan.items) {
       if (item.action === 'skip') {
-        this._dropRowWork(item.table, item.id);
-        clearMark(item.table, item.id);
+        this._dropPlannedWork(item);
+        // Clear the mark only if it is not newer than what was compared.
+        ackMark(item.table, item.id, item.best.record?.updated_at || null, item.best.originIso, false);
         skippedList.push({ table: item.table, id: item.id, record: item.best.record, server_updated_at: item.serverUpdatedAt, skipped_at: skippedAt });
       } else if (item.action === 'gone') {
         const { best } = item;
-        this._dropRowWork(item.table, item.id);
+        this._dropPlannedWork(item);
         this._deadLetter(item.table, best.record, GONE_MESSAGE, 0, { originAt: best.originIso, operation: 'update', reason: ZERO_ROWS_REASON });
       } else if (item.action === 'send') {
         sends.push(item);
@@ -1207,15 +1261,20 @@ export class CustomSync extends SyncAdapter {
       const { best } = item;
       // A newer create of a row the server already has goes as an update:
       // re-sent as an insert it would only hit the duplicate key.
-      const asUpdate = item.serverExists && normalizePushOp(best.operation) === 'insert';
-      if (best.source === 'queue' && !asUpdate) {
+      const op = normalizePushOp(best.operation);
+      const asUpdate = item.serverExists && op === 'insert';
+      // A create never confirmed and missing on the server goes as a create,
+      // even when the newest version is an update.
+      const asCreate = !item.serverExists && item.create && !isCreateOp(op);
+      if (best.source === 'queue' && !asUpdate && !asCreate) {
         entries.push(best.entry);
         continue;
       }
-      const shape = asUpdate ? null : (best.entry?.shape || best.letter?.shape || null);
+      let shape = asUpdate ? null : (best.entry?.shape || best.letter?.shape || null);
+      if (asCreate) shape = item.table === 'operations' && item.insertShape ? 'insert' : null;
       // Queue the new entry first, so a refused write loses nothing.
       const [entry] = this._enqueueEntries([{
-        operation: asUpdate ? 'update' : best.operation,
+        operation: asUpdate ? 'update' : (asCreate ? 'upsert' : best.operation),
         table: item.table,
         record: best.record,
         enqueuedAt: best.originIso,

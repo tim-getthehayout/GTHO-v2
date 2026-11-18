@@ -418,9 +418,12 @@ function renderSyncSection() {
 
 /**
  * "Resync to server": plan from this device's unconfirmed work only, show
- * the counts, send only after the user confirms, then show the awaited
- * result and run a normal pull. The flush lock is held from the server read
- * to the last send, so a normal flush can't send the same items unchecked.
+ * the counts, and send only after the user confirms. The flush lock is held
+ * only while reading and sending, never while the sheet waits for a tap: at
+ * Send the plan is rebuilt under the lock (fresh queue, dead letters, marks
+ * and server stamps) and the sheet is shown again if the counts changed. A
+ * sheet that is removed (navigation, a new Resync) counts as Cancel. Then the
+ * awaited result and a normal pull.
  * @param {HTMLButtonElement} button
  */
 export async function handleResyncClick(button) {
@@ -429,34 +432,46 @@ export async function handleResyncClick(button) {
   if (button) button.disabled = true;
   clear(mount);
   mount.appendChild(resyncCard('resync-progress', [el('p', {}, [t('settings.resyncChecking')])]));
-  let outcome = null;
   try {
-    const refused = await withResyncLock(async () => {
-      const plan = await planResync();
-      if (!plan.ok) return plan;
+    let plan = await withResyncLock(() => planResync());
+    let outcome = null;
+    while (!outcome) {
+      if (!plan || plan.ok === false) {
+        showResyncMessage(mount, resyncRefusal(plan || {}));
+        return;
+      }
       if (!(await confirmResync(mount, plan.counts))) {
         clear(mount);
-        return null;
+        return;
       }
       clear(mount);
       mount.appendChild(resyncCard('resync-progress', [el('p', {}, [t('settings.resyncSending')])]));
-      outcome = await applyResync(plan);
-      return null;
-    });
-    if (refused && refused.ok === false) {
-      showResyncMessage(mount, resyncRefusal(refused));
-      return;
+      const shown = plan.counts;
+      const step = await withResyncLock(async () => {
+        const fresh = await planResync();
+        if (!fresh.ok || !sameResyncCounts(fresh.counts, shown)) return { plan: fresh };
+        return { outcome: await applyResync(fresh) };
+      });
+      if (step?.outcome) outcome = step.outcome;
+      else plan = step?.plan || step;
     }
-    if (outcome) {
-      showResyncResult(mount, outcome);
-      await pullAllRemote();
-    }
+    showResyncResult(mount, outcome);
+    await pullAllRemote();
   } catch (error) {
     logger.warn('resync', 'Resync did not finish', { error: error?.message });
     showResyncMessage(mount, t('settings.resyncFailed'));
   } finally {
     if (button) button.disabled = false;
   }
+}
+
+function sameResyncCounts(a, b) {
+  return ['send', 'skip', 'existing', 'gone', 'cantCompare'].every(key => (a?.[key] || 0) === (b?.[key] || 0));
+}
+
+/** Singular or plural string: `key` is the plural, `${key}One` the singular. */
+function tCount(key, count) {
+  return t(count === 1 ? `${key}One` : key, { count });
 }
 
 function resyncRefusal(refused) {
@@ -485,29 +500,43 @@ function showResyncMessage(mount, message) {
 }
 
 /**
- * The confirm sheet. Resolves true only on "Send N changes".
+ * The confirm sheet. Resolves true only on "Send N changes"; false on
+ * Cancel or OK, or when the sheet is removed from the page.
  * @returns {Promise<boolean>}
  */
 function confirmResync(mount, counts) {
   return new Promise(resolve => {
     clear(mount);
+    let observer = null;
+    const settle = (value) => {
+      observer?.disconnect();
+      resolve(value);
+    };
     const lines = [
-      el('p', { 'data-testid': 'resync-count-send' }, [t('settings.resyncCountSend', { count: counts.send })]),
-      el('p', { 'data-testid': 'resync-count-skip' }, [t('settings.resyncCountSkip', { count: counts.skip })]),
+      el('p', { 'data-testid': 'resync-count-send' }, [tCount('settings.resyncCountSend', counts.send)]),
+      el('p', { 'data-testid': 'resync-count-skip' }, [tCount('settings.resyncCountSkip', counts.skip)]),
     ];
-    if (counts.gone > 0) lines.push(el('p', { 'data-testid': 'resync-count-gone' }, [t('settings.resyncCountGone', { count: counts.gone })]));
-    if (counts.cantCompare > 0) lines.push(el('p', { 'data-testid': 'resync-count-cant-compare' }, [t('settings.resyncCountCantCompare', { count: counts.cantCompare })]));
+    if (counts.existing > 0) lines.push(el('p', { 'data-testid': 'resync-count-existing' }, [tCount('settings.resyncCountExisting', counts.existing)]));
+    if (counts.gone > 0) lines.push(el('p', { 'data-testid': 'resync-count-gone' }, [tCount('settings.resyncCountGone', counts.gone)]));
+    if (counts.cantCompare > 0) lines.push(el('p', { 'data-testid': 'resync-count-cant-compare' }, [tCount('settings.resyncCountCantCompare', counts.cantCompare)]));
     const buttons = counts.send > 0
       ? [
-        el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'resync-cancel-btn', onClick: () => resolve(false) }, [t('action.cancel')]),
-        el('button', { className: 'btn btn-green btn-sm', 'data-testid': 'resync-send-btn', onClick: () => resolve(true) }, [t('settings.resyncSendButton', { count: counts.send })]),
+        el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'resync-cancel-btn', onClick: () => settle(false) }, [t('action.cancel')]),
+        el('button', { className: 'btn btn-green btn-sm', 'data-testid': 'resync-send-btn', onClick: () => settle(true) }, [tCount('settings.resyncSendButton', counts.send)]),
       ]
-      : [el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'resync-ok-btn', onClick: () => resolve(false) }, [t('settings.resyncOk')])];
-    mount.appendChild(resyncCard('resync-confirm-sheet', [
+      : [el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'resync-ok-btn', onClick: () => settle(false) }, [t('settings.resyncOk')])];
+    const sheet = resyncCard('resync-confirm-sheet', [
       el('h4', { style: { marginBottom: 'var(--space-3)' } }, [t('settings.resyncTitle')]),
       ...lines,
       el('div', { className: 'btn-row', style: { marginTop: 'var(--space-3)' } }, buttons),
-    ]));
+    ]);
+    mount.appendChild(sheet);
+    // Leaving the screen (or starting another Resync) removes the sheet: Cancel.
+    const Observer = globalThis.MutationObserver;
+    if (typeof Observer === 'function') {
+      observer = new Observer(() => { if (!sheet.isConnected) settle(false); });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
   });
 }
 

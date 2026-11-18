@@ -4,7 +4,7 @@
  * unconfirmed work (D). Mock Supabase client only; no SQL or live DB access.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const srv = vi.hoisted(() => ({
   rows: new Map(), log: [], reads: [], hidden: new Set(), session: true,
@@ -69,7 +69,8 @@ vi.mock('../../src/data/supabase-client.js', () => {
 
 vi.mock('../../src/data/pull-remote.js', async (importOriginal) => ({ ...(await importOriginal()), pullAllRemote: vi.fn(async () => ({ pulled: 0, errors: 0 })) }));
 
-import { CustomSync, ZERO_ROWS_REASON, NO_UPDATED_AT_TABLES } from '../../src/data/custom-sync.js';
+import { CustomSync, ZERO_ROWS_REASON, NO_UPDATED_AT_TABLES, isAuthError } from '../../src/data/custom-sync.js';
+import { commitDurableWrite, recoverDurableWrite } from '../../src/data/local-storage.js';
 import { resetWriteOrderClock } from '../../src/data/write-order.js';
 import { _reset, init, setSyncAdapter, update, add, remove, mergeRemote, getById, runDurableWrite } from '../../src/data/store.js';
 import { ackMark, markEntries, UNACKED_KEY } from '../../src/data/unacked.js';
@@ -207,6 +208,37 @@ describe('A: queue-first', () => {
     }
   });
 
+  it('A4: nothing outside src/data/ writes _sync_queue or calls commitDurableWrite; the F9 writers have at least 13 runDurableWrite call sites', () => {
+    const offenders = [];
+    for (const rel of readdirSync(`${process.cwd()}/src`, { recursive: true })) {
+      const file = String(rel);
+      if (!file.endsWith('.js') || file.startsWith('data/')) continue;
+      const text = readFileSync(`${process.cwd()}/src/${file}`, 'utf8');
+      if (/_sync_queue|commitDurableWrite/.test(text)) offenders.push(file);
+    }
+    expect(offenders).toEqual([]);
+    const sites = ['animals/index.js', 'amendments/entry.js', 'feed/check.js', 'events/feed-entry-inline-form.js', 'events/move-feed-out.js', 'health/calving.js',
+      'feed/pool-forms.js', 'feed/pool-ledger.js', 'events/close.js', 'events/move-wizard.js', 'events/submove.js', 'feed/delivery.js']
+      .reduce((n, file) => n + (readFileSync(`${process.cwd()}/src/features/${file}`, 'utf8').match(/runDurableWrite\(/g) || []).length, 0);
+    expect(sites).toBeGreaterThanOrEqual(13);
+  });
+
+  it('A2/D10: a durable write whose mark write fails once is still marked when the journal replays', () => {
+    const setItem = Storage.prototype.setItem;
+    let failOnce = true;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (key === UNACKED_KEY && failOnce) { failOnce = false; throw new DOMException('quota', 'QuotaExceededError'); }
+      return setItem.call(this, key, value);
+    });
+    const key = JSON.stringify([OPID, 'calving', 'k-mark', 1]);
+    expect(() => commitDurableWrite(key, {}, [{ table: T, record: row('dw', 10), operation: 'insert' }], 'dw')).toThrow();
+    expect(q().map(e => e.id)).toEqual(['dw']);
+    expect(marks()).toEqual([]);
+    recoverDurableWrite();
+    expect(marks()).toEqual([expect.objectContaining({ table: T, id: 'dw', create: true })]);
+    expect(q()).toHaveLength(1);
+  });
+
   it('A5: saves made while a flush awaits the network (online and offline, not durable) stay queued and a follow-up flush sends them', async () => {
     const sync = makeSync();
     srv.holdNext = 1;
@@ -313,6 +345,17 @@ describe('B: session check and 0-row updates', () => {
     expect(sync.getSyncHealth().status).toBe('signedOut');
     await sync.flush();
     expect(srv.rows.get(k('j')).v).toBe(10); expect(q()).toEqual([]);
+  });
+
+  it('B2: only real session errors count as auth (401, PGRST301-303, JWT expired/invalid/malformed)', () => {
+    expect(isAuthError({ status: 401, message: 'x' })).toBe(true);
+    expect(isAuthError({ code: 'PGRST301', message: 'x' })).toBe(true);
+    expect(isAuthError({ message: 'JWT expired' })).toBe(true);
+    expect(isAuthError({ message: 'invalid JWT: unable to parse or verify signature' })).toBe(true);
+    expect(isAuthError({ message: 'JWT malformed' })).toBe(true);
+    expect(isAuthError({ message: 'function public.jwt_claims() does not exist' })).toBe(false);
+    expect(isAuthError({ message: 'column "jwt" does not exist' })).toBe(false);
+    expect(isAuthError({ message: 'Internal server error (500)' })).toBe(false);
   });
 
   it('B3: an RLS 0-row update dead-letters at once with zero_rows, is not marked sent, and prunes nothing', async () => {
@@ -433,7 +476,7 @@ describe('D: Resync sends only unconfirmed work', () => {
     const before2 = { ...srv.rows.get(k('r2')) }, before3 = { ...srv.rows.get(k('r3')) };
     const sync = makeSync();
     const { plan, outcome } = await resync(sync);
-    expect(plan.counts).toEqual({ send: 3, skip: 2, gone: 1, cantCompare: 0 });
+    expect(plan.counts).toEqual({ send: 3, skip: 2, existing: 0, gone: 1, cantCompare: 0 });
     expect(outcome).toEqual({ sent: 3, skipped: 2, failed: 0, gone: 1, cantCompare: 0, waiting: 0 });
     expect(writes().map(e => e.id).sort()).toEqual(['r1', 'r4', 'r5']);
     expect(srv.rows.get(k('r2'))).toEqual(before2); expect(srv.rows.get(k('r3'))).toEqual(before3);
@@ -460,7 +503,7 @@ describe('D: Resync sends only unconfirmed work', () => {
     const sync = makeSync();
     const { plan } = await resync(sync);
     expect(srv.reads.every(r => r.cols === 'id')).toBe(true);
-    expect(plan.counts).toMatchObject({ send: 1, skip: 2 });
+    expect(plan.counts).toMatchObject({ send: 1, skip: 0, existing: 2 });
     expect(writes().map(e => e.id)).toEqual(['new']);
     expect(srv.rows.get(k('exists', table)).qty).toBe(1); expect(srv.rows.get(k('exists2', table)).qty).toBe(1);
   });
@@ -585,6 +628,53 @@ describe('D: Resync sends only unconfirmed work', () => {
     expect(srv.rows.get(k(AID, 'animals'))).toMatchObject({ notes: 'B notes', confirmed_bred: false });
   });
 
+  it('blocker 1: a save made after the plan is never dropped by a skip or a gone; its mark stays', async () => {
+    srv.rows.set(k('r2'), row('r2', 12));
+    seed({ queue: [entry(row('r2', 11), 'update', ts(11))], letters: [letter(row('g', 11), { operation: 'update', reason: ZERO_ROWS_REASON })] });
+    const sync = makeSync();
+    const plan = await sync.planResync(localRow);
+    expect(plan.items.map(i => [i.id, i.action]).sort()).toEqual([['g', 'gone'], ['r2', 'skip']]);
+    sync.online = false;
+    sync.enqueueWrite(T, row('r2', 13), 'update');
+    sync.enqueueWrite(T, row('g', 12), 'update');
+    await tick();
+    const outcome = await sync.applyResync(plan);
+    expect(outcome).toMatchObject({ skipped: 1, gone: 1, sent: 0 });
+    expect(q().map(e => [e.id, e.record.v])).toEqual([['r2', 13], ['g', 12]]);
+    expect(marks().find(m => m.id === 'r2')).toMatchObject({ stamp: ts(13) });
+    expect(sync.getResyncSkipped()).toEqual([expect.objectContaining({ id: 'r2', record: expect.objectContaining({ v: 11 }) })]);
+    sync.online = true;
+    await sync.flush();
+    expect(srv.rows.get(k('r2')).v).toBe(13);
+  });
+
+  it('blocker 3: a pre-PR dead letter with no operation, missing on the server, is can\'t compare and left untouched; retry can still create it', async () => {
+    const legacy = { id: 'L', table: T, record: row('L', 10), error: 'old', retry_count: 5, dead_lettered_at: ts(10), auto_drain_count: 3 };
+    seed({ letters: [legacy] });
+    const sync = makeSync();
+    const { plan, outcome } = await resync(sync);
+    expect(plan.counts).toEqual({ send: 0, skip: 0, existing: 0, gone: 0, cantCompare: 1 });
+    expect(outcome).toMatchObject({ sent: 0, gone: 0, cantCompare: 1 });
+    expect(dl()).toEqual([legacy]);
+    expect(srv.log).toEqual([]);
+    sync.retryDeadLetters(); await sync.flush();
+    expect(srv.log.filter(e => e.id === 'L').map(e => e.op)).toEqual(['upsert']);
+    expect(srv.rows.get(k('L')).v).toBe(10);
+  });
+
+  it('blocker 4: a marked, never-acked create with a newer queued update is sent once as a create; counted once; the next Resync shows N = 0', async () => {
+    markEntries([entry(row('c4', 10), 'insert', ts(10))]);
+    seed({ queue: [entry(row('c4', 11), 'update', ts(11))] });
+    const sync = makeSync();
+    const { plan, outcome } = await resync(sync);
+    expect(plan.counts).toEqual({ send: 1, skip: 0, existing: 0, gone: 0, cantCompare: 0 });
+    expect(outcome).toMatchObject({ sent: 1, failed: 0 });
+    expect(srv.log.filter(e => e.id === 'c4').map(e => e.op)).toEqual(['upsert']);
+    expect(srv.rows.get(k('c4')).v).toBe(11);
+    expect(dl()).toEqual([]); expect(q()).toEqual([]); expect(marks()).toEqual([]);
+    expect((await resync(sync)).plan.counts.send).toBe(0);
+  });
+
   it('logs one resync info line with counts and no ids', async () => {
     mixedSet();
     const info = vi.spyOn(logger, 'info');
@@ -615,12 +705,12 @@ describe('D: Resync confirm and result sheets (Settings)', () => {
     const done = handleResyncClick(button);
     await vi.waitFor(() => expect(document.querySelector('[data-testid="resync-confirm-sheet"]')).toBeTruthy());
     expect(text('[data-testid="resync-confirm-sheet"] h4')).toBe('Resync to server');
-    expect(text('[data-testid="resync-count-send"]')).toBe('1 unsynced changes on this device are newer than the server and will be sent.');
-    expect(text('[data-testid="resync-count-skip"]')).toBe('1 are already the same or newer on the server and will be skipped.');
-    expect(text('[data-testid="resync-count-gone"]')).toBe("1 were deleted on the server or can't be reached and won't be sent.");
+    expect(text('[data-testid="resync-count-send"]')).toBe('1 unsynced change on this device is newer than the server and will be sent.');
+    expect(text('[data-testid="resync-count-skip"]')).toBe('1 is already the same or newer on the server and will be skipped.');
+    expect(text('[data-testid="resync-count-gone"]')).toBe("1 was deleted on the server or can't be reached and won't be sent.");
     expect(document.querySelector('[data-testid="resync-count-cant-compare"]')).toBeNull();
     expect(text('[data-testid="resync-cancel-btn"]')).toBe('Cancel');
-    expect(text('[data-testid="resync-send-btn"]')).toBe('Send 1 changes');
+    expect(text('[data-testid="resync-send-btn"]')).toBe('Send 1 change');
     expect(srv.log).toEqual([]);
     document.querySelector('[data-testid="resync-send-btn"]').click();
     await done;
@@ -667,6 +757,60 @@ describe('D: Resync confirm and result sheets (Settings)', () => {
     await handleResyncClick(button);
     expect(text('[data-testid="resync-message"] p')).toBe(`Couldn't read ${T} from the server. Nothing was sent.`);
     expect(srv.log).toEqual([]);
+  });
+
+  it('blocker 2: the flush lock is free while the sheet is open, and a removed sheet counts as Cancel', async () => {
+    seedMixed();
+    const before = [localStorage.getItem('_sync_queue'), localStorage.getItem('_dead_letter_queue')];
+    const sync = makeSync();
+    const { button, mount } = mountSettings(sync);
+    const done = handleResyncClick(button);
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="resync-confirm-sheet"]')).toBeTruthy());
+    // A save on another screen goes out while the sheet waits.
+    await sync.push(T, row('other', 10), 'upsert');
+    expect(srv.rows.get(k('other')).v).toBe(10);
+    // The flush sent the queue as usual; put the planned work back to compare.
+    localStorage.setItem('_sync_queue', before[0]); localStorage.setItem('_dead_letter_queue', before[1]);
+    srv.log.length = 0;
+    mount.remove(); // navigating away
+    await done;
+    expect(button.disabled).toBe(false);
+    expect(srv.log).toEqual([]);
+    expect([localStorage.getItem('_sync_queue'), localStorage.getItem('_dead_letter_queue')]).toEqual(before);
+    await sync.push(T, row('after', 10), 'upsert');
+    expect(srv.rows.get(k('after')).v).toBe(10);
+  });
+
+  it('blockers 1+2: a save while the sheet is open goes out; at Send the plan is rebuilt and the sheet shown again because the counts changed', async () => {
+    srv.rows.set(k('r1'), row('r1', 10)); srv.rows.set(k('r2'), row('r2', 12));
+    seed({ queue: [entry(row('r2', 11), 'update', ts(11))], letters: [letter(row('r1', 11), { operation: 'update' })] });
+    const sync = makeSync();
+    const { button } = mountSettings(sync);
+    const done = handleResyncClick(button);
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="resync-send-btn"]')).toBeTruthy());
+    expect(text('[data-testid="resync-count-skip"]')).toMatch(/^1 is already/);
+    await sync.push(T, row('r2', 13), 'update');
+    expect(srv.rows.get(k('r2')).v).toBe(13);
+    document.querySelector('[data-testid="resync-send-btn"]').click();
+    await vi.waitFor(() => expect(text('[data-testid="resync-count-skip"]')).toMatch(/^0 are already/));
+    expect(srv.rows.get(k('r1')).v).toBe(10);
+    document.querySelector('[data-testid="resync-send-btn"]').click();
+    await done;
+    expect(text('[data-testid="resync-result"]')).toBe('Sent 1. Skipped 0. Failed 0.');
+    expect(srv.rows.get(k('r1')).v).toBe(11); expect(srv.rows.get(k('r2')).v).toBe(13);
+    expect(q()).toEqual([]); expect(dl()).toEqual([]);
+  });
+
+  it('existing rows on the no-updated_at tables are listed as already on the server', async () => {
+    srv.rows.set(k('x', 'batch_moves'), { id: 'x', qty: 1 });
+    seed({ queue: [entry({ id: 'x', qty: 2 }, 'upsert', ts(10), { table: 'batch_moves' })] });
+    const { button } = mountSettings(makeSync());
+    const done = handleResyncClick(button);
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="resync-confirm-sheet"]')).toBeTruthy());
+    expect(text('[data-testid="resync-count-existing"]')).toBe('1 is already on the server and will be skipped.');
+    expect(text('[data-testid="resync-count-skip"]')).toMatch(/^0 are already the same or newer/);
+    document.querySelector('[data-testid="resync-ok-btn"]').click();
+    await done;
   });
 
   it('D8: the result line reads "Sent X. Skipped M. Failed 2." with failures', async () => {

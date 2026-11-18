@@ -58,9 +58,9 @@ export function recoverDurableWrite() {
   const added = journal.queue.filter(entry => !queue.some(old => old.durable_key === entry.durable_key));
   queue.push(...added);
   if (journal.queue.length) localStorage.setItem('_sync_queue', JSON.stringify(queue));
-  // Mark the rows unacked before the journal is cleared, so a crash in
-  // between replays both (marking is idempotent).
-  markEntries(added);
+  // Mark every journalled row unacked before the journal is cleared, so a
+  // replay after a failed mark write still marks them (marking is idempotent).
+  markEntries(journal.queue);
   const receipts = readObject(RECEIPTS);
   receipts[journal.key] ??= { savedRecordId: journal.savedRecordId, localSavedAt,
     syncQueuedAt: journal.queue.length ? new Date().toISOString() : null };

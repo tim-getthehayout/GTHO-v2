@@ -128,6 +128,22 @@ describe('DST days use real elapsed hours', () => {
     expect(elapsedDayShares(readings, '2026-11-03')).toBeNull();
     expect(elapsedDayShares(readings, '2026-10-30')).toBeNull();
   });
+  it('bare two readings, Oct 31 12:00 → Nov 2 12:00, 49 kg: Oct 31 = 24 kg (first-reading day), Nov 1 = 25 kg, Nov 2 not measured', () => {
+    const input = {
+      eventId: 'e', feedTypes: types,
+      entries: [feed('f', '2026-10-31', '00:00', 1, { w: 100, dm: 100 })],
+      checks: [check('a', '2026-10-31', '12:00'), check('b', '2026-11-02', '12:00')],
+      items: [item('a', 1, { w: 100, dm: 100 }), item('b', 0.51, { w: 100, dm: 100 })],
+    };
+    expect(poolDailyActual(input, '2026-10-31').get(key)).toBeCloseTo(24, 9);
+    expect(poolDailyActual(input, '2026-11-01').get(key)).toBeCloseTo(25, 9);
+    expect(poolDailyActual(input, '2026-11-02').has(key)).toBe(false);
+  });
+  it('time-less readings across the fall-back day split by real hours: 24/49 and 25/49 (the one exception to time-less = calendar days)', () => {
+    const readings = [{ date: '2026-10-31', time: null }, { date: '2026-11-02', time: null }, { date: '2026-11-03', time: null }];
+    expect(elapsedDayShares(readings, '2026-10-31')).toEqual([{ index: 0, share: 24 / 49 }]);
+    expect(elapsedDayShares(readings, '2026-11-01')).toEqual([{ index: 0, share: 25 / 49 }]);
+  });
 });
 
 describe('compatibility', () => {

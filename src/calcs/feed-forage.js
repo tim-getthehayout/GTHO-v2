@@ -654,7 +654,6 @@ registerCalc({
       return d.toISOString().slice(0, 10);
     }
 
-
     // Allocate demand across pasture + stored buckets per spec's table.
     // Mutates the passed bucket refs' .value and returns the day's allocation.
     function allocateDay(demand, pastureRef, storedRef) {

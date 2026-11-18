@@ -4,6 +4,7 @@
 **Sequencing:** Build starts this **after** the forecast orphan-window fix PR (`fix/forecast-orphan-windows`) merges. That PR owns the cull-sheet orphan-split skip and the forecast masking; this item owns prevention.
 **Base:** Forgejo `main` `2f341de7` (PR #70 merge). Every file:line below was read on `2f341de7`. Diagnosis was SELECT-only on prod.
 **Related:** OI-0224 (FED-6 run rate, the panel that showed 2,042), OI-0137 (back-dated entries close the current window), OI-0185/OI-0186 (close pre-flight and date-conflict one-tap fix), OI-0184 (sync dead-letter queue and auto-drain), OI-0205 (`maybeSplitForGroup` adopts only a window on an open event), OI-0101 (move-wizard date-in/date-out mirror).
+**PR status (2026-11-18):** PR A merged as [#75](https://git.sarnford.com/Homelab/GTHO-v2/pulls/75) at `21f7caad`. PR B merged as [#78](https://git.sarnford.com/Homelab/GTHO-v2/pulls/78) at `7bf29a9d`; Design accepted its approach (§7). PR C not started.
 **Addendum (2026-11-17, Design, found in PR #75 review):** §6 extends slice (a) to paddock windows in PR A, in the same batch as the group-window clamp, and adds PR A acceptance tests plus an open reports note. Not a new Tim product decision.
 
 ## 1. Background
@@ -102,7 +103,7 @@ The one-tap conflict fix and the close or move that follows write a given window
 - **coalesce per row:** pending pushes for the same table + id collapse to the latest full row before sending; or
 - **chain per row:** a push for a row waits for the previous push for that row to settle.
 
-Either way the fix and the close are queued together; the fix must not run as a separate unawaited push outside the move's durable write. The ordering guarantee must hold whether or not `poolWritesEnabled()` is on and in review mode (today only `poolWritesEnabled() && !review` uses `runDurableWrite`, `move-wizard.js:820`). Offline queueing and the OI-0184 dead-letter queue keep their current behaviour.
+Either way the fix and the close are queued together; the fix must not run as a separate unawaited push outside the move's durable write. *(2026-11-18: Design accepted PR B's ordering in the sync adapter in place of this durable-write wording; see §7.)* The ordering guarantee must hold whether or not `poolWritesEnabled()` is on and in review mode (today only `poolWritesEnabled() && !review` uses `runDurableWrite`, `move-wizard.js:820`). Offline queueing and the OI-0184 dead-letter queue keep their current behaviour.
 
 **Acceptance tests:**
 1. **A1 race reproduction:** a window joined after the out date; run the one-tap fix and the close back to back with the first push artificially delayed (mock adapter that resolves out of order). The server copy ends **closed** at the close, with the newest `updated_at`.
@@ -216,3 +217,15 @@ On a backdated event close at instant C, in the **same write batch** as the grou
 ### 6.3 Open: reports 'DMI by group' still sums closed-event windows
 
 `src/features/reports/index.js` ~L192–222 (same on main `803a822a` and PR #75 `37d7b00a`) builds 'DMI by group' by walking **all events** and **all** of their group windows, including windows on closed events. That over-counts the same way the pre-PR-#72 forecast did. Handle this under OI-0226, likely in PR A or as a small follow-up. **Open.**
+
+---
+
+## 7. Design acceptance of PR B's approach (2026-11-18)
+
+PR B merged as [#78](https://git.sarnford.com/Homelab/GTHO-v2/pulls/78) at `7bf29a9d` after four Design review rounds. This is a Design call inside the approved spec, not a new Tim product decision.
+
+- **Where the ordering lives.** §3 (b) said the one-tap fix "must not run as a separate unawaited push outside the move's durable write". Design accepted ordering in the sync adapter (`src/data/custom-sync.js`) instead: the fix and the close stay separate store writes, and the per-row gate sends them to the server in the order they were made, whether or not `poolWritesEnabled()` is on and in review mode.
+- **Chain-only per-row ordering.** Of the two mechanisms in (b), PR B uses the chain. Every version of a row (table + id) is sent, in order, through that row's gate; nothing is coalesced. Writes to different rows still go in parallel (acceptance 3). A payload older than the newest one already sent for the row is dropped. The dead-letter drain and manual retry go through the same gate; a success clears that row's older dead letters and prunes strictly older queued saves, and retry keeps the newest letter per row. Online deletes go through the gate and leave an in-memory tombstone, so an older save can't bring the row back.
+- **Write-order fallback.** Rows on the four tables with no `updated_at` (`event_feed_check_items`, `batch_moves`, `batch_adjustments`, `todo_assignments`) are ordered by local write order instead. One shared monotonic clock in `src/data/write-order.js` stamps both the sync queue and durable writes: `nextWriteOrder()` = max(now, last + 1), never steps back, and seeds from the persisted queue and dead letters after a reload.
+- **Request timeout.** Every remote sync request has a 15 s timeout (`SYNC_REQUEST_TIMEOUT_MS`). A timed-out request is aborted and counts as a failure, so the normal retry and dead-letter path runs and a hung request can't hold its row's chain.
+- **Known limit N6.** A dead letter on a table with no `updated_at`, queued before this upgrade, whose correction already landed under the old sync code, replays once on the first drain: it has no write order to compare against, and the client can't fix that. PR C (the DB guard and stale-write refusal, §3 (d)) is the backstop and is still to come.

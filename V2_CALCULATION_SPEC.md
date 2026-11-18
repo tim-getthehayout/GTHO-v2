@@ -2,7 +2,7 @@
 
 **Status:** APPROVED
 **Source:** Prior CALCULATION_REGISTRY.md + interactive design sessions
-**Purpose:** Catalog every formula in the app (42 formulas across 12 domains, counting DMI-9 (approved, not yet built); see the Change Log), document the registerCalc() pattern, specify the reference console, and flag v1 bugs to fix. Claude Code implements calculations from this spec.
+**Purpose:** Catalog every formula in the app (43 formulas across 12 domains, counting DMI-9 (approved, not yet built); see the Change Log), document the registerCalc() pattern, specify the reference console, and flag v1 bugs to fix. Claude Code implements calculations from this spec.
 
 ---
 
@@ -177,11 +177,20 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Output: { pasture_dmi_kg, stored_dmi_kg, pasture_pct }
 - Note: Mass balance approach — assumes full daily intake met. Reasonable approximation.
 
-**DMI-5: Daily Stored DMI by Date**
-- Computes: Stored feed consumption on a specific date using feed check interpolation
-- Inputs: Bracketing feed checks with remaining quantities, total delivered DM
+**DMI-5: Daily Stored DMI by Date** (registry in `src/calcs/feed-forage.js`; shared split `elapsedDayShares` / `localInstantMs` in `src/calcs/feed-pools.js`; OI-0227 D, PR #79)
+- Computes: stored feed consumed on a local calendar date, with each interval between consecutive feed checks (pool readings) spread over local days by real elapsed hours
+- Inputs: the pool's feed checks in instant order with remaining quantities; stored DM delivered in each interval (strictly after the earlier check, up to and including the later one)
 - Output: daily_stored_consumption_kg
-- Note: Linear interpolation between checks. Acceptable for 1-3 day gaps.
+- Formula: `intake_i = max(0, DM at check i + DM delivered (i, i+1] − DM at check i+1)`; `stored(d) = Σ_i intake_i × hours(d ∩ interval_i) ÷ hours(interval_i)`
+- Rules:
+  - **Local days, real hours.** Days are the device's local calendar dates. Instants are built in the local zone from `date` + `time` (`localInstantMs`). Hours are real elapsed hours, so a fall-back day counts 25 h and a spring-forward day 23 h; there is no per-day normalisation to 24 h.
+  - **Untimed checks.** A check with no time sits at local midnight (`rowInstant`). Two time-less checks therefore split by whole days and give the old calendar-day values, except across a DST change: untimed Oct 31 → Nov 2 2026 spans 49 h, so Oct 31 takes 24/49 and Nov 1 25/49 of the intake.
+  - **Measured days (unchanged).** d is measured only when a check dated ≤ d and a check dated > d exist. The last check's own date is not measured; the part of the last interval that falls on it shows once the next check arrives (DMI-8 keeps the cascade estimate there).
+  - **First check's date.** The hours of that day before the first check lie in no interval and take the first interval's hourly rate. When two checks share the first instant, the first positive-length interval supplies that rate.
+  - **Same-day pairs count.** Two checks on one date (e.g. 08:00 and 17:00) put that interval's intake on that date. A zero-length interval contributes nothing.
+  - **Nulls.** If any interval overlapping d has a null DM, d is null for that pool (`needs_check`). Count units for d are null unless every overlapping interval is counted in the same unit.
+  - **One split, both paths.** `poolDailyObservation` uses it (so `poolDailyActual`, DMI-8 pool mode and FED-6 inherit it), and so does the older non-pool bracketed DMI-8 path.
+  - Example (two readings only): Oct 31 2026 12:00 → Nov 2 12:00, 49 kg DM eaten over 49 h → Oct 31 = 24 kg (12 h in the interval + 12 h before the first check at the same rate), Nov 1 = 25 kg, Nov 2 not measured.
 
 **DMI-6: DMI Variance (Confinement)**
 - Computes: Actual vs expected DMI for confinement events
@@ -225,7 +234,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
   - If a non-confinement observation has `forageHeightCm` but `forageCoverPct` is null → **default cover to 100%** and proceed. Caller surfaces a subtle "(assuming 100% cover — Fix)" hint in the UI. Land-window validation still applies in a mixed event; the confinement exception is per window, not an event-wide bypass.
 
   **Step 2 — Check for feed check on this date.**
-  - If a feed check exists on or bracketing this date, compute `storedDmiKg` via DMI-5 interpolation (bracketed) or single-check projection (deliveries since check minus current remaining, linearly distributed across days since check).
+  - If a feed check exists on or bracketing this date, compute `storedDmiKg` via DMI-5 (bracketed: each check-to-check interval's intake spread over local days by real elapsed hours, 23 h / 25 h on DST days; OI-0227 D) or single-check projection (deliveries since check minus current remaining, linearly distributed across days since check).
   - `pastureDmiKg = max(totalDmiKg - storedDmiKg, 0)`; `deficitKg = max(storedDmiKg + pastureDmiKg - totalDmiKg, 0)` handled by clamping — in practice, if `storedDmiKg >= totalDmiKg`, `pastureDmiKg = 0` and any excess is counted as surplus stored (not deficit). **Confinement exception (OI-0209):** never fill a shortfall with invented pasture. For a pure confinement event `pastureDmiKg = 0`; preserve measured stored consumption and report any unmet demand as deficit. In mixed events, only the non-confinement windows can supply pasture.
   - Status = `actual`. Return.
   - **Retroactive actual-conversion rule:** when a feed check is added, the PRIOR interval's `storedDmiKg` bars flip from `estimated` → `actual` (the interval between this check and the previous check, or the event start if no previous check). The stored leg is re-derived from deliveries within the interval minus the new check's residual. **Pasture bars in that interval stay `estimated`** — pre-graze observations are too subjective to retroactively promote. This is handled naturally by re-running DMI-8 after a check insertion; the calc itself is pure-functional.
@@ -281,7 +290,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 
 - **Display precision:** All kg values display as whole numbers. When a tooltip shows estimated days remaining (e.g., "~1.25 days pasture remaining"), use 2 decimal places per FOR-3 display rule.
 
-- **Composites:** DMI-2 (per-group demand), DMI-3 (event demand), DMI-5 (stored feed interpolation), FOR-1 (standing forage DM).
+- **Composites:** DMI-2 (per-group demand), DMI-3 (event demand), DMI-5 (stored feed spread over local days by elapsed hours), FOR-1 (standing forage DM).
 
 - **v2-only:** No v1 equivalent. V1's chart was purely visual with no source split and no deficit representation.
 
@@ -377,7 +386,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Output: value in $
 - Same price history lookup as NPK-2.
 
-### 4.6 Feed Residual Domain (6 formulas + 1 helper)
+### 4.6 Feed Residual Domain (7 formulas + 1 helper)
 
 **FED-1: Effective Feed Residual**
 - Computes: Current remaining feed from latest check
@@ -410,13 +419,29 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Inputs: `today` (YYYY-MM-DD); `days` (7, 14, 30 or 60; default 30); `periodStart` (optional, clips the window start); `events` (`{ id, dateIn` (derived start), `dateOut }`); `entries`, `checks`, `items`, `batches`, `feedTypes` (FA-26 pool replay rows); `groupWindows`, `memberships`, `animals`, `animalWeightRecords`, `animalClasses` (forecast rows).
 - Output: `{ days, windowDays, start, end, measuredDays, lastMeasuredDate, hasChecks, rate: { dmKgPerDay, unitsPerDay, forecastDmKgPerDay, pctOfForecast }, consumed: { dmKg, units, cost, unpricedDmKg, includesPartialDays }, residual: { dmKg, units, cost, unpricedDmKg, eventsClosed, closesWithoutReading, knownPools, unknown }, byEvent: [{ eventId, closed, consumed, residual, closeWithoutReading }] }`
 - Formula:
-  - Measured pool-day d: the pool's checks bracket d with earlier check date ≤ d < later check date (`poolDailyObservation(input, d)`, the `poolDailyActual` / DMI-8 convention); daily DM = (DM at earlier check + DM delivered between − DM at later check) ÷ days, floored at 0. Event days run `dateIn ≤ d < dateOut` (close day excluded, as group windows' `dateLeft`). A pool is active on d when measured or still holding feed after replay through the end of d.
+  - Measured pool-day d: the pool's checks bracket d with earlier check date ≤ d < later check date (`poolDailyObservation(input, d)`, the `poolDailyActual` / DMI-8 convention); daily DM = DMI-5 for that pool on d: each check-to-check interval's intake (DM at earlier check + DM delivered between − DM at later check, floored at 0) spread over local days by real elapsed hours (OI-0227 D, PR #79; previously ÷ calendar days). Event days run `dateIn ≤ d < dateOut` (close day excluded, as group windows' `dateLeft`). A pool is active on d when measured or still holding feed after replay through the end of d.
   - Farm-measured day: at least one active pool and every active pool measured. `rate` = Σ DM (and count units) on farm-measured days ÷ measured days; `consumed` = Σ over every measured pool-day (`includesPartialDays` when that exceeds the farm-measured sum).
   - Count units only for bale, sq bale and bag, when the interval is verified in one count unit; ton, kg, lb and mass-based pools add to DM only.
   - Residual: for events whose `dateOut` falls in the window, each pool's amount after full replay (close reading less later removals) where a close reading covers it. A pool holding feed with no close reading, or without a DM conversion, is unknown and counted in `closesWithoutReading`; with no known pool the residual is `unknown` (DM and $ null), never 0.
   - $: a pool's DM × the delivery-weighted $/kg DM of the batches delivered into it (`poolDmPrices`; recorded `cost_per_unit`, $56/bale fallback for round-bale batches with no cost); unpriced DM is reported, never $0.
   - Forecast: `groupWindowsDailyDmiKg` (shared with DMI-8: head × weight × class DMI%, 2.5 default, no lactation) averaged over the same measured days; `pctOfForecast` = actual ÷ forecast × 100.
+  - **Inherited hours-based split (PR #79).** FED-6 has no split of its own; it sums DMI-5 day values. So `consumed` is no longer the exact sum of check-to-check intakes: a window containing a pool's first check adds the hours of that date before the check at the first interval's rate (up to one day of feed), and the hours of the latest check's own date wait for the next check. The measured-day set is unchanged. Test fixture: 11 → 11.4 bales.
 - **Rule:** no estimates fill unmeasured days. Compute-on-read; no stored columns.
+
+**FED-7: Feed-Check Plausibility** (`src/calcs/feed-check-plausibility.js`, OI-0227 B, PR #77; spec: `session_briefs/FEED_CHECK_PLAUSIBILITY_2026-11-17.md` §3.1)
+- Computes: a non-blocking warning when a proposed pool reading implies an implausible stored-feed intake on either neighbouring interval, compared with the event's expected daily DMI. Pure (no DOM, writes or clock); it does not change daily bar allocation.
+- Inputs: `poolInput` (`eventId`, `entries`, `checks`, `items`, `batches`, `feedTypes`, with the proposed check already in it); `proposedCheck` (`{ id, date, time }`); `event`, `paddockWindows`, `locations` (pasture vs confinement); `groupWindows`, `memberships`, `animals`, `animalClasses`, `animalWeightRecords` (expected demand).
+- Output: `[{ poolKey, interval: { from, to }, impliedDmKgPerDay, expectedDmKgPerDay, pct, kind: 'low' | 'high' | 'negative' }]` in kg DM/day; empty when nothing warns.
+- Formula:
+  - For each pool on the proposed check, evaluate both neighbouring intervals in instant order, prev → this and this → next, so edits and inserts check both sides.
+  - `impliedDm = prevRemainingDm + Σ stored DM fed into the pool in (prev, new] − newRemainingDm` (replay up to and including the later instant, without the later reading, minus the later reading).
+  - `impliedDmKgPerDay = impliedDm ÷ (elapsedHours ÷ 24)`; elapsed hours are real hours between the two local instants (DST-aware).
+  - `expectedDmKgPerDay` = `groupWindowsDailyDmiKg(d)` averaged over the interval's local days, weighted by the hours of each day inside the interval. `pct = impliedDmKgPerDay ÷ expectedDmKgPerDay × 100`.
+  - **Thresholds:** `high` when pct > 400. `low` when pct < 50, only if no non-confinement paddock window is open on any day of the interval and no other stored-feed pool on the event is active (measured, or still holding feed) on any day of it; otherwise upper bound only.
+  - **Negative:** `negative` when impliedDm < 0, returned before the other skips. This is defensive: UI paths already refuse it (`poolReading` "Pool quantity exceeds available feed.", and the pool-ledger edit check).
+  - **Skips (no warning):** no previous reading on that side (first check); interval under 12 h; null DM; no live group window in the interval, unknown live window weights (`hasUnknownLiveWindowWeights`), or expected ≤ 0. A no-op edit shows nothing (`previewPoolCheck` returns `[]` when `unchangedPoolCheck` is true).
+- Callers: `previewPoolCheck` (`src/features/feed/pool-ledger.js`) builds the same proposed state as the pool-check write and calls FED-7 before commit. The warning shows inline above the buttons with Fix or Save anyway (both figures labelled lb DM/day, kg DM/day in metric; nothing is written until the user picks). Wired on the pool check form (new and edit), the pool-transfer Confirm current remaining field, the feeding-sheet carryover (also the assistant-filled path), close-event, sub-move close, and the move wizard's typed Residual readings.
+- Compute-on-read; no stored columns.
 
 #### `getLiveRemainingForMove(eventId)` — canonical helper for live remaining feed per (batchId, locationId)
 
@@ -647,6 +672,7 @@ These three contracts also live in CLAUDE.md "Architecture Audit — Before Ever
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-18 | OI-0227 — FED-7 and the DMI-5 elapsed-hours split, as built | Documented from the code on main `718ad0dc` (PR #77 at `321fab28`, PR #79 at `718ad0dc`; both passed Design review). New FED-7 feed-check plausibility in §4.6 (implied DM/day per neighbouring interval vs hour-weighted `groupWindowsDailyDmiKg`; warn < 50% or > 400% on a pure-confinement single-pool event, > 400% only with pasture or another active pool; skip first reading, < 12 h, unknown or zero demand; defensive `negative`). §4.2 DMI-5 rewritten from "linear interpolation" to the hours-based split (local days, real 23 h / 25 h DST hours, untimed = local midnight, first-check-date hours at the first positive-length interval's rate, last check's date not measured, same-day pairs count); DMI-8 step 2 and the composites line follow; FED-6 notes that it inherits the split (consumed 11 → 11.4 bales on the test fixture). Compute-on-read; CP-55/CP-56 impact: none; schema change: none. Total formulas: 42 → 43. Owner: GTHO Design. |
 | 2026-11-17 | OI-0225 — DMI-9 approved | Tim, 2026-11-17 9:18 AM ET, via Orchestrator: Q1 both bases labelled; Q2 floor at 0 + over-demand line; Q3 "Pasture should be green" (green above 0, muted at 0, no red; identity colour, not a threshold); Q6 sheep basis Jun–Oct 2026 = Sheep group at entry + 30 offspring at 60 lb (a basis row, no formula change). Formula unchanged; count stays 42. |
 | 2026-11-17 | OI-0225 — DMI-9 implied pasture DMI (PROPOSED) | New DMI-9 in §4.2 (not built; Tim's request 9:04 AM ET via Orchestrator: "Implied DMI from pasture. This is the most important number."): predicted herd DMI (group windows as FED-6/DMI-8, plus `historical_animal_basis` where no window) minus stored feed over the same days; window lane uses FED-6 consumed on farm-measured days plus no-hay days (earlier check ≤ d < later check; dateIn ≤ d < dateOut), period lane uses fed (OI-0221 B) plus `historical_feedings`; netted then floored at 0 with a separate "stored over demand" figure and the raw signed value kept; lb DM/day, lb DM/head/day per species, % of demand; Unknown never 0. Header count corrected from the stale 37/11 to 42/12. Compute-on-read; CP-55/CP-56 impact: none; schema change: none. Total formulas: 41 → 42. Owner: GTHO Design. |
 | 2026-11-17 | OI-0224 — FED-6 feed run rate | New FED-6 (`src/calcs/feed-run-rate.js`) in §4.6, documented from the code at `f353c72c` (PR #65, passed Design review): measured pool-day earlier check ≤ d < later check (the `poolDailyActual` / DMI-8 convention), close day excluded, farm-measured days, count units only for bale / sq bale / bag, residual at close with "unknown" never 0, delivery-weighted batch cost with the $56/bale fallback, forecast shared with DMI-8 (no lactation), optional `periodStart` and per-event `byEvent` for the OI-0221 scorecard. Compute-on-read; CP-55/CP-56 impact: none; schema change: none. Total formulas: 40 → 41. Owner: GTHO Design. |

@@ -19,6 +19,9 @@ let resolvePull;
 const pullPending = new Promise((resolve) => { resolvePull = resolve; });
 
 const fakeUser = { id: 'user-1', email: 'tim@example.com' };
+// Auth-change listener registered by main.js, and the adapter the store hands out.
+let authListener = null;
+let currentAdapter = null;
 
 function setupMocks() {
   // Router — capture route(...) registrations and the initRouter(content) call.
@@ -61,7 +64,7 @@ function setupMocks() {
   vi.doMock('../../src/data/store.js', () => ({
     init: () => record('initStore'),
     setSyncAdapter: () => {},
-    getSyncAdapter: () => null,
+    getSyncAdapter: () => currentAdapter,
     getAll: () => [],
     mergeRemote: () => {},
     isCurrentUserDev: () => false,
@@ -80,7 +83,7 @@ function setupMocks() {
 
   vi.doMock('../../src/features/auth/session.js', () => ({
     initSession: () => Promise.resolve(fakeUser),
-    onAuthChange: () => {},
+    onAuthChange: (callback) => { authListener = callback; },
     getUser: () => fakeUser,
   }));
 
@@ -198,6 +201,26 @@ describe('main.js boot ordering — OI-0149', () => {
     expect(idxHeader).toBeGreaterThanOrEqual(0);
     expect(idxInitRouter).toBeGreaterThan(idxHeader);
 
+    resolvePull({ pulled: 0, errors: 0 });
+  });
+
+  it('flushes the current adapter when the session comes back (SIGNED_IN / TOKEN_REFRESHED), never a captured one', async () => {
+    authListener = null; currentAdapter = null;
+    await import('../../src/main.js');
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    expect(authListener).toBeTypeOf('function');
+    const first = { flush: vi.fn(() => Promise.resolve()) };
+    const second = { flush: vi.fn(() => Promise.resolve()) };
+    currentAdapter = first;
+    authListener(fakeUser, 'TOKEN_REFRESHED');
+    expect(first.flush).toHaveBeenCalledTimes(1);
+    currentAdapter = second;
+    authListener(fakeUser, 'SIGNED_IN');
+    expect(second.flush).toHaveBeenCalledTimes(1);
+    expect(first.flush).toHaveBeenCalledTimes(1);
+    authListener(null, 'SIGNED_OUT');
+    expect(second.flush).toHaveBeenCalledTimes(1);
+    currentAdapter = null;
     resolvePull({ pulled: 0, errors: 0 });
   });
 });

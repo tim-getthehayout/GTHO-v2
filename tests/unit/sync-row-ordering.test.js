@@ -35,25 +35,28 @@ vi.mock('../../src/data/supabase-client.js', () => {
           return { error: { message: 'new row violates row-level security policy (42501)' } };
         }
         const k = key(table, rowId);
+        let data = null;
         if (op === 'insert') {
-          if (srv.rows.has(k)) return { error: { message: 'duplicate key (23505)' } };
+          if (srv.rows.has(k)) return { error: { code: '23505', message: 'duplicate key value violates unique constraint "x_pkey"' } };
           srv.rows.set(k, { ...payload });
         } else if (op === 'update') {
+          data = srv.rows.has(k) ? [{ id: rowId }] : [];
           if (srv.rows.has(k)) srv.rows.set(k, { ...srv.rows.get(k), ...payload });
         } else if (op === 'upsert') {
           srv.rows.set(k, { ...(srv.rows.get(k) || {}), ...payload });
         } else if (op === 'delete') {
+          data = srv.rows.has(k) ? [{ id: rowId }] : [];
           srv.rows.delete(k);
         }
         srv.log.push({ table, op, id: rowId, rec: payload ? { ...payload } : null });
-        return { error: null };
+        return { error: null, data };
       } finally {
         srv.inFlight--;
       }
     };
   }
-  const thenable = fn => ({ then: (a, b) => fn().then(a, b), eq() { return this; } });
-  const supabase = { from(table) { return {
+  const thenable = fn => ({ then: (a, b) => fn().then(a, b), eq() { return this; }, select() { return this; } });
+  const supabase = { auth: { getSession: async () => ({ data: { session: { access_token: 'test-token' } }, error: null }) }, from(table) { return {
     insert: p => thenable(exec(table, 'insert', p)),
     upsert: p => thenable(exec(table, 'upsert', p)),
     update: p => ({ eq: (_c, id) => thenable(exec(table, 'update', p, id)) }),
@@ -204,7 +207,8 @@ describe('chain-only: every version goes out, nothing is merged', () => {
     expect(srv.rows.get(k(WINDOW_ID))?.v).toBe(2);
     await sync.flush();
     expect(srv.rows.get(k(WINDOW_ID))?.v).toBe(2);
-    expect(sent(WINDOW_ID).map(e => e.op)).toEqual(['upsert']);
+    // Queue-first: both versions go out from the queue, in order.
+    expect(sent(WINDOW_ID).map(e => [e.op, e.rec.v])).toEqual([['upsert', 1], ['update', 2]]);
     expect(sync.getQueuedItems()).toHaveLength(0);
   });
 
@@ -253,7 +257,7 @@ describe('chain-only: every version goes out, nothing is merged', () => {
 });
 
 describe('newest sent stamp: an older payload never lands last', () => {
-  it('flush snapshot: an older queued row is dropped after a newer online push', async () => {
+  it('flush snapshot: a save made during a flush goes out after the older queued copy; the server ends at the newer', async () => {
     const sync = makeSync();
     localStorage.setItem('_sync_queue', JSON.stringify([
       { id: OTHER_ID, table: TABLE, operation: 'upsert', record: v(1, 0, OTHER_ID), attempts: 0, errors: [] },
@@ -262,14 +266,14 @@ describe('newest sent stamp: an older payload never lands last', () => {
     srv.holdNext = 1;
     const f = sync.flush();
     await tick();
-    await sync.push(TABLE, v(2, 9), 'upsert');
-    const warn = vi.spyOn(logger, 'warn');
+    // Queue-first: the new save waits for the follow-up pass, behind the snapshot.
+    const newer = sync.push(TABLE, v(2, 9), 'upsert');
     srv.holds.forEach(r => r());
     await f;
+    await newer;
     expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
-    expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([2]);
+    expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([1, 2]);
     expect(sync.getQueuedItems()).toHaveLength(0);
-    expect(warn).toHaveBeenCalledWith('sync', 'Older row write dropped', { table: TABLE });
   });
 
   it('a persisted queue holding a newer version before an older one ends at the newer', async () => {
@@ -412,7 +416,8 @@ describe('deletes join the row chain', () => {
     const del = sync.delete(TABLE, WINDOW_ID);
     srv.holds.forEach(r => r());
     await Promise.all([first, pendingSave, del]);
-    expect(srv.log.map(e => [e.op, e.rec?.v ?? null])).toEqual([['upsert', 1], ['delete', null]]);
+    // Queue-first: the persisted v3 goes out first; v1 and v2 are older and dropped.
+    expect(srv.log.map(e => [e.op, e.rec?.v ?? null])).toEqual([['upsert', 3], ['delete', null]]);
     expect(queued()).toHaveLength(0);
     expect(deadLetters()).toHaveLength(0);
     await sync.push(TABLE, v(3, 3), 'upsert');
@@ -520,12 +525,18 @@ describe('persisted state is pruned on success, so nothing stale survives a relo
   it('a successful send removes that row\'s older queued saves from storage at once', async () => {
     const sync = makeSync();
     localStorage.setItem('_sync_queue', JSON.stringify([
-      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(1, 1), enqueued_at: '2026-11-17T20:00:01.000Z', attempts: 0, errors: [] },
       { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(3, 9), enqueued_at: '2026-11-17T20:00:09.000Z', attempts: 0, errors: [] },
+      { id: WINDOW_ID, table: TABLE, operation: 'upsert', record: v(1, 1), enqueued_at: '2026-11-17T20:00:01.000Z', attempts: 0, errors: [] },
       { id: OTHER_ID, table: TABLE, operation: 'upsert', record: v(1, 1, OTHER_ID), enqueued_at: '2026-11-17T20:00:01.000Z', attempts: 0, errors: [] },
     ]));
-    await sync.push(TABLE, v(2, 5), 'upsert');
-    expect(queued().map(e => [e.id, e.record.v])).toEqual([[WINDOW_ID, 3], [OTHER_ID, 1]]);
+    srv.holdWhen = (_table, id) => id === OTHER_ID;
+    const f = sync.flush();
+    await vi.waitFor(() => expect(sent(WINDOW_ID).map(e => e.rec.v)).toEqual([3]));
+    // The other row is still in flight; the sent v3 and its older v1 are already out of storage.
+    expect(queued().map(e => [e.id, e.record.v])).toEqual([[OTHER_ID, 1]]);
+    srv.holds.forEach(r => r());
+    await f;
+    expect(queued()).toEqual([]);
   });
 
   it('dead letters stay cleared after an online delete, across a reload', async () => {
@@ -580,7 +591,7 @@ describe('rows with no updated_at use write order', () => {
     expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
   });
 
-  it('flush snapshot: an older queued unstamped save is dropped after a newer online save', async () => {
+  it('flush snapshot: an unstamped save made during a flush goes out after the older queued copy', async () => {
     const sync = makeSync();
     localStorage.setItem('_sync_queue', JSON.stringify([
       { id: OTHER_ID, table: IT, operation: 'upsert', record: item(9, OTHER_ID), enqueued_at: '2026-11-17T20:00:00.000Z', attempts: 0, errors: [] },
@@ -589,10 +600,12 @@ describe('rows with no updated_at use write order', () => {
     srv.holdNext = 1;
     const f = sync.flush();
     await tick();
-    await sync.push(IT, item(0.75), 'upsert');
+    const newer = sync.push(IT, item(0.75), 'upsert');
     srv.holds.forEach(r => r());
     await f;
+    await newer;
     expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    expect(sent(WINDOW_ID).map(e => e.rec.remaining)).toEqual([1.5, 0.75]);
     expect(sync.getQueuedItems()).toHaveLength(0);
   });
 
@@ -624,12 +637,16 @@ describe('dead-letter drain leaves a letter alone while a newer save is queued',
     localStorage.setItem('_dead_letter_queue', JSON.stringify([
       { id: WINDOW_ID, table: TABLE, record: v(1, 1), dead_lettered_at: '2026-11-17T20:00:01.500Z' },
     ]));
-    srv.failNext = 5; // the queued newer save fails in this flush and stays queued
+    srv.failNext = 5; // the queued newer save fails in this flush and is dead-lettered
     const f = sync.flush();
     await vi.runAllTimersAsync();
     await f;
     expect(sent(WINDOW_ID).map(e => e.rec.v)).not.toContain(1);
+    // The next flush drains the newer letter; the older one is never sent.
+    await sync.flush();
+    expect(sent(WINDOW_ID).map(e => e.rec.v)).not.toContain(1);
     expect(srv.rows.get(k(WINDOW_ID)).v).toBe(2);
+    expect(deadLetters()).toEqual([]);
   });
 });
 

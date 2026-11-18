@@ -126,4 +126,19 @@ describe('sync indicator', () => {
       expect(formatted).toMatch(/2:32\s*PM/);
     });
   });
+
+  describe('signed out (queue waiting for a session)', () => {
+    it('shows "Signed out · N changes waiting" from the health snapshot', async () => {
+      const { getSyncState } = await import('../../src/ui/header.js');
+      mockAdapter.getSyncHealth = () => ({ status: 'signedOut', queueLength: 3, deadLetterCount: 0 });
+      try {
+        expect(getSyncState()).toEqual({ status: 'signedOut', dotClass: 'sync-off', label: 'sync.signedOut' });
+        // A non-empty dead-letter queue still wins (red).
+        mockAdapter.getSyncHealth = () => ({ status: 'signedOut', queueLength: 3, deadLetterCount: 1 });
+        expect(getSyncState().status).toBe('failed');
+      } finally {
+        delete mockAdapter.getSyncHealth;
+      }
+    });
+  });
 });

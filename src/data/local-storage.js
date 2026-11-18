@@ -1,5 +1,6 @@
 /** @file localStorage wrapper for entity persistence */
 import { nextWriteOrder } from './write-order.js';
+import { markEntries } from './unacked.js';
 
 const PREFIX = 'gtho_v2_';
 
@@ -54,8 +55,12 @@ export function recoverDurableWrite() {
   for (const [type, rows] of Object.entries(journal.writes)) saveToStorage(type, rows);
   const localSavedAt = new Date().toISOString();
   const queue = JSON.parse(localStorage.getItem('_sync_queue') || '[]');
-  for (const entry of journal.queue) if (!queue.some(old => old.durable_key === entry.durable_key)) queue.push(entry);
+  const added = journal.queue.filter(entry => !queue.some(old => old.durable_key === entry.durable_key));
+  queue.push(...added);
   if (journal.queue.length) localStorage.setItem('_sync_queue', JSON.stringify(queue));
+  // Mark the rows unacked before the journal is cleared, so a crash in
+  // between replays both (marking is idempotent).
+  markEntries(added);
   const receipts = readObject(RECEIPTS);
   receipts[journal.key] ??= { savedRecordId: journal.savedRecordId, localSavedAt,
     syncQueuedAt: journal.queue.length ? new Date().toISOString() : null };

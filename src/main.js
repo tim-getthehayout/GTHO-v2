@@ -1,6 +1,6 @@
 /** @file Application entry point — boot sequence per V2_APP_ARCHITECTURE.md */
 
-import { init as initStore, setSyncAdapter, getAll } from './data/store.js';
+import { init as initStore, setSyncAdapter, getSyncAdapter, getAll } from './data/store.js';
 import { closePaddockWindowOrphans } from './data/one-time-fixes.js';
 import { CustomSync } from './data/custom-sync.js';
 import { pullAllRemote, pullEntitiesStrict } from './data/pull-remote.js';
@@ -109,6 +109,11 @@ async function boot() {
   }
 
   onAuthChange(async (changedUser, event) => {
+    // Writes held while signed out go out as soon as the session is back.
+    // Uses the current adapter, never one captured at boot.
+    if (changedUser && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+      getSyncAdapter()?.flush?.();
+    }
     if (event === 'PASSWORD_RECOVERY' && changedUser) {
       if (!app.querySelector('[data-testid="auth-change-password"]')) {
         showChangePassword(app);

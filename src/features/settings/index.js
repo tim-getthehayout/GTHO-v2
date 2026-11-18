@@ -9,7 +9,9 @@ import {
 import { renderForageTypesSection, renderForageTypeSheetMarkup } from './forage-types-section.js';
 import { canExport, exportOperationBackup, downloadBackup } from '../../data/backup-export.js';
 import { validateBackup, getBackupPreview, importOperationBackup } from '../../data/backup-import.js';
-import { pushAllToSupabase } from '../../data/push-all.js';
+import { withResyncLock, planResync, applyResync, resyncSkippedExport } from '../../data/push-all.js';
+import { pullAllRemote } from '../../data/pull-remote.js';
+import { logger } from '../../utils/logger.js';
 import { validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
 import { validate as validateUserPref, toSupabaseShape as prefToSb } from '../../entities/user-preference.js';
 import { FIELD_MODULES, FIELD_MODULES_DEFAULT } from '../field-mode/index.js';
@@ -357,6 +359,7 @@ function renderSyncSection() {
     syncing: t('settings.syncSyncing'),
     error: t('settings.syncError'),
     offline: t('settings.syncOffline'),
+    signedOut: t('settings.syncSignedOut'),
   };
 
   const operation = getOperation();
@@ -406,20 +409,128 @@ function renderSyncSection() {
       className: 'btn btn-outline btn-sm',
       style: { marginTop: 'var(--space-3)' },
       'data-testid': 'settings-resync-btn',
-      onClick: async (e) => {
-        e.target.disabled = true;
-        e.target.textContent = t('settings.resyncing');
-        const { queued } = await pushAllToSupabase();
-        e.target.textContent = t('settings.resyncDone', { count: queued });
-        setTimeout(() => {
-          e.target.textContent = t('settings.resync');
-          e.target.disabled = false;
-        }, 3000);
-      },
+      onClick: (e) => handleResyncClick(e.currentTarget || e.target),
     }, [t('settings.resync')]),
     // Export/import sheets mount here
     sheetMount,
   ]);
+}
+
+/**
+ * "Resync to server": plan from this device's unconfirmed work only, show
+ * the counts, send only after the user confirms, then show the awaited
+ * result and run a normal pull. The flush lock is held from the server read
+ * to the last send, so a normal flush can't send the same items unchecked.
+ * @param {HTMLButtonElement} button
+ */
+export async function handleResyncClick(button) {
+  const mount = document.getElementById('export-sheet-mount');
+  if (!mount || button?.disabled) return;
+  if (button) button.disabled = true;
+  clear(mount);
+  mount.appendChild(resyncCard('resync-progress', [el('p', {}, [t('settings.resyncChecking')])]));
+  let outcome = null;
+  try {
+    const refused = await withResyncLock(async () => {
+      const plan = await planResync();
+      if (!plan.ok) return plan;
+      if (!(await confirmResync(mount, plan.counts))) {
+        clear(mount);
+        return null;
+      }
+      clear(mount);
+      mount.appendChild(resyncCard('resync-progress', [el('p', {}, [t('settings.resyncSending')])]));
+      outcome = await applyResync(plan);
+      return null;
+    });
+    if (refused && refused.ok === false) {
+      showResyncMessage(mount, resyncRefusal(refused));
+      return;
+    }
+    if (outcome) {
+      showResyncResult(mount, outcome);
+      await pullAllRemote();
+    }
+  } catch (error) {
+    logger.warn('resync', 'Resync did not finish', { error: error?.message });
+    showResyncMessage(mount, t('settings.resyncFailed'));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function resyncRefusal(refused) {
+  if (refused.reason === 'offline') return t('settings.resyncOffline');
+  if (refused.reason === 'signedOut') return t('settings.resyncSignedOut');
+  if (refused.reason === 'readFailed') return t('settings.resyncReadFailed', { table: refused.table });
+  return t('settings.resyncUnavailable');
+}
+
+function resyncCard(testId, children) {
+  return el('div', {
+    className: 'card',
+    style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)' },
+    'data-testid': testId,
+  }, children);
+}
+
+function showResyncMessage(mount, message) {
+  clear(mount);
+  mount.appendChild(resyncCard('resync-message', [
+    el('p', { style: { marginBottom: 'var(--space-3)' } }, [message]),
+    el('div', { className: 'btn-row' }, [
+      el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'resync-ok-btn', onClick: () => clear(mount) }, [t('settings.resyncOk')]),
+    ]),
+  ]));
+}
+
+/**
+ * The confirm sheet. Resolves true only on "Send N changes".
+ * @returns {Promise<boolean>}
+ */
+function confirmResync(mount, counts) {
+  return new Promise(resolve => {
+    clear(mount);
+    const lines = [
+      el('p', { 'data-testid': 'resync-count-send' }, [t('settings.resyncCountSend', { count: counts.send })]),
+      el('p', { 'data-testid': 'resync-count-skip' }, [t('settings.resyncCountSkip', { count: counts.skip })]),
+    ];
+    if (counts.gone > 0) lines.push(el('p', { 'data-testid': 'resync-count-gone' }, [t('settings.resyncCountGone', { count: counts.gone })]));
+    if (counts.cantCompare > 0) lines.push(el('p', { 'data-testid': 'resync-count-cant-compare' }, [t('settings.resyncCountCantCompare', { count: counts.cantCompare })]));
+    const buttons = counts.send > 0
+      ? [
+        el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'resync-cancel-btn', onClick: () => resolve(false) }, [t('action.cancel')]),
+        el('button', { className: 'btn btn-green btn-sm', 'data-testid': 'resync-send-btn', onClick: () => resolve(true) }, [t('settings.resyncSendButton', { count: counts.send })]),
+      ]
+      : [el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'resync-ok-btn', onClick: () => resolve(false) }, [t('settings.resyncOk')])];
+    mount.appendChild(resyncCard('resync-confirm-sheet', [
+      el('h4', { style: { marginBottom: 'var(--space-3)' } }, [t('settings.resyncTitle')]),
+      ...lines,
+      el('div', { className: 'btn-row', style: { marginTop: 'var(--space-3)' } }, buttons),
+    ]));
+  });
+}
+
+function showResyncResult(mount, outcome) {
+  clear(mount);
+  const lines = [el('p', { 'data-testid': 'resync-result' }, [t('settings.resyncResult', { sent: outcome.sent, skipped: outcome.skipped, failed: outcome.failed })])];
+  if (outcome.gone > 0) lines.push(el('p', { 'data-testid': 'resync-result-gone' }, [t('settings.resyncResultGone', { count: outcome.gone })]));
+  if (outcome.cantCompare > 0) lines.push(el('p', { 'data-testid': 'resync-result-cant-compare' }, [t('settings.resyncResultCantCompare', { count: outcome.cantCompare })]));
+  if (outcome.waiting > 0) lines.push(el('p', { 'data-testid': 'resync-result-waiting' }, [t('settings.resyncResultWaiting', { count: outcome.waiting })]));
+  const buttons = [];
+  if (outcome.skipped > 0) {
+    buttons.push(el('button', {
+      className: 'btn btn-outline btn-sm',
+      'data-testid': 'resync-export-skipped-btn',
+      onClick: () => downloadBackup(resyncSkippedExport(), `gtho-resync-skipped-${new Date().toISOString().slice(0, 10)}.json`),
+    }, [t('settings.resyncExportSkipped')]));
+  }
+  buttons.push(el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'resync-ok-btn', onClick: () => clear(mount) }, [t('settings.resyncOk')]));
+  mount.appendChild(resyncCard('resync-result-sheet', [
+    el('h4', { style: { marginBottom: 'var(--space-3)' } }, [t('settings.resyncTitle')]),
+    ...lines,
+    el('div', { className: 'btn-row', style: { marginTop: 'var(--space-3)' } }, buttons),
+  ]));
 }
 
 /**

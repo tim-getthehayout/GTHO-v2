@@ -84,6 +84,8 @@ export function runDurableWrite(key, write) {
     durableWrite = null;
     for (const type of tx.types) notify(type);
     // Queue bytes are already durable. Never infer server acknowledgement.
+    // Send them now rather than at the next online/visible/tap trigger.
+    syncAdapter?.scheduleFlush?.();
     return receipt;
   } catch (error) {
     Object.assign(state,before);
@@ -97,17 +99,33 @@ function requireWriteScope(record) {
     durableWrite.failed = new Error('durable-write-operation-mismatch'); throw durableWrite.failed;
   }
 }
+/** Queue-first sync: put the write on the persisted queue before the local
+ * save. Throws (and nothing is queued) when the queue can't be written.
+ * Returns the queue handle, or null for an adapter without a queue. */
+function queueSync(command) {
+  if (!command || !syncAdapter || typeof syncAdapter.enqueueWrite !== 'function') return null;
+  return syncAdapter.enqueueWrite(command.table,command.record,command.operation);
+}
+/** Older adapters without a persisted queue (tests, stubs). */
+function pushSync(command) {
+  if (!command || !syncAdapter) return;
+  if (command.operation === 'delete') syncAdapter.delete(command.table,command.record.id);
+  else syncAdapter.push(command.table,command.record,command.operation);
+}
+/** Local save after the queue entry; a failed local save takes the entry back out. */
+function saveQueued(entityType, rows, queued) {
+  try { saveToStorage(entityType,rows); }
+  catch (error) { queued?.cancel(); throw error; }
+}
 function persistMutation(entityType, command) {
   if (durableWrite) {
     durableWrite.types.add(entityType);
     if (command) durableWrite.commands.push(command);
     return;
   }
-  saveToStorage(entityType,state[entityType]);
-  if (command && syncAdapter) {
-    if (command.operation === 'delete') syncAdapter.delete(command.table,command.record.id);
-    else syncAdapter.push(command.table,command.record,command.operation);
-  }
+  const queued = queueSync(command);
+  saveQueued(entityType,state[entityType],queued);
+  if (!queued) pushSync(command);
   notify(entityType);
 }
 
@@ -316,12 +334,13 @@ export function setUnitSystem(value) {
     throw new Error(`Validation failed for operation: ${result.errors.join(', ')}`);
   }
 
+  const command = { table: 'operations', record: operationToSb(updated), operation: 'update' };
+  const queued = queueSync(command);
+  const previous = state.operations[index];
   state.operations[index] = updated;
-  saveToStorage('operations', state.operations);
-
-  if (syncAdapter) {
-    syncAdapter.push('operations', operationToSb(updated), 'update');
-  }
+  try { saveQueued('operations', state.operations, queued); }
+  catch (error) { state.operations[index] = previous; throw error; }
+  if (!queued) pushSync(command);
 
   notify('operations');
   return updated;
@@ -394,12 +413,13 @@ export function setActiveFarm(farmId) {
   const result = validateUserPref(updated);
   if (!result.valid) return;
 
+  const command = { table: 'user_preferences', record: userPrefToSb(updated), operation: 'update' };
+  const queued = queueSync(command);
+  const previous = state.userPreferences[index];
   state.userPreferences[index] = updated;
-  saveToStorage('userPreferences', state.userPreferences);
-
-  if (syncAdapter) {
-    syncAdapter.push('user_preferences', userPrefToSb(updated), 'update');
-  }
+  try { saveQueued('userPreferences', state.userPreferences, queued); }
+  catch (error) { state.userPreferences[index] = previous; throw error; }
+  if (!queued) pushSync(command);
 
   notify('userPreferences');
 }

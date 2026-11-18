@@ -1,15 +1,19 @@
+/**
+ * @file "Resync to server": send only this device's unconfirmed work.
+ *
+ * The old full-store push (every local record re-sent with its own old
+ * updated_at; the 23 Jun 2026 revert) is gone. Resync now plans from the
+ * queue, the dead letters and the per-row unacked marks only, reads the
+ * server copy of just those rows, and sends an item only when it is newer
+ * than the server's (or is a create the server is missing). The UI shows the
+ * counts first and the awaited result after (features/settings).
+ */
+
 import { UNIT_ENTITIES } from '../utils/unit-standards.js';
 import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
 import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
-/**
- * @file Push all local state to Supabase — recovery path for OI-0049.
- * Re-queues every record from localStorage through the sync adapter.
- * Used when records exist locally but were never synced (pre-fix onboarding).
- */
-
-import { getAll, getSyncAdapter, getOperation } from './store.js';
+import { getById, getSyncAdapter, getOperation } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
-import { logger } from '../utils/logger.js';
 
 // toSupabaseShape imports for every entity type
 import { toSupabaseShape as opToSb } from '../entities/operation.js';
@@ -91,38 +95,65 @@ const TO_SB_MAP = {
   todos: todoToSb, todoAssignments: todoAssignToSb,
 };
 
+const TABLE_TO_ENTITY = Object.fromEntries(Object.entries(SYNC_REGISTRY).map(([entityType, config]) => [config.table, entityType]));
+
 /**
- * Push all records from localStorage to Supabase via the sync adapter.
- * Recovery mechanism for users who onboarded before the sync fix (OI-0049).
- * @returns {Promise<{ queued: number }>}
+ * The local row in Supabase shape, for a marked row with no queue entry or
+ * dead letter. Null (so Resync reports "can't compare") when the row or its
+ * serializer is missing, or it's a unit row the old push would not send.
+ * @param {string} table
+ * @param {string} id
+ * @returns {object|null}
  */
-export async function pushAllToSupabase() {
-  const adapter = getSyncAdapter();
-  if (!adapter) return { queued: 0 };
-
-  const operationId = getOperation()?.id;
-  let queued = 0;
-
-  for (const [entityType, config] of Object.entries(SYNC_REGISTRY)) {
-    const table = config.table;
-    const toSb = TO_SB_MAP[entityType];
-    if (!toSb) continue;
-
-    const records = getAll(entityType);
-    for (const record of records) {
-      if (Object.hasOwn(UNIT_ENTITIES, entityType) && (!operationId || record.operationId !== operationId || RELEASED_SCHEMA_VERSION < 44)) continue;
-      try {
-        adapter.push(table, toSb(record));
-        queued++;
-      } catch (err) {
-        logger.warn('resync', `Failed to queue ${entityType}`, { error: err.message });
-      }
-    }
+export function localSupabaseRow(table, id) {
+  const entityType = TABLE_TO_ENTITY[table];
+  const toSb = entityType ? TO_SB_MAP[entityType] : null;
+  if (!toSb) return null;
+  const record = getById(entityType, id);
+  if (!record) return null;
+  // Unit tables: only the selected operation's own custom rows, as before.
+  if (Object.hasOwn(UNIT_ENTITIES, entityType)) {
+    const operationId = getOperation()?.id;
+    if (!operationId || record.operationId !== operationId || RELEASED_SCHEMA_VERSION < 44) return null;
   }
+  return toSb(record);
+}
 
-  // Flush the queue
-  await adapter.flush();
+/**
+ * Hold the sync adapter's flush lock while `task` reads, confirms and sends,
+ * so a normal flush can't send the same items unchecked in parallel.
+ * @template T
+ * @param {() => Promise<T>} task
+ * @returns {Promise<T|{ ok: false, reason: 'unavailable' }>}
+ */
+export async function withResyncLock(task) {
+  const adapter = getSyncAdapter();
+  if (!adapter?.runExclusive) return { ok: false, reason: 'unavailable' };
+  return adapter.runExclusive(task);
+}
 
-  logger.info('resync', 'pushAllToSupabase complete', { queued });
-  return { queued };
+/**
+ * Plan a Resync (nothing is sent). Call inside withResyncLock.
+ * @returns {Promise<{ ok: true, items: Array, counts: { send: number, skip: number, gone: number, cantCompare: number } } | { ok: false, reason: string, table?: string }>}
+ */
+export async function planResync() {
+  const adapter = getSyncAdapter();
+  if (!adapter?.planResync) return { ok: false, reason: 'unavailable' };
+  return adapter.planResync(localSupabaseRow);
+}
+
+/**
+ * Send a confirmed plan and wait for every send to settle. Call inside
+ * withResyncLock, after the user confirmed.
+ * @returns {Promise<{ sent: number, skipped: number, failed: number, gone: number, cantCompare: number, waiting: number }>}
+ */
+export async function applyResync(plan) {
+  return getSyncAdapter().applyResync(plan);
+}
+
+/** The "skipped by Resync" list as a JSON export string. */
+export function resyncSkippedExport() {
+  const adapter = getSyncAdapter();
+  const items = adapter?.getResyncSkipped ? adapter.getResyncSkipped() : [];
+  return JSON.stringify({ kind: 'gtho-resync-skipped', exported_at: new Date().toISOString(), items }, null, 2);
 }

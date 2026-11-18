@@ -5,7 +5,7 @@ describe('journal queue versus in-flight normal sync',() => {
   it('does not erase newly journalled multi-record commands when an earlier flush finishes',async () => {
     localStorage.clear();
     localStorage.setItem('_sync_queue',JSON.stringify([{ id: 'old',table: 'animals',operation: 'upsert',record: { id: 'old' },attempts: 0,errors: [] }]));
-    const sync = new CustomSync();vi.spyOn(sync,'isOnline').mockResolvedValue(true);
+    const sync = new CustomSync();vi.spyOn(sync,'isOnline').mockResolvedValue(true);vi.spyOn(sync,'hasSession').mockResolvedValue(true);
     let release;const gate = new Promise(resolve => { release = resolve; });
     const push = vi.spyOn(sync,'_pushToRemote').mockImplementation(async () => { await gate;return { success: true }; });
     const flushing = sync.flush();await vi.waitFor(() => expect(push).toHaveBeenCalledOnce());

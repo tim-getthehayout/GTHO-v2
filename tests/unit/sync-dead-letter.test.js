@@ -26,14 +26,15 @@ afterEach(() => vi.restoreAllMocks());
 function makeSupabaseStub(modeRef) {
   const respond = () => {
     if (modeRef.mode === 'fail') return Promise.resolve({ error: { message: 'simulated push failure' } });
-    return Promise.resolve({ error: null, data: [] });
+    return Promise.resolve({ error: null, data: [{ id: 'row' }] });
   };
   return {
+    auth: { getSession: async () => ({ data: { session: { access_token: 'test-token' } }, error: null }) },
     from: () => ({
       insert: respond,
-      update: () => ({ eq: respond }),
+      update: () => ({ eq: () => ({ select: respond }) }),
       upsert: respond,
-      delete: () => ({ eq: respond }),
+      delete: () => ({ eq: () => ({ select: respond }) }),
       select: () => ({ gt: () => respond() }),
     }),
   };

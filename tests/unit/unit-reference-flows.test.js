@@ -3,15 +3,17 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({ rows: {}, calls: [], orders: [], proofs: [], filters: [], missingColumn: null, client: null }));
 vi.mock('../../src/data/supabase-client.js', () => {
   const client = {
-    auth: { getUser: async () => ({ data: { user: { id: 'user', email: 'test@example.test' } } }) },
+    auth: { getUser: async () => ({ data: { user: { id: 'user', email: 'test@example.test' } } }), getSession: async () => ({ data: { session: { access_token: 'test-token' } }, error: null }) },
     from(table) {
-      let operation = 'select', payload, options, page, ordering, selection, zeroProof = false, filters = [];
+      let operation = 'select', payload, options, page, ordering, selection, zeroProof = false, filters = [], inFilters = [];
       const query = {
-        select(columns, opts) { operation = 'select'; selection = columns; options = opts; return query; },
+        // .select() after a write returns the written rows (PostgREST "return=representation").
+        select(columns, opts) { if (!['insert', 'update', 'upsert', 'delete'].includes(operation)) { operation = 'select'; options = opts; } selection = columns; return query; },
         insert(rows) { operation = 'insert'; payload = rows; return query; },
         update(rows) { operation = 'update'; payload = rows; return query; },
         upsert(rows, opts) { operation = 'upsert'; payload = rows; options = opts; return query; },
         delete() { operation = 'delete'; return query; },
+        in(key, values) { inFilters.push([key, values]); return query; },
         eq(key, value) { filters.push([key, value]); db.filters.push({table,key,value}); return query; },
         order(column,opts) { ordering={column,...opts}; db.orders.push({table,column,...opts}); return query; },
         range(start,end) { page=[start,end]; return query; },
@@ -27,7 +29,7 @@ vi.mock('../../src/data/supabase-client.js', () => {
             if (['dose_units', 'input_product_units'].includes(table) && !['select', 'insert', 'update', 'upsert'].includes(operation)) throw new Error('Forbidden unit operation');
             const rows = db.rows[table] || [];
             if (operation !== 'select') db.rows[table] = rows;
-            const matches = row => filters.every(([key, value]) => row[key] === value);
+            const matches = row => filters.every(([key, value]) => row[key] === value) && inFilters.every(([key, values]) => values.includes(row[key]));
             if (operation === 'delete') db.rows[table] = rows.filter(row => !matches(row));
             if (operation === 'update') rows.filter(matches).forEach(row => Object.assign(row, structuredClone(payload)));
             if (operation === 'insert' || operation === 'upsert') {
@@ -57,7 +59,8 @@ import { _reset, getAll, setSyncAdapter, add, update, remove, mergeRemote, init 
 import { renderOnboarding } from '../../src/features/onboarding/index.js';
 import { UNIT_STANDARDS } from '../../src/utils/unit-standards.js';
 import { renderDoseUnitsSection, renderHealthRefSheetMarkups } from '../../src/features/health/reference-tables.js';
-import { pushAllToSupabase } from '../../src/data/push-all.js';
+import { withResyncLock, planResync, applyResync, localSupabaseRow } from '../../src/data/push-all.js';
+const resync = () => withResyncLock(async () => { const plan = await planResync(); return { plan, outcome: plan.ok ? await applyResync(plan) : null }; });
 import { importOperationBackup, BROWSER_FK_ORDER, CURRENT_SCHEMA_VERSION, validateBackup, resolveOperationsSchemaStamp } from '../../src/data/backup-import.js';
 import { exportOperationBackup, BACKUP_TABLES } from '../../src/data/backup-export.js';
 import { groupUnitRestoreRows } from '../../src/data/unit-restore-payload.js';
@@ -117,16 +120,20 @@ it('real dose-unit editor creates, edits and archives with insert/update only', 
   expect(unitCalls().map(call => call.operation)).toEqual(['insert', 'update', 'update']); noUnitDeletes();
 });
 
-it('Push All upserts only current-operation custom rows without deleting either table', async () => {
+it('Resync sends only this operation\'s unconfirmed custom unit rows, and deletes nothing', async () => {
   mergeRemote('operations',[{id:'00000000-0000-4000-8000-000000000001',name:'Current'}]);
-  add('doseUnits', Dose.create({ id: 'a0000000-0000-4000-8000-000000000100', name: 'mL', operationId: '00000000-0000-4000-8000-000000000001' }), Dose.validate);
-  add('inputProductUnits', Product.create({ id: 'a0000000-0000-4000-8000-000000000102', name: 'kg', operationId: '00000000-0000-4000-8000-000000000001' }), Product.validate);
-  db.rows.dose_units = [{ id: 'a0000000-0000-4000-8000-000000000100', name: 'old', operation_id: '00000000-0000-4000-8000-000000000001' }];
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  add('doseUnits', Dose.create({ id: 'a0000000-0000-4000-8000-000000000100', name: 'mL', operationId: '00000000-0000-4000-8000-000000000001' }), Dose.validate, Dose.toSupabaseShape, 'dose_units');
+  add('inputProductUnits', Product.create({ id: 'a0000000-0000-4000-8000-000000000102', name: 'kg', operationId: '00000000-0000-4000-8000-000000000001' }), Product.validate, Product.toSupabaseShape, 'input_product_units');
+  await vi.waitFor(() => expect(adapter.getQueuedItems()).toHaveLength(2));
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+  // A cached standard row is not unconfirmed work: never read, counted or sent.
   mergeRemote('doseUnits', [Dose.create({ id: 'a0000000-0000-4000-8000-000000000108', name: 'a0000000-0000-4000-8000-000000000108' })]);
-  expect((await pushAllToSupabase()).queued).toBe(3);
-  await vi.waitFor(() => expect(db.rows.input_product_units).toHaveLength(1));
-  expect(db.rows.dose_units[0].name).toBe('mL');
-  expect(unitCalls().map(call => call.operation)).toEqual(['upsert', 'upsert']); noUnitDeletes();
+  const { plan, outcome } = await resync();
+  expect(plan.counts).toEqual({ send: 2, skip: 0, gone: 0, cantCompare: 0 });
+  expect(outcome).toMatchObject({ sent: 2, failed: 0 });
+  expect(db.rows.dose_units.map(row => row.name)).toEqual(['mL']); expect(db.rows.input_product_units).toHaveLength(1);
+  expect(unitCalls().map(call => call.operation)).toEqual(['select', 'select', 'insert', 'insert']); noUnitDeletes();
 });
 
 it('real offline store writes queue inserts and archive updates, then flush with no unit deletes', async () => {
@@ -269,13 +276,15 @@ it('unit deletes and standard writes cannot enter generic store, direct transpor
 });
 
 
-it('Push All with two cached operations sends only the selected operation, and no units without one',async()=>{
+it('Resync never sends cached unit rows, and a marked unit row of another operation can\'t be compared',async()=>{
  const op1='00000000-0000-4000-8000-000000000001',op2='00000000-0000-4000-8000-000000000002';
  mergeRemote('operations',[{id:op1,name:'Current'}]);
  for(const [entity,Unit] of [['doseUnits',Dose],['inputProductUnits',Product]])mergeRemote(entity,[Unit.create({id:'own-'+entity,name:'Own',operationId:op1}),Unit.create({id:'foreign-'+entity,name:'Other farm',operationId:op2}),Unit.create({id:'std-'+entity,name:'Standard'})]);
- const transport={push:vi.fn(async()=>({success:true})),flush:vi.fn(async()=>{})};setSyncAdapter(transport);
- await pushAllToSupabase();expect(transport.push.mock.calls.filter(([table])=>tables.includes(table)).map(([,row])=>row.operation_id)).toEqual([op1,op1]);
- _reset();setSyncAdapter(transport);mergeRemote('doseUnits',[Dose.create({id:'cached',name:'Cached',operationId:op1})]);transport.push.mockClear();await pushAllToSupabase();expect(transport.push).not.toHaveBeenCalled();
+ let {plan,outcome}=await resync();expect(plan.items).toEqual([]);expect(outcome.sent).toBe(0);expect(unitCalls()).toEqual([]);
+ expect(localSupabaseRow('dose_units','own-doseUnits')).toMatchObject({operation_id:op1});
+ expect(localSupabaseRow('dose_units','foreign-doseUnits')).toBeNull();expect(localSupabaseRow('input_product_units','std-inputProductUnits')).toBeNull();
+ localStorage.setItem('_sync_unacked',JSON.stringify({['dose_units\u0000foreign-doseUnits']:{table:'dose_units',id:'foreign-doseUnits',stamp:new Date().toISOString(),order:new Date().toISOString(),create:true}}));
+ ({plan,outcome}=await resync());expect(plan.counts).toEqual({send:0,skip:0,gone:0,cantCompare:1});expect(unitCalls()).toEqual([]);
 });
 
 it('queued and dead-letter actions replay under their original operation, never the selected one',async()=>{
@@ -455,8 +464,13 @@ it.each([14,41])('old serialized stamp %s cannot escape through queued update, a
  adapter.retryDeadLetters();await adapter.flush();expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');expect(db.rows.operations[0].schema_version).toBe(44);
 });
 
-it('Push All and raw batch pushes omit every cached operations stamp without changing the local cache',async()=>{
- cachedOperation(14);await pushAllToSupabase();expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');expect(getAll('operations')[0].schemaVersion).toBe(14);
+it('Resync of a marked operation and raw batch pushes omit every cached operations stamp without changing the local cache',async()=>{
+ cachedOperation(14);db.rows.operations[0].updated_at='2020-01-01T00:00:00.000Z';
+ vi.spyOn(navigator,'onLine','get').mockReturnValue(false);update('operations',OP,{name:'Renamed offline'},Operation.validate,Operation.toSupabaseShape,'operations');
+ await vi.waitFor(()=>expect(adapter.getQueuedItems()).toHaveLength(1));localStorage.setItem('_sync_queue','[]');
+ vi.spyOn(navigator,'onLine','get').mockReturnValue(true);db.calls=[];
+ const {outcome}=await resync();expect(outcome.sent).toBe(1);expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0].operation).toBe('update');
+ expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');expect(getAll('operations')[0].schemaVersion).toBe(14);expect(db.rows.operations[0].schema_version).toBe(44);
  db.calls=[];await adapter.pushBatch('operations',[{id:OP,name:'Raw recovery',schema_version:41}]);expect(operationWrites()[0].payload).not.toHaveProperty('schema_version');expect(db.rows.operations[0].schema_version).toBe(44);
  vi.spyOn(navigator,'onLine','get').mockReturnValue(false);await adapter.pushBatch('operations',[{id:OP,name:'Offline batch',schema_version:14}]);expect(adapter.getQueuedItems()[0].record).not.toHaveProperty('schema_version');
 });

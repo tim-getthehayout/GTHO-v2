@@ -296,7 +296,8 @@ function formatPullTime(epochMs) {
   return new Date(epochMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-function getSyncState() {
+/** Header sync indicator state (exported for tests). */
+export function getSyncState() {
   const adapter = getSyncAdapter();
   // OI-0184: consume the combined health snapshot rather than `getStatus()`
   // alone — a non-empty DLQ forces `sync-failed` (red) regardless of the
@@ -314,6 +315,15 @@ function getSyncState() {
       status: 'failed',
       dotClass: 'sync-failed',
       label: t('sync.failed', { count: health.deadLetterCount }),
+    };
+  }
+
+  // No session: saves wait in the queue (never dead-lettered) until sign-in.
+  if (health.status === 'signedOut') {
+    return {
+      status: 'signedOut',
+      dotClass: 'sync-off',
+      label: t('sync.signedOut', { count: health.queueLength }),
     };
   }
 

@@ -1,6 +1,6 @@
 # DOCS_MAP — code area → base-doc sections
 
-**Owner:** GTHO Design (OI-0231). **Built from:** the `src/`, `supabase/`, `scripts/` and `.github/` tree on Forgejo `main` `b4cb9335`, 2026-11-18. **Updated** 2026-11-18 (follow-up on `3714d96b`): `src/data/unacked.js` (added by OI-0230 PR 1, in review) joins the `custom-sync.js` row; new briefs linked.
+**Owner:** GTHO Design (OI-0231). **Built from:** the `src/`, `supabase/`, `scripts/` and `.github/` tree on Forgejo `main` `b4cb9335`, 2026-11-18. **Updated** 2026-11-18: OI-0230 PR 1 as-built verified against PR #82 `d22e004`; `src/data/unacked.js` joins the sync row. New briefs carry Q1–Q6 locks; server guards remain specs, not applied.
 **Use:** a PR that changes a file under a mapped area either updates the listed doc section(s) or says in its description `Docs unaffected because …` (the rule is in `AGENTS.md` → "Docs map rule"). The most specific row wins; a file in several rows owes all of them. A new top-level area or feature folder needs a row here in the same PR.
 **Upkeep:** GTHO Design re-checks this map in the monthly docs drift check (OI-0231) and adds rows when the tree changes. Briefs listed are the current specs that extend a base section until their content is folded in.
 
@@ -11,7 +11,7 @@ Abbreviations: **ARCH** = `V2_APP_ARCHITECTURE.md`, **INFRA** = `V2_INFRASTRUCTU
 | Code area | Docs | Briefs |
 |---|---|---|
 | `src/data/store.js` (actions, `persistMutation`, durable writes, `mergeRemote`, window splits, snapshot) | ARCH §4.1–§4.6; ARCH §5.2 (conflicts, pull merge) | `SYNC_DURABILITY_2026-11-18.md` (OI-0230), `WINDOW_INTEGRITY_2026-11-17.md` (OI-0226) |
-| `src/data/custom-sync.js`, `sync-adapter.js`, `write-order.js`, `unacked.js` (OI-0230 PR 1, in review: per-row unacked marks, `_sync_unacked`) | ARCH §5.1, §5.2, §5.4; INFRA §3.5, §9 | `SYNC_DURABILITY_2026-11-18.md`, `SYNC_SERVER_GUARDS_2026-11-18.md` (E client handling), `WINDOW_INTEGRITY_2026-11-17.md` §3 (b), §7 |
+| `src/data/custom-sync.js`, `sync-adapter.js`, `write-order.js`, `unacked.js` (OI-0230 PR 1, as-built PR #82 `d22e004`: per-row unacked marks, `_sync_unacked`) | ARCH §5.1, §5.2, §5.4; INFRA §3.5, §9 | `SYNC_DURABILITY_2026-11-18.md`, `SYNC_SERVER_GUARDS_2026-11-18.md` (E client handling), `WINDOW_INTEGRITY_2026-11-17.md` §3 (b), §7 |
 | `src/data/local-storage.js` (entity cache, write journal, receipts) | ARCH §4.2 (durable writes), §5.2 | `SYNC_DURABILITY_2026-11-18.md` §4 A |
 | `src/data/push-all.js` ("Resync to server") | ARCH §5.2 "Resync to server"; UX §20.3, §20.5; DS §4.7 | `SYNC_DURABILITY_2026-11-18.md` §4 D |
 | `src/data/pull-remote.js`, `sync-registry.js` | ARCH §4.6, §5.2 (pull errors); INFRA §9 | `SYNC_DURABILITY_2026-11-18.md` §4 (slice C) |

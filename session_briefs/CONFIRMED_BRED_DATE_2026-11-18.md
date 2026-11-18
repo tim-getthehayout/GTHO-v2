@@ -1,12 +1,12 @@
 # OI-0232 — Confirmed-bred date on Edit Animal
 
-**Date:** 2026-11-18 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **SPEC (Tim, 2026-11-18 1:35 PM ET, via Orchestrator: "Yes, add a confirmed date").** Not handed to Build for apply. The migration is **file only**; applying it to prod needs **Tim's yes plus a backup** (AGENTS.md "Migration Execution Rule").
+**Date:** 2026-11-18 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **SPEC (Tim, 2026-11-18 1:35 PM ET, via Orchestrator: "Yes, add a confirmed date").** Not handed to Build for apply. The migration is **file only**; applying it to prod needs **Tim's explicit yes plus a verified backup** (AGENTS.md "Migration Execution Rule").
 **Base:** Forgejo `main` `3714d96b`. File:line references below were read on `3714d96b`.
 **Related:** OI-0230 (sync durability; the confirmed-bred report that started it), OI-0099 (Confirmed bred checkbox, migration 026), OI-0226 PR C / OI-0230 slice E (stale-write guard, which also wants the next migration number), V2_SCHEMA_DESIGN §3.2, V2_UX_FLOWS §15.1, V2_MIGRATION_PLAN §5.
 
 ## 1. Why
 
-Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v2 stores only the flag: `animals.confirmed_bred boolean NOT NULL DEFAULT false` (`supabase/migrations/026_add_confirmed_bred.sql:10`). Tim is re-entering the lost preg-check marks by hand (OI-0230, 1:35 PM ET), so the date should exist before or alongside that re-entry, otherwise the re-entered marks carry no date.
+Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v2 stores only the flag: `animals.confirmed_bred boolean NOT NULL DEFAULT false` (`supabase/migrations/026_add_confirmed_bred.sql:10`). **Locked (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator, Q3):** Tim will wait for the date field to ship, then re-enter the preg-check marks with dates by hand. No DB update or backfill of the marks.
 
 **Today (as built on `3714d96b`):**
 - Entity: `confirmedBred` field `src/entities/animal.js:19`; `create()` default `false` `:49`; `toSupabaseShape` `:96`; `fromSupabaseShape` coerces missing to `false` `:127`.
@@ -15,7 +15,7 @@ Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v
 - Assistant read: `src/features/assistant/farm-reads.js:22-25` (open set = `confirmedBred === false`).
 - v1 import: `src/data/v1-migration.js:308-310` (flag only).
 - Backup chain: `src/data/backup-migrations.js:69-73` (025 → 026 no-op); compiled ceiling `RELEASED_SCHEMA_VERSION = 45` (`src/data/schema-release.js:4`); column gate `releasedColumns` (`src/data/schema-columns.js`, used at `src/data/store.js:214`, `:256`).
-- The weaned toggle already has the same "date appears with the tick" pattern: `src/features/animals/index.js:1786-1812` (on → date defaults to today and is editable; off → date cleared and disabled).
+- The weaned toggle already has the same "date appears with the tick" pattern: `src/features/animals/index.js:1786-1812` (on → date defaults to today and is editable; off → visible date input cleared and disabled; Save writes NULL).
 - `animal_breeding_records.confirmed_date` exists (V2_SCHEMA_DESIGN §9.7) but drives nothing since OI-0099 reversed A29; prod has 0 breeding records.
 
 ## 2. Schema (proposed)
@@ -26,17 +26,17 @@ Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v
 
 - Proposed check constraint: `confirmed_bred = true OR confirmed_bred_date IS NULL` (a date only on a confirmed animal). A confirmed animal **may** have a NULL date (marks entered before this column, or "date unknown").
 - No backfill: existing rows get NULL. (Prod has 0 `confirmed_bred = true` rows today.)
-- Migration: the next free number when Build writes it (OI-0226 PR C has said "046 if free"; whichever is written first takes 046). File only; not applied without Tim's yes plus a backup. Schema stamp and compiled ceiling bump only with the apply (V2_MIGRATION_PLAN §5.11a).
+- Migration: the next free number when Build writes it (OI-0226 PR C has said "046 if free"; whichever is written first takes 046). File only; not applied without Tim's explicit yes plus a verified backup. Schema stamp and compiled ceiling bump only with the apply (V2_MIGRATION_PLAN §5.11a).
 - **Why a column on `animals`, not `animal_breeding_records.confirmed_date`:** the stored flag is on `animals` (OI-0099), the form edits `animals`, and Tim asked for a date on the same checkbox. Writing a breeding record per tick would bring back the A29 derivation OI-0099 removed. Design call; Tim can overrule.
 
 ## 3. UI requirements (Edit Animal, female edit panel)
 
 1. A date field directly under the "Confirmed bred" checkbox, labelled "Confirmed on", `data-testid="edit-animal-confirmed-bred-date"`, same layout and behaviour pattern as the weaned date (`index.js:1786-1812`).
 2. **Ticking** Confirmed bred enables the date and fills it with **today** (local, `getLocalTodayStr()`, OI-0189) if empty. The user can change it (back-dating a preg check).
-3. **Unticking** clears the date and disables it, so `confirmed_bred = false` always saves with `confirmed_bred_date = null`. **Open question for Tim (Q1 in §7):** clear the date on untick (default, matches weaned), or keep the last confirmed date when the tick is removed?
+3. **Unticking** clears the date and disables it, so `confirmed_bred = false` always saves with `confirmed_bred_date = null`. **Locked Q1 (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator).** Unticking clears the date, the same way Weaned works. Weaned as built on `d22e004` (`src/features/animals/index.js`, unchanged by PR #82): unticking empties the date input and disables it (`:1808-1811`); the field stays on screen, greyed; Save sends `weanedDate: null` whenever the box is unticked (`:2051-2053`); ticking again with an empty date fills local today (`:1804-1807`), so an untick then re-tick before Save does not bring back the old date. Confirmed bred copies all of that.
 4. Opening an animal that is confirmed bred with no date shows the checkbox ticked and the date **empty** (not today): saving without touching it keeps NULL. Only a fresh tick fills today.
 5. Validation (inline, blocks Save, same style as the dam/birth-date rule): the date can't be in the future (local today) and can't be before the animal's `birth_date` when one is set.
-6. Calving (`calving.js:205`, `calving-sync.js:72`, `:103`, `:162`) clears **both** `confirmedBred` and `confirmedBredDate` in the same update. (V2_SCHEMA_DESIGN §3.2 "Birth clears stored checkbox".)
+6. Calving (`calving.js:205`, `calving-sync.js:72`, `:103`, `:162`) clears **both** `confirmedBred` and `confirmedBredDate` in the same update. **Locked Q2 (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator).** The existing flag-clear paths are the places to extend; clearing the new date is not built yet. (V2_SCHEMA_DESIGN §3.2 "Birth clears stored checkbox".)
 7. Display: where the animal's confirmed-bred state is shown read-only (if anywhere), show the date when present. No new list column or report in this item.
 8. No change to the open-set definition (`farm-reads.js:22-25`): the date is informational.
 
@@ -65,7 +65,7 @@ Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v
 
 1. Tick Confirmed bred on a cow: the date fills with local today; Save; the server row has `confirmed_bred = true` and today's date (verify on Supabase, AGENTS.md "E2E Testing").
 2. Back-date to a spring date; Save; the server has that date.
-3. Untick; Save: server has `false` and NULL (per Q1's default).
+3. Untick; Save: server has `false` and NULL (locked Q1).
 4. A confirmed animal with a NULL date opens with an empty date; Save without changes keeps NULL.
 5. A future date, or a date before the birth date, blocks Save with an inline message.
 6. Record a calving for a confirmed dam: flag `false` and date NULL in the same write (normal Calving and calving-sync paths).
@@ -74,8 +74,10 @@ Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v
 9. Migration on PGlite: column exists, nullable; the check constraint refuses `false` + a date; existing rows NULL.
 10. Two devices (with OI-0230 PR 1 live): A ticks + dates a cow and syncs; B pulls and shows the same date.
 
-## 8. Open questions for Tim
+## 8. Locked answers — no remaining Tim questions here
 
-1. Unticking Confirmed bred: clear the date (recommended, same as Weaned), or keep the last date?
-2. Should a calving clear the date along with the tick (recommended), or keep it as "last confirmed"?
-3. Re-entry timing: wait to re-enter the preg-check marks until the date field ships (so each mark gets its date), or re-enter the ticks now and add dates later?
+**Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator** (answers given 3:56–3:57 PM ET):
+1. **Q1:** unticking clears the date, just like Weaned (§3.3).
+2. **Q2:** recording a calving clears both tick and date (§3.6).
+3. **Q3:** wait for the date field, then hand re-enter marks with dates; no DB update (§1).
+4. **Sequencing (Q6):** OI-0233 permissions fix first, then OI-0226 PR C stale-save guard. This brief does not assign OI-0232 a slot between them or reserve a migration number. Each migration apply still needs Tim's explicit yes plus a verified backup; locking answers is not apply or docs-land approval.

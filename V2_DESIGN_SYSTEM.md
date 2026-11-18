@@ -398,7 +398,7 @@ Complex card with expandable body:
 Dot-based (`.sync-dot`): 8×8px circle.
 States: `.sync-ok` (green), `.sync-pending` (amber), `.sync-off` (text3), `.sync-err` (red).
 
-**OI-0230 PR 1 (in review, `43003de4`; not as-built):** a **signed-out** state: when there is no session (or the JWT expired) and writes are waiting, the dot uses the grey `.sync-off` dot and the label reads **"Signed out · {count} changes waiting"** (`sync.signedOut`; the Settings sync status reads "Signed out", `settings.syncSignedOut`). Writes stay queued, are never dead-lettered for an auth reason, and are sent after `SIGNED_IN` / `TOKEN_REFRESHED`. **Red still wins:** with any dead letter the dot is red `sync-failed`, signed out or not. Full state table: V2_INFRASTRUCTURE.md §9.
+**OI-0230 PR 1 (as-built, PR #82, `d22e004`):** a **signed-out** state: when there is no session (or the JWT expired) and writes are waiting, the dot uses the grey `.sync-off` dot and the label reads **"Signed out · {count} changes waiting"** (`sync.signedOut`; the Settings sync status reads "Signed out", `settings.syncSignedOut`). One session check per flush pass; writes stay queued, are never dead-lettered for an auth reason, and resume on `SIGNED_IN` / `TOKEN_REFRESHED`. **Red still wins:** with any dead letter the dot is red `sync-failed`, signed out or not. Full state table: V2_INFRASTRUCTURE.md §9.
 
 ### 3.15 Strip Grazing Progress (v2 only)
 
@@ -509,7 +509,7 @@ The rotation calendar does **not** appear in Reports — it lives on the Events 
 
 ### 4.7 Settings Screen
 
-v1 (live-app audit) had a Sync Queue card of diagnostic buttons (Refresh, Flush now, Export queue JSON, Clear queue, Push all to Supabase). **None of these were carried into v2.** v2's Settings → **Sync & Data** card (`src/features/settings/index.js:398-422`; flow in V2_UX_FLOWS.md §20.3) shows the sync status dot and label, **Export backup**, **Import backup**, **Migrate from v1** (when shown) and **Resync to server**. Sync health otherwise lives in the header indicator (§3.14; tap retries dead letters). **OI-0230 PR 1 (intended):** Resync gets a confirm sheet with counts and an awaited result; slice G (later) adds a sync problems sheet listing queued and failed writes.
+v1 (live-app audit) had a Sync Queue card of diagnostic buttons (Refresh, Flush now, Export queue JSON, Clear queue, Push all to Supabase). **None of these were carried into v2.** v2's Settings → **Sync & Data** card (`src/features/settings/index.js`, `renderSyncSection` and `handleResyncClick`; flow in V2_UX_FLOWS.md §20.3) shows the sync status dot and label, **Export backup**, **Import backup**, **Migrate from v1** (when shown) and **Resync to server**. Sync health otherwise lives in the header indicator (§3.14; tap retries dead letters). **OI-0230 PR 1 (as-built, PR #82, `d22e004`):** Resync has a card-style confirm sheet with exact counts (UX §20.3), including the already-on-server line and singular forms; Send re-plans under lock; navigation cancels; then an awaited result and "Export skipped". Slice G (later) adds a sync problems sheet. The proposed PR C clock-ahead notice is not as-built (server-guards E.3.3).
 
 ### 4.8 Sheet Overlay (Edit Event)
 
@@ -672,6 +672,7 @@ Used by BCS Recording Sheet (§14.3). Row of numbered chips.
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-18 | GTHO Design — OI-0230 PR 1 as-built; OI-0232/0233/PR C locks (docs only) | §3.14 signed-out state and §4.7 Resync sheet flipped to as-built PR #82 `d22e004`. |
 | 2026-11-18 | GTHO Design — OI-0230 / OI-0231 | §4.7 v1 diagnostic controls replaced by the v2 Sync & Data card as built, with the OI-0230 Resync confirm marked intended. |
 | 2026-04-12 | Session 11 — Component gap fill | Added §7: quick-action bar, field mode home screen, field mode nav header, health recording sheet layout, group session progress bar, BCS chip selector. Patterns support V2_UX_FLOWS.md §14–§16. |
 | 2026-04-13 | Header + multi-farm context design | Extended §3.6 Navigation with header bar patterns: left cluster (operation name + farm picker), right cluster (sync dot, build stamp, Field Mode, user menu button), farm picker (sheet/dropdown specs), user menu popover (email + Log Out), and cross-farm event marker style for event cards. Supports V2_UX_FLOWS.md §17.2 and new §18. |

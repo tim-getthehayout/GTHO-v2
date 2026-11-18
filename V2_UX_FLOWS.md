@@ -942,7 +942,7 @@ On a narrow mobile viewport (≤ 400px) the two columns may wrap and stack; both
 
 **Female-only sections (edit mode):**
 
-- **Confirmed bred status** — As built: a stored checkbox "Confirmed bred" ("Pregnancy check / palpation confirmed"), `animals.confirmed_bred`, written directly by Save (OI-0099; not derived from breeding records). Recording a calving clears it. **Proposed (OI-0232, not built):** a "Confirmed on" date under the checkbox, today by default on a fresh tick, back-datable, cleared on untick; brief `session_briefs/CONFIRMED_BRED_DATE_2026-11-18.md`.
+- **Confirmed bred status** — As built: a stored checkbox "Confirmed bred" ("Pregnancy check / palpation confirmed"), `animals.confirmed_bred`, written directly by Save (OI-0099; not derived from breeding records). Recording a calving clears it. **Proposed (OI-0232, not built):** a "Confirmed on" date under the checkbox, today by default on a fresh tick, back-datable; **locked (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator):** unticking clears and disables it just like Weaned; recording a calving clears the tick and date together; Tim waits for this field, then re-enters preg marks with dates by hand; brief `session_briefs/CONFIRMED_BRED_DATE_2026-11-18.md`.
 - **Calving history** — Chronological list of calving records. Each row: date, calf tag, calf sex, sire. "+ Record calving" button → Calving Recording Sheet (§14.7).
 - **Heat history** — Recent heat observations. Each row: date, days since, notes snippet. "+ Record heat" button → Heat Recording Sheet (§14.6, step 2 only).
 
@@ -1267,7 +1267,7 @@ The header bar is sticky top on both mobile and desktop. Two clusters: identity 
 
 | Element | Source | Notes |
 |---------|--------|-------|
-| Sync indicator | §3.14 sync dot | 8×8px circle. States: `.sync-ok` (green, online), `.sync-pending` (amber, queued writes), `.sync-off` (`--text3`, offline), `.sync-err` (red, error). Tap navigates to `#/settings` sync panel. **OI-0230 PR 1 (in review, `43003de4`; not as-built):** a **signed-out** state: when there is no session (or the JWT expired) and writes are waiting, the dot is the grey `.sync-off` dot and the label reads **"Signed out · {count} changes waiting"** (`sync.signedOut`; the Settings sync status reads "Signed out", `settings.syncSignedOut`). Writes stay queued, are never dead-lettered for an auth reason, and are sent after `SIGNED_IN` / `TOKEN_REFRESHED`. **Red still wins:** with any dead letter the dot is red `sync-failed`, signed out or not. |
+| Sync indicator | §3.14 sync dot | 8×8px circle. States: `.sync-ok` (green, online), `.sync-pending` (amber, queued writes), `.sync-off` (`--text3`, offline), `.sync-err` (red, error). Tap navigates to `#/settings` sync panel. **OI-0230 PR 1 (as-built, PR #82, `d22e004`):** a **signed-out** state: when there is no session (or the JWT expired) and writes are waiting, the dot is the grey `.sync-off` dot and the label reads **"Signed out · {count} changes waiting"** (`sync.signedOut`; the Settings sync status reads "Signed out", `settings.syncSignedOut`). One session check per flush pass; no session / expired JWT keeps writes queued, never dead-lettered for auth, and resumes on `SIGNED_IN` / `TOKEN_REFRESHED`. No singular header string exists: it is always "changes". **Red still wins:** with any dead letter the dot is red `sync-failed`, signed out or not. |
 | Build stamp | `<meta name="app-version">` | 11px, `--text2`. Format: `bYYYYMMDD.HHMM`. Hidden below 360px viewport width. Diagnostic value only — always visible during testing. |
 | Field mode toggle | — | `btn btn-green btn-xs`. Navigates to `#/field`. Hidden while already in Field Mode. |
 | User menu | `auth.user.email` initials | 28×28 circle button, `--bg2` bg, 1px `--border`, initials in 11px/600 `--text2`. Tap opens user menu popover (§3.6 user menu popover pattern) with user email (read-only) and Log Out action. |
@@ -2354,18 +2354,19 @@ Field Mode (§16) inherits the active unit system. Toggling unit system while Fi
 
 **Migrate from v1** (CP-57): visible only when `operations` is empty (onboarding path) or when feature flag `v2.migration.enabled` is true. Launches the migration wizard. Not part of normal settings flow.
 
-**"Resync to server"** (button label unchanged). **As built** (main `b4cb9335`): one tap, no confirm sheet and no toast; the button text changes to "Syncing...", runs `pushAllToSupabase()` (upserts every local record as a full row, `src/features/settings/index.js:405-419`), then shows "Synced {count} records" for 3 s whatever the sends did. That is how a stale tab reverted about 980 prod rows on 2026-06-23 (OI-0230).
+**"Resync to server"** (button label unchanged). **As-built OI-0230 PR 1 (PR #82, `d22e004`; Tim 2026-11-18 1:00 and 1:10 PM ET):** the old full-store push and "Synced {count} records" result are removed. The button disables while Resync runs; status cards use "Checking the server…" then "Sending…". Resync considers only this device's queue, dead letters and per-row unacked marks.
 
-**OI-0230 PR 1 (intended; Tim 2026-11-18 1:00 and 1:10 PM ET):** Resync sends **only this device's unconfirmed work** (its pending queue, its dead letters, and rows changed since their last confirmed server ack), each **only if newer than the server copy**.
-1. Tap → if offline or signed out, a message says so and nothing happens.
-2. The app reads the server's `updated_at` for just those rows, then opens a **confirm sheet**, "Resync to server":
-   - "N unsynced changes on this device are newer than the server and will be sent."
-   - "M are already the same or newer on the server and will be skipped."
-   - "G were deleted on the server or can't be reached and won't be sent." (only if G > 0)
-   - "P couldn't be compared and won't be sent." (only if P > 0)
-   - `[Cancel]` and `[Send N changes]`; with N = 0 only `[OK]`.
-3. **Send** → the button shows progress; the app **waits for every send** and then shows the result in the sheet: "Sent X. Skipped M. Failed Y." Failures are in the red sync indicator's dead letters with a reason; changes waiting for sign-in are reported as waiting, not failed. Skipped items can be exported from the result sheet.
-4. Rows that are only on this device but were never in its unconfirmed work are never sent (they may have been deleted on another device). A server read error stops Resync before anything is sent.
+1. If unavailable, the card says one of: "You're offline. Resync needs a connection.", "You're signed out. Sign in, then Resync.", "Couldn't read {table} from the server. Nothing was sent.", "Sync isn't available right now."
+2. The app reads only those candidates' ids / server stamps, then shows title "Resync to server" and exact count lines:
+   - plural "{count} unsynced changes on this device are newer than the server and will be sent."; singular "{count} unsynced change on this device is newer than the server and will be sent."
+   - plural "{count} are already the same or newer on the server and will be skipped."; singular "{count} is already the same or newer on the server and will be skipped."
+   - when nonzero, existing rows on no-stamp tables: plural "{count} are already on the server and will be skipped."; singular "{count} is already on the server and will be skipped."
+   - when nonzero: plural "{count} were deleted on the server or can't be reached and won't be sent."; singular "{count} was deleted on the server or can't be reached and won't be sent."
+   - when nonzero: "{count} couldn't be compared and won't be sent." (same for singular)
+   - With sends: `[Cancel]` and "Send {count} changes" (singular "Send {count} change"). With zero: only "OK".
+3. The flush lock is released while the sheet waits. Leaving the screen, or replacing/removing the sheet, counts as Cancel. At **Send**, Resync locks and rebuilds the plan with fresh server stamps; changed counts show a fresh sheet instead of sending.
+4. The result waits for all sends: "Sent {sent}. Skipped {skipped}. Failed {failed}." plus nonzero "Not sent (deleted on the server or out of reach): {count}.", "Couldn't compare: {count}.", "Waiting for sign-in: {count}." Skips show "Export skipped"; then "OK". The app runs a normal pull. Exception copy: "Resync didn't finish. Nothing more will be sent."
+5. Limits: no server stale-write guard yet. Known limit K1 can recreate a create whose server success reply was lost after another device deleted it; PR C owns closure.
 Full rules: `session_briefs/SYNC_DURABILITY_2026-11-18.md` §4 D.
 
 ### 20.4 Mobile vs Desktop
@@ -2377,7 +2378,7 @@ Desktop: all sections rendered as a single scrollable column with section header
 ### 20.5 Accessibility
 
 - The unit-system toggle is a `role="radiogroup"` with two `role="radio"` segments, keyboard-navigable via arrow keys. Label "Unit system" is `aria-labelledby` on the group.
-- Destructive buttons require a two-step interaction — either dialog confirm or press-and-hold for 500ms — never a single unprompted tap. As built, **Replace All Data** has its confirm; **Resync to server** has none (one tap sends). **OI-0230 PR 1 (intended):** Resync's confirm sheet (§20.3) is its two-step interaction; `[Send N changes]` is the second step.
+- Destructive buttons require a two-step interaction — either dialog confirm or press-and-hold for 500ms — never a single unprompted tap. As built, **Replace All Data** has its confirm; Resync's confirm sheet (§20.3, PR #82 `d22e004`) is its two-step interaction; "Send {count} changes" / "Send {count} change" is the second step.
 - Section headers are `<h2>`; subsection field groups use `<fieldset>` + `<legend>`. Screen readers announce section context when focus enters a new section.
 
 ### 20.6 Out of Scope for This Screen
@@ -2486,6 +2487,7 @@ The sheet uses the same unit-aware descriptor pattern as the Farm Settings card 
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-18 | GTHO Design — OI-0230 PR 1 as-built; OI-0232/0233/PR C locks (docs only) | §15.1 OI-0232 Q1–Q3 locks; §17.2 signed-out state as-built; §20.3/§20.5 Resync as-built at PR #82 `d22e004` with exact plural/singular strings, already-on-server line, Send replan and navigation Cancel. |
 | 2026-11-18 | GTHO Design — OI-0230 / OI-0231 | §20.3 Resync as built (one tap, no confirm, no toast) and OI-0230 PR 1 intended flow (unconfirmed work only, newer-only, confirm sheet with counts, awaited sent / skipped / failed result); §20.5 two-step rule vs Resync. |
 | 2026-04-12 | Session 11 — UX flow gap fill | Added §14 (reusable health & recording components — 10 subsections covering weight, BCS, treatment, breeding, heat, calving, note, group sessions, quick-action bar), §15 (entity CRUD forms — animal, group, location, feed type), §16 (field mode — home screen, navigation, heat quick-access, feed loop). Component-first approach: each form documented once with entry points and context pre-fill mapped. |
 | 2026-04-13 | Session — Dashboard & todos spec | Added §17 (home screen / dashboard + todos). 14 subsections covering: screen layout (mobile/desktop), header bar, farm overview stats (desktop 5-metric, mobile 3-metric with thresholds), view toggle (groups/locations, default changed to locations for new users), group card anatomy (body elements, conditional logic, action buttons, collapse/expand), location card anatomy, open tasks dashboard section, todos screen with 3-axis filtering, todo create/edit sheet, todo card anatomy, survey draft card, weaning nudge. Derived from v1 `renderHome()` + `renderTodos()` code review against v2 schema D11.3/D11.4. FAB removed — feedback button moved to header. |

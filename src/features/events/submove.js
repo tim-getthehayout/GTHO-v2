@@ -1,4 +1,6 @@
-import { poolWritesEnabled, liveFeedPools, writePoolCheck, poolExecutionKey } from '../feed/pool-ledger.js';
+import { poolWritesEnabled, liveFeedPools, writePoolCheck, poolExecutionKey, previewPoolCheck } from '../feed/pool-ledger.js';
+import { renderPlausibilityWarnings, clearPlausibilityWarnings } from '../feed/plausibility-warning.js';
+import { poolKey } from '../../calcs/feed-pools.js';
 /** @file Sub-move open/close sheets and advance strip sheet — CP-18, OI-0006. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -280,12 +282,18 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   const executionKey=poolExecutionKey(first.operationId,'submove-pools');
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-close-status' });
   panel.appendChild(statusEl);
+  const warningEl = el('div', { 'data-testid': 'pool-plausibility' });
+  panel.appendChild(warningEl);
 
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
-    el('button', {
-      className: 'btn btn-green',
-      'data-testid': 'submove-close-save',
-      onClick: () => {
+  const saveBtn = el('button', {
+    className: 'btn btn-green',
+    'data-testid': 'submove-close-save',
+    onClick: () => attemptSave(false),
+  }, [t('action.save')]);
+  const dismissWarning=()=>{clearPlausibilityWarnings(warningEl);saveBtn.hidden=false;};
+  panel.addEventListener('input',dismissWarning);
+  panel.addEventListener('change',dismissWarning);
+  const attemptSave=(force=false)=>{
         clear(statusEl);
         if (landWindows.length) {
           const pgv = postGraze.validate();
@@ -301,6 +309,37 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
               statusEl.appendChild(el('span', {}, ['Record remaining for every delivered feed before closing.']));
               return;
             }
+          }
+        }
+
+        if (!force && hasStoredFeed && feedCheckInputs.length && poolWritesEnabled()) {
+          try {
+            const dateClosed = inputs.dateClosed.value;
+            const timeClosed = inputs.timeClosed.value || null;
+            const readings = feedCheckInputs.map(row => ({
+              feedTypeId: row.feedTypeId,
+              locationId: row.locationId,
+              remainingQuantity: Number(row.input.value),
+              unit: row.unit,
+            }));
+            if (readings.every(row => Number.isFinite(row.remainingQuantity) && row.remainingQuantity >= 0)) {
+              const warnings = previewPoolCheck({ operationId: first.operationId, eventId: first.eventId, date: dateClosed, time: timeClosed, readings });
+              if (warnings.length) {
+                renderPlausibilityWarnings(warningEl, warnings, {
+                  onFix: () => {
+                    const firstWarning = warnings[0];
+                    const row = feedCheckInputs.find(item => poolKey({ eventId: first.eventId, locationId: item.locationId, feedTypeId: item.feedTypeId }) === firstWarning.poolKey);
+                    row?.input.focus();
+                  },
+                  onSaveAnyway: () => attemptSave(true),
+                });
+                saveBtn.hidden = true;
+                return;
+              }
+            }
+          } catch (err) {
+            statusEl.appendChild(el('span', {}, [err.message]));
+            return;
           }
         }
 
@@ -351,8 +390,9 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));
         }
-      },
-    }, [t('action.save')]),
+  };
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
+    saveBtn,
     el('button', {
       className: 'btn btn-outline',
       'data-testid': 'submove-close-cancel',

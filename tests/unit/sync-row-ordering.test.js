@@ -768,4 +768,38 @@ describe('write-order clock (rows with no updated_at)', () => {
     expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
     expect(sent(WINDOW_ID).map(e => e.rec.remaining)).toEqual([0.75]);
   });
+
+  const staleLetter = extra => ({ id: WINDOW_ID, table: IT, record: { id: WINDOW_ID, remaining: 2.25 }, error: 'x', retry_count: 5,
+    dead_lettered_at: new Date(T0).toISOString(), ...extra });
+
+  it('a reload after a 60 s backward step with only a stale dead letter: the post-reload save clears it and the drain does not restore it', async () => {
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([staleLetter({ origin_at: new Date(T0).toISOString() })]));
+    vi.setSystemTime(T0 - 60_000);
+    resetWriteOrderClock(); // reload: the clock re-seeds from storage, dead letters included
+    const sync = makeSync();
+    await sync.push(IT, { id: WINDOW_ID, remaining: 0.75 }, 'upsert');
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    expect(deadLetters()).toEqual([]);
+  });
+
+  it('the same with a legacy dead letter (no origin_at): the seed falls back to dead_lettered_at', async () => {
+    localStorage.setItem('_dead_letter_queue', JSON.stringify([staleLetter()]));
+    vi.setSystemTime(T0 - 60_000);
+    resetWriteOrderClock();
+    const sync = makeSync();
+    await sync.push(IT, { id: WINDOW_ID, remaining: 0.75 }, 'upsert');
+    await sync.flush();
+    expect(srv.rows.get(ik(WINDOW_ID)).remaining).toBe(0.75);
+    expect(deadLetters()).toEqual([]);
+  });
+
+  it('two commands in one durable save get strictly increasing write order', () => {
+    commitDurableWrite(JSON.stringify(['op', 'feed-check', 'd6', 1]), { eventFeedCheckItems: [{ id: WINDOW_ID }] }, [
+      { table: IT, record: { id: WINDOW_ID, remaining: 1 }, operation: 'insert' },
+      { table: IT, record: { id: OTHER_ID, remaining: 2 }, operation: 'insert' },
+    ], WINDOW_ID);
+    const [a, b] = queued().map(e => Date.parse(e.enqueued_at));
+    expect(b).toBeGreaterThan(a);
+  });
 });

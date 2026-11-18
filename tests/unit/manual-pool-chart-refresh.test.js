@@ -22,6 +22,7 @@ import { openEventDetailSheet, closeEventDetailSheet } from '../../src/features/
 import { openFeedCheckSheet } from '../../src/features/feed/check.js';
 import { openEditFeedCheckDialog } from '../../src/features/events/edit-feed-check.js';
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+function savePool(panel){ button(panel, 'Save').click(); panel.querySelector('[data-testid="pool-plausibility-save-anyway"]')?.click(); }
 let event, dashboard, rendered, queued;
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-10T12:00:00-05:00'));
@@ -57,13 +58,13 @@ it('mounted charts refresh through real check Save, item-only Edit and Delete wi
   expect(rendered.mock.calls).toHaveLength(2);
   openFeedCheckSheet(event, OP); const panel = document.querySelector('#feed-check-sheet-panel');
   fill(panel, 'input[type="date"]', '2026-11-09', 'change'); fill(panel, 'input[type="time"]', '13:00'); fill(panel, 'input[type="number"]', '7');
-  await refreshed(() => button(panel, 'Save').click());
+  await refreshed(() => savePool(panel));
   const check = getAll('eventFeedChecks').find(row => row.date === '2026-11-09'), item = getAll('eventFeedCheckItems').find(row => row.feedCheckId === check.id);
   expect(queued('event_feed_checks').at(-1)).toMatchObject({ date: '2026-11-09', time: '13:00' });
   expect(latest(true)[0].result).toMatchObject({ status: 'actual', storedDmiKg: 187.5 });
   openEditFeedCheckDialog(check, item, event, OP); let edit = document.querySelector('#edit-fc-panel');
   fill(edit, 'input[type="time"]', '13:00'); fill(edit, 'input[type="number"]', '6');
-  await refreshed(() => button(edit, 'Save').click()); expect(latest(true)[0].result.storedDmiKg).toBe(212.5);
+  await refreshed(() => savePool(edit)); expect(latest(true)[0].result.storedDmiKg).toBe(212.5);
   openEditFeedCheckDialog(getById('eventFeedChecks', check.id), getAll('eventFeedCheckItems').find(row=>row.feedCheckId===check.id), event, OP); edit = document.querySelector('#edit-fc-panel');
   vi.spyOn(window, 'confirm').mockReturnValue(true); await refreshed(() => button(edit, 'Delete').click());
   expect(getById('eventFeedChecks', check.id)).toBeUndefined(); expect(latest(true)[0].result.storedDmiKg).toBe(12.5);
@@ -108,7 +109,7 @@ it('mounted Dashboard and Detail label partial pool brackets Forecast and comple
  seed('batches',Batch,{id:'straw',name:'Straw',feedTypeId:'straw-type',unit:'bale',quantity:10,remaining:7,weightPerUnitKg:100,dmPct:100});
  seed('eventFeedEntries',Entry,{eventId:event.id,locationId:'pasture',batchId:'straw',feedTypeId:'straw-type',kind:'inventory_feeding',date:'2026-11-05',time:'10:00',quantity:3,unitSnapshot:'bale',weightPerUnitKgSnapshot:100,dmPctSnapshot:100});
  const opening=getAll('eventFeedChecks').find(row=>row.date==='2026-11-05');seed('eventFeedCheckItems',Item,{feedCheckId:opening.id,locationId:'pasture',feedTypeId:'straw-type',remainingQuantity:2,unitSnapshot:'bale',weightPerUnitKgSnapshot:100,dmPctSnapshot:100});await flush();
- const saveType=(type,quantity)=>{openFeedCheckSheet(event,OP);const panel=document.querySelector('#feed-check-sheet-panel');fill(panel,'[data-testid="pool-date"]','2026-11-09','change');fill(panel,'[data-testid="pool-time"]','13:00');for(const id of ['type','straw-type'])panel.querySelector(`[data-testid="pool-select-${id}-pasture"]`).checked=id===type;fill(panel,`[data-testid="pool-remaining-${type}-pasture"]`,String(quantity));button(panel,'Save').click();expect(panel.querySelector('.auth-error').textContent).toBe('');};
+ const saveType=(type,quantity)=>{openFeedCheckSheet(event,OP);const panel=document.querySelector('#feed-check-sheet-panel');fill(panel,'[data-testid="pool-date"]','2026-11-09','change');fill(panel,'[data-testid="pool-time"]','13:00');for(const id of ['type','straw-type'])panel.querySelector(`[data-testid="pool-select-${id}-pasture"]`).checked=id===type;fill(panel,`[data-testid="pool-remaining-${type}-pasture"]`,String(quantity));savePool(panel);expect(panel.querySelector('.auth-error').textContent).toBe('');};
  saveType('type',7);await flush();
  for(const root of [dashboard,document.querySelector('[data-testid="detail-dmi-chart"]')]){const bar=root.querySelector('[data-dmi-date="2026-11-08"]');expect(bar.dataset.dmiStatus).toBe('estimated');expect(bar.textContent).toContain('Forecast');expect(root.querySelector('[data-testid="dmi-today-status"]').textContent).toBe('Forecast');}
  expect(document.querySelector('[data-testid="detail-hero-line"]').textContent).toContain('DMI target (forecast)');expect(document.querySelector('[data-testid="detail-dmi-npk"]').textContent).toContain('DMI target (forecast)');expect(dashboard.querySelector('[data-testid="dashboard-loc-card-event"]').textContent).toContain('DMI target (forecast)');

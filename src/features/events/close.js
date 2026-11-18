@@ -1,4 +1,6 @@
-import { poolWritesEnabled, liveFeedPools, writePoolCheck, poolExecutionKey } from '../feed/pool-ledger.js';
+import { poolWritesEnabled, liveFeedPools, writePoolCheck, poolExecutionKey, previewPoolCheck } from '../feed/pool-ledger.js';
+import { renderPlausibilityWarnings, clearPlausibilityWarnings } from '../feed/plausibility-warning.js';
+import { poolKey } from '../../calcs/feed-pools.js';
 /** @file Close event sheet — CP-20/CP-30. Full version with feed check + confinement NPK. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -145,13 +147,20 @@ export function openCloseEventSheet(evt, operationId) {
   inputs.poolExecutionKey=poolExecutionKey(operationId,'close-pools');
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'close-event-status' });
   panel.appendChild(statusEl);
+  const warningEl = el('div', { 'data-testid': 'pool-plausibility' });
+  panel.appendChild(warningEl);
+
+  const saveBtn = el('button', {
+    className: 'btn btn-red',
+    'data-testid': 'close-event-save',
+    onClick: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, false, { warningEl, saveBtn, force: false }),
+  }, [t('event.closeEvent')]);
+  const dismissWarning=()=>{clearPlausibilityWarnings(warningEl);saveBtn.hidden=false;};
+  panel.addEventListener('input',dismissWarning);
+  panel.addEventListener('change',dismissWarning);
 
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: 'var(--space-5)' } }, [
-    el('button', {
-      className: 'btn btn-red',
-      'data-testid': 'close-event-save',
-      onClick: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows),
-    }, [t('event.closeEvent')]),
+    saveBtn,
     el('button', {
       className: 'btn btn-outline',
       'data-testid': 'close-event-cancel',
@@ -162,10 +171,11 @@ export function openCloseEventSheet(evt, operationId) {
   closeEventSheet.open();
 }
 
-function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, acceptZeroLength = false) {
+function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, acceptZeroLength = false, closeOpts = {}) {
   clear(statusEl);
   const dateOut = inputs.dateOut.value;
   const timeOut = inputs.timeOut.value || null;
+  const force = !!closeOpts.force;
   if (!dateOut) {
     statusEl.appendChild(el('span', {}, [t('validation.closeDateRequired')]));
     return;
@@ -199,6 +209,38 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
     if (!window.confirm(msg)) return;
   }
 
+  // Plausibility runs before the joined-after and date-conflict dialogs.
+  // Save anyway carries `force` through onConfirm / onResume so the warning
+  // is not shown again after those dialogs resume the close.
+  if (!force && poolWritesEnabled() && feedCheckInputs.length && dateOut) {
+    try {
+      const readings = feedCheckInputs.map(row => ({
+        feedTypeId: row.feedTypeId,
+        locationId: row.locationId,
+        remainingQuantity: row.input.value.trim() === '' ? NaN : Number(row.input.value),
+        unit: row.unit,
+      }));
+      if (readings.every(row => Number.isFinite(row.remainingQuantity) && row.remainingQuantity >= 0)) {
+        const warnings = previewPoolCheck({ operationId, eventId: evt.id, date: dateOut, time: timeOut, readings, isCloseReading: true });
+        if (warnings.length) {
+          renderPlausibilityWarnings(closeOpts.warningEl, warnings, {
+            onFix: () => {
+              const first = warnings[0];
+              const row = feedCheckInputs.find(item => poolKey({ eventId: evt.id, locationId: item.locationId, feedTypeId: item.feedTypeId }) === first.poolKey);
+              row?.input.focus();
+            },
+            onSaveAnyway: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, acceptZeroLength, { ...closeOpts, force: true }),
+          });
+          if (closeOpts.saveBtn) closeOpts.saveBtn.hidden = true;
+          return;
+        }
+      }
+    } catch (err) {
+      statusEl.appendChild(el('span', {}, [err.message]));
+      return;
+    }
+  }
+
   // Reconcile every group window on the event, closed ones included.
   // Windows that joined after the close are listed for the user (default
   // zero-length at the close, or cancel). No silent change and no delete.
@@ -208,7 +250,7 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
       windows: windowPlan.toReview,
       closeDate: dateOut,
       closeTime: timeOut,
-      onConfirm: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, true),
+      onConfirm: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, true, { ...closeOpts, force }),
     });
     return;
   }
@@ -222,7 +264,7 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
       conflicts: closeConflicts,
       operationId,
       event: evt,
-      onResume: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, acceptZeroLength),
+      onResume: () => executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs, statusEl, postGraze, landWindows, acceptZeroLength, { ...closeOpts, force }),
     });
     return;
   }

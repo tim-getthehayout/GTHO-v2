@@ -1,6 +1,7 @@
 import { replayFeedPools, poolKey, poolReading } from '../../calcs/feed-pools.js';
 import { rowInstant } from '../../utils/date-utils.js';
-import { poolWritesEnabled, poolInput, inventoryPoolSnapshot } from './pool-ledger.js';
+import { poolWritesEnabled, poolInput, inventoryPoolSnapshot, previewPoolCheck } from './pool-ledger.js';
+import { renderPlausibilityWarnings, clearPlausibilityWarnings } from './plausibility-warning.js';
 /** @file Deliver feed (Log feeding) sheet — CP-27. V1 parity: batch cards + inline stepper + summary. */
 
 import { el, clear } from '../../ui/dom.js';
@@ -428,12 +429,10 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
   // Status
   const statusEl = el('div', { className: 'auth-error' });
   panel.appendChild(statusEl);
+  const warningEl = el('div', { 'data-testid': 'pool-plausibility' });
+  panel.appendChild(warningEl);
 
-  // Button row
-  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [
-    el('button', {
-      className: 'btn btn-green',
-      onClick: reviewSave(options.review, () => {
+  const saveFeeding = (force=false) => {
         if(committed)return;
         clear(statusEl);
         const linesToSave = selectedLines.filter(l => l.qty > 0);
@@ -561,6 +560,36 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
               return;
             }
           }
+          if(poolWritesEnabled() && leftover && plannedCheck && !force){
+            let warnings=[];
+            try {
+              warnings=previewPoolCheck({
+                operationId,eventId:evt.id,date:plannedCheck.date,time:plannedCheck.time,notes:null,
+                extraEntries:plannedEntries.map(row=>row.record),
+                readings:leftoverItems.map(item=>({
+                  feedTypeId:item.feedTypeId||getById('batches',item.batchId)?.feedTypeId,
+                  locationId:item.locationId,
+                  remainingQuantity:item.remainingQuantity,
+                  unit:item.unit,
+                })),
+              });
+            } catch {
+              warnings=[];
+            }
+            if(warnings.length){
+              renderPlausibilityWarnings(warningEl,warnings,{
+                onFix:()=>{
+                  const first=warnings[0];
+                  const rows=[...carryoverEl.querySelectorAll('[data-testid="feed-carryover-item"]')];
+                  const row=rows.find(node=>poolKey({eventId:evt.id,locationId:node.querySelector('[data-testid="feed-carryover-location"]')?.value,feedTypeId:node.querySelector('[data-testid="feed-carryover-type"]')?.value})===first.poolKey);
+                  (row||rows[0])?.querySelector('[data-testid="feed-carryover-remaining"]')?.focus();
+                },
+                onSaveAnyway:()=>saveFeeding(true),
+              });
+              saveBtn.hidden=true;
+              return;
+            }
+          }
           const write=()=>{
           for (const row of plannedEntries) {
             const deducted = deductDelivery(row.batchId, row.sourceLocationId, row.qty);
@@ -575,14 +604,23 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
           }
           return plannedEntries[0].record.id;
           };
+          const finish=()=>{
           if(poolWritesEnabled() && !options.review)runDurableWrite(executionKey,write);else write();
           committed=true;
           if (!options.review) deliverFeedSheet.close();
+          };
+          if(options.review) reviewSave(options.review, finish)();
+          else finish();
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));
         }
-      }),
-    }, [t('feed.saveFeeding')]),
+  };
+  const saveBtn = el('button', { className: 'btn btn-green', onClick: () => saveFeeding(false) }, [t('feed.saveFeeding')]);
+  const dismissWarning=()=>{clearPlausibilityWarnings(warningEl);saveBtn.hidden=false;};
+  panel.addEventListener('input',dismissWarning);
+  panel.addEventListener('change',dismissWarning);
+  panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [
+    saveBtn,
     el('button', { className: 'btn btn-outline', onClick: () => deliverFeedSheet.close() }, [t('action.cancel')]),
   ]));
 

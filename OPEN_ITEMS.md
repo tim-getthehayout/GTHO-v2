@@ -40,8 +40,10 @@
 | OI-0228 | Internal ids shown in UI strings (`store.js` window-closed toast; retro-place `Event #xxxx`) | Open — low priority, not started; no product decision needed. Rule: UI never shows ids; name events by paddock/location title with fallback 'another event' (same convention as PR A's overlap warning) |
 | OI-0230 | Sync durability: silent save loss and the 23 Jun Resync revert | **PR 1 MERGED** as PR #82 at `d22e004` (A queue-first + B session / 0-row + D Resync on unconfirmed work only); Tim approved merge and publish ~3:56 PM ET via Orchestrator. As-built docs follow-up by Design, verified on `d22e004`. Known limit **K1** (lost-reply create then delete elsewhere; Resync recreates) remains until PR C. APPROVED 2026-11-18 (Tim, 1:00 PM ET; Resync design 1:10 PM ET; via Orchestrator); [brief](session_briefs/SYNC_DURABILITY_2026-11-18.md). Recovery by hand. Later: OI-0233 first, then OI-0226 PR C / E. No migration, RLS or data change without Tim's explicit yes plus a verified backup |
 | OI-0231 | Docs map, PR docs rule and monthly docs drift check | APPROVED 2026-11-18 (Tim, 1:09 PM ET, via Orchestrator). `DOCS_MAP.md` added; rule in `AGENTS.md` ("Docs map rule"); Orchestrator checks the line before bringing merges to Tim; monthly drift check is a recurring Design task (1st of the month, about 9 AM ET, from Dec 1). **Build task:** CI check for the rule (spec in entry; not started). First cleanup = the OI-0230 sync chapters (done in this commit) |
-| OI-0232 | Confirmed-bred date on Edit Animal (`animals.confirmed_bred_date`, nullable date) | SPEC 2026-11-18 (Tim, 1:35 PM ET, via Orchestrator: "Yes, add a confirmed date"); [brief](session_briefs/CONFIRMED_BRED_DATE_2026-11-18.md). **Q1–Q3 locked (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator):** untick clears date like Weaned; calving clears tick and date; Tim waits for the field then hand re-enters marks with dates (no DB update). Not handed to Build; migration file only, apply needs Tim's explicit yes plus a verified backup; impacts CP-55/CP-56 |
+| OI-0232 | Confirmed-bred date on Edit Animal (`animals.confirmed_bred_date`, nullable date) | SPEC 2026-11-18 (Tim, 1:35 PM ET, via Orchestrator: "Yes, add a confirmed date"); [brief](session_briefs/CONFIRMED_BRED_DATE_2026-11-18.md). **Q1–Q2 locked (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator):** untick clears date like Weaned; calving clears tick and date. **Q3 superseded** by OI-0234 May 1 backfill (Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator). Not handed to Build; migration file only, apply needs Tim's explicit yes plus a verified backup; impacts CP-55/CP-56 |
 | OI-0233 | Insert RLS and `anon` grants: member-scoped `WITH CHECK` on 49 tables, revoke `anon` writes, close the `operation_members` self-join | SPEC 2026-11-18 (Tim, 1:35 PM ET, via Orchestrator); [spec](session_briefs/SYNC_SERVER_GUARDS_2026-11-18.md) Part I. **Sequenced first, before OI-0226 PR C (Q6, Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator).** Onboarding order client prerequisite first; apply needs Tim's explicit yes plus a verified backup |
+| OI-0234 | One-time confirmed-bred May 1 backfill (2026 catch-up; tag 31 / 65 / Shenks exceptions) | **SPEC DRAFTED — pending Tim's land yes and B1–B3.** Tim, 2026-11-19 ~6:27–6:29 AM ET, via Orchestrator; supersedes OI-0232 Q3; [brief](session_briefs/CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md). Depends on OI-0232 migration applied first. Prod data write: Tim's yes + verified backup (separate from the migration yes). Shenks = current members of `groups.name` ILIKE `Shenk%` (10 animals). No `src/` in the docs land |
+| OI-0235 | Animals screen multi-select class pills + Open / Confirmed pregnant status pills | **SPEC DRAFTED — pending Tim's land yes and F1–F3.** Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator; [brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). Extends OI-0164 chip bar (V2_UX_FLOWS §15.0); classes OR; status AND with class set; Open = not confirmed bred. No migration |
 
 ---
 
@@ -133,7 +135,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Added:** 2026-11-18 | **Area:** v2-build / animals / schema | **Priority:** with or before the hand re-entry of the preg-check marks (OI-0230 Phase 3)
 
-**Status:** **SPEC (Tim, 2026-11-18 1:35 PM ET, via Orchestrator: "Yes, add a confirmed date").** [Brief](session_briefs/CONFIRMED_BRED_DATE_2026-11-18.md). Not handed to Build. Migration (next free number; OI-0226 PR C also wants 046) is **file only**; **apply needs Tim's explicit yes plus a verified backup.** **Locked (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator):** Q1 untick clears the date like Weaned; Q2 calving clears tick and date together; Q3 Tim waits for the field then hand re-enters marks with dates, no DB update (brief §8). No Tim questions remain on this spec.
+**Status:** **SPEC (Tim, 2026-11-18 1:35 PM ET, via Orchestrator: "Yes, add a confirmed date").** [Brief](session_briefs/CONFIRMED_BRED_DATE_2026-11-18.md). Not handed to Build. Migration (next free number; OI-0226 PR C also wants 046) is **file only**; **apply needs Tim's explicit yes plus a verified backup.** **Locked (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator):** Q1 untick clears the date like Weaned; Q2 calving clears tick and date together. **Q3 superseded (Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator)** by [OI-0234](session_briefs/CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md) May 1 backfill (tag 31 / 65 / Shenks exceptions).
 
 **Why:** Tim's v1 request was "a confirmed bred flag, with date of confirmation"; v2 stores only `animals.confirmed_bred` (migration 026). Tim is re-entering the lost marks by hand (OI-0230).
 
@@ -141,9 +143,51 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Schema / CP-55/CP-56 impact:** **impacts CP-55/CP-56.** Export and import the column; old backups restore with NULL (no-op chain step); a false flag with a date restores with NULL; `schema_version` ticks; round-trip test (brief §5).
 
-**Related:** OI-0230, OI-0099, OI-0226 PR C (migration number), OI-0189 (local today).
+**Related:** OI-0230, OI-0099, OI-0234 (May 1 backfill; supersedes Q3), OI-0235 (Animals filters), OI-0226 PR C (migration number), OI-0189 (local today).
 
 **Origin:** Tim, 2026-11-18 1:35 PM ET, via Orchestrator.
+
+---
+
+
+### OI-0234 — One-time confirmed-bred May 1 backfill (2026)
+
+**Added:** 2026-11-19 | **Area:** v2-build / animals / data | **Priority:** after OI-0232 migration apply
+
+**Status:** **SPEC DRAFTED — pending Tim's land yes and B1–B3.** [Brief](session_briefs/CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md). Not handed to Build. **Prod data write** (not a migration): needs Tim's explicit yes plus a verified backup, separate from the OI-0232 migration yes. Depends on `animals.confirmed_bred_date` existing (OI-0232 applied first).
+
+**Why:** Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator: set confirmed bred for cows that have not calved in 2026, dated May 1, instead of hand re-entry (supersedes OI-0232 Q3). Exceptions same morning: tag 31 → 2026-11-10; tag 65 excluded; Shenks excluded.
+
+**Scope (docs lock; Build implements after Tim's yes):**
+- Default write: `confirmed_bred = true`, `confirmed_bred_date = 2026-05-01` for active non-bulk females in scope with no `animal_calving_records` row for that dam in calendar 2026.
+- Tag field: `animals.tag_num`. Tag 31 uniqueness gate (exactly one active in the operation) then date `2026-11-10`. Tag 65 uniqueness gate then exclude (leave false / NULL).
+- Shenks: current open memberships (`animal_group_memberships.date_left IS NULL`) in `groups` with `name` ILIKE `Shenk%` — exclude (prod: Shenk Cows 4 + Shenk Yearling Heifers 6 = 10; Shenk Culls archived with 0 current). Matched field `groups.name` only.
+- Inactive (`active = false`) out. Dry-run SELECT-only with required report sections. Backup then write. Rollback = restore backup (preferred) or surgical UPDATE of dry-run ids with Tim's yes + backup.
+- Open questions B1 (cow vs heifer roles), B2 (already-true leave-alone), B3 (stillbirth counts as calved).
+
+**Schema / CP-55/CP-56 impact:** none new (uses OI-0232 column). Data change only after Tim's yes + backup.
+
+**Related:** OI-0232, OI-0235, OI-0099, OI-0230.
+
+**Origin:** Tim, 2026-11-19 ~6:27–6:29 AM ET, via Orchestrator.
+
+---
+
+### OI-0235 — Animals screen multi-select class and status filters
+
+**Added:** 2026-11-19 | **Area:** v2-build / animals / UX | **Priority:** with or after OI-0234 marks land
+
+**Status:** **SPEC DRAFTED — pending Tim's land yes and F1–F3.** [Brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). Not handed to Build. No migration. No data change.
+
+**Why:** Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator: multi-select class filters (e.g. Cows + Heifers + Confirmed pregnant) and an Open pill (excludes confirmed bred so calved cows show there).
+
+**Scope:** Extend the existing Animals filter header (OI-0164 / V2_UX_FLOWS §15.0 / `src/features/animals/index.js` `.agc-chips`). Class pills multi-select **OR**. Status pills (Open / Confirmed pregnant) **AND** with the class set. Lifecycle All / group / Culls stays mutually exclusive. Open = `confirmed_bred` not true (same sense as assistant farm-reads). Open question F1: Open + Confirmed together → propose mutually exclusive status pair.
+
+**Schema / CP-55/CP-56 impact:** none.
+
+**Related:** OI-0234, OI-0232, OI-0164, OI-0099.
+
+**Origin:** Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator.
 
 ---
 

@@ -2,11 +2,11 @@
 
 **Date:** 2026-11-18 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **SPEC (Tim, 2026-11-18 1:35 PM ET, via Orchestrator: "Yes, add a confirmed date").** Not handed to Build for apply. The migration is **file only**; applying it to prod needs **Tim's explicit yes plus a verified backup** (AGENTS.md "Migration Execution Rule").
 **Base:** Forgejo `main` `3714d96b`. File:line references below were read on `3714d96b`.
-**Related:** OI-0230 (sync durability; the confirmed-bred report that started it), OI-0099 (Confirmed bred checkbox, migration 026), OI-0226 PR C / OI-0230 slice E (stale-write guard, which also wants the next migration number), V2_SCHEMA_DESIGN §3.2, V2_UX_FLOWS §15.1, V2_MIGRATION_PLAN §5.
+**Related:** OI-0230 (sync durability; the confirmed-bred report that started it), OI-0099 (Confirmed bred checkbox, migration 026), **OI-0234** (May 1 backfill; supersedes Q3), OI-0235 (Animals multi-select filters), OI-0226 PR C / OI-0230 slice E (stale-write guard, which also wants the next migration number), V2_SCHEMA_DESIGN §3.2, V2_UX_FLOWS §15.1, V2_MIGRATION_PLAN §5.
 
 ## 1. Why
 
-Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v2 stores only the flag: `animals.confirmed_bred boolean NOT NULL DEFAULT false` (`supabase/migrations/026_add_confirmed_bred.sql:10`). **Locked (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator, Q3):** Tim will wait for the date field to ship, then re-enter the preg-check marks with dates by hand. No DB update or backfill of the marks.
+Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v2 stores only the flag: `animals.confirmed_bred boolean NOT NULL DEFAULT false` (`supabase/migrations/026_add_confirmed_bred.sql:10`). **Q3 superseded (Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator):** earlier Q3 (wait for the date field, then hand re-enter marks; Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator) is replaced by the one-time May 1 backfill **OI-0234** ([brief](CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md)), with tag 31 / tag 65 / Shenks exceptions. Q1 and Q2 remain locked.
 
 **Today (as built on `3714d96b`):**
 - Entity: `confirmedBred` field `src/entities/animal.js:19`; `create()` default `false` `:49`; `toSupabaseShape` `:96`; `fromSupabaseShape` coerces missing to `false` `:127`.
@@ -74,10 +74,10 @@ Tim's v1 request asked for "a confirmed bred flag, with date of confirmation". v
 9. Migration on PGlite: column exists, nullable; the check constraint refuses `false` + a date; existing rows NULL.
 10. Two devices (with OI-0230 PR 1 live): A ticks + dates a cow and syncs; B pulls and shows the same date.
 
-## 8. Locked answers — no remaining Tim questions here
+## 8. Locked answers (Q1–Q2); Q3 superseded by OI-0234
 
 **Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator** (answers given 3:56–3:57 PM ET):
 1. **Q1:** unticking clears the date, just like Weaned (§3.3).
 2. **Q2:** recording a calving clears both tick and date (§3.6).
-3. **Q3:** wait for the date field, then hand re-enter marks with dates; no DB update (§1).
+3. **Q3 (superseded):** wait-then-hand-re-enter is replaced by **OI-0234** May 1 backfill (Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator). See [CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md](CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md).
 4. **Sequencing (Q6):** OI-0233 permissions fix first, then OI-0226 PR C stale-save guard. This brief does not assign OI-0232 a slot between them or reserve a migration number. Each migration apply still needs Tim's explicit yes plus a verified backup; locking answers is not apply or docs-land approval.

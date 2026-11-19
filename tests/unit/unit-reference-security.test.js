@@ -38,7 +38,7 @@ it('all eleven exact legacy IDs and fixed IDs are in the migration, with both ap
  expect(sql).toContain('unit-migration-references-exist');expect(sql).toContain('unit-migration-unexpected-standard-set');expect(sql).toContain('SET schema_version = 44');
 });
 it('promotes 42–45 while preserving column proofs, custom ownership and future-version refusal',()=>{
- expect(RELEASED_SCHEMA_VERSION).toBe(45);expect(HELD_SCHEMA_VERSIONS).toEqual([]);expect(STAGED_COLUMNS[44]).toEqual({dose_units:['operation_id'],input_product_units:['operation_id']});
+ expect(RELEASED_SCHEMA_VERSION).toBe(45);expect(HELD_SCHEMA_VERSIONS).toEqual([46]);expect(STAGED_COLUMNS[44]).toEqual({dose_units:['operation_id'],input_product_units:['operation_id']});expect(STAGED_COLUMNS[46]).toEqual({animals:['confirmed_bred_date']});
  expect(toSupabaseShape(create({name:'custom',operationId:'op'}))).toMatchObject({operation_id:'op'});
  expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:44,operation_id:'op',tables:{}}).valid).toBe(true);
  expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:45,operation_id:'op',tables:{}}).valid).toBe(true);

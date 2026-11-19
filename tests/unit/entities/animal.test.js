@@ -6,7 +6,7 @@ const OP_ID = '550e8400-e29b-41d4-a716-446655440000';
 
 describe('entity: animal', () => {
   it('exports FIELDS with sbColumn for every field', () => {
-    expect(Object.keys(FIELDS)).toHaveLength(23);
+    expect(Object.keys(FIELDS)).toHaveLength(24);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }
@@ -20,6 +20,7 @@ describe('entity: animal', () => {
       expect(r.damId).toBeNull();
       // OI-0099: confirmed_bred column is NOT NULL DEFAULT false; entity default mirrors.
       expect(r.confirmedBred).toBe(false);
+      expect(r.confirmedBredDate).toBeNull();
       expect(r.isBulk).toBe(false);
       expect(r.bulkHeadCount).toBeNull();
     });

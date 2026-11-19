@@ -259,4 +259,13 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 45;
     return b;
   },
+  // 045 → 046: animals.confirmed_bred_date (held). Absent-only null; preserve supplied.
+  45: (b) => {
+    for (const row of b.tables.animals || []) {
+      if (!Object.hasOwn(row, 'confirmed_bred_date')) row.confirmed_bred_date = null;
+    }
+    b.schema_version = 46;
+    for (const op of b.tables.operations || []) op.schema_version = 46;
+    return b;
+  },
 };

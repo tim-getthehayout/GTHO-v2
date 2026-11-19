@@ -1,3 +1,5 @@
+import { releasedColumns } from '../data/schema-columns.js';
+
 /** @file Entity: animals — V2_SCHEMA_DESIGN.md §3.2 */
 
 export const FIELDS = {
@@ -17,6 +19,7 @@ export const FIELDS = {
   weaned:         { type: 'boolean', required: false, sbColumn: 'weaned' },
   weanedDate:     { type: 'date',    required: false, sbColumn: 'weaned_date' },
   confirmedBred:  { type: 'boolean', required: false, sbColumn: 'confirmed_bred' },
+  confirmedBredDate: { type: 'date', required: false, sbColumn: 'confirmed_bred_date' },
   notes:          { type: 'text',    required: false, sbColumn: 'notes' },
   active:         { type: 'boolean', required: false, sbColumn: 'active' },
   cullDate:       { type: 'date',    required: false, sbColumn: 'cull_date' },
@@ -47,6 +50,7 @@ export function create(data = {}) {
     // `?? false` matches the DB default so new records validate and old-backup records
     // (missing the key before schema_version 26) also resolve to false on read.
     confirmedBred: data.confirmedBred ?? false,
+    confirmedBredDate: data.confirmedBredDate ?? null,
     notes: data.notes ?? null,
     active: data.active ?? true,
     cullDate: data.cullDate ?? null,
@@ -94,6 +98,7 @@ export function toSupabaseShape(record) {
     weaned: record.weaned,
     weaned_date: record.weanedDate,
     confirmed_bred: record.confirmedBred ?? false,
+    ...releasedColumns(46, { confirmed_bred_date: record.confirmedBredDate ?? null }),
     notes: record.notes,
     active: record.active,
     cull_date: record.cullDate,
@@ -125,6 +130,7 @@ export function fromSupabaseShape(row) {
     weanedDate: row.weaned_date,
     // Coerce missing (old backup) → false so downstream code can trust the boolean.
     confirmedBred: row.confirmed_bred ?? false,
+    confirmedBredDate: row.confirmed_bred_date ?? null,
     notes: row.notes,
     active: row.active,
     cullDate: row.cull_date,

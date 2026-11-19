@@ -1,7 +1,7 @@
 # OI-0234 — One-time confirmed-bred May 1 backfill (2026)
 
-**Date:** 2026-11-19 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **SPEC DRAFTED — pending Tim's land yes and answers to open questions.** Not handed to Build. Not a migration. A **prod data write**: needs **Tim's explicit yes plus a verified backup** (AGENTS.md), separate from the OI-0232 migration apply yes.
-**Base:** Forgejo `main` `1e3acafa`. Field names below were read on that tree (`src/entities/animal.js`, `animal-calving-record.js`, `animal-group-membership.js`, `group.js`, `animal-class.js`; calving clear paths in `src/features/animals/calving-sync.js` and `src/features/health/calving.js`).
+**Date:** 2026-11-19 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **SPEC LOCKED (B1–B3).** Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator, locked B1–B3. Parent docs land `f0122cdb` approved same morning. Not a migration. A **prod data write**: needs **Tim's explicit yes plus a verified backup** (AGENTS.md), separate from the OI-0232 migration apply yes. Hand to Build only after OI-0232 migration apply is approved.
+**Base:** Forgejo `main` `f0122cdb` (answers commit parents that tip). Field names were read on `1e3acafa` (`src/entities/animal.js`, `animal-calving-record.js`, `animal-group-membership.js`, `group.js`, `animal-class.js`; calving clear paths in `src/features/animals/calving-sync.js` and `src/features/health/calving.js`) and unchanged since.
 **Depends on:** OI-0232 migration applied first (`animals.confirmed_bred_date` column present). Order: OI-0232 apply (Tim's yes + backup) → this dry-run → this write (Tim's yes + a **fresh** verified backup) → then OI-0232 UI / calving-clears-date can ship around it; the backfill does not wait on the UI.
 **Related:** OI-0232 (date column + Q1/Q2 locks), OI-0235 (Animals screen multi-select filters), OI-0099 (`confirmed_bred`), OI-0230 (the lost marks that started this).
 
@@ -29,11 +29,11 @@ An animal qualifies for the default May 1 write when **all** of the following ho
 1. **Active:** `animals.active IS TRUE` (or `active IS DISTINCT FROM false`). Culled / sold / dead animals are the Culls set (`active = false`, with optional `cull_date` / `cull_reason` / `cull_notes` — OI-0164; `src/features/animals/index.js` Culls chip). They are **out**.
 2. **Female:** `animals.sex = 'female'`.
 3. **Not bulk:** `animals.is_bulk IS NOT TRUE` (individual animals only; bulk rows have no preg mark).
-4. **Class role in scope:** join `animal_classes` on `animals.class_id = animal_classes.id`. **Proposed default for this pass:** `animal_classes.role = 'cow'` (V2_SCHEMA_DESIGN §3.1 beef/dairy roles: cow, heifer, bull, steer, calf). **Open question B1** — include `heifer` too?
-5. **No calving in calendar year 2026:** no row in `animal_calving_records` with `dam_id = animals.id` and `calved_at::date` in `[2026-01-01, 2026-12-31]` (inclusive). Stillbirth rows count as calved (`stillbirth` may be true; the record still exists). Calving is recorded via `animal_calving_records` (`src/entities/animal-calving-record.js`: `dam_id`, `calved_at`); `calving-sync.js` keeps those records in lockstep with calf `dam_id` / `birth_date` and already clears `confirmedBred` on the dam today (`:72`, `:103`, `:162`).
+4. **Class role in scope (B1 locked):** join `animal_classes` on `animals.class_id = animal_classes.id`. **`animal_classes.role = 'cow'` only** (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator). Heifers are out of this pass (Shenk Yearling Heifers are already out via §4 regardless).
+5. **No calving in calendar year 2026 (B3 locked):** no row in `animal_calving_records` with `dam_id = animals.id` and `calved_at::date` in `[2026-01-01, 2026-12-31]` (inclusive). **A 2026 stillbirth calving record counts as calved** — exclude those dams (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator). Calving is recorded via `animal_calving_records` (`src/entities/animal-calving-record.js`: `dam_id`, `calved_at`); `calving-sync.js` keeps those records in lockstep with calf `dam_id` / `birth_date` and already clears `confirmedBred` on the dam today (`:72`, `:103`, `:162`).
 6. **Not tag 65** (exclusion — §3).
 7. **Not a current Shenk* group member** (exclusion — §4).
-8. **Already-confirmed handling:** **Proposed default:** if `confirmed_bred = true` already, **leave the row alone** (do not overwrite an existing date, and do not force May 1). **Open question B2.**
+8. **Already-confirmed handling (B2 locked):** if `confirmed_bred = true` already, **leave the row alone** — do not overwrite an existing date, and do not force May 1 / Nov 10 (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator).
 
 Tag `31` is still in the write set when it otherwise qualifies, but with date `2026-11-10` instead of May 1 (§3).
 
@@ -64,7 +64,7 @@ Apply exclusions first, then the tag-31 date override, then the May 1 default:
 3. Tag 65 → excluded.
 4. Remaining tag 31 → write with `2026-11-10`.
 5. Everyone else still in the set → write with `2026-05-01`.
-6. Already `confirmed_bred = true` (if B2 = leave-alone) → skip write.
+6. Already `confirmed_bred = true` (B2 locked: leave alone) → skip write.
 
 ## 4. Shenks exclusion (locked match)
 
@@ -117,15 +117,15 @@ ORDER BY g.name;
 --   WHERE a.active IS TRUE
 --     AND a.sex = 'female'
 --     AND a.is_bulk IS NOT TRUE
---     AND c.role = 'cow'          -- pending B1
+--     AND c.role = 'cow'          -- B1 locked: cows only
 --     AND NOT EXISTS (
 --           SELECT 1 FROM animal_calving_records r
 --           WHERE r.dam_id = a.id
 --             AND r.calved_at::date >= DATE '2026-01-01'
---             AND r.calved_at::date <  DATE '2027-01-01')
+--             AND r.calved_at::date <  DATE '2027-01-01')  -- B3: stillbirths count
 --     AND a.id NOT IN (Shenks current member ids from B)
 --     AND a.tag_num IS DISTINCT FROM '65'
---     AND (B2 leave-alone: a.confirmed_bred IS NOT TRUE)
+--     AND a.confirmed_bred IS NOT TRUE   -- B2 locked: leave already-true alone
 --   Then split: tag_num = '31' → Nov 10 line; else → May 1 line.
 ```
 
@@ -136,8 +136,8 @@ Dry-run report sections (required):
 3. **Excluded — tag 65** — one row.
 4. **Write — tag 31** — one row, date 2026-11-10.
 5. **Write — May 1** — count + tag list (or count + first/last sample if long).
-6. **Skipped — already confirmed** (if B2 = leave-alone) — count.
-7. **Skipped — calved in 2026** — count (sanity).
+6. **Skipped — already confirmed** (B2) — count.
+7. **Skipped — calved in 2026** (including stillbirths, B3) — count (sanity).
 
 ## 6. Write (after Tim's yes + verified backup)
 
@@ -152,13 +152,15 @@ Dry-run report sections (required):
 1. **Preferred:** restore the verified pre-write backup (CP-56 / restore path Tim already uses). Restore keeps the backup's original timestamps (OI-0226 Q4 lock).
 2. **Surgical (only if Tim wants it and the dry-run id list is retained):** `UPDATE animals SET confirmed_bred = false, confirmed_bred_date = NULL, updated_at = <now> WHERE id IN (<dry-run write ids>)`. Still needs Tim's yes + a backup before that UPDATE. Do not ship surgical rollback SQL into prod without that yes.
 
-## 8. Open questions for Tim
+## 8. Locked answers (B1–B3)
 
-| Id | Question | Proposed default |
-|---|---|---|
-| **B1** | Which classes count? Cows only (`animal_classes.role = 'cow'`), or also heifers (`role = 'heifer'`)? (Shenk Yearling Heifers are already out via §4 regardless.) | **Cows only** for this pass |
-| **B2** | Animals that already have `confirmed_bred = true`: leave alone, or overwrite the date to May 1 / Nov 10? | **Leave alone** |
-| **B3** | Does a 2026 stillbirth calving record count as "calved this year" (exclude from the write)? | **Yes — any `animal_calving_records` row in 2026 counts** |
+Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator:
+
+| Id | Locked answer |
+|---|---|
+| **B1** | **Cows only** — `animal_classes.role = 'cow'`. Heifers out of this pass. |
+| **B2** | **Leave alone** animals that already have `confirmed_bred = true` (do not overwrite date). |
+| **B3** | **Yes** — a 2026 stillbirth calving record counts as calved; exclude those dams. |
 
 ## 9. Acceptance (docs / dry-run)
 
@@ -176,3 +178,4 @@ Dry-run report sections (required):
 - Tim, 2026-11-19 ~6:28 AM ET, via Orchestrator (tag 31 Nov 10; tag 65 exclude).
 - Tim, 2026-11-19 ~6:29 AM ET, via Orchestrator (exclude Shenks).
 - Shenks match locked by Design SELECT-only prod lookup, 2026-11-19.
+- Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator (B1 cows only; B2 leave already-true alone; B3 stillbirth counts as calved; land yes for `f0122cdb`).

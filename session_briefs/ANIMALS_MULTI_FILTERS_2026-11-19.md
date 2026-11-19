@@ -1,12 +1,12 @@
 # OI-0235 — Animals screen multi-select class and status filters
 
-**Date:** 2026-11-19 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **SPEC DRAFTED — pending Tim's land yes and F1.** Not handed to Build. No migration. No data change.
-**Base:** Forgejo `main` `1e3acafa`. As-built filter UI read from `src/features/animals/index.js` (OI-0164 chip bar) and V2_UX_FLOWS §15.0. "Open" meaning grounded in `src/features/assistant/farm-reads.js` (`confirmedBred === false`).
+**Date:** 2026-11-19 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **SPEC LOCKED (F1–F3) — ready for Build handoff.** Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator, locked F1–F3 (including F2 pill label **"Confirmed bred"**, not "Confirmed pregnant"). Parent docs land `f0122cdb` approved same morning. No migration. No data change.
+**Base:** Forgejo `main` `f0122cdb` (answers commit parents that tip). As-built filter UI read on `1e3acafa` from `src/features/animals/index.js` (OI-0164 chip bar) and V2_UX_FLOWS §15.0. "Open" meaning grounded in `src/features/assistant/farm-reads.js` (`confirmedBred === false`).
 **Related:** OI-0234 (May 1 backfill — why Open vs Confirmed matters after the marks land), OI-0232 (confirmed-bred date), OI-0164 (Culls chip / lifecycle filter), OI-0099 (`confirmed_bred`).
 
 ## 1. Why (Tim's ask)
 
-Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator: filters by class on the Animals screen; ability to use **multiple at the same time** (example: Cows + Heifers + Confirmed pregnant); an **"Open" pill** that excludes confirmed bred (so cows that calved — mark cleared — show there).
+Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator: filters by class on the Animals screen; ability to use **multiple at the same time** (example: Cows + Heifers + confirmed bred); an **"Open" pill** that excludes confirmed bred (so cows that calved — mark cleared — show there). Pill label locked later the same morning as **"Confirmed bred"** (F2), matching the Edit Animal checkbox — not "Confirmed pregnant".
 
 ## 2. As-built today (do not replace)
 
@@ -15,27 +15,27 @@ V2_UX_FLOWS §15.0 / `src/features/animals/index.js`:
 - One chip row (`.agc-chips` in `filterWrap`): **All** | **per-group chips** | **Culls (N)** (OI-0164).
 - Those three families are **mutually exclusive** via a single `selectedFilter` (`null` / group id / `'__culls'`).
 - Search bar filters by tag, EID, name, or class **within** the current lifecycle selection.
-- No class pills and no Open / Confirmed pregnant pills today.
+- No class pills and no Open / Confirmed bred pills today.
 
 **This OI extends that same filter header.** Do not invent a second unrelated filter bar elsewhere on the screen.
 
 ## 3. New pills
 
-### 3.1 Class pills (multi-select)
+### 3.1 Class pills (multi-select) — F3 locked
 
-- One pill per **non-archived** `animal_classes` row for the operation (label = `animal_classes.name`; identity for filtering = `animals.class_id`).
+- One pill per **non-archived** `animal_classes` row for the operation (label = `animal_classes.name`; identity for filtering = `animals.class_id`). **F3 locked (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator): show every non-archived class** (not only breedable roles).
 - Multi-select: tapping a class pill toggles it. Several may be active together (e.g. Cows + Heifers).
 - **Combination among classes: OR.** An animal matches if its `class_id` is in the selected class set.
 - With **no** class pill selected: class filter is inactive (all classes pass), same as today aside from lifecycle + search + status.
 
-### 3.2 Status pills
+### 3.2 Status pills — F2 locked
 
-- **Confirmed pregnant** (or "Confirmed bred" — use the same wording as the Edit Animal checkbox "Confirmed bred"): `animals.confirmed_bred IS TRUE`.
+- **Confirmed bred** (pill label locked — **not** "Confirmed pregnant"; same wording as the Edit Animal checkbox "Confirmed bred"): `animals.confirmed_bred IS TRUE`. Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator (F2).
 - **Open:** `animals.confirmed_bred IS NOT TRUE` (same sense as assistant farm-reads open set). After OI-0232 Q2 / calving-clears-tick ships, cows that calved show here because the mark is cleared.
 
-### 3.3 How pills combine (locked ask from Orchestrator; Tim's intent)
+### 3.3 How pills combine
 
-Orchestrator asked Design to lock: **classes OR together; status pills AND with the class set.**
+**Classes OR together; status pills AND with the class set.**
 
 Working rule for the list:
 
@@ -44,11 +44,9 @@ Working rule for the list:
 3. If a status pill is selected: keep animals that also match that status (**AND** with the result of 1–2).
 4. Search still narrows within that result.
 
-### 3.4 Selecting both Open and Confirmed pregnant — **open question F1**
+### 3.4 Open and Confirmed bred — F1 locked
 
-**Proposed default:** the two status pills are **mutually exclusive** (tapping one selects it and clears the other; tapping the active one clears status filtering). Rationale: Open and Confirmed partition the herd on `confirmed_bred`; both at once would be empty under an AND reading, which is surprising.
-
-**If Tim prefers both selectable:** under the AND reading the intersection is empty whenever status is stored as a boolean — show the empty state ("No animals match this filter") rather than silently ignoring one pill.
+**Mutually exclusive** status pair (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator): tapping one selects it and clears the other; tapping the active one clears status filtering. Open and Confirmed bred partition the herd on `confirmed_bred`; both at once would be empty under an AND reading.
 
 ## 4. UI placement
 
@@ -59,21 +57,26 @@ Working rule for the list:
 
 ## 5. Acceptance
 
-1. User can select Cows + Heifers + Confirmed pregnant and see only active (or current lifecycle) animals in those classes with `confirmed_bred = true`.
+1. User can select Cows + Heifers + **Confirmed bred** and see only active (or current lifecycle) animals in those classes with `confirmed_bred = true`.
 2. Open pill alone shows animals with `confirmed_bred` false within the current lifecycle selection (and class selection if any).
 3. All / group / Culls exclusivity from OI-0164 still holds.
 4. Search still works inside the combined filter.
-5. F1 behaviour matches Tim's answer.
-6. Docs: V2_UX_FLOWS §15.0 updated; no `src/` in the docs land.
+5. Open and Confirmed bred are mutually exclusive (F1).
+6. Status pill label is exactly **Confirmed bred** (F2) — never "Confirmed pregnant" in UI copy for this pill.
+7. Class pills list every non-archived class (F3).
+8. Docs: V2_UX_FLOWS §15.0 updated; no `src/` in the docs land.
 
-## 6. Open questions for Tim
+## 6. Locked answers (F1–F3)
 
-| Id | Question | Proposed default |
-|---|---|---|
-| **F1** | Open + Confirmed pregnant together: mutually exclusive status pair, or both selectable (empty intersection)? | **Mutually exclusive** |
-| **F2** | Status pill label: "Confirmed pregnant" (Tim's words) or "Confirmed bred" (Edit Animal checkbox copy)? | **"Confirmed pregnant"** on the pill; filter still reads `confirmed_bred` |
-| **F3** | Class pills: every non-archived class, or only roles that can be bred (cow / heifer / ewe / doe / female)? | **Every non-archived class** (simpler; unused pills just yield empty when combined with Confirmed) |
+Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator:
+
+| Id | Locked answer |
+|---|---|
+| **F1** | Open and Confirmed bred are **mutually exclusive**. |
+| **F2** | Pill label is **"Confirmed bred"** — **not** "Confirmed pregnant". Filter still reads `confirmed_bred`. |
+| **F3** | Show **every non-archived class** as a class pill. |
 
 ## 7. Origin
 
-Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator.
+- Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator (multi-select class filters + Open pill).
+- Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator (F1 mutually exclusive; F2 label "Confirmed bred"; F3 every non-archived class; land yes for `f0122cdb`).

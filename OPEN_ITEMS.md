@@ -43,7 +43,7 @@
 | OI-0232 | Confirmed-bred date on Edit Animal (`animals.confirmed_bred_date`, nullable date) | SPEC 2026-11-18 (Tim, 1:35 PM ET, via Orchestrator: "Yes, add a confirmed date"); [brief](session_briefs/CONFIRMED_BRED_DATE_2026-11-18.md). **Q1–Q2 locked (Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator):** untick clears date like Weaned; calving clears tick and date. **Q3 superseded** by OI-0234 May 1 backfill (Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator). Not handed to Build; migration file only, apply needs Tim's explicit yes plus a verified backup; impacts CP-55/CP-56 |
 | OI-0233 | Insert RLS and `anon` grants: member-scoped `WITH CHECK` on 49 tables, revoke `anon` writes, close the `operation_members` self-join | SPEC 2026-11-18 (Tim, 1:35 PM ET, via Orchestrator); [spec](session_briefs/SYNC_SERVER_GUARDS_2026-11-18.md) Part I. **Sequenced first, before OI-0226 PR C (Q6, Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator).** Onboarding order client prerequisite first; apply needs Tim's explicit yes plus a verified backup |
 | OI-0234 | One-time confirmed-bred May 1 backfill (2026 catch-up; tag 31 / 65 / Shenks exceptions) | **SPEC LOCKED (B1–B3).** Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator: B1 cows only; B2 leave already-true alone; B3 stillbirth counts as calved. Parent land `f0122cdb` approved same morning. Supersedes OI-0232 Q3; [brief](session_briefs/CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md). Depends on OI-0232 migration applied first (Tim's yes + backup). Then this write needs a **separate** yes + backup. Shenks = current members of `groups.name` ILIKE `Shenk%` (10 animals). |
-| OI-0235 | Animals screen multi-select class pills + Open / **Confirmed bred** status pills | **SPEC LOCKED (F1–F3) — ready for Build handoff.** Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator: F1 Open/Confirmed mutually exclusive; F2 pill label **"Confirmed bred"** (not "Confirmed pregnant"); F3 every non-archived class. [brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). Extends OI-0164 chip bar (V2_UX_FLOWS §15.0); classes OR; status AND with class set. No migration |
+| OI-0235 | Animals screen multi-select class pills + Open / **Confirmed bred** status pills | **MERGED** as PR #86 at `a997269` (on main `aad07c4`). F1–F3 as locked (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator): F1 Open/Confirmed mutually exclusive; F2 pill label **"Confirmed bred"** (not "Confirmed pregnant"); F3 every non-archived class. As-built docs this commit. [brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). Extends OI-0164 chip bar (V2_UX_FLOWS §15.0); classes OR; status AND with class set. No migration |
 
 ---
 
@@ -179,7 +179,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Added:** 2026-11-19 | **Area:** v2-build / animals / UX | **Priority:** with or after OI-0234 marks land
 
-**Status:** **SPEC LOCKED (F1–F3) — ready for Build handoff.** [Brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). No migration. No data change. Design will message Build.
+**Status:** **MERGED** as PR #86 at `a997269` (on main `aad07c4`). F1–F3 as locked. [Brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). As-built docs this commit. No migration. No data change.
 
 **Why:** Tim, 2026-11-19 ~6:27 AM ET, via Orchestrator: multi-select class filters (e.g. Cows + Heifers + Confirmed bred) and an Open pill (excludes confirmed bred so calved cows show there).
 

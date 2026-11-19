@@ -1,6 +1,6 @@
 # OI-0235 — Animals screen multi-select class and status filters
 
-**Date:** 2026-11-19 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **SPEC LOCKED (F1–F3) — ready for Build handoff.** Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator, locked F1–F3 (including F2 pill label **"Confirmed bred"**, not "Confirmed pregnant"). Parent docs land `f0122cdb` approved same morning. No migration. No data change.
+**Date:** 2026-11-19 | **Owner:** GTHO Design | **For:** GTHO Build | **Status:** **IMPLEMENTED** — merged as PR #86 at `a997269` (on main `aad07c4`). F1–F3 as locked (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator), including F2 pill label **"Confirmed bred"**, not "Confirmed pregnant". Parent docs land `f0122cdb` approved same morning. No migration. No data change.
 **Base:** Forgejo `main` `f0122cdb` (answers commit parents that tip). As-built filter UI read on `1e3acafa` from `src/features/animals/index.js` (OI-0164 chip bar) and V2_UX_FLOWS §15.0. "Open" meaning grounded in `src/features/assistant/farm-reads.js` (`confirmedBred === false`).
 **Related:** OI-0234 (May 1 backfill — why Open vs Confirmed matters after the marks land), OI-0232 (confirmed-bred date), OI-0164 (Culls chip / lifecycle filter), OI-0099 (`confirmed_bred`).
 

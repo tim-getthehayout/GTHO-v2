@@ -3309,6 +3309,9 @@ body:has(.auth-overlay) .pwa-update-banner {
 .agc-chip-culls .agc-dot { background: var(--amber); }
 .agc-chip-culls.active { background: var(--amber); border-color: var(--amber); color: white; }
 
+/* Animals filter — class / status chip rows under lifecycle */
+.agc-chips-secondary { margin-top: -2px; }
+
 /* OI-0164: Animals screen — 2-column groups tile grid (all viewports ≥ 320px) */
 .groups-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch; }
 .groups-grid-tile { padding: 12px; border-radius: var(--radius); cursor: pointer; display: flex; flex-direction: column; min-width: 0; }

@@ -704,7 +704,9 @@
     "reactivate": "Reactivate",
     "reactivateConfirm": "Reactivate {label}? You can reassign them to a group after reactivation.",
     "optional": "optional",
-    "cullsChip": "Culls"
+    "cullsChip": "Culls",
+    "filterOpen": "Open",
+    "filterConfirmedBred": "Confirmed bred"
   },
   "group": {
     "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",

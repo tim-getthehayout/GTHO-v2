@@ -37,6 +37,10 @@ let unsubs = [];
 //   '__culls' sentinel → Culls chip active (culled animals only)
 //   <groupId> → group chip active (active animals in that group only)
 let selectedFilter = null;
+/** @type {Set<string>} multi-select class filter (OR). Empty = inactive. */
+let selectedClassIds = new Set();
+/** @type {null|'open'|'confirmed_bred'} mutually exclusive status filter. */
+let selectedStatus = null;
 let searchQuery = '';
 let showArchivedGroups = false;  // OI-0090 / SP-11 Part 4
 let sortColumn = 'tag';
@@ -120,6 +124,41 @@ export function renderAnimalsScreen(container) {
       ]));
     }
     filterWrap.appendChild(chipsEl);
+
+    // Class pills (multi-select OR) — every non-archived animal_classes row.
+    const classList = getAll('animalClasses').filter(c => !c.archived);
+    if (classList.length) {
+      const classChips = el('div', { className: 'agc-chips agc-chips-secondary', 'data-testid': 'animals-class-chips' });
+      for (const cls of classList) {
+        const isOn = selectedClassIds.has(cls.id);
+        classChips.appendChild(el('span', {
+          className: `agc-chip${isOn ? ' active' : ''}`,
+          'data-testid': `animals-chip-class-${cls.id}`,
+          onClick: () => {
+            if (isOn) selectedClassIds.delete(cls.id);
+            else selectedClassIds.add(cls.id);
+            renderAll();
+          },
+        }, [cls.name]));
+      }
+      filterWrap.appendChild(classChips);
+    }
+
+    // Status pills — Open / Confirmed bred (mutually exclusive).
+    const statusChips = el('div', { className: 'agc-chips agc-chips-secondary', 'data-testid': 'animals-status-chips' });
+    const openOn = selectedStatus === 'open';
+    const bredOn = selectedStatus === 'confirmed_bred';
+    statusChips.appendChild(el('span', {
+      className: `agc-chip${openOn ? ' active' : ''}`,
+      'data-testid': 'animals-chip-status-open',
+      onClick: () => { selectedStatus = openOn ? null : 'open'; renderAll(); },
+    }, [t('animal.filterOpen') || 'Open']));
+    statusChips.appendChild(el('span', {
+      className: `agc-chip${bredOn ? ' active' : ''}`,
+      'data-testid': 'animals-chip-status-confirmed-bred',
+      onClick: () => { selectedStatus = bredOn ? null : 'confirmed_bred'; renderAll(); },
+    }, [t('animal.filterConfirmedBred') || 'Confirmed bred']));
+    filterWrap.appendChild(statusChips);
 
     // Search bar
     const searchInput = el('input', {
@@ -334,6 +373,19 @@ export function renderAnimalsScreen(container) {
     } else {
       filtered = filtered.filter(a => a.active !== false);
     }
+
+    // Class multi-select (OR). Inactive when none selected.
+    if (selectedClassIds.size > 0) {
+      filtered = filtered.filter(a => a.classId && selectedClassIds.has(a.classId));
+    }
+
+    // Status (AND with lifecycle + class). Open = confirmedBred not true.
+    if (selectedStatus === 'open') {
+      filtered = filtered.filter(a => a.confirmedBred !== true);
+    } else if (selectedStatus === 'confirmed_bred') {
+      filtered = filtered.filter(a => a.confirmedBred === true);
+    }
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(a => {

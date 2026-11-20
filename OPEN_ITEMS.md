@@ -44,7 +44,7 @@
 | OI-0233 | Insert RLS and `anon` grants: member-scoped `WITH CHECK` on 49 tables, revoke `anon` writes, close the `operation_members` self-join | SPEC 2026-11-18 (Tim, 1:35 PM ET, via Orchestrator); [spec](session_briefs/SYNC_SERVER_GUARDS_2026-11-18.md) Part I. **Sequenced first, before OI-0226 PR C (Q6, Tim, 2026-11-18 ~3:56 PM ET, via Orchestrator).** Onboarding order client prerequisite first; apply needs Tim's explicit yes plus a verified backup |
 | OI-0234 | One-time confirmed-bred May 1 backfill (2026 catch-up; tag 31 / 65 / Shenks exceptions) | **SPEC LOCKED (B1–B3).** Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator: B1 cows only; B2 leave already-true alone; B3 stillbirth counts as calved. Parent land `f0122cdb` approved same morning. Supersedes OI-0232 Q3; [brief](session_briefs/CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md). Depends on OI-0232 migration applied first (Tim's yes + backup). Then this write needs a **separate** yes + backup. Shenks = current members of `groups.name` ILIKE `Shenk%` (10 animals). |
 | OI-0235 | Animals screen multi-select class pills + Open / **Confirmed bred** status pills | **MERGED** as PR #86 at `a997269` (on main `aad07c4`). F1–F3 as locked (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator): F1 Open/Confirmed mutually exclusive; F2 pill label **"Confirmed bred"** (not "Confirmed pregnant"); F3 every non-archived class. As-built docs this commit. [brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). Extends OI-0164 chip bar (V2_UX_FLOWS §15.0); classes OR; status AND with class set. No migration |
-| OI-0236 | Animals filter cascade: Groups → Species → Class → Status + search/Reset/Clear | **SPEC LOCKED** 2026-11-20 ~5:02 AM ET (Tim, via Orchestrator). R1–R8 locked (R3 everything multi-select; R5 classes with animals only; R8 separate Reset + Clear search). [brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md). Supersedes OI-0235 F1/F3 for this cascade; no migration |
+| OI-0236 | Animals filter cascade: Groups → Species → Class → Status + search/Reset/Clear | **SPEC LOCKED** (Tim ~5:02 AM ET; **R7 revised** ~5:05 — large group cards as Groups filter row; lower active grid removed). R3 multi-select; R5 classes with animals; R8 Reset+Clear search. [brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md). Supersedes OI-0235 F1/F3 for this cascade; no migration |
 
 ---
 
@@ -181,11 +181,11 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Added:** 2026-11-20 | **Area:** v2-build / animals / UX | **Priority:** next after OI-0235 as-built
 
-**Status:** **SPEC LOCKED** (Tim, 2026-11-20 ~5:02 AM ET, via Orchestrator). [Brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md). Ready for docs land → Build. No migration. No data change.
+**Status:** **SPEC LOCKED** (Tim ~5:02 AM ET; **R7 revised** ~5:05 AM ET — large group cards as Groups filter; lower active groups grid removed; §4.7). [Brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md). Prior tip `1e8f177` ON HOLD. Ready for docs land of revised tip → Build. No migration. No data change.
 
 **Why:** Cascading Animals filter rows + search within selection + Reset / Clear search.
 
-**Scope:** Four chip rows (Groups → Species → Class → Status); R3 everything multi-select (All/Culls rules and status-both=OR in brief §4); R5 only classes with animals (overrides F3 here); R1 female gate for status; R8 separate Reset (rows→All) and Clear search. F2 label unchanged. Supersedes OI-0235 F1 for this cascade.
+**Scope:** Groups = large cards filter row (All → groups → Culls; lower active grid removed — R7); Species/Class/Status = chips; R3 multi-select; R5 classes with animals; R1 female gate; R8 Reset + Clear search. F2 label unchanged. Supersedes OI-0235 F1/F3 for this cascade.
 
 **Schema / CP-55/CP-56 impact:** none.
 

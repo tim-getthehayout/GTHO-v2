@@ -63,7 +63,7 @@ This replaces OI-0164 single-`selectedFilter` exclusivity among All / one group 
 
 ### 4.5 Clear-on-parent-change (R2)
 
-When a parent row changes, drop child selections that are no longer valid (species not in new pool; classes not in new visible set; if status row would hide, clear status). **Search text stays** until Clear search or until Reset (Reset does not have to clear search — see R8).
+When a parent row changes, drop child selections that are no longer valid (species not in new pool; classes not in new visible set; if status row would hide, clear status). **Search text stays** until Clear search (Reset does **not** clear search — R8).
 
 ### 4.6 Search + Reset + Clear search (R8)
 

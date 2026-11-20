@@ -112,8 +112,9 @@ Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current pictu
 
 
 **Next up (2026-11-20)**
-- **OI-0237** Bulk cull + split heads: **SPEC LOCKED** (Tim ~5:11 AM ET). C1–C8 + S1–S8. Docs land then Build. [brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md).
-- **OI-0236** Animals filter cascade: **SPEC LOCKED** / on main `2bc20fb` (R1–R8; R7 large group cards). Build handoff after publish confirm. [brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md).
+- **OI-0238** Partial-day estimated demand: **SPEC LOCKED** (Tim ~6:15 AM ET; edges ~6:16 AM ET). C hour-prorate first/last; first-day clock = delivery (else presence); keep end-of-today; A label; NPK → TIM-3 presence; no migration. Docs land then Build. [brief](session_briefs/PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md).
+- **OI-0237** Bulk cull + split heads: **SPEC LOCKED** (Tim ~5:11 AM ET). C1–C8 + S1–S8. Part A live; Part B PR #95 after rebase. [brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md).
+- **OI-0236** Animals filter cascade: **live** on main (R1–R8; R7 large group cards). [brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md).
 - OI-0234 confirmed-bred May 1 backfill (Tim, 2026-11-19 ~6:27–6:29 / ~6:53 AM ET, via Orchestrator): **SPEC LOCKED (B1–B3)** — cows only; leave already-true alone; stillbirth counts as calved. After OI-0232 migration apply (Tim's yes + backup); this write needs a **separate** yes + verified backup. See [brief](session_briefs/CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md).
 - OI-0235 Animals multi-select class + Open / **Confirmed bred** filters (Tim, 2026-11-19 ~6:27 / ~6:53 AM ET, via Orchestrator): **MERGED** as PR #86 at `a997269` (on main `aad07c4`); as-built docs this commit. F1 mutually exclusive; F2 pill label **Confirmed bred** (not Confirmed pregnant); F3 every non-archived class. See [brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md).
 

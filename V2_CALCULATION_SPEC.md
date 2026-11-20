@@ -120,6 +120,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Output: { n_kg, p_kg, k_kg }
 - v1 bug: Global rates only. **v2 fix:** Per-class rates from animal_classes table.
 - Source: USDA NRCS Nutrient Management Standard
+- **Duration input (OI-0238):** callers must derive `days` from **TIM-3 presence** (open/close times → hours ÷ 24), not from TIM-1 inclusive whole calendar days and not from the days-remaining delivery clock. Presence and delivery clocks are intentionally different.
 
 **NPK-2: Fertilizer Value**
 - Computes: Dollar value of deposited NPK
@@ -132,6 +133,7 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Inputs: event_paddock_windows (dates + location areas + area_pct), total NPK
 - Output: { location_id, n_kg, p_kg, k_kg, duration_hours } per paddock window
 - v1 bug: Equal split if acres unknown. **v2 fix:** area_hectares is on locations table; require it for land locations.
+- **`duration_hours` (OI-0238):** from **TIM-3** presence (paddock `dateOpened`/`timeOpened` → `dateClosed`/`timeClosed`), never from the estimated days-remaining delivery clock and never from TIM-1×24 whole-day proxies.
 - **Strip grazing:** When `is_strip_graze = true`, effective area = `location.area_hectares × area_pct / 100`. Each strip window gets its own NPK attribution based on its duration and effective area. Multiple strip windows on the same location are treated as separate attribution targets.
 
 **NPK-4: Amendment NPK**
@@ -225,6 +227,17 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - **State determination logic (cascade bucket model):**
 
   **Step 0 — Compute daily demand.** `totalDmiKg` = DMI-3(event, date) — sum of DMI-2 for each group window active on this date. If `totalDmiKg <= 0` → status = `no_animals`, return (no further computation).
+
+  **Step 0b — Partial-day demand fraction (OI-0238, estimated path only).** On the **estimated** cascade path, multiply that day's `totalDmiKg` by a demand fraction before allocating pasture/stored/deficit. Measured DMI-5 path is unchanged.
+
+  - **Middle calendar days** (strictly after `dateIn` and before today / `dateOut`): fraction = **1.0**.
+  - **First calendar day (`dateIn`):** fraction = hours from the **first-day clock** to local midnight ÷ hours in that local day (DST-aware; same `localInstantMs` / elapsed-hours family as DMI-5 / OI-0227 D).
+    - **First-day clock (Tim lock):** earliest stored-feed **delivery** instant on `dateIn` when at least one delivery exists that day.
+    - **Fallback (Tim confirmed 2026-11-20 ~6:16 AM ET — "When animals arrived is fine"):** if no delivery on `dateIn`, use earliest **presence** open — paddock `timeOpened`, else group `timeJoined`; missing time → local midnight (DMI-5 convention).
+    - Multiple deliveries on `dateIn`: earliest wins. Delivery before presence open still uses delivery for this estimated first-day fraction.
+  - **Today (open event, projection through end of today):** fraction = hours from local midnight through **end of local today** ÷ hours in that day — i.e. still **1.0 for a whole remaining today** when evaluating "through end of today". **No live clock** (OI-0209). The first-day rule and the today rule compose when `dateIn === today`: hours from first-day clock → end of today.
+  - **Last calendar day (`dateOut` / close):** fraction = midnight → close instant (paddock `timeClosed` / group `timeLeft` via TIM-3 family); missing time → local midnight convention where TIM-3 / DMI-5 already do.
+  - Chart bars on estimated days use these same fractions. FOR-4 formula is unchanged; remaining buckets change because first/last demand changes.
 
   **Step 1 — Gate on pre-graze observation + forage type for non-confinement windows only (OI-0209).**
   - Classify each open window from its `location.type`. Confinement forage data is null by design: confinement contributes **zero pasture** and skips forage type, height, pre/post-graze, recovery and acreage gates, even with stale forage values or either `noPasture` value. Continue stored-feed allocation, checks and removals; never prompt the user to supply confinement forage. Keep displayed confinement forage information visible, greyed out and inactive rather than hidden/suppressed; no editable forage/graze controls or Set-forage CTA. This display treatment must not block the real fed-feed DMI bars or feed calculations.
@@ -335,6 +348,8 @@ Field-level (most specific)  →  Type-level  →  Global (least specific)
 - Output: days_remaining (number, 2 decimal places) — same precision rule as FOR-3
 - **Pure confinement (OI-0209):** pasture is zero. Dashboard and Event Detail use one shared event-scoped projection: run the existing DMI-8 cascade through the end of today, including this event's feed deliveries/removals, check re-anchors and changing group demand, then use FOR-4 on the projected remaining feed with zero pasture. Do not substitute farm-wide Feed-screen inventory/days or the dashboard's non-daily feed-mass fallback. No implicit cross-event feed carryover.
 - **Display / validity:** replace the active confinement pasture-capacity/AUDs/ADA claim with **"Est. feed remaining: ~N days"** while retaining forage information greyed out and inactive, without invented pasture values; the feed line is labelled **end-of-today daily-model estimate**. Retain the existing 2-decimal precision rule. Show a number only with valid required feed/DM/weight inputs and finite positive demand; hide it for missing/invalid inputs or zero demand. Valid empty/depleted feed shows **0**, not an input prompt. Only this feed-days estimate line is hidden for invalid inputs; confinement forage information stays visible, greyed out and inactive. No live clock countdown, fabricated pasture or persisted estimate. Pure-pasture behavior and land-window validation in mixed events remain unchanged.
+- **Partial-day estimated demand (OI-0238):** when the shared DMI-8 → FOR-4 projection walks estimated days, apply DMI-8 Step 0b fractions (delivery clock on dateIn when a delivery exists; presence fallback otherwise; last-day close; today through end of today). Acceptance for the motivating E event with delivery at 15:00: remaining after end of today ≈ **3.61** (2 decimals), not the prior whole-day **2.98**. Measured DMI-5 unchanged.
+- **Pasture / mixed capacity line (OI-0238 option A):** the green `Est. capacity: … · ~N days remaining` line must carry the same end-of-today / **"~N days after today"** meaning as the confinement feed-remaining label (see UX §17.7).
 
 **FOR-5: Stocking Efficiency**
 - Computes: Actual AUDs used vs estimated AUDs available
@@ -672,6 +687,7 @@ These three contracts also live in CLAUDE.md "Architecture Audit — Before Ever
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-20 | OI-0238 — Partial-day estimated demand | DMI-8 Step 0b: hour-prorate estimated demand on first/last days; first-day clock = earliest delivery on dateIn (else presence open — Tim confirmed); today still through end of today (OI-0209, no live clock). FOR-4 projection inherits fractions; acceptance ~3.61 on E event. NPK-1/3 callers → TIM-3 presence (not delivery clock, not TIM-1×24). Pasture capacity line gets end-of-today / after-today label (option A). DMI-5 unchanged. No migration. |
 | 2026-11-18 | OI-0227 — FED-7 and the DMI-5 elapsed-hours split, as built | Documented from the code on main `718ad0dc` (PR #77 at `321fab28`, PR #79 at `718ad0dc`; both passed Design review). New FED-7 feed-check plausibility in §4.6 (implied DM/day per neighbouring interval vs hour-weighted `groupWindowsDailyDmiKg`; warn < 50% or > 400% on a pure-confinement single-pool event, > 400% only with pasture or another active pool; skip first reading, < 12 h, unknown or zero demand; defensive `negative`). §4.2 DMI-5 rewritten from "linear interpolation" to the hours-based split (local days, real 23 h / 25 h DST hours, untimed = local midnight, first-check-date hours at the first positive-length interval's rate, last check's date not measured, same-day pairs count); DMI-8 step 2 and the composites line follow; FED-6 notes that it inherits the split (consumed 11 → 11.4 bales on the test fixture). Compute-on-read; CP-55/CP-56 impact: none; schema change: none. Total formulas: 42 → 43. Owner: GTHO Design. |
 | 2026-11-17 | OI-0225 — DMI-9 approved | Tim, 2026-11-17 9:18 AM ET, via Orchestrator: Q1 both bases labelled; Q2 floor at 0 + over-demand line; Q3 "Pasture should be green" (green above 0, muted at 0, no red; identity colour, not a threshold); Q6 sheep basis Jun–Oct 2026 = Sheep group at entry + 30 offspring at 60 lb (a basis row, no formula change). Formula unchanged; count stays 42. |
 | 2026-11-17 | OI-0225 — DMI-9 implied pasture DMI (PROPOSED) | New DMI-9 in §4.2 (not built; Tim's request 9:04 AM ET via Orchestrator: "Implied DMI from pasture. This is the most important number."): predicted herd DMI (group windows as FED-6/DMI-8, plus `historical_animal_basis` where no window) minus stored feed over the same days; window lane uses FED-6 consumed on farm-measured days plus no-hay days (earlier check ≤ d < later check; dateIn ≤ d < dateOut), period lane uses fed (OI-0221 B) plus `historical_feedings`; netted then floored at 0 with a separate "stored over demand" figure and the raw signed value kept; lb DM/day, lb DM/head/day per species, % of demand; Unknown never 0. Header count corrected from the stale 37/11 to 42/12. Compute-on-read; CP-55/CP-56 impact: none; schema change: none. Total formulas: 41 → 42. Owner: GTHO Design. |

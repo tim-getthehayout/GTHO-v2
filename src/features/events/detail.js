@@ -8,6 +8,7 @@ import { getAll, getById, subscribe, add, update, remove, isCurrentUserDev } fro
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
+import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { logger } from '../../utils/logger.js';
@@ -1155,7 +1156,12 @@ function renderDmiNpk(ctx) {
     let totalN = 0, totalP = 0, totalK = 0;
     for (const gw of gws) {
       const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
-      const days = daysBetweenInclusive(gw.dateJoined || getEventStart(event.id)?.date || todayStr, gw.dateLeft || event.dateOut || todayStr);
+      const days = groupWindowPresenceDays(gw, {
+        eventStartDate: getEventStart(event.id)?.date || todayStr,
+        eventDateOut: event.dateOut,
+        eventTimeOut: event.timeOut,
+        throughDate: todayStr,
+      });
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
       const result = npk1.fn({
         headCount: live.head,

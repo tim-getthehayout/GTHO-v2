@@ -47,8 +47,8 @@ function baseCtx(overrides = {}) {
   };
 }
 
-// Two bales delivered on event start: 1765.5 kg DM total. Demand = 22 * 500 * 0.025 = 275 kg/day.
-// After today's intake, remaining = 1490.5 kg → FOR-4 = 5.42 days (live Corral sanity shape).
+// Two bales delivered on event start at 08:00: 1765.5 kg DM total. Demand = 22 * 500 * 0.025 = 275 kg/day.
+// First-day fraction 16/24; today intake = 183.333… kg; remaining = 1582.166… kg → FOR-4 = 5.75 days.
 function twoBales(date = TODAY, quantity = 2) {
   return [{
     id: 'fe-1', eventId: EVT, batchId: BATCH, locationId: LOC,
@@ -70,10 +70,11 @@ describe('DMI-8 confinement (OI-0209)', () => {
     expect(result.status).not.toBe('no_pasture_data');
     expect(result.status).toMatch(/actual|estimated/);
     expect(result.pastureDmiKg).toBe(0);
-    expect(result.storedDmiKg).toBe(275);
+    expect(result.storedDmiKg).toBeCloseTo(275 * (16 / 24), 5);
     expect(result.deficitKg).toBe(0);
-    expect(result.totalDmiKg).toBe(275);
-    expect(result.remainingStoredDmKg).toBeCloseTo(1490.5, 5);
+    expect(result.totalDmiKg).toBeCloseTo(275 * (16 / 24), 5);
+    expect(result.dailyDemandKg).toBe(275);
+    expect(result.remainingStoredDmKg).toBeCloseTo(1765.5 - 275 * (16 / 24), 5);
   });
 
   it('works without acreage, ignores stale forage, and treats type as authoritative regardless of noPasture', () => {
@@ -142,12 +143,13 @@ describe('shared end-of-today feed-days projection (OI-0209)', () => {
     return { ctx, projection: projectEventFeedDays({ dmi8Fn: dmi8.fn, for4Fn: for4.fn, ctx, today: overrides.date || TODAY }) };
   }
 
-  it('Corral-shaped two-bale fixture estimates 5.42 days after today', () => {
+  it('Corral-shaped two-bale fixture estimates 5.75 days after today', () => {
     const { projection } = project();
     expect(projection.visible).toBe(true);
     expect(projection.isPureConfinement).toBe(true);
-    expect(projection.days).toBe(5.42);
-    expect(formatFeedRemainingLabel(projection.days)).toBe('Est. feed remaining: ~5.42 days');
+    expect(projection.days).toBe(5.75);
+    expect(projection.demandKg).toBe(275);
+    expect(formatFeedRemainingLabel(projection.days)).toBe('Est. feed remaining: ~5.75 days');
     expect(FEED_REMAINING_ESTIMATE_CAPTION).toBe('end-of-today daily-model estimate');
   });
 
@@ -232,7 +234,7 @@ describe('shared end-of-today feed-days projection (OI-0209)', () => {
         },
       ],
     });
-    expect(removed.projection.days).toBeLessThan(5.42);
+    expect(removed.projection.days).toBeLessThan(5.75);
   });
 
   it('includes composite head and group demand when memberships are live', () => {
@@ -259,7 +261,7 @@ describe('shared end-of-today feed-days projection (OI-0209)', () => {
     });
     expect(projection.visible).toBe(true);
     expect(projection.demandKg).toBeCloseTo(22 * 500 * 0.025, 5);
-    expect(projection.days).toBe(5.42);
+    expect(projection.days).toBe(5.75);
   });
 
   it('a confinement window in a mixed event contributes no pasture even with stale forage', () => {

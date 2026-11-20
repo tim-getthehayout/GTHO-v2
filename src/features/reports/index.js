@@ -7,6 +7,7 @@ import { getCalcByName } from '../../utils/calc-registry.js';
 import { display } from '../../utils/units.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
+import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { renderReferenceConsole } from './reference-console.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
@@ -272,7 +273,6 @@ function renderNpkTab() {
 
     const dateIn = getEventStartDate(event.id);
     const dateOut = event.dateOut;
-    const days = dateIn && dateOut ? daysBetweenInclusive(dateIn, dateOut) : 1;
 
     for (const gw of gws) {
       const cls = animalClasses.find(ac => ac.id === gw.animalClassId) ?? null;
@@ -282,6 +282,12 @@ function renderNpkTab() {
       const now = gw.dateLeft || event.dateOut || todayStr;
       const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
       const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
+      const days = groupWindowPresenceDays(gw, {
+        eventStartDate: dateIn,
+        eventDateOut: event.dateOut,
+        eventTimeOut: event.timeOut,
+        throughDate: todayStr,
+      });
       const npkResult = npk1.fn({
         headCount: liveHead,
         avgWeightKg: liveAvg,

@@ -126,7 +126,7 @@ describe('grazing event card DMI floor', () => {
     addDelivery(BATCH, 10, '2026-11-02', '11:00');
     const before = cardText();
     const beforeStored = parseInt(before.match(/Stored feed:\s*([\d,]+)/)[1].replace(/,/g, ''), 10);
-    const beforeDays = parseFloat(before.match(/~([\d.]+) days remaining/)[1]);
+    const beforeDays = parseFloat(before.match(/~([\d.]+) days after today/)[1]);
     expect(before).toContain('(incl. stored feed)');
 
     const check = FeedCheckEntity.create({
@@ -139,7 +139,7 @@ describe('grazing event card DMI floor', () => {
 
     const after = cardText();
     const afterStored = parseInt(after.match(/Stored feed:\s*([\d,]+)/)[1].replace(/,/g, ''), 10);
-    const afterDays = parseFloat(after.match(/~([\d.]+) days remaining/)[1]);
+    const afterDays = parseFloat(after.match(/~([\d.]+) days after today/)[1]);
     expect(afterStored).toBeLessThan(beforeStored);
     expect(afterDays).toBeGreaterThan(0);
     expect(afterDays).toBeLessThan(beforeDays);

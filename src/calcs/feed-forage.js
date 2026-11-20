@@ -5,6 +5,7 @@ import { rowInstant } from '../utils/date-utils.js';
 import { registerCalc } from '../utils/calc-registry.js';
 import { groupWindowsDailyDmiKg } from './window-helpers.js';
 import { isConfinementLocation } from './location-type.js';
+import { estimatedDemandFraction } from './partial-day-demand.js';
 
 // DMI-1: Consumed DM from Feed
 registerCalc({
@@ -586,8 +587,20 @@ registerCalc({
 
 
     // Daily demand (OI-0091: live recompute for open windows).
+    // On the event close date, include windows that leave that day so last-day
+    // hour-proration has demand to apply (dateLeft / dateOut are exclusive).
     function dailyDemand(dt) {
-      return groupWindowsDailyDmiKg(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords });
+      const opts = { groupWindows, memberships, animals, animalClasses, animalWeightRecords };
+      if (event.dateOut && dt === event.dateOut) {
+        opts.groupWindows = (groupWindows || []).map((gw) => (
+          gw.dateLeft === dt ? { ...gw, dateLeft: dateAddDays(dt, 1) } : gw
+        ));
+      }
+      return groupWindowsDailyDmiKg(dt, opts);
+    }
+
+    function demandFraction(dt) {
+      return estimatedDemandFraction(dt, { event, feedEntries, paddockWindows, groupWindows });
     }
 
     // paddock_observations picker — verbatim match to the OI-0107 canonical
@@ -686,10 +699,11 @@ registerCalc({
     const eventPws = (paddockWindows || []).filter(pw => pw.eventId === event.id);
     const openOnTarget = eventPws.filter(pw =>
       (pw.dateOpened || '9999-12-31') <= date &&
-      (!pw.dateClosed || pw.dateClosed > date),
+      (!pw.dateClosed || pw.dateClosed > date || (event.dateOut === date && pw.dateClosed === date)),
     );
     // No open windows on target date = no pasture to graze; treat as no_animals
-    // rather than no_pasture_data (there's no window to CTA into).
+    // rather than no_pasture_data (there's no window to CTA into). Windows that
+    // close on dateOut still count so the last-day fraction can apply.
     if (openOnTarget.length === 0) return { status: 'no_animals' };
 
     const landOpenOnTarget = openOnTarget.filter(pw => !isConfinementLocation(locations?.[pw.locationId]));
@@ -891,8 +905,9 @@ registerCalc({
         }
       }
 
-      // (4) Allocate.
-      const demand = dailyDemand(cursor);
+      // (4) Allocate. Estimated path multiplies demand by the Step 0b
+      // first/last-day fraction; middle days and today-through-EOD stay 1.0.
+      const demand = dailyDemand(cursor) * demandFraction(cursor);
       const storedBefore = storedRef.value;
       const allocated = allocateDay(demand, pastureRef, storedRef);
       if (poolMode && storedBefore > 0) for (const [key, value] of storedByPool) storedByPool.set(key, Math.max(0, value - allocated.stored * value / storedBefore));
@@ -930,9 +945,13 @@ registerCalc({
     // buckets from the walk. Pool mode requires every active pool bracketed;
     // a partial anchor must not inherit the legacy whole-event actual label.
     const status = actualBars?.status || (!poolMode && prevCheck ? 'actual' : 'estimated');
+    // Chart bars on estimated days use the same demand fraction as the walk.
+    // dailyDemandKg stays the unfractioned DMI-3 total for FOR-4's denominator.
+    const fractionedDemandKg = totalDmiKg * demandFraction(date);
     const out = {
       status,
-      totalDmiKg,
+      dailyDemandKg: totalDmiKg,
+      totalDmiKg: actualBars ? totalDmiKg : fractionedDemandKg,
       storedDmiKg: actualBars ? actualBars.storedDmiKg : outRef.stored,
       pastureDmiKg: actualBars ? actualBars.pastureDmiKg : outRef.pasture,
       deficitKg: actualBars ? actualBars.deficitKg : outRef.deficit,

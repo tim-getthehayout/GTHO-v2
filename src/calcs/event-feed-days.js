@@ -75,7 +75,8 @@ export function projectEventFeedDays({ dmi8Fn, for4Fn, ctx, today } = {}) {
     return hide(result.status, { isPureConfinement, dmi8: result });
   }
 
-  const demandKg = Number(result.totalDmiKg);
+  // FOR-4 denominator is the unfractioned daily rate, not a partial-day total.
+  const demandKg = Number(result.dailyDemandKg ?? result.totalDmiKg);
   if (!Number.isFinite(demandKg) || demandKg <= 0) {
     return hide('zero_demand', { isPureConfinement, dmi8: result });
   }

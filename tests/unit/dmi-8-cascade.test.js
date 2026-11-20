@@ -192,8 +192,9 @@ describe('OI-0119 — parallel sub-paddocks + sub-move interactions', () => {
   });
 
   it('keeps a delivery later the same day as a feed check', () => {
-    // Check at 09:00 leaves 100 kg. 500 kg is delivered at 10:00. Tiny pasture,
-    // so today's 250 kg demand comes out of stored: 100 + 500 - 250 = 350 left.
+    // Check at 09:00 leaves 100 kg. 500 kg is delivered at 10:00. Tiny pasture.
+    // dateIn first-day clock is the 10:00 delivery → fraction 14/24, so demand
+    // from stored is 145.83 kg and 454.17 kg remain (the afternoon delivery is kept).
     const tinyFt = { [LOC_A]: { dmKgPerCmPerHa: 0.0001, minResidualHeightCm: 5, utilizationPct: 100 } };
     const feedEntries = [{ id: 'fe-1', batchId: 'b-1', locationId: LOC_A, date: '2026-04-10', time: '10:00', quantity: 500 }];
     const batches = { 'b-1': { weightPerUnitKg: 1, dmPct: 100 } };
@@ -201,8 +202,8 @@ describe('OI-0119 — parallel sub-paddocks + sub-move interactions', () => {
     const feedCheckItems = [{ feedCheckId: 'chk-1', batchId: 'b-1', locationId: LOC_A, remainingQuantity: 100 }];
     const r = dmi8.fn(baseCtx({ forageTypes: tinyFt, feedEntries, batches, feedChecks, feedCheckItems, date: '2026-04-10' }));
     expect(r.deficitKg).toBe(0);
-    expect(r.storedDmiKg).toBeCloseTo(250, 2);
-    expect(r.remainingStoredDmKg).toBeCloseTo(350, 2);
+    expect(r.storedDmiKg).toBeCloseTo(250 * (14 / 24), 2);
+    expect(r.remainingStoredDmKg).toBeCloseTo(600 - 250 * (14 / 24), 2);
   });
 
   it('counts remaining stored down by a day of DMI after the check', () => {

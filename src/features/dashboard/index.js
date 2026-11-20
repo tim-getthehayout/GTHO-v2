@@ -6,6 +6,7 @@ import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActi
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display } from '../../utils/units.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
+import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { navigate } from '../../ui/router.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { renderTodoCard } from '../todos/todo-card.js';
@@ -28,6 +29,7 @@ import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
 import { listOpenPaddocksForEvent, formatPaddockDisplayName } from '../../data/current-placement.js';
 import { isPureConfinementOnDate } from '../../calcs/location-type.js';
 import { renderEventFeedRemainingLine, renderInactiveForageSummary } from '../events/confinement-forage-ui.js';
+import { FEED_REMAINING_ESTIMATE_CAPTION } from '../../calcs/event-feed-days.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -459,7 +461,12 @@ function computeDesktopMetrics(events, _unitSys) {
         const now = gw.dateLeft || event.dateOut || todayStr;
         const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
-        const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
+        const days = groupWindowPresenceDays(gw, {
+          eventStartDate: getEventStartDate(event.id),
+          eventDateOut: event.dateOut,
+          eventTimeOut: event.timeOut,
+          throughDate: todayStr,
+        });
         const result = npk1.fn({
           headCount: liveHead,
           avgWeightKg: liveAvg,
@@ -561,7 +568,12 @@ function computeMobileMetrics(events, _unitSys) {
         const now = gw.dateLeft || event.dateOut || todayStr;
         const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
-        const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
+        const days = groupWindowPresenceDays(gw, {
+          eventStartDate: getEventStartDate(event.id),
+          eventDateOut: event.dateOut,
+          eventTimeOut: event.timeOut,
+          throughDate: todayStr,
+        });
         const result = npk1.fn({
           headCount: liveHead,
           avgWeightKg: liveAvg,
@@ -827,7 +839,12 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     const npk1 = getCalcByName('NPK-1');
     if (npk1) {
       const cls = activeGW.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
-      const days = daysBetweenInclusive(activeGW.dateJoined || getEventStartDate(activeEvent.id) || todayStr, todayStr);
+      const days = groupWindowPresenceDays(activeGW, {
+        eventStartDate: getEventStartDate(activeEvent.id) || todayStr,
+        eventDateOut: activeEvent?.dateOut,
+        eventTimeOut: activeEvent?.timeOut,
+        throughDate: todayStr,
+      });
       const result = npk1.fn({
         headCount: activeLiveHead,
         avgWeightKg: activeLiveAvg,
@@ -865,7 +882,12 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
       if (prices) {
         const npk1 = getCalcByName('NPK-1');
         const cls2 = activeGW?.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
-        const days2 = daysBetweenInclusive(activeGW?.dateJoined || (activeEvent && getEventStartDate(activeEvent.id)) || todayStr, todayStr);
+        const days2 = groupWindowPresenceDays(activeGW, {
+          eventStartDate: (activeEvent && getEventStartDate(activeEvent.id)) || todayStr,
+          eventDateOut: activeEvent?.dateOut,
+          eventTimeOut: activeEvent?.timeOut,
+          throughDate: todayStr,
+        });
         const r = npk1.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days2, excretionNRate: cls2?.excretionNRate ?? 0.34, excretionPRate: cls2?.excretionPRate ?? 0.092, excretionKRate: cls2?.excretionKRate ?? 0.24 });
         const val = npk2.fn({ nKg: r.nKg ?? r.n ?? 0, pKg: r.pKg ?? r.p ?? 0, kKg: r.kKg ?? r.k ?? 0, nPricePerKg: prices.nPricePerKg ?? 0, pPricePerKg: prices.pPricePerKg ?? 0, kPricePerKg: prices.kPricePerKg ?? 0 });
         npkValueStr = ` \u00B7 $${val.toFixed(2)} fert value`;
@@ -959,7 +981,12 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     if (npkEl) {
       const cls4 = activeGW?.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
       const npk1b = getCalcByName('NPK-1');
-      const days4 = daysBetweenInclusive(activeGW?.dateJoined || (activeEvent && getEventStartDate(activeEvent.id)) || todayStr, todayStr);
+      const days4 = groupWindowPresenceDays(activeGW, {
+        eventStartDate: (activeEvent && getEventStartDate(activeEvent.id)) || todayStr,
+        eventDateOut: activeEvent?.dateOut,
+        eventTimeOut: activeEvent?.timeOut,
+        throughDate: todayStr,
+      });
       const r2 = npk1b.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days4, excretionNRate: cls4?.excretionNRate ?? 0.34, excretionPRate: cls4?.excretionPRate ?? 0.092, excretionKRate: cls4?.excretionKRate ?? 0.24 });
       const nL = convert(r2.nKg ?? r2.n ?? 0, 'weight', 'toImperial').toFixed(1);
       const pL = convert(r2.pKg ?? r2.p ?? 0, 'weight', 'toImperial').toFixed(1);
@@ -1285,7 +1312,12 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     let totalN = 0, totalP = 0, totalK = 0;
     for (const gw of gws) {
       const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
-      const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), todayStr);
+      const days = groupWindowPresenceDays(gw, {
+        eventStartDate: getEventStartDate(event.id),
+        eventDateOut: event.dateOut,
+        eventTimeOut: event.timeOut,
+        throughDate: todayStr,
+      });
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
       const r = npk1.fn({
         headCount: live.head, avgWeightKg: live.avg, days,
@@ -1409,11 +1441,19 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     }).element;
     if (feedLine) children.push(feedLine);
   } else if (dailyDmiKg > 0 && (availableDmKg > 0 || daysIncludeStored)) {
-    let capText = `Est. capacity: ${Math.round(estAuds)} AUDs · ~${daysRemaining} days remaining`;
+    const daysText = Number(daysRemaining).toFixed(2);
+    let capText = `Est. capacity: ${Math.round(estAuds)} AUDs · ~${daysText} days after today`;
     if (daysIncludeStored) capText += ' (incl. stored feed)';
     if (forageHeightDisplay) capText += ` · ${forageHeightDisplay}"`;
     if (totalAcres > 0) capText += ` · ADA est: ${adaPerAc.toFixed(1)}/ac`;
-    children.push(el('div', { style: { fontSize: '12px', color: 'var(--color-green-dark, #3B6D11)', fontWeight: '500', marginBottom: 'var(--space-1)' } }, [capText]));
+    children.push(el('div', {
+      className: 'event-feed-remaining',
+      'data-testid': `dashboard-capacity-${event.id}`,
+      style: { marginBottom: 'var(--space-1)' },
+    }, [
+      el('div', { className: 'event-feed-remaining-line' }, [capText]),
+      el('div', { className: 'event-feed-remaining-caption' }, [FEED_REMAINING_ESTIMATE_CAPTION]),
+    ]));
   } else if (capacityBlockers.length) {
     // Informative hint: tell the user which inputs are missing instead of
     // dropping the row silently. Partial info (ADA) is shown when available.

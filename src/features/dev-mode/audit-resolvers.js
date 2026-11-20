@@ -25,6 +25,7 @@ import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/wind
 import { buildDmi8ChartContext } from '../events/dmi-chart-context.js';
 import { getEventStartDate } from '../events/event-start.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
+import { groupWindowPresenceDays, paddockWindowPresenceHours } from '../../calcs/partial-day-demand.js';
 
 // OI-0157-B2 helper: NRC beef-cattle excretion-rate defaults. Used by NPK-1
 // resolver when an animal class doesn't carry its own per-class rates.
@@ -66,6 +67,7 @@ function computeNpk1PerWindow(ctx) {
   const animalWeightRecords = getAll('animalWeightRecords');
   const today = getLocalTodayStr();
   const eventStart = getEventStartDate(ctx.eventId) || today;
+  const event = getById('events', ctx.eventId);
 
   const rows = [];
   for (const gw of groupWindows) {
@@ -75,7 +77,12 @@ function computeNpk1PerWindow(ctx) {
     const rawAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: today });
     const avgWeightKg = rawAvg || (gw.avgWeightKg ?? 0);
     const startDate = gw.dateJoined || eventStart;
-    const days = Math.max(daysBetweenInclusive(startDate, today), 0);
+    const days = Math.max(groupWindowPresenceDays(gw, {
+      eventStartDate: eventStart,
+      eventDateOut: event?.dateOut,
+      eventTimeOut: event?.timeOut,
+      throughDate: today,
+    }), 0);
     const nFromCls = cls?.excretionNRate;
     const pFromCls = cls?.excretionPRate;
     const kFromCls = cls?.excretionKRate;
@@ -450,7 +457,7 @@ function resolveNPK1(ctx) {
     const inputs = [
       input('headCount', headCount, `eventGroupWindows.${gw.id}.headCount (live)`),
       input('avgWeightKg', avgWeightKg, `eventGroupWindows.${gw.id}.avgWeightKg (live)`, 'weight'),
-      input('days', days, `daysBetweenInclusive(${gw.dateJoined || 'eventStart'}, today)`),
+      input('days', days, `TIM-3 presence (${gw.dateJoined || 'eventStart'} → today)`),
       input('excretionNRate', nRate,
         nFromCls != null ? `animalClasses.${cls.id}.excretionNRate` : 'fallback (NRC beef defaults)',
         null, nFromCls == null),
@@ -543,16 +550,20 @@ function resolveNPK3(ctx) {
   const totalP = data.rows.reduce((s, r) => s + (r.output?.pKg || 0), 0);
   const totalK = data.rows.reduce((s, r) => s + (r.output?.kKg || 0), 0);
 
-  // Build the windows-shape NPK-3.fn expects. `durationHours` uses days
-  // since pw open as a coarse proxy (the registered formula is symmetric
-  // in any consistent duration unit).
+  // Build the windows-shape NPK-3.fn expects. `durationHours` is TIM-3
+  // presence (open/close times), never TIM-1×24.
   const today = getLocalTodayStr();
+  const event = getById('events', ctx.eventId);
   const windowsPayload = paddockWindows.map(pw => {
     const loc = getById('locations', pw.locationId);
-    const days = Math.max(daysBetweenInclusive(pw.dateOpened || today, today), 0);
+    const durationHours = paddockWindowPresenceHours(pw, {
+      eventDateOut: event?.dateOut,
+      eventTimeOut: event?.timeOut,
+      throughDate: today,
+    });
     return {
       pwId: pw.id,
-      durationHours: days * 24,
+      durationHours,
       areaHectares: loc?.areaHectares ?? 0,
       areaPct: pw.areaPct ?? 100,
     };
@@ -575,7 +586,7 @@ function resolveNPK3(ctx) {
     const loc = getById('locations', pw.locationId);
     const w = windowsPayload[i];
     const inputs = [
-      input('durationHours', w.durationHours, `eventPaddockWindows.${pw.id}.dateOpened → today × 24`),
+      input('durationHours', w.durationHours, `TIM-3 presence eventPaddockWindows.${pw.id}.dateOpened → close/today`),
       input('areaHectares', w.areaHectares, loc ? `locations.${loc.id}.areaHectares` : 'no location', 'area', !loc || loc.areaHectares == null),
       input('areaPct', w.areaPct, `eventPaddockWindows.${pw.id}.areaPct`),
       input('totalNKg', totalN, `composed: Σ NPK-1[${data.rows.length}].output.nKg`, 'weight'),

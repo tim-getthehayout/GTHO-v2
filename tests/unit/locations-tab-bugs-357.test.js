@@ -122,7 +122,8 @@ describe('OI-0075 Bug 3 — capacity line', () => {
     const capText = card.textContent;
     expect(capText).toMatch(/Est\. capacity/);
     expect(capText).toMatch(/AUDs/);
-    expect(capText).toMatch(/days remaining/);
+    expect(capText).toMatch(/days after today/);
+    expect(capText).toMatch(/end-of-today daily-model estimate/);
     // The informative hint MUST NOT render when the full line works.
     expect(card.querySelector(`[data-testid="dashboard-capacity-hint-${EVT}"]`)).toBeFalsy();
   });

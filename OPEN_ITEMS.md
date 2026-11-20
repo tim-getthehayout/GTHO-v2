@@ -45,6 +45,7 @@
 | OI-0234 | One-time confirmed-bred May 1 backfill (2026 catch-up; tag 31 / 65 / Shenks exceptions) | **SPEC LOCKED (B1–B3).** Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator: B1 cows only; B2 leave already-true alone; B3 stillbirth counts as calved. Parent land `f0122cdb` approved same morning. Supersedes OI-0232 Q3; [brief](session_briefs/CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md). Depends on OI-0232 migration applied first (Tim's yes + backup). Then this write needs a **separate** yes + backup. Shenks = current members of `groups.name` ILIKE `Shenk%` (10 animals). |
 | OI-0235 | Animals screen multi-select class pills + Open / **Confirmed bred** status pills | **MERGED** as PR #86 at `a997269` (on main `aad07c4`). F1–F3 as locked (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator): F1 Open/Confirmed mutually exclusive; F2 pill label **"Confirmed bred"** (not "Confirmed pregnant"); F3 every non-archived class. As-built docs this commit. [brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). Extends OI-0164 chip bar (V2_UX_FLOWS §15.0); classes OR; status AND with class set. No migration |
 | OI-0236 | Animals filter cascade: Groups → Species → Class → Status + search/Reset/Clear | **SPEC LOCKED** (Tim ~5:02 AM ET; **R7 revised** ~5:05 — large group cards as Groups filter row; lower active grid removed). R3 multi-select; R5 classes with animals; R8 Reset+Clear search. [brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md). Supersedes OI-0235 F1/F3 for this cascade; no migration |
+| OI-0237 | Bulk/composite **cull** + **split heads** off a composite | **SPEC LOCKED** 2026-11-20 ~5:11 AM ET (Tim, via Orchestrator). C1–C8 + S1–S8. C3-B culled lot; C5 empty-group prompt; C6 partial device undo like split; no migration. [brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md) |
 
 ---
 
@@ -177,6 +178,24 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 ---
 
 
+
+### OI-0237 — Bulk/composite cull + split heads off a composite
+
+**Added:** 2026-11-20 | **Area:** v2-build / animals / cull+split | **Priority:** next (with or after OI-0236)
+
+**Status:** **SPEC LOCKED** (Tim, 2026-11-20 ~5:11 AM ET, via Orchestrator). [Brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md). **Part A C1–C8:** both Edit Animal + group-card Cull; date+reason (C2); Option B culled lot (C3); heads 1…H (C4); empty-group prompt before archive (C5); full Reactivate+group / partial device undo like split (C6); no migration (C7); UI first (C8). **Part B S1–S8** locked. Ready for docs land → Build.
+
+**Why:** (1) Composites cannot cull today (`openCullSheet` no-ops on `isBulk`); Tim wants head-count cull and archive-when-empty via prompt. (2) Split Group moves whole animals only — Tim needs splitting N heads off a bulk/composite lot.
+
+**Scope:** Part A cull (both entry points; Option B culled lot; empty-group prompt; device undo on partial). Part B head-count split (or whole-move when N=H). One OI; Build may use two PRs.
+
+**Schema / CP-55/CP-56 impact:** none (C3-B / S7 / C7).
+
+**Related:** OI-0086, OI-0090, OI-0091, OI-0137, composite bulk (039), OI-0210 (action wrap later), OI-0236.
+
+**Origin:** Tim, 2026-11-20 ~4:58–5:11 AM ET, via Orchestrator.
+
+---
 ### OI-0236 — Animals filter cascade (groups → species → class → status)
 
 **Added:** 2026-11-20 | **Area:** v2-build / animals / UX | **Priority:** next after OI-0235 as-built

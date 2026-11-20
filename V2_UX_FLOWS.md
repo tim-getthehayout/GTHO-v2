@@ -915,6 +915,9 @@ The archived section stays single-column because the per-row text is longer (dat
 
 ### 15.1 Animal Edit Sheet
 
+**Locked (OI-0237, Tim 2026-11-20 ~5:11 AM ET):** (1) **Cull** on composite — entry from **Edit Animal and group-card**; heads 1…H; date+reason required; partial → culled bulk lot (Option B) + one-tap device undo; full → deactivate + **empty-group prompt** before archive; Reactivate restores animal+group; no migration; UI first. (2) **Split heads** S1–S8: N in 1…H; N < H new composite + reduce source; N = H whole-move; destinations new/existing; OI-0137 windows; device undo; no migration; UI first. Brief `session_briefs/BULK_GROUP_CULL_2026-11-20.md`.
+
+
 The primary interface for viewing and managing an individual animal. Combines CRUD fields with embedded health history and action shortcuts.
 
 **Fields (create and edit):**

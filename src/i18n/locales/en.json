@@ -706,7 +706,11 @@
     "optional": "optional",
     "cullsChip": "Culls",
     "filterOpen": "Open",
-    "filterConfirmedBred": "Confirmed bred"
+    "filterConfirmedBred": "Confirmed bred",
+    "filterReset": "Reset",
+    "filterClearSearch": "Clear search",
+    "filterAllHint": "All active animals",
+    "filterCullsHint": "Culled animals only"
   },
   "group": {
     "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",

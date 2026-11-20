@@ -1,9 +1,9 @@
 /**
- * @file OI-0164 — Animals area UI rework: 2-column groups grid + Group Edit
- *   footer Archive/gated-Delete + Culls filter pill.
+ * @file Animals area UI — group cards + Group Edit footer Archive/gated-Delete
+ *   + Culls filter. Active group cards live in the Groups filter row (cascade);
+ *   lower 2-column grid removed.
  *
- * The three sub-items are tested in isolation, all driving the real
- * `renderAnimalsScreen` / `openGroupSheet` UI rather than internal helpers.
+ * Tests drive the real `renderAnimalsScreen` / `openGroupSheet` UI.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
@@ -82,8 +82,8 @@ afterEach(() => vi.restoreAllMocks());
 // Sub-item A — 2-column groups tile grid
 // ────────────────────────────────────────────────────────────────────────
 
-describe('Sub-item A: 2-column groups tile grid', () => {
-  it('renders one tile per active group inside a .groups-grid container', () => {
+describe('Sub-item A: group cards in Groups filter row', () => {
+  it('renders one tile per active group inside the Groups filter row (not a lower grid)', () => {
     seedOpFarm();
     seedGroup(GA, 'Group A');
     seedGroup(GB, 'Group B');
@@ -93,13 +93,14 @@ describe('Sub-item A: 2-column groups tile grid', () => {
 
     renderAnimalsScreen(container);
 
-    const grid = container.querySelector('[data-testid="groups-grid"]');
-    expect(grid).toBeTruthy();
-    expect(grid.classList.contains('groups-grid')).toBe(true);
+    const filterRow = container.querySelector('[data-testid="animals-groups-filter"]');
+    expect(filterRow).toBeTruthy();
+    expect(filterRow.classList.contains('animals-groups-filter-row')).toBe(true);
+    expect(container.querySelector('[data-testid="groups-grid"]')).toBeFalsy();
 
     // One tile per active (non-archived) group. The archived group must NOT
-    // appear in the active grid.
-    const tiles = grid.querySelectorAll('[data-testid^="group-tile-"]');
+    // appear in the filter row.
+    const tiles = filterRow.querySelectorAll('[data-testid^="group-tile-"]');
     expect(tiles.length).toBe(2);
     expect(container.querySelector(`[data-testid="group-tile-${GA}"]`)).toBeTruthy();
     expect(container.querySelector(`[data-testid="group-tile-${GB}"]`)).toBeTruthy();
@@ -206,10 +207,10 @@ describe('Sub-item C: Culls filter pill', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     renderAnimalsScreen(container);
-    // Reset module-level selectedFilter (leaks across tests). Click All if it
-    // isn't already the active chip — that normalises the starting state.
-    const allChip = Array.from(container.querySelectorAll('.agc-chip')).find(c => c.textContent.trim() === 'All');
-    if (allChip && !allChip.classList.contains('active')) allChip.click();
+    // Reset module-level group filter (leaks across tests). Click All if it
+    // isn't already active — that normalises the starting state.
+    const allTile = container.querySelector('[data-testid="animals-filter-all"]');
+    if (allTile && !allTile.classList.contains('active')) allTile.click();
     return container;
   }
 
@@ -258,26 +259,26 @@ describe('Sub-item C: Culls filter pill', () => {
     expect(cullsChip.classList.contains('active')).toBe(true);
   });
 
-  function findGroupChip(container, name) {
-    return Array.from(container.querySelectorAll('.agc-chip')).find(c => c.textContent.includes(name));
+  function findGroupTile(container, groupId) {
+    return container.querySelector(`[data-testid="group-tile-${groupId}"]`);
   }
-  function findAllChip(container) {
-    return Array.from(container.querySelectorAll('.agc-chip')).find(c => c.textContent.trim() === 'All');
+  function findAllTile(container) {
+    return container.querySelector('[data-testid="animals-filter-all"]');
   }
 
-  it('tapping a group chip while Culls is active deselects Culls and applies the group filter', () => {
+  it('tapping a group card while Culls is active deselects Culls and applies the group filter', () => {
     const container = seedAnimalsScreen();
 
     // Activate Culls.
     container.querySelector('[data-testid="animals-chip-culls"]').click();
     expect(container.querySelector('[data-testid="animals-chip-culls"]').classList.contains('active')).toBe(true);
 
-    // Tap the Group A chip — re-query after the prior render replaced the chips DOM.
-    findGroupChip(container, 'Group A').click();
+    // Tap the Group A card — re-query after the prior render replaced the DOM.
+    findGroupTile(container, GA).click();
 
     // Group A active, Culls no longer active. Animal list shows live members of Group A.
     expect(container.querySelector('[data-testid="animals-chip-culls"]').classList.contains('active')).toBe(false);
-    expect(findGroupChip(container, 'Group A').classList.contains('active')).toBe(true);
+    expect(findGroupTile(container, GA).classList.contains('active')).toBe(true);
     expect(container.querySelector(`[data-testid="animal-row-${ANIMAL_LIVE}"]`)).toBeTruthy();
     expect(container.querySelector(`[data-testid="animal-row-${ANIMAL_LIVE_2}"]`)).toBeTruthy();
     expect(container.querySelector(`[data-testid="animal-row-${ANIMAL_CULLED}"]`)).toBeFalsy();
@@ -287,9 +288,9 @@ describe('Sub-item C: Culls filter pill', () => {
     const container = seedAnimalsScreen();
     container.querySelector('[data-testid="animals-chip-culls"]').click();
 
-    findAllChip(container).click();
+    findAllTile(container).click();
 
-    expect(findAllChip(container).classList.contains('active')).toBe(true);
+    expect(findAllTile(container).classList.contains('active')).toBe(true);
     expect(container.querySelector('[data-testid="animals-chip-culls"]').classList.contains('active')).toBe(false);
     expect(container.querySelector(`[data-testid="animal-row-${ANIMAL_CULLED}"]`)).toBeFalsy();
     expect(container.querySelector(`[data-testid="animal-row-${ANIMAL_LIVE}"]`)).toBeTruthy();

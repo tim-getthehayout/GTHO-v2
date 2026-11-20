@@ -3299,20 +3299,60 @@ body:has(.auth-overlay) .pwa-update-banner {
 .prog { height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; margin-top: 4px; }
 .prog-fill { height: 100%; border-radius: 3px; }
 
-/* Animals screen — group filter chips */
+/* Animals screen — filter header */
 .agc-wrap { position: sticky; top: 0; z-index: 20; background: var(--bg); padding-bottom: 8px; margin-bottom: 4px; }
 .agc-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
-.agc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border2); background: var(--bg2); color: var(--text2); white-space: nowrap; transition: background 0.15s; }
+.agc-chips-scroll { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.agc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border2); background: var(--bg2); color: var(--text2); white-space: nowrap; transition: background 0.15s; flex-shrink: 0; }
 .agc-chip.active { background: var(--green); border-color: var(--green); color: white; }
 .agc-chip .agc-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-/* OI-0164: Culls chip — amber dot prefix, parity with the legacy "Show culled" amber accent */
+/* OI-0164: Culls chip — amber dot prefix (kept for theme / legacy class hooks) */
 .agc-chip-culls .agc-dot { background: var(--amber); }
 .agc-chip-culls.active { background: var(--amber); border-color: var(--amber); color: white; }
 
-/* Animals filter — class / status chip rows under lifecycle */
+/* Animals filter — species / class / status chip rows */
 .agc-chips-secondary { margin-top: -2px; }
 
-/* OI-0164: Animals screen — 2-column groups tile grid (all viewports ≥ 320px) */
+/* Groups filter row — large cards, horizontal scroll, no wrap (R7) */
+.animals-groups-filter-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 7px;
+  padding-bottom: 2px;
+  align-items: stretch;
+}
+.animals-groups-filter-row .groups-grid-tile {
+  flex: 0 0 auto;
+  width: min(260px, 78vw);
+  min-width: 200px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--border2);
+  background: var(--bg2);
+}
+.animals-groups-filter-row .groups-grid-tile--selected {
+  border-color: var(--green);
+  border-width: 2px;
+  background: var(--surface-selected);
+}
+.animals-filter-tile-all {
+  border-style: dashed;
+  border-left-width: 1.5px;
+}
+.animals-filter-tile-all.groups-grid-tile--selected {
+  border-style: solid;
+}
+.animals-filter-tile-culls {
+  border-left: 3px solid var(--amber);
+}
+.animals-filter-tile-culls.groups-grid-tile--selected {
+  border-color: var(--amber);
+  background: var(--surface-selected);
+}
+
+/* Kept for theme-contrast / historical hooks — lower active grid removed from UI */
 .groups-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch; }
 .groups-grid-tile { padding: 12px; border-radius: var(--radius); cursor: pointer; display: flex; flex-direction: column; min-width: 0; }
 .groups-grid-tile--selected { background: var(--surface-selected); }

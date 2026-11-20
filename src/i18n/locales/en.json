@@ -402,6 +402,7 @@
     "feedTransferResidualAmountBlocked": "Record remaining for every residual-left feed before saving.",
     "feedTransferNone": "No feed to transfer.",
     "feedTransferAllZero": "Source has no feed remaining — nothing to move or leave behind.",
+    "feedStaysWithRemainingGroups": "Feed stays with groups remaining on this event.",
     "moveWizardSaveErrorToast": "Move ran into an error mid-save — please review the source event and any duplicate destination event before retrying.",
     "moveWizardSourceClosed": "This event was already closed. The move may have already happened — close this dialog and check the destination paddock.",
     "moveWizardNothingToMove": "There are no open groups on this event to move. Refresh the dashboard to see the current state.",

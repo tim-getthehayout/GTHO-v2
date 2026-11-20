@@ -139,6 +139,21 @@ function transferWizardPools(toggles,sourceEvent,destinationEventId,destinationL
 }
 
 
+
+function deriveMoveWizardMode(scopedGroupWindowId, allOpenGWs) {
+  const scopedMode = !!scopedGroupWindowId;
+  const remainingAfterMove = scopedMode
+    ? allOpenGWs.filter(w => w.id !== scopedGroupWindowId).length
+    : 0;
+  return !scopedMode
+    ? 'full-event'
+    : (remainingAfterMove > 0 ? 'scoped-remaining' : 'scoped-last');
+}
+
+function shouldTransferWizardFeed(mode, toggles) {
+  return mode !== 'scoped-remaining' && !!(toggles && toggles.length);
+}
+
 function currentMoveTimes(state, inputs) {
   const dateOut = inputs.dateOut?.value || state.dateOut;
   const timeOut = (inputs.timeOut?.value || state.timeOut) || null;
@@ -200,12 +215,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
   const scopedMode = !!state.scopedGroupWindowId;
   const allOpenGWs = getAll('eventGroupWindows').filter(w =>
     w.eventId === sourceEvent.id && !w.dateLeft);
-  const remainingAfterMove = scopedMode
-    ? allOpenGWs.filter(w => w.id !== state.scopedGroupWindowId).length
-    : 0;
-  const mode = !scopedMode
-    ? 'full-event'
-    : (remainingAfterMove > 0 ? 'scoped-remaining' : 'scoped-last');
+  const mode = deriveMoveWizardMode(state.scopedGroupWindowId, allOpenGWs);
 
   // Source paddock window — first open PW on the event. Both scoped and
   // full-event paths use the same lookup; the wizard already operates at
@@ -365,8 +375,13 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
   }
   refreshOverlapWarning();
 
-  // Feed transfer section (CP-29; OI-0104: 2-way radio + residual capture)
-  const feedEntries = getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
+  // Feed transfer section (CP-29; OI-0104: 2-way radio + residual capture).
+  // scoped-remaining: hide the transfer card entirely — feed stays with
+  // groups that remain on the open source event. Do not fall through to
+  // the "No feed to transfer" / all-zero hints.
+  const feedEntries = mode === 'scoped-remaining'
+    ? []
+    : getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
   const transferToggles = [];
   let feedSection = null;
 
@@ -522,7 +537,13 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
   // 0 live remaining, transferToggles ends up empty after the skip-on-zero
   // pass above. Surface an italic hint so the wizard doesn't render an
   // empty feed-transfer block.
-  if (feedSection && transferToggles.length > 0) {
+  if (mode === 'scoped-remaining') {
+    closeSection.appendChild(el('div', {
+      className: 'form-hint',
+      style: { fontStyle: 'italic', marginTop: 'var(--space-4)' },
+      'data-testid': 'move-wizard-feed-stays',
+    }, [t('event.feedStaysWithRemainingGroups')]));
+  } else if (feedSection && transferToggles.length > 0) {
     closeSection.appendChild(feedSection);
   } else if (feedEntries.length === 0) {
     closeSection.appendChild(el('div', {
@@ -928,8 +949,17 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       // Step 8: Feed transfer — only 'move' lines write a destination delivery row.
       // 'residual' lines are already captured by the close-reading remainingQuantity
       // stamp above (Step 1); the fertility-ledger write lands with OI-0092.
-      if(poolWritesEnabled())transferWizardPools(transferToggles,sourceEvent,newEvent.id,feedDestinationId(state),operationId,dateOut,timeOut,{date:dateIn,time:timeIn});
-      else if (transferToggles && transferToggles.length) {
+      // scoped-remaining: no transfer UI, and do not call transferWizardPools
+      // or the non-pool Move write. Do not key this off bare isScoped —
+      // scoped-last must still transfer. When no transfer UI was shown,
+      // transferToggles is empty and the write is skipped.
+      const canTransferFeed = shouldTransferWizardFeed(
+        deriveMoveWizardMode(state.scopedGroupWindowId, allOpenSourceGWs),
+        transferToggles,
+      );
+      if (canTransferFeed && poolWritesEnabled()) {
+        transferWizardPools(transferToggles,sourceEvent,newEvent.id,feedDestinationId(state),operationId,dateOut,timeOut,{date:dateIn,time:timeIn});
+      } else if (canTransferFeed) {
         for (const toggle of transferToggles) {
           if (toggle.choice !== 'move') continue;
           const transferEntry = FeedEntryEntity.create({
@@ -957,7 +987,13 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         timeJoined: timeOut,
         logCategory: 'move-wizard',
       });
-      if(poolWritesEnabled())transferWizardPools(transferToggles,sourceEvent,state.existingEventId,state.feedLocationId,operationId,dateOut,timeOut);
+      const canTransferFeed = shouldTransferWizardFeed(
+        deriveMoveWizardMode(state.scopedGroupWindowId, allOpenSourceGWs),
+        transferToggles,
+      );
+      if (canTransferFeed && poolWritesEnabled()) {
+        transferWizardPools(transferToggles,sourceEvent,state.existingEventId,state.feedLocationId,operationId,dateOut,timeOut);
+      }
     }
 
     return sourceEvent.id;

@@ -15,7 +15,7 @@ function ensureSheetDOM() {
   if (document.getElementById('breeding-sheet-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'breeding-sheet-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => breedingSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'breeding-sheet-panel', style: { maxHeight: '92vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'breeding-sheet-panel', style: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' } }),
   ]));
 }
 

@@ -405,7 +405,7 @@ function ensureLocationSheetDOM() {
   if (document.getElementById('loc-edit-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'loc-edit-wrap', style: { zIndex: '240' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => locationSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'loc-edit-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'loc-edit-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 
@@ -648,7 +648,7 @@ function ensureSurveySheetDOM() {
   if (document.getElementById('survey-sheet-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'survey-sheet-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => surveySheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'survey-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'survey-sheet-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 
@@ -1068,7 +1068,7 @@ function ensureFeedTypesSheetDOM() {
   if (document.getElementById('feed-types-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'feed-types-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => feedTypesSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'feed-types-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'feed-types-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 

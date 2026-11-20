@@ -365,7 +365,7 @@ function ensureEditSheetDOM() {
   if (document.getElementById('edit-sub-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'edit-sub-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => editSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'edit-sub-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'edit-sub-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 

@@ -22,7 +22,7 @@ function ensureSheetDOM() {
   if (document.getElementById('move-feed-out-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'move-feed-out-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => moveFeedSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'move-feed-out-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'move-feed-out-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 

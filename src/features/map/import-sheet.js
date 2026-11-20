@@ -13,7 +13,7 @@ function ensureDom() {
   if (document.getElementById('map-import-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'map-import-wrap', style: { zIndex: '420' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => sheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'map-import-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'map-import-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 

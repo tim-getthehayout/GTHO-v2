@@ -689,7 +689,7 @@ function ensureFeedbackSheetDOM() {
   if (document.getElementById('fb-sheet-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'fb-sheet-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => feedbackSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'fb-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'fb-sheet-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 

@@ -14,7 +14,7 @@ function ensureSheetDOM() {
   if (document.getElementById('bcs-sheet-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'bcs-sheet-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => bcsSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'bcs-sheet-panel', style: { maxHeight: '92vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'bcs-sheet-panel', style: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' } }),
   ]));
 }
 

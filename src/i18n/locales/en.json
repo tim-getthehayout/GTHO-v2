@@ -724,8 +724,19 @@
     "filterReset": "Reset",
     "filterClearSearch": "Clear search",
     "filterAllHint": "All active animals",
-    "filterCullsHint": "Culled animals only"
-
+    "filterCullsHint": "Culled animals only",
+    "splitHeads": "Heads to split",
+    "splitHeadsHint": "1 to {max}. All heads moves the whole composite.",
+    "splitHeadsRange": "Heads must be a whole number from 1 to {max}.",
+    "splitHeadsInvalid": "This composite has no live heads to split.",
+    "splitDateRequired": "Split date is required.",
+    "splitNotes": "Notes",
+    "splitNotesOptional": "optional",
+    "splitNotesPlaceholder": "Optional notes for this split…",
+    "splitPickerHint": "Tap to select. For a composite, set how many heads to peel off (1…all).",
+    "splitUndo": "Undo",
+    "splitUndoDone": "Split undone.",
+    "splitDoneToast": "Split saved."
   },
   "group": {
     "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",

@@ -538,6 +538,7 @@ export class Sheet {
 - Backdrop click always calls close
 - New sheet HTML at bottom of its feature module
 - Never createElement/removeChild for overlays
+- **OI-0239 (iOS):** lock `body`/`html` scroll while open and restore on close; `.sheet-panel` uses `-webkit-overflow-scrolling: touch`, `overscroll-behavior: contain`, `min-height: 0` where flex needs a scrollport, and prefer `min(90dvh, 90vh)` over bare `90vh`. See [brief](session_briefs/IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md).
 
 ### 6.3 Router
 

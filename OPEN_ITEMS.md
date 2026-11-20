@@ -46,6 +46,7 @@
 | OI-0235 | Animals screen multi-select class pills + Open / **Confirmed bred** status pills | **MERGED** as PR #86 at `a997269` (on main `aad07c4`). F1–F3 as locked (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator): F1 Open/Confirmed mutually exclusive; F2 pill label **"Confirmed bred"** (not "Confirmed pregnant"); F3 every non-archived class. As-built docs this commit. [brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). Extends OI-0164 chip bar (V2_UX_FLOWS §15.0); classes OR; status AND with class set. No migration |
 | OI-0236 | Animals filter cascade: Groups → Species → Class → Status + search/Reset/Clear | **SPEC LOCKED** (Tim ~5:02 AM ET; **R7 revised** ~5:05 — large group cards as Groups filter row; lower active grid removed). R3 multi-select; R5 classes with animals; R8 Reset+Clear search. [brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md). Supersedes OI-0235 F1/F3 for this cascade; no migration |
 | OI-0237 | Bulk/composite **cull** + **split heads** off a composite | **SPEC LOCKED** 2026-11-20 ~5:11 AM ET (Tim, via Orchestrator). C1–C8 + S1–S8. C3-B culled lot; C5 empty-group prompt; C6 partial device undo like split; no migration. [brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md) |
+| OI-0238 | Partial-day estimated demand (hour-prorate first/last; delivery clock; EOD today; A label) | **SPEC LOCKED** 2026-11-20 ~6:15 AM ET (Tim, via Orchestrator). C + A. First-day clock = earliest delivery on dateIn; keep end-of-today (no live clock); NPK-1/3 → TIM-3 presence; chart bars match; DMI-5 unchanged; no migration. [brief](session_briefs/PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md) |
 
 ---
 
@@ -178,6 +179,34 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 ---
 
 
+
+
+### OI-0238 — Partial-day estimated demand (hour-prorate first/last)
+
+**Status:** SPEC LOCKED (Tim, 2026-11-20 ~6:15 AM ET, via Orchestrator)  
+**Priority:** High (days-remaining trust; pasture capacity label)  
+**Owner:** GTHO Design → GTHO Build after docs land  
+**Brief:** [PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md](session_briefs/PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md)
+
+**Tim lock (exact card):** "OI-0238: C hour-prorate first/last; first-day clock = delivery time (15:00); keep end-of-today; plus A label"
+
+**Locked:**
+- Hour-prorate **estimated** DMI-8 demand on partial first and last calendar days (middle days remain 1.0×).
+- **First-day clock** = earliest stored-feed **delivery** instant on dateIn when one exists (motivating E event: 15:00 → 0.375 day).
+- **Today** still burns through **end of local today**; no live clock (OI-0209).
+- **FOR-4** formula unchanged; remaining buckets change via prorated demand.
+- Acceptance for E event `ff115ee9` as of 2026-11-20: remaining ≈ **3.61** (was 2.98 under whole-day burn).
+- **NPK-1 / NPK-3** callers align to **TIM-3** (presence open/close), not delivery.
+- Chart bars use the same estimated demand fractions as the cascade.
+- **Measured DMI-5** unchanged.
+- Pasture capacity line gets end-of-today / "after today" label (option A).
+- **No migration.**
+
+**Edge cases (LOCKED — Tim 2026-11-20 ~6:16 AM ET: "When animals arrived is fine"):**
+- (a) No delivery on dateIn → earliest presence open (`timeOpened` / `timeJoined`); missing time → local midnight.
+- (b) Days-remaining / estimated first-day = delivery when present; NPK = presence via TIM-3 (split clocks intentional).
+
+**Related:** OI-0209, DMI-8, FOR-4, TIM-3, DMI-5 / OI-0227 D.
 
 ### OI-0237 — Bulk/composite cull + split heads off a composite
 

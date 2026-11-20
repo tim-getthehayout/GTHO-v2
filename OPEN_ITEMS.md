@@ -45,8 +45,9 @@
 | OI-0234 | One-time confirmed-bred May 1 backfill (2026 catch-up; tag 31 / 65 / Shenks exceptions) | **SPEC LOCKED (B1–B3).** Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator: B1 cows only; B2 leave already-true alone; B3 stillbirth counts as calved. Parent land `f0122cdb` approved same morning. Supersedes OI-0232 Q3; [brief](session_briefs/CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md). Depends on OI-0232 migration applied first (Tim's yes + backup). Then this write needs a **separate** yes + backup. Shenks = current members of `groups.name` ILIKE `Shenk%` (10 animals). |
 | OI-0235 | Animals screen multi-select class pills + Open / **Confirmed bred** status pills | **MERGED** as PR #86 at `a997269` (on main `aad07c4`). F1–F3 as locked (Tim, 2026-11-19 ~6:53 AM ET, via Orchestrator): F1 Open/Confirmed mutually exclusive; F2 pill label **"Confirmed bred"** (not "Confirmed pregnant"); F3 every non-archived class. As-built docs this commit. [brief](session_briefs/ANIMALS_MULTI_FILTERS_2026-11-19.md). Extends OI-0164 chip bar (V2_UX_FLOWS §15.0); classes OR; status AND with class set. No migration |
 | OI-0236 | Animals filter cascade: Groups → Species → Class → Status + search/Reset/Clear | **SPEC LOCKED** (Tim ~5:02 AM ET; **R7 revised** ~5:05 — large group cards as Groups filter row; lower active grid removed). R3 multi-select; R5 classes with animals; R8 Reset+Clear search. [brief](session_briefs/ANIMALS_FILTER_CASCADE_2026-11-20.md). Supersedes OI-0235 F1/F3 for this cascade; no migration |
-| OI-0237 | Bulk/composite **cull** + **split heads** off a composite | **SPEC LOCKED** 2026-11-20 ~5:11 AM ET (Tim, via Orchestrator). C1–C8 + S1–S8. C3-B culled lot; C5 empty-group prompt; C6 partial device undo like split; no migration. [brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md) |
+| OI-0237 | Bulk/composite **cull** + **split heads** off a composite | **SPEC LOCKED** 2026-11-20 ~5:11 AM ET (Tim, via Orchestrator). C1–C8 + S1–S8. C3-B culled lot; C5 empty-group prompt; C6 partial device undo like split; no migration. **C1 Edit Animal path completed by OI-0239** (group-card Cull already Part A). [brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md) |
 | OI-0238 | Partial-day estimated demand (hour-prorate first/last; delivery clock; EOD today; A label) | **SPEC LOCKED** 2026-11-20 ~6:15 AM ET (Tim, via Orchestrator). C + A. First-day clock = earliest delivery on dateIn; keep end-of-today (no live clock); NPK-1/3 → TIM-3 presence; chart bars match; DMI-5 unchanged; no migration. [brief](session_briefs/PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md) |
+| OI-0239 | iPhone Sheet scroll lock + Edit Animal Cull for composites (C1) | **SPEC LOCKED** 2026-11-20 ~6:38 AM ET (Tim, via Orchestrator). Shared Sheet body scroll-lock + iOS overflow (`-webkit-overflow-scrolling`, `overscroll-behavior`, `min(90dvh,90vh)`, `min-height:0`); move Edit Animal Cull outside `!isBulk` (complete OI-0237 C1 Edit Animal path). Hotfix **ahead of** OI-0238 code. No migration. [brief](session_briefs/IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md) |
 
 ---
 
@@ -181,6 +182,29 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+### OI-0239 — iPhone Sheet scroll lock + Edit Animal Cull for composites (C1)
+
+**Status:** SPEC LOCKED (Tim, 2026-11-20 ~6:38 AM ET, via Orchestrator)  
+**Priority:** Hotfix — **ahead of** OI-0238 code  
+**Owner:** GTHO Design → GTHO Build  
+**Brief:** [IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md](session_briefs/IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md)
+
+**Tim lock (exact card):** "Fix the iPhone dialog scroll and the missing Edit Animal Cull button now? Yes, fix it next." → Tim: **"You can proceed on all items."** (~6:38 AM ET)
+
+**Root cause (Design probe, live main `6c17815`):** Shared Sheet has no body scroll-lock, bare `90vh`, no `-webkit-overflow-scrolling` / `overscroll-behavior` — Apr 2026 scaffold, **not** OI-0236 / OI-0237A regression. Edit Animal Cull sits inside `if (isEdit && !existingAnimal.isBulk)` so composites never show Cull; group-card Cull already Part A; `openCullSheet` already supports composite heads.
+
+**Locked:**
+- Shared Sheet: body/html lock on open, restore on close; panel `-webkit-overflow-scrolling: touch`; `overscroll-behavior: contain`; `min-height: 0` for flex scrollport; prefer `min(90dvh, 90vh)`; optional backdrop touchmove guard.
+- Move Edit Animal Cull (+ culled banner) **outside** `!isBulk` (complete **OI-0237 C1** Edit Animal path). Weaned/calving stay gated.
+- **No migration.**
+
+**Acceptance:** iPhone panel scrolls / page does not (Edit Animal individual+composite, event edit, feed entry); Cull visible on composite Edit Animal and living-composite group card; Cull opens heads sheet; close restores body scroll.
+
+**Related:** OI-0237 C1, OI-0086, ARCH §6.2.
+
+**Origin:** Tim ~6:18 AM ET (bug); Design investigation; Tim ~6:38 AM ET (clear hotfix).
+
+---
 ### OI-0238 — Partial-day estimated demand (hour-prorate first/last)
 
 **Status:** SPEC LOCKED (Tim, 2026-11-20 ~6:15 AM ET, via Orchestrator)  
@@ -212,7 +236,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Added:** 2026-11-20 | **Area:** v2-build / animals / cull+split | **Priority:** next (with or after OI-0236)
 
-**Status:** **SPEC LOCKED** (Tim, 2026-11-20 ~5:11 AM ET, via Orchestrator). [Brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md). **Part A C1–C8:** both Edit Animal + group-card Cull; date+reason (C2); Option B culled lot (C3); heads 1…H (C4); empty-group prompt before archive (C5); full Reactivate+group / partial device undo like split (C6); no migration (C7); UI first (C8). **Part B S1–S8** locked. Ready for docs land → Build.
+**Status:** **SPEC LOCKED** (Tim, 2026-11-20 ~5:11 AM ET, via Orchestrator). [Brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md). **Part A C1–C8:** both Edit Animal + group-card Cull; date+reason (C2); Option B culled lot (C3); heads 1…H (C4); empty-group prompt before archive (C5); full Reactivate+group / partial device undo like split (C6); no migration (C7); UI first (C8). **Part B S1–S8** locked. **Note:** Group-card Cull shipped in Part A; **Edit Animal Cull for composites** was still gated by `!isBulk` — completed by **OI-0239** (Tim cleared hotfix 2026-11-20 ~6:38 AM ET).
 
 **Why:** (1) Composites cannot cull today (`openCullSheet` no-ops on `isBulk`); Tim wants head-count cull and archive-when-empty via prompt. (2) Split Group moves whole animals only — Tim needs splitting N heads off a bulk/composite lot.
 

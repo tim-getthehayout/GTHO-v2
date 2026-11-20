@@ -720,7 +720,12 @@
     "cullPickCompositeTitle": "Cull which composite?",
     "cullPickCompositeHint": "{group} has more than one composite. Pick one to cull heads from.",
     "reactivateCompositeConfirm": "Reactivate {label}? The composite returns to its group; an archived group is reactivated.",
-    "cullGroupCard": "Cull"
+    "cullGroupCard": "Cull",
+    "filterReset": "Reset",
+    "filterClearSearch": "Clear search",
+    "filterAllHint": "All active animals",
+    "filterCullsHint": "Culled animals only"
+
   },
   "group": {
     "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",

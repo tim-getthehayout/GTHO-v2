@@ -32,15 +32,16 @@ import { localFormTimestamp, optionalFormNumber } from '../../utils/form-values.
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
-// OI-0164: selectedFilter is one of three mutually exclusive states:
-//   null → All chip active (active animals only)
-//   '__culls' sentinel → Culls chip active (culled animals only)
-//   <groupId> → group chip active (active animals in that group only)
-let selectedFilter = null;
+/** @type {Set<string>} live group ids multi-select OR. Empty + !cullsSelected = All. */
+let selectedGroupIds = new Set();
+/** Culls exclusive with All and every live group. */
+let cullsSelected = false;
+/** @type {Set<string>} species keys multi-select OR. Empty = All (no species filter). */
+let selectedSpecies = new Set();
 /** @type {Set<string>} multi-select class filter (OR). Empty = inactive. */
 let selectedClassIds = new Set();
-/** @type {null|'open'|'confirmed_bred'} mutually exclusive status filter. */
-let selectedStatus = null;
+/** @type {Set<'open'|'confirmed_bred'>} status multi-select OR. Empty = inactive. */
+let selectedStatuses = new Set();
 let searchQuery = '';
 let showArchivedGroups = false;  // OI-0090 / SP-11 Part 4
 let sortColumn = 'tag';
@@ -87,48 +88,271 @@ export function renderAnimalsScreen(container) {
   container.appendChild(renderCalvingSheetMarkup());
 
   // ── Render functions ──
+  function activeMemberships() {
+    return getAll('animalGroupMemberships').filter(m => !m.dateLeft);
+  }
+
+  function animalsAfterGroupsFilter() {
+    const allAnimals = getAll('animals');
+    const memberships = activeMemberships();
+    if (cullsSelected) {
+      return allAnimals.filter(a => a.active === false);
+    }
+    let filtered = allAnimals.filter(a => a.active !== false);
+    if (selectedGroupIds.size > 0) {
+      const ids = new Set(
+        memberships.filter(m => selectedGroupIds.has(m.groupId)).map(m => m.animalId),
+      );
+      filtered = filtered.filter(a => ids.has(a.id));
+    }
+    return filtered;
+  }
+
+  function animalsAfterSpeciesFilter(groupPool) {
+    if (selectedSpecies.size === 0) return groupPool;
+    const classById = new Map(getAll('animalClasses').map(c => [c.id, c]));
+    return groupPool.filter(a => {
+      const cls = a.classId ? classById.get(a.classId) : null;
+      return cls && selectedSpecies.has(cls.species);
+    });
+  }
+
+  function animalsAfterClassFilter(speciesPool) {
+    if (selectedClassIds.size === 0) return speciesPool;
+    return speciesPool.filter(a => a.classId && selectedClassIds.has(a.classId));
+  }
+
+  function distinctSpeciesInPool(pool) {
+    const classById = new Map(getAll('animalClasses').map(c => [c.id, c]));
+    const set = new Set();
+    for (const a of pool) {
+      const cls = a.classId ? classById.get(a.classId) : null;
+      if (cls?.species) set.add(cls.species);
+    }
+    return [...set].sort();
+  }
+
+  function classesWithAnimalsInPool(pool) {
+    const counts = new Map();
+    for (const a of pool) {
+      if (!a.classId) continue;
+      counts.set(a.classId, (counts.get(a.classId) || 0) + 1);
+    }
+    return getAll('animalClasses')
+      .filter(c => !c.archived && counts.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function poolHasFemale(pool) {
+    return pool.some(a => a.sex === 'female');
+  }
+
+  /** Drop invalid child selections when a parent changes (R2). Search stays. */
+  function pruneChildFilters() {
+    const groupPool = animalsAfterGroupsFilter();
+    const availableSpecies = new Set(distinctSpeciesInPool(groupPool));
+    for (const s of [...selectedSpecies]) {
+      if (!availableSpecies.has(s)) selectedSpecies.delete(s);
+    }
+    const speciesPool = animalsAfterSpeciesFilter(groupPool);
+    const availableClasses = new Set(classesWithAnimalsInPool(speciesPool).map(c => c.id));
+    for (const id of [...selectedClassIds]) {
+      if (!availableClasses.has(id)) selectedClassIds.delete(id);
+    }
+    const classPool = animalsAfterClassFilter(speciesPool);
+    if (!poolHasFemale(classPool)) selectedStatuses.clear();
+  }
+
+  function resetFilterRows() {
+    selectedGroupIds = new Set();
+    cullsSelected = false;
+    selectedSpecies = new Set();
+    selectedClassIds = new Set();
+    selectedStatuses = new Set();
+  }
+
+  function liveGroupCardStats(g) {
+    const animals = getAll('animals');
+    const memberships = activeMemberships();
+    const groupAnimalIds = new Set(memberships.filter(m => m.groupId === g.id).map(m => m.animalId));
+    const groupAnimals = animals.filter(a => groupAnimalIds.has(a.id));
+    const headCount = groupAnimals.reduce((sum, a) => sum + animalHeadCount(a), 0);
+
+    let females = 0;
+    let males = 0;
+    for (const a of groupAnimals) {
+      const heads = animalHeadCount(a);
+      if (a.sex === 'female') females += heads;
+      else if (a.sex === 'male') males += heads;
+    }
+    const sexLine = [females > 0 ? `${females} female` : null, males > 0 ? `${males} male` : null].filter(Boolean).join(', ');
+
+    const weightRecords = getAll('animalWeightRecords');
+    const classes = getAll('animalClasses');
+    let totalWeightKg = 0;
+    for (const a of groupAnimals) {
+      const latestW = latestWeightForAnimal(weightRecords, a.id);
+      const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
+      if (a.isBulk === true) {
+        const heads = animalHeadCount(a);
+        totalWeightKg += latestW?.weightKg ?? ((cls?.defaultWeightKg ?? 0) * heads);
+      } else {
+        totalWeightKg += latestW?.weightKg ?? cls?.defaultWeightKg ?? 0;
+      }
+    }
+    const avgWeightDisplay = headCount > 0 ? display(totalWeightKg / headCount, 'weight', unitSys, 0) : '—';
+    const dmiKg = totalWeightKg * 0.025;
+    const dmiDisplay = display(dmiKg, 'weight', unitSys, 0);
+    const placement = resolveGroupCurrentPlacement(g.id);
+    return {
+      sexLine,
+      headCount,
+      avgWeightDisplay,
+      dmiDisplay,
+      isPlaced: placement.placed,
+      locName: placement.displayName,
+    };
+  }
+
+  function buildLiveGroupFilterCard(g) {
+    const stats = liveGroupCardStats(g);
+    const isSelected = selectedGroupIds.has(g.id);
+    return el('div', {
+      className: `groups-grid-tile${isSelected ? ' groups-grid-tile--selected active' : ''}`,
+      'data-testid': `group-tile-${g.id}`,
+      style: { borderLeft: `3px solid ${g.color || 'var(--green)'}` },
+      onClick: () => {
+        if (isSelected) selectedGroupIds.delete(g.id);
+        else selectedGroupIds.add(g.id);
+        cullsSelected = false;
+        pruneChildFilters();
+        renderAll();
+      },
+    }, [
+      el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [
+        g.name, ' ',
+        stats.isPlaced
+          ? el('span', { className: 'badge bt' }, [`active \u00B7 ${stats.locName}`])
+          : el('span', { className: 'badge bb' }, ['unplaced']),
+      ]),
+      stats.sexLine ? el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [stats.sexLine]) : null,
+      el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
+        `${stats.headCount} head \u00B7 avg ${stats.avgWeightDisplay} \u00B7 DMI target ${stats.dmiDisplay}/day`,
+      ]),
+      el('div', {
+        style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' },
+        onClick: (e) => e.stopPropagation(),
+      }, [
+        el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupSheet(g, operationId) }, ['Edit']),
+        stats.isPlaced ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSplitGroupSheet(g, operationId) }, ['Split']) : null,
+        el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupWeightsSheet(g, operationId) }, ['Weights']),
+        livingCompositesInGroup(g.id).length
+          ? el('button', {
+            className: 'btn btn-outline btn-xs',
+            'data-testid': `group-cull-${g.id}`,
+            onClick: () => openCullFromGroupCard(g, operationId),
+          }, [t('animal.cullGroupCard') || 'Cull'])
+          : null,
+      ].filter(Boolean)),
+    ].filter(Boolean));
+  }
+
   function renderFilterHeader() {
     clear(filterWrap);
     const groups = getAll('groups').filter(g => !g.archivedAt);
     const cullCount = getAll('animals').filter(a => a.active === false).length;
-    const chipsEl = el('div', { className: 'agc-chips' });
+    const allSelected = !cullsSelected && selectedGroupIds.size === 0;
 
-    // "All" chip
-    chipsEl.appendChild(el('span', {
-      className: `agc-chip${selectedFilter === null ? ' active' : ''}`,
-      onClick: () => { selectedFilter = null; renderAll(); },
-    }, ['All']));
+    // Row 1 — Groups: large cards, horizontal scroll (R7). All → live groups → Culls.
+    const groupsRow = el('div', {
+      className: 'animals-groups-filter-row',
+      'data-testid': 'animals-groups-filter',
+    });
 
-    // Per-group chips
+    groupsRow.appendChild(el('div', {
+      className: `groups-grid-tile animals-filter-tile-all${allSelected ? ' groups-grid-tile--selected active' : ''}`,
+      'data-testid': 'animals-filter-all',
+      onClick: () => {
+        selectedGroupIds = new Set();
+        cullsSelected = false;
+        pruneChildFilters();
+        renderAll();
+      },
+    }, [
+      el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [t('animal.filter.all') || 'All']),
+      el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '4px' } }, [
+        t('animal.filterAllHint') || 'All active animals',
+      ]),
+    ]));
+
     for (const g of groups) {
-      const isActive = selectedFilter === g.id;
-      chipsEl.appendChild(el('span', {
-        className: `agc-chip${isActive ? ' active' : ''}`,
-        onClick: () => { selectedFilter = isActive ? null : g.id; renderAll(); },
-      }, [
-        el('span', { className: 'agc-dot', style: { background: g.color || 'var(--green)' } }),
-        g.name,
-      ]));
+      groupsRow.appendChild(buildLiveGroupFilterCard(g));
     }
 
-    // OI-0164: Culls (N) chip — terminal pill, hidden when N === 0.
     if (cullCount > 0) {
-      const isCulls = selectedFilter === '__culls';
-      chipsEl.appendChild(el('span', {
-        className: `agc-chip agc-chip-culls${isCulls ? ' active' : ''}`,
+      groupsRow.appendChild(el('div', {
+        className: `groups-grid-tile animals-filter-tile-culls agc-chip-culls${cullsSelected ? ' groups-grid-tile--selected active' : ''}`,
         'data-testid': 'animals-chip-culls',
-        onClick: () => { selectedFilter = isCulls ? null : '__culls'; renderAll(); },
+        onClick: () => {
+          cullsSelected = !cullsSelected;
+          if (cullsSelected) selectedGroupIds = new Set();
+          pruneChildFilters();
+          renderAll();
+        },
       }, [
-        el('span', { className: 'agc-dot' }),
-        `${t('animal.cullsChip') || 'Culls'} (${cullCount})`,
+        el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [
+          `${t('animal.cullsChip') || 'Culls'} (${cullCount})`,
+        ]),
+        el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '4px' } }, [
+          t('animal.filterCullsHint') || 'Culled animals only',
+        ]),
       ]));
     }
-    filterWrap.appendChild(chipsEl);
+    filterWrap.appendChild(groupsRow);
 
-    // Class pills (multi-select OR) — every non-archived animal_classes row.
-    const classList = getAll('animalClasses').filter(c => !c.archived);
+    const groupPool = animalsAfterGroupsFilter();
+    const speciesKeys = distinctSpeciesInPool(groupPool);
+    const speciesPool = animalsAfterSpeciesFilter(groupPool);
+    const classList = classesWithAnimalsInPool(speciesPool);
+    const classPool = animalsAfterClassFilter(speciesPool);
+    const showStatus = poolHasFemale(classPool);
+
+    // Row 2 — Species chips (R4)
+    const speciesChips = el('div', {
+      className: 'agc-chips agc-chips-scroll',
+      'data-testid': 'animals-species-chips',
+    });
+    const speciesAllOn = selectedSpecies.size === 0;
+    speciesChips.appendChild(el('span', {
+      className: `agc-chip${speciesAllOn ? ' active' : ''}`,
+      'data-testid': 'animals-chip-species-all',
+      onClick: () => {
+        selectedSpecies = new Set();
+        pruneChildFilters();
+        renderAll();
+      },
+    }, [t('animal.filter.all') || 'All']));
+    for (const sp of speciesKeys) {
+      const isOn = selectedSpecies.has(sp);
+      speciesChips.appendChild(el('span', {
+        className: `agc-chip${isOn ? ' active' : ''}`,
+        'data-testid': `animals-chip-species-${sp}`,
+        onClick: () => {
+          if (isOn) selectedSpecies.delete(sp);
+          else selectedSpecies.add(sp);
+          pruneChildFilters();
+          renderAll();
+        },
+      }, [t(`animal.species.${sp}`) || sp]));
+    }
+    filterWrap.appendChild(speciesChips);
+
+    // Row 3 — Class chips (R5; only classes with animals in Groups+Species pool)
     if (classList.length) {
-      const classChips = el('div', { className: 'agc-chips agc-chips-secondary', 'data-testid': 'animals-class-chips' });
+      const classChips = el('div', {
+        className: 'agc-chips agc-chips-scroll agc-chips-secondary',
+        'data-testid': 'animals-class-chips',
+      });
       for (const cls of classList) {
         const isOn = selectedClassIds.has(cls.id);
         classChips.appendChild(el('span', {
@@ -137,6 +361,7 @@ export function renderAnimalsScreen(container) {
           onClick: () => {
             if (isOn) selectedClassIds.delete(cls.id);
             else selectedClassIds.add(cls.id);
+            pruneChildFilters();
             renderAll();
           },
         }, [cls.name]));
@@ -144,35 +369,61 @@ export function renderAnimalsScreen(container) {
       filterWrap.appendChild(classChips);
     }
 
-    // Status pills — Open / Confirmed bred (mutually exclusive).
-    const statusChips = el('div', { className: 'agc-chips agc-chips-secondary', 'data-testid': 'animals-status-chips' });
-    const openOn = selectedStatus === 'open';
-    const bredOn = selectedStatus === 'confirmed_bred';
-    statusChips.appendChild(el('span', {
-      className: `agc-chip${openOn ? ' active' : ''}`,
-      'data-testid': 'animals-chip-status-open',
-      onClick: () => { selectedStatus = openOn ? null : 'open'; renderAll(); },
-    }, [t('animal.filterOpen') || 'Open']));
-    statusChips.appendChild(el('span', {
-      className: `agc-chip${bredOn ? ' active' : ''}`,
-      'data-testid': 'animals-chip-status-confirmed-bred',
-      onClick: () => { selectedStatus = bredOn ? null : 'confirmed_bred'; renderAll(); },
-    }, [t('animal.filterConfirmedBred') || 'Confirmed bred']));
-    filterWrap.appendChild(statusChips);
+    // Row 4 — Open / Confirmed bred (multi OR; R1 female gate; supersedes F1)
+    if (showStatus) {
+      const statusChips = el('div', {
+        className: 'agc-chips agc-chips-scroll agc-chips-secondary',
+        'data-testid': 'animals-status-chips',
+      });
+      const openOn = selectedStatuses.has('open');
+      const bredOn = selectedStatuses.has('confirmed_bred');
+      statusChips.appendChild(el('span', {
+        className: `agc-chip${openOn ? ' active' : ''}`,
+        'data-testid': 'animals-chip-status-open',
+        onClick: () => {
+          if (openOn) selectedStatuses.delete('open');
+          else selectedStatuses.add('open');
+          renderAll();
+        },
+      }, [t('animal.filterOpen') || 'Open']));
+      statusChips.appendChild(el('span', {
+        className: `agc-chip${bredOn ? ' active' : ''}`,
+        'data-testid': 'animals-chip-status-confirmed-bred',
+        onClick: () => {
+          if (bredOn) selectedStatuses.delete('confirmed_bred');
+          else selectedStatuses.add('confirmed_bred');
+          renderAll();
+        },
+      }, [t('animal.filterConfirmedBred') || 'Confirmed bred']));
+      filterWrap.appendChild(statusChips);
+    }
 
-    // Search bar
+    // Search + Reset + Clear search (R8)
     const searchInput = el('input', {
       type: 'search', placeholder: t('animal.searchPlaceholder') || 'Search by tag, EID, class…',
       value: searchQuery,
+      'data-testid': 'animals-search-input',
       style: { width: '100%', padding: '9px 32px 9px 12px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', boxSizing: 'border-box' },
     });
     searchInput.addEventListener('input', () => { searchQuery = searchInput.value; renderAnimalList(); });
     filterWrap.appendChild(el('div', { style: { position: 'relative' } }, [searchInput]));
 
-    // OI-0164: + Add animal action — re-anchored as a single right-aligned button
-    // row below the search bar. The legacy cull-visibility checkbox is gone; the
-    // Culls pill above is the new exclusive lifecycle filter.
-    filterWrap.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '7px' } }, [
+    filterWrap.appendChild(el('div', {
+      className: 'animals-filter-actions',
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: '7px', flexWrap: 'wrap' },
+    }, [
+      el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
+        el('button', {
+          className: 'btn btn-outline btn-xs',
+          'data-testid': 'animals-filter-reset',
+          onClick: () => { resetFilterRows(); renderAll(); },
+        }, [t('animal.filterReset') || 'Reset']),
+        el('button', {
+          className: 'btn btn-outline btn-xs',
+          'data-testid': 'animals-filter-clear-search',
+          onClick: () => { searchQuery = ''; renderAll(); },
+        }, [t('animal.filterClearSearch') || 'Clear search']),
+      ]),
       el('button', {
         className: 'btn btn-green btn-xs', style: { whiteSpace: 'nowrap' },
         onClick: () => openAnimalSheet(null, operationId, farmId),
@@ -192,7 +443,6 @@ export function renderAnimalsScreen(container) {
     const allGroups = getAll('groups');
     const groups = allGroups.filter(g => !g.archivedAt);
     const archived = allGroups.filter(g => g.archivedAt);
-    const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
 
     // Header — Groups title, Show archived toggle, + Add group
     const header = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px', flexWrap: 'wrap' } }, [
@@ -214,88 +464,9 @@ export function renderAnimalsScreen(container) {
     ]);
     groupsCard.appendChild(header);
 
-    // OI-0164: 2-column tile grid at all viewports (≥ 320px). Recovers the
-    // wasted horizontal space the legacy single-column row layout left on phone.
-    // The active-group `×` delete affordance is gone — Edit → Archive (default)
-    // or Edit → Delete (gated, see openGroupSheet) is the only path.
-    const grid = el('div', { className: 'groups-grid', 'data-testid': 'groups-grid' });
-    for (const g of groups) {
-      const animals = getAll('animals');
-      const groupAnimalIds = new Set(memberships.filter(m => m.groupId === g.id).map(m => m.animalId));
-      const groupAnimals = animals.filter(a => groupAnimalIds.has(a.id));
-      const headCount = groupAnimals.reduce((sum, a) => sum + animalHeadCount(a), 0);
+    // Active group cards live in the Groups filter row (animals-groups-filter).
+    // Lower 2-column active grid removed — not duplicated here.
 
-      // Sex breakdown counts head, so a composite contributes its bulk head count.
-      let females = 0;
-      let males = 0;
-      for (const a of groupAnimals) {
-        const heads = animalHeadCount(a);
-        if (a.sex === 'female') females += heads;
-        else if (a.sex === 'male') males += heads;
-      }
-      const sexLine = [females > 0 ? `${females} female` : null, males > 0 ? `${males} male` : null].filter(Boolean).join(', ');
-
-      // Weight + DMI. Composite weight records are the lot total; class default is per head.
-      const weightRecords = getAll('animalWeightRecords');
-      const classes = getAll('animalClasses');
-      let totalWeightKg = 0;
-      for (const a of groupAnimals) {
-        const latestW = latestWeightForAnimal(weightRecords, a.id);
-        const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
-        if (a.isBulk === true) {
-          const heads = animalHeadCount(a);
-          totalWeightKg += latestW?.weightKg ?? ((cls?.defaultWeightKg ?? 0) * heads);
-        } else {
-          totalWeightKg += latestW?.weightKg ?? cls?.defaultWeightKg ?? 0;
-        }
-      }
-      const avgWeightDisplay = headCount > 0 ? display(totalWeightKg / headCount, 'weight', unitSys, 0) : '—';
-      const dmiKg = totalWeightKg * 0.025;
-      const dmiDisplay = display(dmiKg, 'weight', unitSys, 0);
-
-      // Status badge — OI-0205 shared current-placement resolver
-      const placement = resolveGroupCurrentPlacement(g.id);
-      const isPlaced = placement.placed;
-      const locName = placement.displayName;
-
-      const isFiltered = selectedFilter === g.id;
-
-      // OI-0164: 2-column tile (no `\u00D7` delete affordance \u2014 Edit \u2192 Archive/Delete is the only path).
-      const tile = el('div', {
-        className: `groups-grid-tile${isFiltered ? ' groups-grid-tile--selected' : ''}`,
-        'data-testid': `group-tile-${g.id}`,
-        style: { borderLeft: `3px solid ${g.color || 'var(--green)'}` },
-        onClick: () => { selectedFilter = isFiltered ? null : g.id; renderAll(); },
-      }, [
-        el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [
-          g.name, ' ',
-          isPlaced
-            ? el('span', { className: 'badge bt' }, [`active \u00B7 ${locName}`])
-            : el('span', { className: 'badge bb' }, ['unplaced']),
-        ]),
-        sexLine ? el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginTop: '2px' } }, [sexLine]) : null,
-        el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
-          `${headCount} head \u00B7 avg ${avgWeightDisplay} \u00B7 DMI target ${dmiDisplay}/day`,
-        ]),
-        el('div', {
-          style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' },
-          onClick: (e) => e.stopPropagation(),
-        }, [
-          el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupSheet(g, operationId) }, ['Edit']),
-          isPlaced ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSplitGroupSheet(g, operationId) }, ['Split']) : null,
-          el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupWeightsSheet(g, operationId) }, ['Weights']),
-          livingCompositesInGroup(g.id).length
-            ? el('button', {
-              className: 'btn btn-outline btn-xs',
-              'data-testid': `group-cull-${g.id}`,
-              onClick: () => openCullFromGroupCard(g, operationId),
-            }, [t('animal.cullGroupCard') || 'Cull'])
-            : null,
-        ].filter(Boolean)),
-      ].filter(Boolean));
-      grid.appendChild(tile);
-    }
-    if (groups.length) groupsCard.appendChild(grid);
 
     if (!groups.length) {
       groupsCard.appendChild(el('div', { className: 'empty' }, ['No groups yet. Add one to organize your herd.']));
@@ -360,37 +531,24 @@ export function renderAnimalsScreen(container) {
     const scrollTop = animalListWrap.scrollTop;
     clear(animalListWrap);
 
-    const allAnimals = getAll('animals');
     const memberships = getAll('animalGroupMemberships').filter(m => !m.dateLeft);
     const classes = getAll('animalClasses');
     const groups = getAll('groups');
     const weightRecords = getAll('animalWeightRecords');
 
-    // OI-0164: lifecycle filter is mutually exclusive — All (active only),
-    // Culls (culled only, no group filter), or a specific group (active in that
-    // group only). The 0.5-opacity styling on culled rows below is now visual
-    // confirmation inside the Culls view, not a way to dim mixed-in rows.
-    let filtered = allAnimals;
-    if (selectedFilter === '__culls') {
-      filtered = filtered.filter(a => a.active === false);
-    } else if (selectedFilter) {
-      filtered = filtered.filter(a => a.active !== false);
-      const groupAnimalIds = new Set(memberships.filter(m => m.groupId === selectedFilter).map(m => m.animalId));
-      filtered = filtered.filter(a => groupAnimalIds.has(a.id));
-    } else {
-      filtered = filtered.filter(a => a.active !== false);
-    }
+    // Cascade: groups → species → class → status → search.
+    let filtered = animalsAfterGroupsFilter();
+    filtered = animalsAfterSpeciesFilter(filtered);
+    filtered = animalsAfterClassFilter(filtered);
 
-    // Class multi-select (OR). Inactive when none selected.
-    if (selectedClassIds.size > 0) {
-      filtered = filtered.filter(a => a.classId && selectedClassIds.has(a.classId));
-    }
-
-    // Status (AND with lifecycle + class). Open = confirmedBred not true.
-    if (selectedStatus === 'open') {
-      filtered = filtered.filter(a => a.confirmedBred !== true);
-    } else if (selectedStatus === 'confirmed_bred') {
-      filtered = filtered.filter(a => a.confirmedBred === true);
+    // Status multi-select OR. Inactive when none selected.
+    if (selectedStatuses.size > 0) {
+      filtered = filtered.filter(a => {
+        const isBred = a.confirmedBred === true;
+        if (selectedStatuses.has('confirmed_bred') && isBred) return true;
+        if (selectedStatuses.has('open') && !isBred) return true;
+        return false;
+      });
     }
 
     if (searchQuery) {

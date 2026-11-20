@@ -18,7 +18,7 @@ function ensureSheet() {
   if (!wrap) {
     wrap = el('div', { className: 'sheet-wrap', id: 'voice-log-sheet-wrap', style: { zIndex: '216' } }, [
       el('div', { className: 'sheet-backdrop' }),
-      el('div', { className: 'sheet-panel', id: 'voice-log-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+      el('div', { className: 'sheet-panel', id: 'voice-log-sheet-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
     ]);
     document.body.appendChild(wrap);
   }

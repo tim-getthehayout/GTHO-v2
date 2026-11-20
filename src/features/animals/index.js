@@ -905,7 +905,7 @@ function openSplitGroupSheet(group, operationId) {
   if (!document.getElementById(wrapId)) {
     document.body.appendChild(el('div', { className: 'sheet-wrap', id: wrapId, style: { zIndex: '210' } }, [
       el('div', { className: 'sheet-backdrop', onClick: () => splitSheet?.close() }),
-      el('div', { className: 'sheet-panel', id: 'split-sheet-panel', style: { maxHeight: '92vh', overflowY: 'auto' } }),
+      el('div', { className: 'sheet-panel', id: 'split-sheet-panel', style: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' } }),
     ]));
   }
   let splitSheet = new Sheet(wrapId);
@@ -1340,7 +1340,7 @@ function ensureClassesSheetDOM() {
   if (document.getElementById('manage-classes-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'manage-classes-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => classSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'manage-classes-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'manage-classes-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 
@@ -1579,7 +1579,7 @@ function openTreatmentsManager(operationId) {
   if (!document.getElementById(wrapId)) {
     document.body.appendChild(el('div', { className: 'sheet-wrap', id: wrapId, style: { zIndex: '210' } }, [
       el('div', { className: 'sheet-backdrop', onClick: () => treatSheet?.close() }),
-      el('div', { className: 'sheet-panel', id: 'manage-treatments-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+      el('div', { className: 'sheet-panel', id: 'manage-treatments-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
     ]));
   }
   let treatSheet = new Sheet(wrapId);
@@ -1647,7 +1647,7 @@ function openAISiresManager(operationId) {
   if (!document.getElementById(wrapId)) {
     document.body.appendChild(el('div', { className: 'sheet-wrap', id: wrapId, style: { zIndex: '210' } }, [
       el('div', { className: 'sheet-backdrop', onClick: () => siresSheet?.close() }),
-      el('div', { className: 'sheet-panel', id: 'manage-ai-bulls-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+      el('div', { className: 'sheet-panel', id: 'manage-ai-bulls-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
     ]));
   }
   let siresSheet = new Sheet(wrapId);
@@ -1804,7 +1804,7 @@ function ensureAnimalSheetDOM() {
   if (document.getElementById('ae-sheet-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'ae-sheet-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => animalSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'ae-sheet-panel', style: { maxHeight: '92vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'ae-sheet-panel', style: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' } }),
   ]));
 }
 
@@ -2365,7 +2365,10 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
       panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)' } }, ['No treatments recorded']));
     }
 
-    // ── Cull section ──
+  }
+
+  // ── Cull section (individuals and composites) ──
+  if (isEdit) {
     panel.appendChild(el('div', { style: { marginTop: '10px' } }));
     if (existingAnimal.active === false) {
       panel.appendChild(buildCulledBanner(existingAnimal, () => animalSheet.close()));

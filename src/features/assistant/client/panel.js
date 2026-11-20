@@ -50,7 +50,7 @@ function ensureSheet() {
   if (!wrap) {
     wrap = el('div', { className: 'sheet-wrap', id: 'assistant-sheet-wrap', style: { zIndex: '215' } }, [
       el('div', { className: 'sheet-backdrop' }),
-      el('div', { className: 'sheet-panel', id: 'assistant-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+      el('div', { className: 'sheet-panel', id: 'assistant-sheet-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
     ]);
     document.body.appendChild(wrap);
   }

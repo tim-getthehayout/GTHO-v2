@@ -103,7 +103,7 @@ function ensureHarvestSheetDOM() {
   if (document.getElementById('harvest-sheet-wrap')) return;
   document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'harvest-sheet-wrap', style: { zIndex: '210' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => harvestSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'harvest-sheet-panel', style: { maxHeight: '90vh', overflowY: 'auto' } }),
+    el('div', { className: 'sheet-panel', id: 'harvest-sheet-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
 }
 

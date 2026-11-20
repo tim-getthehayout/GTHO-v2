@@ -59,7 +59,7 @@ function ensureSheetDOM() {
     el('div', {
       className: 'sheet-panel',
       id: 'event-detail-sheet-panel',
-      style: { maxWidth: '720px', margin: '0 auto', overflowY: 'auto', maxHeight: '100vh' },
+      style: { maxWidth: '720px', margin: '0 auto', overflowY: 'auto', maxHeight: 'min(100dvh, 100vh)' },
     }),
   ]));
 }

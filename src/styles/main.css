@@ -291,8 +291,11 @@ textarea::placeholder {
   border-radius: var(--radius-xl);
   padding: 16px 16px 24px;
   width: min(92vw, 680px);
-  max-height: 90vh;
+  max-height: min(90dvh, 90vh);
+  min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   box-shadow: var(--shadow-lg);
 }
 
@@ -1669,7 +1672,8 @@ body.field-mode .auth-overlay .header-build-stamp {
 /* Field mode: full-screen sheets on mobile */
 body.field-mode .sheet-panel {
   border-radius: 0;
-  max-height: 100vh;
+  max-height: min(100dvh, 100vh);
+  min-height: 0;
   max-width: 100%;
 }
 body.field-mode .dsk-sidebar { display: none !important; }

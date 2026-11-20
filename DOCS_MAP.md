@@ -45,7 +45,7 @@ Abbreviations: **ARCH** = `V2_APP_ARCHITECTURE.md`, **INFRA** = `V2_INFRASTRUCTU
 
 | Code area | Docs | Briefs |
 |---|---|---|
-| `animals/` (incl. Edit Animal, group weights, `calving-sync.js`) | UX §3.3, §14, §15.0–§15.2; DS §4.2; SCHEMA Domain 3, 9 | `FORM_ENTRY_AUDIT_2026-11-10.md`, `SESSION_BRIEF_2026-11-06_composite-bulk-animals.md`, `CONFIRMED_BRED_DATE_2026-11-18.md` (OI-0232), `CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md` (OI-0234), `ANIMALS_MULTI_FILTERS_2026-11-19.md` (OI-0235), `ANIMALS_FILTER_CASCADE_2026-11-20.md` (OI-0236) |
+| `animals/` (incl. Edit Animal, group weights, `calving-sync.js`) | UX §3.3, §14, §15.0–§15.2; DS §4.2; SCHEMA Domain 3, 9 | `FORM_ENTRY_AUDIT_2026-11-10.md`, `SESSION_BRIEF_2026-11-06_composite-bulk-animals.md`, `CONFIRMED_BRED_DATE_2026-11-18.md` (OI-0232), `CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md` (OI-0234), `ANIMALS_MULTI_FILTERS_2026-11-19.md` (OI-0235), `ANIMALS_FILTER_CASCADE_2026-11-20.md` (OI-0236), `BULK_GROUP_CULL_2026-11-20.md` (OI-0237) |
 | `health/` | UX §14.1–§14.10; DS §7.4–§7.6; SCHEMA Domain 9 | `FORM_ENTRY_AUDIT_2026-11-10.md` |
 | `events/` (move wizard, close, sub-move, retro-place, edits, rotation calendar, list view) | UX §1, §2, §3, §6, §9, §11, §17.15, §17.15.1, §19; ARCH §4.4, §4.4b, §4.5; DS §4.3 | `WINDOW_INTEGRITY_2026-11-17.md` |
 | `feed/` (delivery, feed check, pools, batches, transfers) | UX §4, §5, §6, §12, §13; DS §4.5; CALC §4.6 | `FEED_CHECK_PLAUSIBILITY_2026-11-17.md`, feed-batch and feed-day-goal briefs (2026-11-03/04) |

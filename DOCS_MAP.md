@@ -45,7 +45,7 @@ Abbreviations: **ARCH** = `V2_APP_ARCHITECTURE.md`, **INFRA** = `V2_INFRASTRUCTU
 
 | Code area | Docs | Briefs |
 |---|---|---|
-| `animals/` (incl. Edit Animal, group weights, `calving-sync.js`) | UX §3.3, §14, §15.0–§15.2; DS §4.2; SCHEMA Domain 3, 9 | `FORM_ENTRY_AUDIT_2026-11-10.md`, `SESSION_BRIEF_2026-11-06_composite-bulk-animals.md`, `CONFIRMED_BRED_DATE_2026-11-18.md` (OI-0232), `CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md` (OI-0234), `ANIMALS_MULTI_FILTERS_2026-11-19.md` (OI-0235), `ANIMALS_FILTER_CASCADE_2026-11-20.md` (OI-0236), `BULK_GROUP_CULL_2026-11-20.md` (OI-0237) |
+| `animals/` (incl. Edit Animal, group weights, `calving-sync.js`) | UX §3.3, §14, §15.0–§15.2; DS §4.2; SCHEMA Domain 3, 9 | `FORM_ENTRY_AUDIT_2026-11-10.md`, `SESSION_BRIEF_2026-11-06_composite-bulk-animals.md`, `CONFIRMED_BRED_DATE_2026-11-18.md` (OI-0232), `CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md` (OI-0234), `ANIMALS_MULTI_FILTERS_2026-11-19.md` (OI-0235), `ANIMALS_FILTER_CASCADE_2026-11-20.md` (OI-0236), `BULK_GROUP_CULL_2026-11-20.md` (OI-0237), `IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md` (OI-0239 Edit Animal Cull outside `!isBulk`) |
 | `health/` | UX §14.1–§14.10; DS §7.4–§7.6; SCHEMA Domain 9 | `FORM_ENTRY_AUDIT_2026-11-10.md` |
 | `events/` (move wizard, close, sub-move, retro-place, edits, rotation calendar, list view) | UX §1, §2, §3, §6, §9, §11, §17.15, §17.15.1, §19; ARCH §4.4, §4.4b, §4.5; DS §4.3 | `WINDOW_INTEGRITY_2026-11-17.md` |
 | `feed/` (delivery, feed check, pools, batches, transfers) | UX §4, §5, §6, §12, §13; DS §4.5; CALC §4.6 | `FEED_CHECK_PLAUSIBILITY_2026-11-17.md`, feed-batch and feed-day-goal briefs (2026-11-03/04) |
@@ -71,9 +71,9 @@ Abbreviations: **ARCH** = `V2_APP_ARCHITECTURE.md`, **INFRA** = `V2_INFRASTRUCTU
 |---|---|
 | `src/main.js` (boot, routes, sync triggers) | ARCH §6.3, §5.2 (flush triggers) |
 | `src/ui/header.js` (sync indicator, user menu, build stamp) | UX §17.2; DS §3.14; INFRA §9 |
-| `src/ui/dom.js`, `sheet.js`, `router.js`, `toast.js` | ARCH §6.1–§6.4; DS §3 |
+| `src/ui/dom.js`, `sheet.js`, `router.js`, `toast.js` | ARCH §6.1–§6.4; DS §3; brief `IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md` (OI-0239 Sheet body scroll-lock / iOS overflow) |
 | `src/ui/dmi-chart.js`, `explicit-observation-time.js`, `build-stamp.js` | CALC §4.2 (charts); AGENTS.md "Delivery gate" (build stamp) |
-| `src/styles/main.css` | DS §1, §2, §3, §5.4 |
+| `src/styles/main.css` | DS §1, §2, §3, §5.4; brief `IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md` (OI-0239 `.sheet-panel` dvh / webkit overflow / overscroll) |
 | `src/i18n/` | INFRA §2; DS §5.3 |
 | `src/pwa/` | INFRA §7.3; brief `SESSION_BRIEF_2026-10-04_pwa-update-prompt.md` |
 | `src/utils/date-*.js`, `preferences.js`, `validators.js`, `form-values.js`, `geo*.js` | ARCH §1.4, §3; brief `SESSION_BRIEF_2026-11-08_oi-0189-local-today.md` (dates) |

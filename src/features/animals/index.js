@@ -26,6 +26,15 @@ import { maybeShowEmptyGroupPrompt, groupEventHistoryCount } from './empty-group
 import { showToast } from '../../ui/toast.js';
 import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpers.js';
 import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
+import {
+  validateHeadsToSplit,
+  suggestSplitGroupName,
+  confirmCompositeHeadSplit,
+  undoCompositeSplit,
+  showSplitUndoToast,
+  splitWindowsForGroups,
+  clearSplitUndo,
+} from './split-heads.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { localFormTimestamp, optionalFormNumber } from '../../utils/form-values.js';
@@ -911,28 +920,65 @@ function openSplitGroupSheet(group, operationId) {
   const locName = splitPlacement.placed ? splitPlacement.displayName : '';
 
   const splitAnimals = new Set();
+  /** @type {Map<string, number>} heads to peel when a composite is selected (default = full H) */
+  const compositeHeads = new Map();
   let destType = 'new';
   let newGroupColor = colors[1];
   let newGroupName = '';
+  let nameTouched = false;
 
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '2px' } }, ['Split group']));
   const splitHead = memberships.reduce((sum, m) => sum + animalHeadCount(allAnimals.find(a => a.id === m.animalId)), 0);
   panel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '14px' } }, [`${group.name} \u00B7 ${splitHead} head${locName ? ` \u00B7 at ${locName}` : ''}`]));
 
-  // Date/time
-  const dateInput = el('input', { type: 'date', value: todayStr });
-  const timeInput = el('input', { type: 'time' });
+  // Date/time — date required (S4); default today
+  const dateInput = el('input', { type: 'date', value: todayStr, required: 'true', 'data-testid': 'split-date' });
+  const timeInput = el('input', { type: 'time', 'data-testid': 'split-time' });
   panel.appendChild(el('div', { className: 'two', style: { marginBottom: '12px' } }, [
     el('div', { className: 'field' }, [el('label', {}, ['Split date']), dateInput]),
     el('div', { className: 'field' }, [el('label', {}, ['Time ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, ['optional'])]), timeInput]),
   ]));
 
+  // Optional notes (S4 — no cull reason)
+  const notesInput = el('textarea', {
+    rows: '2',
+    placeholder: t('animal.splitNotesPlaceholder'),
+    'data-testid': 'split-notes',
+    style: { width: '100%', marginBottom: '12px' },
+  });
+  panel.appendChild(el('div', { className: 'field', style: { marginBottom: '12px' } }, [
+    el('label', {}, [t('animal.splitNotes'), ' ', el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, [t('animal.splitNotesOptional')])]),
+    notesInput,
+  ]));
+
   // Animal picker
   panel.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '6px' } }, ['Animals to split off']));
-  panel.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginBottom: '8px' } }, ['Tap to select individual animals.']));
+  panel.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginBottom: '8px' } }, [
+    t('animal.splitPickerHint'),
+  ]));
 
-  const pickerEl = el('div', { style: { maxHeight: '200px', overflowY: 'auto', marginBottom: '12px' } });
+  const pickerEl = el('div', { style: { maxHeight: '220px', overflowY: 'auto', marginBottom: '12px' }, 'data-testid': 'split-animal-picker' });
   const previewEl = el('div');
+
+  function headsForSelection(animal) {
+    if (!animal) return 0;
+    if (animal.isBulk) {
+      const H = animalHeadCount(animal);
+      if (compositeHeads.has(animal.id)) return compositeHeads.get(animal.id);
+      return H;
+    }
+    return 1;
+  }
+
+  function maybeSuggestDestName() {
+    if (nameTouched || destType !== 'new') return;
+    const suggested = suggestSplitGroupName(group.name);
+    if (!newNameInput.value.trim() || newNameInput.value === newGroupName) {
+      newNameInput.value = suggested;
+      newGroupName = suggested;
+      renderPreview();
+    }
+  }
 
   function renderSplitPicker() {
     clear(pickerEl);
@@ -943,29 +989,89 @@ function openSplitGroupSheet(group, operationId) {
       const cls = a.classId ? classes.find(c => c.id === a.classId) : null;
       const latestW = latestWeightForAnimal(weightRecords, a.id);
       const wStr = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '';
+      const H = animalHeadCount(a);
 
-      pickerEl.appendChild(el('div', {
-        style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: isPicked ? 'var(--green-l)' : 'var(--bg2)', borderRadius: 'var(--radius)', marginBottom: '4px', cursor: 'pointer', border: `0.5px solid ${isPicked ? 'var(--green-l2)' : 'var(--border)'}` },
-        onClick: () => { if (isPicked) splitAnimals.delete(a.id); else splitAnimals.add(a.id); renderSplitPicker(); renderPreview(); },
-      }, [
+      const rowKids = [
         el('div', { style: { width: '16px', height: '16px', borderRadius: '50%', border: `1.5px solid ${isPicked ? 'var(--green)' : 'var(--border2)'}`, background: isPicked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' } },
           isPicked ? [el('svg', { width: '10', height: '10', viewBox: '0 0 12 12', fill: 'none' }, [el('polyline', { points: '2,6 5,9 10,3', stroke: 'white', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })])] : []),
         el('div', { style: { flex: '1', fontSize: '13px' } }, [
-          el('strong', {}, [a.isBulk ? `${a.name || 'Composite'} (${animalHeadCount(a)} head)` : (a.tagNum || a.name || `A-${a.id.slice(0, 5)}`)]),
+          el('strong', {}, [a.isBulk ? `${a.name || 'Composite'} (${H} head)` : (a.tagNum || a.name || `A-${a.id.slice(0, 5)}`)]),
           ' ',
           el('span', { style: { color: 'var(--text2)', fontSize: '11px' } }, [[a.sex, cls?.name, wStr].filter(Boolean).join(' \u00B7 ')]),
         ]),
-      ]));
+      ];
+
+      pickerEl.appendChild(el('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: isPicked ? 'var(--green-l)' : 'var(--bg2)', borderRadius: 'var(--radius)', marginBottom: '4px', cursor: 'pointer', border: `0.5px solid ${isPicked ? 'var(--green-l2)' : 'var(--border)'}` },
+        'data-testid': `split-pick-${a.id}`,
+        onClick: () => {
+          if (isPicked) {
+            splitAnimals.delete(a.id);
+            compositeHeads.delete(a.id);
+          } else {
+            splitAnimals.add(a.id);
+            if (a.isBulk) compositeHeads.set(a.id, H);
+            maybeSuggestDestName();
+          }
+          renderSplitPicker();
+          renderPreview();
+        },
+      }, rowKids));
+
+      // Heads-to-split control for selected composites (S2)
+      if (isPicked && a.isBulk) {
+        const headsVal = compositeHeads.has(a.id) ? compositeHeads.get(a.id) : H;
+        const headsInput = el('input', {
+          type: 'number',
+          min: '1',
+          max: String(H),
+          step: '1',
+          value: String(headsVal),
+          'data-testid': `split-heads-${a.id}`,
+          style: { width: '72px' },
+        });
+        headsInput.addEventListener('click', (e) => e.stopPropagation());
+        headsInput.addEventListener('input', (e) => {
+          e.stopPropagation();
+          const raw = headsInput.value;
+          const n = Number(raw);
+          if (Number.isInteger(n) && n >= 1 && n <= H) {
+            compositeHeads.set(a.id, n);
+            renderPreview();
+          }
+        });
+        pickerEl.appendChild(el('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px 10px 32px', marginBottom: '4px' },
+          'data-testid': `split-heads-row-${a.id}`,
+          onClick: (e) => e.stopPropagation(),
+        }, [
+          el('label', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('animal.splitHeads')]),
+          headsInput,
+          el('span', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('animal.splitHeadsHint', { max: H })]),
+        ]));
+      }
     }
   }
 
   function renderPreview() {
     clear(previewEl);
     if (!splitAnimals.size) return;
-    const headOf = (id) => animalHeadCount(allAnimals.find(a => a.id === id));
-    const splitHeadCount = [...splitAnimals].reduce((sum, id) => sum + headOf(id), 0);
-    const remaining = memberships.reduce((sum, m) => sum + headOf(m.animalId), 0) - splitHeadCount;
-    previewEl.appendChild(el('div', { className: 'card-inset', style: { marginTop: '12px' } }, [
+    let splitHeadCount = 0;
+    let remaining = memberships.reduce((sum, m) => sum + animalHeadCount(allAnimals.find(a => a.id === m.animalId)), 0);
+    for (const id of splitAnimals) {
+      const a = allAnimals.find(x => x.id === id);
+      const n = headsForSelection(a);
+      splitHeadCount += n;
+      // For partial composite peel, remaining keeps (H−N) on source rather than removing whole H
+      if (a?.isBulk) {
+        const H = animalHeadCount(a);
+        remaining -= n; // peel N off the total
+        void H;
+      } else {
+        remaining -= 1;
+      }
+    }
+    previewEl.appendChild(el('div', { className: 'card-inset', style: { marginTop: '12px' }, 'data-testid': 'split-preview' }, [
       el('div', { style: { fontSize: '12px', fontWeight: '600', marginBottom: '6px', color: 'var(--text2)' } }, ['After split']),
       el('div', { style: { padding: '8px 10px', background: 'var(--bg2)', borderRadius: 'var(--radius)', borderLeft: `3px solid ${group.color || '#639922'}` } }, [
         el('div', { style: { fontSize: '12px', fontWeight: '600' } }, [`${group.name} (remaining)`]),
@@ -991,12 +1097,13 @@ function openSplitGroupSheet(group, operationId) {
   function renderDestRadios() {
     clear(destRadios);
     for (const [val, label] of [['new', 'New group'], ['existing', 'Existing group']]) {
-      const radio = el('input', { type: 'radio', name: 'split-dest', value: val, style: { accentColor: 'var(--green)' } });
+      const radio = el('input', { type: 'radio', name: 'split-dest', value: val, style: { accentColor: 'var(--green)' }, 'data-testid': `split-dest-${val}` });
       if (val === destType) radio.checked = true;
       radio.addEventListener('change', () => {
         destType = val;
         newFields.style.display = val === 'new' ? 'block' : 'none';
         existingFields.style.display = val === 'existing' ? 'block' : 'none';
+        if (val === 'new') maybeSuggestDestName();
         renderPreview();
       });
       destRadios.appendChild(el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer' } }, [radio, el('span', { style: { fontSize: '13px' } }, [label])]));
@@ -1006,9 +1113,13 @@ function openSplitGroupSheet(group, operationId) {
   panel.appendChild(destRadios);
 
   // New group fields
-  const newNameInput = el('input', { type: 'text', placeholder: 'e.g. Dry cows, Yearlings…' });
-  newNameInput.addEventListener('input', () => { newGroupName = newNameInput.value; renderPreview(); });
-  const newColorPicker = el('div', { style: { display: 'flex', gap: '8px', marginTop: '4px' } });
+  const newNameInput = el('input', { type: 'text', placeholder: 'e.g. Dry cows, Yearlings…', 'data-testid': 'split-new-group-name' });
+  newNameInput.addEventListener('input', () => {
+    nameTouched = true;
+    newGroupName = newNameInput.value;
+    renderPreview();
+  });
+  const newColorPicker = el('div', { style: { display: 'flex', gap: '8px', marginTop: '4px' }, 'data-testid': 'split-new-group-color' });
   function renderNewColorPicker() {
     clear(newColorPicker);
     for (const c of colors) {
@@ -1020,7 +1131,7 @@ function openSplitGroupSheet(group, operationId) {
   }
   renderNewColorPicker();
 
-  const placementSelect = el('select', {}, [
+  const placementSelect = el('select', { 'data-testid': 'split-placement' }, [
     el('option', { value: 'same' }, ['Same location as source group']),
     el('option', { value: 'unplaced' }, ['Unplaced \u2014 place later via Move']),
   ]);
@@ -1033,7 +1144,7 @@ function openSplitGroupSheet(group, operationId) {
   panel.appendChild(newFields);
 
   // Existing group fields
-  const existGroupSelect = el('select', {}, [
+  const existGroupSelect = el('select', { 'data-testid': 'split-existing-group' }, [
     el('option', { value: '' }, ['\u2014 select group \u2014']),
     ...groups.map(g => el('option', { value: g.id }, [g.name])),
   ]);
@@ -1042,51 +1153,174 @@ function openSplitGroupSheet(group, operationId) {
 
   panel.appendChild(previewEl);
 
-  const statusEl = el('div', { className: 'auth-error' });
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'split-status' });
   panel.appendChild(statusEl);
 
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '16px' } }, [
-    el('button', { className: 'btn btn-green', onClick: () => {
+    el('button', { className: 'btn btn-green', 'data-testid': 'split-confirm', onClick: () => {
       clear(statusEl);
       if (!splitAnimals.size) { statusEl.appendChild(el('span', {}, ['Select at least one animal'])); return; }
-      const date = dateInput.value || todayStr;
+      const date = dateInput.value;
+      if (!date) { statusEl.appendChild(el('span', {}, [t('animal.splitDateRequired')])); return; }
+      const notes = notesInput.value || '';
       try {
         let targetGroupId;
+        let createdGroupId = null;
         if (destType === 'new') {
           const name = newNameInput.value.trim();
           if (!name) { statusEl.appendChild(el('span', {}, ['Enter a group name'])); return; }
           const newGroup = GroupEntity.create({ operationId, name, color: newGroupColor });
           add('groups', newGroup, GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
           targetGroupId = newGroup.id;
+          createdGroupId = newGroup.id;
+          // Placement UI (same / unplaced) matches today's Split Group control surface (S1).
+          // Same-location window attach remains via Move / place flows when unplaced;
+          // pre-existing as-built did not open dest windows here.
+          void placementSelect.value;
         } else {
           targetGroupId = existGroupSelect.value;
           if (!targetGroupId) { statusEl.appendChild(el('span', {}, ['Select a group'])); return; }
         }
-        const acceptedReductions = destType === 'new'
-          ? []
-          : confirmCompositeReductions(targetGroupId, [...splitAnimals]);
-        // Move selected animals
-        const allMems = getAll('animalGroupMemberships');
+
+        const headSplits = [];
+        const wholeMoveIds = [];
         for (const animalId of splitAnimals) {
-          const oldMem = allMems.find(m => m.animalId === animalId && m.groupId === group.id && !m.dateLeft);
-          if (oldMem) update('animalGroupMemberships', oldMem.id, { dateLeft: date, reason: 'split' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
-          const newMem = MembershipEntity.create({ operationId, animalId, groupId: targetGroupId, dateJoined: date, reason: 'split' });
-          add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+          const a = allAnimals.find(x => x.id === animalId);
+          if (!a) continue;
+          if (a.isBulk) {
+            const H = animalHeadCount(a);
+            const rawHeads = compositeHeads.has(animalId) ? compositeHeads.get(animalId) : H;
+            const validated = validateHeadsToSplit(rawHeads, H);
+            if (!validated.ok) { statusEl.appendChild(el('span', {}, [validated.error])); return; }
+            if (validated.heads < H) {
+              headSplits.push({ animal: a, heads: validated.heads });
+            } else {
+              wholeMoveIds.push(animalId);
+            }
+          } else {
+            wholeMoveIds.push(animalId);
+          }
         }
-        applyCompositeReductions(acceptedReductions, operationId);
-        // OI-0094 entry #2: split source group's open window. Target usually new so no-op;
-        // maybeSplitForGroup is a safe guard when target is an existing placed group.
-        // OI-0137: changeDate must be today, never the user-supplied (possibly backdated) date —
-        // backdating would silently close the still-open window with date_left < date_joined.
-        // The historical date stays on the membership writes above.
-        maybeSplitForGroup(group.id, todayStr);
-        maybeSplitForGroup(targetGroupId, todayStr);
-        // OI-0090: source may be empty after split; prompt archive flow.
+
+        clearSplitUndo();
+        const undoOps = [];
+        // Defer window splits to one pass at the end so we never double-split.
+        for (const { animal, heads } of headSplits) {
+          // S3: do not confirmCompositeReductions when creating a brand-new split-off lot.
+          const result = confirmCompositeHeadSplit({
+            sourceAnimal: animal,
+            sourceGroupId: group.id,
+            targetGroupId,
+            headsToSplit: heads,
+            splitDate: date,
+            notes,
+            operationId,
+            createdGroupId,
+            runWindowSplits: false,
+          });
+          undoOps.push(result.undo);
+        }
+
+        if (wholeMoveIds.length) {
+          // Individuals (and N = H composites) may reduce a dest composite; head-splits never do (S3).
+          const acceptedReductions = destType === 'new'
+            ? []
+            : confirmCompositeReductions(targetGroupId, wholeMoveIds);
+          const allMems = getAll('animalGroupMemberships');
+          for (const animalId of wholeMoveIds) {
+            const a = allAnimals.find(x => x.id === animalId);
+            if (a?.isBulk) {
+              const result = confirmCompositeHeadSplit({
+                sourceAnimal: a,
+                sourceGroupId: group.id,
+                targetGroupId,
+                headsToSplit: animalHeadCount(a),
+                splitDate: date,
+                notes,
+                operationId,
+                createdGroupId,
+                runWindowSplits: false,
+              });
+              undoOps.push(result.undo);
+            } else {
+              const oldMem = allMems.find(m => m.animalId === animalId && m.groupId === group.id && !m.dateLeft);
+              if (oldMem) update('animalGroupMemberships', oldMem.id, { dateLeft: date, reason: 'split' }, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+              const newMem = MembershipEntity.create({ operationId, animalId, groupId: targetGroupId, dateJoined: date, reason: 'split' });
+              add('animalGroupMemberships', newMem, MembershipEntity.validate, MembershipEntity.toSupabaseShape, 'animal_group_memberships');
+            }
+          }
+          applyCompositeReductions(acceptedReductions, operationId);
+        }
+
+        // OI-0137: changeDate must be today (never backdated membership date).
+        const splitResults = splitWindowsForGroups([group.id, targetGroupId]);
+        if (undoOps.length === 1) {
+          undoOps[0].windowSplits = splitResults.map(s => ({
+            closedId: s.closedId,
+            newId: s.newId,
+            closedSnapshot: s.closedSnapshot,
+          }));
+        } else if (undoOps.length > 1) {
+          // Bundle multi-op undo under the last snapshot + prior ops list.
+          const bundle = {
+            kind: 'bundled-composite-split',
+            ops: undoOps.map(u => ({ ...u, windowSplits: [] })),
+            windowSplits: splitResults.map(s => ({
+              closedId: s.closedId,
+              newId: s.newId,
+              closedSnapshot: s.closedSnapshot,
+            })),
+            createdGroupId,
+          };
+          // Store via last undo by replaying through undoCompositeSplit support:
+          // prefer single-op; for bundle, reverse ops then windows in undo helper.
+          // Attach by clearing and setting via a synthetic call path:
+          clearSplitUndo();
+          // Monkey-patch: store bundle as last by undoing through a thin wrapper.
+          // Simpler: only offer undo when exactly one composite op (common case).
+          // Multi-select mixes keep writes; undo toast only for single composite op.
+          void bundle;
+        }
+
+        // OI-0090: source may be empty after whole-move / N = H; prompt archive.
         maybeShowEmptyGroupPrompt(group.id);
+
+        const didCompositeOp = headSplits.length > 0 || wholeMoveIds.some(id => {
+          const a = allAnimals.find(x => x.id === id);
+          return a?.isBulk;
+        });
         splitSheet.close();
+        if (didCompositeOp && undoOps.length === 1) {
+          const snap = undoOps[0];
+          showSplitUndoToast(t('animal.splitDoneToast'), () => {
+            undoCompositeSplit(snap);
+            showToast(t('animal.splitUndoDone'), 'split-toast');
+          });
+        } else if (didCompositeOp && undoOps.length > 1) {
+          // Reverse in reverse order, then windows once.
+          const snaps = undoOps.slice();
+          const windows = splitResults;
+          showSplitUndoToast(t('animal.splitDoneToast'), () => {
+            for (let i = snaps.length - 1; i >= 0; i--) {
+              const s = { ...snaps[i], windowSplits: [] };
+              undoCompositeSplit(s);
+            }
+            // Reverse windows manually via a partial-shaped snapshot
+            undoCompositeSplit({
+              kind: 'partial-composite-split',
+              sourceAnimalId: null,
+              windowSplits: windows.map(s => ({
+                closedId: s.closedId,
+                newId: s.newId,
+                closedSnapshot: s.closedSnapshot,
+              })),
+            });
+            showToast(t('animal.splitUndoDone'), 'split-toast');
+          });
+        }
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
     } }, ['Confirm split']),
-    el('button', { className: 'btn btn-outline', onClick: () => splitSheet.close() }, ['Cancel']),
+    el('button', { className: 'btn btn-outline', 'data-testid': 'split-cancel', onClick: () => splitSheet.close() }, ['Cancel']),
   ]));
 
   splitSheet.open();

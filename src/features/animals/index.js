@@ -20,7 +20,7 @@ import { openTreatmentSheet, renderTreatmentSheetMarkup } from '../health/treatm
 import { openBreedingSheet, renderBreedingSheetMarkup } from '../health/breeding.js';
 import { openHeatSheet, renderHeatSheetMarkup } from '../health/heat.js';
 import { openCalvingSheet, renderCalvingSheetMarkup } from '../health/calving.js';
-import { openCullSheet, buildCulledBanner } from './cull-sheet.js';
+import { openCullSheet, buildCulledBanner, openCullFromGroupCard, livingCompositesInGroup } from './cull-sheet.js';
 import { syncCalvingRecordForAnimal } from './calving-sync.js';
 import { maybeShowEmptyGroupPrompt, groupEventHistoryCount } from './empty-group-prompt.js';
 import { showToast } from '../../ui/toast.js';
@@ -255,6 +255,13 @@ export function renderAnimalsScreen(container) {
         el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupSheet(g, operationId) }, ['Edit']),
         stats.isPlaced ? el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSplitGroupSheet(g, operationId) }, ['Split']) : null,
         el('button', { className: 'btn btn-outline btn-xs', onClick: () => openGroupWeightsSheet(g, operationId) }, ['Weights']),
+        livingCompositesInGroup(g.id).length
+          ? el('button', {
+            className: 'btn btn-outline btn-xs',
+            'data-testid': `group-cull-${g.id}`,
+            onClick: () => openCullFromGroupCard(g, operationId),
+          }, [t('animal.cullGroupCard') || 'Cull'])
+          : null,
       ].filter(Boolean)),
     ].filter(Boolean));
   }
@@ -468,6 +475,7 @@ export function renderAnimalsScreen(container) {
 
     // Active group cards live in the Groups filter row (animals-groups-filter).
     // Lower 2-column active grid removed — not duplicated here.
+
 
     if (!groups.length) {
       groupsCard.appendChild(el('div', { className: 'empty' }, ['No groups yet. Add one to organize your herd.']));

@@ -706,7 +706,21 @@
     "optional": "optional",
     "cullsChip": "Culls",
     "filterOpen": "Open",
-    "filterConfirmedBred": "Confirmed bred"
+    "filterConfirmedBred": "Confirmed bred",
+    "cullCompositeTitle": "Cull heads from composite",
+    "cullHeads": "Heads to cull",
+    "cullHeadsHint": "Enter a whole number from 1 to {max}.",
+    "cullHeadsRange": "Heads must be a whole number from 1 to {max}.",
+    "cullHeadsInvalid": "This composite has no live heads to cull.",
+    "cullCompositeInfoBanner": "Partial cull creates a separate culled lot and leaves the rest in the group. Culling all heads removes the composite from its group. History is preserved; you can undo a partial cull on this device or reactivate a full cull.",
+    "cullPartialToast": "{label}: {count} head culled. Living composite updated.",
+    "cullFullToast": "{label} marked as culled ({reason}). Removed from group — DMI targets updated.",
+    "cullUndo": "Undo",
+    "cullUndoDone": "Cull undone.",
+    "cullPickCompositeTitle": "Cull which composite?",
+    "cullPickCompositeHint": "{group} has more than one composite. Pick one to cull heads from.",
+    "reactivateCompositeConfirm": "Reactivate {label}? The composite returns to its group; an archived group is reactivated.",
+    "cullGroupCard": "Cull"
   },
   "group": {
     "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",

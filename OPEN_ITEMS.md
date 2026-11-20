@@ -48,6 +48,7 @@
 | OI-0237 | Bulk/composite **cull** + **split heads** off a composite | **SPEC LOCKED** 2026-11-20 ~5:11 AM ET (Tim, via Orchestrator). C1–C8 + S1–S8. C3-B culled lot; C5 empty-group prompt; C6 partial device undo like split; no migration. **C1 Edit Animal path completed by OI-0239** (group-card Cull already Part A). [brief](session_briefs/BULK_GROUP_CULL_2026-11-20.md) |
 | OI-0238 | Partial-day estimated demand (hour-prorate first/last; delivery clock; EOD today; A label) | **SPEC LOCKED** 2026-11-20 ~6:15 AM ET (Tim, via Orchestrator). C + A. First-day clock = earliest delivery on dateIn; keep end-of-today (no live clock); NPK-1/3 → TIM-3 presence; chart bars match; DMI-5 unchanged; no migration. [brief](session_briefs/PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md) |
 | OI-0239 | iPhone Sheet scroll lock + Edit Animal Cull for composites (C1) | **SPEC LOCKED** 2026-11-20 ~6:38 AM ET (Tim, via Orchestrator). Shared Sheet body scroll-lock + iOS overflow (`-webkit-overflow-scrolling`, `overscroll-behavior`, `min(90dvh,90vh)`, `min-height:0`); move Edit Animal Cull outside `!isBulk` (complete OI-0237 C1 Edit Animal path). Hotfix **ahead of** OI-0238 code. No migration. [brief](session_briefs/IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md) |
+| OI-0240 | Scoped-remaining partial move: hide Feed Transfer; feed stays with remaining groups | **SPEC LOCKED** 2026-11-20 ~3:50 PM ET (Tim, via Orchestrator, card t694s2862). Lock A: on `scoped-remaining`, hide Move / Leave as residual; show stay-copy; do not transfer pools. Full-event and `scoped-last` unchanged. No migration. Out of scope: move-some (option C). [brief](session_briefs/SCOPED_REMAINING_FEED_STAY_2026-11-20.md) |
 
 ---
 
@@ -182,6 +183,35 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+### OI-0240 — Scoped-remaining hide Feed Transfer; feed stays with remaining groups
+
+**Status:** SPEC LOCKED (Tim, 2026-11-20 ~3:50 PM ET, via Orchestrator, card t694s2862)  
+**Priority:** Hotfix — feed continuity on partial group moves  
+**Owner:** GTHO Design → GTHO Build  
+**Brief:** [SCOPED_REMAINING_FEED_STAY_2026-11-20.md](session_briefs/SCOPED_REMAINING_FEED_STAY_2026-11-20.md)
+
+**Tim lock (exact card):** "Lock A: on scoped-remaining partial moves, hide Feed Transfer and show that feed stays with remaining groups"
+
+Tim did **not** choose C (move some by quantity) for now.
+
+**Root cause:** `V2_UX_FLOWS` §1.5 already says Feed Transfer is skipped in `scoped-remaining` (OI-0066 — feed stays with groups still on source). `move-wizard.js` still **renders** Move / Leave as residual whenever feed entries exist. Default Move runs `transferWizardPools` and steals hay from remaining groups. Residual on this mode is a no-op (close-reading already skipped when `isScoped`) but the fertility-ledger caption is misleading.
+
+**Locked:**
+- When `mode === 'scoped-remaining'`, **do not render** the Feed Transfer card (Move / Residual radios).
+- Show stay-copy that **feed stays with the groups remaining on this event** (new i18n string OK).
+- Defense in depth: do not call `transferWizardPools` (or the non-pool Move write) on `scoped-remaining` / when no transfer UI was shown. Do not key this off bare `isScoped` (that flag is also true for `scoped-last`).
+- `full-event` and `scoped-last` keep existing Move / Leave as residual (fertility residual on close).
+- **No migration.**
+
+**Out of scope:** option C (move some by quantity); goats double-window data; OI-0092 fertility ledger.
+
+**Acceptance:** scoped-remaining hides radios and shows stay-copy even when feed remains; save does not transfer pools; source feed stays on the open event for remaining groups; full-event / scoped-last unchanged.
+
+**Related:** OI-0066, OI-0104, OI-0135, OI-0136, OI-0161, UX §1.5–§1.6, UX §6.
+
+**Origin:** Tim ~3:42 PM ET (question from iPhone); lock A ~3:50 PM ET (card t694s2862).
+
+---
 ### OI-0239 — iPhone Sheet scroll lock + Edit Animal Cull for composites (C1)
 
 **Status:** SPEC LOCKED (Tim, 2026-11-20 ~6:38 AM ET, via Orchestrator)  

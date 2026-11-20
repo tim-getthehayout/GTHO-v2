@@ -77,7 +77,10 @@ Section title varies by mode:
 Always rendered, regardless of mode:
 - Date out (default: today)
 - Time out (optional)
-- Feed transfer card (if feed entries exist on the source event) — Move / Residual radio per batch × location, with forced remaining-quantity input on Residual (per OI-0136); skipped entirely in `scoped-remaining` mode (feed stays with the groups still on the source event)
+
+Conditionally rendered — **Feed Transfer** card:
+- `full-event` and `scoped-last` (if feed entries exist on the source event) — Move / Residual radio per batch × location, with forced remaining-quantity input on Residual (per OI-0136).
+- **`scoped-remaining` (OI-0240):** this card **must be hidden**. Do not render Move / Leave as residual radios. Replace it with stay-copy that **feed stays with the groups remaining on this event** (suggested: “Feed stays with groups remaining on this event.”). Default Move must not run `transferWizardPools` — that steals feed from remaining groups. Residual on this mode is a no-op (close-reading already skipped) but its fertility-ledger caption is misleading, so the radios must not appear. UX already said this card was skipped in `scoped-remaining` (OI-0066); `move-wizard.js` still rendered it until OI-0240.
 
 Conditionally rendered — **post-graze observation card** (Residual height, Recovery min/max days, Notes):
 
@@ -121,7 +124,7 @@ The save sequence is mode-aware. Steps marked **[full-event / scoped-last only]*
 5. (Subsumed into step 2 — paddock observation is created in the same loop as the paddock-window close.)
 6. Create new event at destination (or add group window to existing event).
 7. **[destination is `'land'` only]** Create `paddock_observation` (type='open') with pre-graze readings from the pre-graze card. When destination is confinement, the obs row is not created (no standing forage to measure).
-8. Create feed transfer entries on the destination for any Move-selected lines (new `event_feed_entry` with `source_event_id` linking back to the closing source event).
+8. **[full-event / scoped-last only]** Create feed transfer entries on the destination for any Move-selected lines (new `event_feed_entry` with `source_event_id` linking back to the closing source event). **Skipped in `scoped-remaining` (OI-0240):** feed stays on the open source event for remaining groups; do not call `transferWizardPools` or the non-pool Move write.
 9. If strip graze: set `is_strip_graze = true`, `strip_group_id`, and `area_pct` on the first paddock window of the destination event.
 
 The mode is determined at save time by counting remaining open group windows on the source event after the scoped close; `scoped-last` is the case where that count is zero, and the wizard runs the full close sequence (steps 1, 2, 4) even though the entry surface was a per-group Move button.
@@ -347,6 +350,8 @@ This is the corrected formula from v1 bug DMI-1a. **Both the standalone feed che
 ## 6. Feed Transfer (during Move)
 
 Moving leftover feed from a closing event to the next event.
+
+**`scoped-remaining` (OI-0240):** this flow does **not** apply. The event stays open; Feed Transfer (Move / Leave as residual) **must be hidden**; show stay-copy that feed stays with the groups remaining on this event. `full-event` and `scoped-last` use the flow below (fertility residual on close).
 
 ### 6.1 Flow (integrated into Move Wizard Step 3)
 
@@ -2489,6 +2494,7 @@ The sheet uses the same unit-aware descriptor pattern as the Farm Settings card 
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-20 | GTHO Design — OI-0240 scoped-remaining hide Feed Transfer (docs only) | §1.5 / §1.6 / §6: Feed Transfer **must** be hidden in `scoped-remaining`; stay-copy that feed stays with remaining groups; Step 8 skipped; notes the pre-OI-0240 code gap (`move-wizard.js` still rendered Move / Residual). Full-event and `scoped-last` unchanged. |
 | 2026-11-19 | GTHO Design — OI-0235 Animals multi-filters as-built (docs only) | §15.0 class pills + Open / Confirmed bred status pills flipped from Proposed (not built) to as-built at PR #86 `a997269` on main. F1–F3 unchanged. |
 | 2026-11-18 | GTHO Design — OI-0230 PR 1 as-built; OI-0232/0233/PR C locks (docs only) | §15.1 OI-0232 Q1–Q3 locks; §17.2 signed-out state as-built; §20.3/§20.5 Resync as-built at PR #82 `d22e004` with exact plural/singular strings, already-on-server line, Send replan and navigation Cancel. |
 | 2026-11-18 | GTHO Design — OI-0230 / OI-0231 | §20.3 Resync as built (one tap, no confirm, no toast) and OI-0230 PR 1 intended flow (unconfirmed work only, newer-only, confirm sheet with counts, awaited sent / skipped / failed result); §20.5 two-step rule vs Resync. |

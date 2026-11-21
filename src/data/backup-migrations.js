@@ -268,14 +268,26 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 46;
     return b;
   },
-  // 046 → 047: farm_settings preg-check thresholds (held). Absent-only defaults; preserve supplied.
+  // 046 → 047: farm_settings per-species preg-check thresholds (held). Absent-only defaults; preserve supplied.
   46: (b) => {
     for (const row of b.tables.farm_settings || []) {
-      if (!Object.hasOwn(row, 'preg_check_min_days_since_exposure')) {
-        row.preg_check_min_days_since_exposure = 35;
+      if (!Object.hasOwn(row, 'preg_check_min_days_since_exposure_cattle')) {
+        row.preg_check_min_days_since_exposure_cattle = 35;
       }
-      if (!Object.hasOwn(row, 'preg_check_min_days_post_calving')) {
-        row.preg_check_min_days_post_calving = 45;
+      if (!Object.hasOwn(row, 'preg_check_min_days_post_calving_cattle')) {
+        row.preg_check_min_days_post_calving_cattle = 45;
+      }
+      if (!Object.hasOwn(row, 'preg_check_min_days_since_exposure_sheep')) {
+        row.preg_check_min_days_since_exposure_sheep = 25;
+      }
+      if (!Object.hasOwn(row, 'preg_check_min_days_post_calving_sheep')) {
+        row.preg_check_min_days_post_calving_sheep = 30;
+      }
+      if (!Object.hasOwn(row, 'preg_check_min_days_since_exposure_goat')) {
+        row.preg_check_min_days_since_exposure_goat = 25;
+      }
+      if (!Object.hasOwn(row, 'preg_check_min_days_post_calving_goat')) {
+        row.preg_check_min_days_post_calving_goat = 30;
       }
     }
     b.schema_version = 47;

@@ -1,7 +1,7 @@
 /** Compiled compatibility ceiling, NOT the highest written migration.
  * Release/publish is gated on Tim's approval, backup, and verified applies.
  * Schema 46 (animals.confirmed_bred_date) is held until Tim applies + publishes.
- * Schema 47 (farm_settings preg-check thresholds) is held until Tim applies + publishes.
+ * Schema 47 (farm_settings per-species preg-check thresholds) is held until Tim applies + publishes.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
 export const RELEASED_SCHEMA_VERSION = 45;
 export const HELD_SCHEMA_VERSIONS = [46, 47];
@@ -11,8 +11,12 @@ export const HELD_SCHEMA_VERSIONS = [46, 47];
 export const STAGED_COLUMNS = {
   47: {
     farm_settings: [
-      'preg_check_min_days_since_exposure',
-      'preg_check_min_days_post_calving',
+      'preg_check_min_days_since_exposure_cattle',
+      'preg_check_min_days_post_calving_cattle',
+      'preg_check_min_days_since_exposure_sheep',
+      'preg_check_min_days_post_calving_sheep',
+      'preg_check_min_days_since_exposure_goat',
+      'preg_check_min_days_post_calving_goat',
     ],
   },
   46: { animals: ['confirmed_bred_date'] },

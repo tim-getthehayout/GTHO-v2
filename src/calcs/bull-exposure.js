@@ -1,39 +1,136 @@
-/** @file Bull exposure → preg-check / due bands (compute-on-read).
- * Locked: A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1.
+/** @file Bull/ram/buck exposure → preg-check / due bands (compute-on-read).
+ * Locked: A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd+Gc0+UxA0+Ux-copy1.
  * No exposure-row writes. Does not redefine assessOpenAnimal.
  */
 import { assessOpenAnimal } from '../features/assistant/farm-reads.js';
 import { getLocalTodayStr, parseDate } from '../utils/date-utils.js';
 
-/** SCHEMA §9.7 prose — cattle gestation days (C3). Sheep/goat ~150 deferred (E0). */
+/** SCHEMA §9.7 — gestation days (C3-keep). */
 export const CATTLE_GESTATION_DAYS = 283;
 export const SHEEP_GESTATION_DAYS = 150;
 export const GOAT_GESTATION_DAYS = 150;
 
-/** Gd0 compiled defaults when farm_settings columns missing / not released. */
-export const DEFAULT_PREG_CHECK_MIN_DAYS_SINCE_EXPOSURE = 35;
-export const DEFAULT_PREG_CHECK_MIN_DAYS_POST_CALVING = 45;
+/** Gd compiled defaults when farm_settings columns missing / not released. */
+export const DEFAULT_PREG_CHECK_MIN_DAYS_SINCE_EXPOSURE = 35; // cattle (compat alias)
+export const DEFAULT_PREG_CHECK_MIN_DAYS_POST_CALVING = 45; // cattle (compat alias)
+export const DEFAULT_PREG_CHECK_BY_FAMILY = Object.freeze({
+  cattle: { minDaysSinceExposure: 35, minDaysPostCalving: 45 },
+  sheep: { minDaysSinceExposure: 25, minDaysPostCalving: 30 },
+  goat: { minDaysSinceExposure: 25, minDaysPostCalving: 30 },
+});
 
 export const CATTLE_SPECIES = Object.freeze(new Set(['beef_cattle', 'dairy_cattle']));
+export const BREEDING_SPECIES_FAMILIES = Object.freeze(['cattle', 'sheep', 'goat']);
 
-/**
- * @param {object|null|undefined} farmSettings
- * @returns {{ minDaysSinceExposure: number, minDaysPostCalving: number, combine: 'AND' }}
- */
-export function resolvePregCheckProtocol(farmSettings) {
-  const minDaysSinceExposure = Number.isFinite(farmSettings?.pregCheckMinDaysSinceExposure)
-    ? Number(farmSettings.pregCheckMinDaysSinceExposure)
-    : DEFAULT_PREG_CHECK_MIN_DAYS_SINCE_EXPOSURE;
-  const minDaysPostCalving = Number.isFinite(farmSettings?.pregCheckMinDaysPostCalving)
-    ? Number(farmSettings.pregCheckMinDaysPostCalving)
-    : DEFAULT_PREG_CHECK_MIN_DAYS_POST_CALVING;
-  return { minDaysSinceExposure, minDaysPostCalving, combine: 'AND' };
+/** Male role → breeding family. */
+export const MALE_ROLE_FAMILY = Object.freeze({ bull: 'cattle', ram: 'sheep', buck: 'goat' });
+/** Female open/exposure role → breeding family. */
+export const FEMALE_ROLE_FAMILY = Object.freeze({
+  cow: 'cattle', heifer: 'cattle', ewe: 'sheep', doe: 'goat',
+});
+
+export function isCattleSpecies(species) {
+  return CATTLE_SPECIES.has(species);
 }
 
-/** Compact Ux1 summary, e.g. `Protocol: ≥35d since exposure AND ≥45d post-calving`. */
+/** Map animal class species → cattle|sheep|goat|null. */
+export function speciesFamily(species) {
+  if (CATTLE_SPECIES.has(species)) return 'cattle';
+  if (species === 'sheep') return 'sheep';
+  if (species === 'goat') return 'goat';
+  return null;
+}
+
+export function isBreedingSpecies(species) {
+  return speciesFamily(species) != null;
+}
+
+/**
+ * Resolve protocol for one breeding family (Gs1).
+ * @param {object|null|undefined} farmSettings
+ * @param {string|null|undefined} speciesOrFamily animal class species or 'cattle'|'sheep'|'goat'
+ * @returns {{ minDaysSinceExposure: number, minDaysPostCalving: number, combine: 'AND', family: string }}
+ */
+export function resolvePregCheckProtocol(farmSettings, speciesOrFamily = 'cattle') {
+  const family = (speciesOrFamily === 'cattle' || speciesOrFamily === 'sheep' || speciesOrFamily === 'goat')
+    ? speciesOrFamily
+    : (speciesFamily(speciesOrFamily) || 'cattle');
+  const defaults = DEFAULT_PREG_CHECK_BY_FAMILY[family];
+  const expKey = family === 'cattle'
+    ? 'pregCheckMinDaysSinceExposureCattle'
+    : family === 'sheep'
+      ? 'pregCheckMinDaysSinceExposureSheep'
+      : 'pregCheckMinDaysSinceExposureGoat';
+  const postKey = family === 'cattle'
+    ? 'pregCheckMinDaysPostCalvingCattle'
+    : family === 'sheep'
+      ? 'pregCheckMinDaysPostCalvingSheep'
+      : 'pregCheckMinDaysPostCalvingGoat';
+  const minDaysSinceExposure = Number.isFinite(farmSettings?.[expKey])
+    ? Number(farmSettings[expKey])
+    : defaults.minDaysSinceExposure;
+  const minDaysPostCalving = Number.isFinite(farmSettings?.[postKey])
+    ? Number(farmSettings[postKey])
+    : defaults.minDaysPostCalving;
+  return { minDaysSinceExposure, minDaysPostCalving, combine: 'AND', family };
+}
+
+/** All three species protocols (UxA All-species). */
+export function resolveAllPregCheckProtocols(farmSettings) {
+  return {
+    cattle: resolvePregCheckProtocol(farmSettings, 'cattle'),
+    sheep: resolvePregCheckProtocol(farmSettings, 'sheep'),
+    goat: resolvePregCheckProtocol(farmSettings, 'goat'),
+  };
+}
+
+/** Compact one-species line (Ux-copy1: post-partum). */
 export function formatPregCheckProtocolSummary(protocol = resolvePregCheckProtocol(null)) {
   const p = protocol?.combine === 'OR' ? 'OR' : 'AND';
-  return `Protocol: ≥${protocol.minDaysSinceExposure}d since exposure ${p} ≥${protocol.minDaysPostCalving}d post-calving`;
+  const label = protocol?.family && protocol.family !== 'cattle'
+    ? `${protocol.family[0].toUpperCase()}${protocol.family.slice(1)}: `
+    : '';
+  return `${label ? label : 'Protocol: '}≥${protocol.minDaysSinceExposure}d since exposure ${p} ≥${protocol.minDaysPostCalving}d post-partum`;
+}
+
+/**
+ * UxA0: protocol summary follows Species filter.
+ * @param {object|null|undefined} farmSettings
+ * @param {Set<string>|string[]|null|undefined} selectedSpecies empty/null = All
+ */
+export function formatPregCheckProtocolSummaryForFilter(farmSettings, selectedSpecies) {
+  const set = selectedSpecies instanceof Set
+    ? selectedSpecies
+    : new Set(selectedSpecies || []);
+  if (set.size === 0) {
+    const all = resolveAllPregCheckProtocols(farmSettings);
+    return [
+      `Cattle: ≥${all.cattle.minDaysSinceExposure}d exposure AND ≥${all.cattle.minDaysPostCalving}d post-partum`,
+      `Sheep: ≥${all.sheep.minDaysSinceExposure}d exposure AND ≥${all.sheep.minDaysPostCalving}d post-partum`,
+      `Goat: ≥${all.goat.minDaysSinceExposure}d exposure AND ≥${all.goat.minDaysPostCalving}d post-partum`,
+    ].join('\n');
+  }
+  const families = new Set();
+  for (const sp of set) {
+    const f = speciesFamily(sp);
+    if (f) families.add(f);
+  }
+  if (families.size === 0) {
+    return formatPregCheckProtocolSummary(resolvePregCheckProtocol(farmSettings, 'cattle'));
+  }
+  if (families.size === 1) {
+    const family = [...families][0];
+    const p = resolvePregCheckProtocol(farmSettings, family);
+    return `Protocol: ≥${p.minDaysSinceExposure}d since exposure AND ≥${p.minDaysPostCalving}d post-partum`;
+  }
+  const lines = [];
+  for (const family of BREEDING_SPECIES_FAMILIES) {
+    if (!families.has(family)) continue;
+    const p = resolvePregCheckProtocol(farmSettings, family);
+    const label = family[0].toUpperCase() + family.slice(1);
+    lines.push(`${label}: ≥${p.minDaysSinceExposure}d exposure AND ≥${p.minDaysPostCalving}d post-partum`);
+  }
+  return lines.join('\n');
 }
 
 export function gestationDaysForSpecies(species) {
@@ -41,10 +138,6 @@ export function gestationDaysForSpecies(species) {
   if (species === 'goat') return GOAT_GESTATION_DAYS;
   if (CATTLE_SPECIES.has(species)) return CATTLE_GESTATION_DAYS;
   return null;
-}
-
-export function isCattleSpecies(species) {
-  return CATTLE_SPECIES.has(species);
 }
 
 /** Elapsed whole calendar days from start (YYYY-MM-DD or ISO) to end (exclusive of end→start+0). */
@@ -156,14 +249,14 @@ export function classifyDateAmbiguity(row, opts = {}) {
  */
 
 /**
- * Derive female↔bull exposure intervals (A0, F0, Fg1). Cattle-only when cattleOnly.
+ * Derive female↔breeding-male exposure intervals (A0, E1, F0, Fg1). Matching-species only; cattleOnly narrows to cattle.
  *
  * @param {object} input
  * @param {object[]} input.animals
  * @param {object[]} input.animalClasses
  * @param {object[]} input.memberships  animal_group_memberships (all history)
  * @param {object[]} input.eventGroupWindows
- * @param {boolean} [input.cattleOnly=true]
+ * @param {boolean} [input.cattleOnly=false]
  * @param {Set<string>|string[]} [input.migrationFallbackDates]
  * @returns {ExposureInterval[]}
  */
@@ -172,26 +265,42 @@ export function deriveBullExposureIntervals({
   animalClasses,
   memberships,
   eventGroupWindows,
-  cattleOnly = true,
+  cattleOnly = false,
   migrationFallbackDates,
 } = {}) {
   const classById = new Map((animalClasses || []).map(c => [c.id, c]));
   const animalById = new Map((animals || []).map(a => [a.id, a]));
   const ambOpts = { migrationFallbackDates };
 
-  const isActiveBull = (animal) => {
+  const familyOf = (animal) => {
+    const cls = animal ? classById.get(animal.classId) : null;
+    if (!cls) return null;
+    return speciesFamily(cls.species);
+  };
+
+  /** Breeding male (bull/ram/buck) matching its species family. */
+  const isActiveBreedingMale = (animal) => {
     if (!animal || animal.active === false || animal.sex === 'female') return false;
     const cls = classById.get(animal.classId);
-    if (!cls || cls.role !== 'bull') return false;
-    if (cattleOnly && !isCattleSpecies(cls.species)) return false;
+    if (!cls) return false;
+    const roleFamily = MALE_ROLE_FAMILY[cls.role];
+    if (!roleFamily) return false;
+    const spFamily = speciesFamily(cls.species);
+    if (spFamily !== roleFamily) return false;
+    if (cattleOnly && roleFamily !== 'cattle') return false;
     return true;
   };
 
-  const isCattleFemaleCowOrHeifer = (animal) => {
+  /** Breeding female (cow/heifer/ewe/doe) matching its species family. */
+  const isBreedingFemale = (animal) => {
     if (!animal || animal.active === false || animal.sex !== 'female') return false;
     const cls = classById.get(animal.classId);
-    if (!cls || !['cow', 'heifer'].includes(cls.role)) return false;
-    if (cattleOnly && !isCattleSpecies(cls.species)) return false;
+    if (!cls) return false;
+    const roleFamily = FEMALE_ROLE_FAMILY[cls.role];
+    if (!roleFamily) return false;
+    const spFamily = speciesFamily(cls.species);
+    if (spFamily !== roleFamily) return false;
+    if (cattleOnly && roleFamily !== 'cattle') return false;
     return true;
   };
 
@@ -216,11 +325,12 @@ export function deriveBullExposureIntervals({
     const bulls = [];
     for (const m of groupMems) {
       const animal = animalById.get(m.animalId);
-      if (isCattleFemaleCowOrHeifer(animal)) females.push(m);
-      else if (isActiveBull(animal)) bulls.push(m);
+      if (isBreedingFemale(animal)) females.push(m);
+      else if (isActiveBreedingMale(animal)) bulls.push(m);
     }
     for (const fm of females) {
       for (const bm of bulls) {
+        if (familyOf(animalById.get(fm.animalId)) !== familyOf(animalById.get(bm.animalId))) continue;
         const fAmb = classifyDateAmbiguity(fm, ambOpts);
         const bAmb = classifyDateAmbiguity(bm, ambOpts);
         const amb = fAmb.ambiguity_flag !== 'ok' ? fAmb : bAmb;
@@ -273,10 +383,11 @@ export function deriveBullExposureIntervals({
 
         for (const fm of femaleMems) {
           const animal = animalById.get(fm.animalId);
-          if (!isCattleFemaleCowOrHeifer(animal)) continue;
+          if (!isBreedingFemale(animal)) continue;
           for (const bm of bullMems) {
             const bull = animalById.get(bm.animalId);
-            if (!isActiveBull(bull)) continue;
+            if (!isActiveBreedingMale(bull)) continue;
+            if (familyOf(animal) !== familyOf(bull)) continue;
             const fAmb = classifyDateAmbiguity(fm, ambOpts);
             const bAmb = classifyDateAmbiguity(bm, ambOpts);
             const memAmb = fAmb.ambiguity_flag !== 'ok' ? fAmb : (bAmb.ambiguity_flag !== 'ok' ? bAmb : egwAmb);
@@ -412,27 +523,24 @@ export function isPregnancyCheckMember({
   intervals,
   calvingRecords,
   protocol,
+  farmSettings,
   asOfDate,
 }) {
   const open = assessOpenAnimal(animal, animalClass);
   if (open.state !== 'known' || open.value !== true) return false;
-  if (cattleGate(animalClass) === false) return false;
+  if (!isBreedingSpecies(animalClass?.species)) return false;
   const mine = includedIntervalsForFemale(intervals, animal.id);
   if (!mine.length) return false;
   const union = unionExposureWindow(mine);
   if (!union) return false;
   const lastCalving = latestCalvingDate(calvingRecords, animal.id);
+  const p = protocol || resolvePregCheckProtocol(farmSettings, animalClass?.species);
   return passesPregCheckProtocol({
     exposureStart: union.exposureStart,
     lastCalvingDate: lastCalving,
     asOfDate,
-    protocol,
+    protocol: p,
   });
-}
-
-function cattleGate(animalClass) {
-  if (!animalClass) return false;
-  return isCattleSpecies(animalClass.species);
 }
 
 /**
@@ -488,6 +596,7 @@ export function pregnancyCheckAnimalIds(ctx) {
     intervals,
     calvingRecords,
     protocol,
+    farmSettings,
     asOfDate,
   } = ctx;
   const classById = new Map((animalClasses || []).map(c => [c.id, c]));
@@ -499,6 +608,7 @@ export function pregnancyCheckAnimalIds(ctx) {
       intervals,
       calvingRecords,
       protocol,
+      farmSettings,
       asOfDate,
     })) ids.add(animal.id);
   }

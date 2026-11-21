@@ -12,14 +12,14 @@ function setup(patch = {}) {
   return { data, authorize, getAll, read: createFarmReadPort({ authorize, getAll }) };
 }
 describe('stored open set, not a default unchecked checkbox or pregnancy diagnosis', () => {
-  it.each(['cow', 'heifer'])('includes active female %s with explicit false', role => {
+  it.each(['cow', 'heifer', 'ewe', 'doe'])('includes active female %s with explicit false', role => {
     expect(assessOpenAnimal(animal, { ...cow, role })).toMatchObject({ state: 'known', value: true });
   });
   it.each([
     [{ sex: 'male' }, {}], [{ active: false }, {}], [{ cullDate: '2026-11-01' }, {}],
     [{ confirmedBred: true }, {}], [{}, { role: 'calf', name: 'Cow' }],
-    [{}, { role: 'bull' }], [{}, { role: 'ewe' }],
-  ])('excludes males, calves, non-cow/heifer roles and inactive/culled/bred animals', (patch, cls) => {
+    [{}, { role: 'bull' }], [{}, { role: 'ram' }], [{}, { role: 'wether' }],
+  ])('excludes males, calves, non-open roles and inactive/culled/bred animals', (patch, cls) => {
     expect(assessOpenAnimal({ ...animal, ...patch }, { ...cow, ...cls })).toMatchObject({ state: 'known', value: false });
   });
   it.each([

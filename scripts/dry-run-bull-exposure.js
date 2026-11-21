@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Read-only dry-run of bull↔female exposure intervals (F0).
+ * Read-only dry-run of bull/ram/buck↔female exposure intervals (F0, E1).
  * Does NOT write to IndexedDB or Supabase.
  *
  * Usage (from repo root, with a backup JSON or fixture):
@@ -102,7 +102,7 @@ function main() {
     animalClasses,
     memberships,
     eventGroupWindows,
-    cattleOnly: true,
+    cattleOnly: false,
     migrationFallbackDates: args.migrationDate ? [args.migrationDate] : undefined,
   });
 
@@ -114,6 +114,7 @@ function main() {
       female_id: iv.femaleId,
       female_tag: female?.tagNum || female?.name || '',
       female_class_role: fCls?.role || '',
+      female_species: fCls?.species || '',
       bull_id: iv.bullId,
       bull_tag: bull?.tagNum || bull?.name || '',
       exposure_start: iv.exposureStart,
@@ -135,7 +136,11 @@ function main() {
   const summary = {
     dry_run: true,
     writes: false,
-    protocol_defaults: resolvePregCheckProtocol(null),
+    protocol_defaults: {
+      cattle: resolvePregCheckProtocol(null, 'cattle'),
+      sheep: resolvePregCheckProtocol(null, 'sheep'),
+      goat: resolvePregCheckProtocol(null, 'goat'),
+    },
     rows_total: rows.length,
     by_ambiguity_flag: byFlag,
     by_source: bySource,
@@ -144,7 +149,7 @@ function main() {
   };
 
   const header = Object.keys(rows[0] || {
-    female_id: 1, female_tag: 1, female_class_role: 1, bull_id: 1, bull_tag: 1,
+    female_id: 1, female_tag: 1, female_class_role: 1, female_species: 1, bull_id: 1, bull_tag: 1,
     exposure_start: 1, exposure_end: 1, source: 1, source_evidence: 1,
     ambiguity_flag: 1, ambiguity_note: 1, include_in_view: 1,
   });

@@ -226,10 +226,12 @@ describe('Animals filter cascade', () => {
 
     container.querySelector('[data-testid="animals-chip-status-open"]').click();
     container.querySelector('[data-testid="animals-chip-status-confirmed-bred"]').click();
-    // Both on → OR union of open + bred among active
+    // Both on → OR union of open (cow/heifer/ewe/doe) + confirmed bred
     expect(row(container, A_COW_BRED)).toBeTruthy();
     expect(row(container, A_COW_OPEN)).toBeTruthy();
-    expect(row(container, A_BULL_OPEN)).toBeTruthy();
+    expect(row(container, A_EWE_OPEN)).toBeTruthy();
+    // Bulls are outside the open set (B0-extend)
+    expect(row(container, A_BULL_OPEN)).toBeFalsy();
 
     // Narrow to Bulls only — no female → status row hidden and cleared
     clearActive('[data-testid^="animals-chip-class-"]', container);

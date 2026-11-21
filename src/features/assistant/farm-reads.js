@@ -4,7 +4,7 @@ import { lastClosedGraze } from '../map/grazing-evidence.js';
 
 export const FARM_READ_TOOLS = Object.freeze([
   { name: 'animal-reproductive-evidence', description: 'Read one resolved animal ID, stored open-set assessment and reproductive evidence.' },
-  { name: 'open-animal-set', description: 'Read the active female cow/heifer set with confirmedBred false, head count and unresolved evidence.' },
+  { name: 'open-animal-set', description: 'Read the active female cow/heifer/ewe/doe set with confirmedBred false, head count and unresolved evidence.' },
   { name: 'paddock-grazing-evidence', description: 'Read one resolved paddock ID, its latest closed grazing window and current windows.' },
 ]);
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -16,7 +16,7 @@ export function assessOpenAnimal(animal, animalClass) {
   if (animal.active === false || animal.cullDate || animal.sex === 'male') {
     return { state: 'known', value: false, reason: 'outside-open-set' };
   }
-  if (animalClass?.role && !['cow', 'heifer'].includes(animalClass.role)) {
+  if (animalClass?.role && !['cow', 'heifer', 'ewe', 'doe'].includes(animalClass.role)) {
     return { state: 'known', value: false, reason: 'outside-open-set' };
   }
   if (animal.active !== true || animal.sex !== 'female' || !animalClass?.role || typeof animal.confirmedBred !== 'boolean') {

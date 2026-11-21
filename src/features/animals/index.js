@@ -28,10 +28,17 @@ import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpe
 import {
   deriveBullExposureIntervals,
   pregnancyCheckAnimalIds,
-  resolvePregCheckProtocol,
+  formatPregCheckProtocolSummaryForFilter,
   dueBandForFemale,
   hasConfirmedBredDateMissing,
 } from '../../calcs/bull-exposure.js';
+import { assessOpenAnimal } from '../assistant/farm-reads.js';
+import {
+  arePregCheckSettingsReleased,
+  updateFarmPregCheckSettings,
+  validatePregCheckThresholds,
+  PREG_CHECK_SPECIES_SECTIONS,
+} from '../settings/preg-check-settings.js';
 import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
 import {
   validateHeadsToSplit,
@@ -429,26 +436,40 @@ export function renderAnimalsScreen(container) {
       }, [t('animal.filterPregnancyCheck') || 'Pregnancy Check']));
       filterWrap.appendChild(statusChips);
 
-      // Ux1: read-only protocol summary when Pregnancy Check is active
+      // UxA0: protocol summary follows Species filter; Pb0 settings btn when Pg0 released
       if (pregOn) {
         const farmSettingsRow = getAll('farmSettings')[0] || null;
-        const protocolSummary = resolvePregCheckProtocol(farmSettingsRow);
-        filterWrap.appendChild(el('div', {
+        const summaryText = formatPregCheckProtocolSummaryForFilter(farmSettingsRow, selectedSpecies);
+        const protoRow = el('div', {
+          className: 'animals-preg-check-protocol-row',
+          style: {
+            display: 'flex', alignItems: 'flex-start', gap: '8px',
+            margin: '4px 0 2px', flexWrap: 'wrap',
+          },
+        });
+        protoRow.appendChild(el('div', {
           className: 'animals-preg-check-protocol',
           'data-testid': 'animals-preg-check-protocol',
           style: {
             fontSize: '12px',
             color: 'var(--text2)',
-            margin: '4px 0 2px',
             padding: '4px 8px',
             background: 'var(--bg2, var(--bg))',
             borderRadius: 'var(--radius)',
             border: '0.5px solid var(--border)',
+            whiteSpace: 'pre-line',
+            flex: '1 1 auto',
           },
-        }, [t('animal.pregCheckProtocol', {
-          exposure: String(protocolSummary.minDaysSinceExposure),
-          postCalving: String(protocolSummary.minDaysPostCalving),
-        })]));
+        }, [summaryText]));
+        if (arePregCheckSettingsReleased() && farmSettingsRow?.id) {
+          protoRow.appendChild(el('button', {
+            type: 'button',
+            className: 'btn btn-outline btn-xs',
+            'data-testid': 'animals-preg-check-settings',
+            onClick: () => openPregCheckSettingsDialog(farmSettingsRow, () => renderAll()),
+          }, [t('animal.pregCheckSettings') || 'Preg check settings']));
+        }
+        filterWrap.appendChild(protoRow);
       }
     }
 
@@ -601,13 +622,12 @@ export function renderAnimalsScreen(container) {
     const calvingRecords = getAll('animalCalvingRecords');
     const breedingRecords = getAll('animalBreedingRecords');
     const farmSettings = getAll('farmSettings')[0] || null;
-    const protocol = resolvePregCheckProtocol(farmSettings);
     const exposureIntervals = deriveBullExposureIntervals({
       animals: getAll('animals'),
       animalClasses: classes,
       memberships: allMembershipsHistory,
       eventGroupWindows,
-      cattleOnly: true,
+      cattleOnly: false,
     });
     const pregCheckIds = selectedStatuses.has('pregnancy_check')
       ? pregnancyCheckAnimalIds({
@@ -615,12 +635,13 @@ export function renderAnimalsScreen(container) {
         animalClasses: classes,
         intervals: exposureIntervals,
         calvingRecords,
-        protocol,
+        farmSettings,
       })
       : null;
 
     // Status filter. Pregnancy Check → D0 set (does not require Open).
     // Pregnancy Check mutually exclusive with Confirmed bred (enforced on click).
+    // Open uses assessOpenAnimal (B0-extend: cow/heifer/ewe/doe).
     if (selectedStatuses.size > 0) {
       filtered = filtered.filter(a => {
         if (selectedStatuses.has('pregnancy_check')) {
@@ -628,7 +649,11 @@ export function renderAnimalsScreen(container) {
         }
         const isBred = a.confirmedBred === true;
         if (selectedStatuses.has('confirmed_bred') && isBred) return true;
-        if (selectedStatuses.has('open') && !isBred) return true;
+        if (selectedStatuses.has('open')) {
+          const cls = classes.find(c => c.id === a.classId);
+          const open = assessOpenAnimal(a, cls);
+          return open.state === 'known' && open.value === true;
+        }
         return false;
       });
     }
@@ -2519,6 +2544,98 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
  * add() flow, then invokes `onSelected(newBull.id)` so the caller can set
  * `sireAiBullId` on the current animal without closing the Edit Animal dialog.
  */
+/**
+ * Pb0: Preg check settings dialog — per-species thresholds; Ps0 shared write path.
+ * Gc0 AND shown read-only. Pg0 caller hides the button until schema 47 released.
+ */
+function openPregCheckSettingsDialog(farmSettingsRow, onSaved) {
+  const overlay = el('div', {
+    'data-testid': 'preg-check-settings-overlay',
+    style: {
+      position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+      background: 'rgba(0,0,0,0.5)', zIndex: '320',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    },
+  });
+  const card = el('div', {
+    className: 'card',
+    style: { padding: 'var(--space-5)', maxWidth: '420px', width: '92%', maxHeight: '90vh', overflowY: 'auto' },
+  });
+  card.appendChild(el('div', {
+    style: { fontSize: '16px', fontWeight: '600', marginBottom: 'var(--space-3)' },
+  }, [t('animal.pregCheckSettings') || 'Preg check settings']));
+  card.appendChild(el('div', {
+    style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-3)' },
+  }, [t('animal.pregCheckCombineAnd') || 'Combine rule: AND (farm-wide)']));
+
+  const inputs = {};
+  for (const section of PREG_CHECK_SPECIES_SECTIONS) {
+    card.appendChild(el('div', {
+      style: { fontSize: '13px', fontWeight: '600', margin: '10px 0 6px' },
+    }, [section.label]));
+    for (const [key, label] of [
+      [section.exposureKey, t('settings.pregCheckMinDaysSinceExposure') || 'Min days since exposure'],
+      [section.postKey, t('settings.pregCheckMinDaysPostPartum') || 'Min days post-partum'],
+    ]) {
+      const defaults = {
+        pregCheckMinDaysSinceExposureCattle: 35,
+        pregCheckMinDaysPostCalvingCattle: 45,
+        pregCheckMinDaysSinceExposureSheep: 25,
+        pregCheckMinDaysPostCalvingSheep: 30,
+        pregCheckMinDaysSinceExposureGoat: 25,
+        pregCheckMinDaysPostCalvingGoat: 30,
+      };
+      const current = farmSettingsRow?.[key];
+      const value = Number.isFinite(current) ? String(current) : String(defaults[key]);
+      const input = el('input', {
+        type: 'number', min: '0', max: '365', step: '1',
+        className: 'auth-input',
+        value,
+        'data-testid': `preg-check-settings-${key}`,
+        style: { width: '100%', boxSizing: 'border-box' },
+      });
+      inputs[key] = input;
+      card.appendChild(el('div', { className: 'field', style: { marginBottom: '6px' } }, [
+        el('label', { className: 'form-label' }, [label]),
+        input,
+      ]));
+    }
+  }
+
+  const statusEl = el('div', { className: 'auth-error', 'data-testid': 'preg-check-settings-status' });
+  card.appendChild(statusEl);
+  card.appendChild(el('div', { className: 'btn-row', style: { marginTop: '10px' } }, [
+    el('button', {
+      className: 'btn btn-green',
+      'data-testid': 'preg-check-settings-save',
+      onClick: () => {
+        clear(statusEl);
+        const values = {};
+        for (const key of Object.keys(inputs)) values[key] = inputs[key].value;
+        const check = validatePregCheckThresholds(values);
+        if (!check.valid) {
+          statusEl.appendChild(el('span', {}, [check.errors.join('; ')]));
+          return;
+        }
+        try {
+          updateFarmPregCheckSettings(farmSettingsRow.id, check.normalized);
+          overlay.remove();
+          if (onSaved) onSaved();
+        } catch (err) {
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('action.save') || 'Save']),
+    el('button', {
+      className: 'btn btn-outline',
+      'data-testid': 'preg-check-settings-cancel',
+      onClick: () => overlay.remove(),
+    }, [t('action.cancel') || 'Cancel']),
+  ]));
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+
 function openAddAiBullSubDialog(operationId, onSelected) {
   const overlay = el('div', {
     'data-testid': 'add-ai-bull-overlay',

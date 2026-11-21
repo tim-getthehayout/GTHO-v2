@@ -1,5 +1,5 @@
 /**
- * @file Bull exposure / preg-check / due bands — locked A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gd0+Gc0.
+ * @file Exposure / preg-check / due bands — A0+E1+B0-extend+C3+D0+D4+F0+Fg1+Gs1+Gd+Gc0.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -69,9 +69,10 @@ describe('bull-exposure protocol defaults', () => {
       minDaysSinceExposure: DEFAULT_PREG_CHECK_MIN_DAYS_SINCE_EXPOSURE,
       minDaysPostCalving: DEFAULT_PREG_CHECK_MIN_DAYS_POST_CALVING,
       combine: 'AND',
+      family: 'cattle',
     });
     expect(formatPregCheckProtocolSummary(p)).toBe(
-      'Protocol: ≥35d since exposure AND ≥45d post-calving',
+      'Protocol: ≥35d since exposure AND ≥45d post-partum',
     );
   });
 });
@@ -317,5 +318,116 @@ describe('heifer no calving + cattle-only', () => {
       protocol: resolvePregCheckProtocol(null),
       asOfDate: '2026-08-01',
     })).toBe(true);
+  });
+});
+
+
+describe('multispecies derive (E1)', () => {
+  const CLASS_RAM = '00000000-0000-0000-0000-0000000243c5';
+  const CLASS_DOE = '00000000-0000-0000-0000-0000000243c6';
+  const CLASS_BUCK = '00000000-0000-0000-0000-0000000243c7';
+  const multiClasses = [
+    ...classes,
+    { id: CLASS_RAM, operationId: OP, name: 'Rams', species: 'sheep', role: 'ram' },
+    { id: CLASS_DOE, operationId: OP, name: 'Does', species: 'goat', role: 'doe' },
+    { id: CLASS_BUCK, operationId: OP, name: 'Bucks', species: 'goat', role: 'buck' },
+  ];
+  const G_SHEEP = '00000000-0000-0000-0000-0000000243g3';
+  const G_GOAT = '00000000-0000-0000-0000-0000000243g4';
+  const EWE1 = '00000000-0000-0000-0000-0000000243w1';
+  const RAM1 = '00000000-0000-0000-0000-0000000243r1';
+  const DOE1 = '00000000-0000-0000-0000-0000000243d1';
+  const BUCK1 = '00000000-0000-0000-0000-0000000243k1';
+
+  it('derives ram↔ewe same-group exposure', () => {
+    const animals = [
+      { id: EWE1, operationId: OP, classId: CLASS_EWE, sex: 'female', active: true, confirmedBred: false },
+      { id: RAM1, operationId: OP, classId: CLASS_RAM, sex: 'male', active: true, confirmedBred: false },
+    ];
+    const memberships = [
+      mem('m1', EWE1, G_SHEEP, '2026-05-01', '2026-07-01'),
+      mem('m2', RAM1, G_SHEEP, '2026-05-15', '2026-06-15'),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: multiClasses, memberships, eventGroupWindows: [],
+    });
+    const ok = intervals.filter(r => r.includeInView);
+    expect(ok).toHaveLength(1);
+    expect(ok[0]).toMatchObject({
+      femaleId: EWE1, bullId: RAM1,
+      exposureStart: '2026-05-15', exposureEnd: '2026-06-15',
+    });
+  });
+
+  it('derives buck↔doe same-group exposure', () => {
+    const animals = [
+      { id: DOE1, operationId: OP, classId: CLASS_DOE, sex: 'female', active: true, confirmedBred: false },
+      { id: BUCK1, operationId: OP, classId: CLASS_BUCK, sex: 'male', active: true, confirmedBred: false },
+    ];
+    const memberships = [
+      mem('m1', DOE1, G_GOAT, '2026-04-01', '2026-06-01'),
+      mem('m2', BUCK1, G_GOAT, '2026-04-10', '2026-05-20'),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: multiClasses, memberships, eventGroupWindows: [],
+    });
+    const ok = intervals.filter(r => r.includeInView);
+    expect(ok).toHaveLength(1);
+    expect(ok[0]).toMatchObject({ femaleId: DOE1, bullId: BUCK1 });
+  });
+
+  it('does not pair ram with cow (matching-species only)', () => {
+    const animals = [
+      cow(F1),
+      { id: RAM1, operationId: OP, classId: CLASS_RAM, sex: 'male', active: true, confirmedBred: false },
+    ];
+    const memberships = [
+      mem('m1', F1, G_COW, '2026-05-01', null),
+      mem('m2', RAM1, G_COW, '2026-05-01', null),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: multiClasses, memberships, eventGroupWindows: [],
+    });
+    expect(intervals.filter(r => r.femaleId === F1)).toHaveLength(0);
+  });
+
+  it('resolvePregCheckProtocol returns sheep/goat Gd defaults', () => {
+    expect(resolvePregCheckProtocol(null, 'sheep')).toMatchObject({
+      minDaysSinceExposure: 25, minDaysPostCalving: 30, family: 'sheep', combine: 'AND',
+    });
+    expect(resolvePregCheckProtocol(null, 'goat')).toMatchObject({
+      minDaysSinceExposure: 25, minDaysPostCalving: 30, family: 'goat',
+    });
+    expect(resolvePregCheckProtocol(null, 'beef_cattle')).toMatchObject({
+      minDaysSinceExposure: 35, minDaysPostCalving: 45, family: 'cattle',
+    });
+  });
+
+  it('D0 uses per-species protocol for ewe', () => {
+    const ewe = {
+      id: EWE1, operationId: OP, classId: CLASS_EWE, sex: 'female', active: true, confirmedBred: false,
+    };
+    const ram = {
+      id: RAM1, operationId: OP, classId: CLASS_RAM, sex: 'male', active: true, confirmedBred: false,
+    };
+    const animals = [ewe, ram];
+    const memberships = [
+      mem('m1', EWE1, G_SHEEP, '2026-05-01', '2026-06-01'),
+      mem('m2', RAM1, G_SHEEP, '2026-05-01', '2026-06-01'),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: multiClasses, memberships, eventGroupWindows: [],
+    });
+    const eweClass = multiClasses.find(c => c.id === CLASS_EWE);
+    // 25d sheep exposure met at asOf 2026-06-30 (60d); cattle 35 would also pass here
+    expect(isPregnancyCheckMember({
+      animal: ewe, animalClass: eweClass, intervals, calvingRecords: [],
+      farmSettings: null, asOfDate: '2026-06-30',
+    })).toBe(true);
+    // Too soon for sheep 25d (asOf = exposure_start + 10)
+    expect(isPregnancyCheckMember({
+      animal: ewe, animalClass: eweClass, intervals, calvingRecords: [],
+      farmSettings: null, asOfDate: '2026-05-11',
+    })).toBe(false);
   });
 });

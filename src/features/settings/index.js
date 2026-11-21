@@ -13,6 +13,12 @@ import { withResyncLock, planResync, applyResync, resyncSkippedExport } from '..
 import { pullAllRemote } from '../../data/pull-remote.js';
 import { logger } from '../../utils/logger.js';
 import { validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
+import {
+  arePregCheckSettingsReleased,
+  updateFarmPregCheckSettings,
+  validatePregCheckThresholds,
+  PREG_CHECK_SPECIES_SECTIONS,
+} from './preg-check-settings.js';
 import { validate as validateUserPref, toSupabaseShape as prefToSb } from '../../entities/user-preference.js';
 import { FIELD_MODULES, FIELD_MODULES_DEFAULT } from '../field-mode/index.js';
 import { getUser } from '../auth/session.js';
@@ -51,6 +57,7 @@ export function renderSettingsScreen(container) {
     el('h1', { className: 'screen-heading' }, [t('settings.title')]),
     renderUnitSection(container),
     renderFarmSection(farmSettings, container),
+    renderPregCheckSettingsSection(farmSettings, container),
     renderPrefSection(userPrefs, container),
     // OI-0125 / SP-13: Forage Types card sits between Farm Settings and Field
     // Mode (v1 ordering: Farms → Forage Types → Field Mode → Farm Settings).
@@ -213,6 +220,79 @@ function renderFarmSection(fs, _rootContainer) {
           statusEl.appendChild(el('span', {}, [t('settings.saved')]));
         } catch (err) {
           clear(statusEl);
+          statusEl.className = 'auth-error';
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('action.save')]),
+    statusEl,
+  ]);
+}
+
+/** Ps-farm0: Farm Settings editors for per-species preg-check thresholds (same helper as Animals). Pg0: hidden until schema 47. */
+function renderPregCheckSettingsSection(fs, rootContainer) {
+  if (!arePregCheckSettingsReleased()) return el('div');
+
+  const inputs = {};
+  const fieldEls = [];
+  const defaults = {
+    pregCheckMinDaysSinceExposureCattle: 35,
+    pregCheckMinDaysPostCalvingCattle: 45,
+    pregCheckMinDaysSinceExposureSheep: 25,
+    pregCheckMinDaysPostCalvingSheep: 30,
+    pregCheckMinDaysSinceExposureGoat: 25,
+    pregCheckMinDaysPostCalvingGoat: 30,
+  };
+  for (const section of PREG_CHECK_SPECIES_SECTIONS) {
+    fieldEls.push(el('div', {
+      style: { fontSize: '13px', fontWeight: '600', margin: '10px 0 4px' },
+    }, [section.label]));
+    for (const [key, labelKey, fallback] of [
+      [section.exposureKey, 'settings.pregCheckMinDaysSinceExposure', 'Min days since exposure'],
+      [section.postKey, 'settings.pregCheckMinDaysPostPartum', 'Min days post-partum'],
+    ]) {
+      const current = fs[key];
+      const value = Number.isFinite(current) ? String(current) : String(defaults[key]);
+      const input = el('input', {
+        type: 'number', min: '0', max: '365', step: '1',
+        className: 'auth-input settings-input',
+        value,
+        'data-testid': `settings-farm-${key}`,
+      });
+      inputs[key] = input;
+      fieldEls.push(el('div', { className: 'settings-field' }, [
+        el('label', { className: 'form-label' }, [t(labelKey) || fallback]),
+        input,
+      ]));
+    }
+  }
+
+  const statusEl = el('div', { className: 'auth-info', 'data-testid': 'settings-preg-check-status' });
+  return el('div', { className: 'card settings-card', 'data-testid': 'settings-preg-check-card' }, [
+    el('h3', { className: 'settings-section-title' }, [t('settings.pregCheckSettings') || 'Preg check settings']),
+    el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '8px' } }, [
+      t('animal.pregCheckCombineAnd') || 'Combine rule: AND (farm-wide)',
+    ]),
+    ...fieldEls,
+    el('button', {
+      className: 'btn btn-green btn-sm',
+      'data-testid': 'settings-preg-check-save',
+      onClick: () => {
+        const values = {};
+        for (const key of Object.keys(inputs)) values[key] = inputs[key].value;
+        const check = validatePregCheckThresholds(values);
+        clear(statusEl);
+        if (!check.valid) {
+          statusEl.className = 'auth-error';
+          statusEl.appendChild(el('span', {}, [check.errors.join('; ')]));
+          return;
+        }
+        try {
+          updateFarmPregCheckSettings(fs.id, check.normalized);
+          statusEl.className = 'auth-info';
+          statusEl.appendChild(el('span', {}, [t('settings.saved')]));
+          rerender(rootContainer);
+        } catch (err) {
           statusEl.className = 'auth-error';
           statusEl.appendChild(el('span', {}, [err.message]));
         }

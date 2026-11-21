@@ -744,11 +744,13 @@
     "splitUndoDone": "Split undone.",
     "splitDoneToast": "Split saved.",
     "filterPregnancyCheck": "Pregnancy Check",
-    "pregCheckProtocol": "Protocol: ≥{exposure}d since exposure AND ≥{postCalving}d post-calving",
+    "pregCheckProtocol": "Protocol: ≥{exposure}d since exposure AND ≥{postCalving}d post-partum",
     "confirmedBredDateMissing": "Confirm date missing",
     "confirmedOn": "Confirmed on {date}",
     "expectedCalving": "Expected {date}",
-    "dueBand": "Due {range}"
+    "dueBand": "Due {range}",
+    "pregCheckSettings": "Preg check settings",
+    "pregCheckCombineAnd": "Combine rule: AND (farm-wide)"
   },
   "group": {
     "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",
@@ -1346,8 +1348,10 @@
     "importV1WarningsSummary": "{count} warning(s) logged during transform. Check browser console for details.",
     "importV1CopyErrorLog": "Copy error log",
     "importV1ErrorLogCopied": "Error log copied",
-    "pregCheckMinDaysSinceExposure": "Preg-check min days since exposure",
-    "pregCheckMinDaysPostCalving": "Preg-check min days post-calving"
+    "pregCheckMinDaysSinceExposure": "Min days since exposure",
+    "pregCheckMinDaysPostCalving": "Min days post-partum",
+    "pregCheckSettings": "Preg check settings",
+    "pregCheckMinDaysPostPartum": "Min days post-partum"
   },
   "fieldMode": {
     "title": "Field Mode",

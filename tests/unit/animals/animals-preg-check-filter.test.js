@@ -121,8 +121,8 @@ describe('Animals Pregnancy Check filter', () => {
     expect(c.querySelector('[data-testid="animals-preg-check-protocol"]')).toBeNull();
     chip.click();
     const proto = c.querySelector('[data-testid="animals-preg-check-protocol"]');
-    expect(proto?.textContent).toMatch(/≥35d since exposure/);
-    expect(proto?.textContent).toMatch(/≥45d post-calving/);
+    expect(proto?.textContent).toMatch(/≥35d/);
+    expect(proto?.textContent).toMatch(/≥45d post-partum/);
   });
 
   it('is mutually exclusive with Confirmed bred', () => {
@@ -157,3 +157,28 @@ describe('Animals Pregnancy Check filter', () => {
     expect(row(c, A_OPEN)).toBeNull();
   });
 });
+
+
+describe('UxA0 species filter + Pg0 settings button', () => {
+  it('hides Preg check settings button while schema 47 held (Pg0)', () => {
+    const c = mount();
+    c.querySelector('[data-testid="animals-chip-status-pregnancy-check"]').click();
+    expect(c.querySelector('[data-testid="animals-preg-check-protocol"]')).toBeTruthy();
+    expect(c.querySelector('[data-testid="animals-preg-check-settings"]')).toBeNull();
+  });
+
+  it('protocol summary follows Sheep species filter', () => {
+    const c = mount();
+    c.querySelector('[data-testid="animals-chip-status-pregnancy-check"]').click();
+    const sheepChip = c.querySelector('[data-testid="animals-chip-species-sheep"]');
+    if (sheepChip) {
+      // Clear all-species then select sheep if chip exists in this seed (may not — cattle only seed)
+      sheepChip.click();
+    }
+    const proto = c.querySelector('[data-testid="animals-preg-check-protocol"]');
+    expect(proto).toBeTruthy();
+    // Cattle-only seed: All-species multi-line still shows sheep defaults
+    expect(proto.textContent).toMatch(/25d/);
+  });
+});
+

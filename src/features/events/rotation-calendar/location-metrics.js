@@ -250,17 +250,25 @@ export function computeLocationMetrics(location, ctx) {
     }
   }
 
-  // Implied pasture DMI: presence-weighted share of daily demand − stored, days loc open
+  // Implied pasture DMI: presence-weighted share of daily demand − stored, days loc open.
+  // eventOpenOn (via farmDemandWindowsOn) requires dateIn; events no longer store it
+  // (derived from child windows). Stamp the same way feedRunRateInput does.
   const classMap = Array.isArray(animalClasses)
     ? Object.fromEntries((animalClasses || []).map(c => [c.id, c]))
     : (animalClasses || {});
+  const eventsForDemand = (events || []).map(event => ({
+    id: event.id,
+    dateIn: event.dateIn
+      || deriveEventStartDate(event.id, { paddockWindows, groupWindows, event }),
+    dateOut: event.dateOut ?? null,
+  })).filter(e => e.dateIn);
   const demandOpts = {
     groupWindows,
     memberships,
     animals,
     animalClasses: classMap,
     animalWeightRecords,
-    events,
+    events: eventsForDemand,
     groups: [],
   };
   const feedByEventDate = indexFeedDmByEventDate(feedEntries || []);

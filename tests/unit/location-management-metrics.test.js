@@ -106,6 +106,15 @@ describe('computeLocationMetrics', () => {
     expect(m.eventCount).toBe(1);
   });
 
+  it('derives implied pasture DMI when events have no stored dateIn (real store shape)', () => {
+    // OI-0117 dropped events.date_in; demand helpers still need dateIn via child windows.
+    // Passing raw store events used to zero every pasture DMI after clear+render.
+    expect(baseCtx.events[0].dateIn).toBeUndefined();
+    const m = computeLocationMetrics(loc, baseCtx);
+    expect(m.dmiKg).toBeGreaterThan(0);
+    expect(m.dmiKnown).toBe(true);
+  });
+
   it('returns — for unknown score when no observations', () => {
     const m = computeLocationMetrics(loc, { ...baseCtx, observations: [] });
     expect(m.avgScore).toBeNull();
@@ -132,17 +141,13 @@ describe('computeLocationMetrics', () => {
   });
 
   it('subtracts stored feed DM from pasture DMI using quantity × weight × dm% snapshots', () => {
-    // eventOpenOn requires dateIn; baseCtx event is AUD/NPK-oriented without it
-    const dmiCtx = {
-      ...baseCtx,
-      events: [{ ...event, dateIn: '2026-10-01' }],
-    };
-    const none = computeLocationMetrics(loc, dmiCtx);
+    // Real store events omit dateIn; derivation must still yield demand > 0.
+    const none = computeLocationMetrics(loc, baseCtx);
     expect(none.dmiKg).toBeGreaterThan(0);
 
     // 2 × 500 kg × 80% = 800 kg DM on one open day — reduces (floors at 0 for that day)
     const withFeed = computeLocationMetrics(loc, {
-      ...dmiCtx,
+      ...baseCtx,
       feedEntries: [{
         id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-05',
         quantity: 2, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
@@ -154,13 +159,9 @@ describe('computeLocationMetrics', () => {
   });
 
   it('ignores feed entries that only carry a fake dmKg (no snapshots)', () => {
-    const dmiCtx = {
-      ...baseCtx,
-      events: [{ ...event, dateIn: '2026-10-01' }],
-    };
-    const none = computeLocationMetrics(loc, dmiCtx);
+    const none = computeLocationMetrics(loc, baseCtx);
     const fakeOnly = computeLocationMetrics(loc, {
-      ...dmiCtx,
+      ...baseCtx,
       feedEntries: [{
         id: 'fe-fake', eventId: 'ev1', locationId: 'loc1', date: '2026-10-05',
         dmKg: 99999,

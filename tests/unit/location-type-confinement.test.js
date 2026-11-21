@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { isConfinementLocation, isPureConfinementOnDate } from '../../src/calcs/location-type.js';
+import { isManagementLocation } from '../../src/features/events/rotation-calendar/location-metrics.js';
 
 const pasture = { id: 'loc-pasture', type: 'pasture', name: 'E-1' };
 const confinement = { id: 'loc-pen', type: 'confinement', name: 'Barn' };
@@ -35,11 +36,18 @@ describe('confinement classification uses loc.type', () => {
     })).toBe(true);
   });
 
-  it('the calendar grid filters and marks forageInactive from loc.type, never event.type', () => {
-    const src = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
-    expect(src).toMatch(/loc\.type === 'confinement'/);
-    expect(src).toMatch(/forageInactive:\s*loc\.type === 'confinement'/);
-    expect(src).not.toMatch(/event\.type/);
-    expect(src).not.toMatch(/locationType/);
+  it('the management surface excludes confinement via X1 filter (loc type/landUse), never event.type', () => {
+    const grid = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
+    const metrics = readFileSync('src/features/events/rotation-calendar/location-metrics.js', 'utf8');
+    expect(grid).toMatch(/filterManagementLocations/);
+    expect(metrics).toMatch(/isManagementLocation/);
+    expect(metrics).toMatch(/landUse/);
+    expect(metrics).toMatch(/mixed-use/);
+    // Confinement pens are not X1 management locations
+    expect(isManagementLocation({ id: 'pen', type: 'land', landUse: 'confinement' })).toBe(false);
+    expect(isManagementLocation({ id: 'barn', type: 'confinement' })).toBe(false);
+    expect(isManagementLocation({ id: 'p1', type: 'land', landUse: 'pasture' })).toBe(true);
+    expect(grid).not.toMatch(/event\.type/);
+    expect(metrics).not.toMatch(/event\.type/);
   });
 });

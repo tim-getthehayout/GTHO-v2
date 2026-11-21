@@ -113,6 +113,8 @@ Conditionally rendered — **pre-graze observation card** (Pre-graze height, For
 | `new` + `confinement` | Hidden — corral / dry-lot has no standing forage |
 | `join` (existing event) | Hidden — destination paddock already has a pre-graze obs from when its event opened |
 
+**OI-0241 (proposed):** Pre-graze under **Open New Event** is **destination / new-event starting pasture**, not the event being left (especially on `scoped-remaining`, where it is often the only pasture card — copy must say so). Event Detail currently lists paddocks in a list **and** as inline Pre-Graze cards; **Proposal pending Tim lock:** keep list + Edit, drop the inline duplicate. **Edit Paddock Window trap (design diagnosis):** green Save / blur today write window metadata only — observation persist must be on main Save (preferred) once locked.
+
 ### 1.6 Save Actions (in order)
 
 The save sequence is mode-aware. Steps marked **[full-event / scoped-last only]** are skipped in `scoped-remaining` mode because the source event stays open and the paddock continues to be grazed.

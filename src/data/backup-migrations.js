@@ -259,7 +259,7 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 45;
     return b;
   },
-  // 045 → 046: animals.confirmed_bred_date (held). Absent-only null; preserve supplied.
+  // 045 → 046: animals.confirmed_bred_date. Absent-only null; preserve supplied.
   45: (b) => {
     for (const row of b.tables.animals || []) {
       if (!Object.hasOwn(row, 'confirmed_bred_date')) row.confirmed_bred_date = null;
@@ -268,7 +268,7 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 46;
     return b;
   },
-  // 046 → 047: farm_settings per-species preg-check thresholds (held). Absent-only defaults; preserve supplied.
+  // 046 → 047: farm_settings per-species preg-check thresholds. Absent-only defaults; preserve supplied.
   46: (b) => {
     for (const row of b.tables.farm_settings || []) {
       if (!Object.hasOwn(row, 'preg_check_min_days_since_exposure_cattle')) {

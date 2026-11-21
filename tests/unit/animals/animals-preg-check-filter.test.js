@@ -160,11 +160,11 @@ describe('Animals Pregnancy Check filter', () => {
 
 
 describe('UxA0 species filter + Pg0 settings button', () => {
-  it('hides Preg check settings button while schema 47 held (Pg0)', () => {
+  it('shows Preg check settings button once schema 47 is released (Pg0)', () => {
     const c = mount();
     c.querySelector('[data-testid="animals-chip-status-pregnancy-check"]').click();
     expect(c.querySelector('[data-testid="animals-preg-check-protocol"]')).toBeTruthy();
-    expect(c.querySelector('[data-testid="animals-preg-check-settings"]')).toBeNull();
+    expect(c.querySelector('[data-testid="animals-preg-check-settings"]')).toBeTruthy();
   });
 
   it('protocol summary follows Sheep species filter', () => {

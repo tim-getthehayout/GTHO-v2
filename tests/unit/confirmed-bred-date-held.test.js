@@ -1,8 +1,10 @@
 /**
- * @file Held schema 46 — animals.confirmed_bred_date (not yet applied).
- * Ceiling stays 45; HELD=[46]; releasedColumns omits null and throws on non-null.
+ * @file Held-gate for schema 46 — animals.confirmed_bred_date, replayed at a mocked ceiling 45
+ * (the state before 046/047 were released). The real ceiling is 47 now; see
+ * confirmed-bred-date-released.test.js.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 45, HELD_SCHEMA_VERSIONS: [46, 47] }));
 import { setLocale } from '../../src/i18n/i18n.js';
 import en from '../../src/i18n/locales/en.json';
 import {
@@ -15,8 +17,8 @@ import { releasedColumns } from '../../src/data/schema-columns.js';
 
 beforeEach(() => setLocale('en', en));
 
-describe('confirmed_bred_date held at schema 46', () => {
-  it('keeps ceiling 45 with 46 held and staged animals.confirmed_bred_date', () => {
+describe('confirmed_bred_date held at mocked ceiling 45', () => {
+  it('at ceiling 45, 46 and 47 are held and staged animals.confirmed_bred_date is kept', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(45);
     expect(CURRENT_SCHEMA_VERSION).toBe(45);
     expect(HELD_SCHEMA_VERSIONS).toEqual([46, 47]);

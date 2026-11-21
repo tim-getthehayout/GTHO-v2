@@ -1,10 +1,10 @@
 /** Compiled compatibility ceiling, NOT the highest written migration.
  * Release/publish is gated on Tim's approval, backup, and verified applies.
- * Schema 46 (animals.confirmed_bred_date) is held until Tim applies + publishes.
- * Schema 47 (farm_settings per-species preg-check thresholds) is held until Tim applies + publishes.
+ * Schema 46 (animals.confirmed_bred_date) and schema 47 (farm_settings
+ * per-species preg-check thresholds) are released after verified apply.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
-export const RELEASED_SCHEMA_VERSION = 45;
-export const HELD_SCHEMA_VERSIONS = [46, 47];
+export const RELEASED_SCHEMA_VERSION = 47;
+export const HELD_SCHEMA_VERSIONS = [];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.

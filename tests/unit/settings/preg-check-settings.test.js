@@ -46,20 +46,29 @@ describe('validatePregCheckThresholds (Pv)', () => {
 });
 
 describe('Pg0 release gate', () => {
-  it('is hidden at current RELEASED ceiling 45', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(45);
-    expect(arePregCheckSettingsReleased()).toBe(false);
+  it('is visible at current RELEASED ceiling 47', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(47);
+    expect(arePregCheckSettingsReleased()).toBe(true);
+    expect(arePregCheckSettingsReleased(45)).toBe(false);
     expect(arePregCheckSettingsReleased(47)).toBe(true);
   });
 
-  it('updateFarmPregCheckSettings refuses while held', () => {
+  it('updateFarmPregCheckSettings still validates before write', () => {
     expect(() => updateFarmPregCheckSettings('fs1', {
+      pregCheckMinDaysSinceExposureCattle: -1,
+      pregCheckMinDaysPostCalvingCattle: 45,
+      pregCheckMinDaysSinceExposureSheep: 25,
+      pregCheckMinDaysPostCalvingSheep: 30,
+      pregCheckMinDaysSinceExposureGoat: 25,
+      pregCheckMinDaysPostCalvingGoat: 30,
+    })).toThrow(/non-negative integers/i);
+    expect(() => updateFarmPregCheckSettings('', {
       pregCheckMinDaysSinceExposureCattle: 35,
       pregCheckMinDaysPostCalvingCattle: 45,
       pregCheckMinDaysSinceExposureSheep: 25,
       pregCheckMinDaysPostCalvingSheep: 30,
       pregCheckMinDaysSinceExposureGoat: 25,
       pregCheckMinDaysPostCalvingGoat: 30,
-    })).toThrow(/schema 47/i);
+    })).toThrow(/id is required/i);
   });
 });

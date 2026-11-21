@@ -63,7 +63,7 @@ export function create(data = {}) {
     thresholdNpkWarnPerHa: data.thresholdNpkWarnPerHa ?? null,
     thresholdCostPerDayTarget: data.thresholdCostPerDayTarget ?? null,
     thresholdCostPerDayWarn: data.thresholdCostPerDayWarn ?? null,
-    // Held schema 47: null until released; calc/UI use Gd defaults via resolvePregCheckProtocol.
+    // Schema 47: null if unset; calc/UI use Gd defaults via resolvePregCheckProtocol.
     pregCheckMinDaysSinceExposureCattle: data.pregCheckMinDaysSinceExposureCattle ?? null,
     pregCheckMinDaysPostCalvingCattle: data.pregCheckMinDaysPostCalvingCattle ?? null,
     pregCheckMinDaysSinceExposureSheep: data.pregCheckMinDaysSinceExposureSheep ?? null,

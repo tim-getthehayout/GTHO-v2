@@ -1,8 +1,10 @@
 /**
- * @file Held schema 47 — farm_settings per-species preg-check thresholds (not yet applied).
- * Ceiling stays 45; HELD includes 46 and 47.
+ * @file Held-gate for schema 47 — farm_settings per-species preg-check thresholds, replayed at a
+ * mocked ceiling 45 (the state before 046/047 were released). The real ceiling is 47 now; see
+ * preg-check-thresholds-released.test.js.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 45, HELD_SCHEMA_VERSIONS: [46, 47] }));
 import { setLocale } from '../../src/i18n/i18n.js';
 import en from '../../src/i18n/locales/en.json';
 import {
@@ -24,8 +26,8 @@ const COLS47 = [
   'preg_check_min_days_post_calving_goat',
 ];
 
-describe('preg-check thresholds held at schema 47', () => {
-  it('keeps ceiling 45 with 46 and 47 held', () => {
+describe('preg-check thresholds held at mocked ceiling 45', () => {
+  it('at ceiling 45, 46 and 47 are held and staged farm_settings columns are kept', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(45);
     expect(CURRENT_SCHEMA_VERSION).toBe(45);
     expect(HELD_SCHEMA_VERSIONS).toEqual([46, 47]);

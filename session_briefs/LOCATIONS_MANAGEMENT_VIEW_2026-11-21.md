@@ -1,11 +1,11 @@
-# Locations + rotation management surface (OI-0246) — revised PROPOSED
+# Locations + rotation management surface (OI-0246)
 
-**Status:** **PROPOSED** (**revised** 2026-11-21 ~10:03 AM ET — Tim feedback **t782u** answering lock card **t781s3238**; first opened ~9:57 AM ET **t777u**. **Not LOCKED.** Awaiting Tim lock on UI architecture.)  
-**Owner:** GTHO Design → Orchestrator (Tim lock card) → GTHO Build (only after SPEC LOCKED + docs land)  
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-21 ~10:05 AM ET, via Orchestrator, card **t784s3247** answering revised lock card) — opened ~9:57 AM ET (**t777u**); revised ~10:03 AM ET (**t782u** answering **t781s3238**); **locked Design lean** on tip `1d6465adff611230fa429209c860a96927d3973f`  
+**Owner:** GTHO Design → GTHO Build (after docs land on main **or** from this locked tip ahead of land per Orchestrator coordination; Orchestrator land card — land only after Tim yes). **Sequence Build after OI-0245 code** unless Design/Orchestrator says otherwise (docs-land may still proceed independently).  
 **Parent / base:** Forgejo `origin/main` tip `dc9018534e237291daf3bac0daf8835ef42afb7b` (OI-0245 LOCKED docs; prior code tip `9402a0675e5924ca311974c31fc88084249c576b`; stamp `b2026-11-21.1415-9402a06`; `RELEASED_SCHEMA_VERSION` **47**). Rotation UI citations below read on **`dc90185` / current `origin/main`**.  
 **Also related:** Rotation calendar CP-54 / UX §19 (`src/features/events/rotation-calendar/*`); Locations UX §15.3; Implied pasture / DMI-9; OI-0241 / OI-0242 forage; pasture surveys OI-0126/0131; NPK-1/3 + ANI-AU/AUD/ADA; REC recovery (`src/calcs/advanced.js`); budget period Oct 1–Sep 30.  
-**Schema / migration:** Design lean still **D0** — **compute-on-read**; **no new tables / no migration** on the recommended path.  
-**Supersedes tip:** `ebb79d1e8be10757ad81998647318b22178b4cc1` (first PROPOSED; placement V0 only — reopened).
+**Schema / migration:** **D0 LOCKED** — **compute-on-read**; **no new tables / no migration / no SQL**.  
+**Supersedes tip:** `ebb79d1e8be10757ad81998647318b22178b4cc1` (first PROPOSED; placement V0 only — reopened). Revised PROPOSED tip locked from: `1d6465adff611230fa429209c860a96927d3973f`.
 
 ## 1. Problem
 
@@ -29,7 +29,8 @@ Tim (via Orchestrator, 2026-11-21 ~10:02 AM ET, **t782u** answering **t781s3238*
 - Asks for a **review of that screen** and maybe **integrate rotation calendar and locations into one better designed UI**.
 - Intention of the rotation calendar: show **past activity in a location visually**, and **readiness for grazing in the future timeline** based on **pasture surveys if present**, else **relative days elapsed since last graze** (relative to other locations’ last-grazed dates).
 
-**Orchestrator read:** metric choices **AGREED**; placement **not locked** — rethink the surface. **Phone (iPhone Home Screen) + Mac Dock both matter.** Do **not** stamp LOCKED yet.
+**Orchestrator read (t782u):** metric choices **AGREED**; placement reopen — rethink the surface. **Phone (iPhone Home Screen) + Mac Dock both matter.**  
+**Locked (t784s3247):** Tim one-tap locked Design lean — see §6.
 
 ## 2. AGREED metrics (frozen for lock — do not re-ask)
 
@@ -133,15 +134,15 @@ Tim **t782u** agreed with Design’s metric lean. Treat as **already locked with
 - Rewriting move wizard / event create (calendar remains an overview; clicks can still deep-link to events/locations).
 - Changing DMI-9 farm run-rate panel behavior.
 
-## 5. Option axes — UI architecture (what Tim still locks)
+## 5. Option axes — UI architecture (LOCKED — Tim t784s3247)
 
-Metric axes **W/M/A/N/S/D/X** = **AGREED (Tim t782u)**. Below are **placement / layout** axes only.
+Metric axes **W/M/A/N/S/D/X** = **AGREED (Tim t782u)** and carried into the lock. Placement / layout axes below are **LOCKED** to Design lean on tip `1d6465a`.
 
 ### U — Surface architecture
 
 | Code | Choice |
 |---|---|
-| **U0** | **One integrated Locations + Rotation management surface** (single designed UI; absorbs/replaces the broken desktop calendar chrome for this job; Locations list/Surveys stay reachable for edit/survey entry). **Design lean.** |
+| **U0 (LOCKED)** | **One integrated Locations + Rotation management surface** (single designed UI; absorbs/replaces the broken desktop calendar chrome for this job; Locations list/Surveys stay reachable for edit/survey entry). **Design lean — Tim locked.** |
 | U1 | Fix rotation calendar **in place** (scroll sync + wire metrics/readiness) and keep a separate Locations management toggle. |
 | U2 | Two tabs / routes that share one row model (Locations metrics tab + Rotation timeline tab). |
 
@@ -149,14 +150,14 @@ Metric axes **W/M/A/N/S/D/X** = **AGREED (Tim t782u)**. Below are **placement / 
 
 | Code | Choice |
 |---|---|
-| **F0** | **Required:** one vertical scroll owner (or hard-linked scroll sync); location **name column stays aligned** with timeline/metric rows while scrolling. **Design lean = required; not optional.** |
+| **F0 (LOCKED — must-fix)** | **Required:** one vertical scroll owner (or hard-linked scroll sync); location **name column stays aligned** with timeline/metric rows while scrolling. **Design lean = required; not optional — Tim locked.** |
 | F1 | Cosmetic sticky header only; accept independent column scroll (rejects Tim’s bug report — **do not recommend**). |
 
 ### T — Timeline content (past + future)
 
 | Code | Choice |
 |---|---|
-| **T0** | Past grazing blocks (visual) **+** future readiness: **use pasture survey / recovery window when present**; **else** show **relative days since last graze** ranked vs other in-scope locations. **Design lean** (matches Tim’s stated intention). |
+| **T0 (LOCKED)** | Past grazing blocks (visual) **+** future readiness: **use pasture survey / recovery window when present**; **else** show **relative days since last graze** ranked vs other in-scope locations. **Design lean — Tim locked** (matches stated intention). |
 | T1 | Past + survey/recovery only; empty/grey when no survey (no relative ranking). |
 | T2 | Past only this OI; future readiness follow-on. |
 
@@ -164,7 +165,7 @@ Metric axes **W/M/A/N/S/D/X** = **AGREED (Tim t782u)**. Below are **placement / 
 
 | Code | Choice |
 |---|---|
-| **C1** | On Mac: **sortable metric columns between frozen name and timeline** (name \| metrics \| timeline). Sidebar “Summary” zeros retired / folded into these columns. **Design lean.** |
+| **C1 (LOCKED)** | On Mac: **sortable metric columns between frozen name and timeline** (name \| metrics \| timeline). Sidebar “Summary” zeros retired / folded into these columns. **Design lean — Tim locked.** |
 | C0 | Metrics as a **toggleable panel** (show/hide columns) beside or over the timeline. |
 | C2 | Metrics **below** each name row (stacked), timeline full-width beside. |
 
@@ -172,35 +173,68 @@ Metric axes **W/M/A/N/S/D/X** = **AGREED (Tim t782u)**. Below are **placement / 
 
 | Code | Choice |
 |---|---|
-| **P1** | **Mac:** side-by-side (name \| metrics \| timeline). **Phone:** compact metric row / expand under the location name; **timeline scrolls horizontally**; **one vertical scroll** for the location list (F0). **Design lean.** |
+| **P1 (LOCKED)** | **Mac:** side-by-side (name \| metrics \| timeline). **Phone:** compact metric row / expand under the location name; **timeline scrolls horizontally**; **one vertical scroll** for the location list (F0). **Design lean — Tim locked.** |
 | P0 | Phone: same three-column shrink (likely unusable). |
 | P2 | Phone: metrics-only list first; open a location for its timeline strip. |
 
-### Design recommendation (internal)
+### Design recommendation (LOCKED)
 
-**AGREED(W1+M0+A1+N1+S0+D0+X1) + U0+F0+T0+C1+P1**
+**AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**
 
 Plain English: one combined Locations + rotation management screen; keep the location names locked in sync while you scroll; show past grazes and future readiness (surveys when you have them, otherwise how long since last graze vs other paddocks); put the agreed metric columns next to the names on Mac and under the names on phone; season window + compute-on-read as already agreed; no SQL.
 
-## 6. Acceptance sketch (after Tim lock)
+## 6. Locked (Tim, card t784s3247, ~10:05 AM ET)
 
-1. Surface matches locked **U\*** (integrated / fix-in-place / dual-tab).
-2. **F0:** scrolling the list never desyncs location names from timeline/metric rows (automated or manual QA on Mac + phone).
-3. Timeline shows past activity; future readiness matches locked **T\***.
-4. AGREED metrics appear per locked **C\*** / **P\*** for locations in **X1** over **W1** window; every numeric column sortable (**S0**).
-5. **D0:** no new migration files; no schema_version bump; no SQL apply.
-6. Existing Locations Surveys / Map / card edit and event create/close still reachable.
-7. Unit tests: scroll-sync invariant (or single-scroller architecture), aggregation helpers, readiness fallback (survey vs relative days).
+**AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**
 
-## 7. Related
+Tim locked Design’s one-tap recommendation on the revised lock card (exact words: *"Lock OI-0246: one combined Locations + rotation management screen; surveys when present else relative days since last graze; location names stay aligned while scrolling; phone metrics under the name; keep agreed metrics (season Oct 1–Sep 30 editable, DMI/AUDs/N-P-K separate/avg score, totals+per-acre, pastures+mixed-use, compute-on-read, sortable)"*). Interpretation (Orchestrator + Design): Design lean on tip `1d6465adff611230fa429209c860a96927d3973f`.
+
+| Axis | Locked | Meaning |
+|---|---|---|
+| W1 | ✓ AGREED | Season default Oct 1 – Sep 30; editable date range |
+| M0 | ✓ AGREED | Implied pasture DMI, AUDs, NPK, avg pasture score |
+| A1 | ✓ AGREED | Totals **and** per-acre when acres known |
+| N1 | ✓ AGREED | Separate sortable N / P / K (+ optional combined) |
+| S0 | ✓ AGREED | Client-side sort on any management column |
+| D0 | ✓ AGREED | Compute-on-read; **no migration / no SQL** |
+| X1 | ✓ AGREED | Pasture + mixed-use land only |
+| U0 | ✓ | One combined Locations + rotation management screen |
+| F0 | ✓ must-fix | Location names stay aligned while scrolling |
+| T0 | ✓ | Future readiness = surveys when present else relative days since last graze vs peers; past activity visual |
+| C1 | ✓ | Mac: sortable metrics between frozen name and timeline |
+| P1 | ✓ | Phone: metrics under the name; timeline scrolls sideways; one vertical scroll |
+
+**READY FOR BUILD** after docs land on `main` (Orchestrator land card; Tim’s land yes) — Build **may** also start from this locked tip ahead of docs land (same coordination pattern as recent OIs). **Sequence Build after OI-0245 code** (confirmed-bred due range) unless Design/Orchestrator says otherwise; docs-land may still proceed independently. **No migration / no SQL.**
+
+## 7. Acceptance criteria (LOCKED — Build after docs land / from locked tip)
+
+- [x] Spec **LOCKED** (t784s3247): **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**.  
+- [ ] Docs tip landed on main (separate Tim land yes) **or** Build starts from this locked tip per Orchestrator.  
+- [ ] **U0:** one combined Locations + rotation management surface; Locations Surveys / Map / card edit and event create/close still reachable.  
+- [ ] **F0 (must-fix):** scrolling never desyncs location names from timeline/metric rows (single vertical scroll owner or hard-linked sync); QA on Mac + phone.  
+- [ ] **T0:** past grazing activity visual; future readiness = survey/recovery when present, else relative days since last graze ranked vs other in-scope paddocks.  
+- [ ] **C1 / P1:** Mac name \| metrics \| timeline; phone metrics under name, horizontal timeline, one vertical list scroll.  
+- [ ] **AGREED metrics** over **W1** window for **X1** locations: DMI / AUDs / N / P / K / avg score; **A1** totals+per-acre; **S0** every numeric column sortable.  
+- [ ] **D0:** no new migration files; no schema_version bump; no SQL apply; compute-on-read (wire real calcs — retire sidebar/past-block zeros).  
+- [ ] Unit tests: scroll-sync invariant (or single-scroller architecture), aggregation helpers, readiness fallback (survey vs relative days).  
+- [ ] **Sequence:** implement after OI-0245 code unless Design/Orchestrator says otherwise.
+
+## 8. Related
 
 - First PROPOSED tip `ebb79d1` (Locations-only V0) — **superseded** on placement
+- Revised PROPOSED tip locked from: `1d6465adff611230fa429209c860a96927d3973f`
 - UX §19 Rotation Calendar; DS §4.3; `V2_UX_FLOWS.md` §19
 - `IMPLIED_PASTURE_DMI_2026-11-17.md`; OI-0241 / OI-0242; OI-0126 / OI-0131
 - CALC: NPK-1/3, ANI-AU/AUD/ADA, FOR-1/2, SUR-1, DMI-8/9, REC recovery
 - UX §15.3 Locations; SCHEMA Domain 2 / 6
+- OI-0245 (confirmed-bred due range) — **sequence Build after that code**
 
-## 8. Origin
+## 9. Origin
 
 - Tim via Orchestrator **t777u** (~9:57 AM ET 2026-11-21): management metrics + sort.
 - Tim via Orchestrator **t782u** answering **t781s3238** (~10:02 AM ET): agrees metrics; rotation screen is a mess (scroll desync); integrate rotation calendar + locations; past visual + future readiness (surveys else relative days since last graze).
+- Tim via Orchestrator **t784s3247** (~10:05 AM ET): locked Design one-tap rec (exact words in §6).
+
+---
+
+**Tip instruction:** **SPEC LOCKED / READY FOR BUILD**. Do **not** land on main until Tim yeses the land card. **No migration / no SQL.** Sequence Build after OI-0245 code unless Design/Orchestrator says otherwise.

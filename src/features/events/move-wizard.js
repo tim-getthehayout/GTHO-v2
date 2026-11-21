@@ -353,10 +353,16 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
     // destination type. Existing-event ('join') path is already gated by
     // the enclosing `state.destType === 'new'` block above.
     if (allDestLand) {
+      openSection.appendChild(el('div', {
+        className: 'form-hint',
+        'data-testid': 'move-wizard-dest-pregraze-hint',
+        style: { marginTop: 'var(--space-2)', marginBottom: 'var(--space-2)' },
+      }, [t('event.destPreGrazeHint')]));
       preGraze = renderPreGrazeCard({
         farmSettings,
         paddockAcres: summedPaddockAcres(destIds),
         initialValues: opts.initialFields?.preGraze || {},
+        titleKey: 'event.destPreGrazeTitle',
       });
       preGraze.container.setAttribute('data-testid', 'move-wizard-pre-graze-card');
       openSection.appendChild(preGraze.container);

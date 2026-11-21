@@ -32,7 +32,7 @@ Abbreviations: **ARCH** = `V2_APP_ARCHITECTURE.md`, **INFRA** = `V2_INFRASTRUCTU
 | `src/utils/calc-registry.js` | CALC §1, §2, §3 |
 | `src/calcs/core.js` | CALC ANI-1–ANI-3, NPK-1, NPK-3 (OI-0238 → TIM-3 presence durations), TIM-1–TIM-3, UNT-1 |
 | `src/calcs/advanced.js` | CALC CST-3, NPK-2, NPK-4, REC-1, SUR-1, UNT-2 |
-| `src/calcs/feed-forage.js` | CALC DMI-1–DMI-8 (OI-0238 Step 0b partial-day estimated demand), FED-1–FED-5, FOR-1–FOR-6, CST-1, CST-2; brief `PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md` |
+| `src/calcs/feed-forage.js` | CALC DMI-1–DMI-8 (OI-0238 Step 0b partial-day estimated demand), FED-1–FED-5, FOR-1–FOR-6, CST-1, CST-2; brief `PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md`; OI-0242 reuses per-window `pickPreGraze` / FOR-1 for dashboard capacity (`MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md`) |
 | `src/calcs/feed-run-rate.js` | CALC FED-6, DMI-9; brief `FEED_RUN_RATE_PROPOSAL_2026-11-17.md`, `IMPLIED_PASTURE_DMI_2026-11-17.md` |
 | `src/calcs/feed-check-plausibility.js` | CALC FED-7; brief `FEED_CHECK_PLAUSIBILITY_2026-11-17.md` |
 | `src/calcs/feed-pools.js`, `feed-state.js`, `event-feed-days.js` | CALC §4.2 (DMI-5 elapsed-hours split, DMI-8 + OI-0238 Step 0b), §4.6; ARCH §4.6 (`getLiveRemainingForMove`); brief `PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md` |
@@ -54,7 +54,7 @@ Abbreviations: **ARCH** = `V2_APP_ARCHITECTURE.md`, **INFRA** = `V2_INFRASTRUCTU
 | `observations/`, `surveys/` | UX §7; DS §3.16; SCHEMA Domain 6 | `PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md` (OI-0241 **LOCKED** persistence + destination copy) |
 | `amendments/` | UX §8; SCHEMA Domain 8 | — |
 | `harvest/` | UX §10; SCHEMA Domain 7 | — |
-| `dashboard/` | UX §17.1–§17.8 (OI-0238 capacity end-of-today / after-today label), §17.12, §17.13; DS §4.1, §3.13; ARCH §7.2; brief `PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md` | — |
+| `dashboard/` | UX §17.1–§17.8 (OI-0238 capacity end-of-today / after-today label; **OI-0242 PROPOSED** multi-paddock forage aggregation — stop `openPws[0]`×total acres), §17.12, §17.13; DS §4.1, §3.13; ARCH §7.2; brief `PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md` | `MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md` (OI-0242 **PROPOSED**) |
 | `todos/` | UX §17.8–§17.11 | — |
 | `reports/` | ARCH §7.1; DS §4.6; CALC §2 (reference console) | — |
 | `field-mode/` | UX §16; DS §7.2, §7.3 | — |

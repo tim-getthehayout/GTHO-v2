@@ -536,9 +536,10 @@ function renderManagementRow(opts) {
   if (range.end > nowD) {
     const futureLeftPx = dateToPx(nowD, range.start, range.pxPerDay);
     const futureWidthPx = Math.max(4, dateToPx(range.end, range.start, range.pxPerDay) - futureLeftPx);
-    const readiness = readiness || { mode: 'never' };
+    // Do not shadow the destructured `readiness` param (TDZ blank-screen crash).
+    const readinessState = readiness || { mode: 'never' };
     const hasActiveEvent = !!activeEvents[loc.id];
-    const isNeverGrazed = readiness.mode === 'never';
+    const isNeverGrazed = readinessState.mode === 'never';
 
     if (viewMode === 'forecast' && selectedGroups.length > 0 && state.period != null) {
       blockArea.appendChild(renderForecastFutureBlock({
@@ -561,11 +562,11 @@ function renderManagementRow(opts) {
       const fb = renderEstimatedFutureBlock({
         leftPx: Math.max(0, futureLeftPx),
         widthPx: futureWidthPx,
-        minDate: readiness.earliestReturn
-          ? formatShort(readiness.earliestReturn)
-          : (readiness.mode === 'relative' ? readiness.label : ''),
-        maxDate: readiness.windowCloses ? formatShort(readiness.windowCloses) : '',
-        confidence: readiness.confidence || 'min',
+        minDate: readinessState.earliestReturn
+          ? formatShort(readinessState.earliestReturn)
+          : (readinessState.mode === 'relative' ? readinessState.label : ''),
+        maxDate: readinessState.windowCloses ? formatShort(readinessState.windowCloses) : '',
+        confidence: readinessState.confidence || 'min',
         isNeverGrazed,
         isGrazingInProgress: hasActiveEvent,
         hayEstimateLbs: '?',
@@ -576,11 +577,11 @@ function renderManagementRow(opts) {
         },
       });
       // Relative-mode label overlay when no survey ticks
-      if (readiness.mode === 'relative' && !hasActiveEvent) {
+      if (readinessState.mode === 'relative' && !hasActiveEvent) {
         fb.appendChild(el('span', {
           className: 'future-block__relative',
           dataset: { testid: 'readiness-relative' },
-        }, [readiness.label]));
+        }, [readinessState.label]));
       }
       blockArea.appendChild(fb);
     }

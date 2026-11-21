@@ -2,7 +2,7 @@
 
 **Status:** **PROPOSED** — awaiting Tim lock A/B/C/D/E/F (2026-11-21 ~6:03–6:04 AM ET via Orchestrator; 6:04 AM backfill addition)  
 **Owner:** GTHO Design → (Build only after Tim locks; not handed)  
-**Schema / migration:** undecided until E locks — first ship may be **view-only / compute-on-read** (no new tables) if A0; A1/A2 override ledger or farm gestation setting may need a later migration (apply still needs Tim’s yes + verified backup)  
+**Schema / migration:** A0+F0 prefer **no exposure table**. **Gh0** adds `farm_settings` threshold integers (migration later: Tim’s yes + backup + CP-55/56). A1/A2/F1/F2 as before. Gestation remains code constants under C3 unless a later settings OI.  
 **Base:** Forgejo `origin/main` `708933d90da5df9f8500a8ada1540adaacec019d` (OI-0242 tip). File/doc citations below were read on that SHA.
 
 ## 1. Problem
@@ -19,7 +19,7 @@ Two real co-presence cases on this farm’s operating model:
 
 Tim’s lean: recording each bull’s **individual movement** is probably the right granularity — but he is open to other options. Design must ground the choice in the existing offline-first membership + event window model and **avoid a second source of truth**.
 
-**Origin:** Tim via Orchestrator, 2026-11-21 ~6:03 AM ET (America/New_York); **backfill addition** ~6:04 AM ET (same channel).
+**Origin:** Tim via Orchestrator, 2026-11-21 ~6:03 AM ET (America/New_York); **backfill** ~6:04 AM ET; **Animals Pregnancy Check filter + configurable protocol** ~6:06 AM ET.
 
 ## 2. Current state (citations — do not invent)
 
@@ -31,7 +31,9 @@ Tim’s lean: recording each bull’s **individual movement** is probably the ri
 | Confirmed date | OI-0232 SPEC — [CONFIRMED_BRED_DATE_2026-11-18.md](CONFIRMED_BRED_DATE_2026-11-18.md); migration file `046_animals_confirmed_bred_date.sql` on disk | Nullable `animals.confirmed_bred_date`; Q1 untick clears date; Q2 calving clears tick+date. Apply / Edit UI follow that OI’s gates (yes + backup for apply). **This is confirmation date, not conception date.** |
 | May 1 backfill | OI-0234 SPEC LOCKED — [CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md](CONFIRMED_BRED_MAY1_BACKFILL_2026-11-19.md) | One-time write after 0232 apply; separate yes + backup. |
 | “Open” filter / open set | OI-0235 / farm-reads; UX §15.0; [ANIMALS_MULTI_FILTERS_2026-11-19.md](ANIMALS_MULTI_FILTERS_2026-11-19.md) | **Open** ≈ active female with class role `cow` or `heifer` and `confirmedBred === false` (`src/features/assistant/farm-reads.js` `assessOpenAnimal`). Calves/steers/bulls out. |
-| Animals filter cascade | OI-0236 — [ANIMALS_FILTER_CASCADE_2026-11-20.md](ANIMALS_FILTER_CASCADE_2026-11-20.md) | Open / Confirmed bred chips on Animals screen; not a due/preg-check worklist. |
+| Animals filter cascade | OI-0235 / OI-0236 — [ANIMALS_MULTI_FILTERS_2026-11-19.md](ANIMALS_MULTI_FILTERS_2026-11-19.md), [ANIMALS_FILTER_CASCADE_2026-11-20.md](ANIMALS_FILTER_CASCADE_2026-11-20.md); UX §15.0 | Same `#/animals` filter header (do not invent a second bar). **OI-0235 as-built:** class pills + **Open** / **Confirmed bred** status pills. **OI-0236 locked:** four stacked rows — Groups (large cards) → Species → Class → Open/Confirmed bred; pipeline groups → species OR → class OR → status → search. **No Pregnancy Check pill today** — Tim 6:06 AM asks to add one on this screen. |
+| Last calving date | SCHEMA §9.9 `animal_calving_records.calved_at`; clears `confirmed_bred` on birth (OI-0099 / 2026-11-08 lock) | Source for **minimum days post-calving** in the protocol. Heifers with no calving row: post-calving gate N/A. |
+| Farm settings home | SCHEMA Domain 1 `farm_settings` (per-**farm**, `farm_id` UNIQUE; denormalized `operation_id` for RLS). Explicitly **eliminates** v1 `operation_settings` JSONB. Already holds threshold integers (AUD/rotation/cost). | Natural home for preg-check threshold integers if Gh0 locks. New columns = migration later (Tim’s yes + backup). |
 
 ### Membership + event co-presence (already the movement ledger)
 
@@ -61,10 +63,11 @@ Tim’s lean: recording each bull’s **individual movement** is probably the ri
 ## 3. Goals
 
 - **G1.** Define exposure windows for open females under both Tim cases (same-group bull; bull-group sharing an event), including **retroactive history** from existing records (Tim 6:04 AM ET).
-- **G2.** A **preg-check list**: females that warrant a check from exposure (and rules for who drops off).
+- **G2.** A **preg-check list** on the **Animals screen** via a **Pregnancy Check** filter/toggle (Tim 6:06 AM): females due for check per the configurable protocol.
 - **G3.** For each exposed or confirmed-pregnant female, show **earliest** and **latest** due dates that work **even when no preg check was recorded**.
 - **G4.** Stay offline-first and **compute on read** where possible; prefer existing membership + event windows over a parallel ledger.
 - **G5.** Relate cleanly to OI-0232 `confirmed_bred` / `confirmed_bred_date` (confirmation ≠ conception).
+- **G6.** Configurable protocol: **minimum days since exposure** and **minimum days post-calving** (Tim 6:06 AM), with a locked settings home and combine rule.
 
 ## 4. Non-goals (this OI)
 
@@ -99,26 +102,64 @@ Let `G` = gestation length in days for the female’s species (see C sub-pick).
 
 **Design recommendation for C:** **C0 + C3** (or **C0 + C2** if E0 cattle-only). Do **not** pick C1 unless Tim wants assumed-days-pregnant math.
 
-### D — Preg-check list rules
+### D — Preg-check list membership (who the Pregnancy Check filter selects)
 
-Who appears on “should preg check”:
+Threshold **values** and combine rule live under **G** (Tim 6:06 AM). D only locks membership shape:
 
-- **D0 — Exposed, still open, past minimum days since exposure start (Design recommendation).** Female meets B0 open; has exposure; `days_since_exposure_start ≥ N` (default **N = 35** calendar days unless Tim picks D1/D2); not yet confirmed bred; still active. Drop when confirmed bred, culled/inactive, or exposure invalidated. **Consequence:** simple; N is a product constant until a settings OI.
-- **D1 — Same as D0 but N = 28.**
-- **D2 — Same as D0 but N = 45.**
-- **D3 — Also require exposure_end in the past (bull out / window closed) before listing.** **Consequence:** fewer mid-turnout checks; misses “check while bull still in” workflows.
-- **D4 — Include confirmed-bred with NULL `confirmed_bred_date` as “confirm date missing” (not a due-for-check).** Separate from preg-check list; optional badge only. **Consequence:** supports OI-0232 incomplete marks without mixing into exposure checks.
+- **D0 — Open + exposed + passes protocol G (Design recommendation).** Female meets B0 open; has non-ambiguous exposure (per Fg); satisfies locked G thresholds/combine; not confirmed bred; still active. The Animals **Pregnancy Check** filter selects exactly this set. Drop when confirmed bred, culled/inactive, exposure invalidated, or protocol no longer met. **Consequence:** one set for the filter and any due-for-check count; N is not hard-coded here.
+- **D3 — Also require `exposure_end` in the past** before eligibility. **Consequence:** fewer mid-turnout checks; misses “check while bull still in.”
+- **D4 — Confirmed-bred with NULL `confirmed_bred_date` as a separate “date missing” badge** (not in the Pregnancy Check set). **Consequence:** supports OI-0232 incomplete marks without mixing into due-for-check.
 
-**Design recommendation:** **D0 (N=35) + D4 as optional status**, not mixed into the check list. Tim can lock D1/D2 instead of 35 without changing the rule shape.
+**Design recommendation:** **D0 + D4**. (Former fixed N=28/35/45 picks moved to **G** defaults.)
 
-### E — Scope of first ship
+### E — Scope of first ship (+ Animals-screen surface — Tim 6:06 AM)
 
-- **E0 — Cattle-only, view-only derived lists (Design recommendation).** Beef/dairy cattle females + bulls; **read-only** preg-check list + due-band view (Animals area or a dedicated reproductive view — exact chrome deferred to Build only as “Animals-adjacent list, no new IA invent beyond one entry point named in acceptance”). No new tables if A0; no writes except existing confirmed-bred UI (OI-0232). **Consequence:** ships value from data Tim already records via moves; sheep/goat and override ledger follow-ups.
-- **E1 — All species with SCHEMA §9.7 constants; still view-only.** **Consequence:** more test surface; same no-migration path if A0.
-- **E2 — Include write paths in first ship** (override entries and/or auto-suggest breeding records). **Consequence:** needs schema + sync + CP-55/56 impact lines; slower; not needed for Tim’s stated view goals.
-- **E3 — Fold due-band into OI-0232 Edit Animal** (show exposure-derived band under Confirmed bred) **and** keep a list view. **Consequence:** tighter UX with 0232; still depends on A/B/C locks; Edit Animal alone is not enough for the preg-check worklist.
+**Surface is decided (not deferred):** the preg-check view lives on the **Animals screen** (`#/animals`). Add a **Pregnancy Check** filter/toggle in the existing filter header that selects the D0 set.
 
-**Design recommendation:** **E0**, with a later OI for overrides (if A2) and multi-species (if not E1). **Relate to OI-0232:** this OI **consumes** `confirmed_bred` / `confirmed_bred_date` as status; it does **not** replace the date field. Confirmation clears “needs check”; exposure drives due bands when no breeding-record expected calving exists.
+**How filters work today (cite — extend, don’t fork):**
+- OI-0235 / UX §15.0: same `filterWrap` / `.agc-chips` header; **Open** / **Confirmed bred** status pills (F1 mutually exclusive with each other in 0235; F2 label “Confirmed bred”).
+- OI-0236: four stacked horizontal-scroll rows — **Groups** (large cards) → **Species** → **Class** → **Open / Confirmed bred**; pipeline groups → species OR → class OR → status → search ([ANIMALS_FILTER_CASCADE_2026-11-20.md](ANIMALS_FILTER_CASCADE_2026-11-20.md)).
+- **Pregnancy Check** = new status-row control on that same cascade (label **Pregnancy Check**). Design rec for interaction: on the status row with Open / Confirmed bred; **mutually exclusive with Confirmed bred**; when on, list = protocol-due set (D0) and does **not** require also tapping Open; still AND with Groups/Species/Class/search. Do not add a second filter bar.
+
+- **E0 — Cattle-only, view-only, Animals screen + Pregnancy Check filter (Design recommendation).** Beef/dairy cattle; derived exposure/due; **Pregnancy Check** pill/toggle on Animals as above; due earliest/latest visible on matching animal rows or a detail subline (exact row chrome: show earliest–latest due on the animal card when Pregnancy Check or when viewing an exposed/confirmed female — Build must not invent a separate app section). No new exposure tables if A0; settings columns per G may still need a gated migration. **Consequence:** matches Tim’s 6:06 ask; reuses OI-0235/0236 patterns.
+- **E1 — All species; still Animals + Pregnancy Check; view-only.** **Consequence:** more test surface; Gs1 more natural.
+- **E2 — Include write paths in first ship** (overrides / auto breeding records). **Consequence:** schema + sync + CP-55/56; slower.
+- **E3 — Also show exposure due band on Edit Animal (OI-0232)** in addition to Animals list. **Consequence:** tighter with 0232; list filter still required.
+
+**Design recommendation:** **E0**. **Relate to OI-0232:** consumes confirmed-bred fields as status; confirmation clears Pregnancy Check membership; exposure drives due bands when no breeding-record expected calving exists.
+
+### G — Preg-check protocol settings (Tim 6:06 AM)
+
+At least two configurable thresholds decide when an animal becomes due for a check:
+
+1. **`min_days_since_exposure`** — calendar days since **exposure_start** (merged interval).
+2. **`min_days_post_calving`** — calendar days since the dam’s **latest** `animal_calving_records.calved_at` (SCHEMA §9.9). If no calving record (typical heifer): treat post-calving as **satisfied / N/A** (only exposure rule applies).
+
+#### Where settings live
+
+- **Gh0 — `farm_settings` columns (Design recommendation).** Add two integer columns (names illustrative: `preg_check_min_days_since_exposure`, `preg_check_min_days_post_calving`) on existing per-**farm** `farm_settings` (SCHEMA Domain 1: `farm_id` UNIQUE; v1 `operation_settings` eliminated; threshold ints already live here). **Consequence:** matches GTHO settings pattern; multi-farm ops can differ; **migration later** needs Tim’s yes + verified backup + CP-55/56 impact; until applied, Build may ship with compiled defaults equal to Gd (document ceiling gate like other staged columns).
+- **Gh1 — New operation-scoped settings store.** **Consequence:** fights current “per-farm, not per-operation” decision; avoid unless Tim overrules SCHEMA.
+
+#### Species defaults / group overrides
+
+- **Gs0 — Single cattle pair for first ship with E0 (Design recommendation).** One exposure default + one post-calving default used for beef/dairy cattle. Sheep/goat wait for a follow-up (or E1+Gs1). **Consequence:** smallest schema/UI.
+- **Gs1 — Per-species defaults from day one** (cattle/sheep/goat columns or rows). **Consequence:** more migration/UI; fits E1.
+- **Gg0 — No per-group overrides (Design recommendation).** Farm (or species) defaults only. **Consequence:** simple; group-specific protocols deferred.
+- **Gg1 — Per-group overrides allowed.** **Consequence:** new table or JSON; sync/CP impact; easy to misuse.
+
+#### Default values (lockable)
+
+- **Gd0 — exposure = 35, post-calving = 45 (Design recommendation).** Exposure 35 = prior D0 rec (early pregnancy check window). Post-calving **45** ≈ common cattle voluntary wait / uterine involution window before expecting a reliable check; grounded in last calving via `calved_at` (not invented on `animals`). **Consequence:** sensible cattle starting point; Tim can override numbers in the lock reply without changing Gh/Gs/Gg/Gc.
+- **Gd1 — exposure = 28, post-calving = 45.**
+- **Gd2 — exposure = 45, post-calving = 60.**
+- **Gd3 — exposure = 35, post-calving = 40.**
+
+#### How the two rules combine
+
+- **Gc0 — BOTH must be met (AND) (Design recommendation).** Due for check iff `days_since_exposure_start ≥ min_days_since_exposure` **AND** (no calving record **OR** `days_since_last_calving ≥ min_days_post_calving`). **Consequence:** won’t flag a just-calved open cow as due merely because an old/new exposure clock is long enough; safer clinical timing.
+- **Gc1 — EITHER is enough (OR).** **Consequence:** noisier list; can surface animals still too early post-calving if exposure alone passes.
+
+**Design recommendation for G:** **Gh0 + Gs0 + Gg0 + Gd0 (35 / 45) + Gc0**.
 
 ### F — Backfill (retroactive history from existing records)
 
@@ -181,28 +222,29 @@ Deliverables: CSV + summary JSON counts (rows total, by ambiguity_flag, by sourc
 
 ## 6. Design lock recommendation (for Tim’s card)
 
-**A0 + B0 + C0 + C3 + D0 (N=35) + D4 + E0 + F0 + Fg1**
+**A0 + B0 + C0 + C3 + D0 + D4 + E0 + F0 + Fg1 + Gh0 + Gs0 + Gg0 + Gd0 (35/45) + Gc0**
 
-Rationale in one line: membership + event windows already record each bull’s individual group movement offline-first (including closed and v1-imported rows); deriving exposure avoids a second ledger; open/confirmed stay aligned with farm-reads and OI-0235; due bands from exposure start/end + species gestation work without a preg check; confirmation date is status, not conception; retroactive history is the same derive over retained ledgers, reviewed via dry-run before trust — no exposure-row write unless Tim later picks A1/A2+F1.
+Rationale: membership + event windows already record each bull’s individual group movement (incl. v1 import); derive exposure (A0) avoids a second ledger; Open/Confirmed stay aligned with farm-reads / OI-0235–0236; **Pregnancy Check** is a new status-row filter on Animals (E0, Tim 6:06); protocol thresholds live on `farm_settings` (Gh0) with cattle defaults 35 days since exposure / 45 days post-calving, **AND** combine (Gc0); confirmation date is status not conception (C0); F0 dry-run + on-read history with Fg1 gap flags — no exposure-row write unless A1/A2+F1 later.
 
-If Tim insists on “I want to type bull movements separately,” lock **A2** (not A1) so derive remains default; backfill then becomes **F1** for override/materialized rows after dry-run + backup + yes.
+If Tim insists on typing bull movements separately, lock **A2** (not A1); backfill materialize then **F1** after dry-run + backup + yes.
 
 ## 7. Acceptance criteria (after Tim locks — for a future Build handoff)
 
-- [ ] Spec status flipped to SPEC LOCKED with the chosen option IDs (incl. **F/Fg**); Build not started before that.
+- [ ] Spec status flipped to SPEC LOCKED with the chosen option IDs (incl. **F/Fg/G**); Build not started before that.
 - [ ] Read-only dry-run report (columns in §F) produced and Tim-reviewed before any prod write; if F0, no exposure-row write.
-- [ ] Preg-check list matches locked B + D (only open exposed females; N as locked; drops on confirmed/cull).
+- [ ] Animals screen has **Pregnancy Check** filter/toggle in the existing OI-0235/0236 header; selecting it shows the D0 set (protocol G); no second filter bar.
+- [ ] Preg-check membership matches locked B + D + G (open + exposed + protocol; drops on confirmed/cull).
 - [ ] Due view shows earliest/latest per locked C for exposed females **and** for confirmed-bred females (band and/or breeding-record expected calving per C0).
 - [ ] Both co-presence cases covered per locked A: same-group membership overlap; cross-group same-event EGW overlap.
 - [ ] Works with **zero** preg-check marks (exposure-only path).
 - [ ] Does not redefine Open pill / `assessOpenAnimal` unless B explicitly says so.
-- [ ] No migration / no prod data write without Tim’s yes + verified backup; if locked A0+E0+F0, prefer **no new migration and no exposure-row write** (membership repair under F2 is a separate yes).
+- [ ] No migration / no prod data write without Tim’s yes + verified backup; if locked A0+E0+F0, prefer **no exposure-row write**; **Gh0 farm_settings columns** still need a gated migration when Build adds them (yes + backup); compiled defaults may match Gd0 until apply.
 - [ ] Design PASS on the implementing PR; docs (UX + this brief) updated as-built on land.
-- [ ] Tests: same-group exposure; bull-group shared event; confirmed-bred excluded from check list but present on due view; exposure-only due band; N threshold boundary.
+- [ ] Tests: same-group exposure; bull-group shared event; confirmed-bred excluded from Pregnancy Check but present on due view; exposure-only due band; protocol AND boundary (exposure + post-calving); heifer with no calving (post-calving N/A); Animals filter interaction with Groups/Class.
 
 ## 8. Open questions → answered only via the options above
 
-No free-form asks. Tim locks A/B/C/D/E/F/Fg (and N via D0/D1/D2). If he wants assumed-days-pregnant math, that is choosing **C1** and stating the assumed day count in the lock reply. Backfill write vs compute-only is **F**; gap policy is **Fg**.
+No free-form asks. Tim locks A/B/C/D/E/F/Fg/G (Gh/Gs/Gg/Gd/Gc). Threshold numbers are **Gd*** (not D). Backfill is **F**; gaps **Fg**. Assumed-days-pregnant math is **C1** plus the assumed day count in the lock reply.
 
 ## 9. Related
 
@@ -222,3 +264,6 @@ No free-form asks. Tim locks A/B/C/D/E/F/Fg (and N via D0/D1/D2). If he wants as
 - Override ledger schema if A0-only first ship (revisit under A2 follow-up).
 - Materialized exposure table and CP-55/56 export of it unless F1 locked.
 - Automatic membership-date rewriting unless F2 locked and Tim yeses that write separately.
+- Per-group protocol overrides unless Gg1.
+- Per-species protocol columns unless Gs1 / E1.
+- Settings UI chrome details beyond “editable on farm settings / thresholds area” (Build follows existing farm_settings UX).

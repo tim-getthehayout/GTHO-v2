@@ -7,6 +7,95 @@ import { groupWindowsDailyDmiKg } from './window-helpers.js';
 import { isConfinementLocation } from './location-type.js';
 import { estimatedDemandFraction } from './partial-day-demand.js';
 
+/**
+ * Pick pre-graze paddock_observation for a paddock window (DMI-8 / dashboard).
+ * Prefer sourceId === pw.id; else newest same-location open/event observation.
+ */
+export function pickPreGraze(pw, observations = []) {
+  const candidates = (observations || [])
+    .filter((o) => o.locationId === pw.locationId && o.type === 'open' && o.source === 'event');
+  return candidates.find((o) => o.sourceId === pw.id)
+    || [...candidates].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
+    || null;
+}
+
+/**
+ * Aggregate standing forage across open paddock windows (A1+B1+C1).
+ * Sums FOR-1 per open land PW using shared pickPreGraze; missing usable
+ * pre-graze contributes 0 DM; display height is area-weighted over PWs with height.
+ * Uses the registered FOR-1 formula (no utilization) so single-PW cards stay stable.
+ *
+ * @param {Array} openPws
+ * @param {object} opts
+ * @param {Array} [opts.observations]
+ * @param {object} [opts.locations] locationId -> { areaHa, type, forageTypeId? }
+ * @param {object} [opts.forageTypes] locationId -> { dmKgPerCmPerHa, minResidualHeightCm }
+ * @param {Function} [opts.for1Fn] FOR-1 calc fn
+ * @param {number} [opts.defaultCoverPct=80]
+ * @returns {{ availableDmKg: number, heightCm: number|null, missingPreGraze: number, landOpenCount: number, withUsablePreGraze: number, partial: boolean }}
+ */
+export function aggregateOpenPaddockForage(openPws, {
+  observations = [],
+  locations = {},
+  forageTypes = {},
+  for1Fn = null,
+  defaultCoverPct = 80,
+} = {}) {
+  let availableDmKg = 0;
+  let heightAreaSum = 0;
+  let heightCmAreaProduct = 0;
+  let missingPreGraze = 0;
+  let landOpenCount = 0;
+  let withUsablePreGraze = 0;
+
+  for (const pw of openPws || []) {
+    const loc = locations[pw.locationId];
+    if (isConfinementLocation(loc)) continue;
+    landOpenCount += 1;
+
+    const obs = pickPreGraze(pw, observations);
+    const hasHeight = !!(obs && obs.forageHeightCm);
+    const areaHa = loc?.areaHa ?? 0;
+    const areaPct = pw.areaPct ?? 100;
+    const effectiveArea = areaHa * (areaPct / 100);
+
+    if (!hasHeight) {
+      missingPreGraze += 1;
+    } else if (effectiveArea > 0) {
+      heightAreaSum += effectiveArea;
+      heightCmAreaProduct += obs.forageHeightCm * effectiveArea;
+    }
+
+    const ft = forageTypes[pw.locationId];
+    if (!hasHeight || !ft?.dmKgPerCmPerHa || !(areaHa > 0) || !for1Fn) {
+      continue;
+    }
+
+    const residualCm = ft.minResidualHeightCm ?? 5;
+    const coverPct = obs.forageCoverPct ?? defaultCoverPct;
+    const dm = for1Fn({
+      forageHeightCm: obs.forageHeightCm,
+      residualHeightCm: residualCm,
+      areaHectares: areaHa,
+      areaPct,
+      coverPct,
+      dmKgPerCmPerHa: ft.dmKgPerCmPerHa,
+    });
+    availableDmKg += Math.max(0, dm);
+    withUsablePreGraze += 1;
+  }
+
+  return {
+    availableDmKg,
+    heightCm: heightAreaSum > 0 ? heightCmAreaProduct / heightAreaSum : null,
+    missingPreGraze,
+    landOpenCount,
+    withUsablePreGraze,
+    partial: landOpenCount > 0 && missingPreGraze > 0 && withUsablePreGraze > 0,
+  };
+}
+
+
 // DMI-1: Consumed DM from Feed
 registerCalc({
   name: 'DMI-1',
@@ -603,14 +692,9 @@ registerCalc({
       return estimatedDemandFraction(dt, { event, feedEntries, paddockWindows, groupWindows });
     }
 
-    // paddock_observations picker — verbatim match to the OI-0107 canonical
-    // pattern used by detail.js §5 and the capacity line.
-    function pickPreGraze(pw) {
-      const candidates = (observations || [])
-        .filter(o => o.locationId === pw.locationId && o.type === 'open' && o.source === 'event');
-      return candidates.find(o => o.sourceId === pw.id)
-        || candidates.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
-        || null;
+    // Shared paddock_observations picker (exported pickPreGraze).
+    function pickPreGrazeLocal(pw) {
+      return pickPreGraze(pw, observations);
     }
 
     // FOR-1: initial standing DM for a window. Returns 0 if inputs missing.
@@ -620,7 +704,7 @@ registerCalc({
       const loc = locations?.[pw.locationId];
       // OI-0209: confinement contributes zero pasture, even with stale forage/area.
       if (isConfinementLocation(loc)) return { dm: 0, hint: null };
-      const obs = pickPreGraze(pw);
+      const obs = pickPreGrazeLocal(pw);
       if (!obs || !obs.forageHeightCm || !ft?.dmKgPerCmPerHa || !loc?.areaHa) {
         return { dm: 0, hint: null };
       }
@@ -723,7 +807,7 @@ registerCalc({
       if (!ft?.dmKgPerCmPerHa) {
         return { status: 'no_pasture_data', reason: 'missing_forage_type', pwId: pw.id, locationId: pw.locationId };
       }
-      const obs = pickPreGraze(pw);
+      const obs = pickPreGrazeLocal(pw);
       if (!obs || !obs.forageHeightCm || obs.forageHeightCm <= 0) {
         return { status: 'no_pasture_data', reason: 'missing_observation', pwId: pw.id, locationId: pw.locationId };
       }

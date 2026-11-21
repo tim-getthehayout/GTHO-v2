@@ -17,6 +17,7 @@
 import { getAll, getById } from '../../data/store.js';
 import { getEventStartDate } from './event-start.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { t } from '../../i18n/i18n.js';
 
 /**
  * Build the full DMI-8 input context for a single event.
@@ -121,7 +122,7 @@ export function buildDmi8ChartContext(eventId) {
  * @param {object} dmi8 - the calc (from getCalcByName)
  * @param {object} [opts]
  * @param {string} [opts.today] - ISO YYYY-MM-DD override for tests
- * @returns {Array<{ date: string, label: string, result: object }>}
+ * @returns {Array<{ date: string, label: string, result: object, fromPriorEvent?: boolean }>}
  */
 export function computeDmi8Days(event, dmi8, opts = {}) {
   const todayStr = opts.today || getLocalTodayStr();
@@ -171,7 +172,12 @@ export function computeDmi8Days(event, dmi8, opts = {}) {
       locations: ctx.locations,
       animalClasses: ctx.animalClasses,
     });
-    days.push({ date: dateStr, label: baseLabel, result });
+    // D1: label days routed through sourceEventId cascade as prior-event.
+    const fromPriorEvent = ownerEventId !== event.id;
+    const label = fromPriorEvent
+      ? `${baseLabel} · ${t('dmi.fromPreviousEvent')}`
+      : baseLabel;
+    days.push({ date: dateStr, label, result, fromPriorEvent });
   }
 
   return days;

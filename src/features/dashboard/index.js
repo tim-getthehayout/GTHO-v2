@@ -27,7 +27,8 @@ import { getEventStartDate } from '../events/event-start.js';
 import { buildDmi8ChartContext, computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
 import { listOpenPaddocksForEvent, formatPaddockDisplayName } from '../../data/current-placement.js';
-import { isPureConfinementOnDate } from '../../calcs/location-type.js';
+import { isPureConfinementOnDate, isConfinementLocation } from '../../calcs/location-type.js';
+import { pickPreGraze, aggregateOpenPaddockForage } from '../../calcs/feed-forage.js';
 import { renderEventFeedRemainingLine, renderInactiveForageSummary } from '../events/confinement-forage-ui.js';
 import { FEED_REMAINING_ESTIMATE_CAPTION } from '../../calcs/event-feed-days.js';
 
@@ -1181,50 +1182,69 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   const storedConsumedKg = feedMass.storedConsumedKg;
   const remainingStoredDmKg = feedMass.remainingStoredDmKg;
 
-  // Forage / capacity
-  // OI-0075 Bug 3: this reads pre-graze from paddock_observations (type='open',
-  // source='event'). The prior event_observations collection was dropped in
-  // migration 029 (OI-0113).
-  // Match on the open PW's id; fall back to a same-location lookup for legacy rows.
-  const loc = primaryPw ? getById('locations', primaryPw.locationId) : null;
-  const forageType = loc?.forageTypeId ? getById('forageTypes', loc.forageTypeId) : null;
-  const allObs = primaryPw
-    ? getAll('paddockObservations').filter(o => o.locationId === primaryPw.locationId && o.type === 'open' && o.source === 'event')
-    : [];
-  const obs = (primaryPw && allObs.find(o => o.sourceId === primaryPw.id))
-    || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
-    || null;
+  // Forage / capacity — sum FOR-1 per open PW (A1+B1+C1); shared pickPreGraze.
+  // paddock_observations type='open' source='event' (event_observations dropped in migration 029).
+  const observations = getAll('paddockObservations')
+    .filter((o) => o.type === 'open' && o.source === 'event');
+  const locationsMap = {};
+  const forageTypesMap = {};
+  let forageType = null;
+  for (const pw of openPws) {
+    const locRow = getById('locations', pw.locationId);
+    if (!locRow) continue;
+    const locEntry = {
+      areaHa: locArea(locRow),
+      forageTypeId: locRow.forageTypeId ?? null,
+      type: locRow.type ?? null,
+      name: locRow.name,
+    };
+    locationsMap[pw.locationId] = locEntry;
+    if (locRow.forageTypeId) {
+      const ft = getById('forageTypes', locRow.forageTypeId);
+      if (ft) {
+        forageTypesMap[pw.locationId] = {
+          dmKgPerCmPerHa: ft.dmKgPerCmPerHa,
+          minResidualHeightCm: ft.minResidualHeightCm,
+          utilizationPct: ft.utilizationPct,
+          name: ft.name,
+        };
+        if (!forageType && !isConfinementLocation(locEntry)) forageType = ft;
+      }
+    }
+  }
 
-  let availableDmKg = 0, estAuds = 0, daysRemaining = 0, forageHeightDisplay = '';
+  const forageAgg = aggregateOpenPaddockForage(openPws, {
+    observations,
+    locations: locationsMap,
+    forageTypes: forageTypesMap,
+    for1Fn: for1?.fn,
+  });
+
+  let availableDmKg = forageAgg.availableDmKg;
+  let estAuds = 0, daysRemaining = 0, forageHeightDisplay = '';
   // Track why capacity can't be computed so the user sees "what's missing" hints
   // instead of a silent disappearance (OI-0075 Bug 3).
   const capacityBlockers = [];
-  if (!forageType) capacityBlockers.push('forage type');
-  if (!obs?.forageHeightCm) capacityBlockers.push('forage height');
+  const landOpenPws = openPws.filter((pw) => !isConfinementLocation(locationsMap[pw.locationId]));
+  const anyForageType = landOpenPws.some((pw) => forageTypesMap[pw.locationId]?.dmKgPerCmPerHa);
+  const anyPreGrazeHeight = landOpenPws.some((pw) => !!pickPreGraze(pw, observations)?.forageHeightCm);
+  if (landOpenPws.length && !anyForageType) capacityBlockers.push('forage type');
+  if (landOpenPws.length && !anyPreGrazeHeight) capacityBlockers.push('forage height');
   if (totalHead <= 0) capacityBlockers.push('animals');
   if (totalAreaHa <= 0) capacityBlockers.push('paddock area');
 
-  if (for1 && obs?.forageHeightCm && totalAreaHa > 0) {
-    const residualCm = forageType?.minResidualHeightCm ?? 5;
-    const dmPerCmPerHa = forageType?.dmKgPerCmPerHa ?? 110;
-    const coverPct = obs.forageCoverPct ?? 80;
-    // OI-0095: read areaPct from the open PW instead of hard-coded 100. For multi-paddock
-    // events we fall back to 100 because combined areaHa already sums the paddocks; a
-    // single effective areaPct doesn't cleanly represent per-paddock variation.
-    const areaPctForCalc = openPws.length === 1 ? (primaryPw?.areaPct ?? 100) : 100;
-    availableDmKg = for1.fn({
-      forageHeightCm: obs.forageHeightCm, residualHeightCm: residualCm,
-      areaHectares: totalAreaHa, areaPct: areaPctForCalc, coverPct, dmKgPerCmPerHa: dmPerCmPerHa,
-    });
+  if (for1 && availableDmKg > 0) {
     if (for2) estAuds = for2.fn({ availableDmKg, dmPerAudKg: 11 });
-    forageHeightDisplay = display(obs.forageHeightCm, 'length', unitSys, 1);
+  }
+  if (forageAgg.heightCm != null) {
+    forageHeightDisplay = display(forageAgg.heightCm, 'length', unitSys, 1);
   }
 
   // Pasture bottoms at 0 and cannot exceed the FOR-1 estimate when we have one.
   // Stored feed on the card stays the consumed amount (deliveries minus residual).
   let pasturePct = 100, storedPct = 0, pastureDmKg = 0, storedDmKg = 0;
   const totalDmiKgPeriod = dailyDmiKg * dayCount;
-  const for1Ran = !!(for1 && obs?.forageHeightCm && totalAreaHa > 0);
+  const for1Ran = forageAgg.withUsablePreGraze > 0;
   if (dmi4 && totalDmiKgPeriod > 0) {
     const split = dmi4.fn({
       totalDmiKg: totalDmiKgPeriod,
@@ -1445,6 +1465,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     let capText = `Est. capacity: ${Math.round(estAuds)} AUDs · ~${daysText} days after today`;
     if (daysIncludeStored) capText += ' (incl. stored feed)';
     if (forageHeightDisplay) capText += ` · ${forageHeightDisplay}"`;
+    if (forageAgg.partial) capText += ` · ${t('dashboard.partialPreGraze')}`;
     if (totalAcres > 0) capText += ` · ADA est: ${adaPerAc.toFixed(1)}/ac`;
     children.push(el('div', {
       className: 'event-feed-remaining',

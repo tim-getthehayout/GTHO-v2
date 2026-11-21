@@ -2,7 +2,8 @@
   "dmi": {
     "forecast": "Forecast",
     "actual": "Actual",
-    "targetForecast": "DMI target (forecast)"
+    "targetForecast": "DMI target (forecast)",
+    "fromPreviousEvent": "prior event"
   },
   "pool": {
     "feedType": "Feed type",
@@ -94,7 +95,8 @@
     "grazing": "grazing",
     "dayLabel": "Day {count}",
     "subMovesLabel": "{count} sub-moves",
-    "feedingsLabel": "{count} feedings"
+    "feedingsLabel": "{count} feedings",
+    "partialPreGraze": "partial pre-graze"
   },
   "nav": {
     "dashboard": "Dashboard",

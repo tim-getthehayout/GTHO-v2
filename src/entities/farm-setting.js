@@ -33,6 +33,9 @@ export const FIELDS = {
   pregCheckMinDaysPostCalvingSheep: { type: 'integer', required: false, sbColumn: 'preg_check_min_days_post_calving_sheep' },
   pregCheckMinDaysSinceExposureGoat: { type: 'integer', required: false, sbColumn: 'preg_check_min_days_since_exposure_goat' },
   pregCheckMinDaysPostCalvingGoat: { type: 'integer', required: false, sbColumn: 'preg_check_min_days_post_calving_goat' },
+  returnToCycleDaysCattle: { type: 'integer', required: false, sbColumn: 'return_to_cycle_days_cattle' },
+  returnToCycleDaysSheep: { type: 'integer', required: false, sbColumn: 'return_to_cycle_days_sheep' },
+  returnToCycleDaysGoat: { type: 'integer', required: false, sbColumn: 'return_to_cycle_days_goat' },
   createdAt:                   { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:                   { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -70,6 +73,10 @@ export function create(data = {}) {
     pregCheckMinDaysPostCalvingSheep: data.pregCheckMinDaysPostCalvingSheep ?? null,
     pregCheckMinDaysSinceExposureGoat: data.pregCheckMinDaysSinceExposureGoat ?? null,
     pregCheckMinDaysPostCalvingGoat: data.pregCheckMinDaysPostCalvingGoat ?? null,
+    // Schema 48: null if unset; calcs use P-a defaults via resolveReturnToCycleDays.
+    returnToCycleDaysCattle: data.returnToCycleDaysCattle ?? null,
+    returnToCycleDaysSheep: data.returnToCycleDaysSheep ?? null,
+    returnToCycleDaysGoat: data.returnToCycleDaysGoat ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
   };
@@ -116,6 +123,11 @@ export function toSupabaseShape(record) {
       preg_check_min_days_since_exposure_goat: record.pregCheckMinDaysSinceExposureGoat ?? null,
       preg_check_min_days_post_calving_goat: record.pregCheckMinDaysPostCalvingGoat ?? null,
     }),
+    ...releasedColumns(48, {
+      return_to_cycle_days_cattle: record.returnToCycleDaysCattle ?? null,
+      return_to_cycle_days_sheep: record.returnToCycleDaysSheep ?? null,
+      return_to_cycle_days_goat: record.returnToCycleDaysGoat ?? null,
+    }),
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -157,6 +169,9 @@ export function fromSupabaseShape(row) {
     pregCheckMinDaysPostCalvingSheep: n(row.preg_check_min_days_post_calving_sheep),
     pregCheckMinDaysSinceExposureGoat: n(row.preg_check_min_days_since_exposure_goat),
     pregCheckMinDaysPostCalvingGoat: n(row.preg_check_min_days_post_calving_goat),
+    returnToCycleDaysCattle: n(row.return_to_cycle_days_cattle),
+    returnToCycleDaysSheep: n(row.return_to_cycle_days_sheep),
+    returnToCycleDaysGoat: n(row.return_to_cycle_days_goat),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

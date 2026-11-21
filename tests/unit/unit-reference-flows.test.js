@@ -100,7 +100,7 @@ it('real onboarding stamps its one operation INSERT at 47 and never seeds or que
   root.querySelector('[data-testid="onboarding-confirm"]').click();
   await vi.waitFor(() => expect(done).toHaveBeenCalledOnce());
   expect(unitCalls()).toEqual([]); expect(getAll('doseUnits')).toEqual([]); expect(getAll('inputProductUnits')).toEqual([]);
-  expect(getAll('operations')[0].schemaVersion).toBe(47);expect(db.calls.find(call=>call.table==='operations'&&call.operation==='insert').payload.schema_version).toBe(47);
+  expect(getAll('operations')[0].schemaVersion).toBe(48);expect(db.calls.find(call=>call.table==='operations'&&call.operation==='insert').payload.schema_version).toBe(48);
 });
 
 it('real dose-unit editor creates, edits and archives with insert/update only', async () => {
@@ -373,18 +373,19 @@ it('unit restore grouping ignores key order, keeps all eight metadata shapes and
 });
 
 // No schema-release mock: these exercise the exact client being prepared for publish.
-it('actual release promotes 42–47 without removing independent column proofs or future guards',async()=>{
- expect(RELEASED_SCHEMA_VERSION).toBe(47);expect(CURRENT_SCHEMA_VERSION).toBe(47);expect(HELD_SCHEMA_VERSIONS).toEqual([]);
- expect(Object.keys(STAGED_COLUMNS).map(Number).sort((a,b)=>a-b)).toEqual([42,43,44,45,46,47]);
- expect(releasedColumns(45,{source_key:'k'})).toEqual({source_key:'k'});expect(releasedColumns(46,{confirmed_bred_date:'2026-05-01'})).toEqual({confirmed_bred_date:'2026-05-01'});expect(()=>releasedColumns(48,{future_field:'value'})).toThrow();
+it('actual release promotes 42–48 without removing independent column proofs or future guards',async()=>{
+ expect(RELEASED_SCHEMA_VERSION).toBe(48);expect(CURRENT_SCHEMA_VERSION).toBe(48);expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+ expect(Object.keys(STAGED_COLUMNS).map(Number).sort((a,b)=>a-b)).toEqual([42,43,44,45,46,47,48]);
+ expect(releasedColumns(45,{source_key:'k'})).toEqual({source_key:'k'});expect(releasedColumns(46,{confirmed_bred_date:'2026-05-01'})).toEqual({confirmed_bred_date:'2026-05-01'});expect(releasedColumns(48,{return_to_cycle_days_cattle:45})).toEqual({return_to_cycle_days_cattle:45});expect(()=>releasedColumns(49,{future_field:'value'})).toThrow();
  expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:45,operation_id:OP,tables:{}}).valid).toBe(true);
  expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:46,operation_id:OP,tables:{}}).valid).toBe(true);
  expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:47,operation_id:OP,tables:{}}).valid).toBe(true);
- expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:48,operation_id:OP,tables:{}}).valid).toBe(false);
- await expect(resolveOperationsSchemaStamp(48,db.client)).rejects.toThrow('Unverified');expect(db.calls).toEqual([]);expect(db.client.rpc).not.toHaveBeenCalled();
+ expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:48,operation_id:OP,tables:{}}).valid).toBe(true);
+ expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:49,operation_id:OP,tables:{}}).valid).toBe(false);
+ await expect(resolveOperationsSchemaStamp(49,db.client)).rejects.toThrow('Unverified');expect(db.calls).toEqual([]);expect(db.client.rpc).not.toHaveBeenCalled();
 });
 
-it.each([41,42,43])('real CP-56 %s→47 promotes retained text, legacy pool rows and exact standard references before restore',async(version)=>{
+it.each([41,42,43])('real CP-56 %s→48 promotes retained text, legacy pool rows and exact standard references before restore',async(version)=>{
  const operationId=crypto.randomUUID();
  db.rows.operations=[{id:operationId,name:'Existing farm',schema_version:44}];
  for(const table of tables)db.rows[table]=UNIT_STANDARDS.filter(unit=>unit.table===table).map(({id,name})=>({id,name,operation_id:null}));
@@ -402,7 +403,7 @@ it.each([41,42,43])('real CP-56 %s→47 promotes retained text, legacy pool rows
  }};
  const before=structuredClone(backup);const result=await importOperationBackup(backup,operationId,null,{skipAutoBackup:true});
  expect(result,result.error).toMatchObject({success:true});expect(backup).toEqual(before);
- expect(db.rows.operations[0].schema_version).toBe(47);expect(db.calls.find(call=>call.table==='operations'&&call.operation==='update').payload.schema_version).toBe(47);expect(db.rows.ai_bulls[0].epds).toBe(' CE+8, BW-1.2 ');expect(db.rows.animal_breeding_records[0].sire_name).toBe('Independent sire');
+ expect(db.rows.operations[0].schema_version).toBe(48);expect(db.calls.find(call=>call.table==='operations'&&call.operation==='update').payload.schema_version).toBe(48);expect(db.rows.ai_bulls[0].epds).toBe(' CE+8, BW-1.2 ');expect(db.rows.animal_breeding_records[0].sire_name).toBe('Independent sire');
  if(version<=42){expect(db.rows.event_feed_entries[0]).toMatchObject({batch_id:'retained-batch',kind:null,feed_type_id:null,return_batch_id:null});expect(db.rows.event_feed_check_items[0]).toMatchObject({batch_id:'retained-batch',feed_type_id:null});}
  expect(db.rows.animal_treatments[0].dose_unit_id).toBe(dose.id);expect(db.rows.amendments[0].qty_unit_id).toBe(product.id);expect(db.rows.input_products[0].unit_id).toBe(product.id);
  expect(db.rows.dose_units.find(row=>row.id===custom.id)).toMatchObject({operation_id:operationId,name:'Restored custom'});
@@ -483,6 +484,6 @@ it.each([null,undefined])('CP-55 refuses a missing operation stamp (%s), never f
 
 it('queued onboarding INSERT uses the compiled stamp rather than a legacy serialized stamp',async()=>{
  vi.spyOn(navigator,'onLine','get').mockReturnValue(false);await adapter.push('operations',{id:OP,name:'New operation',schema_version:14},'insert');
- expect(adapter.getQueuedItems()[0].record.schema_version).toBe(47);vi.spyOn(navigator,'onLine','get').mockReturnValue(true);await adapter.flush();
- expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0]).toMatchObject({operation:'insert',payload:{schema_version:47}});
+ expect(adapter.getQueuedItems()[0].record.schema_version).toBe(48);vi.spyOn(navigator,'onLine','get').mockReturnValue(true);await adapter.flush();
+ expect(operationWrites()).toHaveLength(1);expect(operationWrites()[0]).toMatchObject({operation:'insert',payload:{schema_version:48}});
 });

@@ -18,6 +18,10 @@ import {
   updateFarmPregCheckSettings,
   validatePregCheckThresholds,
   PREG_CHECK_SPECIES_SECTIONS,
+  areReturnToCycleSettingsReleased,
+  updateFarmReturnToCycleSettings,
+  validateReturnToCycleDays,
+  RETURN_TO_CYCLE_SPECIES_SECTIONS,
 } from './preg-check-settings.js';
 import { validate as validateUserPref, toSupabaseShape as prefToSb } from '../../entities/user-preference.js';
 import { FIELD_MODULES, FIELD_MODULES_DEFAULT } from '../field-mode/index.js';
@@ -58,6 +62,7 @@ export function renderSettingsScreen(container) {
     renderUnitSection(container),
     renderFarmSection(farmSettings, container),
     renderPregCheckSettingsSection(farmSettings, container),
+    renderReturnToCycleSettingsSection(farmSettings, container),
     renderPrefSection(userPrefs, container),
     // OI-0125 / SP-13: Forage Types card sits between Farm Settings and Field
     // Mode (v1 ordering: Farms → Forage Types → Field Mode → Farm Settings).
@@ -289,6 +294,68 @@ function renderPregCheckSettingsSection(fs, rootContainer) {
         }
         try {
           updateFarmPregCheckSettings(fs.id, check.normalized);
+          statusEl.className = 'auth-info';
+          statusEl.appendChild(el('span', {}, [t('settings.saved')]));
+          rerender(rootContainer);
+        } catch (err) {
+          statusEl.className = 'auth-error';
+          statusEl.appendChild(el('span', {}, [err.message]));
+        }
+      },
+    }, [t('action.save')]),
+    statusEl,
+  ]);
+}
+
+
+/** Return-to-cycle editors (due-band earliest). Hidden until schema 48 released. */
+function renderReturnToCycleSettingsSection(fs, rootContainer) {
+  if (!areReturnToCycleSettingsReleased()) return el('div');
+
+  const inputs = {};
+  const fieldEls = [];
+  for (const section of RETURN_TO_CYCLE_SPECIES_SECTIONS) {
+    const current = fs[section.key];
+    const value = Number.isFinite(current) ? String(current) : String(section.defaultDays);
+    const input = el('input', {
+      type: 'number', min: '0', max: '365', step: '1',
+      className: 'auth-input settings-input',
+      value,
+      'data-testid': `settings-farm-${section.key}`,
+    });
+    inputs[section.key] = input;
+    fieldEls.push(el('div', { className: 'settings-field' }, [
+      el('label', { className: 'form-label' }, [
+        `${section.label}: ${t('settings.returnToCycleDays') || 'Return-to-cycle days'}`,
+      ]),
+      input,
+    ]));
+  }
+
+  const statusEl = el('div', { className: 'auth-info', 'data-testid': 'settings-return-to-cycle-status' });
+  return el('div', { className: 'card settings-card', 'data-testid': 'settings-return-to-cycle-card' }, [
+    el('h3', { className: 'settings-section-title' }, [
+      t('settings.returnToCycleSection') || 'Return to cycle (due band)',
+    ]),
+    el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '8px' } }, [
+      t('settings.returnToCycleDays') || 'Return-to-cycle days',
+    ]),
+    ...fieldEls,
+    el('button', {
+      className: 'btn btn-green btn-sm',
+      'data-testid': 'settings-return-to-cycle-save',
+      onClick: () => {
+        const values = {};
+        for (const key of Object.keys(inputs)) values[key] = inputs[key].value;
+        const check = validateReturnToCycleDays(values);
+        clear(statusEl);
+        if (!check.valid) {
+          statusEl.className = 'auth-error';
+          statusEl.appendChild(el('span', {}, [check.errors.join('; ')]));
+          return;
+        }
+        try {
+          updateFarmReturnToCycleSettings(fs.id, check.normalized);
           statusEl.className = 'auth-info';
           statusEl.appendChild(el('span', {}, [t('settings.saved')]));
           rerender(rootContainer);

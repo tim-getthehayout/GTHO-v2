@@ -750,7 +750,10 @@
     "expectedCalving": "Expected {date}",
     "dueBand": "Due {range}",
     "pregCheckSettings": "Preg check settings",
-    "pregCheckCombineAnd": "Combine rule: AND (farm-wide)"
+    "pregCheckCombineAnd": "Combine rule: AND (farm-wide)",
+    "dueMissingCalving": "No calving record",
+    "dueMissingExposure": "No exposure in view",
+    "dueAmbiguousExposure": "Ambiguous exposure"
   },
   "group": {
     "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",
@@ -1351,7 +1354,9 @@
     "pregCheckMinDaysSinceExposure": "Min days since exposure",
     "pregCheckMinDaysPostCalving": "Min days post-partum",
     "pregCheckSettings": "Preg check settings",
-    "pregCheckMinDaysPostPartum": "Min days post-partum"
+    "pregCheckMinDaysPostPartum": "Min days post-partum",
+    "returnToCycleDays": "Return-to-cycle days",
+    "returnToCycleSection": "Return to cycle (due band)"
   },
   "fieldMode": {
     "title": "Field Mode",

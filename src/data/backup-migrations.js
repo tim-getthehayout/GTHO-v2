@@ -294,4 +294,21 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 47;
     return b;
   },
+  // 047 → 048: farm_settings return-to-cycle days. Absent-only defaults; preserve supplied.
+  47: (b) => {
+    for (const row of b.tables.farm_settings || []) {
+      if (!Object.hasOwn(row, 'return_to_cycle_days_cattle')) {
+        row.return_to_cycle_days_cattle = 45;
+      }
+      if (!Object.hasOwn(row, 'return_to_cycle_days_sheep')) {
+        row.return_to_cycle_days_sheep = 25;
+      }
+      if (!Object.hasOwn(row, 'return_to_cycle_days_goat')) {
+        row.return_to_cycle_days_goat = 25;
+      }
+    }
+    b.schema_version = 48;
+    for (const op of b.tables.operations || []) op.schema_version = 48;
+    return b;
+  },
 };

@@ -56,7 +56,7 @@ export function renderHeader(container) {
     el('nav', { className: 'dsk-nav', 'data-testid': 'dsk-nav' }, [
       sidebarNavItem('#/', 'Dashboard', currentHash, 'nav-dashboard'),
       sidebarNavItem('#/animals', 'Animals', currentHash, 'nav-animals'),
-      sidebarNavItem('#/events', 'Rotation Calendar', currentHash, 'nav-events'),
+      sidebarNavItem('#/events', 'Locations & Rotation', currentHash, 'nav-events'),
       sidebarNavItem('#/locations', 'Locations', currentHash, 'nav-locations'),
       sidebarNavItem('#/map', 'Map', currentHash, 'nav-map'),
       sidebarNavItem('#/feed', 'Feed', currentHash, 'nav-feed'),

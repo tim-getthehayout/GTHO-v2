@@ -2607,6 +2607,201 @@ body:has(.auth-overlay) .pwa-update-banner {
 .legend__swatch--surplus { background: var(--color-green-base); position: relative; }
 .legend__swatch--nodata { background: #D4A76A; }
 
+/* Locations + rotation management (single vertical scroll) */
+.loc-mgmt {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 320px);
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 6px);
+  background: var(--bg);
+}
+.loc-mgmt__period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  font-size: 0.8125rem;
+}
+.loc-mgmt__period-label { font-weight: 600; color: var(--text2); }
+.loc-mgmt__period-input {
+  font: inherit;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.loc-mgmt__link {
+  margin-left: auto;
+  color: var(--color-green-dark);
+  text-decoration: none;
+  font-size: 0.8125rem;
+}
+.loc-mgmt__link:hover { text-decoration: underline; }
+
+.loc-mgmt__head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  z-index: 3;
+}
+.loc-mgmt__head--desktop { min-height: 40px; }
+.loc-mgmt__name-head {
+  flex: 0 0 160px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border-right: 1px solid var(--border);
+  font-weight: 600;
+}
+.loc-mgmt__metrics-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--space-2);
+  border-right: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.loc-mgmt__timeline-head { flex: 1; min-width: 0; }
+.loc-mgmt__sort {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.loc-mgmt__sort--active { color: var(--color-green-dark); }
+.loc-mgmt__sort:hover { color: var(--text); }
+
+/* F0: ONE vertical scroll owner — name/metrics/timeline rows share this */
+.loc-mgmt__body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+.loc-mgmt__row--desktop {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+.loc-mgmt__name-wrap {
+  flex: 0 0 160px;
+  border-right: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  background: var(--bg);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+.loc-mgmt__name { cursor: pointer; width: 100%; }
+.loc-mgmt__name-text { font-weight: 600; font-size: 0.875rem; line-height: 1.2; }
+.loc-mgmt__area { font-size: 0.75rem; color: var(--text2); }
+.loc-mgmt__no-acres {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg2);
+  color: var(--text3);
+  font-size: 0.6875rem;
+}
+.loc-mgmt__tag { font-size: 0.6875rem; color: var(--text3); }
+
+.loc-mgmt__metrics {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--space-2);
+  border-right: 1px solid var(--border);
+  flex: 0 0 auto;
+  min-width: 280px;
+}
+.loc-mgmt__metric {
+  display: flex;
+  flex-direction: column;
+  min-width: 44px;
+  padding: 0 4px;
+}
+.loc-mgmt__metric-label { font-size: 0.625rem; color: var(--text3); text-transform: uppercase; }
+.loc-mgmt__metric-value { font-size: 0.75rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.loc-mgmt__timeline-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.loc-mgmt__timeline-scroll {
+  overflow-x: auto;
+  overflow-y: hidden; /* Y owned by .loc-mgmt__body only */
+  height: 100%;
+  width: 100%;
+}
+.loc-mgmt__timeline-inner { position: relative; }
+.loc-mgmt__block-area { position: relative; }
+
+.future-block__relative {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 0.75rem;
+  color: var(--text2);
+  pointer-events: none;
+}
+
+/* Phone: metrics under name; one vertical list scroll; timeline horizontal */
+.loc-mgmt--phone .loc-mgmt__head--phone {
+  flex-direction: column;
+}
+.loc-mgmt--phone .loc-mgmt__head-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+.loc-mgmt--phone .loc-mgmt__row--phone {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3);
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+.loc-mgmt--phone .loc-mgmt__metrics {
+  border-right: none;
+  min-width: 0;
+  flex-wrap: wrap;
+  padding: 0;
+}
+.loc-mgmt--phone .loc-mgmt__timeline-scroll {
+  width: 100%;
+  min-height: 72px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* Retire independent Y scroll on legacy 3-column pieces when still referenced */
+.calendar-grid .paddock-col,
+.calendar-grid .sidebar {
+  overflow-y: visible;
+}
+
 /* Calendar grid (3-column layout) */
 .calendar-grid {
   display: grid;

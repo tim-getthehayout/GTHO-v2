@@ -76,28 +76,24 @@ export function renderEventsScreen(container) {
   // Read calendar state from URL (deep-link support)
   readStateFromUrl();
 
-  // Mobile fallback: no calendar below 900px (§19.7)
-  const isMobile = window.innerWidth < 900;
-
+  // Combined Locations + rotation management surface on Mac and phone (P1).
+  // List view still available; mobile events log reachable via List toggle.
   const screenEl = el('div', { className: 'events-screen', 'data-testid': 'events-screen' });
 
-  if (isMobile) {
-    // Mobile: GRZ-11 banner + GRZ-10 events log, no calendar
-    renderMobileEventsScreen(screenEl);
-  } else {
-    // Desktop: calendar or list view based on state
-    const calendarContainer = el('div', { 'data-testid': 'calendar-container' });
-    renderCalendarGrid(calendarContainer);
+  const calendarContainer = el('div', { 'data-testid': 'calendar-container' });
+  renderCalendarGrid(calendarContainer);
+  screenEl.appendChild(calendarContainer);
 
-    screenEl.appendChild(calendarContainer);
-
-    // If list view is active, also render the events log below the header strip
-    const state = getCalendarState();
-    if (state.view === 'list') {
-      const listContainer = el('div');
+  const state = getCalendarState();
+  if (state.view === 'list') {
+    const listContainer = el('div');
+    // Phone list keeps the prior mobile events log chrome
+    if (window.innerWidth < 900) {
+      renderMobileEventsScreen(listContainer);
+    } else {
       renderEventsLog(listContainer);
-      screenEl.appendChild(listContainer);
     }
+    screenEl.appendChild(listContainer);
   }
 
   // Sheet wrappers (needed by both views for event management actions)

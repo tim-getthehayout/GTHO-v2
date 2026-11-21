@@ -15,6 +15,10 @@ const DEFAULTS = {
   period: null,
   showConfinement: false,
   view: 'calendar',
+  metricStart: null, // W1 window start YYYY-MM-DD; null → periodContaining(today)
+  metricEnd: null,
+  sortKey: 'name',
+  sortDir: 'asc',
 };
 
 const VALID_ZOOM = ['day', 'week', 'month', 'last90'];
@@ -88,6 +92,21 @@ export function setView(view) {
   }
 }
 
+
+export function setMetricWindow(start, end) {
+  const s = isIsoDate(start) ? start : null;
+  const e = isIsoDate(end) ? end : null;
+  state = { ...state, metricStart: s, metricEnd: e };
+  syncUrl();
+}
+
+export function setSort(key, dir) {
+  const k = typeof key === 'string' && key ? key : 'name';
+  const d = dir === 'desc' ? 'desc' : 'asc';
+  state = { ...state, sortKey: k, sortDir: d };
+  syncUrl();
+}
+
 // ── URL serialization (§19.9) ─────────────────────────────────────
 
 function syncUrl() {
@@ -99,6 +118,10 @@ function syncUrl() {
   if (state.period != null) params.set('period', String(state.period));
   if (state.showConfinement) params.set('showConfinement', '1');
   if (state.view !== DEFAULTS.view) params.set('view', state.view);
+  if (state.metricStart) params.set('metricStart', state.metricStart);
+  if (state.metricEnd) params.set('metricEnd', state.metricEnd);
+  if (state.sortKey !== DEFAULTS.sortKey) params.set('sortKey', state.sortKey);
+  if (state.sortDir !== DEFAULTS.sortDir) params.set('sortDir', state.sortDir);
 
   const qs = params.toString();
   const newHash = '#/events' + (qs ? '?' + qs : '');
@@ -126,6 +149,11 @@ export function readStateFromUrl() {
   const confStr = params.get('showConfinement');
   const view = params.get('view');
 
+  const metricStart = params.get('metricStart');
+  const metricEnd = params.get('metricEnd');
+  const sortKey = params.get('sortKey');
+  const sortDir = params.get('sortDir');
+
   state = {
     zoom: VALID_ZOOM.includes(zoom) ? zoom : DEFAULTS.zoom,
     anchor: VALID_ANCHOR_PRESETS.includes(anchor) || isIsoDate(anchor) ? anchor : DEFAULTS.anchor,
@@ -133,6 +161,10 @@ export function readStateFromUrl() {
     period: periodStr && Number(periodStr) > 0 ? Number(periodStr) : null,
     showConfinement: confStr === '1',
     view: VALID_VIEW.includes(view) ? view : DEFAULTS.view,
+    metricStart: isIsoDate(metricStart) ? metricStart : null,
+    metricEnd: isIsoDate(metricEnd) ? metricEnd : null,
+    sortKey: sortKey || DEFAULTS.sortKey,
+    sortDir: sortDir === 'desc' ? 'desc' : 'asc',
   };
 
   return state;

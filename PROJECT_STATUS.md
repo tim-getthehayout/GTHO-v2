@@ -1,6 +1,6 @@
 # GTHO v2 — Project Status
 
-**Last updated:** 2026-11-21 (~7:18 AM ET, GTHO Design: OI-0244 **SPEC LOCKED / READY FOR BUILD** — card **t759s3139**; lock **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0** on tip `070af6c`; docs branch `docs/oi-0244-multispecies-exposure`; not landed; Build after Tim land yes. Parent OI-0243 live at `e310d9d`; migration 047 still unapplied — M0 widen before apply needs separate Tim yes+backup.)
+**Last updated:** 2026-11-21 (~9:57 AM ET, GTHO Design: OI-0246 **PROPOSED** — Locations management view (implied pasture DMI, AUDs, NPK deposited, avg pasture score + sort); Tim intake via Orchestrator **t777u**; Design lean **V0+W1+M0+A1+N1+S0+D0+X1**; docs branch `docs/oi-0246-locations-management-view`; no migration on lean. Queued after OI-0245 LOCKED tip `dc90185` (land pending). Main tip `9402a06`; RELEASED **47**.)
 **Purpose:** Single living source of truth for this project. Read at the start of every new conversation or Build session. Update after every significant decision or change.
 
 Detail stays in the specs and in `OPEN_ITEMS.md`. This file is the current picture, not a second backlog.

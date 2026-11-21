@@ -54,7 +54,7 @@
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 | OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~7:18 AM ET (Tim, via Orchestrator, card **t759s3139**) — **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Design rec on tip `070af6c`. Rams↔ewes, bucks(billies)↔does; widen Open; Gs1 per-species protocol; **M0** widen migration **047 before apply**; Animals **Preg check settings** dialog (Ps0). After docs land; 047 apply = separate Tim yes+backup; no exposure-row write (F0). [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
 | OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). Docs tip `dc90185` now on main. After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
-| OI-0246 | Locations management view: implied pasture DMI, AUDs, NPK deposited, avg pasture score + sort | **PROPOSED** 2026-11-21 ~9:57 AM ET (Tim, via Orchestrator, card **t777u**). Design lean **V0+W1+M0+A1+N1+S0+D0+X1** — Locations toggle; season default Oct 1–Sep 30 (editable range); all four metrics; N/P/K separate (+ optional combined); totals + per-acre; compute-on-read; pasture+mixed-use; **no migration**. Awaiting Tim lock. [brief](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md) |
+| OI-0246 | Locations + rotation management surface (metrics + fix/integrate rotation calendar) | **PROPOSED (revised)** 2026-11-21 ~10:03 AM ET — Tim **t782u** (answering **t781s3238**) agrees metrics; asks review/integrate messy rotation calendar (left-col scroll desync **confirmed**). Metrics **AGREED** W1+M0+A1+N1+S0+D0+X1; placement reopen **U0+F0+T0+C1+P1** lean. **Not LOCKED.** [brief](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md) |
 
 ---
 
@@ -190,34 +190,31 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
-### OI-0246 — Locations management summary view (implied DMI, AUDs, NPK, avg pasture score)
+### OI-0246 — Locations + rotation management surface (revised PROPOSED)
 
-**Status:** **PROPOSED** (opened 2026-11-21 ~9:57 AM ET — Tim intake via Orchestrator, card **t777u**; awaiting Tim lock)  
-**Priority:** Feature — toggleable Locations management summary with sortable nutrient / grazing metrics  
+**Status:** **PROPOSED (revised)** 2026-11-21 ~10:03 AM ET — Tim **t782u** answering **t781s3238** (opened ~9:57 AM ET **t777u**). **Not LOCKED.** Placement reopen; metrics AGREED.  
+**Priority:** Feature — integrate Locations management metrics with rotation calendar; fix scroll desync; past + future readiness  
 **Owner:** GTHO Design → Orchestrator (Tim lock card) → GTHO Build (only after SPEC LOCKED + docs land)  
 **Brief:** [LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)
 
-**Parent / base:** Forgejo main tip includes OI-0245 at `dc9018534e237291daf3bac0daf8835ef42afb7b` (this branch merges that under the PROPOSED tip). Citations read on `9402a06` / current main.
+**Parent / base:** Forgejo `origin/main` `dc9018534e237291daf3bac0daf8835ef42afb7b`. Rotation citations on current main. Supersedes first PROPOSED tip `ebb79d1`.
 
-**Tim ask (sense):** toggle a management view of locations summarizing implied DMI from pasture, AUDs, NPK deposited, average pasture score (numeric); sorting by any of these is important.
+**Tim (t782u):** Agrees Design metric recommendations; rotation schedule already has much of the ask but is a mess (left location column scroll out of sync — **confirmed in code**: three independent `overflow-y: auto` columns, no sync listeners). Wants review + maybe one better UI combining Locations + rotation. Calendar intention: past activity visual; future readiness from surveys when present, else relative days since last graze vs peers. Phone + Mac both matter.
 
-**Design lean:** **V0+W1+M0+A1+N1+S0+D0+X1**
-- **V0** toggle on Locations tab (management vs current)
-- **W1** selectable date range; default current budget period Oct 1–Sep 30 (`periodContaining`)
-- **M0** all four metric families (implied pasture DMI attribution is the hard join — escalate to M1 only if spike fails)
-- **A1** totals + per-acre when acres known; else total + badge
-- **N1** separate N / P / K sortable columns + optional combined
-- **S0** client sort any column; default Name ↑
-- **D0** compute-on-read; **no migration**
-- **X1** pasture + mixed-use only
+**AGREED metrics (frozen):** **W1+M0+A1+N1+S0+D0+X1** (V0 superseded).
 
-**Current-state honesty:** DMI-9 is farm-lane today; ANI-AUD / NPK-1+NPK-3 / `forageQuality` exist at event/group/observation grain — management view must aggregate to `locationId` via paddock windows.
+**Design lean (UI reopen):** **U0+F0+T0+C1+P1**
+- **U0** one integrated Locations + Rotation management surface
+- **F0** frozen/synced location column (required)
+- **T0** past blocks + future readiness (survey/recovery else relative days-since-last-graze)
+- **C1** Mac: metrics between name and timeline; fold stub sidebar
+- **P1** Phone: metrics under name; horizontal timeline; single vertical scroll
 
 **Schema:** None on Design lean (D0).
 
-**Related:** Implied pasture / DMI-9, OI-0241/0242 forage, OI-0126/0131 surveys, CALC NPK/ANI/FOR/SUR, UX §15.3.
+**Related:** Rotation CP-54 / UX §19; Locations UX §15.3; DMI-9; OI-0241/0242; surveys; CALC NPK/ANI/FOR/SUR/REC.
 
-**Origin timestamp:** Tim via Orchestrator 2026-11-21 ~9:57 AM ET (t777u).
+**Origin:** t777u (~9:57 AM ET); revised t782u (~10:02 AM ET) via Orchestrator.
 
 ---
 
@@ -7665,6 +7662,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-21 | GTHO Design — docs only | Revise OI-0246 PROPOSED (t782u): metrics AGREED W1+M0+A1+N1+S0+D0+X1; placement reopen U0+F0+T0+C1+P1; rotation scroll desync confirmed; integrate Locations+rotation. Supersedes tip ebb79d1. Still PROPOSED — no LOCKED. |
 | 2026-11-21 | GTHO Design — docs only | Open OI-0246 PROPOSED Locations management view (t777u); Design lean V0+W1+M0+A1+N1+S0+D0+X1; no migration. Merged under main tip dc90185 (OI-0245 LOCKED). |
 | 2026-11-11 | GTHO Design — docs only | Record OI-0216 units 044 merged/apply pending and accepted N2; supersede OI-0212 and historical unit rationale; add later transactional restore OI-0217, DB stamp guard OI-0218 and FA-29 OI-0219 (FA-30 cancelled). 042/043 applied, prod stamp 43; ceiling 41 and PR #56 review unchanged. |
 | 2026-11-10 | GTHO Design — docs only | OI-0211 follow-up: record Build’s diagnosis and Design Q1–Q5 rulings, locked 10-second overall startup deadline, AudioContext/resampling, capped live-only testing recorder and existing app-logger requirements. Update acceptance, session brief and living status; no implementation or production change. |

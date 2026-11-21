@@ -125,13 +125,10 @@ describe('OI-0124 Phase 1 — paddockAcres wiring on pre-graze surfaces', () => 
     expect(helper.textContent).toMatch(/2\.47 ac/);
   });
 
-  it('Event Detail §5 open paddock window card is BRC-active', () => {
+  it('Event Detail no longer renders inline §5 pre-graze (Edit sheet is the BRC surface)', () => {
     openEventDetailSheet({ id: EVT }, OP, FARM);
-    // §5 renders one pre-graze card per open paddock window.
-    const helper = document.querySelector('[data-testid="obs-card-bale-ring-helper"]');
-    expect(helper, 'pre-graze helper should exist in §5').toBeTruthy();
-    expect(helper.textContent).toMatch(/12\.0 ft/);
-    expect(helper.textContent).toMatch(/2\.47 ac/);
+    expect(document.querySelector('[data-testid="obs-card-bale-ring-helper"]')).toBeNull();
+    expect(document.querySelector('[data-testid="detail-pre-graze"]')?.children.length || 0).toBe(0);
   });
 
   it('Event Detail paddock row shows the location area from areaHectares', () => {

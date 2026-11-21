@@ -4,7 +4,7 @@ import { feedSnapshot } from '../../calcs/feed-pools.js';
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, subscribe, add, update, remove, isCurrentUserDev } from '../../data/store.js';
+import { getAll, getById, subscribe, update, remove, isCurrentUserDev } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
@@ -13,9 +13,6 @@ import { formatShortDate } from '../../utils/date-format.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { logger } from '../../utils/logger.js';
 import * as EventEntity from '../../entities/event.js';
-import * as PaddockObsEntity from '../../entities/paddock-observation.js';
-import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
-import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { openMoveWizard } from './move-wizard.js';
 import { openCloseEventSheet } from './close.js';
 import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
@@ -140,14 +137,13 @@ export function openEventDetailSheet(event, operationId, farmId) {
   }));
   unsubs.push(subscribe('eventPaddockWindows', () => {
     renderPaddocks(ctx);
-    renderPostGraze(ctx);
     renderSubmoves(ctx);
     renderSummary(ctx);
   }));
-  // OI-0112: pre/post cards now write to paddockObservations.
+  // Pre/post-graze inline cards removed — Edit paddock window is the single surface.
+  // Still refresh DMI when observations change (paddock list forage line + chart).
   unsubs.push(subscribe('paddockObservations', () => {
-    renderPreGraze(ctx);
-    renderPostGraze(ctx);
+    renderPaddocks(ctx);
     renderDmiChart(ctx);
   }));
   unsubs.push(subscribe('eventFeedEntries', () => {
@@ -187,8 +183,9 @@ function renderAll(ctx) {
   renderDmiChart(ctx);
   renderDmiNpk(ctx);
   renderPaddocks(ctx);
-  renderPreGraze(ctx);
-  renderPostGraze(ctx);
+  // Inline pre/post-graze sections intentionally empty (list + Edit only).
+  clear(ctx.sections.preGraze);
+  clear(ctx.sections.postGraze);
   renderGroups(ctx);
   renderFeedEntries(ctx);
   renderFeedChecks(ctx);
@@ -581,208 +578,9 @@ function renderPaddocks(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// §5: Pre-graze Observations
+// §5 / §6: Pre-graze / Post-graze inline cards REMOVED
+// Single pasture surface is the paddock list + Edit sheet (edit-paddock-window).
 // ---------------------------------------------------------------------------
-
-function renderPreGraze(ctx) {
-  // OI-0112 surface #7: one editable pre-graze card per open paddock window,
-  // writing to `paddock_observations` with `type: 'open'` + `source: 'event'`.
-  const el2 = ctx.sections.preGraze;
-  clear(el2);
-  const event = getById('events', ctx.eventId);
-  if (!event) return;
-
-  const isActive = !event.dateOut;
-  const farmSettings = getAll('farmSettings')[0] || null;
-  const openPaddockWindows = getAll('eventPaddockWindows')
-    .filter(pw => pw.eventId === ctx.eventId && !pw.dateClosed);
-
-  if (!openPaddockWindows.length) {
-    const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
-      el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.preGrazeObs')]),
-      el('div', { className: 'form-hint' }, [t('event.noObservations')]),
-    ]);
-    el2.appendChild(card);
-    return;
-  }
-
-  for (const pw of openPaddockWindows) {
-    const loc = getById('locations', pw.locationId);
-    // OI-0124 Phase 1: use OI-0075 fallback — Location entity field is areaHectares.
-    const locHa = loc?.areaHectares ?? loc?.areaHa;
-    const paddockAcres = locHa != null
-      ? convert(locHa, 'area', 'toImperial')
-      : null;
-
-    // Prefer phase-aware lookup by paddockWindowId; fall back to first open
-    // observation on this event for backward compat with pre-OI-0112 rows.
-    const allObs = getAll('paddockObservations')
-      .filter(o => o.locationId === pw.locationId && o.type === 'open' && o.source === 'event');
-    const obs = allObs.find(o => o.sourceId === pw.id)
-      || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
-      || null;
-
-    const card = renderPreGrazeCard({
-      farmSettings,
-      paddockAcres,
-      initialValues: obs ? {
-        forageHeightCm: obs.forageHeightCm,
-        forageCoverPct: obs.forageCoverPct,
-        forageQuality: obs.forageQuality,
-        forageCondition: obs.forageCondition,
-        baleRingResidueCount: obs.baleRingResidueCount,
-        notes: obs.notes,
-      } : {},
-    });
-
-    // Header above each card naming the paddock.
-    const header = loc
-      ? el('div', { style: { fontWeight: '600', fontSize: '14px', marginBottom: '6px' } }, [loc.name])
-      : null;
-
-    // Save button — writes/updates one paddock_observation per window.
-    const statusEl = el('span', {
-      style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' },
-    }, [t('settings.saved')]);
-    function showSaved() {
-      statusEl.style.opacity = '1';
-      setTimeout(() => { statusEl.style.opacity = '0'; }, 2000);
-    }
-    const saveBtn = el('button', {
-      className: 'btn btn-outline btn-xs',
-      'data-testid': `detail-pregraze-save-${pw.id}`,
-      disabled: !isActive,
-      onClick: () => {
-        const values = card.getValues();
-        if (obs) {
-          update('paddockObservations', obs.id, values,
-            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
-        } else {
-          const newObs = PaddockObsEntity.create({
-            operationId: ctx.operationId,
-            locationId: pw.locationId,
-            observedAt: new Date().toISOString(),
-            type: 'open',
-            source: 'event',
-            sourceId: pw.id,
-            ...values,
-          });
-          add('paddockObservations', newObs,
-            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
-        }
-        showSaved();
-      },
-    }, [t('action.save')]);
-
-    const wrap = el('div', {
-      className: 'card',
-      style: { marginBottom: 'var(--space-4)' },
-      'data-testid': `detail-pregraze-card-${pw.id}`,
-    }, [
-      header,
-      card.container,
-      el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [saveBtn, statusEl]),
-    ].filter(Boolean));
-    el2.appendChild(isConfinementLocation(loc)
-      ? wrapInactiveForage(wrap, `detail-pregraze-inactive-${pw.id}`)
-      : wrap);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// §6: Post-graze Observations
-// ---------------------------------------------------------------------------
-
-function renderPostGraze(ctx) {
-  // OI-0112 surface #7: one editable post-graze card per closed paddock
-  // window, writing to `paddock_observations` with type 'close', source 'event'.
-  const el2 = ctx.sections.postGraze;
-  clear(el2);
-  const event = getById('events', ctx.eventId);
-  if (!event) return;
-
-  const farmSettings = getAll('farmSettings')[0] || null;
-  const closedPaddockWindows = getAll('eventPaddockWindows')
-    .filter(pw => pw.eventId === ctx.eventId && !!pw.dateClosed);
-
-  if (!closedPaddockWindows.length) {
-    const card = el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
-      el('div', { className: 'sec', style: { marginBottom: 'var(--space-3)' } }, [t('event.postGrazeObs')]),
-      el('div', { className: 'form-hint' }, [t('event.postGrazeEmpty')]),
-    ]);
-    el2.appendChild(card);
-    return;
-  }
-
-  for (const pw of closedPaddockWindows) {
-    const loc = getById('locations', pw.locationId);
-
-    const allObs = getAll('paddockObservations')
-      .filter(o => o.locationId === pw.locationId && o.type === 'close' && o.source === 'event');
-    const obs = allObs.find(o => o.sourceId === pw.id)
-      || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
-      || null;
-
-    const card = renderPostGrazeCard({
-      farmSettings,
-      initialValues: obs ? {
-        residualHeightCm: obs.residualHeightCm,
-        recoveryMinDays: obs.recoveryMinDays,
-        recoveryMaxDays: obs.recoveryMaxDays,
-        notes: obs.notes,
-      } : {},
-    });
-
-    const header = loc
-      ? el('div', { style: { fontWeight: '600', fontSize: '14px', marginBottom: '6px' } }, [loc.name])
-      : null;
-
-    const statusEl = el('span', {
-      style: { fontSize: '11px', color: 'var(--color-green-base)', opacity: '0', transition: 'opacity 0.3s', marginLeft: '8px' },
-    }, [t('settings.saved')]);
-    function showSaved() {
-      statusEl.style.opacity = '1';
-      setTimeout(() => { statusEl.style.opacity = '0'; }, 2000);
-    }
-    const saveBtn = el('button', {
-      className: 'btn btn-outline btn-xs',
-      'data-testid': `detail-postgraze-save-${pw.id}`,
-      onClick: () => {
-        const values = card.getValues();
-        if (obs) {
-          update('paddockObservations', obs.id, values,
-            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
-        } else {
-          const newObs = PaddockObsEntity.create({
-            operationId: ctx.operationId,
-            locationId: pw.locationId,
-            observedAt: new Date().toISOString(),
-            type: 'close',
-            source: 'event',
-            sourceId: pw.id,
-            ...values,
-          });
-          add('paddockObservations', newObs,
-            PaddockObsEntity.validate, PaddockObsEntity.toSupabaseShape, 'paddock_observations');
-        }
-        showSaved();
-      },
-    }, [t('action.save')]);
-
-    const wrap = el('div', {
-      className: 'card',
-      style: { marginBottom: 'var(--space-4)' },
-      'data-testid': `detail-postgraze-card-${pw.id}`,
-    }, [
-      header,
-      card.container,
-      el('div', { style: { display: 'flex', alignItems: 'center', marginTop: '8px' } }, [saveBtn, statusEl]),
-    ].filter(Boolean));
-    el2.appendChild(isConfinementLocation(loc)
-      ? wrapInactiveForage(wrap, `detail-postgraze-inactive-${pw.id}`)
-      : wrap);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // §7: Groups

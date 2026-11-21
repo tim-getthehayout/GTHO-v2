@@ -217,3 +217,15 @@ describe('OI-0161 — Step 3 pre-graze gating', () => {
     expect(getPreGrazeCard()).toBeFalsy();
   });
 });
+
+describe('destination pre-graze copy (new event)', () => {
+  it('land destination shows starting-pasture hint for the new event', () => {
+    seedBase({ srcType: 'land' });
+    driveToStep3New({ scopedGroupWindowId: null, destLocId: DST_LOC });
+    const hint = document.querySelector('[data-testid="move-wizard-dest-pregraze-hint"]');
+    expect(hint).toBeTruthy();
+    expect(hint.textContent).toMatch(/new event/i);
+    expect(hint.textContent).toMatch(/not the event you/i);
+    expect(getPreGrazeCard()?.textContent).toMatch(/Starting Pasture/i);
+  });
+});

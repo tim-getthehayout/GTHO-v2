@@ -506,7 +506,10 @@
     "confirmDeleteDesc": "This will permanently delete this event and all associated data. This cannot be undone.",
     "detailSummary": "Day {days} · {feedings} feedings · {groups} group(s)",
     "parityExpected": "expected {expected}, got {actual}",
-    "costDisplay": "${value}"
+    "costDisplay": "${value}",
+    "destPreGrazeHint": "Starting pasture for the new event (not the event you're leaving).",
+    "destPreGrazeTitle": "Starting Pasture (new event)",
+    "saveFailed": "Could not save. Try again."
   },
   "location": {
     "title": "Locations",

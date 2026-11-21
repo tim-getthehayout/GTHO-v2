@@ -19,11 +19,11 @@ import {
   renderConditionChips, renderNotes, heightInputToCm, parseIntOrNull,
 } from './_shared.js';
 
-export function renderPreGrazeCard({ farmSettings = null, paddockAcres = null, initialValues = {} } = {}) {
+export function renderPreGrazeCard({ farmSettings = null, paddockAcres = null, initialValues = {}, titleKey = 'event.preGrazeObs' } = {}) {
   const required = !!farmSettings?.recoveryRequired;
   const unitSys = getUnitSystem();
 
-  const header = renderHeader('event.preGrazeObs', required);
+  const header = renderHeader(titleKey, required);
   const state = renderForageStateRow({ farmSettings, paddockAcres, initialValues, unitSys });
   const quality = renderQualitySlider(initialValues.forageQuality);
   const condition = renderConditionChips(initialValues.forageCondition);

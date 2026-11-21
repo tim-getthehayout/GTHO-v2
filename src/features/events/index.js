@@ -159,12 +159,10 @@ export function renderEventsScreen(container) {
   screenEl.appendChild(sheetsContainer);
   container.appendChild(screenEl);
 
-  // Create event button (floating action for mobile, or accessible from list view)
-  // Keep subscriptions for sheet-based event management
+  // Remount when events change in list view so create/close stay current.
   unsubs.push(subscribe('events', () => {
-    const state = getCalendarState();
-    if (isMobile || state.view === 'list') {
-      // Re-render will happen via the calendar grid's own re-render, or via list refresh
+    if (getCalendarState().view === 'list') {
+      renderEventsScreen(container);
     }
   }));
 }

@@ -54,7 +54,7 @@ Abbreviations: **ARCH** = `V2_APP_ARCHITECTURE.md`, **INFRA** = `V2_INFRASTRUCTU
 | `observations/`, `surveys/` | UX §7; DS §3.16; SCHEMA Domain 6 | `PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md` (OI-0241 **LOCKED** persistence + destination copy) |
 | `amendments/` | UX §8; SCHEMA Domain 8 | — |
 | `harvest/` | UX §10; SCHEMA Domain 7 | — |
-| `dashboard/` | UX §17.1–§17.8 (OI-0238 capacity end-of-today / after-today label; **OI-0242 PROPOSED** multi-paddock forage aggregation — stop `openPws[0]`×total acres), §17.12, §17.13; DS §4.1, §3.13; ARCH §7.2; brief `PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md` | `MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md` (OI-0242 **PROPOSED**) |
+| `dashboard/` | UX §17.1–§17.8 (OI-0238 capacity end-of-today / after-today label; **OI-0242 SPEC LOCKED / READY FOR BUILD** A1+B1+C1+D1 multi-paddock forage aggregation — stop `openPws[0]`×total acres; label prior-event DMI chart days), §17.12, §17.13; DS §4.1, §3.13; ARCH §7.2; brief `PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md` | `MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md` (OI-0242 **LOCKED**) |
 | `todos/` | UX §17.8–§17.11 | — |
 | `reports/` | ARCH §7.1; DS §4.6; CALC §2 (reference console) | — |
 | `field-mode/` | UX §16; DS §7.2, §7.3 | — |

@@ -1,8 +1,7 @@
 # Multi-paddock dashboard forage aggregation (OI-0242)
 
-**Status:** **PROPOSED** — awaiting Tim lock (A/B/C required; D optional)  
-**Opened:** 2026-11-20 ~7:52 PM ET (Tim yes via Orchestrator, card t723s2984: "Yes, open a new OI for multi-paddock dashboard forage aggregation")  
-**Owner:** GTHO Design (docs) → GTHO Build **only after Tim locks**  
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-20 ~7:55 PM ET, via Orchestrator, card t724s2992) — opened ~7:52 PM ET (card t723s2984); **A1+B1+C1+D1 locked ~7:55 PM ET**  
+**Owner:** GTHO Design → GTHO Build  
 **Schema / migration:** none  
 **CP-55 / CP-56:** none
 
@@ -14,7 +13,9 @@ Tim (iPhone PWA, ~7:51 PM ET Nov 20, via Orchestrator) on sheep event `8ef44a4a`
 
 Card showed ~**12.09 ac**, Sheep 54 hd, Est. capacity **598 AUDs**, ~**45.04** days, **9.0 in**, ADA 0.6/ac. Pasture line and DMI chart looked odd to him; Design diagnosis split **expected** (OI-0238 prorate 170 vs 96; chart Thu 486 from prior event E via `sourceEventId`) from a **real bug**: height **9.0 in** is **F-1 alone**, not an area-weighted multi-paddock figure (~**7.58 in** for 9/6/6/8/8). Capacity AUDs / days inherit that overstated forage.
 
-**Not OI-0241.** Edit Save / inline Pre-Graze / destination copy stay on OI-0241. This OI is dashboard `buildLocationCard` forage aggregation only.
+**Not OI-0241.** Edit Save / inline Pre-Graze / destination copy stay on OI-0241. This OI is dashboard `buildLocationCard` forage aggregation + DMI chart prior-event labeling (D1).
+
+**Opened:** Tim yes ~7:52 PM ET (card t723s2984): "Yes, open a new OI for multi-paddock dashboard forage aggregation"
 
 ## Diagnosis (Design read-only)
 
@@ -35,7 +36,7 @@ Card showed ~**12.09 ac**, Sheep 54 hd, Est. capacity **598 AUDs**, ~**45.04** d
 
 - Dashboard location card: standing forage **height** display, **available DM (FOR-1)**, **Est. capacity AUDs**, and **days-remaining** that inherit that DM.
 - Aggregation must stay consistent with DMI-8 `pickPreGraze` / per-window FOR-1 inputs (same observation pick rules).
-- Optional (same OI if Tim locks D1): DMI last-N-days chart label when a day came from `sourceEventId` cascade (prior event).
+- **D1 IN SCOPE:** DMI last-N-days chart label when a day came from `sourceEventId` cascade (prior event).
 
 **Out of scope**
 
@@ -45,52 +46,47 @@ Card showed ~**12.09 ac**, Sheep 54 hd, Est. capacity **598 AUDs**, ~**45.04** d
 - Schema / migration / CP-55/56.
 - Changing DMI-8 per-window math unless a real inconsistency with the locked aggregation is found (should already be correct).
 
-## Tim lock options (PROPOSED)
+## Locked (Tim, 2026-11-20 ~7:55 PM ET, card t724s2992)
 
-Design recommendations marked. **Do not hand Build until Tim locks A, B, and C.**
+**Tim lock (exact words):** "Lock OI-0242 A1+B1+C1, D1: same aggregation, plus label DMI chart days from previous event"
 
-### A — Aggregation method for available DM / AUDs / days (**REQUIRED** — pick one)
+Note: Design’s PROPOSED recommendation was **A1+B1+C1** with **D0** (defer chart label). Tim chose **D1**, not D0 — D is **IN SCOPE**.
 
-- **A1 (Design rec):** Sum FOR-1 **per open paddock window** (each PW uses its own pre-graze height/cover via the same `pickPreGraze` rules as DMI-8), then sum available DM across open PWs. Display height as **area-weighted** average inches (and optionally cover if shown).
-- **A2:** Area-weighted single height (+ cover) then **one** FOR-1 over total acres (approx; can diverge from per-PW FOR-1 if cover differs by paddock).
-- **A3:** Keep primary PW height for *display only*, but compute capacity from A1 sum (mixed — **Design discourages**: height and DM tell different stories).
+- **A1 LOCKED:** Sum FOR-1 **per open paddock window** (each PW uses its own pre-graze height/cover via the same `pickPreGraze` rules as DMI-8), then sum available DM across open PWs. Display height as **area-weighted** average inches (and optionally cover if shown). Stop using `primaryPw = openPws[0]` height × total acres for capacity. Fix AUDs / days-remaining that inherit that DM.
+- **B1 LOCKED:** All **open** paddock windows on the active event(s) for that location card (same set already used for acre sum).
+- **C1 LOCKED:** PW without usable pre-graze contributes **0** available DM; height display weighted only over PWs that have height; UI may show “partial” if any open PW is missing pre-graze.
+- **D1 LOCKED (IN SCOPE):** On DMI last-N-days chart, **label** days that came from `sourceEventId` cascade (e.g. “from previous event” / “prior event”) so a day like Thu 486 on a new-event chart isn’t misread as this event’s stored feed (motivating case: Thu **486** was E’s Thursday on new event `8ef44a4a`).
 
-### B — Which open PWs count (**REQUIRED**)
+**No migration.** No schema. No CP-55/56.
 
-- **B1 (Design rec):** All **open** paddock windows on the active event(s) for that location card (same set already used for acre sum).
-- **B2:** Only PWs with a pre-graze observation; missing obs → exclude from forage DM (acres handling needs a follow-up if Tim picks this). Prefer **B1** with missing-obs = **0** forage contribution for that PW while still showing acres.
+### Lock options retained for history (PROPOSED → chosen)
 
-### C — Missing / partial pre-graze (**REQUIRED**)
+| Option | Choices | Locked |
+|---|---|---|
+| A — Aggregation | A1 sum per-PW FOR-1 + area-weighted height (rec); A2 weighted then one FOR-1; A3 mixed (discouraged) | **A1** |
+| B — Which open PWs | B1 all open (rec); B2 only with pre-graze | **B1** |
+| C — Missing pre-graze | C1 → 0 DM + partial UI (rec); C2 block until all; C3 primary fallback (discouraged) | **C1** |
+| D — Chart prior-event label | D0 defer (Design rec); D1 label source-event days | **D1** (Tim overrode D0) |
 
-- **C1 (Design rec):** PW without usable pre-graze contributes **0** available DM; height display weighted only over PWs that have height; UI may show “partial” if any open PW is missing pre-graze.
-- **C2:** Block / hide capacity numbers until **all** open PWs have pre-graze.
-- **C3:** Fall back to `primaryPw` / `openPws[0]` behavior for missing only (**Design discourages**).
-
-### D — Optional chart prior-event label (**OPTIONAL**, same OI)
-
-- **D0 (Design rec if Tim silent):** Defer — not in this implement.
-- **D1:** On DMI last-N-days chart, label days that came from `sourceEventId` cascade (e.g. “prior event” / “from previous event”) so Thu-on-new-event isn’t misread as this event’s stored feed (motivating case: Thu **486** was E’s Thursday on new event `8ef44a4a`).
-
-**Design lock recommendation for Tim card:** **A1 + B1 + C1**; **D0** unless Tim wants the chart label now.
-
-## Acceptance (once locked)
+## Acceptance
 
 - [ ] Multi-paddock card height ≠ `openPws[0]` alone when open PW heights differ.
-- [ ] Available DM / AUDs / days-remaining match the locked aggregation (A/B/C).
+- [ ] Available DM / AUDs / days-remaining match **A1+B1+C1** (sum FOR-1 per open PW; 0 DM for missing pre-graze; height area-weighted over PWs with height).
 - [ ] Inputs use the same `pickPreGraze` rules as DMI-8 per window.
 - [ ] Single-paddock cards unchanged numerically.
-- [ ] Tests cover **2+** open PWs with different heights (and a missing-pre-graze case per locked C).
+- [ ] DMI last-N-days chart **labels** days from `sourceEventId` cascade (D1) so prior-event stored/grazing isn’t read as this event’s.
+- [ ] Tests cover **2+** open PWs with different heights (and a missing-pre-graze case per C1); chart prior-event label coverage for D1.
 - [ ] Design PASS on PR.
-- [ ] **No Build until Tim locks.** No migration.
+- [ ] No migration.
 
-## Files (Build — after lock; product behaviour, not invention)
+## Files (Build — product behaviour, not invention)
 
 | Area | Likely touch |
 |---|---|
-| Dashboard location card | `src/features/dashboard/index.js` — `buildLocationCard`: stop `primaryPw`-only height × total acres; aggregate per locked A/B/C |
+| Dashboard location card | `src/features/dashboard/index.js` — `buildLocationCard`: stop `primaryPw`-only height × total acres; aggregate per A1+B1+C1 |
 | Calcs (reuse, don’t fork) | `src/calcs/feed-forage.js` — prefer shared `pickPreGraze` / per-window FOR-1 helpers already used by DMI-8 |
-| UX copy (if D1) | `src/ui/dmi-chart.js` (+ i18n) — prior-event day label |
-| Tests | Multi-open PWs different heights; single-PW regression; missing pre-graze per C |
+| DMI chart labeling (D1) | Chart context / render that drives `computeDmi8Days` — e.g. `src/ui/dmi-chart.js`, `dmi-chart-context.js`, or dashboard chart render (+ i18n) — prior-event / `sourceEventId` day label |
+| Tests | Multi-open PWs different heights; single-PW regression; missing pre-graze per C1; chart labels prior-event days (D1) |
 | Docs on land | `V2_UX_FLOWS.md` §17.7 capacity line; CALC FOR-1 / CAP-1 notes if wording changes |
 
 ## Related

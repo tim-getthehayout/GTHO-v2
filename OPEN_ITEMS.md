@@ -52,6 +52,7 @@
 | OI-0241 | Destination pre-graze copy + Event Detail pasture edit (drop inline; fix Edit Save; clearer dest copy) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:49 PM ET (Tim, via Orchestrator, card t710s2923) — A+B+C. **A** drop inline Pre-Graze (keep list+Edit); **B** fix Edit Save so forage isn’t silently dropped (green/main Save persists pre-graze **and** small-card Save reliably enqueue+push; toast on failure; no silent Saved — real persistence bug per Tim Save+Resync “0 new items”); **C** clearer destination pasture copy. No migration. F open-obs data fix for `8ef44a4a` **already applied** ~7:48 PM ET (card t715s2944) — do not re-run. [brief](session_briefs/PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md) |
 | OI-0242 | Multi-paddock dashboard forage aggregation (stop openPws[0]×total acres) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:55 PM ET (Tim, via Orchestrator, card t724s2992) — **A1+B1+C1+D1**. **A1** sum FOR-1 per open PW (same `pickPreGraze` as DMI-8) + area-weighted height; **B1** all open PWs; **C1** missing pre-graze → 0 DM (height weighted over PWs with height; optional partial UI); **D1** label DMI chart days from `sourceEventId` / previous event. No migration. Design had rec’d D0; Tim chose D1. [brief](session_briefs/MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md) |
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
+| OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **PROPOSED** 2026-11-21 ~7:15–7:16 AM ET (Tim, via Orchestrator) — reverses OI-0243 **E0/Gs0**. Design rec: **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Rams↔ewes, bucks(billies)↔does; widen Open; per-species protocol; widen migration **047 before apply**; Animals **Preg check settings** dialog (same farm_settings write path). No LOCKED / no Build / no land until Tim locks. [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
 
 ---
 
@@ -187,6 +188,34 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+### OI-0244 — Multispecies exposure → Pregnancy Check (sheep + goat) + Animals protocol dialog
+
+**Status:** **PROPOSED — awaiting Tim lock** (Tim via Orchestrator, 2026-11-21 ~7:15 AM ET all-species; ~7:16 AM ET Animals "Preg check settings" dialog). Do **not** stamp LOCKED. Do **not** hand Build. Do **not** land until Tim yeses land after lock.
+**Priority:** Feature — extend OI-0243 exposure / Pregnancy Check beyond cattle; inline protocol editor
+**Owner:** GTHO Design → Orchestrator (lock card) → Tim → docs land → GTHO Build
+**Brief:** [MULTISPECIES_EXPOSURE_PREG_2026-11-21.md](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md)
+
+**Parent:** OI-0243 live on main `e310d9dc77726fc854dbfc95a9f32ef4d2970e0c` (E0 cattle-only, Gs0 single pair, Ux1 read-only). Migration **047** file-only / not applied; RELEASED stays **45**.
+
+**Design recommendation (lock string):**
+**A0 + E1 + B0-extend + C3-keep + D0 + D4 + F0 + Fg1 + Gh0 + Gs1 + Gg0 + Gd-cattle(35/45) + Gd-sheep(25/30) + Gd-goat(25/30) + Gc0 + UxA0 + Ux-copy1 + M0 + Pb0 + Ps0 + Ps-farm0 + Pe0 + Pg0**
+
+- **E1** cattle + sheep + goat (ram↔ewe, buck/billy↔doe; wether/lamb/kid/steer/calf out of open female set)
+- **B0-extend** widen Open / `assessOpenAnimal` to ewe+doe
+- **C3-keep** gestation 283/150/150; confirmation ≠ conception
+- **Gs1** per-species protocol pairs; **Gd** cattle 35/45, sheep/goat **25/30** (small-ruminant clocks shorter than cattle)
+- **UxA0** one Pregnancy Check chip; protocol summary follows Species filter (All → multi-line / per species)
+- **Ux-copy1** shared label "post-partum"
+- **M0** widen migration **047 before apply** (cheapest; 047 not applied yet)
+- **Pb0+Ps0+Ps-farm0+Pe0+Pg0** "Preg check settings" button beside protocol line → dialog; same farm_settings update path as Settings; hide button until schema released
+
+**Schema:** No exposure table. Fold Gs1 columns into **047** under M0; Tim yes + backup before apply; RELEASED stays 45 until release process.
+
+**Related:** OI-0243, OI-0232/0234, OI-0235/0236, SCHEMA §1/§3/§5/§9.7/§9.9, UX §15.0
+
+**Origin timestamp:** Tim via Orchestrator 2026-11-21 ~7:15 / 7:16 AM ET (America/New_York).
+
+---
 ### OI-0243 — Bull exposure → Animals Pregnancy Check + due windows
 
 **Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-21 ~6:34 AM ET, via Orchestrator, card **t745s3078**) — opened ~6:03–6:06 AM ET; locked Design rec + **Ux1** on tip `6ee631e6f515291df97c8e3beb05af017cd31d3f`  
@@ -212,7 +241,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Schema:** No exposure table (A0+F0). **Gh0** farm_settings ints = gated migration (yes + backup + CP-55/56). Compiles may use Gd0 until apply.
 
-**Related:** OI-0232, OI-0234, OI-0235/0236, OI-0099, SCHEMA §1 farm_settings, §3.2/§3.4/§5.3/§9.7/§9.9, UX §15.0–§15.1.
+**Related:** OI-0244 (PROPOSED multispecies follow-up), OI-0232, OI-0234, OI-0235/0236, OI-0099, SCHEMA §1 farm_settings, §3.2/§3.4/§5.3/§9.7/§9.9, UX §15.0–§15.1.
 
 **Origin timestamp:** Tim via Orchestrator 2026-11-21 ~6:03 / 6:04 / 6:06 AM ET; lock ~6:34 AM ET (t745s3078).
 

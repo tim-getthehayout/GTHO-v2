@@ -1,7 +1,7 @@
 # Multispecies exposure → Pregnancy Check (sheep + goat) (OI-0244)
 
-**Status:** **PROPOSED — awaiting Tim lock** (opened 2026-11-21 ~7:15–7:16 AM ET via Orchestrator). Do **not** stamp LOCKED. Do **not** hand Build. Do **not** land on main until Tim yeses a land card.
-**Owner:** GTHO Design → Orchestrator (lock card) → Tim → (after lock) docs land → GTHO Build  
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-21 ~7:18 AM ET, via Orchestrator, card **t759s3139**) — opened ~7:15–7:16 AM ET; **locked Design rec** on tip `070af6cec489c38d87c0585034297e62c6dc2789`
+**Owner:** GTHO Design → GTHO Build (after docs land on main; Orchestrator land card — do not start until Tim yeses land)  
 **Parent:** OI-0243 **live** on Forgejo `origin/main` `e310d9dc77726fc854dbfc95a9f32ef4d2970e0c` — lock **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Brief: [BULL_EXPOSURE_PREG_DUE_2026-11-21.md](BULL_EXPOSURE_PREG_DUE_2026-11-21.md).  
 **Schema / migration:** Migration **047** (`preg_check_min_days_since_exposure` / `preg_check_min_days_post_calving` on `farm_settings`) is **file-only / not applied**; `RELEASED_SCHEMA_VERSION` still **45**; HELD includes **47**. This OI reverses **E0** (cattle-only) and likely **Gs0** (single cattle pair). Design lean **M0**: widen 047 **before apply** so one Tim yes+backup covers cattle + sheep + goat columns (and the Animals dialog can write them).
 
@@ -15,6 +15,7 @@ OI-0243 shipped a **cattle-only** bull-exposure → Animals **Pregnancy Check** 
 That reverses **E0** and pushes **Gs0 → Gs1** (per-species protocol thresholds). Tim also asked (7:16 AM ET) for a **"Preg check settings"** button on Animals (when Pregnancy Check is on) that opens a **dialog to edit** the protocol right there — today Ux1 is **display-only** and there is **no Settings editor** for these fields.
 
 **Origin:** Tim via Orchestrator, 2026-11-21 ~7:15 AM ET (all-species) + ~7:16 AM ET (Animals inline editor).  
+**Locked:** Tim, card **t759s3139**, ~7:18 AM ET — Design’s rec on tip `070af6c` (exact words: *"Lock OI-0244 A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0: all species, Open+ewe/doe, settings button+dialog, widen migration 047 before apply"* ).  
 **Base citations:** Forgejo `origin/main` `e310d9d` (OI-0243 tip). Do not invent beyond options needed for product lock.
 
 ## 2. Current state (citations — do not invent)
@@ -51,7 +52,7 @@ That reverses **E0** and pushes **Gs0 → Gs1** (per-species protocol thresholds
 - Publishing / bumping `RELEASED_SCHEMA_VERSION` past 45 until apply+release process says so.  
 - Folding “other” / unseeded species without clear male/female breeding roles (see **E3**).
 
-## 5. Options (PROPOSED — Tim picks; Design rec at end of each axis)
+## 5. Options (LOCKED — Tim t759s3139 chose Design rec; non-chosen options retained for history)
 
 ### E — Species scope (reverses E0)
 
@@ -63,7 +64,7 @@ Male ↔ female breeding roles (seeded):
 | sheep | `ram` | `ewe` | `wether`, `lamb` |
 | goat | `buck` (billy) | `doe` | `wether`, `kid` |
 
-- **E1 — Cattle + sheep + goat (Design recommendation).** Extend derive so male role matches species (bull/ram/buck) and female open set matches table above. **Consequence:** matches Tim’s ask; one feature across the farm’s three breeding species.  
+- **E1 — Cattle + sheep + goat (LOCKED — Design recommendation).** Extend derive so male role matches species (bull/ram/buck) and female open set matches table above. **Consequence:** matches Tim’s ask; one feature across the farm’s three breeding species.  
 - **E2 — Sheep + goat only first; leave cattle path as OI-0243.** **Consequence:** two code paths; little savings now that cattle already ships.  
 - **E3 — All seeded species including `other` if male/female breeding roles exist.** **Consequence:** vague without seed roles; defer unless Tim has `other` breeding stock with defined roles.
 
@@ -71,14 +72,14 @@ Male ↔ female breeding roles (seeded):
 
 ### B — Open / exposed sets for sheep & goats
 
-- **B0-extend — Widen `assessOpenAnimal` / Open pill to ewe + doe (keep cow/heifer) (Design recommendation).** Same `active` + female + `confirmedBred === false` semantics; roles become cow/heifer/**ewe**/**doe**. Exposed = open female with ≥1 non-ambiguous co-presence interval to a matching-species breeding male. **Consequence:** one Open definition across assistant, Animals filters, and Pregnancy Check.  
+- **B0-extend — Widen `assessOpenAnimal` / Open pill to ewe + doe (keep cow/heifer) (LOCKED — Design recommendation).** Same `active` + female + `confirmedBred === false` semantics; roles become cow/heifer/**ewe**/**doe**. Exposed = open female with ≥1 non-ambiguous co-presence interval to a matching-species breeding male. **Consequence:** one Open definition across assistant, Animals filters, and Pregnancy Check.  
 - **B1 — Separate species-aware open helpers; Animals Open chip stays cattle-only.** Pregnancy Check can still include sheep/goat via D0. **Consequence:** Open and Pregnancy Check diverge by species; confusing on mixed farms.
 
 **Design recommendation:** **B0-extend**.
 
 ### C — Gestation / due math
 
-- **C3-keep — Keep constants cattle 283 / sheep 150 / goat 150 (Design recommendation).** Due band still **exposure_start + G … exposure_end + G**; confirmation ≠ conception (OI-0232 / OI-0243 C0).  
+- **C3-keep — Keep constants cattle 283 / sheep 150 / goat 150 (LOCKED — Design recommendation).** Due band still **exposure_start + G … exposure_end + G**; confirmation ≠ conception (OI-0232 / OI-0243 C0).  
 - Editable gestation in farm_settings — **out of scope** unless Tim opens it.
 
 **Design recommendation:** **C3-keep** (retain C0 semantics from OI-0243).
@@ -99,10 +100,10 @@ Male ↔ female breeding roles (seeded):
 ### G — Protocol settings (reverses Gs0)
 
 - **Gh0 — stay:** values live on `farm_settings` (already chosen in OI-0243).  
-- **Gs1 — Per-species threshold pairs (cattle / sheep / goat) (Design recommendation).** Columns or clearly named fields per species for min days since exposure + min days post-calving (illustrative names: `preg_check_*_cattle`, `*_sheep`, `*_goat`, or JSON — Build picks shape under SCHEMA review; product lock is three pairs).  
+- **Gs1 — Per-species threshold pairs (cattle / sheep / goat) (LOCKED — Design recommendation).** Columns or clearly named fields per species for min days since exposure + min days post-calving (illustrative names: `preg_check_*_cattle`, `*_sheep`, `*_goat`, or JSON — Build picks shape under SCHEMA review; product lock is three pairs).  
 - **Gs0-keep — One farm-wide pair for all species.** Simpler; weak fit when sheep/goat clocks differ from cattle.  
-- **Gg0 — No per-group overrides (Design recommendation).**  
-- **Gc0 — AND combine (Design recommendation)** — inherit OI-0243 unless Tim wants per-species combine (default: one farm-wide Gc).  
+- **Gg0 — No per-group overrides (LOCKED — Design recommendation).**  
+- **Gc0 — AND combine (LOCKED — Design recommendation)** — inherit OI-0243 unless Tim wants per-species combine (default: one farm-wide Gc).  
 - **Gd defaults:**  
   - **Gd-cattle — keep 35 / 45** (OI-0243 Gd0).  
   - Sheep options: **GdS0 = 25 / 30** (Design lean) · **GdS1 = 21 / 28**.  
@@ -112,13 +113,13 @@ Male ↔ female breeding roles (seeded):
 **Post-partum copy (Ux-copy):**
 
 - **Ux-copy0 — Keep “post-calving”** even for sheep/goat.  
-- **Ux-copy1 — Species-neutral “post-partum”** on shared protocol lines (Design recommendation for multi-species). Clock source stays `animal_calving_records.calved_at` (no new table).
+- **Ux-copy1 — Species-neutral “post-partum”** on shared protocol lines (LOCKED — Design recommendation for multi-species). Clock source stays `animal_calving_records.calved_at` (no new table).
 
 **Design recommendation for G:** **Gh0 + Gs1 + Gg0 + Gd-cattle(35/45) + Gd-sheep(25/30) + Gd-goat(25/30) + Gc0 + Ux-copy1**.
 
 ### M — Migration 047 fold
 
-- **M0 — Widen 047 before apply (Design recommendation; Tim lean).** Add per-species columns (or cattle pair + sheep/goat pairs) in the **same** migration file so one apply covers Gs1. Still requires Tim’s **yes + verified backup**; `RELEASED_SCHEMA_VERSION` stays **45** until apply + publish/release process.  
+- **M0 — Widen 047 before apply (LOCKED — Design recommendation; Tim lean).** Add per-species columns (or cattle pair + sheep/goat pairs) in the **same** migration file so one apply covers Gs1. Still requires Tim’s **yes + verified backup**; `RELEASED_SCHEMA_VERSION` stays **45** until apply + publish/release process.  
 - **M1 — Apply 047 as written (cattle pair only), then new 048 for sheep/goat.** Two yeses; messier mid-flight.  
 - **M2 — Defer settings columns; compiled per-species defaults only until a later settings OI.** Dialog cannot persist user edits.
 
@@ -128,7 +129,7 @@ Male ↔ female breeding roles (seeded):
 
 ### UxA — Animals toggle + protocol summary (mixed species)
 
-- **UxA0 — One Pregnancy Check chip; list = union of D0 across species; protocol summary follows active Species filter (Design recommendation).** When Species=Sheep → sheep pair line; Species=Goat → goat; Species=Cattle → cattle; **All species** → compact multi-line **or** “per species (see filter)”. Reuses OI-0236 cascade.  
+- **UxA0 — One Pregnancy Check chip; list = union of D0 across species; protocol summary follows active Species filter (LOCKED — Design recommendation).** When Species=Sheep → sheep pair line; Species=Goat → goat; Species=Cattle → cattle; **All species** → compact multi-line **or** “per species (see filter)”. Reuses OI-0236 cascade.  
 - **UxA1 — One chip; protocol summary always shows all three pairs on multi-species farms.**  
 - **UxA2 — Per-species Pregnancy Check chips.** More chrome; easy to miss one species.
 
@@ -140,7 +141,7 @@ Tim exact ask: when Pregnancy Check is on, show a **"Preg check settings"** butt
 
 #### Pb — Button placement
 
-- **Pb0 — Next to the Ux1 / UxA protocol summary line (Design recommendation).** Summary stays visible; button labeled **Preg check settings**.  
+- **Pb0 — Next to the Ux1 / UxA protocol summary line (LOCKED — Design recommendation).** Summary stays visible; button labeled **Preg check settings**.  
 - **Pb1 — In filter chrome header** (farther from the numbers).  
 - **Pb2 — Replace Ux1 line with a summary+button row** (single control strip).
 
@@ -155,32 +156,34 @@ Tim exact ask: when Pregnancy Check is on, show a **"Preg check settings"** butt
 
 #### Pe — Who can edit
 
-- **Pe0 — Any farm member who can edit farm_settings today (Design recommendation).**  
+- **Pe0 — Any farm member who can edit farm_settings today (LOCKED — Design recommendation).**  
 - **Pe1 — Owner/admin only.**  
 Do **not** invent a new ACL — match existing Farm settings permission.
 
 #### Ps — Save path
 
-- **Ps0 — Same code path as Farm settings (Design recommendation).** Update `farmSettings` entity → `validateFarmSetting` → `toSupabaseShape` → enqueue write on `farm_settings` (same helper family as `settings/index.js` today).  
-- **Ps-farm0 — Also add (or extend) Farm Settings UI for these fields** so Settings and Animals dialog call the **same** update helper (Design lean if Tim wants a second entry point).  
+- **Ps0 — Same code path as Farm settings (LOCKED — Design recommendation).** Update `farmSettings` entity → `validateFarmSetting` → `toSupabaseShape` → enqueue write on `farm_settings` (same helper family as `settings/index.js` today).  
+- **Ps-farm0 — Also add (or extend) Farm Settings UI for these fields** so Settings and Animals dialog call the **same** update helper (LOCKED — Design lean).  
 - **Ps-farm1 — Animals-dialog-only** for first ship; Settings can gain the fields later **only** via the same helper.
 
 #### Pg — Pre-release / schema gate for the button
 
 Dialog writes need Gh0 columns (+ Gs1 per-species columns if locked). Until 047(+widening) is **applied and released**:
 
-- **Pg0 — Hide the button until schema released (Design recommendation).** Ux1/UxA summary still shows compiled defaults.  
+- **Pg0 — Hide the button until schema released (LOCKED — Design recommendation).** Ux1/UxA summary still shows compiled defaults.  
 - **Pg1 — Show button disabled / read-only with “needs schema update” note.**
 
 **Design recommendation for P:** **Pb0 + Pd(Gs1 sections) + Pv(non-neg int, required) + Pe0 + Ps0 + Ps-farm0 + Pg0**.
 
-## 6. Design recommendation (one-click lock string)
+## 6. Locked (Tim, card t759s3139, ~7:18 AM ET)
 
 **A0 + E1 + B0-extend + C3-keep + D0 + D4 + F0 + Fg1 + Gh0 + Gs1 + Gg0 + Gd-cattle(35/45) + Gd-sheep(25/30) + Gd-goat(25/30) + Gc0 + UxA0 + Ux-copy1 + M0 + Pb0 + Ps0 + Ps-farm0 + Pe0 + Pg0**
 
+Tim locked Design’s rec on tip `070af6cec489c38d87c0585034297e62c6dc2789` (exact words: *"Lock OI-0244 A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0: all species, Open+ewe/doe, settings button+dialog, widen migration 047 before apply"*).
+
 (Implied with Gs1: dialog **Pd** = per-species sections; **Pv** = required non-negative integers.)
 
-| Axis | Rec | Meaning |
+| Axis | Locked | Meaning |
 |---|---|---|
 | A0 | ✓ | Derive co-presence; no exposure table |
 | E1 | ✓ | Cattle + sheep + goat |
@@ -196,28 +199,25 @@ Dialog writes need Gh0 columns (+ Gs1 per-species columns if locked). Until 047(
 | M0 | ✓ | Widen 047 before apply |
 | Pb0+Ps0+Ps-farm0+Pe0+Pg0 | ✓ | Preg check settings btn beside summary; shared write path; hide until schema released |
 
-## 7. Acceptance criteria (unchecked until LOCKED + Build)
+**READY FOR BUILD** after docs land on `main` (Orchestrator land card; Tim’s land yes). Do not start Build before land. Migration **047** (widened under M0) stays **unapplied** until Tim’s **separate** yes + verified backup. No exposure-row write (A0+F0).
 
-- [ ] Spec **LOCKED** by Tim (Orchestrator lock card) — axes above or Tim’s overrides recorded.  
+## 7. Acceptance criteria (LOCKED — Build after docs land)
+
+- [x] Spec **LOCKED** (t759s3139): A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0.  
 - [ ] Docs tip landed on main (separate Tim land yes) before Build starts.  
 - [ ] Derive: ram↔ewe and buck↔doe co-presence windows; cattle path unchanged in product behavior.  
-- [ ] Open pill / `assessOpenAnimal` includes ewe + doe when B0-extend locked.  
-- [ ] Pregnancy Check D0 uses **per-species** protocol when Gs1.  
-- [ ] UxA protocol summary matches Species filter / All-species rule locked.  
-- [ ] **Preg check settings** button (Pb) opens dialog; save uses **Ps0** shared farm_settings update; validation Pv.  
-- [ ] Button gated per **Pg** until 047(+widening) applied + released; `RELEASED_SCHEMA_VERSION` discipline held.  
-- [ ] Migration widened under **M0** (or Tim-picked M*) — **no apply** without Tim yes + verified backup.  
+- [ ] Open pill / `assessOpenAnimal` includes ewe + doe (B0-extend).  
+- [ ] Pregnancy Check D0 uses **per-species** protocol (Gs1).  
+- [ ] UxA protocol summary matches Species filter / All-species rule.  
+- [ ] **Preg check settings** button (Pb0) opens dialog; save uses **Ps0** shared farm_settings update; validation Pv.  
+- [ ] Button gated per **Pg0** until 047(+widening) applied + released; `RELEASED_SCHEMA_VERSION` discipline held.  
+- [ ] Migration widened under **M0** — **no apply** without Tim yes + verified backup.  
 - [ ] No exposure-row write (A0+F0). Dry-run covers all locked species.  
 - [ ] Focused tests for multi-species derive, open set, protocol resolve, dialog save helper.
 
-## 8. Open questions (for Tim lock card — not blocking Design rec)
+## 8. Open questions
 
-1. Confirm **E1** (cattle+sheep+goat) vs E2/E3.  
-2. Confirm **Gs1** + **Gd-sheep(25/30)** + **Gd-goat(25/30)** vs GdS1/GdG1 21/28.  
-3. Confirm **M0** widen 047 before apply (vs M1/M2).  
-4. Confirm **Pb0** + Animals dialog + **Ps-farm0** (Settings also editable) vs Animals-only.  
-5. Confirm **Ux-copy1** “post-partum” vs keep “post-calving”.  
-6. Confirm **Pg0** hide button until schema released vs Pg1 disabled+note.
+**None for Tim** — axes locked on t759s3139 to Design’s rec. Build invents nothing in scope; M0 widen of 047 still needs Tim’s separate yes + verified backup before apply; RELEASED stays 45 until release process; no exposure-row write (F0).
 
 ## 9. Related
 
@@ -237,4 +237,4 @@ Dialog writes need Gh0 columns (+ Gs1 per-species columns if locked). Until 047(
 
 ---
 
-**Tip instruction:** Stay **PROPOSED**. Orchestrator presents lock card to Tim. Design does not stamp LOCKED, does not hand Build, does not land.
+**Tip instruction:** **SPEC LOCKED / READY FOR BUILD**. Do **not** land on main until Tim yeses the land card. Do **not** apply widened migration 047 without Tim’s separate yes + verified backup. No exposure-row write (F0).

@@ -50,6 +50,7 @@
 | OI-0239 | iPhone Sheet scroll lock + Edit Animal Cull for composites (C1) | **SPEC LOCKED** 2026-11-20 ~6:38 AM ET (Tim, via Orchestrator). Shared Sheet body scroll-lock + iOS overflow (`-webkit-overflow-scrolling`, `overscroll-behavior`, `min(90dvh,90vh)`, `min-height:0`); move Edit Animal Cull outside `!isBulk` (complete OI-0237 C1 Edit Animal path). Hotfix **ahead of** OI-0238 code. No migration. [brief](session_briefs/IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md) |
 | OI-0240 | Scoped-remaining partial move: hide Feed Transfer; feed stays with remaining groups | **SPEC LOCKED** 2026-11-20 ~3:50 PM ET (Tim, via Orchestrator, card t694s2862). Lock A: on `scoped-remaining`, hide Move / Leave as residual; show stay-copy; do not transfer pools. Full-event and `scoped-last` unchanged. No migration. Out of scope: move-some (option C). [brief](session_briefs/SCOPED_REMAINING_FEED_STAY_2026-11-20.md) |
 | OI-0241 | Destination pre-graze copy + Event Detail pasture edit (drop inline; fix Edit Save; clearer dest copy) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:49 PM ET (Tim, via Orchestrator, card t710s2923) — A+B+C. **A** drop inline Pre-Graze (keep list+Edit); **B** fix Edit Save so forage isn’t silently dropped (green/main Save persists pre-graze **and** small-card Save reliably enqueue+push; toast on failure; no silent Saved — real persistence bug per Tim Save+Resync “0 new items”); **C** clearer destination pasture copy. No migration. F open-obs data fix for `8ef44a4a` **already applied** ~7:48 PM ET (card t715s2944) — do not re-run. [brief](session_briefs/PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md) |
+| OI-0242 | Multi-paddock dashboard forage aggregation (stop openPws[0]×total acres) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:55 PM ET (Tim, via Orchestrator, card t724s2992) — **A1+B1+C1+D1**. **A1** sum FOR-1 per open PW (same `pickPreGraze` as DMI-8) + area-weighted height; **B1** all open PWs; **C1** missing pre-graze → 0 DM (height weighted over PWs with height; optional partial UI); **D1** label DMI chart days from `sourceEventId` / previous event. No migration. Design had rec’d D0; Tim chose D1. [brief](session_briefs/MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md) |
 
 ---
 
@@ -184,6 +185,34 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+### OI-0242 — Multi-paddock dashboard forage aggregation
+
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-20 ~7:55 PM ET, via Orchestrator, card t724s2992) — opened ~7:52 PM ET (card t723s2984); **A1+B1+C1+D1 locked ~7:55 PM ET**  
+**Priority:** High — dashboard capacity / height wrong on multi-paddock events after correct per-paddock obs  
+**Owner:** GTHO Design → GTHO Build  
+**Brief:** [MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md](session_briefs/MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md)
+
+**Tim lock (exact words):** "Lock OI-0242 A1+B1+C1, D1: same aggregation, plus label DMI chart days from previous event"
+
+Note: Design’s PROPOSED rec was **A1+B1+C1** with **D0** (defer). Tim chose **D1**, not D0 — chart prior-event labeling is **IN SCOPE**.
+
+**Origin:** Tim ~7:51 PM ET on sheep event `8ef44a4a` (F-1…F-5, ~12.09 ac) after F height data fix — pasture obs values correct; card showed **9.0 in** and overstated Est. capacity / days. Design: height is `openPws[0]` (F-1), not area-weighted (~7.58 in for 9/6/6/8/8). **Not OI-0241.** 170 vs 96 and Thu 486 chart are expected (OI-0238 / prior-event cascade) — D1 labels the cascade so Thu isn’t misread as this event’s stored feed.
+
+**Diagnosis:** `buildLocationCard` (`src/features/dashboard/index.js`) sets `primaryPw = openPws[0]` and runs FOR-1 / height from that one PW across summed multi-paddock acres. DMI-8 already uses `pickPreGraze` **per window** — dashboard capacity is the inconsistent surface. AUDs / days-remaining inherit the overstated available DM.
+
+**Locked:**
+- **A1)** Sum FOR-1 per open paddock window (same `pickPreGraze` as DMI-8); display height = **area-weighted** inches. Stop `primaryPw` height × total acres; fix AUDs / days-remaining that inherit that DM.
+- **B1)** All **open** PWs on the location card (same set as acre sum).
+- **C1)** PW without usable pre-graze → **0** available DM; height weighted only over PWs with height; optional “partial” UI if any missing.
+- **D1)** On DMI last-N-days chart, **label** days from `sourceEventId` cascade (e.g. “from previous event” / “prior event”).
+
+**Acceptance:** Multi-paddock height ≠ openPws[0] alone when heights differ; DM/AUDs/days match A1+B1+C1; consistent with DMI-8 pickPreGraze; single-paddock unchanged; chart labels prior-event days (D1); tests for 2+ open PWs + missing pre-graze + D1 label; Design PASS; no migration.
+
+**Related:** OI-0241 (separate), OI-0238, OI-0209, UX §17.7, CALC FOR-1 / DMI-8, event `8ef44a4a` / prior E `ff115ee9`.
+
+**Origin timestamp:** Tim open yes ~7:52 PM ET (card t723s2984); lock ~7:55 PM ET (card t724s2992); diagnosis ~7:51 PM ET.
+
+---
 ### OI-0241 — Destination pre-graze copy + Event Detail pasture edit save
 
 **Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-20 ~7:49 PM ET, via Orchestrator, card t710s2923) — opened ~7:42 PM ET; revised ~7:50 PM ET (persistence); A+B+C locked ~7:49 PM ET  

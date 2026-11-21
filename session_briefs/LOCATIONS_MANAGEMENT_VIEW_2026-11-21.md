@@ -2,7 +2,7 @@
 
 **Status:** **PROPOSED** (opened 2026-11-21 ~9:57 AM ET — Tim intake via Orchestrator, card **t777u**; awaiting Tim lock)  
 **Owner:** GTHO Design → Orchestrator (Tim lock card) → GTHO Build (only after SPEC LOCKED + docs land)  
-**Parent / base:** Forgejo `origin/main` tip `9402a0675e5924ca311974c31fc88084249c576b` (stamp `b2026-11-21.1415-9402a06`; `RELEASED_SCHEMA_VERSION` **47**). Queued after OI-0245 LOCKED tip `dc90185` (docs branch `docs/oi-0245-confirmed-bred-due-range`, land pending — do not block that land).  
+**Parent / base:** Forgejo `origin/main` tip `dc9018534e237291daf3bac0daf8835ef42afb7b` (OI-0245 LOCKED docs landed; prior code tip `9402a0675e5924ca311974c31fc88084249c576b`; stamp `b2026-11-21.1415-9402a06`; `RELEASED_SCHEMA_VERSION` **47**). Citations below were read on `9402a06` (unchanged for these features).  
 **Also related:** Implied pasture / DMI-9 ([IMPLIED_PASTURE_DMI_2026-11-17.md](IMPLIED_PASTURE_DMI_2026-11-17.md)); OI-0241 / OI-0242 forage ([PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md](PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md), [MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md](MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md)); pasture surveys OI-0126/0131; NPK-1/3 + ANI-AU/AUD/ADA (CALC); budget period Oct 1–Sep 30 (`budget-period.js`).  
 **Schema / migration:** Design lean **D0** — **compute-on-read from existing stores**; **no new tables / no migration** on the recommended path. Materialize only if Tim later asks (separate OI).
 

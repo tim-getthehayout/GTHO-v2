@@ -113,7 +113,7 @@ export const RETURN_TO_CYCLE_SPECIES_SECTIONS = Object.freeze([
   { family: 'goat', label: 'Goat', key: 'returnToCycleDaysGoat', defaultDays: 25 },
 ]);
 
-/** Pg0-style: return-to-cycle editors hidden until schema 48 is released. */
+/** Pg0-style: return-to-cycle editors visible once schema 48 is released. */
 export function areReturnToCycleSettingsReleased(ceiling = RELEASED_SCHEMA_VERSION) {
   return ceiling >= 48;
 }

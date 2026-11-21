@@ -1,8 +1,10 @@
 /**
- * @file Held-gate for schema 48 — farm_settings return-to-cycle days.
- * RELEASED stays 47; 048 is staged/held until Tim yes + verified backup apply.
+ * @file Held-gate for schema 48 — farm_settings return-to-cycle days, replayed at a mocked
+ * ceiling 47 (the state before 048 was released). The real ceiling is 48 now; see
+ * return-to-cycle-released.test.js.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 47, HELD_SCHEMA_VERSIONS: [48] }));
 import { setLocale } from '../../src/i18n/i18n.js';
 import en from '../../src/i18n/locales/en.json';
 import {
@@ -29,8 +31,8 @@ const COLS48 = [
   'return_to_cycle_days_goat',
 ];
 
-describe('return-to-cycle held at ceiling 47', () => {
-  it('RELEASED stays 47; 48 held and staged; CURRENT stays 47', () => {
+describe('return-to-cycle held at mocked ceiling 47', () => {
+  it('at ceiling 47, 48 is held and staged farm_settings columns are kept', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(47);
     expect(CURRENT_SCHEMA_VERSION).toBe(47);
     expect(HELD_SCHEMA_VERSIONS).toEqual([48]);

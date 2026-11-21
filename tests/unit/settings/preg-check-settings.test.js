@@ -49,8 +49,8 @@ describe('validatePregCheckThresholds (Pv)', () => {
 });
 
 describe('Pg0 release gate', () => {
-  it('is visible at current RELEASED ceiling 47', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(47);
+  it('is visible at current RELEASED ceiling 48', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(48);
     expect(arePregCheckSettingsReleased()).toBe(true);
     expect(arePregCheckSettingsReleased(45)).toBe(false);
     expect(arePregCheckSettingsReleased(47)).toBe(true);
@@ -76,20 +76,24 @@ describe('Pg0 release gate', () => {
   });
 });
 
-describe('return-to-cycle settings gate (schema 48 held)', () => {
-  it('hidden while RELEASED is 47', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(47);
-    expect(areReturnToCycleSettingsReleased()).toBe(false);
+describe('return-to-cycle settings gate (schema 48 released)', () => {
+  it('visible at current RELEASED ceiling 48', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(48);
+    expect(areReturnToCycleSettingsReleased()).toBe(true);
+    expect(areReturnToCycleSettingsReleased(47)).toBe(false);
     expect(areReturnToCycleSettingsReleased(48)).toBe(true);
   });
 
-  it('validates P-a defaults and refuses write while held', () => {
-    const good = {
+  it('updateFarmReturnToCycleSettings still validates before write', () => {
+    expect(() => updateFarmReturnToCycleSettings('fs1', {
+      returnToCycleDaysCattle: -1,
+      returnToCycleDaysSheep: 25,
+      returnToCycleDaysGoat: 25,
+    })).toThrow(/non-negative integer/i);
+    expect(() => updateFarmReturnToCycleSettings('', {
       returnToCycleDaysCattle: 45,
       returnToCycleDaysSheep: 25,
       returnToCycleDaysGoat: 25,
-    };
-    expect(validateReturnToCycleDays(good).valid).toBe(true);
-    expect(() => updateFarmReturnToCycleSettings('fs1', good)).toThrow(/schema 48/i);
+    })).toThrow(/id is required/i);
   });
 });

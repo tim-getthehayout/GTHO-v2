@@ -51,6 +51,7 @@
 | OI-0240 | Scoped-remaining partial move: hide Feed Transfer; feed stays with remaining groups | **SPEC LOCKED** 2026-11-20 ~3:50 PM ET (Tim, via Orchestrator, card t694s2862). Lock A: on `scoped-remaining`, hide Move / Leave as residual; show stay-copy; do not transfer pools. Full-event and `scoped-last` unchanged. No migration. Out of scope: move-some (option C). [brief](session_briefs/SCOPED_REMAINING_FEED_STAY_2026-11-20.md) |
 | OI-0241 | Destination pre-graze copy + Event Detail pasture edit (drop inline; fix Edit Save; clearer dest copy) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:49 PM ET (Tim, via Orchestrator, card t710s2923) — A+B+C. **A** drop inline Pre-Graze (keep list+Edit); **B** fix Edit Save so forage isn’t silently dropped (green/main Save persists pre-graze **and** small-card Save reliably enqueue+push; toast on failure; no silent Saved — real persistence bug per Tim Save+Resync “0 new items”); **C** clearer destination pasture copy. No migration. F open-obs data fix for `8ef44a4a` **already applied** ~7:48 PM ET (card t715s2944) — do not re-run. [brief](session_briefs/PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md) |
 | OI-0242 | Multi-paddock dashboard forage aggregation (stop openPws[0]×total acres) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:55 PM ET (Tim, via Orchestrator, card t724s2992) — **A1+B1+C1+D1**. **A1** sum FOR-1 per open PW (same `pickPreGraze` as DMI-8) + area-weighted height; **B1** all open PWs; **C1** missing pre-graze → 0 DM (height weighted over PWs with height; optional partial UI); **D1** label DMI chart days from `sourceEventId` / previous event. No migration. Design had rec’d D0; Tim chose D1. [brief](session_briefs/MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md) |
+| OI-0243 | Bull exposure → preg-check list + due windows (derive/ co-presence; retroactive dry-run backfill) | **PROPOSED** 2026-11-21 ~6:03–6:04 AM ET (Tim via Orchestrator) — awaiting lock **A/B/C/D/E/F/Fg**. Track bull exposure to open cows/heifers (same-group + bull-group on shared event); preg-check list + earliest/latest due from exposure (works without a check). Design rec **A0+B0+C0+C3+D0(N=35)+D4+E0+F0+Fg1**. Backfill: dry-run over existing memberships/EGWs (incl. v1 import); F0 = compute-on-read (no exposure-row write); any write needs backup + Tim’s separate yes. Consumes OI-0232 `confirmed_bred`/`confirmed_bred_date` as status (confirmation ≠ conception). Not handed to Build. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 
 ---
 
@@ -185,6 +186,38 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+
+### OI-0243 — Bull exposure → preg-check list + due windows
+
+**Status:** **PROPOSED** — awaiting Tim lock A/B/C/D/E/F/Fg (2026-11-21 ~6:03–6:04 AM ET via Orchestrator; 6:04 AM backfill addition)  
+**Priority:** Feature — reproductive worklist / due bands from turnout history  
+**Owner:** GTHO Design (not handed to Build)  
+**Brief:** [BULL_EXPOSURE_PREG_DUE_2026-11-21.md](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md)
+
+**Origin:** Tim ~6:03 AM ET: track bull exposure to open cows and heifers (bull in same group; bull-group sharing an event); view of (1) who should be preg-checked and (2) earliest/latest due for exposed or confirmed-pregnant females; must work from exposure alone when farms skip checks. Tim leaned toward per-bull movement granularity but open to options. **~6:04 AM ET:** backfill exposure history from existing records retroactively (dry-run first; any write = backup + separate yes).
+
+**Design recommendation:** **A0 + B0 + C0 + C3 + D0 (N=35) + D4 + E0 + F0 + Fg1**
+
+**Options (lock one per axis — see brief for full consequences):**
+- **A — Exposure source of truth:** A0 derive from co-presence (same-group membership overlap **or** shared-event EGW overlap) — **rec**; A1 explicit per-bull exposure ledger; A2 hybrid (derive + sparse overrides).
+- **B — Open / exposed:** B0 reuse `assessOpenAnimal` / Open pill (active female cow/heifer, `confirmedBred === false`) — **rec**; B1 expose even if confirmed; B2 cattle species gate with E0.
+- **C — Due math:** C0 exposure_start/end + G; `confirmed_bred_date` is status not conception — **rec**; C1 collapse via assumed-days-pregnant; C2 cattle G=283 only; C3 species constants from SCHEMA §9.7 — **rec with C0**.
+- **D — Preg-check list:** D0 exposed + still open + ≥N days since exposure start (N=35) — **rec**; D1 N=28; D2 N=45; D3 require exposure_end past; D4 confirmed with NULL date as “date missing” badge — **rec with D0**.
+- **E — First-ship scope:** E0 cattle-only view-only derived lists — **rec**; E1 all species view-only; E2 include writes; E3 also surface band on Edit Animal (OI-0232).
+- **F — Backfill:** F0 compute-on-read over all retained memberships/EGWs (incl. v1 import); dry-run review-only; **no exposure-row write** — **rec with A0**; F1 materialize rows after dry-run+backup+yes (needs A1/A2); F2 F0 + optional membership-date repair (separate yes).
+- **Fg — Gaps:** Fg0 skip ambiguous; Fg1 flag + exclude from lists until resolved — **rec**; Fg2 include with badge.
+
+**Backfill process (any prod write):** (1) verified backup, (2) read-only dry-run report (female, bull(s), exposure start/end, source evidence, ambiguity flag — brief §F), (3) Tim reviews, (4) Tim’s separate yes before write. F0 skips step 4 for exposure rows (none written).
+
+**Relation to OI-0232:** Consumes `animals.confirmed_bred` / `confirmed_bred_date` as **confirmation status**; does not replace the date field; confirmation ≠ conception for due math (C0).
+
+**Schema:** Prefer none if A0+E0+F0. A1/A2+F1 or F2 membership repairs need explicit yes + backup (and CP-55/56 if new columns/tables).
+
+**Related:** OI-0232, OI-0234, OI-0235/0236, OI-0099, SCHEMA §3.2/§3.4/§5.3/§9.7, UX §15.0–§15.1.
+
+**Origin timestamp:** Tim via Orchestrator 2026-11-21 ~6:03 AM ET; backfill addendum ~6:04 AM ET.
+
+---
 ### OI-0242 — Multi-paddock dashboard forage aggregation
 
 **Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-20 ~7:55 PM ET, via Orchestrator, card t724s2992) — opened ~7:52 PM ET (card t723s2984); **A1+B1+C1+D1 locked ~7:55 PM ET**  

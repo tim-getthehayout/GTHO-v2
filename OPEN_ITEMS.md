@@ -53,7 +53,8 @@
 | OI-0242 | Multi-paddock dashboard forage aggregation (stop openPws[0]×total acres) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:55 PM ET (Tim, via Orchestrator, card t724s2992) — **A1+B1+C1+D1**. **A1** sum FOR-1 per open PW (same `pickPreGraze` as DMI-8) + area-weighted height; **B1** all open PWs; **C1** missing pre-graze → 0 DM (height weighted over PWs with height; optional partial UI); **D1** label DMI chart days from `sourceEventId` / previous event. No migration. Design had rec’d D0; Tim chose D1. [brief](session_briefs/MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md) |
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 | OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~7:18 AM ET (Tim, via Orchestrator, card **t759s3139**) — **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Design rec on tip `070af6c`. Rams↔ewes, bucks(billies)↔does; widen Open; Gs1 per-species protocol; **M0** widen migration **047 before apply**; Animals **Preg check settings** dialog (Ps0). After docs land; 047 apply = separate Tim yes+backup; no exposure-row write (F0). [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
-| OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
+| OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). Docs tip `dc90185` now on main. After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
+| OI-0246 | Locations + rotation management surface (metrics + fix/integrate rotation calendar) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~10:05 AM ET (Tim, via Orchestrator, card **t784s3247**) — **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**. One combined Locations+rotation screen; F0 scroll sync must-fix; T0 surveys else relative days; C1 Mac metrics between name/timeline; P1 phone metrics under name; D0 no migration. Sequence Build **after OI-0245 code**. Docs tip on `docs/oi-0246-locations-management-view` — land only after Tim land yes. [brief](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md) |
 
 ---
 
@@ -188,6 +189,35 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+
+### OI-0246 — Locations + rotation management surface
+
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-21 ~10:05 AM ET, via Orchestrator, card **t784s3247**) — opened ~9:57 AM ET (**t777u**); revised ~10:03 AM ET (**t782u** answering **t781s3238**); locked Design lean on tip `1d6465adff611230fa429209c860a96927d3973f`  
+**Priority:** Feature — integrate Locations management metrics with rotation calendar; fix scroll desync; past + future readiness  
+**Owner:** GTHO Design → GTHO Build (after docs land / from locked tip; Orchestrator land card). **Sequence Build after OI-0245 code** unless Design/Orchestrator says otherwise.  
+**Brief:** [LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)
+
+**Parent / base:** Forgejo `origin/main` `dc9018534e237291daf3bac0daf8835ef42afb7b`. Rotation citations on current main. Supersedes first PROPOSED tip `ebb79d1`. Revised PROPOSED tip locked from: `1d6465a`.
+
+**Tim lock (exact):** "Lock OI-0246: one combined Locations + rotation management screen; surveys when present else relative days since last graze; location names stay aligned while scrolling; phone metrics under the name; keep agreed metrics (season Oct 1–Sep 30 editable, DMI/AUDs/N-P-K separate/avg score, totals+per-acre, pastures+mixed-use, compute-on-read, sortable)"
+
+**Locked:** **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**
+- **AGREED metrics:** W1 season Oct1–Sep30 editable; M0 DMI/AUDs/NPK/avg score; A1 totals+per-acre; N1 N/P/K separate; S0 sortable; D0 compute-on-read; X1 pastures+mixed-use
+- **U0** one combined Locations + rotation management screen
+- **F0** location names stay aligned while scrolling (**must-fix**)
+- **T0** past activity visual; future readiness = surveys when present else relative days since last graze vs peers
+- **C1** Mac: sortable metrics between frozen name and timeline
+- **P1** Phone: metrics under the name; timeline scrolls sideways; one vertical scroll
+
+**Schema:** **None** (D0) — no migration / no SQL.
+
+**Sequence:** Build after OI-0245 code (confirmed-bred due range) unless Design/Orchestrator says otherwise; docs-land may still proceed independently.
+
+**Related:** Rotation CP-54 / UX §19; Locations UX §15.3; DMI-9; OI-0241/0242; surveys; CALC NPK/ANI/FOR/SUR/REC; OI-0245 sequencing.
+
+**Origin:** t777u (~9:57 AM ET); revised t782u (~10:02 AM ET); locked t784s3247 (~10:05 AM ET) via Orchestrator.
+
+---
 
 ### OI-0245 — Confirmed-bred due-date range (postpartum earliest + capped latest)
 
@@ -7633,6 +7663,9 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-21 | GTHO Design — docs only | LOCK OI-0246 SPEC LOCKED / READY FOR BUILD (t784s3247): AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1. One combined Locations+rotation screen; F0 scroll sync must-fix; no migration. Sequence Build after OI-0245 code. Locked from tip 1d6465a. |
+| 2026-11-21 | GTHO Design — docs only | Revise OI-0246 PROPOSED (t782u): metrics AGREED W1+M0+A1+N1+S0+D0+X1; placement reopen U0+F0+T0+C1+P1; rotation scroll desync confirmed; integrate Locations+rotation. Supersedes tip ebb79d1. Still PROPOSED — no LOCKED. |
+| 2026-11-21 | GTHO Design — docs only | Open OI-0246 PROPOSED Locations management view (t777u); Design lean V0+W1+M0+A1+N1+S0+D0+X1; no migration. Merged under main tip dc90185 (OI-0245 LOCKED). |
 | 2026-11-11 | GTHO Design — docs only | Record OI-0216 units 044 merged/apply pending and accepted N2; supersede OI-0212 and historical unit rationale; add later transactional restore OI-0217, DB stamp guard OI-0218 and FA-29 OI-0219 (FA-30 cancelled). 042/043 applied, prod stamp 43; ceiling 41 and PR #56 review unchanged. |
 | 2026-11-10 | GTHO Design — docs only | OI-0211 follow-up: record Build’s diagnosis and Design Q1–Q5 rulings, locked 10-second overall startup deadline, AudioContext/resampling, capped live-only testing recorder and existing app-logger requirements. Update acceptance, session brief and living status; no implementation or production change. |
 | 2026-11-10 | GTHO Design — docs only | PR #48 shipped/retest records; OI-0207 option B and hide-composer lock; reserve OI-0210 for schema-driven whole-app scoping (not ready); OI-0211 voice startup diagnosis/requirements; OI-0212 RLS tracking only; OI-0213 deferred feeding atomicity; trusted pendingClarification schema note. No code, data, secret or deployment changes. |

@@ -51,7 +51,7 @@
 | OI-0240 | Scoped-remaining partial move: hide Feed Transfer; feed stays with remaining groups | **SPEC LOCKED** 2026-11-20 ~3:50 PM ET (Tim, via Orchestrator, card t694s2862). Lock A: on `scoped-remaining`, hide Move / Leave as residual; show stay-copy; do not transfer pools. Full-event and `scoped-last` unchanged. No migration. Out of scope: move-some (option C). [brief](session_briefs/SCOPED_REMAINING_FEED_STAY_2026-11-20.md) |
 | OI-0241 | Destination pre-graze copy + Event Detail pasture edit (drop inline; fix Edit Save; clearer dest copy) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:49 PM ET (Tim, via Orchestrator, card t710s2923) — A+B+C. **A** drop inline Pre-Graze (keep list+Edit); **B** fix Edit Save so forage isn’t silently dropped (green/main Save persists pre-graze **and** small-card Save reliably enqueue+push; toast on failure; no silent Saved — real persistence bug per Tim Save+Resync “0 new items”); **C** clearer destination pasture copy. No migration. F open-obs data fix for `8ef44a4a` **already applied** ~7:48 PM ET (card t715s2944) — do not re-run. [brief](session_briefs/PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md) |
 | OI-0242 | Multi-paddock dashboard forage aggregation (stop openPws[0]×total acres) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:55 PM ET (Tim, via Orchestrator, card t724s2992) — **A1+B1+C1+D1**. **A1** sum FOR-1 per open PW (same `pickPreGraze` as DMI-8) + area-weighted height; **B1** all open PWs; **C1** missing pre-graze → 0 DM (height weighted over PWs with height; optional partial UI); **D1** label DMI chart days from `sourceEventId` / previous event. No migration. Design had rec’d D0; Tim chose D1. [brief](session_briefs/MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md) |
-| OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol settings; retroactive dry-run) | **PROPOSED** 2026-11-21 ~6:03–6:06 AM ET (Tim via Orchestrator) — awaiting lock **A/B/C/D/E/F/Fg/G**. Same-group + bull-group exposure; **Animals screen Pregnancy Check** filter; due earliest/latest from exposure; protocol **min days since exposure** + **min days post-calving** (farm_settings). Design rec **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0(AND)**. Backfill dry-run over memberships/EGWs; F0 no exposure-row write. Consumes OI-0232 as status. Not handed to Build. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
+| OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 
 ---
 
@@ -189,36 +189,32 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 ### OI-0243 — Bull exposure → Animals Pregnancy Check + due windows
 
-**Status:** **PROPOSED** — awaiting Tim lock A/B/C/D/E/F/Fg/G (2026-11-21 ~6:03–6:06 AM ET via Orchestrator; 6:04 backfill; 6:06 Animals filter + protocol)  
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-21 ~6:34 AM ET, via Orchestrator, card **t745s3078**) — opened ~6:03–6:06 AM ET; locked Design rec + **Ux1** on tip `6ee631e6f515291df97c8e3beb05af017cd31d3f`  
 **Priority:** Feature — Animals Pregnancy Check worklist / due bands from turnout history  
-**Owner:** GTHO Design (not handed to Build)  
+**Owner:** GTHO Design → GTHO Build (start after docs land on main; Tim land yes)  
 **Brief:** [BULL_EXPOSURE_PREG_DUE_2026-11-21.md](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md)
 
-**Origin:** Tim ~6:03 AM ET: track bull exposure (same-group; bull-group on shared event); preg-check + earliest/latest due from exposure (works without a check). ~6:04 AM: retroactive backfill from existing records (dry-run first). **~6:06 AM:** preg-check view on **Animals screen** with a **Pregnancy Check** filter/toggle; configurable protocol with **min days post-calving** and **min days since exposure**.
+**Tim lock (exact addition):** "A but please display the current preg check protocol settings on the form so the user can see them." → **Ux1**
 
-**Design recommendation:** **A0 + B0 + C0 + C3 + D0 + D4 + E0 + F0 + Fg1 + Gh0 + Gs0 + Gg0 + Gd0 (35/45) + Gc0**
+**Locked:** **A0 + B0 + C0 + C3 + D0 + D4 + E0 + F0 + Fg1 + Gh0 + Gs0 + Gg0 + Gd0 (35/45) + Gc0 + Ux1**
+- **A0** derive co-presence (same-group membership or shared-event EGWs)
+- **B0** open = `assessOpenAnimal` / Open pill
+- **C0+C3** due band exposure±species gestation; confirmation ≠ conception
+- **D0+D4** Pregnancy Check set = open+exposed+protocol; NULL confirm-date badge separate
+- **E0** cattle-only view-only; Animals **Pregnancy Check** filter in OI-0235/0236 header
+- **Ux1** when Pregnancy Check is on, show read-only protocol summary (min days since exposure, min days post-calving, AND/OR) near filter chrome — display only, not Animals-list settings editor
+- **F0+Fg1** compute-on-read + dry-run; flag/exclude ambiguous
+- **Gh0+Gs0+Gg0+Gd0+Gc0** `farm_settings` ints; cattle pair; no group overrides; defaults 35 / 45; **AND**
 
-**Options (lock one per axis — see brief):**
-- **A — Exposure source:** A0 derive co-presence — **rec**; A1 explicit ledger; A2 hybrid.
-- **B — Open / exposed:** B0 `assessOpenAnimal` / Open pill — **rec**; B1 include confirmed; B2 with E0.
-- **C — Due math:** C0 exposure±G; confirmation ≠ conception — **rec**; C1 assumed-days; C2 cattle-only G; C3 species constants — **rec with C0**.
-- **D — List membership:** D0 open+exposed+passes protocol G — **rec**; D3 require exposure_end past; D4 confirmed NULL-date badge — **rec with D0**. (Fixed N picks removed → **G**.)
-- **E — Scope / UI:** E0 cattle-only view-only + **Animals Pregnancy Check** filter in OI-0235/0236 header — **rec** (Tim 6:06 surface); E1 all species; E2 writes; E3 also Edit Animal due band.
-- **F — Backfill:** F0 compute-on-read + dry-run review — **rec**; F1 materialize after yes; F2 + membership date repair.
-- **Fg — Gaps:** Fg0 skip; Fg1 flag+exclude — **rec**; Fg2 include with badge.
-- **G — Protocol settings:** **Gh0** `farm_settings` columns — **rec**; Gh1 operation store. **Gs0** cattle single pair — **rec**; Gs1 per-species. **Gg0** no group overrides — **rec**; Gg1 group overrides. **Gd0** exposure=35 / post-calving=45 — **rec**; Gd1 28/45; Gd2 45/60; Gd3 35/40. **Gc0** AND — **rec**; Gc1 OR. Post-calving from `animal_calving_records.calved_at`; heifers with no calving = N/A.
+**Animals UI:** Extend existing filter cascade (OI-0235/0236 / UX §15.0). Pregnancy Check on status row; mutually exclusive with Confirmed bred; selects D0; **Ux1** protocol line when active.
 
-**Animals UI:** Extend existing filter cascade (OI-0235/0236 / UX §15.0) — do not invent a second bar. Pregnancy Check on status row; mutually exclusive with Confirmed bred; selects D0 set.
+**Backfill:** backup → dry-run → Tim review → separate yes before any write. F0 = no exposure-row write.
 
-**Backfill process:** backup → dry-run report → Tim review → separate yes before any write. F0 = no exposure-row write.
-
-**Relation to OI-0232:** Consumes `confirmed_bred` / `confirmed_bred_date` as status; confirmation ≠ conception (C0).
-
-**Schema:** Prefer no exposure table if A0+F0. **Gh0** farm_settings ints = gated migration later (yes + backup + CP-55/56). A1/A2/F1/F2 as brief.
+**Schema:** No exposure table (A0+F0). **Gh0** farm_settings ints = gated migration (yes + backup + CP-55/56). Compiles may use Gd0 until apply.
 
 **Related:** OI-0232, OI-0234, OI-0235/0236, OI-0099, SCHEMA §1 farm_settings, §3.2/§3.4/§5.3/§9.7/§9.9, UX §15.0–§15.1.
 
-**Origin timestamp:** Tim via Orchestrator 2026-11-21 ~6:03 / 6:04 / 6:06 AM ET.
+**Origin timestamp:** Tim via Orchestrator 2026-11-21 ~6:03 / 6:04 / 6:06 AM ET; lock ~6:34 AM ET (t745s3078).
 
 ---
 ### OI-0242 — Multi-paddock dashboard forage aggregation

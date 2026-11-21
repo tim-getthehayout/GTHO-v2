@@ -1,5 +1,5 @@
 /**
- * @file Exposure / preg-check / due bands — A0+E1+B0-extend+C3+D0+D4+F0+Fg1+Gs1+Gd+Gc0.
+ * @file Exposure / preg-check / due bands — A0+E1+B0-extend+C3+D0+D4+F0+Fg1+Gs1+Gd+Gc0 + R1/E1/L1/P-a.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -8,11 +8,14 @@ import {
   dueBandForFemale,
   passesPregCheckProtocol,
   resolvePregCheckProtocol,
+  resolveReturnToCycleDays,
   formatPregCheckProtocolSummary,
   hasConfirmedBredDateMissing,
   CATTLE_GESTATION_DAYS,
+  SHEEP_GESTATION_DAYS,
   DEFAULT_PREG_CHECK_MIN_DAYS_SINCE_EXPOSURE,
   DEFAULT_PREG_CHECK_MIN_DAYS_POST_CALVING,
+  DEFAULT_RETURN_TO_CYCLE_BY_FAMILY,
   addDaysToDateOnly,
   daysSince,
 } from '../../../src/calcs/bull-exposure.js';
@@ -429,5 +432,195 @@ describe('multispecies derive (E1)', () => {
       animal: ewe, animalClass: eweClass, intervals, calvingRecords: [],
       farmSettings: null, asOfDate: '2026-05-11',
     })).toBe(false);
+  });
+});
+
+
+describe('refined due band (R1 E1 L1 P-a)', () => {
+  it('P-a defaults 45/25/25 distinct from preg-check post-partum', () => {
+    expect(DEFAULT_RETURN_TO_CYCLE_BY_FAMILY).toEqual({ cattle: 45, sheep: 25, goat: 25 });
+    expect(resolveReturnToCycleDays(null, 'cattle')).toBe(45);
+    expect(resolveReturnToCycleDays(null, 'sheep')).toBe(25);
+    expect(resolveReturnToCycleDays(null, 'goat')).toBe(25);
+    expect(resolveReturnToCycleDays({ returnToCycleDaysCattle: 60 }, 'beef_cattle')).toBe(60);
+    expect(DEFAULT_PREG_CHECK_MIN_DAYS_POST_CALVING).toBe(45);
+  });
+
+  it('continuous turnout: earliest uses lastCalving+P when later than exposureStart', () => {
+    const animals = [cow(F1, { confirmedBred: true, confirmedBredDate: '2026-04-15' }), bull(B1)];
+    const memberships = [
+      mem('m1', F1, G_COW, '2024-01-01', '2026-04-01'),
+      mem('m2', B1, G_COW, '2024-01-01', '2026-04-01'),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: classes, memberships, eventGroupWindows: [],
+    });
+    const calvingRecords = [{ damId: F1, calvedAt: '2025-03-01' }];
+    const band = dueBandForFemale({
+      animal: animals[0], animalClass: classes[0], intervals, breedingRecords: [],
+      calvingRecords, farmSettings: null,
+    });
+    const P = 45;
+    const conceptionStart = addDaysToDateOnly('2025-03-01', P);
+    expect(conceptionStart > '2024-01-01').toBe(true);
+    expect(band.earliestDue).toBe(addDaysToDateOnly(conceptionStart, CATTLE_GESTATION_DAYS));
+    expect(band.usedCalvingForEarliest).toBe(true);
+    expect(band.latestDue).toBe(addDaysToDateOnly('2026-04-01', CATTLE_GESTATION_DAYS));
+    expect(band.confirmedOn).toBe('2026-04-15');
+    expect(band.missingCalving).toBe(false);
+  });
+
+  it('heifer / no calving → earliest = exposureStart+G', () => {
+    const animals = [heifer(F1), bull(B1)];
+    const memberships = [
+      mem('m1', F1, G_COW, '2026-01-01', '2026-01-31'),
+      mem('m2', B1, G_COW, '2026-01-01', '2026-01-31'),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: classes, memberships, eventGroupWindows: [],
+    });
+    const band = dueBandForFemale({
+      animal: animals[0], animalClass: classes[1], intervals, breedingRecords: [],
+      calvingRecords: [], farmSettings: null,
+    });
+    expect(band.earliestDue).toBe(addDaysToDateOnly('2026-01-01', CATTLE_GESTATION_DAYS));
+    expect(band.latestDue).toBe(addDaysToDateOnly('2026-01-31', CATTLE_GESTATION_DAYS));
+    expect(band.missingCalving).toBe(true);
+    expect(band.usedCalvingForEarliest).toBe(false);
+  });
+
+  it('open-ended exposure + confirmed_bred_date → latest capped at confirm+G', () => {
+    const animals = [cow(F1, { confirmedBred: true, confirmedBredDate: '2026-03-15' }), bull(B1)];
+    const memberships = [
+      mem('m1', F1, G_COW, '2026-01-01', null),
+      mem('m2', B1, G_COW, '2026-01-01', null),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: classes, memberships, eventGroupWindows: [],
+    });
+    const band = dueBandForFemale({
+      animal: animals[0], animalClass: classes[0], intervals, breedingRecords: [],
+      calvingRecords: [], farmSettings: null,
+    });
+    expect(band.latestDue).toBe(addDaysToDateOnly('2026-03-15', CATTLE_GESTATION_DAYS));
+    expect(band.earliestDue).toBe(addDaysToDateOnly('2026-01-01', CATTLE_GESTATION_DAYS));
+  });
+
+  it('D4 NULL confirmed_bred_date → no invented latest cap (open stays open)', () => {
+    const animals = [cow(F1, { confirmedBred: true, confirmedBredDate: null }), bull(B1)];
+    const memberships = [
+      mem('m1', F1, G_COW, '2026-01-01', null),
+      mem('m2', B1, G_COW, '2026-01-01', null),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: classes, memberships, eventGroupWindows: [],
+    });
+    const band = dueBandForFemale({
+      animal: animals[0], animalClass: classes[0], intervals, breedingRecords: [],
+      calvingRecords: [], farmSettings: null,
+    });
+    expect(hasConfirmedBredDateMissing(animals[0])).toBe(true);
+    expect(band.confirmedOn).toBeNull();
+    expect(band.latestDue).toBeNull();
+  });
+
+  it('not confirmed → L0 behavior (exposure end + G; open stays open)', () => {
+    const animals = [cow(F1, { confirmedBred: false }), bull(B1)];
+    const memberships = [
+      mem('m1', F1, G_COW, '2026-01-01', '2026-02-01'),
+      mem('m2', B1, G_COW, '2026-01-01', '2026-02-01'),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: classes, memberships, eventGroupWindows: [],
+    });
+    const closed = dueBandForFemale({
+      animal: animals[0], animalClass: classes[0], intervals, breedingRecords: [],
+      calvingRecords: [], farmSettings: null,
+    });
+    expect(closed.latestDue).toBe(addDaysToDateOnly('2026-02-01', CATTLE_GESTATION_DAYS));
+    expect(closed.confirmedOn).toBeNull();
+
+    const openMem = [
+      mem('m1', F1, G_COW, '2026-01-01', null),
+      mem('m2', B1, G_COW, '2026-01-01', null),
+    ];
+    const openIntervals = deriveBullExposureIntervals({
+      animals, animalClasses: classes, memberships: openMem, eventGroupWindows: [],
+    });
+    const openBand = dueBandForFemale({
+      animal: animals[0], animalClass: classes[0], intervals: openIntervals, breedingRecords: [],
+      calvingRecords: [], farmSettings: null,
+    });
+    expect(openBand.latestDue).toBeNull();
+  });
+
+  it('shared helper: Preg Check open female and confirmed-bred use same formula', () => {
+    const openCow = cow(F1, { confirmedBred: false });
+    const bredCow = cow(F2, { confirmedBred: true, confirmedBredDate: '2026-06-01' });
+    const animals = [openCow, bredCow, bull(B1)];
+    const memberships = [
+      mem('m1', F1, G_COW, '2025-01-01', '2026-06-15'),
+      mem('m2', F2, G_COW, '2025-01-01', '2026-06-15'),
+      mem('m3', B1, G_COW, '2025-01-01', '2026-06-15'),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals, animalClasses: classes, memberships, eventGroupWindows: [],
+    });
+    const calving = [{ damId: F1, calvedAt: '2025-11-01' }, { damId: F2, calvedAt: '2025-11-01' }];
+    const openBand = dueBandForFemale({
+      animal: openCow, animalClass: classes[0], intervals, breedingRecords: [],
+      calvingRecords: calving, farmSettings: null,
+    });
+    const bredBand = dueBandForFemale({
+      animal: bredCow, animalClass: classes[0], intervals, breedingRecords: [],
+      calvingRecords: calving, farmSettings: null,
+    });
+    const expectedEarliest = addDaysToDateOnly(addDaysToDateOnly('2025-11-01', 45), CATTLE_GESTATION_DAYS);
+    expect(openBand.earliestDue).toBe(expectedEarliest);
+    expect(bredBand.earliestDue).toBe(expectedEarliest);
+    expect(openBand.usedCalvingForEarliest).toBe(true);
+    expect(bredBand.usedCalvingForEarliest).toBe(true);
+    expect(openBand.latestDue).toBe(addDaysToDateOnly('2026-06-15', CATTLE_GESTATION_DAYS));
+    expect(bredBand.latestDue).toBe(addDaysToDateOnly('2026-06-01', CATTLE_GESTATION_DAYS));
+    expect(isPregnancyCheckMember({
+      animal: openCow, animalClass: classes[0], intervals, calvingRecords: calving,
+      farmSettings: null, asOfDate: '2026-08-01',
+    })).toBe(true);
+    expect(isPregnancyCheckMember({
+      animal: bredCow, animalClass: classes[0], intervals, calvingRecords: calving,
+      farmSettings: null, asOfDate: '2026-08-01',
+    })).toBe(false);
+  });
+
+  it('sheep uses sheep gestation and P-a 25', () => {
+    const ewe = {
+      id: F1, operationId: OP, classId: CLASS_EWE, sex: 'female', active: true,
+      confirmedBred: true, confirmedBredDate: '2026-02-20',
+    };
+    const ram = {
+      id: B1, operationId: OP, classId: '00000000-0000-0000-0000-0000000243c5',
+      sex: 'male', active: true, confirmedBred: false,
+    };
+    const sheepClasses = [
+      ...classes,
+      { id: ram.classId, operationId: OP, name: 'Rams', species: 'sheep', role: 'ram' },
+    ];
+    const memberships = [
+      mem('m1', F1, G_COW, '2025-11-01', '2026-02-28'),
+      mem('m2', B1, G_COW, '2025-11-01', '2026-02-28'),
+    ];
+    const intervals = deriveBullExposureIntervals({
+      animals: [ewe, ram], animalClasses: sheepClasses, memberships, eventGroupWindows: [],
+    });
+    const band = dueBandForFemale({
+      animal: ewe,
+      animalClass: sheepClasses.find(c => c.id === CLASS_EWE),
+      intervals,
+      breedingRecords: [],
+      calvingRecords: [{ damId: F1, calvedAt: '2025-10-01' }],
+      farmSettings: null,
+    });
+    expect(band.earliestDue).toBe(addDaysToDateOnly('2025-11-01', SHEEP_GESTATION_DAYS));
+    expect(band.latestDue).toBe(addDaysToDateOnly('2026-02-20', SHEEP_GESTATION_DAYS));
   });
 });

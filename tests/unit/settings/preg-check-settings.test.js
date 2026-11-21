@@ -7,6 +7,9 @@ import {
   arePregCheckSettingsReleased,
   updateFarmPregCheckSettings,
   PREG_CHECK_SOFT_MAX_DAYS,
+  areReturnToCycleSettingsReleased,
+  validateReturnToCycleDays,
+  updateFarmReturnToCycleSettings,
 } from '../../../src/features/settings/preg-check-settings.js';
 import { RELEASED_SCHEMA_VERSION } from '../../../src/data/schema-release.js';
 
@@ -70,5 +73,23 @@ describe('Pg0 release gate', () => {
       pregCheckMinDaysSinceExposureGoat: 25,
       pregCheckMinDaysPostCalvingGoat: 30,
     })).toThrow(/id is required/i);
+  });
+});
+
+describe('return-to-cycle settings gate (schema 48 held)', () => {
+  it('hidden while RELEASED is 47', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(47);
+    expect(areReturnToCycleSettingsReleased()).toBe(false);
+    expect(areReturnToCycleSettingsReleased(48)).toBe(true);
+  });
+
+  it('validates P-a defaults and refuses write while held', () => {
+    const good = {
+      returnToCycleDaysCattle: 45,
+      returnToCycleDaysSheep: 25,
+      returnToCycleDaysGoat: 25,
+    };
+    expect(validateReturnToCycleDays(good).valid).toBe(true);
+    expect(() => updateFarmReturnToCycleSettings('fs1', good)).toThrow(/schema 48/i);
   });
 });

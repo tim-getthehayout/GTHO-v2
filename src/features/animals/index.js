@@ -38,6 +38,10 @@ import {
   updateFarmPregCheckSettings,
   validatePregCheckThresholds,
   PREG_CHECK_SPECIES_SECTIONS,
+  areReturnToCycleSettingsReleased,
+  updateFarmReturnToCycleSettings,
+  validateReturnToCycleDays,
+  RETURN_TO_CYCLE_SPECIES_SECTIONS,
 } from '../settings/preg-check-settings.js';
 import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
 import {
@@ -760,6 +764,8 @@ export function renderAnimalsScreen(container) {
                 animalClass: cls,
                 intervals: exposureIntervals,
                 breedingRecords,
+                calvingRecords,
+                farmSettings,
               });
               const bits = [];
               if (hasConfirmedBredDateMissing(animal)) {
@@ -775,6 +781,14 @@ export function renderAnimalsScreen(container) {
                   ? `${band.earliestDue || '—'} – ${band.latestDue}`
                   : `${band.earliestDue || '—'} – …`;
                 bits.push(t('animal.dueBand', { range: dueLabel }));
+              }
+              if (band.missingExposure) {
+                bits.push(t('animal.dueMissingExposure') || 'No exposure in view');
+              } else if (band.ambiguousExposure) {
+                bits.push(t('animal.dueAmbiguousExposure') || 'Ambiguous exposure');
+              }
+              if (band.missingCalving && (animal.confirmedBred === true || selectedStatuses.has('pregnancy_check'))) {
+                bits.push(t('animal.dueMissingCalving') || 'No calving record');
               }
               if (!bits.length) return null;
               return el('div', {
@@ -2602,6 +2616,32 @@ function openPregCheckSettingsDialog(farmSettingsRow, onSaved) {
     }
   }
 
+  const rtcInputs = {};
+  if (areReturnToCycleSettingsReleased()) {
+    card.appendChild(el('div', {
+      style: { fontSize: '13px', fontWeight: '600', margin: '16px 0 6px' },
+    }, [t('settings.returnToCycleSection') || 'Return to cycle (due band)']));
+    card.appendChild(el('div', {
+      style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-2)' },
+    }, [t('settings.returnToCycleDays') || 'Return-to-cycle days']));
+    for (const section of RETURN_TO_CYCLE_SPECIES_SECTIONS) {
+      const current = farmSettingsRow?.[section.key];
+      const value = Number.isFinite(current) ? String(current) : String(section.defaultDays);
+      const input = el('input', {
+        type: 'number', min: '0', max: '365', step: '1',
+        className: 'auth-input',
+        value,
+        'data-testid': `return-to-cycle-settings-${section.key}`,
+        style: { width: '100%', boxSizing: 'border-box' },
+      });
+      rtcInputs[section.key] = input;
+      card.appendChild(el('div', { className: 'field', style: { marginBottom: '6px' } }, [
+        el('label', { className: 'form-label' }, [`${section.label}: ${t('settings.returnToCycleDays') || 'Return-to-cycle days'}`]),
+        input,
+      ]));
+    }
+  }
+
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'preg-check-settings-status' });
   card.appendChild(statusEl);
   card.appendChild(el('div', { className: 'btn-row', style: { marginTop: '10px' } }, [
@@ -2617,8 +2657,22 @@ function openPregCheckSettingsDialog(farmSettingsRow, onSaved) {
           statusEl.appendChild(el('span', {}, [check.errors.join('; ')]));
           return;
         }
+        let rtcNormalized = null;
+        if (areReturnToCycleSettingsReleased()) {
+          const rtcValues = {};
+          for (const key of Object.keys(rtcInputs)) rtcValues[key] = rtcInputs[key].value;
+          const rtcCheck = validateReturnToCycleDays(rtcValues);
+          if (!rtcCheck.valid) {
+            statusEl.appendChild(el('span', {}, [rtcCheck.errors.join('; ')]));
+            return;
+          }
+          rtcNormalized = rtcCheck.normalized;
+        }
         try {
           updateFarmPregCheckSettings(farmSettingsRow.id, check.normalized);
+          if (rtcNormalized) {
+            updateFarmReturnToCycleSettings(farmSettingsRow.id, rtcNormalized);
+          }
           overlay.remove();
           if (onSaved) onSaved();
         } catch (err) {

@@ -23,9 +23,9 @@ beforeEach(() => {
 });
 afterEach(() => { setSyncAdapter(null); vi.restoreAllMocks(); });
 
-it('045–047 are released: ceiling 47, nothing held, staged manifests kept as proofs', () => {
+it('045–047 are released: ceiling 47; 048 held for return-to-cycle; staged manifests kept as proofs', () => {
   expect(RELEASED_SCHEMA_VERSION).toBe(47);
-  expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+  expect(HELD_SCHEMA_VERSIONS).toEqual([48]);
   expect(Object.keys(STAGED_COLUMNS[45])).toEqual(HISTORICAL_TABLES);
   expect(STAGED_TABLES[45]).toEqual(HISTORICAL_TABLES);
   for (const table of HISTORICAL_TABLES) expect(isTableReleased(table)).toBe(true);

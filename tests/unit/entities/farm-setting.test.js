@@ -19,7 +19,10 @@ describe('entity: farm-setting', () => {
     expect(keys).toContain('pregCheckMinDaysPostCalvingSheep');
     expect(keys).toContain('pregCheckMinDaysSinceExposureGoat');
     expect(keys).toContain('pregCheckMinDaysPostCalvingGoat');
-    expect(keys).toHaveLength(32);
+    expect(keys).toContain('returnToCycleDaysCattle');
+    expect(keys).toContain('returnToCycleDaysSheep');
+    expect(keys).toContain('returnToCycleDaysGoat');
+    expect(keys).toHaveLength(35);
   });
 
   it('every FIELDS entry has sbColumn', () => {

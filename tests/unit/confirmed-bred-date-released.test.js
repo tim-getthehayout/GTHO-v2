@@ -19,7 +19,7 @@ describe('confirmed_bred_date released at schema 47', () => {
   it('raises the ceiling to 47, clears the held set, and keeps the staged proof', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(47);
     expect(CURRENT_SCHEMA_VERSION).toBe(47);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([48]);
     expect(STAGED_COLUMNS[46]).toEqual({ animals: ['confirmed_bred_date'] });
   });
 

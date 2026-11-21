@@ -25,10 +25,10 @@ const COLS47 = [
 ];
 
 describe('preg-check thresholds released at schema 47', () => {
-  it('raises the ceiling to 47, clears the held set, and keeps the staged proof', () => {
+  it('keeps ceiling 47; 048 held; staged 47 proof kept', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(47);
     expect(CURRENT_SCHEMA_VERSION).toBe(47);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([48]);
     expect(STAGED_COLUMNS[47]).toEqual({ farm_settings: COLS47 });
   });
 

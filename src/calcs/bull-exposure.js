@@ -1,5 +1,6 @@
 /** @file Bull/ram/buck exposure → preg-check / due bands (compute-on-read).
- * Locked: A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd+Gc0+UxA0+Ux-copy1.
+ * Locked: A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd+Gc0+UxA0+Ux-copy1
+ * + dueBand R1/E1/L1/P-a (return-to-cycle + confirm cap).
  * No exposure-row writes. Does not redefine assessOpenAnimal.
  */
 import { assessOpenAnimal } from '../features/assistant/farm-reads.js';
@@ -17,6 +18,13 @@ export const DEFAULT_PREG_CHECK_BY_FAMILY = Object.freeze({
   cattle: { minDaysSinceExposure: 35, minDaysPostCalving: 45 },
   sheep: { minDaysSinceExposure: 25, minDaysPostCalving: 30 },
   goat: { minDaysSinceExposure: 25, minDaysPostCalving: 30 },
+});
+
+/** P-a compiled defaults for due-band earliest (distinct from preg-check post-partum). */
+export const DEFAULT_RETURN_TO_CYCLE_BY_FAMILY = Object.freeze({
+  cattle: 45,
+  sheep: 25,
+  goat: 25,
 });
 
 export const CATTLE_SPECIES = Object.freeze(new Set(['beef_cattle', 'dairy_cattle']));
@@ -73,6 +81,27 @@ export function resolvePregCheckProtocol(farmSettings, speciesOrFamily = 'cattle
     ? Number(farmSettings[postKey])
     : defaults.minDaysPostCalving;
   return { minDaysSinceExposure, minDaysPostCalving, combine: 'AND', family };
+}
+
+/**
+ * Resolve return-to-cycle days for one breeding family (P-a / S1).
+ * Distinct from resolvePregCheckProtocol minDaysPostCalving.
+ * @param {object|null|undefined} farmSettings
+ * @param {string|null|undefined} speciesOrFamily
+ * @returns {number}
+ */
+export function resolveReturnToCycleDays(farmSettings, speciesOrFamily = 'cattle') {
+  const family = (speciesOrFamily === 'cattle' || speciesOrFamily === 'sheep' || speciesOrFamily === 'goat')
+    ? speciesOrFamily
+    : (speciesFamily(speciesOrFamily) || 'cattle');
+  const key = family === 'cattle'
+    ? 'returnToCycleDaysCattle'
+    : family === 'sheep'
+      ? 'returnToCycleDaysSheep'
+      : 'returnToCycleDaysGoat';
+  const n = farmSettings?.[key];
+  if (Number.isFinite(n)) return Number(n);
+  return DEFAULT_RETURN_TO_CYCLE_BY_FAMILY[family];
 }
 
 /** All three species protocols (UxA All-species). */
@@ -544,30 +573,86 @@ export function isPregnancyCheckMember({
 }
 
 /**
- * C0 due band from exposure ± gestation; confirmation date is status only.
+ * Shared due band (R1): refine C0 with postpartum return-to-cycle earliest (E1)
+ * and confirmed_bred_date conception-end cap (L1). Confirmation date remains
+ * status (confirmedOn); do not swap start/end (B0). D0 membership unchanged.
  * Prefer breeding-record expected_calving as point beside band when present.
  *
- * @returns {{ earliestDue: string|null, latestDue: string|null, expectedCalving: string|null, confirmedOn: string|null, gestationDays: number|null }}
+ * @returns {{
+ *   earliestDue: string|null,
+ *   latestDue: string|null,
+ *   expectedCalving: string|null,
+ *   confirmedOn: string|null,
+ *   gestationDays: number|null,
+ *   missingCalving: boolean,
+ *   missingExposure: boolean,
+ *   ambiguousExposure: boolean,
+ *   usedCalvingForEarliest: boolean,
+ * }}
  */
 export function dueBandForFemale({
   animal,
   animalClass,
   intervals,
   breedingRecords,
+  calvingRecords,
+  farmSettings,
   gestationDays,
+  returnToCycleDays,
 }) {
   const g = gestationDays ?? gestationDaysForSpecies(animalClass?.species) ?? CATTLE_GESTATION_DAYS;
+  const allForFemale = (intervals || []).filter(r => r.femaleId === animal?.id);
   const mine = includedIntervalsForFemale(intervals, animal?.id);
+  const ambiguousExposure = allForFemale.some(r => !r.includeInView);
   const union = unionExposureWindow(mine);
+  const missingExposure = !union;
   let earliestDue = null;
   let latestDue = null;
+  let missingCalving = false;
+  let usedCalvingForEarliest = false;
   if (union) {
-    earliestDue = addDaysToDateOnly(union.exposureStart, g);
-    latestDue = union.exposureEnd != null ? addDaysToDateOnly(union.exposureEnd, g) : null;
+    const P = Number.isFinite(returnToCycleDays)
+      ? Number(returnToCycleDays)
+      : resolveReturnToCycleDays(farmSettings, animalClass?.species);
+    const lastCalving = latestCalvingDate(calvingRecords, animal?.id);
+    let conceptionStart = union.exposureStart;
+    if (lastCalving) {
+      const fertileFrom = addDaysToDateOnly(lastCalving, P);
+      if (fertileFrom && fertileFrom > conceptionStart) {
+        conceptionStart = fertileFrom;
+        usedCalvingForEarliest = true;
+      }
+    } else {
+      missingCalving = true;
+    }
+    earliestDue = addDaysToDateOnly(conceptionStart, g);
+
+    // L1: when confirmed_bred_date is set, cap conception-end at min(exposureEnd, confirm).
+    // Open exposure → confirm is the cap. D4 NULL date / not confirmed → L0 (no invented cap).
+    let conceptionEnd = union.exposureEnd;
+    const confirmDate = (animal?.confirmedBred && animal.confirmedBredDate)
+      ? toDateOnly(animal.confirmedBredDate)
+      : null;
+    if (confirmDate) {
+      if (conceptionEnd == null || confirmDate < conceptionEnd) {
+        conceptionEnd = confirmDate;
+      }
+    }
+    latestDue = conceptionEnd != null ? addDaysToDateOnly(conceptionEnd, g) : null;
   }
   const expectedCalving = pickExpectedCalving(breedingRecords, animal?.id);
   const confirmedOn = animal?.confirmedBred ? (animal.confirmedBredDate || null) : null;
-  return { earliestDue, latestDue, expectedCalving, confirmedOn, gestationDays: g };
+  return {
+    earliestDue,
+    latestDue,
+    expectedCalving,
+    confirmedOn,
+    gestationDays: g,
+    missingCalving,
+    missingExposure,
+    ambiguousExposure,
+    usedCalvingForEarliest,
+  };
 }
 
 function pickExpectedCalving(breedingRecords, animalId) {

@@ -1,7 +1,7 @@
 # OI-0241 — Destination pre-graze copy + Event Detail pasture edit save
 
-**Status:** PROPOSED (pending Tim lock via Orchestrator) — opened 2026-11-20 ~7:42 PM ET; **revised ~7:47–7:50 PM ET** after failed workaround  
-**Owner:** GTHO Design → GTHO Build after Tim locks  
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-20 ~7:49 PM ET, via Orchestrator, card t710s2923) — opened ~7:42 PM ET; revised ~7:47–7:50 PM ET (persistence bug); **A+B+C locked ~7:49 PM ET**  
+**Owner:** GTHO Design → GTHO Build  
 **Schema / migration:** none  
 **CP-55 / CP-56:** none
 
@@ -27,9 +27,9 @@ Event `8ef44a4a` — five open `paddock_observations` on F (`type=open`, `source
 | F-4 | `eae54bdf-b286-4a8c-8594-7b572eb6ff0b` |
 | F-5 | `b9a1ed99-6706-4c58-aa11-ce4c5d5bd8bd` |
 
-**Current values (all five identical at create):** `forage_height_cm≈5.08` (~2″), cover 100, quality 50, condition fair. `created_at = updated_at = observed_at` at event create — **no successful edit push** after Tim’s card Save + Resync.
+**At create (before ops fix):** all five identical — `forage_height_cm≈5.08` (~2″), cover 100, quality 50, condition fair. `created_at = updated_at = observed_at` at event create — UI edit push never landed (card Save + Resync failed).
 
-**Tonight data fix (ops — separate from code):** Orchestrator applies a scoped UPDATE to these five rows after Tim’s correct numbers + pre-change SELECT backup + explicit yes. Design does **not** write prod.
+**F open-obs data fix — ALREADY APPLIED (do not re-run):** Orchestrator, 2026-11-20 ~7:48 PM ET, card t715s2944 (Tim yes). Heights cm: F-1 `22.86`, F-2 `15.24`, F-3 `15.24`, F-4 `20.32`, F-5 `20.32` (9/6/6/8/8 in); cover **100**, quality **70**, condition **good** on all five. Design did not write prod.
 
 ## Diagnosis (Design read-only on `origin/main` @ `7edb76a` + Tim evidence)
 
@@ -76,27 +76,27 @@ Move wizard Step 3 (`move-wizard.js` ~319–362): section `event.openDest` = **"
 
 Tim prefers list only. Removing the inline duplicate forces the Edit path — which **must** get A + B fixed or the trap gets worse.
 
-## Proposals for Tim’s lock card (NOT locked)
+## Locked (Tim, 2026-11-20 ~7:49 PM ET, card t710s2923)
 
-Orchestrator will put these on Tim’s card. Until he answers, status stays **PROPOSED**.
+**Tim lock (exact words):** "Lock OI-0241 A+B+C: drop inline Pre-Graze (keep list+Edit), fix Edit Save so forage isn't silently dropped, clearer destination pasture copy"
 
-- **A)** Drop Event Detail inline Pre-Graze section; keep paddock list + Edit (Tim asked). Mirror for Post-Graze if it duplicates closed-window edit.
-- **B)** **Persistence fix (required):** (1) main / green Save (and any blur-save that closes) must also persist pre-graze (and post-graze when shown) via `getValues()` + `update`/`add`; (2) small-card Save must **reliably enqueue + push** (prove/fix root cause in Diagnosis B); (3) toast on failure; **no silent “Saved”**. Preferred = main Save persists forage **and** card Save is durable.
-- **C)** Move-wizard destination copy: under Open New Event, subtitle or renamed card so starting pasture is clearly for the **NEW** event / destination paddocks, not the event being left. Suggested English (Build may tighten): “Starting pasture for the **new** event (not the event you’re leaving).”
+- **A LOCKED:** Drop Event Detail inline Pre-Graze section; keep paddock list + Edit. Mirror for Post-Graze if it duplicates closed-window edit.
+- **B LOCKED:** Fix Edit Save so forage isn't silently dropped — includes **BOTH** (1) green/main Save must persist pre-graze (and post-graze when shown) via `getValues()` + `update`/`add` (not only windows) **AND** (2) the **real persistence bug**: small-card Save must reliably enqueue+push (queue / unacked / flush `ok` | `zero_rows` | `superseded`); toast on failure; **no silent “Saved”**. Per Design diagnosis after Tim Save+Resync “0 new items” with server still create-time.
+- **C LOCKED:** Clearer destination pasture / pre-graze copy in move wizard — under Open New Event, subtitle or renamed card so starting pasture is clearly for the **NEW** event / destination paddocks, not the event being left. Suggested English (Build may tighten): “Starting pasture for the **new** event (not the event you’re leaving).”
 
-**No migration.** No schema. No CP-55/56. Prod value correction is ops (Orchestrator + Tim yes + backup), not this PR.
+**No migration.** No schema. No CP-55/56. F open-obs data fix already applied by Orchestrator (~7:48 PM ET, card t715s2944) — **do not re-run**.
 
-## Acceptance (after Tim locks)
+## Acceptance
 
 - [ ] Editing pre-graze via **Edit paddock + main Save** persists after reopen + sync (server `updated_at` moves).
 - [ ] **Small-card Save** also persists (enqueue → push → server newer); Resync would show work to send before ack; failure toasts, never silent Saved.
-- [ ] Event Detail shows pastures **once** (list + Edit; no duplicate inline Pre-Graze) if proposal A locked.
+- [ ] Event Detail shows pastures **once** (list + Edit; no duplicate inline Pre-Graze).
 - [ ] Blur on date/area cannot silently discard unsaved observation edits.
 - [ ] `scoped-remaining` move shows destination-only pasture card with unambiguous **destination / new event** wording.
 - [ ] Confinement still hides pre-graze; `full-event` / `scoped-last` post-graze + dest pre-graze still correct.
 - [ ] No migration.
 
-## Files (Build after lock — product behaviour, not invention)
+## Files (Build — product behaviour, not invention)
 
 | Area | Likely touch |
 |---|---|
@@ -108,10 +108,10 @@ Orchestrator will put these on Tim’s card. Until he answers, status stays **PR
 | RLS / server | Confirm `paddock_observations` UPDATE USING/WITH CHECK if zero_rows suspected |
 | Tests | Edit sheet main Save updates `paddock_observations`; card Save enqueues sendable write; Event Detail single list; move-wizard destination string; failed update toasts |
 
-## Tonight ops (already with Orchestrator; not this PR)
+## Tonight ops (not this PR)
 
-1. **Failed UI workaround:** Pre-Graze card Save + Resync did **not** stick (~7:45 PM ET). Do not tell Tim that path works until B is fixed.
-2. **Scoped data fix:** UPDATE the five F open obs ids above once Tim states correct height/cover/quality/condition — pre-change SELECT backup + explicit yes. Design SELECT-only until then.
+1. **Failed UI workaround:** Pre-Graze card Save + Resync did **not** stick (~7:45 PM ET). Do not tell Tim that path works until B is fixed in code.
+2. **F open-obs data fix — DONE:** Orchestrator applied scoped UPDATE ~7:48 PM ET (card t715s2944) after Tim numbers + backup + yes. Heights 22.86/15.24/15.24/20.32/20.32 cm; cover 100; quality 70; condition good. **Do not re-run.**
 
 ## Related
 

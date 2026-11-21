@@ -113,7 +113,7 @@ Conditionally rendered — **pre-graze observation card** (Pre-graze height, For
 | `new` + `confinement` | Hidden — corral / dry-lot has no standing forage |
 | `join` (existing event) | Hidden — destination paddock already has a pre-graze obs from when its event opened |
 
-**OI-0241 (proposed):** Pre-graze under **Open New Event** is **destination / new-event starting pasture**, not the event being left (especially on `scoped-remaining`, where it is often the only pasture card — copy must say so). Event Detail currently lists paddocks in a list **and** as inline Pre-Graze cards; **Proposal pending Tim lock:** keep list + Edit, drop the inline duplicate. **Edit Paddock Window (design diagnosis):** (A) green Save / blur today write window metadata only — observation persist must be on main Save (preferred) once locked; (B) **small-card Pre-Graze Save is also a real persistence bug** (Tim Save+Resync → “0 new items”, server stamps unchanged) — card Save must reliably enqueue+push with toast on failure, no silent Saved.
+**OI-0241 (SPEC LOCKED / READY FOR BUILD — Tim ~7:49 PM ET, card t710s2923, A+B+C):** Pre-graze under **Open New Event** is **destination / new-event starting pasture**, not the event being left (especially on `scoped-remaining`, where it is often the only pasture card — **C** copy must say so). Event Detail: **A** keep paddock list + Edit; **drop** the inline Pre-Graze duplicate. **Edit Paddock Window — B:** (1) green/main Save must persist pre-graze (today writes window metadata only); (2) **small-card Pre-Graze Save is a real persistence bug** (Tim Save+Resync → “0 new items”, server stamps unchanged) — card Save must reliably enqueue+push with toast on failure, no silent Saved.
 
 ### 1.6 Save Actions (in order)
 

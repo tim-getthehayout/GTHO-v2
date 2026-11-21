@@ -49,7 +49,7 @@
 | OI-0238 | Partial-day estimated demand (hour-prorate first/last; delivery clock; EOD today; A label) | **SPEC LOCKED** 2026-11-20 ~6:15 AM ET (Tim, via Orchestrator). C + A. First-day clock = earliest delivery on dateIn; keep end-of-today (no live clock); NPK-1/3 → TIM-3 presence; chart bars match; DMI-5 unchanged; no migration. [brief](session_briefs/PARTIAL_DAY_ESTIMATED_DEMAND_2026-11-20.md) |
 | OI-0239 | iPhone Sheet scroll lock + Edit Animal Cull for composites (C1) | **SPEC LOCKED** 2026-11-20 ~6:38 AM ET (Tim, via Orchestrator). Shared Sheet body scroll-lock + iOS overflow (`-webkit-overflow-scrolling`, `overscroll-behavior`, `min(90dvh,90vh)`, `min-height:0`); move Edit Animal Cull outside `!isBulk` (complete OI-0237 C1 Edit Animal path). Hotfix **ahead of** OI-0238 code. No migration. [brief](session_briefs/IOS_SHEET_SCROLL_CULL_GATE_2026-11-20.md) |
 | OI-0240 | Scoped-remaining partial move: hide Feed Transfer; feed stays with remaining groups | **SPEC LOCKED** 2026-11-20 ~3:50 PM ET (Tim, via Orchestrator, card t694s2862). Lock A: on `scoped-remaining`, hide Move / Leave as residual; show stay-copy; do not transfer pools. Full-event and `scoped-last` unchanged. No migration. Out of scope: move-some (option C). [brief](session_briefs/SCOPED_REMAINING_FEED_STAY_2026-11-20.md) |
-| OI-0241 | Destination pre-graze copy + Event Detail pasture edit (drop duplicate inline?) | **PROPOSED** 2026-11-20 ~7:42 PM ET; **revised ~7:50 PM ET** (Tim, via Orchestrator). CRITICAL: (A) Edit paddock green Save/blur writes windows only; (B) **small-card Pre-Graze Save also fails** — Tim Save+Resync → “0 new items”, server stamps unchanged (real persistence bug). Move-wizard Pre-Graze under Open New Event misread as leaving. **Proposals pending Tim lock:** A drop inline; B persistence (main Save + durable card Save + toast); C destination copy. No migration. Data fix ops-separate for five F open obs on `8ef44a4a`. [brief](session_briefs/PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md) |
+| OI-0241 | Destination pre-graze copy + Event Detail pasture edit (drop inline; fix Edit Save; clearer dest copy) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:49 PM ET (Tim, via Orchestrator, card t710s2923) — A+B+C. **A** drop inline Pre-Graze (keep list+Edit); **B** fix Edit Save so forage isn’t silently dropped (green/main Save persists pre-graze **and** small-card Save reliably enqueue+push; toast on failure; no silent Saved — real persistence bug per Tim Save+Resync “0 new items”); **C** clearer destination pasture copy. No migration. F open-obs data fix for `8ef44a4a` **already applied** ~7:48 PM ET (card t715s2944) — do not re-run. [brief](session_briefs/PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md) |
 
 ---
 
@@ -186,31 +186,33 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 ### OI-0241 — Destination pre-graze copy + Event Detail pasture edit save
 
-**Status:** **PROPOSED** (pending Tim lock via Orchestrator) — opened 2026-11-20 ~7:42 PM ET; **revised ~7:50 PM ET** after failed workaround  
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-20 ~7:49 PM ET, via Orchestrator, card t710s2923) — opened ~7:42 PM ET; revised ~7:50 PM ET (persistence); A+B+C locked ~7:49 PM ET  
 **Priority:** Hotfix — Tim blocked on wrong/stuck pre-graze after OI-0240 move  
-**Owner:** GTHO Design → GTHO Build after Tim locks  
+**Owner:** GTHO Design → GTHO Build  
 **Brief:** [PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md](session_briefs/PREGRAZE_EDIT_SAVE_COPY_2026-11-20.md)
+
+**Tim lock (exact words):** "Lock OI-0241 A+B+C: drop inline Pre-Graze (keep list+Edit), fix Edit Save so forage isn't silently dropped, clearer destination pasture copy"
 
 **Origin:** Tim moved Sheep off E `ff115ee9` → new event `8ef44a4a` on F-1…F-5; thought move-wizard Pre-Graze was for the **leaving** event; edits to fix starting pasture **do not save** (iPhone PWA). Also: Event Detail lists pastures **twice** (list+Edit, then inline editable cards) — he prefers the list only. **~7:45 PM ET:** Pre-Graze **card Save + Resync failed** (“0 new items”); server stamps still create-time → **B is a real persistence bug**, not only the green-Save UX trap.
 
-**Prod (SELECT):** five open F `paddock_observations` still at create (~2″ / 100% / fair / quality 50); `updated_at` never moved. Row ids: F-1 `2e0ebbed-…`, F-2 `91ef9900-…`, F-3 `3ef198d9-…`, F-4 `eae54bdf-…`, F-5 `b9a1ed99-…` (full ids in brief). Tonight data fix = Orchestrator scoped UPDATE after Tim numbers + backup + yes; Design does not write prod.
+**Prod / data fix:** five open F `paddock_observations` (ids F-1 `2e0ebbed-…`, F-2 `91ef9900-…`, F-3 `3ef198d9-…`, F-4 `eae54bdf-…`, F-5 `b9a1ed99-…`; full ids in brief). **Ops data fix ALREADY APPLIED** by Orchestrator ~7:48 PM ET (card t715s2944): heights 22.86/15.24/15.24/20.32/20.32 cm, cover 100, quality 70, condition good. **Do not re-run.** (At create they were ~2″ / 100% / fair / quality 50; UI edit never pushed.)
 
-**CRITICAL A (high):** `edit-paddock-window.js` `saveChanges()` (green Save + blur) updates only `event_paddock_windows`. Main Save never calls `preGrazeCard.getValues()`. Same split on `detail.js` §5 inline cards.
+**CRITICAL A (LOCKED):** `edit-paddock-window.js` `saveChanges()` (green Save + blur) updates only `event_paddock_windows`. Main Save never calls `preGrazeCard.getValues()`. Same split on `detail.js` §5 inline cards. **Fix:** green/main Save must persist pre-graze (and post-graze when shown).
 
-**CRITICAL B (high/medium; new):** Even small-card `update('paddockObservations', obs.id, …)` (~L123 / detail ~L658) is not yielding a server-newer row or Resync-sendable unconfirmed write. Build must prove/fix: local throw; `persistMutation`/`enqueueWrite` skip; flush superseded-as-success; flush 0-row → dead-letter `zero_rows` (OI-0230) / RLS UPDATE USING+WITH CHECK; pull `mergeRemote` clobber if local stamp never advanced. Acceptance: Save → server `updated_at` advances; Resync would have had work before ack; reopen+pull shows values; toast on failure, no silent Saved.
+**CRITICAL B (LOCKED — real persistence):** Even small-card `update('paddockObservations', obs.id, …)` (~L123 / detail ~L658) is not yielding a server-newer row or Resync-sendable unconfirmed write. Build must prove/fix: local throw; `persistMutation`/`enqueueWrite` skip; flush superseded-as-success; flush 0-row → dead-letter `zero_rows` (OI-0230) / RLS UPDATE USING+WITH CHECK; pull `mergeRemote` clobber if local stamp never advanced. Acceptance: Save → server `updated_at` advances; Resync would have had work before ack; reopen+pull shows values; toast on failure, no silent Saved.
 
-**Also:** move-wizard `Open New Event` hosts a card titled only “Pre-Graze Observations”; on `scoped-remaining` that is the only pasture card → leaving-event misread.
+**Also C (LOCKED):** move-wizard `Open New Event` hosts a card titled only “Pre-Graze Observations”; on `scoped-remaining` that is the only pasture card → leaving-event misread — clearer destination / new-event copy required.
 
-**Proposals for Tim card (NOT locked):**
-- **A)** Drop Event Detail inline Pre-Graze; keep paddock list + Edit (Tim asked).
-- **B)** Persistence fix (required): main Save persists pre-graze **and** small-card Save reliably enqueues+pushes (root cause above); toast on failure; no silent Saved.
+**Locked:**
+- **A)** Drop Event Detail inline Pre-Graze; keep paddock list + Edit.
+- **B)** Persistence fix: main Save persists pre-graze **and** small-card Save reliably enqueues+pushes (root cause above); toast on failure; no silent Saved.
 - **C)** Move-wizard destination pre-graze copy clarity.
 
-**Acceptance (after lock):** Edit paddock + main Save persists pre-graze after reopen+sync; card Save also durable; Event Detail shows pastures once (if A); destination copy unambiguous; no migration.
+**Acceptance:** Edit paddock + main Save persists pre-graze after reopen+sync; card Save also durable; Event Detail shows pastures once; destination copy unambiguous; no migration.
 
 **Related:** OI-0112, OI-0118, OI-0230, OI-0239, OI-0240, UX §1.5–§1.6.
 
-**Origin timestamp:** Tim ~7:36–7:45 PM ET (via Orchestrator).
+**Origin timestamp:** Tim ~7:36–7:45 PM ET; lock A+B+C ~7:49 PM ET (card t710s2923); F data fix ~7:48 PM ET (card t715s2944).
 
 ---
 ### OI-0240 — Scoped-remaining hide Feed Transfer; feed stays with remaining groups

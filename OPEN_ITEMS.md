@@ -53,6 +53,7 @@
 | OI-0242 | Multi-paddock dashboard forage aggregation (stop openPws[0]×total acres) | **SPEC LOCKED / READY FOR BUILD** 2026-11-20 ~7:55 PM ET (Tim, via Orchestrator, card t724s2992) — **A1+B1+C1+D1**. **A1** sum FOR-1 per open PW (same `pickPreGraze` as DMI-8) + area-weighted height; **B1** all open PWs; **C1** missing pre-graze → 0 DM (height weighted over PWs with height; optional partial UI); **D1** label DMI chart days from `sourceEventId` / previous event. No migration. Design had rec’d D0; Tim chose D1. [brief](session_briefs/MULTI_PADDOCK_DASHBOARD_FORAGE_2026-11-20.md) |
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 | OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~7:18 AM ET (Tim, via Orchestrator, card **t759s3139**) — **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Design rec on tip `070af6c`. Rams↔ewes, bucks(billies)↔does; widen Open; Gs1 per-species protocol; **M0** widen migration **047 before apply**; Animals **Preg check settings** dialog (Ps0). After docs land; 047 apply = separate Tim yes+backup; no exposure-row write (F0). [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
+| OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
 
 ---
 
@@ -187,6 +188,34 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+
+### OI-0245 — Confirmed-bred due-date range (postpartum earliest + capped latest)
+
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-21 ~9:55 AM ET, via Orchestrator, card **t776u** answering lock card **t775s3213**) — opened ~9:50 AM ET (t773u); locked Design rec with **S0→S1** on tip `52026be6e603020e3cff3fd30b5e846080a0508b`  
+**Priority:** Feature — refine due earliest/latest for confirmed-bred (and shared dueBand helper)  
+**Owner:** GTHO Design → GTHO Build (after docs land / from locked tip; Orchestrator land card)  
+**Brief:** [CONFIRMED_BRED_DUE_RANGE_2026-11-21.md](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md)
+
+**Parent:** OI-0243/0244 live on main tip `9402a0675e5924ca311974c31fc88084249c576b` (RELEASED **47**; OI-0244 code `eba2248` then ceiling bump). C0 today: earliest = exposureStart+G, latest = exposureEnd+G; `confirmed_bred_date` is status only (`dueBandForFemale` 547–570).
+
+**Tim lock (exact):** "I would like to impliment the recomended functionality with return to cycle settings that can be edited."
+
+**Locked:** **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**
+- **B0** not a start/end swap bug — refine product
+- **R1** refine C0; **shared dueBand helper for all due lines**; D0 membership unchanged
+- **E1** earliest = max(exposure start, last_calving + P) + G when calving exists
+- **L1** latest conception-end = min(exposureEnd, confirmed_bred_date) when date set (+ G)
+- **P-a** defaults cattle **45** / sheep **25** / goat **25** (return-to-cycle — distinct from preg-check post-partum)
+- **S1** editable `farm_settings` — migration **048** (three ints); editors beside Preg check settings / Farm Settings (Ps0 write path + Pg0-style gate); RELEASED stays **47** until apply+bump
+- **U0** Animals due chrome + badges; **X1** all breeding species
+
+**Schema:** Migration **048** file-only after applied **047** (do not reopen 047). Tim yes + verified backup before apply. No exposure-row write.
+
+**Related:** OI-0243, OI-0244, OI-0232/0234, SCHEMA §9.7/§9.9, UX §15.0
+
+**Origin timestamp:** Tim via Orchestrator 2026-11-21 ~9:50 AM ET (t773u); lock ~9:55 AM ET (t776u / t775s3213).
+
+---
 
 ### OI-0244 — Multispecies exposure → Pregnancy Check (sheep + goat) + Animals protocol dialog
 

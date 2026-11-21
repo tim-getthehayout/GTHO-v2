@@ -130,6 +130,44 @@ describe('computeLocationMetrics', () => {
     expect(clip.end).toBe('2026-10-07');
     expect(clip.days).toBe(3);
   });
+
+  it('subtracts stored feed DM from pasture DMI using quantity × weight × dm% snapshots', () => {
+    // eventOpenOn requires dateIn; baseCtx event is AUD/NPK-oriented without it
+    const dmiCtx = {
+      ...baseCtx,
+      events: [{ ...event, dateIn: '2026-10-01' }],
+    };
+    const none = computeLocationMetrics(loc, dmiCtx);
+    expect(none.dmiKg).toBeGreaterThan(0);
+
+    // 2 × 500 kg × 80% = 800 kg DM on one open day — reduces (floors at 0 for that day)
+    const withFeed = computeLocationMetrics(loc, {
+      ...dmiCtx,
+      feedEntries: [{
+        id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-05',
+        quantity: 2, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        kind: 'inventory_feeding', feedTypeId: 'hay',
+      }],
+    });
+    expect(withFeed.dmiKg).toBeLessThan(none.dmiKg);
+    expect(withFeed.dmiKg).toBeGreaterThanOrEqual(0);
+  });
+
+  it('ignores feed entries that only carry a fake dmKg (no snapshots)', () => {
+    const dmiCtx = {
+      ...baseCtx,
+      events: [{ ...event, dateIn: '2026-10-01' }],
+    };
+    const none = computeLocationMetrics(loc, dmiCtx);
+    const fakeOnly = computeLocationMetrics(loc, {
+      ...dmiCtx,
+      feedEntries: [{
+        id: 'fe-fake', eventId: 'ev1', locationId: 'loc1', date: '2026-10-05',
+        dmKg: 99999,
+      }],
+    });
+    expect(fakeOnly.dmiKg).toBe(none.dmiKg);
+  });
 });
 
 describe('readiness T0', () => {

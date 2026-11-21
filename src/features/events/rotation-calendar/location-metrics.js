@@ -355,14 +355,19 @@ function acresOf(location) {
   return ha * HA_TO_ACRES;
 }
 
-/** Best-effort stored DM kg by eventId|date from feed entries (quantity × dm). */
+/** Stored DM kg by eventId|date from feed-entry snapshots (quantity × weight × dm%). */
 function indexFeedDmByEventDate(feedEntries) {
   const map = new Map();
   for (const fe of feedEntries) {
     if (!fe?.eventId || !fe?.date) continue;
-    // Prefer explicit dmKg; else skip (unknown → don't invent)
-    const dm = Number(fe.dmKg);
-    if (!Number.isFinite(dm) || dm < 0) continue;
+    // Same formula as feed-run-rate / Event Detail: entry snapshots only (no fe.dmKg).
+    const quantity = Number(fe.quantity);
+    const weight = Number(fe.weightPerUnitKgSnapshot);
+    const dmPct = Number(fe.dmPctSnapshot);
+    if (!(Number.isFinite(quantity) && quantity > 0)) continue;
+    if (!(Number.isFinite(weight) && weight > 0)) continue;
+    if (!(Number.isFinite(dmPct) && dmPct > 0)) continue;
+    const dm = quantity * weight * dmPct / 100;
     const key = `${fe.eventId}|${fe.date}`;
     map.set(key, (map.get(key) || 0) + dm);
   }

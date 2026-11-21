@@ -106,6 +106,7 @@ function mount() {
   clearActive('[data-testid^="animals-chip-class-"]', container);
   clearActive('[data-testid="animals-chip-status-open"]', container);
   clearActive('[data-testid="animals-chip-status-confirmed-bred"]', container);
+  clearActive('[data-testid="animals-chip-status-pregnancy-check"]', container);
   const input = container.querySelector('[data-testid="animals-search-input"]')
     || container.querySelector('.agc-wrap input[type="search"]');
   if (input && input.value) {

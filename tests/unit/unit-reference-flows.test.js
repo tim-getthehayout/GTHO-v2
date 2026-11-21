@@ -374,8 +374,8 @@ it('unit restore grouping ignores key order, keeps all eight metadata shapes and
 
 // No schema-release mock: these exercise the exact client being prepared for publish.
 it('actual release promotes 42–45 without removing independent column proofs or future guards',async()=>{
- expect(RELEASED_SCHEMA_VERSION).toBe(45);expect(CURRENT_SCHEMA_VERSION).toBe(45);expect(HELD_SCHEMA_VERSIONS).toEqual([46]);
- expect(Object.keys(STAGED_COLUMNS).map(Number).sort((a,b)=>a-b)).toEqual([42,43,44,45,46]);
+ expect(RELEASED_SCHEMA_VERSION).toBe(45);expect(CURRENT_SCHEMA_VERSION).toBe(45);expect(HELD_SCHEMA_VERSIONS).toEqual([46, 47]);
+ expect(Object.keys(STAGED_COLUMNS).map(Number).sort((a,b)=>a-b)).toEqual([42,43,44,45,46,47]);
  expect(releasedColumns(45,{source_key:'k'})).toEqual({source_key:'k'});expect(()=>releasedColumns(46,{future_field:'value'})).toThrow();
  expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:45,operation_id:OP,tables:{}}).valid).toBe(true);
  expect(validateBackup({format:'gtho-v2-backup',format_version:1,schema_version:46,operation_id:OP,tables:{}}).valid).toBe(false);

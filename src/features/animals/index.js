@@ -25,6 +25,13 @@ import { syncCalvingRecordForAnimal } from './calving-sync.js';
 import { maybeShowEmptyGroupPrompt, groupEventHistoryCount } from './empty-group-prompt.js';
 import { showToast } from '../../ui/toast.js';
 import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpers.js';
+import {
+  deriveBullExposureIntervals,
+  pregnancyCheckAnimalIds,
+  resolvePregCheckProtocol,
+  dueBandForFemale,
+  hasConfirmedBredDateMissing,
+} from '../../calcs/bull-exposure.js';
 import { confirmCompositeReductions, applyCompositeReductions } from './composite.js';
 import {
   validateHeadsToSplit,
@@ -49,7 +56,7 @@ let cullsSelected = false;
 let selectedSpecies = new Set();
 /** @type {Set<string>} multi-select class filter (OR). Empty = inactive. */
 let selectedClassIds = new Set();
-/** @type {Set<'open'|'confirmed_bred'>} status multi-select OR. Empty = inactive. */
+/** @type {Set<'open'|'confirmed_bred'|'pregnancy_check'>} status multi-select. Empty = inactive. */
 let selectedStatuses = new Set();
 let searchQuery = '';
 let showArchivedGroups = false;  // OI-0090 / SP-11 Part 4
@@ -378,7 +385,7 @@ export function renderAnimalsScreen(container) {
       filterWrap.appendChild(classChips);
     }
 
-    // Row 4 — Open / Confirmed bred (multi OR; R1 female gate; supersedes F1)
+    // Row 4 — Open / Confirmed bred / Pregnancy Check (R1 female gate)
     if (showStatus) {
       const statusChips = el('div', {
         className: 'agc-chips agc-chips-scroll agc-chips-secondary',
@@ -386,6 +393,7 @@ export function renderAnimalsScreen(container) {
       });
       const openOn = selectedStatuses.has('open');
       const bredOn = selectedStatuses.has('confirmed_bred');
+      const pregOn = selectedStatuses.has('pregnancy_check');
       statusChips.appendChild(el('span', {
         className: `agc-chip${openOn ? ' active' : ''}`,
         'data-testid': 'animals-chip-status-open',
@@ -400,11 +408,48 @@ export function renderAnimalsScreen(container) {
         'data-testid': 'animals-chip-status-confirmed-bred',
         onClick: () => {
           if (bredOn) selectedStatuses.delete('confirmed_bred');
-          else selectedStatuses.add('confirmed_bred');
+          else {
+            selectedStatuses.add('confirmed_bred');
+            selectedStatuses.delete('pregnancy_check');
+          }
           renderAll();
         },
       }, [t('animal.filterConfirmedBred') || 'Confirmed bred']));
+      statusChips.appendChild(el('span', {
+        className: `agc-chip${pregOn ? ' active' : ''}`,
+        'data-testid': 'animals-chip-status-pregnancy-check',
+        onClick: () => {
+          if (pregOn) selectedStatuses.delete('pregnancy_check');
+          else {
+            selectedStatuses.add('pregnancy_check');
+            selectedStatuses.delete('confirmed_bred');
+          }
+          renderAll();
+        },
+      }, [t('animal.filterPregnancyCheck') || 'Pregnancy Check']));
       filterWrap.appendChild(statusChips);
+
+      // Ux1: read-only protocol summary when Pregnancy Check is active
+      if (pregOn) {
+        const farmSettingsRow = getAll('farmSettings')[0] || null;
+        const protocolSummary = resolvePregCheckProtocol(farmSettingsRow);
+        filterWrap.appendChild(el('div', {
+          className: 'animals-preg-check-protocol',
+          'data-testid': 'animals-preg-check-protocol',
+          style: {
+            fontSize: '12px',
+            color: 'var(--text2)',
+            margin: '4px 0 2px',
+            padding: '4px 8px',
+            background: 'var(--bg2, var(--bg))',
+            borderRadius: 'var(--radius)',
+            border: '0.5px solid var(--border)',
+          },
+        }, [t('animal.pregCheckProtocol', {
+          exposure: String(protocolSummary.minDaysSinceExposure),
+          postCalving: String(protocolSummary.minDaysPostCalving),
+        })]));
+      }
     }
 
     // Search + Reset + Clear search (R8)
@@ -550,9 +595,37 @@ export function renderAnimalsScreen(container) {
     filtered = animalsAfterSpeciesFilter(filtered);
     filtered = animalsAfterClassFilter(filtered);
 
-    // Status multi-select OR. Inactive when none selected.
+    // Exposure derive (compute-on-read) for Pregnancy Check + due bands.
+    const allMembershipsHistory = getAll('animalGroupMemberships');
+    const eventGroupWindows = getAll('eventGroupWindows');
+    const calvingRecords = getAll('animalCalvingRecords');
+    const breedingRecords = getAll('animalBreedingRecords');
+    const farmSettings = getAll('farmSettings')[0] || null;
+    const protocol = resolvePregCheckProtocol(farmSettings);
+    const exposureIntervals = deriveBullExposureIntervals({
+      animals: getAll('animals'),
+      animalClasses: classes,
+      memberships: allMembershipsHistory,
+      eventGroupWindows,
+      cattleOnly: true,
+    });
+    const pregCheckIds = selectedStatuses.has('pregnancy_check')
+      ? pregnancyCheckAnimalIds({
+        animals: getAll('animals'),
+        animalClasses: classes,
+        intervals: exposureIntervals,
+        calvingRecords,
+        protocol,
+      })
+      : null;
+
+    // Status filter. Pregnancy Check → D0 set (does not require Open).
+    // Pregnancy Check mutually exclusive with Confirmed bred (enforced on click).
     if (selectedStatuses.size > 0) {
       filtered = filtered.filter(a => {
+        if (selectedStatuses.has('pregnancy_check')) {
+          return pregCheckIds.has(a.id);
+        }
         const isBred = a.confirmedBred === true;
         if (selectedStatuses.has('confirmed_bred') && isBred) return true;
         if (selectedStatuses.has('open') && !isBred) return true;
@@ -652,6 +725,38 @@ export function renderAnimalsScreen(container) {
             el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [
               `${animal.isBulk ? 'Group composite \u00B7 ' : ''}${cls?.name || 'No class'} \u00B7 ${grp?.name || 'No group'}`,
             ]),
+            (() => {
+              const showDue = selectedStatuses.has('pregnancy_check')
+                || animal.confirmedBred === true
+                || exposureIntervals.some(r => r.femaleId === animal.id && r.includeInView);
+              if (!showDue && !hasConfirmedBredDateMissing(animal)) return null;
+              const band = dueBandForFemale({
+                animal,
+                animalClass: cls,
+                intervals: exposureIntervals,
+                breedingRecords,
+              });
+              const bits = [];
+              if (hasConfirmedBredDateMissing(animal)) {
+                bits.push(t('animal.confirmedBredDateMissing'));
+              } else if (band.confirmedOn) {
+                bits.push(t('animal.confirmedOn', { date: band.confirmedOn }));
+              }
+              if (band.expectedCalving) {
+                bits.push(t('animal.expectedCalving', { date: band.expectedCalving }));
+              }
+              if (band.earliestDue || band.latestDue) {
+                const dueLabel = band.latestDue
+                  ? `${band.earliestDue || '—'} – ${band.latestDue}`
+                  : `${band.earliestDue || '—'} – …`;
+                bits.push(t('animal.dueBand', { range: dueLabel }));
+              }
+              if (!bits.length) return null;
+              return el('div', {
+                style: { fontSize: '11px', color: 'var(--green)', marginTop: '2px' },
+                'data-testid': `animal-due-${animal.id}`,
+              }, [bits.join(' · ')]);
+            })(),
           ]),
           el('div', { style: { textAlign: 'right', flexShrink: '0' } }, [
             el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [weightDisplay]),

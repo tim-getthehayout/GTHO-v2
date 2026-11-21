@@ -742,7 +742,13 @@
     "splitPickerHint": "Tap to select. For a composite, set how many heads to peel off (1…all).",
     "splitUndo": "Undo",
     "splitUndoDone": "Split undone.",
-    "splitDoneToast": "Split saved."
+    "splitDoneToast": "Split saved.",
+    "filterPregnancyCheck": "Pregnancy Check",
+    "pregCheckProtocol": "Protocol: ≥{exposure}d since exposure AND ≥{postCalving}d post-calving",
+    "confirmedBredDateMissing": "Confirm date missing",
+    "confirmedOn": "Confirmed on {date}",
+    "expectedCalving": "Expected {date}",
+    "dueBand": "Due {range}"
   },
   "group": {
     "placeEmptyGroupWarning": "This group has no animals — add animals before placing it",
@@ -1339,7 +1345,9 @@
     "importV1Warnings": "{count} warning(s) during transform.",
     "importV1WarningsSummary": "{count} warning(s) logged during transform. Check browser console for details.",
     "importV1CopyErrorLog": "Copy error log",
-    "importV1ErrorLogCopied": "Error log copied"
+    "importV1ErrorLogCopied": "Error log copied",
+    "pregCheckMinDaysSinceExposure": "Preg-check min days since exposure",
+    "pregCheckMinDaysPostCalving": "Preg-check min days post-calving"
   },
   "fieldMode": {
     "title": "Field Mode",

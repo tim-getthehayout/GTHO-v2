@@ -268,4 +268,18 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 46;
     return b;
   },
+  // 046 → 047: farm_settings preg-check thresholds (held). Absent-only defaults; preserve supplied.
+  46: (b) => {
+    for (const row of b.tables.farm_settings || []) {
+      if (!Object.hasOwn(row, 'preg_check_min_days_since_exposure')) {
+        row.preg_check_min_days_since_exposure = 35;
+      }
+      if (!Object.hasOwn(row, 'preg_check_min_days_post_calving')) {
+        row.preg_check_min_days_post_calving = 45;
+      }
+    }
+    b.schema_version = 47;
+    for (const op of b.tables.operations || []) op.schema_version = 47;
+    return b;
+  },
 };

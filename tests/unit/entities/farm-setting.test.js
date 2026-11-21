@@ -13,7 +13,9 @@ describe('entity: farm-setting', () => {
     expect(keys).toContain('feedDayGoal');
     expect(keys).toContain('forageQualityScaleMin');
     expect(keys).toContain('thresholdCostPerDayWarn');
-    expect(keys).toHaveLength(26);
+    expect(keys).toContain('pregCheckMinDaysSinceExposure');
+    expect(keys).toContain('pregCheckMinDaysPostCalving');
+    expect(keys).toHaveLength(28);
   });
 
   it('every FIELDS entry has sbColumn', () => {

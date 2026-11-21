@@ -1,3 +1,5 @@
+import { releasedColumns } from '../data/schema-columns.js';
+
 /** @file Entity: farm_settings — V2_SCHEMA_DESIGN.md §1.3 */
 
 export const FIELDS = {
@@ -25,6 +27,8 @@ export const FIELDS = {
   thresholdNpkWarnPerHa:       { type: 'numeric',     required: false, sbColumn: 'threshold_npk_warn_per_ha' },
   thresholdCostPerDayTarget:   { type: 'numeric',     required: false, sbColumn: 'threshold_cost_per_day_target' },
   thresholdCostPerDayWarn:     { type: 'numeric',     required: false, sbColumn: 'threshold_cost_per_day_warn' },
+  pregCheckMinDaysSinceExposure: { type: 'integer', required: false, sbColumn: 'preg_check_min_days_since_exposure' },
+  pregCheckMinDaysPostCalving: { type: 'integer', required: false, sbColumn: 'preg_check_min_days_post_calving' },
   createdAt:                   { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:                   { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -55,6 +59,9 @@ export function create(data = {}) {
     thresholdNpkWarnPerHa: data.thresholdNpkWarnPerHa ?? null,
     thresholdCostPerDayTarget: data.thresholdCostPerDayTarget ?? null,
     thresholdCostPerDayWarn: data.thresholdCostPerDayWarn ?? null,
+    // Held schema 47: null until released; calc/UI use Gd0 35/45 via resolvePregCheckProtocol.
+    pregCheckMinDaysSinceExposure: data.pregCheckMinDaysSinceExposure ?? null,
+    pregCheckMinDaysPostCalving: data.pregCheckMinDaysPostCalving ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
   };
@@ -93,6 +100,10 @@ export function toSupabaseShape(record) {
     threshold_npk_warn_per_ha: record.thresholdNpkWarnPerHa,
     threshold_cost_per_day_target: record.thresholdCostPerDayTarget,
     threshold_cost_per_day_warn: record.thresholdCostPerDayWarn,
+    ...releasedColumns(47, {
+      preg_check_min_days_since_exposure: record.pregCheckMinDaysSinceExposure ?? null,
+      preg_check_min_days_post_calving: record.pregCheckMinDaysPostCalving ?? null,
+    }),
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -128,6 +139,8 @@ export function fromSupabaseShape(row) {
     thresholdNpkWarnPerHa: n(row.threshold_npk_warn_per_ha),
     thresholdCostPerDayTarget: n(row.threshold_cost_per_day_target),
     thresholdCostPerDayWarn: n(row.threshold_cost_per_day_warn),
+    pregCheckMinDaysSinceExposure: n(row.preg_check_min_days_since_exposure),
+    pregCheckMinDaysPostCalving: n(row.preg_check_min_days_post_calving),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

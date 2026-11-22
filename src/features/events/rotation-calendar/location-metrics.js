@@ -8,10 +8,13 @@
  * dash only when nothing known remains. AUDs (Ua) and Score (Sc) unchanged.
  * Closed snapshots trusted as stored (Rt). F1 unmeasured-hay and R1 residual
  * unknowns stay season-sticky (list-parity locks not reopened).
+ * OI-0258 Al1+Pd1+Mc1+Mx-a+Cv1+Sp-f(demand)+D0: hay known from opening
+ * carryover + physical deliveries + close (no mid-check required); span hay
+ * prorated by demand across grazing windows. Sp-w is not implemented.
  */
 
 import { getCalcByName } from '../../../utils/calc-registry.js';
-import { daysBetweenInclusive, getLocalTodayStr, rowInstant } from '../../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
 import {
   getLiveWindowHeadCount,
   getLiveWindowAvgWeight,
@@ -24,8 +27,15 @@ import {
   localDayEndMs,
   localHoursInDay,
 } from '../../../calcs/partial-day-demand.js';
-import { localInstantMs, poolDailyObservation, poolHistory, replayFeedPools, feedSnapshot } from '../../../calcs/feed-pools.js';
+import { localInstantMs, feedSnapshot } from '../../../calcs/feed-pools.js';
 import { openPaddockWindowsOnDate } from '../../../calcs/location-type.js';
+import {
+  f1HaySpans,
+  f1MeasuredHayOnEventDay,
+  prorateSpanHayByDemand,
+  grazingPaddockWindowsOnDate,
+  acreShareAmong,
+} from '../../../calcs/f1-close-allocation.js';
 import { periodContaining, DEFAULT_BUDGET_PERIOD } from '../../../calcs/budget-period.js';
 
 const HA_TO_ACRES = 2.47105;
@@ -43,6 +53,21 @@ export function deriveEventStartDate(eventId, { paddockWindows = [], groupWindow
     if (!earliest || gw.dateJoined < earliest) earliest = gw.dateJoined;
   }
   return earliest || event?.dateIn || null;
+}
+
+/** Earliest clock on `openDate` among windows that start that day; null → midnight. */
+export function deriveEventStartTime(eventId, openDate, { paddockWindows = [], groupWindows = [] } = {}) {
+  if (!eventId || !openDate) return null;
+  let earliest = null;
+  for (const pw of paddockWindows) {
+    if (pw.eventId !== eventId || pw.dateOpened !== openDate || !pw.timeOpened) continue;
+    if (!earliest || pw.timeOpened < earliest) earliest = pw.timeOpened;
+  }
+  for (const gw of groupWindows) {
+    if (gw.eventId !== eventId || gw.dateJoined !== openDate || !gw.timeJoined) continue;
+    if (!earliest || gw.timeJoined < earliest) earliest = gw.timeJoined;
+  }
+  return earliest;
 }
 
 /** X1: pasture + mixed-use land only. */
@@ -224,47 +249,37 @@ export function measuredHayOnEventDay({
   feedCheckItems = [],
   batches = {},
   feedTypes = {},
+  openDate = null,
+  openTime = null,
+  paddockWindows = [],
+  groupWindows = [],
+  event = null,
 } = {}) {
-  const batchMap = mapById(batches);
-  const typeMap = mapById(feedTypes);
-  const eventChecks = (feedChecks || []).filter(c => c.eventId === eventId);
-  const checkIds = new Set(eventChecks.map(c => c.id));
-  const items = (feedCheckItems || []).filter(i => checkIds.has(i.feedCheckId));
-  const entries = (feedEntries || []).filter(e => e.eventId === eventId);
-  const input = {
-    eventId,
-    entries,
-    checks: eventChecks,
-    items,
-    batches: batchMap,
-    feedTypes: typeMap,
-  };
-  const history = poolHistory(input);
-  if (!history.identities.size) return { kind: 'none' };
-
-  const observed = poolDailyObservation(input, date);
-  const after = replayFeedPools(input, { through: rowInstant(date, '23:59:59.999') });
-  let active = 0;
-  let measured = 0;
-  let dmKg = 0;
-  let unknown = false;
-  for (const key of history.identities.keys()) {
-    const obs = observed.get(key);
-    const pool = after.get(key);
-    const holds = !!pool && (pool.m == null || pool.m !== 0 || (pool.q != null && pool.q !== 0));
-    if (!obs && !holds) continue;
-    active += 1;
-    if (!obs || obs.dm == null) {
-      if (obs) unknown = true;
-      else if (holds) unknown = true;
-      continue;
-    }
-    measured += 1;
-    dmKg += obs.dm;
+  const start = openDate
+    || deriveEventStartDate(eventId, { paddockWindows, groupWindows, event });
+  const startTime = openTime !== null && openTime !== undefined
+    ? openTime
+    : deriveEventStartTime(eventId, start, { paddockWindows, groupWindows });
+  let inferred = start;
+  if (!inferred) {
+    const dates = [
+      ...(feedEntries || []).filter(row => row.eventId === eventId).map(row => row.date),
+      ...(feedChecks || []).filter(row => row.eventId === eventId).map(row => row.date),
+    ].filter(Boolean).sort();
+    inferred = dates[0] || null;
   }
-  if (active === 0) return { kind: 'none' };
-  if (unknown || measured !== active) return { kind: 'unknown' };
-  return { kind: 'measured', dmKg };
+  if (!inferred) return { kind: 'none' };
+  return f1MeasuredHayOnEventDay({
+    eventId,
+    date,
+    openDate: inferred,
+    openTime: startTime,
+    feedEntries,
+    feedChecks,
+    feedCheckItems,
+    batches,
+    feedTypes,
+  });
 }
 
 /**
@@ -416,6 +431,8 @@ export function computeLocationMetrics(location, ctx) {
   let storedFeedDmiKg = 0; // OI-0250 Sz strip
   let stripPastureDmiKg = 0;
   let anyDemandDay = false;
+  const eventDemandByDate = new Map();
+  const eventsNeedingHay = new Set();
 
   const classMap = Array.isArray(animalClasses)
     ? Object.fromEntries((animalClasses || []).map(c => [c.id, c]))
@@ -509,7 +526,7 @@ export function computeLocationMetrics(location, ctx) {
       }
     }
 
-    // --- Implied pasture DMI (F1 measured hay; peer-scoped unknown weights) ---
+    // --- Implied pasture DMI (F1 / OI-0258; peer-scoped unknown weights) ---
     if (!openHere.length) continue;
 
     const rows = groupWindowsDailyDemand(date, demandOpts);
@@ -531,72 +548,102 @@ export function computeLocationMetrics(location, ctx) {
       }
     }
 
-    // Per event: demand − measured hay, floor 0, then S1 acre share (known groups only)
-    const eventDemand = new Map();
     for (const r of knownRows) {
       if (!(r.kg > 0)) continue;
-      eventDemand.set(r.eventId, (eventDemand.get(r.eventId) || 0) + r.kg);
+      if (!eventDemandByDate.has(r.eventId)) eventDemandByDate.set(r.eventId, new Map());
+      const byDate = eventDemandByDate.get(r.eventId);
+      byDate.set(date, (byDate.get(date) || 0) + r.kg);
+      eventsNeedingHay.add(r.eventId);
     }
+  }
 
-    let dayBlocked = false;
-    const pastureByEvent = new Map();
-    const storedSzByEvent = new Map();
-    const pastureSzByEvent = new Map();
-    for (const [eventId, demand] of eventDemand) {
-      const hay = measuredHayOnEventDay({
-        eventId,
-        date,
-        feedEntries,
-        feedChecks,
-        feedCheckItems,
-        batches,
-        feedTypes,
-      });
-      // OI-0250 Sz: missing-DM / unmeasured → 0 stored for the period strip (no invent).
-      const storedSz = hay.kind === 'measured' ? hay.dmKg : 0;
-      storedSzByEvent.set(eventId, storedSz);
-      pastureSzByEvent.set(eventId, Math.max(0, demand - storedSz));
-      if (hay.kind === 'unknown') {
-        dayBlocked = true; // column F1 sticky; strip still uses Sz zeros above
-        continue;
+  // OI-0258: after the day walk, allocate each event's hay spans (Al1/Mc1/Cv1)
+  // by demand across grazing windows (Sp-f, Mx-a). Unknown hay days stay
+  // season-sticky on the column (C0/F1); the Sz strip uses stored 0 those days.
+  const metricDates = eachDateInclusive(windowStart, through);
+  for (const eventId of eventsNeedingHay) {
+    const event = eventsById.get(eventId);
+    const openDate = deriveEventStartDate(eventId, { paddockWindows, groupWindows, event })
+      || event?.dateIn
+      || null;
+    const openTime = deriveEventStartTime(eventId, openDate, { paddockWindows, groupWindows });
+    const decorated = event
+      ? { id: event.id, dateIn: openDate, dateOut: event.dateOut ?? null }
+      : { id: eventId, dateIn: openDate, dateOut: null };
+    const demandByDate = eventDemandByDate.get(eventId) || new Map();
+    const hayArgs = {
+      eventId,
+      openDate,
+      openTime,
+      feedEntries,
+      feedChecks,
+      feedCheckItems,
+      batches,
+      feedTypes,
+    };
+    const spans = f1HaySpans(hayArgs);
+
+    const addDemandOnly = (date, { stripOnly = false } = {}) => {
+      const demand = demandByDate.get(date) || 0;
+      const grazing = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date });
+      if (!grazing.length) return;
+      const share = acreShareAmong(grazing, location.id, locationsById);
+      if (!(share > 0) && share !== 0) return;
+      const pasture = Math.max(0, demand * share);
+      stripPastureDmiKg += pasture;
+      if (!stripOnly) {
+        dmiKg += pasture;
+        if (grazing.some(pw => pw.locationId === location.id)) dmiDays += 1;
       }
-      const stored = hay.kind === 'measured' ? hay.dmKg : 0;
-      pastureByEvent.set(eventId, Math.max(0, demand - stored));
-    }
+    };
 
-    // Period-strip attribution (Sz) — runs even when column F1 is blocked.
-    for (const pw of openHere) {
-      if (!pastureSzByEvent.has(pw.eventId)) continue;
-      const pastureSz = pastureSzByEvent.get(pw.eventId);
-      const storedSz = storedSzByEvent.get(pw.eventId) || 0;
-      const eventOpen = openPaddockWindowsOnDate(paddockWindows, { eventId: pw.eventId, date });
-      const myW = effectiveAreaHa(pw, locationsById);
-      const weights = eventOpen.map(w => effectiveAreaHa(w, locationsById));
-      const sumW = weights.reduce((s, a) => s + a, 0);
-      const pwShare = sumW > 0 ? myW / sumW : (1 / Math.max(1, eventOpen.length));
-      stripPastureDmiKg += pastureSz * pwShare;
-      storedFeedDmiKg += storedSz * pwShare;
-    }
-
-    if (dayBlocked) {
-      dmiHayUnknown = true; // F1 unmeasured hay — season-sticky (list-parity); column only
+    if (!spans.identities.size) {
+      for (const date of metricDates) {
+        if (openDate && !eventOpenOn(decorated, date)) continue;
+        addDemandOnly(date);
+      }
       continue;
     }
 
-    for (const pw of openHere) {
-      const pasture = pastureByEvent.get(pw.eventId);
-      if (!(pasture > 0) && pasture !== 0) continue;
-      if (!(pasture >= 0)) continue;
+    const overlapsKnownSpan = (date) => {
+      const dayStart = localDayStartMs(date);
+      const dayEnd = localDayEndMs(date);
+      return spans.eventSpans.some(span => !span.unknown && span.dm != null
+        && span.startMs < dayEnd && span.endMs > dayStart);
+    };
+    for (const date of metricDates) {
+      if (openDate && !eventOpenOn(decorated, date)) continue;
+      const hay = f1MeasuredHayOnEventDay({ ...hayArgs, date });
+      if (hay.kind === 'unknown') {
+        dmiHayUnknown = true;
+        addDemandOnly(date, { stripOnly: true });
+        continue;
+      }
+      if (hay.kind === 'none' && !overlapsKnownSpan(date)) {
+        addDemandOnly(date);
+      }
+    }
 
-      const eventOpen = openPaddockWindowsOnDate(paddockWindows, { eventId: pw.eventId, date });
-      // Each open pw for this location gets its own share of the event remainder.
-      // When multiple pws on same loc (strip), split by their effective area within the event.
-      const myW = effectiveAreaHa(pw, locationsById);
-      const weights = eventOpen.map(w => effectiveAreaHa(w, locationsById));
-      const sumW = weights.reduce((s, a) => s + a, 0);
-      const pwShare = sumW > 0 ? myW / sumW : (1 / Math.max(1, eventOpen.length));
-      dmiKg += pasture * pwShare;
-      dmiDays += 1;
+    for (const span of spans.eventSpans) {
+      if (span.unknown || span.dm == null) continue;
+      const alloc = prorateSpanHayByDemand({
+        hayDm: span.dm,
+        spanStartMs: span.startMs,
+        spanEndMs: span.endMs,
+        dates: metricDates,
+        eventId,
+        paddockWindows,
+        demandByDate,
+        locationsById,
+      });
+      for (const [pwId, pasture] of alloc.pastureByPw) {
+        const pw = alloc.pwById.get(pwId);
+        if (!pw || pw.locationId !== location.id) continue;
+        dmiKg += pasture;
+        stripPastureDmiKg += pasture;
+        storedFeedDmiKg += alloc.hayByPw.get(pwId) || 0;
+        dmiDays += 1;
+      }
     }
   }
 

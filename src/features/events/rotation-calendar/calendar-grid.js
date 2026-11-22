@@ -3,6 +3,7 @@
  * Single vertical scroll owner (F0): name | sortable metrics | timeline (C1).
  * Phone: metrics under name; timeline scrolls horizontally (P1).
  * X1 pasture+mixed-use; W1 season window; T0 readiness; D0 compute-on-read.
+ * OI-0252 Ls+Wu+Sb+Br+Nn+Pp+Uf+D0: stacked DMI/AUDs over NPK/Score, uniform width, List buttons right.
  */
 
 import { el, clear } from '../../../ui/dom.js';
@@ -60,6 +61,116 @@ const METRIC_COLS = [
   { key: 'kKg', label: 'K', title: 'Potassium deposited (kg)' },
   { key: 'avgScore', label: 'Score', title: 'Average pasture score' },
 ];
+
+/** OI-0252 Ls: line 1 = DMI · AUDs; line 2 = N · P · K · Score. */
+const METRIC_LINE1 = METRIC_COLS.filter(c => c.key === 'dmiKg' || c.key === 'auds');
+const METRIC_LINE2 = METRIC_COLS.filter(c => !METRIC_LINE1.includes(c));
+
+/**
+ * OI-0252 Wu: one uniform content width from the widest rendered metrics block
+ * on this surface (after format + partial markers + per-acre text).
+ * @param {ParentNode} root
+ */
+export function applyUniformMetricsWidth(root) {
+  if (!root) return 0;
+  const cells = [...root.querySelectorAll('[data-testid="loc-mgmt-metrics"]')];
+  const heads = [...root.querySelectorAll('.loc-mgmt__metrics-head')];
+  const targets = [...cells, ...heads];
+  for (const node of targets) {
+    node.style.width = 'auto';
+    node.style.minWidth = '';
+  }
+  let max = 0;
+  for (const node of cells) {
+    const w = Math.ceil(node.scrollWidth || node.offsetWidth || 0);
+    if (w > max) max = w;
+  }
+  for (const node of heads) {
+    const w = Math.ceil(node.scrollWidth || node.offsetWidth || 0);
+    if (w > max) max = w;
+  }
+  if (max <= 0) return 0;
+  for (const node of targets) {
+    node.style.width = `${max}px`;
+    node.style.minWidth = `${max}px`;
+  }
+  return max;
+}
+
+/**
+ * @param {object} col
+ * @param {object|null|undefined} metrics
+ * @param {{ includePerAcre?: boolean }} [opts]
+ */
+function renderMetricCol(col, metrics, { includePerAcre = true } = {}) {
+  const raw = metrics?.[col.key];
+  const text = formatMetricValue(raw, { digits: col.key === 'avgScore' ? 0 : 0 });
+  const perAcreKey = col.key === 'dmiKg' ? 'dmiPerAcre'
+    : col.key === 'auds' ? 'audsPerAcre'
+    : col.key === 'nKg' ? 'nPerAcre'
+    : col.key === 'pKg' ? 'pPerAcre'
+    : col.key === 'kKg' ? 'kPerAcre'
+    : null;
+  const perAcre = perAcreKey ? metrics?.[perAcreKey] : null;
+  // Nn: drop per-acre parentheticals on phone before shortening digits.
+  const perAcreText = includePerAcre && perAcre != null && metrics?.hasAcres
+    ? ` (${formatMetricValue(perAcre, { digits: 1 })}/ac)`
+    : '';
+  const isPartial = (col.key === 'dmiKg' && metrics?.dmiPartial)
+    || ((col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg') && metrics?.npkPartial);
+  const title = isPartial
+    ? `${col.title} (partial — some groups missing weights)`
+    : col.title;
+  return el('div', {
+    className: `loc-mgmt__metric${isPartial ? ' loc-mgmt__metric--partial' : ''}`,
+    title,
+    dataset: { key: col.key, partial: isPartial ? 'true' : undefined },
+  }, [
+    el('span', { className: 'loc-mgmt__metric-label' }, [col.label]),
+    el('span', { className: 'loc-mgmt__metric-value' }, [
+      `${text}${perAcreText}`,
+      isPartial
+        ? el('span', { className: 'loc-mgmt__metric-partial', dataset: { testid: `loc-mgmt-metric-partial-${col.key}` } }, [' partial'])
+        : null,
+    ].filter(Boolean)),
+  ]);
+}
+
+/**
+ * OI-0252 Ls+Nn: two stacked metric lines (never flat six-across).
+ * @param {object|null|undefined} metrics
+ * @param {{ isPhone?: boolean }} [opts]
+ */
+function renderMetricsCell(metrics, { isPhone = false } = {}) {
+  const includePerAcre = !isPhone;
+  return el('div', {
+    className: 'loc-mgmt__metrics',
+    dataset: { testid: 'loc-mgmt-metrics', locationId: metrics?.locationId },
+  }, [
+    el('div', {
+      className: 'loc-mgmt__metrics-line',
+      dataset: { testid: 'loc-mgmt-metrics-line1' },
+    }, METRIC_LINE1.map(col => renderMetricCol(col, metrics, { includePerAcre }))),
+    el('div', {
+      className: 'loc-mgmt__metrics-line',
+      dataset: { testid: 'loc-mgmt-metrics-line2' },
+    }, METRIC_LINE2.map(col => renderMetricCol(col, metrics, { includePerAcre }))),
+  ]);
+}
+
+/**
+ * OI-0252 Ls: stacked sort headers matching metric lines.
+ */
+function renderMetricsHead(metricBtnsByKey, { grow = false } = {}) {
+  const line1 = METRIC_LINE1.map(c => metricBtnsByKey.get(c.key)).filter(Boolean);
+  const line2 = METRIC_LINE2.map(c => metricBtnsByKey.get(c.key)).filter(Boolean);
+  return el('div', {
+    className: `loc-mgmt__metrics-head${grow ? ' loc-mgmt__metrics-head--grow' : ''}`,
+  }, [
+    el('div', { className: 'loc-mgmt__metrics-line loc-mgmt__metrics-line--head' }, line1),
+    el('div', { className: 'loc-mgmt__metrics-line loc-mgmt__metrics-line--head' }, line2),
+  ]);
+}
 
 /**
  * Render the locations + rotation management surface.
@@ -328,6 +439,9 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   container.appendChild(periodBar);
   if (legend) container.appendChild(legend);
   container.appendChild(surface);
+  // OI-0252 Wu: measure after attach so widest row (incl. partial markers) sets shared width.
+  applyUniformMetricsWidth(surface);
+  requestAnimationFrame(() => applyUniformMetricsWidth(surface));
   container.setAttribute('tabindex', '0');
   container.addEventListener('keydown', onKeyDown);
 }
@@ -468,16 +582,21 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
 function renderTableHead({ sort, onUpdate, isPhone, range, totalWidth, todayPx, zoom, omitTimeline = false }) {
   const nameBtn = sortHeaderButton('name', 'Name', sort, onUpdate);
   const metricBtns = METRIC_COLS.map(col => sortHeaderButton(col.key, col.label, sort, onUpdate, col.title));
+  const metricBtnsByKey = new Map(METRIC_COLS.map((col, i) => [col.key, metricBtns[i]]));
 
   if (omitTimeline) {
     if (isPhone) {
       return el('div', { className: 'loc-mgmt__head loc-mgmt__head--phone loc-mgmt__head--list' }, [
-        el('div', { className: 'loc-mgmt__head-metrics' }, [nameBtn, ...metricBtns]),
+        el('div', { className: 'loc-mgmt__head-metrics' }, [
+          nameBtn,
+          renderMetricsHead(metricBtnsByKey, { grow: true }),
+        ]),
       ]);
     }
     return el('div', { className: 'loc-mgmt__head loc-mgmt__head--desktop loc-mgmt__head--list' }, [
       el('div', { className: 'loc-mgmt__name-head', style: { width: `${NAME_WIDTH}px` } }, [nameBtn]),
-      el('div', { className: 'loc-mgmt__metrics-head loc-mgmt__metrics-head--grow' }, metricBtns),
+      renderMetricsHead(metricBtnsByKey, { grow: true }),
+      el('div', { className: 'loc-mgmt__list-actions-head', 'aria-hidden': 'true' }),
     ]);
   }
 
@@ -495,14 +614,17 @@ function renderTableHead({ sort, onUpdate, isPhone, range, totalWidth, todayPx, 
 
   if (isPhone) {
     return el('div', { className: 'loc-mgmt__head loc-mgmt__head--phone' }, [
-      el('div', { className: 'loc-mgmt__head-metrics' }, [nameBtn, ...metricBtns]),
+      el('div', { className: 'loc-mgmt__head-metrics' }, [
+        nameBtn,
+        renderMetricsHead(metricBtnsByKey),
+      ]),
       el('div', { className: 'loc-mgmt__head-timeline' }, [timelineHead]),
     ]);
   }
 
   return el('div', { className: 'loc-mgmt__head loc-mgmt__head--desktop' }, [
     el('div', { className: 'loc-mgmt__name-head', style: { width: `${NAME_WIDTH}px` } }, [nameBtn]),
-    el('div', { className: 'loc-mgmt__metrics-head' }, metricBtns),
+    renderMetricsHead(metricBtnsByKey),
     el('div', { className: 'loc-mgmt__timeline-head' }, [timelineHead]),
   ]);
 }
@@ -631,59 +753,30 @@ function renderManagementRow(opts) {
     ])
     : null;
 
-  const metricCell = el('div', {
-    className: 'loc-mgmt__metrics',
-    dataset: { testid: 'loc-mgmt-metrics', locationId: loc.id },
-  }, METRIC_COLS.map(col => {
-    const raw = metrics?.[col.key];
-    const text = formatMetricValue(raw, { digits: col.key === 'avgScore' ? 0 : 0 });
-    const perAcreKey = col.key === 'dmiKg' ? 'dmiPerAcre'
-      : col.key === 'auds' ? 'audsPerAcre'
-      : col.key === 'nKg' ? 'nPerAcre'
-      : col.key === 'pKg' ? 'pPerAcre'
-      : col.key === 'kKg' ? 'kPerAcre'
-      : null;
-    const perAcre = perAcreKey ? metrics?.[perAcreKey] : null;
-    const perAcreText = perAcre != null && metrics?.hasAcres
-      ? ` (${formatMetricValue(perAcre, { digits: 1 })}/ac)`
-      : '';
-    const isPartial = (col.key === 'dmiKg' && metrics?.dmiPartial)
-      || ((col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg') && metrics?.npkPartial);
-    const title = isPartial
-      ? `${col.title} (partial — some groups missing weights)`
-      : col.title;
-    return el('div', {
-      className: `loc-mgmt__metric${isPartial ? ' loc-mgmt__metric--partial' : ''}`,
-      title,
-      dataset: { key: col.key, partial: isPartial ? 'true' : undefined },
-    }, [
-      el('span', { className: 'loc-mgmt__metric-label' }, [col.label]),
-      el('span', { className: 'loc-mgmt__metric-value' }, [
-        `${text}${perAcreText}`,
-        isPartial
-          ? el('span', { className: 'loc-mgmt__metric-partial', dataset: { testid: `loc-mgmt-metric-partial-${col.key}` } }, [' partial'])
-          : null,
-      ].filter(Boolean)),
-    ]);
-  }));
+  const metricsForCell = metrics ? { ...metrics, locationId: loc.id } : { locationId: loc.id };
+  const metricCell = renderMetricsCell(metricsForCell, { isPhone });
 
   if (omitTimeline) {
+    // Br: List action buttons on the right-hand side (original Locations list parity).
     if (isPhone) {
       return el('div', {
         className: 'loc-mgmt__row loc-mgmt__row--phone loc-mgmt__row--list',
         dataset: { testid: 'loc-mgmt-row', locationId: loc.id, view: 'list' },
         style: { minHeight: `${ROW_HEIGHT + 28}px` },
-      }, [nameCell, listActions, metricCell].filter(Boolean));
+      }, [
+        el('div', { className: 'loc-mgmt__list-top' }, [nameCell, listActions].filter(Boolean)),
+        metricCell,
+      ]);
     }
-    metricCell.classList.add('loc-mgmt__metrics--grow');
     return el('div', {
       className: 'loc-mgmt__row loc-mgmt__row--desktop loc-mgmt__row--list',
       dataset: { testid: 'loc-mgmt-row', locationId: loc.id, view: 'list' },
       style: { minHeight: `${ROW_HEIGHT}px`, height: 'auto' },
     }, [
-      el('div', { className: 'loc-mgmt__name-wrap', style: { width: `${NAME_WIDTH}px`, flex: `0 0 ${NAME_WIDTH}px` } }, [nameCell, listActions].filter(Boolean)),
+      el('div', { className: 'loc-mgmt__name-wrap', style: { width: `${NAME_WIDTH}px`, flex: `0 0 ${NAME_WIDTH}px` } }, [nameCell]),
       metricCell,
-    ]);
+      listActions,
+    ].filter(Boolean));
   }
 
   // Timeline strip with past + future blocks
@@ -836,7 +929,7 @@ function renderManagementRow(opts) {
   return el('div', {
     className: 'loc-mgmt__row loc-mgmt__row--desktop',
     dataset: { testid: 'loc-mgmt-row', locationId: loc.id },
-    style: { height: `${ROW_HEIGHT}px` },
+    style: { minHeight: `${ROW_HEIGHT}px`, height: 'auto' },
   }, [
     el('div', { className: 'loc-mgmt__name-wrap', style: { width: `${NAME_WIDTH}px`, flex: `0 0 ${NAME_WIDTH}px` } }, [nameCell]),
     metricCell,

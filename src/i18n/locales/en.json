@@ -728,6 +728,8 @@
     "reactivateCompositeConfirm": "Reactivate {label}? The composite returns to its group; an archived group is reactivated.",
     "cullGroupCard": "Cull",
     "filterReset": "Reset",
+    "filterMissingWeight": "Missing weight",
+    "missingWeightIndicator": "Missing weight",
     "filterClearSearch": "Clear search",
     "filterAllHint": "All active animals",
     "filterCullsHint": "Culled animals only",

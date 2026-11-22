@@ -11,6 +11,7 @@ import {
   removeForecasterGroup, clearForecasterGroups, setPeriod, toggleConfinement,
 } from '../calendar-state.js';
 import { getAll } from '../../../data/store.js';
+import { listActiveForecasterGroups } from './forecaster-helpers.js';
 
 /**
  * Render a pill button.
@@ -110,8 +111,8 @@ function renderForecaster(onUpdate) {
     ]);
   });
 
-  // Add group button (simple select for now)
-  const availableGroups = allGroups.filter(g => !state.groups.includes(g.id));
+  // OI-0257 Ag1: picker offers active (non-archived) groups only.
+  const availableGroups = listActiveForecasterGroups(allGroups, state.groups);
   const addBtn = availableGroups.length > 0
     ? el('select', {
         className: 'toolbar__add-group',

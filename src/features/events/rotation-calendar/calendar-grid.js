@@ -31,6 +31,7 @@ import {
   resolveCanvasRange, dateToPx, enumerateTicks, defaultSpanDays, parseTimelineDay,
 } from './timeline.js';
 import { renderPastBlock } from './past-block.js';
+import { openPastEventDetailSheet } from './past-event-detail-sheet.js';
 import { renderEstimatedFutureBlock, renderForecastFutureBlock } from './future-block.js';
 import { renderHeaderStrip } from './header-strip.js';
 import { renderToolbar } from './toolbar.js';
@@ -974,7 +975,7 @@ function renderManagementRow(opts) {
         linkedPrimaryName: linkedPaddocks[loc.id]?.name,
         storedFeedOnly,
         eventId: event.id,
-        onClickBlock: () => navigate('#/events'),
+        onClickBlock: () => openPastEventDetailSheet({ eventId: event.id, paddockWindowId: pw.id }),
       }));
     }
   }

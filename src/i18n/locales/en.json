@@ -511,7 +511,10 @@
     "costDisplay": "${value}",
     "destPreGrazeHint": "Starting pasture for the new event (not the event you're leaving).",
     "destPreGrazeTitle": "Starting Pasture (new event)",
-    "saveFailed": "Could not save. Try again."
+    "saveFailed": "Could not save. Try again.",
+    "pastEventDetail": "Past event",
+    "pastEventFields": "Event",
+    "location": "Location"
   },
   "location": {
     "title": "Locations",

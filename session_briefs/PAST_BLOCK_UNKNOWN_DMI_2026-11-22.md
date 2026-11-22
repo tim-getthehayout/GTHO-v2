@@ -1,6 +1,6 @@
 # Past-block unknown DMI paint + column F1 sticky (OI-0253)
 
-**Status:** **PROPOSED** (opened 2026-11-22 ~9:40 AM ET, GTHO Design, via Orchestrator from Tim regression **t1028u** + Build triage; Tim Season window clarify **t1044u**) — Design lean **B1+C0+D0**. Awaiting Tim lock. **B/C lock framing may be re-carded** after Build re-triages whether F1 sticky reaches outside Tim’s Season window. Docs tip only. **D0** = no SQL / no migration.  
+**Status:** **PROPOSED** (opened 2026-11-22 ~9:40 AM ET, GTHO Design, via Orchestrator from Tim regression **t1028u** + Build triage; Tim Season window clarify **t1044u**; **D CLOSED** Build ~9:41 AM ET) — Design lean **B1+C0** (**D0** closed = F1 window-scoped / not the t1044u column bug). Awaiting Tim lock on **B/C**. Docs tip only. No SQL / no migration.  
 **Owner:** GTHO Design → GTHO Build (after Tim lock + docs live on main).  
 **Parent:** Forgejo `origin/main` `36bc946d4fd6cef21d02bafed7790b7d644a1502` (OI-0250 code live via PR #129; stamp `b2026-11-22.1431-36bc946`; compiled `RELEASED_SCHEMA_VERSION` **48**).  
 **Also related:** OI-0246 season formula **S1+F1(DMI)+…+Z1** ([LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)); OI-0249 partial unknown (PR #126) — **does not** zero pasture DMI math; OI-0250 strip **Sz** (missing-DM feed → 0 stored; strip pasture ignores F1 sticky); OI-0252 metrics layout (PR #131 in flight — layout only).  
@@ -22,7 +22,8 @@ Later Tim clarified (**t1044u**) the zeros were seen **after** he set Season met
 | OI-0250 strip / Sz zeros pasture | **No.** Strip still shows pasture when F1 sticky nulls the **column**; Sz ignores F1 sticky for strip pasture. |
 | Calendar **past blocks** paint unknown as `dmi 0` / `Pasture 0%` | **Yes (code cite).** When `dmiKnown` is false, past-block wiring forces numeric zeros into the label. |
 | Season column **F1 sticky** blanks DMI for the whole window if any day has unmeasured hay | **Yes (locked OI-0246 F1 + list-parity).** Column only; strip path diverges under Sz. |
-| Tim was on budget-year default → many known-0 paddocks | **Withdrawn as the explanation for this report.** Tim’s window was **04/02/2026–10/07/2026** (**t1044u**). Build is **re-triaging** whether F1 sticky / unknown hay reaches **outside** that window. **Do not treat the window explanation as closed.** |
+| Tim was on budget-year default → many known-0 paddocks | **D CLOSED — not the t1044u column bug.** Early triage said zeros matched the budget-year default (2026-10-01→2027-09-30). **Withdrawn** after **t1044u** (Season was **04/02/2026–10/07/2026**). Build ~9:41 AM ET: F1 sticky is **inside the metric window only**; unmeasured hay outside that window does **not** null the Apr–Oct column. Recompute on `36bc946` + prod dump: E-1…E-5 column DMI **known** (`hayUnkIn=0`); strip totals match Tim (Total 100130, N 546). Build **cannot reproduce** Tim’s E-column em-dash on that window. Nov 17–22 hay only nulls E when the window includes those days (e.g. default Oct 1–Sep 30). |
+| Pasture 0% NOW is a separate NOW DMI path | **No.** Build: Pasture 0% NOW = calendar-grid season `m.dmiKnown` paint → axis **B**, not a separate NOW DMI path. |
 
 ### Out of this OI (ops / other tips)
 
@@ -57,7 +58,7 @@ Read on `origin/main` `36bc946`.
 - Redesigning OI-0250 strip layout or OI-0252 stack/width.
 - Past-event detail UI (feedback pile).
 - Forcing Tim to change Season window (ops/UI).
-- Declaring the window explanation closed before Build re-triage returns.
+- Reopening axis **D** (F1 window-scope + no SQL) — **CLOSED** ~9:41 AM ET.
 
 ## 4. Design axes (Tim lock)
 
@@ -75,25 +76,21 @@ Read on `origin/main` `36bc946`.
 | **C0** (Design lean) | **Keep** F1 season-sticky for the **column**: any unmeasured-hay day in the metric window → column DMI **—** for the season (current OI-0246 / list-parity). Strip stays Sz. Smallest change with **B1**. |
 | **C1** | **Stop** F1 season-sticky on the column; align column with OI-0250 **Sz** — missing-DM hay counts as **0** stored for that day, sum known days, do **not** blank the whole season for one bad hay day. Larger policy change; may need careful partial/Z1 wording. |
 
-### D0 — No SQL
+### D — F1 window scope + no SQL (**CLOSED**)
 
 | Token | Meaning |
 |---|---|
-| **D0** | No migration / no SQL / no data rewrite. Code: past-block paint (+ optional column sticky policy under **C1**). |
-
-### Withdrawn / open triage note (not a lock token)
-
-**Window explanation:** Early triage said Tim’s zeros matched the **new budget-year default** (2026-10-01→2027-09-30) with many known-0 paddocks. **Withdrawn** after **t1044u** — Tim’s Season metrics were **04/02/2026–10/07/2026**. Orchestrator is holding firm B/C card framing until Build reports whether **F1 sticky / unknown hay** is incorrectly reaching **outside** that window. If re-triage changes the options, Design will amend this tip / re-card; **do not treat the window explanation as closed.**
+| **D0 CLOSED** (Build ~9:41 AM ET) | F1 sticky is **inside the metric window only**. Unmeasured hay outside **04/02/2026–10/07/2026** does **not** null the Apr–Oct column. Recompute on `36bc946` + prod dump with Season 04/02–10/07: E-1…E-5 column DMI **known** (`hayUnkIn=0`); strip totals match Tim (Total 100130, N 546). Build **cannot reproduce** Tim’s E-column em-dash on that window. Nov 17–22 hay only nulls E when the window includes those days (e.g. default Oct 1–Sep 30). Pasture 0% NOW = calendar-grid season `m.dmiKnown` paint → axis **B**, not a separate NOW DMI path. No migration / no SQL / no data rewrite. |
 
 ## 5. Design recommendation
 
-**B1+C0+D0**
+**B1+C0** (**D0** closed)
 
 - **B1:** Past blocks must not lie with “Pasture 0%” when DMI is unknown — matches Z1 “—” for missing, and Tim’s screenshot (column already — while blocks say 0%).
 - **C0:** Keep column sticky for a small fix; strip already shows pasture under Sz. **C1** stays the alt if Tim wants column = strip.
-- **D0:** No SQL expected.
+- **D0 CLOSED:** F1 is window-scoped; not the t1044u E-column bug. No SQL. Pasture 0% NOW is axis **B** paint.
 
-**Hold:** Do not brief Build to implement until Tim locks **and** Build’s F1-vs-window re-triage has either confirmed the B/C framing or Design has amended tokens.
+**Hold:** Do not brief Build to implement until Tim locks **B/C**. Axis **D** is closed; B/C framing stands (**B1** vs **B0**, **C0** vs **C1**).
 
 ## 6. Acceptance (when locked + built)
 
@@ -105,5 +102,5 @@ Read on `origin/main` `36bc946`.
 
 ## 7. Tip instruction
 
-**PROPOSED** — Design lean **B1+C0+D0**. Docs only on this tip. **Do not land on main** until Tim yeses the land card after lock. **Do not** start Build from this tip until Tim locks and window/F1 re-triage is settled enough that B/C tokens still apply. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.
+**PROPOSED** — Design lean **B1+C0** (**D0** closed). Docs only on this tip. **Do not land on main** until Tim yeses the land card after lock. **Do not** start Build from this tip until Tim locks **B/C**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.
 

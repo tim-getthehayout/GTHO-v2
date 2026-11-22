@@ -1,6 +1,6 @@
 # Rotation axis label + readiness anchor + Map escape (OI-0261 / OI-0262 / OI-0263)
 
-**Status:** **PROPOSED** 2026-11-22 ~5:58 PM ET (America/New_York). Opened by GTHO Design from Tim feedback via Orchestrator: **t1265u** (5:52 PM ET), **t1266u** (5:53 PM ET), **t1267u** (5:54 PM ET, "Updated and it’s still the same issue"), **t1269u** (5:57 PM ET). Awaiting Tim lock cards. **No Build until locked.** No SQL / no migration / no data change for any of the three.
+**Status:** **OI-0261 LOCKED (Ml1)** and **OI-0262 LOCKED core (Ra1+Bd1+Pb1 Tim wording+Dz1; Gc + Sv OPEN)** 2026-11-22 6:02 PM ET (America/New_York) — Tim, 2026-11-22 6:02 PM ET, via Orchestrator, card **t1270s4938** (“Q1a: month name only, year shown on January”; “Q2a: band runs min to max”) + typed **t1270u** (Q3: “A but use “Estimated ready xxx” when there is no survey data. If a survey is done say “Surveyed on xxxx, estimated ready xxx” so the user knows that there is a difference in the reliability of the estimate. (Surveey more reliable)”) + typed **t1271u** (“Maybe readiness bands should be green but at a lower opacity to make more obvious ?”). **OI-0263 PROPOSED.** Opened 2026-11-22 ~5:58 PM ET (America/New_York). Opened by GTHO Design from Tim feedback via Orchestrator: **t1265u** (5:52 PM ET), **t1266u** (5:53 PM ET), **t1267u** (5:54 PM ET, "Updated and it’s still the same issue"), **t1269u** (5:57 PM ET). OI-0261 and the OI-0262 core are ready for Build once Tim lands the docs; OI-0262 Gc/Sv and OI-0263 await Tim cards. No SQL / no migration / no data change for any of the three.
 **Branch tip:** `docs/oi-axis-readiness` (parent `origin/main` `3dda55df2532e626f2521578705ba91fca5deade`, OI-0260 PR #145 live). Docs only — do not land until Tim land yes.
 **Repro:** all three reproduce on live main `3dda55d`. No commit in `10dcc42..3dda55d` touched `src/features/events/rotation-calendar` or `src/styles` (Tim's report stamp `b2026-11-22.2137-10dcc42`).
 
@@ -35,11 +35,11 @@ The J3-1 ready block (2026-12-03) lands at x 1281.7, between Dec 1 and Dec 5, wh
 
 **Introduced by:** OI-0254 **Tk1**, commit `da22c6d` (PR #135).
 
-### Options (axis **Ml**)
+### Locked: **Ml1** (Tim t1270s4938, 2026-11-22 6:02 PM ET: “Q1a: month name only, year shown on January”)
 
 | Code | Month-tick label | Note |
 |---|---|---|
-| **Ml1** (Design rec) | “Dec”; year only on January (“Jan 2027”) | Shortest; never looks like a day; year shows where it changes |
+| **Ml1** (LOCKED) | “Dec”; year only on January (“Jan 2027”) | Shortest; never looks like a day; year shows where it changes |
 | **Ml2** | “Dec 1” | Same format as Saturday ticks; still a real date |
 | **Ml3** | “Dec 2026” | Always unambiguous; widest label on phone |
 
@@ -94,33 +94,39 @@ Nov 3 + 30 = Dec 3 and Nov 3 + 60 = Jan 2, an exact match for both.
 
 | Code | Meaning |
 |---|---|
-| **Ra1** (Design rec) | Anchor on the **latest closed paddock window’s `date_closed`** for the location. Take min/max from the close observation whose `sourceId` is that window, else farm defaults (`default_recovery_min_days` / `_max_days`). Mirrors the REC-1 audit resolver. |
+| **Ra1** (LOCKED) | Anchor on the **latest closed paddock window’s `date_closed`** for the location. Take min/max from the close observation whose `sourceId` is that window, else farm defaults (`default_recovery_min_days` / `_max_days`). Mirrors the REC-1 audit resolver. |
 | **Ra0** (rejected) | Keep `observedAt`: wrong for every retroactive close (88/126). |
 
 **Bd — band meaning**
 
 | Code | Meaning |
 |---|---|
-| **Bd1** (Design rec) | Band runs **close + min → close + max**, per V2_DESIGN_SYSTEM §483 and REC-1 (V2_CALCULATION_SPEC §4.8). J2: **Sep 20 – Oct 20**. |
+| **Bd1** (LOCKED — Tim “Q2a: band runs min to max”) | Band runs **close + min → close + max**, per V2_DESIGN_SYSTEM §483 and REC-1 (V2_CALCULATION_SPEC §4.8). J2: **Sep 20 – Oct 20**. |
 | **Bd2** | Readiness starts at **close + max** (Tim’s “10/21” reading). Needs a spec change to REC-1 / §483 and a stated band end. |
 
 **Pb — bands already in the past**
 
 | Code | Meaning |
 |---|---|
-| **Pb1** (Design rec) | Paint the band at its true past dates, and add a status label **“Ready since &lt;min date&gt;”**, switching to **“Past max recovery”** once today is past max (confidence `past_max`). |
+| **Pb1** (LOCKED, Tim t1270u wording) | Paint every band at its true dates (past included). Label **“Estimated ready &lt;min date&gt;”** with no survey since the close; **“Surveyed on &lt;survey date&gt;, estimated ready &lt;date&gt;”** when a survey exists since the close (“Survey more reliable”). Replaces Design’s draft “Ready since / Past max recovery”. |
 | **Pb2** | Paint only, with no new label. |
 
-**Always (not optional):**
+### Open sub-questions (held for a Tim card; not locked)
+
+- **Gc — band colour (OPEN; Tim t1271u, not locked — conflict):** Tim asked for green at a lower opacity to make bands more obvious. Conflict on the calendar: solid `--color-green-base` already means **Pasture grazing** (past block `src/styles/main.css:3152-3156`, legend `legend.js:30`), and lighter green (`--color-green-light-2` at 0.8) means **linked / sub-move** (`main.css:3171-3174`, legend `:31`). The current band greens are `future-block--min` `--color-green-light` → `--color-green-light-2` gradient (starts near-white `#EAF3DE`, which is why it reads faint), `--mid` light-2 → base, `--max` base @ 0.8, `--past_max` base @ 0.6 (`main.css:3279-3295`; legend “DM recovery gradient” `main.css:2605`; spec V2_DESIGN_SYSTEM §483 `--green-wash` → `--green-base`). After **Ra1** most bands move into the past, next to grazing blocks, so a translucent green-base band reads as another grazing event. Options: **Gc1** (Design rec) one fill `color-mix(in srgb, var(--color-green-base) 35%, transparent)` (same mix pattern as the `--tint-*` tokens at 22%/45%, `main.css:141-142`) **plus a 1px dashed `--color-green-dark` border** so it never reads as a solid grazing block; confidence shown by the label, legend swatch renamed “Ready window (estimated)” · **Gc2** Tim’s literal ask: `--color-green-base` at ~0.35 opacity, no border (risk: reads as grazing / sub-move) · **Gc0** keep today’s gradient. Held for a Tim card; Build may ship everything else first.
+- **Sv — survey rule (OPEN; genuine product choice):** (a) A *survey* = a `paddock_observations` row with `source = 'survey'` (`type = 'open'`, `source_id` = `surveys.id`, `observed_at` = survey date `T12:00:00Z`; writers `src/features/surveys/index.js:384-400`, `src/features/locations/index.js:1018-1020`). It counts for the label only if its local date is **after** the anchoring window’s `date_closed`. (b) No readiness code derives a date from survey height / cover / quality: `readiness.js` has no forage-based rule, and FOR-6 (growth forecast, V2_CALCULATION_SPEC §4.3) is not used by readiness. Today `pickRecoveryObservation` (`readiness.js:34-43`) takes **any** observation with recovery days, surveys included, so a survey’s own min/max anchored on the survey date already drives the band by accident. V2_UX_FLOWS §7.5/§7.7 says survey recovery is entered as “days from survey date” and stored inverted to event-relative (`daysAlreadyRested`), but that inversion is **not implemented** (no `daysAlreadyRested` in `src/`; values stored as entered). (c) The spec does not settle which date a survey yields under the new anchor. Options: **Sv1** ready date stays close + min (close observation / farm defaults); the survey only switches the label to “Surveyed on &lt;date&gt;, estimated ready &lt;date&gt;” · **Sv2** when a survey after the close carries recovery days, band = survey date + survey min → survey date + survey max (UX_FLOWS §7.5 semantics; matches how values are stored today), and the label names the survey. Design lean **Sv2** (Tim: “Survey more reliable”), not locked. Prod today: 58 survey rows (56 with recovery days), latest 2026-04-09, **0** after any location’s last close, so neither option changes any current band. Held for a Tim card.
+
+**Always (LOCKED):**
 - **Dz1:** a DST-safe local `addDays` in REC-1 (parse `T00:00:00` local, format with a local Y-M-D, no `toISOString`).
 - When observation timestamps break ties, compare them by **local date**, not a UTC `slice(0, 10)`.
 - Strip grazing: whole-paddock readiness still requires all strips past their min (REC-1 note).
 
 ### Tests
-1. **Retroactive close:** observed 2026-11-03, window closed 2026-08-21, 30/60 → band **2026-09-20 – 2026-10-20** under Bd1.
+1. **Retroactive close:** observed 2026-11-03, window closed 2026-08-21, 30/60 → band **2026-09-20 – 2026-10-20**; label “Estimated ready Sep 20” (no survey since close).
 2. **Spring DST:** closed 2026-03-01 + 30 → **2026-03-31**.
 3. **UTC evening:** close observation at 2026-08-21T23:30-04:00 (UTC 08-22) does not move the anchor.
 4. Window with no matching close observation → farm defaults.
+5. A survey row dated after the close switches the label to “Surveyed on …, estimated ready …” (date rule per **Sv** once locked).
 
 ### Scope
 **No SQL, no migration, no data change.** Existing `observed_at` values stay as they are; the anchor moves to `date_closed`. The canvas right edge will pull in, because most bands end earlier.
@@ -182,7 +188,7 @@ Design does not guess; this goes on the lock card.
 
 ---
 
-## Lock card (proposed, for Orchestrator)
-1. **OI-0261:** Ml1 / Ml2 / Ml3 (rec **Ml1**).
-2. **OI-0262:** Ra1 (rec) · Bd1 / Bd2 (rec **Bd1**) · Pb1 / Pb2 (rec **Pb1**); Dz1 always.
+## Locks and open cards
+1. **OI-0261:** **LOCKED Ml1** (t1270s4938).
+2. **OI-0262:** **LOCKED Ra1+Bd1+Pb1(Tim wording)+Dz1** (t1270s4938 / t1270u). **Open card:** **Gc** (Gc1 rec / Gc2 Tim literal / Gc0) and **Sv** (Sv1 / Sv2, Design lean Sv2).
 3. **OI-0263:** Ex1 always (escape axis **Ex**) · Lf-A / Lf-B / Lf-C (Design lean **Lf-A**) · Tb1 / Tb2 / Tb3 (rec **Tb1**).

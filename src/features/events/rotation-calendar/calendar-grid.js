@@ -876,15 +876,16 @@ function renderManagementRow(opts) {
       // Wire real metrics into past block (retire zeros)
       const audsLabel = m.audsKnown ? Math.round(m.auds) : null;
       const dmiLabel = m.dmiKnown && m.dmiKg != null ? Math.round(m.dmiKg) : null;
+      const storedFeedOnly = !!pw.noPasture;
       blockArea.appendChild(renderPastBlock({
         leftPx,
         widthPx: pastWidthPx,
         groups: eventGroups,
         auds: audsLabel != null ? audsLabel : 0,
         days,
-        pasturePct: m.dmiKnown && m.dmiKg != null && m.dmiKg > 0 ? 100 : 0,
-        feedPct: 0,
-        dmi: dmiLabel != null ? dmiLabel : 0,
+        pasturePct: storedFeedOnly ? 0 : (m.dmiKnown && m.dmiKg != null && m.dmiKg > 0 ? 100 : 0),
+        feedPct: storedFeedOnly ? 100 : 0,
+        dmi: storedFeedOnly ? 0 : (dmiLabel != null ? dmiLabel : 0),
         headCount,
         isActive,
         isStripGraze: pw.isStripGraze || false,
@@ -892,6 +893,7 @@ function renderManagementRow(opts) {
         stripNote: null,
         isLinkedSecondary: !!linkedPaddocks[loc.id],
         linkedPrimaryName: linkedPaddocks[loc.id]?.name,
+        storedFeedOnly,
         eventId: event.id,
         onClickBlock: () => navigate('#/events'),
       }));

@@ -22,6 +22,7 @@ import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
+import { isNoPasturePw, renderStoredFeedOnlyCheckbox } from './no-pasture.js';
 import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 import { showToast } from '../../ui/toast.js';
@@ -89,6 +90,7 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
     existingEventId: null,
     destFarmId: farmId,    // Farm chip selection (default = source farm)
     stripGraze: false,
+    noPasture: false,
     stripSizePct: 100,
     stripCount: 1,
     // Close-out
@@ -108,7 +110,7 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
   };
 
   const seed = opts.initialFields || {};
-  for (const key of ['destType','locationId','locationIds','feedLocationId','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount','dateOut','timeOut','dateIn','timeIn']) if (Object.hasOwn(seed,key)) state[key] = seed[key];
+  for (const key of ['destType','locationId','locationIds','feedLocationId','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount','noPasture','dateOut','timeOut','dateIn','timeIn']) if (Object.hasOwn(seed,key)) state[key] = seed[key];
   if (opts.review && ['new','join'].includes(state.destType)) state.step = 3;
   function render() {
     clear(panel);
@@ -301,7 +303,9 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
   // `if (postGraze)` guards (lines 574, 724) skip validation + getValues.
   const farmSettings = getAll('farmSettings')[0] || null;
   let postGraze = null;
-  if ((mode === 'full-event' || mode === 'scoped-last') && sourceLocationType === 'land') {
+  // OI-0256 Sk1: skip close residual when source window is no_pasture.
+  const sourceSkipsResidual = sourceLocationType !== 'land' || isNoPasturePw(sourcePW);
+  if ((mode === 'full-event' || mode === 'scoped-last') && !sourceSkipsResidual) {
     postGraze = renderPostGrazeCard({ farmSettings,initialValues: opts.initialFields?.postGraze || {} });
     postGraze.container.setAttribute('data-testid', 'move-wizard-post-graze-card');
     closeSection.appendChild(postGraze.container);
@@ -353,19 +357,28 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
     // destination type. Existing-event ('join') path is already gated by
     // the enclosing `state.destType === 'new'` block above.
     if (allDestLand) {
-      openSection.appendChild(el('div', {
-        className: 'form-hint',
-        'data-testid': 'move-wizard-dest-pregraze-hint',
-        style: { marginTop: 'var(--space-2)', marginBottom: 'var(--space-2)' },
-      }, [t('event.destPreGrazeHint')]));
-      preGraze = renderPreGrazeCard({
-        farmSettings,
-        paddockAcres: summedPaddockAcres(destIds),
-        initialValues: opts.initialFields?.preGraze || {},
-        titleKey: 'event.destPreGrazeTitle',
+      const storedFeedOnly = renderStoredFeedOnlyCheckbox({
+        checked: !!state.noPasture,
+        testId: 'move-wizard-no-pasture',
+        onChange: (v) => { state.noPasture = v; parentRender(); },
       });
-      preGraze.container.setAttribute('data-testid', 'move-wizard-pre-graze-card');
-      openSection.appendChild(preGraze.container);
+      openSection.appendChild(storedFeedOnly.container);
+      // OI-0256 Sk1: skip dest pre-graze when no_pasture.
+      if (!state.noPasture) {
+        openSection.appendChild(el('div', {
+          className: 'form-hint',
+          'data-testid': 'move-wizard-dest-pregraze-hint',
+          style: { marginTop: 'var(--space-2)', marginBottom: 'var(--space-2)' },
+        }, [t('event.destPreGrazeHint')]));
+        preGraze = renderPreGrazeCard({
+          farmSettings,
+          paddockAcres: summedPaddockAcres(destIds),
+          initialValues: opts.initialFields?.preGraze || {},
+          titleKey: 'event.destPreGrazeTitle',
+        });
+        preGraze.container.setAttribute('data-testid', 'move-wizard-pre-graze-card');
+        openSection.appendChild(preGraze.container);
+      }
     }
 
     panel.appendChild(openSection);
@@ -619,7 +632,7 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
   ]));
 
   const fields = Object.fromEntries(Object.entries(inputs).map(([key,input]) => [key,inputField(input)]));
-  for (const key of ['destType','locationId','locationIds','feedLocationId','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount']) fields[key] = stateField(state,key);
+  for (const key of ['destType','locationId','locationIds','feedLocationId','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount','noPasture']) fields[key] = stateField(state,key);
   if (postGraze) fields.postGraze = observationField(postGraze);
   if (preGraze) fields.preGraze = observationField(preGraze);
   for (const toggle of transferToggles || []) {
@@ -949,7 +962,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         dateIn,
         timeIn,
         groupSnapshots: sourceGroupState,
-        preGrazeValues: preGraze ? preGraze.getValues() : {},
+        preGrazeValues: state.noPasture ? null : (preGraze ? preGraze.getValues() : {}),
       });
 
       // Step 8: Feed transfer — only 'move' lines write a destination delivery row.

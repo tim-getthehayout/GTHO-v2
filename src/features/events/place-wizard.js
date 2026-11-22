@@ -21,6 +21,7 @@ import { getAll, getById } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { logger } from '../../utils/logger.js';
 import { renderPreGrazeCard } from '../observations/pre-graze-card.js';
+import { renderStoredFeedOnlyCheckbox } from './no-pasture.js';
 import { showToast } from '../../ui/toast.js';
 import {
   renderStep1, renderStep2, createDestinationEvent, joinExistingEvent,
@@ -86,6 +87,7 @@ export function openPlaceWizard(groupId, operationId, farmId, options = {}) {
     existingEventId: null,
     destFarmId: farmId,
     stripGraze: false,
+    noPasture: false,
     stripSizePct: 100,
     stripCount: 1,
     dateIn: todayStr,
@@ -96,7 +98,7 @@ export function openPlaceWizard(groupId, operationId, farmId, options = {}) {
 
   state.assistantReview = !!options.review;
   const seed = options.initialFields || {};
-  for (const key of ['destType','locationId','locationIds','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount','dateIn','timeIn']) if (Object.hasOwn(seed,key)) state[key] = seed[key];
+  for (const key of ['destType','locationId','locationIds','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount','noPasture','dateIn','timeIn']) if (Object.hasOwn(seed,key)) state[key] = seed[key];
   if (options.review && ['new','join'].includes(state.destType)) state.step = 3;
   function render() {
     clear(panel);
@@ -170,12 +172,22 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender, opt
   inputs.timeIn.addEventListener('input', () => { state.timeIn = inputs.timeIn.value; });
   openSection.appendChild(inputs.timeIn);
 
+  // OI-0256 Lv1 checkbox on new land destinations.
+  let storedFeedOnly = null;
+  if (state.destType === 'new' && allDestLand) {
+    storedFeedOnly = renderStoredFeedOnlyCheckbox({
+      checked: !!state.noPasture,
+      testId: 'place-wizard-no-pasture',
+      onChange: (v) => { state.noPasture = v; parentRender(); },
+    });
+    openSection.appendChild(storedFeedOnly.container);
+  }
+
   // Pre-graze card — only on new + land. Confinement destinations (no
-  // residual-height meaning) and the join branch (existing event already
-  // has a pre-graze obs from when its paddock window opened) skip it.
+  // residual-height meaning), join branch, and OI-0256 Sk1 no_pasture skip it.
   let preGraze = null;
   const farmSettings = getAll('farmSettings')[0] || null;
-  if (state.destType === 'new' && allDestLand) {
+  if (state.destType === 'new' && allDestLand && !state.noPasture) {
     preGraze = renderPreGrazeCard({
       farmSettings,
       paddockAcres: summedPaddockAcres(destIds),
@@ -230,7 +242,7 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender, opt
     saveBtn,
   ]));
   const fields = { dateIn: inputField(inputs.dateIn),timeIn: inputField(inputs.timeIn) };
-  for (const key of ['destType','locationId','locationIds','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount']) fields[key] = stateField(state,key);
+  for (const key of ['destType','locationId','locationIds','existingEventId','destFarmId','stripGraze','stripSizePct','stripCount','noPasture']) fields[key] = stateField(state,key);
   if (preGraze) fields.preGraze = observationField(preGraze);
   options.review?.bind({ ui: 'Place wizard',close: () => placeWizardSheet.close(),onError: () => { saveBtn.disabled = false; },entityType: 'events',status: statusEl,fields: bindEntryFields(PLACE_ENTRY_FIELDS, fields),savedRecordId: () => state.destType === 'join' ? state.existingEventId : null });
 

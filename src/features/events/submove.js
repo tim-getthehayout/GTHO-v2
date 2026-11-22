@@ -17,6 +17,7 @@ import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { isConfinementLocation, wrapInactiveForage } from './confinement-forage-ui.js';
+import { isNoPasturePw, renderStoredFeedOnlyCheckbox } from './no-pasture.js';
 
 // ---------------------------------------------------------------------------
 // Sub-move open sheet (CP-18)
@@ -69,11 +70,23 @@ export function openSubmoveOpenSheet(evt, operationId) {
   // confinement location stays visible but inactive and gets no observation.
   const farmSettings = getAll('farmSettings')[0] || null;
   const preGraze = renderPreGrazeCard({ farmSettings, paddockAcres: null, initialValues: {} });
+  // OI-0256 Lv1: 100% Stored Feed for paddocks opened in this Save.
+  let noPastureFlag = false;
+  const storedFeedOnly = renderStoredFeedOnlyCheckbox({
+    checked: false,
+    testId: 'submove-open-no-pasture',
+    onChange: (v) => {
+      noPastureFlag = v;
+      renderPreGrazeCards();
+    },
+  });
   const preGrazeWrap = el('div', { 'data-testid': 'submove-open-pregraze' }, [preGraze.container]);
   function selectedIds() {
     return selection.locationIds.length ? selection.locationIds : (selection.locationId ? [selection.locationId] : []);
   }
   function landIds() {
+    // Sk1: when no_pasture, treat like confinement for residual prompts.
+    if (noPastureFlag) return [];
     return selectedIds().filter(id => !isConfinementLocation(getById('locations', id)));
   }
   function renderPreGrazeCards() {
@@ -101,6 +114,7 @@ export function openSubmoveOpenSheet(evt, operationId) {
     onSelect: () => { renderPreGrazeCards(); },
   });
   panel.appendChild(locPickerEl);
+  panel.appendChild(storedFeedOnly.container);
   panel.appendChild(preGrazeWrap);
 
   const statusEl = el('div', { className: 'auth-error', 'data-testid': 'submove-open-status' });
@@ -132,11 +146,13 @@ export function openSubmoveOpenSheet(evt, operationId) {
             locationIds,
             dateOpened: inputs.dateOpened.value,
             timeOpened: inputs.timeOpened.value || null,
+            noPasture: noPastureFlag,
           });
           const observedAt = new Date().toISOString();
           const values = landIds().length ? preGraze.getValues() : null;
           for (const pw of windows) {
             if (isConfinementLocation(getById('locations', pw.locationId))) continue;
+            if (isNoPasturePw(pw)) continue; // OI-0256 Sk1
             createObservation(operationId, pw.locationId, 'open', pw.id, observedAt, values);
           }
           submoveOpenSheet.close();
@@ -212,8 +228,9 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
   const farmSettings2 = getAll('farmSettings')[0] || null;
   const postGraze = renderPostGrazeCard({ farmSettings: farmSettings2 });
   const postGrazeWrap = el('div', { 'data-testid': 'submove-close-postgraze' });
-  const landWindows = windows.filter(pw => !isConfinementLocation(getById('locations', pw.locationId)));
-  const confinementWindows = windows.filter(pw => isConfinementLocation(getById('locations', pw.locationId)));
+  // OI-0256 Sk1: no_pasture windows skip close residual (same as confinement).
+  const landWindows = windows.filter(pw => !isConfinementLocation(getById('locations', pw.locationId)) && !isNoPasturePw(pw));
+  const confinementWindows = windows.filter(pw => isConfinementLocation(getById('locations', pw.locationId)) || isNoPasturePw(pw));
   if (landWindows.length) postGrazeWrap.appendChild(postGraze.container);
   for (const pw of confinementWindows) {
     const loc = getById('locations', pw.locationId);
@@ -353,7 +370,7 @@ export function openSubmoveCloseSheet(paddockWindow, _operationId) {
           const values = landWindows.length ? postGraze.getValues() : null;
           for (const pw of windows) {
             closePaddockWindow(pw.locationId, pw.eventId, dateClosed, timeClosed);
-            if (isConfinementLocation(getById('locations', pw.locationId))) continue;
+            if (isConfinementLocation(getById('locations', pw.locationId)) || isNoPasturePw(pw)) continue;
             createObservation(pw.operationId, pw.locationId, 'close', pw.id, observedAt, values);
           }
 

@@ -3093,6 +3093,19 @@ body:has(.auth-overlay) .pwa-update-banner {
   opacity: 0.8;
 }
 
+/* OI-0256 Pn1: 100% Stored Feed / no_pasture -> tan (matches legend hay swatch) */
+.past-block--stored-feed {
+  background: #D4A76A;
+  color: var(--text);
+}
+.past-block--stored-feed.past-block--active {
+  box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 5px var(--color-tan-dark);
+}
+.past-block--stored-feed.past-block--linked {
+  background: var(--color-tan-light);
+  opacity: 0.9;
+}
+
 .past-block__content {
   position: relative;
   z-index: 1;

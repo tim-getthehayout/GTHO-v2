@@ -33,6 +33,7 @@ import {
 import { renderPastBlock } from './past-block.js';
 import { openPastEventDetailSheet } from './past-event-detail-sheet.js';
 import { renderEstimatedFutureBlock, renderForecastFutureBlock } from './future-block.js';
+import { shouldPaintCap1ForecastStub, CAP1_FORECAST_STUB } from './forecaster-helpers.js';
 import { renderHeaderStrip } from './header-strip.js';
 import { renderToolbar } from './toolbar.js';
 import { renderLegend } from './legend.js';
@@ -993,16 +994,21 @@ function renderManagementRow(opts) {
   stubEnd.setDate(stubEnd.getDate() + Math.max(14, defaultSpanDays(state.zoom || 'week')));
   if (stubEnd.getTime() > range.end.getTime()) stubEnd.setTime(range.end.getTime());
 
-  if (viewMode === 'forecast' && selectedGroups.length > 0 && state.period != null && range.end > nowD) {
+  // OI-0257 St1: never paint CAP-1 stub zeros (tan "0 lbs hay"); keep green readiness
+  // where there is pasture. Real forecast capacity paint waits on Fx1 (parked).
+  if (
+    shouldPaintCap1ForecastStub({ viewMode, selectedGroups, period: state.period })
+    && viewMode === 'forecast'
+    && selectedGroups.length > 0
+    && state.period != null
+    && range.end > nowD
+  ) {
     const futureLeftPx = dateToPx(nowD, range.start, range.pxPerDay);
     const futureWidthPx = Math.max(4, dateToPx(stubEnd, range.start, range.pxPerDay) - futureLeftPx);
     blockArea.appendChild(renderForecastFutureBlock({
       leftPx: Math.max(0, futureLeftPx),
       widthPx: futureWidthPx,
-      coverageFraction: 0,
-      coversHours: 0,
-      shortfallLbsHay: 0,
-      surplusHours: 0,
+      ...CAP1_FORECAST_STUB,
       isNeverGrazed,
       isGrazingInProgress: hasActiveEvent,
       hayEstimateLbs: '?',

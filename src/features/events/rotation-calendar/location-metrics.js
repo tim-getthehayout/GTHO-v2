@@ -1,20 +1,29 @@
 /**
  * @file Location management metrics over a date window (compute-on-read).
- * AGREED: W1 window, M0 DMI/AUDs/NPK/score, A1 totals+per-acre, N1 separate N/P/K,
- * X1 pasture + mixed-use only. Unknowns are null (UI shows "—"), never silent 0.
- * OI-0249 Zp+Gg: season DMI/NPK sum known group slices and mark partial;
- * dash only when nothing known remains; never-present is 0. AUDs (Ua) and
- * Score (Sc) are unchanged. Closed snapshots are trusted as stored (Rt).
+ * LOCKED formula: S1+F1(DMI)+L1+H0+C1+Z1 with NPK Ns+R1+Kc.
+ * W1 window, M0 columns, A1 totals+per-acre, N1 separate N/P/K, X1 pasture+mixed-use.
+ * Unknowns are null (UI shows "—"), never silent 0. Never-present → known 0 (Z1).
+ * OI-0249 Zp+Gg: season DMI/NPK sum known group-weight slices and mark partial;
+ * dash only when nothing known remains. AUDs (Ua) and Score (Sc) unchanged.
+ * Closed snapshots trusted as stored (Rt). F1 unmeasured-hay and R1 residual
+ * unknowns stay season-sticky (list-parity locks not reopened).
  */
 
 import { getCalcByName } from '../../../utils/calc-registry.js';
-import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr, rowInstant } from '../../../utils/date-utils.js';
 import {
   getLiveWindowHeadCount,
   getLiveWindowAvgWeight,
   groupWindowsDailyDemand,
+  eventOpenOn,
 } from '../../../calcs/window-helpers.js';
-import { groupWindowPresenceDays } from '../../../calcs/partial-day-demand.js';
+import {
+  groupWindowPresenceDays,
+  localDayStartMs,
+  localDayEndMs,
+  localHoursInDay,
+} from '../../../calcs/partial-day-demand.js';
+import { localInstantMs, poolDailyObservation, poolHistory, replayFeedPools, feedSnapshot } from '../../../calcs/feed-pools.js';
 import { openPaddockWindowsOnDate } from '../../../calcs/location-type.js';
 import { periodContaining, DEFAULT_BUDGET_PERIOD } from '../../../calcs/budget-period.js';
 
@@ -34,7 +43,6 @@ export function deriveEventStartDate(eventId, { paddockWindows = [], groupWindow
   }
   return earliest || event?.dateIn || null;
 }
-
 
 /** X1: pasture + mixed-use land only. */
 export function isManagementLocation(loc) {
@@ -68,25 +76,6 @@ export function eachDateInclusive(start, end) {
   return out;
 }
 
-function clipPresenceDays(gw, { eventStartDate, eventDateOut, eventTimeOut, windowStart, windowEnd, throughDate }) {
-  const full = groupWindowPresenceDays(gw, {
-    eventStartDate,
-    eventDateOut,
-    eventTimeOut,
-    throughDate,
-  });
-  if (!(full > 0) || !eventStartDate) return 0;
-  const gwStart = gw.dateJoined || eventStartDate;
-  const gwEnd = gw.dateLeft || eventDateOut || throughDate;
-  const overlapStart = [gwStart, windowStart].filter(Boolean).sort().pop();
-  const overlapEnd = [gwEnd, windowEnd].filter(Boolean).sort()[0];
-  if (!overlapStart || !overlapEnd || overlapEnd < overlapStart) return 0;
-  const overlapDays = daysBetweenInclusive(overlapStart, overlapEnd);
-  const span = daysBetweenInclusive(gwStart, gwEnd);
-  if (!(span > 0)) return 0;
-  return full * (overlapDays / span);
-}
-
 function effectiveAreaHa(pw, locationsById) {
   const loc = locationsById.get(pw.locationId);
   const ha = Number(loc?.areaHectares);
@@ -96,6 +85,68 @@ function effectiveAreaHa(pw, locationsById) {
   return area * frac;
 }
 
+function acresOf(location) {
+  const ha = Number(location?.areaHectares);
+  if (!Number.isFinite(ha) || ha <= 0) return null;
+  return ha * HA_TO_ACRES;
+}
+
+function mapById(rows) {
+  if (!rows) return {};
+  if (!Array.isArray(rows)) return rows;
+  return Object.fromEntries(rows.map(r => [r.id, r]));
+}
+
+function groupPresentOnDate(gw, date) {
+  if (!gw || !date) return false;
+  const open = gw.dateJoined || '9999-12-31';
+  if (open > date) return false;
+  if (gw.dateLeft && gw.dateLeft <= date) return false;
+  return true;
+}
+
+/**
+ * TIM-3 presence fraction (0–1) for a group window on one local calendar day.
+ * Open through end-of-day of `throughDate` when the window has no close.
+ */
+export function groupPresenceFractionOnDate(gw, date, {
+  eventDateOut = null,
+  eventTimeOut = null,
+  throughDate = null,
+} = {}) {
+  if (!groupPresentOnDate(gw, date)) return 0;
+  const openDate = gw.dateJoined;
+  if (!openDate) return 0;
+  const openMs = openDate < date
+    ? localDayStartMs(date)
+    : localInstantMs(openDate, gw.timeJoined);
+  let closeMs;
+  if (gw.dateLeft) {
+    closeMs = gw.dateLeft > date
+      ? localDayEndMs(date)
+      : localInstantMs(gw.dateLeft, gw.timeLeft || '23:59');
+  } else if (eventDateOut) {
+    closeMs = eventDateOut > date
+      ? localDayEndMs(date)
+      : localInstantMs(eventDateOut, eventTimeOut || '23:59');
+  } else if (throughDate) {
+    closeMs = throughDate > date ? localDayEndMs(date) : localDayEndMs(throughDate);
+  } else {
+    return 0;
+  }
+  const dayStart = localDayStartMs(date);
+  const dayEnd = localDayEndMs(date);
+  const from = Math.max(dayStart, openMs);
+  const to = Math.min(dayEnd, closeMs);
+  if (to <= from) return 0;
+  const hours = (to - from) / 3600000;
+  const dayHours = localHoursInDay(date);
+  if (!(dayHours > 0)) return 0;
+  const frac = hours / dayHours;
+  if (frac <= 0) return 0;
+  if (frac >= 1) return 1;
+  return Math.round(frac * 10000) / 10000;
+}
 
 /**
  * Overlap clip of a paddock window against [windowStart, windowEnd].
@@ -116,10 +167,177 @@ export function clipWindowToRange(pw, event, windowStart, windowEnd, today, ctx 
   return { start, end, days: daysBetweenInclusive(start, end) };
 }
 
+function acreShareForLocation(eventOpen, locationId, locationsById) {
+  if (!eventOpen.length) return 0;
+  const weights = eventOpen.map(pw => effectiveAreaHa(pw, locationsById));
+  const sumW = weights.reduce((s, a) => s + a, 0);
+  const mine = eventOpen.filter(pw => pw.locationId === locationId);
+  const myW = mine.reduce((s, pw) => s + effectiveAreaHa(pw, locationsById), 0);
+  if (sumW > 0) return myW / sumW;
+  return mine.length / Math.max(1, eventOpen.length);
+}
+
+/**
+ * Resolve N/P/K percents for a residual batch: latest nutritional profile, else feed type.
+ * Returns { n, p, k } with nulls when missing.
+ */
+function finitePct(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function resolveResidualNpkPercents({ batchId, feedTypeId, batchNutritionalProfiles = [], feedTypes = {} } = {}) {
+  const types = mapById(feedTypes);
+  let n = null;
+  let p = null;
+  let k = null;
+  if (batchId) {
+    const latest = (batchNutritionalProfiles || [])
+      .filter(pr => pr.batchId === batchId)
+      .slice()
+      .sort((a, b) => String(b.testedAt || '').localeCompare(String(a.testedAt || '')))[0];
+    if (latest) {
+      n = finitePct(latest.nPct);
+      p = finitePct(latest.pPct);
+      k = finitePct(latest.kPct);
+    }
+  }
+  const ftId = feedTypeId || null;
+  const ft = ftId ? types[ftId] : null;
+  if (n == null) n = finitePct(ft?.nPct);
+  if (p == null) p = finitePct(ft?.pPct);
+  if (k == null) k = finitePct(ft?.kPct);
+  return { n, p, k };
+}
+
+/**
+ * Measured hay status for one event on one date (F1).
+ * @returns {{ kind: 'none' } | { kind: 'measured', dmKg: number } | { kind: 'unknown' }}
+ */
+export function measuredHayOnEventDay({
+  eventId,
+  date,
+  feedEntries = [],
+  feedChecks = [],
+  feedCheckItems = [],
+  batches = {},
+  feedTypes = {},
+} = {}) {
+  const batchMap = mapById(batches);
+  const typeMap = mapById(feedTypes);
+  const eventChecks = (feedChecks || []).filter(c => c.eventId === eventId);
+  const checkIds = new Set(eventChecks.map(c => c.id));
+  const items = (feedCheckItems || []).filter(i => checkIds.has(i.feedCheckId));
+  const entries = (feedEntries || []).filter(e => e.eventId === eventId);
+  const input = {
+    eventId,
+    entries,
+    checks: eventChecks,
+    items,
+    batches: batchMap,
+    feedTypes: typeMap,
+  };
+  const history = poolHistory(input);
+  if (!history.identities.size) return { kind: 'none' };
+
+  const observed = poolDailyObservation(input, date);
+  const after = replayFeedPools(input, { through: rowInstant(date, '23:59:59.999') });
+  let active = 0;
+  let measured = 0;
+  let dmKg = 0;
+  let unknown = false;
+  for (const key of history.identities.keys()) {
+    const obs = observed.get(key);
+    const pool = after.get(key);
+    const holds = !!pool && (pool.m == null || pool.m !== 0 || (pool.q != null && pool.q !== 0));
+    if (!obs && !holds) continue;
+    active += 1;
+    if (!obs || obs.dm == null) {
+      if (obs) unknown = true;
+      else if (holds) unknown = true;
+      continue;
+    }
+    measured += 1;
+    dmKg += obs.dm;
+  }
+  if (active === 0) return { kind: 'none' };
+  if (unknown || measured !== active) return { kind: 'unknown' };
+  return { kind: 'measured', dmKg };
+}
+
+/**
+ * Residual-feed NPK (R1) left on `locationId` from close readings in the window.
+ * Missing percent on a positive residual → unknown (null totals), not silent 0.
+ */
+export function residualFeedNpkForLocation(locationId, {
+  windowStart,
+  windowEnd,
+  events = [],
+  feedChecks = [],
+  feedCheckItems = [],
+  batches = {},
+  feedTypes = {},
+  batchNutritionalProfiles = [],
+} = {}) {
+  const batchMap = mapById(batches);
+  const typeMap = mapById(feedTypes);
+  let nKg = 0;
+  let pKg = 0;
+  let kKg = 0;
+  let unknown = false;
+  let any = false;
+
+  for (const check of feedChecks || []) {
+    if (!check?.isCloseReading) continue;
+    if (!check.date || check.date < windowStart || check.date > windowEnd) continue;
+    const event = (events || []).find(e => e.id === check.eventId);
+    if (!event?.dateOut) continue;
+    // Residual only counts when the close reading is in-window for a closed event.
+    const items = (feedCheckItems || []).filter(i => i.feedCheckId === check.id && i.locationId === locationId);
+    for (const item of items) {
+      const qty = Number(item.remainingQuantity);
+      if (!(Number.isFinite(qty)) || qty <= 0) continue;
+      any = true;
+      const batch = item.batchId ? batchMap[item.batchId] : null;
+      const snap = item.feedTypeId
+        ? {
+          feedTypeId: item.feedTypeId,
+          weight: item.weightPerUnitKgSnapshot,
+          dmPct: item.dmPctSnapshot,
+        }
+        : feedSnapshot(item, batchMap);
+      const weight = Number(snap.weight ?? item.weightPerUnitKgSnapshot ?? batch?.weightPerUnitKg);
+      const dmPct = Number(snap.dmPct ?? item.dmPctSnapshot ?? batch?.dmPct);
+      if (!(Number.isFinite(weight) && weight > 0) || !(Number.isFinite(dmPct) && dmPct > 0)) {
+        unknown = true;
+        continue;
+      }
+      const dmMass = qty * weight * dmPct / 100;
+      const feedTypeId = snap.feedTypeId || item.feedTypeId || batch?.feedTypeId || null;
+      const pct = resolveResidualNpkPercents({
+        batchId: item.batchId,
+        feedTypeId,
+        batchNutritionalProfiles,
+        feedTypes: typeMap,
+      });
+      if (pct.n == null || pct.p == null || pct.k == null) {
+        unknown = true;
+        continue;
+      }
+      nKg += dmMass * pct.n / 100;
+      pKg += dmMass * pct.p / 100;
+      kKg += dmMass * pct.k / 100;
+    }
+  }
+
+  if (!any) return { nKg: 0, pKg: 0, kKg: 0, known: true };
+  if (unknown) return { nKg: null, pKg: null, kKg: null, known: false };
+  return { nKg, pKg, kKg, known: true };
+}
+
 /**
  * Compute management metrics for one location over [windowStart, windowEnd].
- * Returns totals; per-acre fields are null when acres unknown.
- * DMI/score use null for unknown (never silent 0 when data is missing).
  */
 export function computeLocationMetrics(location, ctx) {
   const {
@@ -136,6 +354,11 @@ export function computeLocationMetrics(location, ctx) {
     locations = [],
     observations = [],
     feedEntries = [],
+    feedChecks = [],
+    feedCheckItems = [],
+    batches = [],
+    feedTypes = [],
+    batchNutritionalProfiles = [],
   } = ctx;
 
   const empty = {
@@ -179,81 +402,14 @@ export function computeLocationMetrics(location, ctx) {
   let eventIds = new Set();
   let npkKnownSlices = 0;
   let npkUnknownSlices = 0;
+  let npkResidualUnknown = false; // R1 sticky
   let dmiKg = 0;
   let dmiDays = 0;
   let dmiKnownSlices = 0;
   let dmiUnknownSlices = 0;
+  let dmiHayUnknown = false; // F1 sticky
   let anyDemandDay = false;
 
-  // AUDs + NPK: walk events that touched this location in the window
-  const eventIdsTouched = new Set(locPws.map(pw => pw.eventId));
-  for (const eventId of eventIdsTouched) {
-    const event = (events || []).find(e => e.id === eventId);
-    if (!event) continue;
-    const eventStart = deriveEventStartDate(event.id, { paddockWindows, groupWindows, event }) || event.dateIn;
-    if (!eventStart) continue;
-
-    const eventPws = (paddockWindows || []).filter(pw => pw.eventId === eventId);
-    const myPws = eventPws.filter(pw => pw.locationId === location.id);
-    const clipped = myPws
-      .map(pw => ({ pw, clip: clipWindowToRange(pw, event, windowStart, windowEnd, today, { paddockWindows, groupWindows }) }))
-      .filter(x => x.clip);
-    if (!clipped.length) continue;
-
-    eventIds.add(eventId);
-    const gws = (groupWindows || []).filter(gw => gw.eventId === eventId);
-    const shareDenom = Math.max(1, eventPws.length);
-    // Prefer area-weighted share when acres known on any open window
-    let areaWeights = eventPws.map(pw => effectiveAreaHa(pw, locationsById));
-    const areaSum = areaWeights.reduce((s, a) => s + a, 0);
-    const myArea = myPws.reduce((s, pw) => s + effectiveAreaHa(pw, locationsById), 0);
-    const share = areaSum > 0 ? myArea / areaSum : (myPws.length / shareDenom);
-
-    for (const gw of gws) {
-      const now = gw.dateLeft || event.dateOut || today;
-      const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
-      const liveAvg = getLiveWindowAvgWeight(gw, {
-        memberships, animals, animalClasses, animalWeightRecords, now,
-      });
-      const days = clipPresenceDays(gw, {
-        eventStartDate: eventStart,
-        eventDateOut: event.dateOut,
-        eventTimeOut: event.timeOut,
-        windowStart,
-        windowEnd,
-        throughDate: today,
-      });
-      if (!(days > 0) || !(liveHead > 0)) continue;
-
-      const au = aniAu
-        ? aniAu.fn({ headCount: liveHead, avgWeightKg: liveAvg || 0 })
-        : (liveHead * (liveAvg || 0)) / 453.6;
-      const eventAuds = aniAud ? aniAud.fn({ au, days }) : au * days;
-      auds += eventAuds * share;
-
-      const cls = (animalClasses || []).find(ac => ac.id === gw.animalClassId) || null;
-      if (npk1 && liveAvg > 0) {
-        const r = npk1.fn({
-          headCount: liveHead,
-          avgWeightKg: liveAvg,
-          days,
-          excretionNRate: cls?.excretionNRate ?? DEFAULT_EXC.n,
-          excretionPRate: cls?.excretionPRate ?? DEFAULT_EXC.p,
-          excretionKRate: cls?.excretionKRate ?? DEFAULT_EXC.k,
-        });
-        nKg += (r.nKg ?? 0) * share;
-        pKg += (r.pKg ?? 0) * share;
-        kKg += (r.kKg ?? 0) * share;
-        npkKnownSlices += 1;
-      } else if (liveHead > 0 && !(liveAvg > 0)) {
-        npkUnknownSlices += 1;
-      }
-    }
-  }
-
-  // Implied pasture DMI: presence-weighted share of daily demand − stored, days loc open.
-  // eventOpenOn (via farmDemandWindowsOn) requires dateIn; events no longer store it
-  // (derived from child windows). Stamp the same way feedRunRateInput does.
   const classMap = Array.isArray(animalClasses)
     ? Object.fromEntries((animalClasses || []).map(c => [c.id, c]))
     : (animalClasses || {});
@@ -263,6 +419,7 @@ export function computeLocationMetrics(location, ctx) {
       || deriveEventStartDate(event.id, { paddockWindows, groupWindows, event }),
     dateOut: event.dateOut ?? null,
   })).filter(e => e.dateIn);
+  const eventsById = new Map((events || []).map(e => [e.id, e]));
   const demandOpts = {
     groupWindows,
     memberships,
@@ -272,18 +429,85 @@ export function computeLocationMetrics(location, ctx) {
     events: eventsForDemand,
     groups: [],
   };
-  const feedByEventDate = indexFeedDmByEventDate(feedEntries || []);
 
-  for (const date of eachDateInclusive(windowStart, windowEnd > today ? today : windowEnd)) {
+  const through = windowEnd > today ? today : windowEnd;
+  for (const date of eachDateInclusive(windowStart, through)) {
     const openHere = openPaddockWindowsOnDate(locPws, { date });
+    if (openHere.length) anyDemandDay = true;
+
+    // --- AUDs + excretion NPK (Kc) via S1 day×acres among open paddocks ---
+    const eventIdsToday = new Set([
+      ...openHere.map(pw => pw.eventId),
+      // Also walk events whose group is present even if this loc's pw list was empty that day
+    ]);
+    // Prefer events that touch this location historically (any pw), open today farm-wide
+    for (const pw of locPws) eventIdsToday.add(pw.eventId);
+
+    for (const eventId of eventIdsToday) {
+      const event = eventsById.get(eventId);
+      if (!event) continue;
+      const eventStart = deriveEventStartDate(event.id, { paddockWindows, groupWindows, event }) || event.dateIn;
+      if (!eventStart) continue;
+      const decorated = { id: event.id, dateIn: eventStart, dateOut: event.dateOut ?? null };
+      if (!eventOpenOn(decorated, date)) continue;
+
+      const eventOpen = openPaddockWindowsOnDate(paddockWindows, { eventId, date });
+      const openMine = eventOpen.filter(pw => pw.locationId === location.id);
+      if (!openMine.length) continue;
+
+      eventIds.add(eventId);
+      const share = acreShareForLocation(eventOpen, location.id, locationsById);
+      if (!(share > 0)) continue;
+
+      const gws = (groupWindows || []).filter(gw => gw.eventId === eventId && groupPresentOnDate(gw, date));
+      for (const gw of gws) {
+        const now = gw.dateLeft || event.dateOut || today;
+        const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
+        if (!(liveHead > 0)) continue;
+        const frac = groupPresenceFractionOnDate(gw, date, {
+          eventDateOut: event.dateOut,
+          eventTimeOut: event.timeOut,
+          throughDate: today,
+        });
+        if (!(frac > 0)) continue;
+
+        const liveAvg = getLiveWindowAvgWeight(gw, {
+          memberships, animals, animalClasses, animalWeightRecords, now,
+        });
+
+        const au = aniAu
+          ? aniAu.fn({ headCount: liveHead, avgWeightKg: liveAvg || 0 })
+          : (liveHead * (liveAvg || 0)) / 453.6;
+        const dayAuds = aniAud ? aniAud.fn({ au, days: frac }) : au * frac;
+        auds += dayAuds * share;
+
+        const cls = (animalClasses || []).find(ac => ac.id === gw.animalClassId) || null;
+        // OI-0249 Gg: keep known-weight groups; count missing-weight as unknown slices (Zp).
+        if (npk1 && liveAvg > 0) {
+          const r = npk1.fn({
+            headCount: liveHead,
+            avgWeightKg: liveAvg,
+            days: frac,
+            excretionNRate: cls?.excretionNRate ?? DEFAULT_EXC.n,
+            excretionPRate: cls?.excretionPRate ?? DEFAULT_EXC.p,
+            excretionKRate: cls?.excretionKRate ?? DEFAULT_EXC.k,
+          });
+          nKg += (r.nKg ?? 0) * share;
+          pKg += (r.pKg ?? 0) * share;
+          kKg += (r.kKg ?? 0) * share;
+          npkKnownSlices += 1;
+        } else if (liveHead > 0 && !(liveAvg > 0)) {
+          npkUnknownSlices += 1;
+        }
+      }
+    }
+
+    // --- Implied pasture DMI (F1 measured hay; peer-scoped unknown weights) ---
     if (!openHere.length) continue;
-    anyDemandDay = true;
 
     const rows = groupWindowsDailyDemand(date, demandOpts);
     if (!rows.length) continue;
 
-    // Only this location's open events — not farm-wide demand rows from other paddocks.
-    // (Farm-wide check wrongly nulled DMI when a peer location had unknown weights.)
     const openEventIds = new Set(openHere.map(pw => pw.eventId));
     const relevantRows = rows.filter(r => openEventIds.has(r.eventId));
     if (!relevantRows.length) continue;
@@ -300,22 +524,71 @@ export function computeLocationMetrics(location, ctx) {
       }
     }
 
+    // Per event: demand − measured hay, floor 0, then S1 acre share (known groups only)
+    const eventDemand = new Map();
+    for (const r of knownRows) {
+      if (!(r.kg > 0)) continue;
+      eventDemand.set(r.eventId, (eventDemand.get(r.eventId) || 0) + r.kg);
+    }
+
+    let dayBlocked = false;
+    const pastureByEvent = new Map();
+    for (const [eventId, demand] of eventDemand) {
+      const hay = measuredHayOnEventDay({
+        eventId,
+        date,
+        feedEntries,
+        feedChecks,
+        feedCheckItems,
+        batches,
+        feedTypes,
+      });
+      if (hay.kind === 'unknown') {
+        dayBlocked = true;
+        break;
+      }
+      const stored = hay.kind === 'measured' ? hay.dmKg : 0;
+      pastureByEvent.set(eventId, Math.max(0, demand - stored));
+    }
+    if (dayBlocked) {
+      dmiHayUnknown = true; // F1 unmeasured hay — season-sticky (list-parity)
+      continue;
+    }
+
     for (const pw of openHere) {
-      const eventRows = knownRows.filter(r => r.eventId === pw.eventId && r.kg > 0);
-      const demand = eventRows.reduce((s, r) => s + r.kg, 0);
-      if (!(demand > 0)) continue;
+      const pasture = pastureByEvent.get(pw.eventId);
+      if (!(pasture > 0) && pasture !== 0) continue;
+      if (!(pasture >= 0)) continue;
 
       const eventOpen = openPaddockWindowsOnDate(paddockWindows, { eventId: pw.eventId, date });
+      // Each open pw for this location gets its own share of the event remainder.
+      // When multiple pws on same loc (strip), split by their effective area within the event.
+      const myW = effectiveAreaHa(pw, locationsById);
       const weights = eventOpen.map(w => effectiveAreaHa(w, locationsById));
       const sumW = weights.reduce((s, a) => s + a, 0);
-      const myW = effectiveAreaHa(pw, locationsById);
-      const share = sumW > 0 ? myW / sumW : (1 / Math.max(1, eventOpen.length));
-
-      const stored = feedByEventDate.get(`${pw.eventId}|${date}`) || 0;
-      const pasture = Math.max(0, demand - stored) * share;
-      dmiKg += pasture;
+      const pwShare = sumW > 0 ? myW / sumW : (1 / Math.max(1, eventOpen.length));
+      dmiKg += pasture * pwShare;
       dmiDays += 1;
     }
+  }
+
+  // R1: residual-feed NPK on this location (close readings), does not change DMI/AUDs
+  const residual = residualFeedNpkForLocation(location.id, {
+    windowStart,
+    windowEnd: through,
+    events,
+    feedChecks,
+    feedCheckItems,
+    batches,
+    feedTypes,
+    batchNutritionalProfiles,
+  });
+  if (!residual.known) {
+    npkResidualUnknown = true; // R1 — season-sticky (list-parity)
+  } else {
+    nKg += residual.nKg;
+    pKg += residual.pKg;
+    kKg += residual.kKg;
   }
 
   // Avg pasture score from observations in window (forageQuality 1–100)
@@ -325,7 +598,6 @@ export function computeLocationMetrics(location, ctx) {
       && Number.isFinite(Number(o.forageQuality))
       && (!o.observedAt || (o.observedAt.slice(0, 10) >= windowStart && o.observedAt.slice(0, 10) <= windowEnd)))
     .map(o => Number(o.forageQuality));
-  // If none in window, fall back to all-time average for this location (still compute-on-read)
   const scorePool = scores.length
     ? scores
     : (observations || [])
@@ -336,18 +608,18 @@ export function computeLocationMetrics(location, ctx) {
     : null;
 
   const acres = acresOf(location);
-  // Zp: sum known slices; dash only when nothing known remains; never-present = 0.
+  // Zp (weights): sum known slices; dash only when nothing known remains; never-present = 0.
+  // F1 hay unknown and R1 residual unknown stay season-sticky (OI-0246 locks).
   const dmiHasKnown = dmiKnownSlices > 0;
   const dmiHasUnknown = dmiUnknownSlices > 0;
-  const dmiUnknown = dmiHasUnknown && !dmiHasKnown;
   const dmiPartial = dmiHasKnown && dmiHasUnknown;
-  const dmiKnown = !dmiUnknown && (dmiHasKnown || dmiDays > 0 || !anyDemandDay);
+  const dmiUnknown = dmiHayUnknown || (dmiHasUnknown && !dmiHasKnown);
   const finalDmi = dmiUnknown ? null : dmiKg;
-  const finalAuds = auds;
+  const dmiKnown = !dmiUnknown && (dmiHasKnown || dmiDays > 0 || !anyDemandDay || finalDmi === 0);
   const npkHasKnown = npkKnownSlices > 0;
   const npkHasUnknown = npkUnknownSlices > 0;
   const npkPartial = npkHasKnown && npkHasUnknown;
-  const npkKnown = npkHasKnown || !npkHasUnknown;
+  const npkKnown = !npkResidualUnknown && (npkHasKnown || !npkHasUnknown);
 
   return {
     locationId: location.id,
@@ -358,7 +630,7 @@ export function computeLocationMetrics(location, ctx) {
     dmiKg: finalDmi,
     dmiKnown: dmiKnown || finalDmi === 0,
     dmiPartial,
-    auds: finalAuds,
+    auds,
     audsKnown: true,
     nKg: npkKnown ? nKg : null,
     pKg: npkKnown ? pKg : null,
@@ -369,36 +641,11 @@ export function computeLocationMetrics(location, ctx) {
     scoreKnown: avgScore != null,
     eventCount: eventIds.size,
     dmiPerAcre: acres != null && finalDmi != null ? finalDmi / acres : null,
-    audsPerAcre: acres != null ? finalAuds / acres : null,
+    audsPerAcre: acres != null ? auds / acres : null,
     nPerAcre: acres != null && npkKnown ? nKg / acres : null,
     pPerAcre: acres != null && npkKnown ? pKg / acres : null,
     kPerAcre: acres != null && npkKnown ? kKg / acres : null,
   };
-}
-
-function acresOf(location) {
-  const ha = Number(location?.areaHectares);
-  if (!Number.isFinite(ha) || ha <= 0) return null;
-  return ha * HA_TO_ACRES;
-}
-
-/** Stored DM kg by eventId|date from feed-entry snapshots (quantity × weight × dm%). */
-function indexFeedDmByEventDate(feedEntries) {
-  const map = new Map();
-  for (const fe of feedEntries) {
-    if (!fe?.eventId || !fe?.date) continue;
-    // Same formula as feed-run-rate / Event Detail: entry snapshots only (no fe.dmKg).
-    const quantity = Number(fe.quantity);
-    const weight = Number(fe.weightPerUnitKgSnapshot);
-    const dmPct = Number(fe.dmPctSnapshot);
-    if (!(Number.isFinite(quantity) && quantity > 0)) continue;
-    if (!(Number.isFinite(weight) && weight > 0)) continue;
-    if (!(Number.isFinite(dmPct) && dmPct > 0)) continue;
-    const dm = quantity * weight * dmPct / 100;
-    const key = `${fe.eventId}|${fe.date}`;
-    map.set(key, (map.get(key) || 0) + dm);
-  }
-  return map;
 }
 
 /**
@@ -418,3 +665,4 @@ export function formatMetricValue(value, { digits = 0, suffix = '' } = {}) {
   const text = digits === 0 ? String(Math.round(n)) : n.toFixed(digits);
   return suffix ? `${text}${suffix}` : text;
 }
+

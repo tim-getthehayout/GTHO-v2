@@ -10,7 +10,11 @@ import {
   computeLocationMetrics,
   formatMetricValue,
   clipWindowToRange,
+  resolveResidualNpkPercents,
 } from '../../src/features/events/rotation-calendar/location-metrics.js';
+import '../../src/calcs/feed-pools.js';
+import '../../src/calcs/feed-forage.js';
+import '../../src/calcs/window-helpers.js';
 import {
   lastGrazeDate,
   computeReadiness,
@@ -56,6 +60,7 @@ describe('W1 default window', () => {
   });
 });
 
+
 describe('computeLocationMetrics', () => {
   const loc = { id: 'loc1', name: 'North', type: 'land', landUse: 'pasture', areaHectares: 4.047 }; // ~10 acres
   const event = { id: 'ev1', dateOut: '2026-10-10' };
@@ -92,6 +97,11 @@ describe('computeLocationMetrics', () => {
       { locationId: 'loc1', forageQuality: 80, observedAt: '2026-10-15' },
     ],
     feedEntries: [],
+    feedChecks: [],
+    feedCheckItems: [],
+    batches: [],
+    feedTypes: [],
+    batchNutritionalProfiles: [],
   };
 
   it('computes AUDs, NPK, avg score; unknowns as null not silent 0 for score-less', () => {
@@ -107,8 +117,6 @@ describe('computeLocationMetrics', () => {
   });
 
   it('derives implied pasture DMI when events have no stored dateIn (real store shape)', () => {
-    // OI-0117 dropped events.date_in; demand helpers still need dateIn via child windows.
-    // Passing raw store events used to zero every pasture DMI after clear+render.
     expect(baseCtx.events[0].dateIn).toBeUndefined();
     const m = computeLocationMetrics(loc, baseCtx);
     expect(m.dmiKg).toBeGreaterThan(0);
@@ -140,37 +148,105 @@ describe('computeLocationMetrics', () => {
     expect(clip.days).toBe(3);
   });
 
-  it('subtracts stored feed DM from pasture DMI using quantity × weight × dm% snapshots', () => {
-    // Real store events omit dateIn; derivation must still yield demand > 0.
+  it('does not subtract raw deliveries from DMI (F1 requires measured eaten)', () => {
     const none = computeLocationMetrics(loc, baseCtx);
     expect(none.dmiKg).toBeGreaterThan(0);
-
-    // 2 × 500 kg × 80% = 800 kg DM on one open day — reduces (floors at 0 for that day)
-    const withFeed = computeLocationMetrics(loc, {
+    // Deliveries alone (no bracketing checks) → hay present but unmeasured → DMI unknown
+    const deliveriesOnly = computeLocationMetrics(loc, {
       ...baseCtx,
       feedEntries: [{
         id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-05',
         quantity: 2, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
         kind: 'inventory_feeding', feedTypeId: 'hay',
       }],
+      feedTypes: [{ id: 'hay', unit: 'bale', nPct: 1.5, pPct: 0.2, kPct: 1.0, dmPct: 80 }],
     });
-    expect(withFeed.dmiKg).toBeLessThan(none.dmiKg);
-    expect(withFeed.dmiKg).toBeGreaterThanOrEqual(0);
+    expect(deliveriesOnly.dmiKg).toBeNull();
+    expect(formatMetricValue(deliveriesOnly.dmiKg)).toBe('—');
   });
 
-  it('ignores feed entries that only carry a fake dmKg (no snapshots)', () => {
+  it('subtracts measured hay eaten from pasture DMI (F1) and floors at 0 (L1)', () => {
     const none = computeLocationMetrics(loc, baseCtx);
-    const fakeOnly = computeLocationMetrics(loc, {
+    expect(none.dmiKg).toBeGreaterThan(0);
+
+    // Two checks bracket 2026-10-05; remaining drops so eaten is known.
+    const withMeasured = computeLocationMetrics(loc, {
       ...baseCtx,
       feedEntries: [{
-        id: 'fe-fake', eventId: 'ev1', locationId: 'loc1', date: '2026-10-05',
-        dmKg: 99999,
+        id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-01',
+        quantity: 4, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        kind: 'inventory_feeding', feedTypeId: 'hay', batchId: null,
       }],
+      feedChecks: [
+        { id: 'fc1', eventId: 'ev1', date: '2026-10-01', time: '08:00', isCloseReading: false },
+        { id: 'fc2', eventId: 'ev1', date: '2026-10-10', time: '08:00', isCloseReading: true },
+      ],
+      feedCheckItems: [
+        {
+          id: 'fci1', feedCheckId: 'fc1', locationId: 'loc1', feedTypeId: 'hay', batchId: null,
+          remainingQuantity: 4, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        },
+        {
+          id: 'fci2', feedCheckId: 'fc2', locationId: 'loc1', feedTypeId: 'hay', batchId: null,
+          remainingQuantity: 0, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        },
+      ],
+      feedTypes: [{ id: 'hay', unit: 'bale', nPct: 1.5, pPct: 0.2, kPct: 1.0, dmPct: 80 }],
     });
-    expect(fakeOnly.dmiKg).toBe(none.dmiKg);
+    // Measured days reduce pasture DMI vs no-hay baseline (or floor at 0).
+    expect(withMeasured.dmiKg).not.toBeNull();
+    expect(withMeasured.dmiKg).toBeLessThanOrEqual(none.dmiKg);
+    expect(withMeasured.dmiKg).toBeGreaterThanOrEqual(0);
   });
-});
 
+  it('splits AUDs/DMI by day×acres among open paddocks (S1)', () => {
+    const locA = { id: 'locA', name: 'A', type: 'land', landUse: 'pasture', areaHectares: 4 };
+    const locB = { id: 'locB', name: 'B', type: 'land', landUse: 'pasture', areaHectares: 4 };
+    const ctx = {
+      ...baseCtx,
+      locations: [locA, locB],
+      events: [{ id: 'evM', dateOut: '2026-10-05' }],
+      paddockWindows: [
+        { id: 'pwA', eventId: 'evM', locationId: 'locA', dateOpened: '2026-10-01', dateClosed: '2026-10-05', areaPct: 100 },
+        { id: 'pwB', eventId: 'evM', locationId: 'locB', dateOpened: '2026-10-01', dateClosed: '2026-10-05', areaPct: 100 },
+      ],
+      groupWindows: [{
+        id: 'gwM', eventId: 'evM', groupId: 'g1', animalClassId: 'ac1',
+        dateJoined: '2026-10-01', dateLeft: '2026-10-05', headCount: 10, avgWeightKg: 453.6,
+      }],
+    };
+    const a = computeLocationMetrics(locA, ctx);
+    const b = computeLocationMetrics(locB, ctx);
+    expect(a.auds).toBeGreaterThan(0);
+    expect(Math.abs(a.auds - b.auds)).toBeLessThan(0.01);
+    expect(a.dmiKg).toBeGreaterThan(0);
+    expect(Math.abs(a.dmiKg - b.dmiKg)).toBeLessThan(0.01);
+  });
+
+  it('adds residual-feed NPK (R1) from close readings using feed type percents', () => {
+    const base = computeLocationMetrics(loc, baseCtx);
+    const withResidual = computeLocationMetrics(loc, {
+      ...baseCtx,
+      events: [{ id: 'ev1', dateOut: '2026-10-10' }],
+      feedChecks: [
+        { id: 'fcClose', eventId: 'ev1', date: '2026-10-10', time: '12:00', isCloseReading: true },
+      ],
+      feedCheckItems: [{
+        id: 'fciR', feedCheckId: 'fcClose', locationId: 'loc1', feedTypeId: 'hay', batchId: null,
+        remainingQuantity: 2, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+      }],
+      feedTypes: [{ id: 'hay', unit: 'bale', nPct: 2, pPct: 1, kPct: 3, dmPct: 80 }],
+    });
+    // 2 × 500 × 0.80 = 800 kg DM → N 16, P 8, K 24
+    expect(withResidual.nKg).toBeGreaterThan(base.nKg);
+    expect(withResidual.pKg).toBeGreaterThan(base.pKg);
+    expect(withResidual.kKg).toBeGreaterThan(base.kKg);
+    expect(withResidual.nKg - base.nKg).toBeCloseTo(16, 5);
+    expect(withResidual.pKg - base.pKg).toBeCloseTo(8, 5);
+    expect(withResidual.kKg - base.kKg).toBeCloseTo(24, 5);
+    // AUDs / DMI unchanged by R1
+    expect(withResidual.auds).toBeCloseTo(base.auds, 5);
+  });
 
   it('does not null DMI when a peer location has unknown weights (event-scoped check)', () => {
     const locGood = { id: 'locGood', name: 'J3-4', type: 'land', landUse: 'pasture', areaHectares: 4 };
@@ -205,6 +281,8 @@ describe('computeLocationMetrics', () => {
       locations: [locGood, locBad],
       observations: [],
       feedEntries: [],
+      feedChecks: [],
+      feedCheckItems: [],
     };
     const good = computeLocationMetrics(locGood, ctx);
     const bad = computeLocationMetrics(locBad, ctx);
@@ -216,12 +294,12 @@ describe('computeLocationMetrics', () => {
   });
 
   it('sums the known group and marks DMI/NPK partial when a same-event group lacks weight (Gg+Zp)', () => {
-    const loc = { id: 'locD', name: 'D', type: 'land', landUse: 'pasture', areaHectares: 10 };
+    const locD = { id: 'locD', name: 'D', type: 'land', landUse: 'pasture', areaHectares: 10 };
     const clsOk = { id: 'acOk', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, defaultWeightKg: 453.6 };
     const clsBad = { id: 'acBad', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136 };
     const aOk = Array.from({ length: 5 }, (_, i) => ({ id: `dOk${i}`, classId: 'acOk', archived: false, status: 'active' }));
     const aBad = Array.from({ length: 3 }, (_, i) => ({ id: `dBad${i}`, classId: 'acBad', archived: false, status: 'active' }));
-    const m = computeLocationMetrics(loc, {
+    const m = computeLocationMetrics(locD, {
       windowStart: '2026-03-01',
       windowEnd: '2026-10-07',
       today: '2026-11-22',
@@ -240,9 +318,11 @@ describe('computeLocationMetrics', () => {
       animals: [...aOk, ...aBad],
       animalClasses: [clsOk, clsBad],
       animalWeightRecords: aOk.map(a => ({ animalId: a.id, weightKg: 453.6, recordedAt: '2026-03-01' })),
-      locations: [loc],
+      locations: [locD],
       observations: [],
       feedEntries: [],
+      feedChecks: [],
+      feedCheckItems: [],
     });
     expect(m.auds).toBeGreaterThan(0);
     expect(m.audsKnown).toBe(true);
@@ -255,6 +335,25 @@ describe('computeLocationMetrics', () => {
     expect(m.avgScore).toBeNull();
     expect(m.scoreKnown).toBe(false);
   });
+});
+
+describe('residual NPK helpers', () => {
+  it('resolveResidualNpkPercents prefers latest batch profile then feed type', () => {
+    const pct = resolveResidualNpkPercents({
+      batchId: 'b1',
+      feedTypeId: 'hay',
+      batchNutritionalProfiles: [
+        { batchId: 'b1', testedAt: '2026-01-01', nPct: 1, pPct: 1, kPct: 1 },
+        { batchId: 'b1', testedAt: '2026-06-01', nPct: 3, pPct: null, kPct: 4 },
+      ],
+      feedTypes: [{ id: 'hay', nPct: 9, pPct: 8, kPct: 7 }],
+    });
+    expect(pct.n).toBe(3);
+    expect(pct.p).toBe(8); // missing on latest profile → feed type
+    expect(pct.k).toBe(4);
+  });
+});
+
 
 
 describe('OI-0249 Zp+Gg+Ua+Sc season rollup', () => {

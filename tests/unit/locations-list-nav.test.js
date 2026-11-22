@@ -27,6 +27,7 @@ function seed() {
   _reset();
   localStorage.clear();
   resetCalendarState();
+  window.history.replaceState(null, '', '#/events');
   document.body.innerHTML = '';
 
   add('operations', OperationEntity.create({ id: OP, name: 'Op', unitSystem: 'imperial' }),
@@ -97,14 +98,16 @@ describe('locations list toggle + name click', () => {
     expect(getCalendarState().view).toBe('list');
   });
 
-  it('location name click opens edit sheet in place (does not navigate to #/locations)', () => {
+  it('Calendar name click opens edit sheet in place (does not navigate to #/locations)', () => {
     const src = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
-    expect(src).toMatch(/openLocationSheet\(loc,\s*loc\.operationId,\s*loc\.farmId\)/);
+    // Cb: Calendar still wires name → openLocationSheet via opId/fId locals.
+    expect(src).toMatch(/openLocationSheet\(loc,\s*opId,\s*fId\)/);
     expect(src).toMatch(/Locations · Surveys · Map/);
 
     const root = document.createElement('div');
     document.body.appendChild(root);
     renderEventsScreen(root);
+    expect(getCalendarState().view).toBe('calendar');
     const name = root.querySelector('[data-testid="paddock-row"]');
     expect(name).toBeTruthy();
     name.click();
@@ -113,6 +116,29 @@ describe('locations list toggle + name click', () => {
     expect(panel?.textContent).toContain('Edit location');
     const nameInput = panel?.querySelector('input[type="text"]');
     expect(nameInput?.value).toBe('North Pasture');
+    expect(window.location.hash.split('?')[0]).not.toBe('#/locations');
+  });
+
+  it('List uses Edit button (name is not a click target) and shows list tools', () => {
+    const src = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
+    expect(src).toMatch(/loc-mgmt__name--static/);
+    expect(src).toMatch(/loc-mgmt-list-toolbar/);
+
+    window.history.replaceState(null, '', '#/events?view=list');
+    readStateFromUrl();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    renderCalendarGrid(container);
+
+    expect(container.querySelector('[data-testid="loc-mgmt-list-toolbar"]')).toBeTruthy();
+    const name = container.querySelector('[data-testid="paddock-row"]');
+    expect(name?.className).toContain('loc-mgmt__name--static');
+    name.click();
+    expect(document.getElementById('loc-edit-panel')).toBeFalsy();
+
+    container.querySelector('[data-testid="loc-mgmt-edit"]').click();
+    const panel = document.getElementById('loc-edit-panel');
+    expect(panel?.textContent).toContain('Edit location');
     expect(window.location.hash.split('?')[0]).not.toBe('#/locations');
   });
 });

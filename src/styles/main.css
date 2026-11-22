@@ -2771,7 +2771,48 @@ body:has(.auth-overlay) .pwa-update-banner {
   pointer-events: none;
 }
 
-/* List view: same rows + metrics; timeline omitted */
+/* List view: Locations tools + season metrics (La); timeline omitted */
+.loc-mgmt__list-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.loc-mgmt__list-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.loc-mgmt__list-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.loc-mgmt__list-search {
+  flex: 1 1 160px;
+  min-width: 140px;
+  padding: 7px 12px;
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius);
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+}
+.loc-mgmt__list-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.loc-mgmt__list-inputs-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-left: auto;
+}
+.loc-mgmt__name--static { cursor: default; }
+.loc-mgmt__code { font-size: 0.75rem; color: var(--text3); }
+.loc-mgmt__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
 .loc-mgmt--list .loc-mgmt__metrics--grow,
 .loc-mgmt--list .loc-mgmt__metrics-head--grow {
   flex: 1 1 auto;

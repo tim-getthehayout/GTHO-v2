@@ -1,7 +1,7 @@
 # Farm Settings season-default dates (OI-0247)
 
-**Status:** **PROPOSED** — Tim chose **Db** direction (card **t841s3483**, 2026-11-22 ~5:37 AM ET, via Orchestrator). This docs tip is ready for Tim’s confirm/land of **docs**. Migration **apply** is a **separate** Tim yes + verified backup; a docs land does **not** authorize apply.  
-**Owner:** GTHO Design → GTHO Build (after docs land on main **or** from this tip ahead of land per Orchestrator coordination; Orchestrator land card for docs; Orchestrator brings the apply path separately).  
+**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-22 ~5:37 AM ET, via Orchestrator, card **t841s3483**, direction **Db**). This docs tip is ready for Tim’s land of **docs**. Migration **apply** is a **separate** Tim yes + verified backup; a docs land does **not** authorize apply.  
+**Owner:** GTHO Design → GTHO Build (after docs land on main **or** from this locked tip ahead of land per Orchestrator coordination; Orchestrator land card for docs — land only after Tim yes; Orchestrator brings the apply path separately).  
 **Parent:** Forgejo `origin/main` `52540a358f511bf46bceacbd7dcc7c94918acd04` (compiled `RELEASED_SCHEMA_VERSION` **48**).  
 **Also related:** OI-0225 §2.3 / Q5 ([IMPLIED_PASTURE_DMI_2026-11-17.md](IMPLIED_PASTURE_DMI_2026-11-17.md)); OI-0221 D10 ([STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md](STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md)); OI-0246 W1 ([LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)).  
 **Schema / migration:** **Yes** — a per-farm season default (start/end **month/day**) on `farm_settings`. This tip describes **intent only**; it does **not** invent SQL/DDL or a migration filename. Next numbered migration after the then-current ceiling (compiled released stamp on this parent is **48**; do not reopen or widen **047** / **048**). File-only until Tim’s **separate** yes + verified backup. Hard-coded **Oct 1 – Sep 30** remains until this OI ships **and** the migration is applied.
@@ -29,7 +29,7 @@ Read on tip `52540a358f511bf46bceacbd7dcc7c94918acd04`.
 | Farm Settings UI | `src/features/settings/index.js` `renderFarmSection` | Existing Farm Settings card (`settings.farmSettings`) already writes per-farm defaults on `farm_settings` (AU weight, residual, recovery, NPK prices, manure, feed-day goal, forage scale, bale-ring diameter). No season start/end fields today. Preg-check and return-to-cycle are adjacent cards on the same Settings screen. |
 | `farm_settings` | migrations **001**, **047**, **048** | One row per farm; later settings were **additive columns** (not jsonb). RLS already covers the table. Compiled released stamp on this parent is **48**. |
 
-## 3. Product (Db — already Tim’s)
+## 3. Product (Db — LOCKED)
 
 - **One farm default period:** start month/day + end month/day, stored with the farm, editable in Settings, synced across Tim’s devices. The operation has one farm today, so per farm = per operation (same Q5 note).
 - **Factory default:** Oct 1 – Sep 30 (Q4 / current `DEFAULT_BUDGET_PERIOD`). Existing farms get that default until someone edits it.
@@ -113,4 +113,4 @@ Until apply, both surfaces keep using hard-coded `DEFAULT_BUDGET_PERIOD`.
 
 ---
 
-**Tip instruction:** **PROPOSED**. Ready for Tim’s confirm/land of **docs**. Do **not** land on main until Tim yeses the docs land card. Do **not** apply a migration without Tim’s separate yes + verified backup. Do **not** fold this into the OI-0246 list-parity tip. Hard-coded Oct 1 – Sep 30 remains until this OI ships and is applied.
+**Tip instruction:** **LOCKED (Db)**. Ready for Tim’s land of **docs**. Do **not** land on main until Tim yeses the docs land card. Do **not** apply a migration without Tim’s separate yes + verified backup. A docs land does **not** authorize apply. Do **not** fold this into the OI-0246 list-parity tip. Hard-coded Oct 1 – Sep 30 remains until this OI ships and is applied.

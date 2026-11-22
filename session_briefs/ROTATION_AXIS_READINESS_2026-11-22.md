@@ -1,6 +1,6 @@
 # Rotation axis label + readiness anchor + Map escape (OI-0261 / OI-0262 / OI-0263)
 
-**Status:** **OI-0261 LOCKED (Ml1)** and **OI-0262 LOCKED core (Ra1+Bd1+Pb1 Tim wording+Dz1; Gc + Sv OPEN)** 2026-11-22 6:02 PM ET (America/New_York) — Tim, 2026-11-22 6:02 PM ET, via Orchestrator, card **t1270s4938** (“Q1a: month name only, year shown on January”; “Q2a: band runs min to max”) + typed **t1270u** (Q3: “A but use “Estimated ready xxx” when there is no survey data. If a survey is done say “Surveyed on xxxx, estimated ready xxx” so the user knows that there is a difference in the reliability of the estimate. (Surveey more reliable)”) + typed **t1271u** (“Maybe readiness bands should be green but at a lower opacity to make more obvious ?”). **OI-0263 PROPOSED.** Opened 2026-11-22 ~5:58 PM ET (America/New_York). Opened by GTHO Design from Tim feedback via Orchestrator: **t1265u** (5:52 PM ET), **t1266u** (5:53 PM ET), **t1267u** (5:54 PM ET, "Updated and it’s still the same issue"), **t1269u** (5:57 PM ET). OI-0261 and the OI-0262 core are ready for Build once Tim lands the docs; OI-0262 Gc/Sv and OI-0263 await Tim cards. No SQL / no migration / no data change for any of the three.
+**Status:** all three **LOCKED / READY FOR BUILD** (America/New_York): **OI-0261 Ml1** and **OI-0262 Ra1+Bd1+Pb1+Dz1** — Tim, 2026-11-22 6:02 PM ET, via Orchestrator, card **t1270s4938** (“Q1a: month name only, year shown on January”; “Q2a: band runs min to max”) + typed **t1270u** (Q3 wording) + typed **t1271u** (green bands); **OI-0262 Gc1** and **OI-0263 Ex1+Lf-B+Tb1** — Tim, 2026-11-22 6:15 PM ET, via Orchestrator, card **t1272s4948** (“Gc1: 35% green, dashed dark-green border, legend 'Ready window (estimated)'”; “The locations and rotation sheet with a third button to the right of lost for the map” [lost = List]; “Tb1: Map tab, remove list buttons”). **OI-0262 Sv OPEN (parked)** — Tim skipped it; changes no band today. Opened 2026-11-22 ~5:58 PM ET.
 **Branch tip:** `docs/oi-axis-readiness` (parent `origin/main` `3dda55df2532e626f2521578705ba91fca5deade`, OI-0260 PR #145 live). Docs only — do not land until Tim land yes.
 **Repro:** all three reproduce on live main `3dda55d`. No commit in `10dcc42..3dda55d` touched `src/features/events/rotation-calendar` or `src/styles` (Tim's report stamp `b2026-11-22.2137-10dcc42`).
 
@@ -111,10 +111,10 @@ Nov 3 + 30 = Dec 3 and Nov 3 + 60 = Jan 2, an exact match for both.
 | **Pb1** (LOCKED, Tim t1270u wording) | Paint every band at its true dates (past included). Label **“Estimated ready &lt;min date&gt;”** with no survey since the close; **“Surveyed on &lt;survey date&gt;, estimated ready &lt;date&gt;”** when a survey exists since the close (“Survey more reliable”). Replaces Design’s draft “Ready since / Past max recovery”. |
 | **Pb2** | Paint only, with no new label. |
 
-### Open sub-questions (held for a Tim card; not locked)
+### Band colour (locked) and survey rule (parked)
 
-- **Gc — band colour (OPEN; Tim t1271u, not locked — conflict):** Tim asked for green at a lower opacity to make bands more obvious. Conflict on the calendar: solid `--color-green-base` already means **Pasture grazing** (past block `src/styles/main.css:3152-3156`, legend `legend.js:30`), and lighter green (`--color-green-light-2` at 0.8) means **linked / sub-move** (`main.css:3171-3174`, legend `:31`). The current band greens are `future-block--min` `--color-green-light` → `--color-green-light-2` gradient (starts near-white `#EAF3DE`, which is why it reads faint), `--mid` light-2 → base, `--max` base @ 0.8, `--past_max` base @ 0.6 (`main.css:3279-3295`; legend “DM recovery gradient” `main.css:2605`; spec V2_DESIGN_SYSTEM §483 `--green-wash` → `--green-base`). After **Ra1** most bands move into the past, next to grazing blocks, so a translucent green-base band reads as another grazing event. Options: **Gc1** (Design rec) one fill `color-mix(in srgb, var(--color-green-base) 35%, transparent)` (same mix pattern as the `--tint-*` tokens at 22%/45%, `main.css:141-142`) **plus a 1px dashed `--color-green-dark` border** so it never reads as a solid grazing block; confidence shown by the label, legend swatch renamed “Ready window (estimated)” · **Gc2** Tim’s literal ask: `--color-green-base` at ~0.35 opacity, no border (risk: reads as grazing / sub-move) · **Gc0** keep today’s gradient. Held for a Tim card; Build may ship everything else first.
-- **Sv — survey rule (OPEN; genuine product choice):** (a) A *survey* = a `paddock_observations` row with `source = 'survey'` (`type = 'open'`, `source_id` = `surveys.id`, `observed_at` = survey date `T12:00:00Z`; writers `src/features/surveys/index.js:384-400`, `src/features/locations/index.js:1018-1020`). It counts for the label only if its local date is **after** the anchoring window’s `date_closed`. (b) No readiness code derives a date from survey height / cover / quality: `readiness.js` has no forage-based rule, and FOR-6 (growth forecast, V2_CALCULATION_SPEC §4.3) is not used by readiness. Today `pickRecoveryObservation` (`readiness.js:34-43`) takes **any** observation with recovery days, surveys included, so a survey’s own min/max anchored on the survey date already drives the band by accident. V2_UX_FLOWS §7.5/§7.7 says survey recovery is entered as “days from survey date” and stored inverted to event-relative (`daysAlreadyRested`), but that inversion is **not implemented** (no `daysAlreadyRested` in `src/`; values stored as entered). (c) The spec does not settle which date a survey yields under the new anchor. Options: **Sv1** ready date stays close + min (close observation / farm defaults); the survey only switches the label to “Surveyed on &lt;date&gt;, estimated ready &lt;date&gt;” · **Sv2** when a survey after the close carries recovery days, band = survey date + survey min → survey date + survey max (UX_FLOWS §7.5 semantics; matches how values are stored today), and the label names the survey. Design lean **Sv2** (Tim: “Survey more reliable”), not locked. Prod today: 58 survey rows (56 with recovery days), latest 2026-04-09, **0** after any location’s last close, so neither option changes any current band. Held for a Tim card.
+- **Gc — band colour: Gc1 LOCKED** (Tim, 2026-11-22 6:15 PM ET, via Orchestrator, card **t1272s4948**: “Gc1: 35% green, dashed dark-green border, legend 'Ready window (estimated)'”; follows Tim **t1271u**). Every readiness band uses one fill `color-mix(in srgb, var(--color-green-base) 35%, transparent)` plus a **1px dashed `--color-green-dark` border**, replacing the `future-block--min/mid/max/past_max` gradient/opacity steps (`src/styles/main.css:3279-3295`); confidence is carried by the label, not the fill. Legend swatch “DM recovery gradient” (`legend.js:46`, `main.css:2605`) is renamed **“Ready window (estimated)”** with the same fill + dashed border. Why the border: solid `--color-green-base` already means **Pasture grazing** (`main.css:3152-3156`, `legend.js:30`) and `--color-green-light-2` @ 0.8 means **linked / sub-move** (`main.css:3171-3174`); after **Ra1** most bands sit in the past next to grazing blocks. Never-grazed / in-progress / confinement / forecast blocks unchanged. Not chosen: Gc2 (35% green, no border), Gc0 (keep gradient).
+- **Sv — survey rule: OPEN, parked** (Tim skipped it on **t1272s4948**, 6:15 PM ET). **Sv1** date stays close + min → close + max, survey only changes the label · **Sv2** a survey after the close carries the window (survey date + survey min → + max). Design lean **Sv2**, not locked. It changes **no band today**: prod has 58 survey rows (56 with recovery days), latest 2026-04-09, and **0** postdate any location’s last close. **Build now (interim, Sv1-equivalent):** the date always comes from the **Ra1** anchor (close + min → close + max, close observation by `sourceId`, else farm defaults); a survey dated after the close only switches the label to “Surveyed on &lt;survey date&gt;, estimated ready &lt;date&gt;”. Note: this means Ra1 must stop `pickRecoveryObservation` (`readiness.js:34-43`) from taking a survey row’s recovery days as the anchor, which is what today’s code does by accident. Survey facts for a later card: a survey = `paddock_observations` `source = 'survey'` (`type = 'open'`, `source_id` = `surveys.id`, `observed_at` = survey date `T12:00:00Z`; writers `src/features/surveys/index.js:384-400`, `src/features/locations/index.js:1018-1020`); no readiness code derives a date from height / cover / quality (FOR-6 unused); the V2_UX_FLOWS §7.5/§7.7 `daysAlreadyRested` inversion is not implemented.
 
 **Always (LOCKED):**
 - **Dz1:** a DST-safe local `addDays` in REC-1 (parse `T00:00:00` local, format with a local Y-M-D, no `toISOString`).
@@ -126,16 +126,18 @@ Nov 3 + 30 = Dec 3 and Nov 3 + 60 = Jan 2, an exact match for both.
 2. **Spring DST:** closed 2026-03-01 + 30 → **2026-03-31**.
 3. **UTC evening:** close observation at 2026-08-21T23:30-04:00 (UTC 08-22) does not move the anchor.
 4. Window with no matching close observation → farm defaults.
-5. A survey row dated after the close switches the label to “Surveyed on …, estimated ready …” (date rule per **Sv** once locked).
+5. A survey row dated after the close switches the label to “Surveyed on …, estimated ready …” (date still close + min, interim Sv1-equivalent).
 
 ### Scope
 **No SQL, no migration, no data change.** Existing `observed_at` values stay as they are; the anchor moves to `date_closed`. The canvas right edge will pull in, because most bands end earlier.
 
-**Fix size:** S. `computeReadiness` anchor + REC-1 `addDays` + the `Pb` label + about 4 tests.
+**Fix size:** S. `computeReadiness` anchor + REC-1 `addDays` + the `Pb` label + Gc1 CSS/legend + about 5 tests.
 
 ---
 
-## OI-0263 — Map: no way out on iPhone + move Map into a Locations tab
+## OI-0263 — Map: no way out on iPhone + Map as a third Locations & Rotation view
+
+**LOCKED** Tim, 2026-11-22 6:15 PM ET, via Orchestrator, card **t1272s4948**: “The locations and rotation sheet with a third button to the right of lost for the map” [lost = List]; “Tb1: Map tab, remove list buttons” — **Ex1+Lf-B+Tb1** (Ex1 ships regardless).
 
 ### Tim (verbatim)
 - **t1269u** (5:57 PM ET, iPhone, live `3dda55d`): “Map needs to be a tab on the locations form. Right now it’s available from list and it launches in to a screen that there is no waynoutnof” [no way out of].
@@ -152,13 +154,13 @@ The **Map** button on the Locations list does `navigate('#/map')` and opens the 
 
 **Introduced by:** the map route `a554f01` / `05ad2a9` (2026-10-04, no back control, no stacking context); made more visible by OI-0246 `9e73e19` (2026-11-22), which added the Map launcher to the Locations & Rotation List.
 
-### Where “the locations form” is: question for Tim (**Lf**)
+### Where “the locations form” is (**Lf**) — Tim chose **Lf-B**
 The phrase is ambiguous in the code:
 - **Lf-A** — **Locations screen** (`#/locations`, bottom-nav “Locations”). It already has a tab row, **Locations | Surveys** (`src/features/locations/index.js:75-81`). Map becomes a third tab.
 - **Lf-B** — **Locations & Rotation** (`#/events`, bottom-nav “Locations & Rotation”). It has a **View: Calendar | List** toggle (`src/features/events/rotation-calendar/header-strip.js:27-48`). Map becomes a third view. Tim’s “available from list” matches the **List** view here (`calendar-grid.js:538-543`).
 - **Lf-C** — the **single-location edit sheet** (`openLocationSheet`): a Map tab showing and drawing that one paddock’s perimeter.
 
-Design does not guess; this goes on the lock card.
+**Tim chose Lf-B** (t1272s4948): the View toggle becomes **Calendar | List | Map**, Map to the right of List.
 
 ### Options
 
@@ -166,29 +168,29 @@ Design does not guess; this goes on the lock card.
 
 | Code | Meaning |
 |---|---|
-| **Ex1** (Design rec) | Always-visible **Back/Close** in the map header that returns to where the user came from (stored origin hash; fall back to `#/locations` when history is empty, e.g. a cold PWA launch on `#/map`). History-safe routing: drawing/pin intents (`src/features/map/intent.js:14-24`) return to their origin. Give `.farm-map-canvas` its own stacking context (`position: relative; z-index: 0` or `isolation: isolate`) so Leaflet never paints over the bottom nav or header. Size the canvas to the viewport minus header and nav (`dvh` + safe-area). |
+| **Ex1** (LOCKED) | Always-visible **Back/Close** in the map header that returns to where the user came from (stored origin hash; fall back to Locations & Rotation (`#/events`) when history is empty, e.g. a cold PWA launch on `#/map`). History-safe routing: drawing/pin intents (`src/features/map/intent.js:14-24`) return to their origin. Give `.farm-map-canvas` its own stacking context (`position: relative; z-index: 0` or `isolation: isolate`) so Leaflet never paints over the bottom nav or header. Size the canvas to the viewport minus header and nav (`dvh` + safe-area). |
 
 **Tb — placement**
 
 | Code | Meaning |
 |---|---|
-| **Tb1** (Design rec) | Map becomes a **tab** next to the existing tabs on the screen Tim picks (Lf), and the list’s Map launchers are removed. |
+| **Tb1** (LOCKED, “Tb1: Map tab, remove list buttons”) | Map becomes the third **View** (Calendar · List · Map) on Locations & Rotation, and the separate Map launch buttons are removed: `calendar-grid.js:538-543` (List tools) **and** `locations/index.js:188` (Locations screen header — **Design’s reading** of “list buttons”). |
 | **Tb2** | Add the tab and keep the list launchers. |
 | **Tb3** | Escape fix only (Ex1); no tab. |
 
-**Design rec: Ex1 + Tb1, with Lf-A as Design’s lean.** Reasons: `#/locations` already has a real tab row (Locations | Surveys), so a Map tab is a small, consistent addition. A tab can never trap the user, because the tab row and the bottom nav stay on screen. Removing the two launchers avoids two doors into one place. The desktop sidebar Map item (`header.js:61`) and the picker / draw / pin intents stay. If Tim picks **Lf-B**, Tb1 is still the rec, as a third **View** next to Calendar | List.
+**Locked: Ex1 + Lf-B + Tb1.** Design had leaned Lf-A; Tim chose Lf-B. **`#/map` route:** stays reachable as the Map view inside Locations & Rotation; old `#/map` deep links (bookmarks, Home Screen, `map/intent.js:14-24` draw/pin/view intents) redirect there with the intent preserved; Ex1 Back/Close returns draw/pin callers to their origin. Desktop sidebar / header-nav Map items (`header.js:61`, `:77`) point at the same view (Design’s reading).
 
 ### Acceptance
 - On iPhone Safari **and** the Home Screen PWA, the map always shows a Back/Close control, and the bottom nav stays visible and tappable (not covered by Leaflet).
-- Back returns to the screen that opened the map; on a cold launch it goes to `#/locations`.
-- Under Tb1: Map shows as a tab on the chosen screen; the List launchers are gone; draw/pin flows still return to their caller.
+- Back returns to the screen that opened the map; on a cold launch it goes to Locations & Rotation.
+- The View toggle shows Calendar | List | Map; both Map launch buttons are gone; `#/map` deep links land on the Map view; draw/pin flows still return to their caller.
 - **No SQL.**
 
-**Fix size:** Ex1 S (back control + stacking context + canvas sizing + a test). Tb1 adds S–M (tab wiring, map mount/unmount inside a tab, Leaflet `invalidateSize` on tab show).
+**Fix size:** Ex1 S (back control + stacking context + canvas sizing + a test). Lf-B+Tb1 adds S–M (third view + `calendar-state`, map mount/unmount, Leaflet `invalidateSize`, `#/map` redirect, launcher removal).
 
 ---
 
 ## Locks and open cards
 1. **OI-0261:** **LOCKED Ml1** (t1270s4938).
-2. **OI-0262:** **LOCKED Ra1+Bd1+Pb1(Tim wording)+Dz1** (t1270s4938 / t1270u). **Open card:** **Gc** (Gc1 rec / Gc2 Tim literal / Gc0) and **Sv** (Sv1 / Sv2, Design lean Sv2).
-3. **OI-0263:** Ex1 always (escape axis **Ex**) · Lf-A / Lf-B / Lf-C (Design lean **Lf-A**) · Tb1 / Tb2 / Tb3 (rec **Tb1**).
+2. **OI-0262:** **LOCKED Ra1+Bd1+Pb1(Tim wording)+Dz1** (t1270s4938 / t1270u) **+ Gc1** (t1272s4948). **Sv OPEN, parked** (Tim skipped; lean Sv2; Build ships the Sv1-equivalent date + survey-driven label).
+3. **OI-0263:** **LOCKED Ex1+Lf-B+Tb1** (t1272s4948).

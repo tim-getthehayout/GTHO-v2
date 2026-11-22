@@ -1,6 +1,6 @@
-# Timeline period totals under Locations Calendar (OI-0250)
+# Timeline period totals on Locations Calendar (OI-0250)
 
-**Status:** **PROPOSED** — awaiting Tim lock. No Build until lock. This tip is docs only. **No SQL on this tip.**  
+**Status:** **PROPOSED** — awaiting Tim lock on remaining picks (En+Sd, Nk, Pw+Af+Uf+Pp, Sq). Placement **Sb** picked by Tim **t968u** (typed). No Build until lock. This tip is docs only. **No SQL on this tip.**  
 **Owner:** GTHO Design → GTHO Build (only after lock, and after Tim’s docs land yes — or from the locked tip ahead of land if Orchestrator coordinates).  
 **Parent:** Forgejo `origin/main` `10c0c433e36d453acbe1f5ba5b72bd70a7d8c71c` (PR #123 list-parity + metrics live; OI-0249 docs ancestor `200774f`; compiled `RELEASED_SCHEMA_VERSION` **48**).  
 **Also related:** OI-0246 Locations management + season formula **S1+F1(DMI)+L1+H0+C1+Z1** / NPK **Ns+R1+Kc** + persist **Pb** ([LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)); OI-0247 season-default **Db**; OI-0249 partial unknown **Zp+Gg+…** (PR #126 A+C in flight — sequence **after** that lands).  
@@ -27,13 +27,13 @@ Read on tip `10c0c433e36d453acbe1f5ba5b72bd70a7d8c71c` (main / PR #123 head).
 | Measured hay (F1) | `measuredHayOnEventDay` in `location-metrics.js` | Returns `measured` (dmKg), `none`, or `unknown`. Unknown (missing close DM / holds without DM) already prevents trusting that day’s stored subtraction. |
 | Metric window | OI-0246 **Pb** + OI-0247 **Db** | Hash / this-browser `localStorage` for the viewed window; Season default from Farm Settings (hard-coded Oct 1–Sep 30 until OI-0247 apply). |
 | Partial unknown | OI-0249 lock; PR #126 tip `6f99c22` | Sum known slices; muted “ partial” on DMI/N/P/K when some slices unknown. **Not on main yet** — this OI should reuse those helpers after #126 lands (**Sq**). |
-| View strip | Calendar grid | **No** summary band under the timeline for cross-location period totals. Sidebar has a “Total AUDS” style total for its own (older) paddock summaries — not Tim’s ask. |
+| View strip | Calendar grid (`calendar-grid.js`) | Order today: **season metrics bar** (`renderPeriodBar`) → **color key** (`renderLegend`) → timeline grid. **No** period-totals band yet. Tim **t968u**: insert totals **between** season metrics bar and color key (**Sb**). Sidebar “Total AUDS” is not Tim’s ask. |
 
 ## 3. Goals / non-goals
 
 **Goals**
 
-- One summary strip **just below** the Locations Calendar timeline for the **period in view**.
+- One summary strip on the Locations Calendar for the **period in view**, **under the season metrics selection bar and above the color key** (**Sb**, Tim **t968u**).
 - Enumerate **Pasture DMI · Stored-feed DMI · Total DMI** (Total = pasture + stored when both known).
 - Show **Total N, P, K** separately (same source/units as the metric columns).
 - Follow the same metric window / filters as the calendar; update when period, zoom, or location filters change.
@@ -54,9 +54,10 @@ Read on tip `10c0c433e36d453acbe1f5ba5b72bd70a7d8c71c` (main / PR #123 head).
 
 | Code | Meaning |
 |---|---|
-| **Sv** | **Recommended:** one summary strip under the Locations **Calendar** timeline grid only (one band for the filtered locations in view). Not under List. Not under bare `#/locations`. |
+| **Sb** | **Design + Tim pick (t968u):** one summary strip on Locations **Calendar** **under the season metrics selection bar** (`loc-mgmt__period` / “Season metrics:”) **and above the color key** (`legend` / calendar-legend). Order: season-metrics bar → **totals strip** → color key → timeline grid. Not under List. Not under bare `#/locations`. |
+| **Sv** | One summary strip **under the Calendar timeline grid** only (original Design rec; Tim superseded with **Sb**). Keep as alternative if Tim reopens. |
 | **Sa** | Also show the same strip on List view footer. |
-| **Sr** | Per-location totals under each row’s timeline instead of / in addition to one view strip (**Sr** alone vs **Sv+Sr**). |
+| **Sr** | Per-location totals under each row’s timeline instead of / in addition to one view strip (**Sr** alone vs **Sb+Sr** / **Sv+Sr**). |
 
 ### Window / filters
 
@@ -99,9 +100,9 @@ Read on tip `10c0c433e36d453acbe1f5ba5b72bd70a7d8c71c` (main / PR #123 head).
 
 ## 5. Design recommendation
 
-**Sv+Pw+En+Nk+Pp+Uf+Sd+Af+Sq+D0**
+**Sb+Pw+En+Nk+Pp+Uf+Sd+Af+Sq+D0**
 
-- Put **one** totals band directly under the Calendar timeline (**Sv**), scoped to the same metric window (**Pw**) and the **visible filtered** Pasture+Mixed-Use rows (**Af**).
+- Put **one** totals band **under the season metrics selection bar and above the color key** (**Sb**, Tim **t968u** — replaces original **Sv**), scoped to the same metric window (**Pw**) and the **visible filtered** Pasture+Mixed-Use rows (**Af**). Wire order in `calendar-grid.js`: `periodBar` → totals strip → `legend` → grid.
 - Enumerate **Pasture DMI · Stored-feed DMI · Total DMI** (**En**). Pasture DMI stays the locked implied-pasture figure (demand − measured hay, floor 0). Stored-feed DMI is the measured hay eaten with known DM only (**Sd** / **F1**); missing DM → unknown / partial, never silent 0 (**not Sz**). Total DMI = pasture + stored when both are known for the aggregated slices; otherwise — / partial per **Pp**.
 - Show **Total N, Total P, Total K** separately (**Nk**), same **Kc+R1** source and farm units (**Uf**) as the column metrics.
 - Carry OI-0249’s muted “ partial” onto any total that includes a partial slice (**Pp**).
@@ -111,14 +112,14 @@ Read on tip `10c0c433e36d453acbe1f5ba5b72bd70a7d8c71c` (main / PR #123 head).
 
 ## 6. Acceptance (after lock — not for this tip)
 
-- [ ] On Locations **Calendar**, a summary strip sits **just below** the timeline for the period in view (**Sv**).
+- [ ] On Locations **Calendar**, a summary strip sits **under the season metrics selection bar and above the color key** for the period in view (**Sb**).
 - [ ] Strip shows Pasture DMI, Stored-feed DMI, and Total DMI as separate numbers (**En**); Total = pasture + stored when both known.
 - [ ] Strip shows Total N, Total P, Total K separately (**Nk**), not one blob.
 - [ ] Totals follow the calendar metric window and update when period / zoom / location filters change (**Pw**+**Af**).
 - [ ] OI-0249 partial slices mark the matching total with muted “ partial”; nothing known → — ; never silent 0 for unknown (**Pp**).
 - [ ] Stored-feed DMI ignores as-fed-only / missing-DM rows as known 0; those days are unknown / partial (**Sd**).
 - [ ] Units match existing Locations metrics (**Uf**).
-- [ ] No List strip unless Tim locked **Sa**; no per-row strip unless Tim locked **Sr**.
+- [ ] No List strip unless Tim locked **Sa**; no under-timeline strip unless Tim locked **Sv**; no per-row strip unless Tim locked **Sr**.
 - [ ] Ships after #126 unless Tim locked **Sx**. No SQL (**D0**).
 
 ## 7. Related
@@ -131,4 +132,4 @@ Read on tip `10c0c433e36d453acbe1f5ba5b72bd70a7d8c71c` (main / PR #123 head).
 
 ---
 
-**Tip instruction:** **PROPOSED.** Awaiting Tim lock on placement + DMI enumeration + NPK + partial + units + sequencing. Do **not** land on main until Tim locks and yeses the docs land card. Do **not** hand to Build until **LOCKED**. Sequence after PR #126 (**Sq**) unless Tim picks **Sx**. No SQL on this tip.
+**Tip instruction:** **PROPOSED.** Placement **Sb** recorded from Tim **t968u**; still awaiting Tim lock on En+Sd / Nk / Pw+Af+Uf+Pp / Sq (and any Sa/Sr/Sv alternatives). Do **not** stamp LOCKED from placement alone. Do **not** land on main until Tim locks and yeses the docs land card. Do **not** hand to Build until **LOCKED**. Sequence after PR #126 (**Sq**) unless Tim picks **Sx**. No SQL on this tip.

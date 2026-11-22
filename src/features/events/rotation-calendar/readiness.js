@@ -1,7 +1,9 @@
 /**
  * @file Future grazing readiness (T0).
- * Prefer pasture survey / REC-1 recovery window when present; else relative
- * days since last graze ranked vs other in-scope paddocks.
+ * OI-0262 Ra1+Bd1+Pb1+Dz1: REC-1 window anchored on the latest closed paddock
+ * window's date_closed (close obs by sourceId, else farm defaults); band runs
+ * close + min → close + max. Relative days since last graze only when no
+ * window has a close date.
  */
 
 import { getCalcByName } from '../../../utils/calc-registry.js';
@@ -27,19 +29,183 @@ export function lastGrazeDate(locationId, { paddockWindows = [], events = [], to
 }
 
 /**
- * Pick the best recovery observation for a location:
- * latest paddockObservation that has recoveryMinDays and/or recoveryMaxDays
- * (or forageQuality with farm default recovery — caller may pass defaults).
+ * OI-0262 Dz1 — local calendar date (YYYY-MM-DD) of an observation timestamp.
+ * Never a UTC `slice(0, 10)`: an evening ET close stamped next-day UTC keeps its
+ * local date. Bare YYYY-MM-DD strings pass through unchanged.
+ * @param {string|Date|null|undefined} value
+ * @returns {string|null}
  */
-export function pickRecoveryObservation(locationId, observations = [], { today = getLocalTodayStr() } = {}) {
-  const candidates = (observations || [])
-    .filter(o => o.locationId === locationId)
-    .filter(o => o.recoveryMinDays != null || o.recoveryMaxDays != null || o.observedAt)
+export function localDateOf(value) {
+  if (value == null || value === '') return null;
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const d = value instanceof Date ? value : new Date(str);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function instantMs(value) {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const t = new Date(String(value)).getTime();
+  return Number.isNaN(t) ? Number.NEGATIVE_INFINITY : t;
+}
+
+/** Latest first by real instant (not string order across offsets), then createdAt. */
+function byLatestObservation(a, b) {
+  const d = instantMs(b.observedAt) - instantMs(a.observedAt);
+  if (d !== 0) return d;
+  return instantMs(b.createdAt) - instantMs(a.createdAt);
+}
+
+function hasRecoveryDays(o) {
+  return !!o && (o.recoveryMinDays != null || o.recoveryMaxDays != null);
+}
+
+/**
+ * The close observation tied to a paddock window (`sourceId === pw.id`, type close).
+ * @returns {object|null}
+ */
+export function closeObservationForWindow(pw, observations = []) {
+  const matches = (observations || []).filter(o =>
+    o.sourceId === pw.id && o.locationId === pw.locationId
+    && o.type === 'close' && o.source !== 'survey');
+  if (!matches.length) return null;
+  return matches.slice().sort(byLatestObservation)[0];
+}
+
+/**
+ * Pick the latest recovery-bearing observation for a location (legacy helper).
+ * OI-0262 Ra1: no longer the readiness anchor — see closeRecoveryAnchor.
+ */
+export function pickRecoveryObservation(locationId, observations = []) {
+  const withRec = (observations || [])
+    .filter(o => o.locationId === locationId && hasRecoveryDays(o))
     .slice()
-    .sort((a, b) => String(b.observedAt || '').localeCompare(String(a.observedAt || '')));
-  // Prefer ones that actually carry recovery days
-  const withRec = candidates.find(o => o.recoveryMinDays != null || o.recoveryMaxDays != null);
-  return withRec || null;
+    .sort(byLatestObservation);
+  return withRec[0] || null;
+}
+
+/**
+ * OI-0262 Ra1 — close anchor: the latest closed paddock window's `dateClosed`;
+ * min/max from that window's close observation (`sourceId`), else farm defaults.
+ * Strip grazing: also returns the other closed strips in the anchor's strip group
+ * so whole-paddock readiness waits until every strip is past its minimum.
+ * @returns {null | {
+ *   source: 'close', date: string, minDays: number, maxDays: number,
+ *   paddockWindowId: string|null, observationId: string|null,
+ *   strips: Array<{ date: string, minDays: number, maxDays: number }>,
+ * }}
+ */
+export function closeRecoveryAnchor(locationId, {
+  paddockWindows = [],
+  observations = [],
+  defaultRecoveryMinDays = 21,
+  defaultRecoveryMaxDays = 35,
+} = {}) {
+  const closed = (paddockWindows || []).filter(pw => pw.locationId === locationId && pw.dateClosed);
+  if (!closed.length) return null;
+  const dayOf = pw => String(pw.dateClosed).slice(0, 10);
+  const latestDay = closed.reduce((acc, pw) => (dayOf(pw) > acc ? dayOf(pw) : acc), '');
+  const sameDay = closed.filter(pw => dayOf(pw) === latestDay);
+  // Same-day closes (e.g. sub-move + parent): prefer the one whose close obs carries recovery days.
+  const anchorPw = sameDay.find(pw => hasRecoveryDays(closeObservationForWindow(pw, observations)))
+    || sameDay[0];
+  const recoveryFor = (pw) => {
+    const obs = closeObservationForWindow(pw, observations);
+    return {
+      obs,
+      minDays: obs?.recoveryMinDays ?? defaultRecoveryMinDays,
+      maxDays: obs?.recoveryMaxDays ?? defaultRecoveryMaxDays,
+    };
+  };
+  const anchorRec = recoveryFor(anchorPw);
+  const strips = [];
+  if (anchorPw.isStripGraze && anchorPw.stripGroupId) {
+    for (const pw of closed) {
+      if (pw === anchorPw || pw.stripGroupId !== anchorPw.stripGroupId) continue;
+      const rec = recoveryFor(pw);
+      strips.push({ date: dayOf(pw), minDays: rec.minDays, maxDays: rec.maxDays });
+    }
+  }
+  return {
+    source: 'close',
+    date: latestDay,
+    minDays: anchorRec.minDays,
+    maxDays: anchorRec.maxDays,
+    paddockWindowId: anchorPw.id ?? null,
+    observationId: anchorRec.obs?.id ?? null,
+    strips,
+  };
+}
+
+/**
+ * Latest pasture survey for a location (`paddock_observations.source = 'survey'`),
+ * dated by local calendar day.
+ * @returns {null | { source: 'survey', date: string, minDays: number|null, maxDays: number|null, observationId: string|null }}
+ */
+export function latestSurveyAnchor(locationId, observations = []) {
+  const surveys = (observations || [])
+    .filter(o => o.locationId === locationId && o.source === 'survey' && localDateOf(o.observedAt))
+    .slice()
+    .sort(byLatestObservation);
+  const o = surveys[0];
+  if (!o) return null;
+  return {
+    source: 'survey',
+    date: localDateOf(o.observedAt),
+    minDays: o.recoveryMinDays ?? null,
+    maxDays: o.recoveryMaxDays ?? null,
+    observationId: o.id ?? null,
+  };
+}
+
+/**
+ * OI-0262 anchor seam — later-of(close anchor, survey anchor).
+ * Interim (Sv parked → Sv1-equivalent per the locked brief): the window dates
+ * always come from the Ra1 close anchor; a survey dated strictly after the close
+ * only switches the label to "Surveyed on …". A same-day survey does not count.
+ * @param {ReturnType<typeof closeRecoveryAnchor>} closeAnchor
+ * @param {ReturnType<typeof latestSurveyAnchor>} surveyAnchor
+ * @returns {null | {
+ *   date: string, minDays: number, maxDays: number,
+ *   dateSource: 'close'|'survey', labelKind: 'estimated'|'surveyed', surveyDate: string|null,
+ * }}
+ */
+export function selectReadinessAnchor(closeAnchor, surveyAnchor) {
+  if (!closeAnchor) return null;
+  const surveyIsLater = !!(surveyAnchor?.date && surveyAnchor.date > closeAnchor.date);
+  return {
+    date: closeAnchor.date,
+    minDays: closeAnchor.minDays,
+    maxDays: closeAnchor.maxDays,
+    dateSource: 'close',
+    labelKind: surveyIsLater ? 'surveyed' : 'estimated',
+    surveyDate: surveyIsLater ? surveyAnchor.date : null,
+  };
+}
+
+/** "Sep 20" — local short month + day for readiness labels. */
+export function formatReadinessDate(iso) {
+  if (!iso) return '';
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/**
+ * OI-0262 Pb1 (Tim t1270u wording).
+ * @param {{ labelKind: 'estimated'|'surveyed', surveyDate: string|null }} anchor
+ * @param {string} earliestReturn
+ */
+export function readinessLabel(anchor, earliestReturn) {
+  const ready = formatReadinessDate(earliestReturn);
+  if (anchor?.labelKind === 'surveyed' && anchor.surveyDate) {
+    return `Surveyed on ${formatReadinessDate(anchor.surveyDate)}, estimated ready ${ready}`;
+  }
+  return `Estimated ready ${ready}`;
 }
 
 /**
@@ -53,6 +219,7 @@ export function pickRecoveryObservation(locationId, observations = [], { today =
  *   relativeRank: number|null,  // 1 = most rested among peers with relative mode
  *   peerCount: number,
  *   label: string,
+ *   anchor?: object,
  * }}
  */
 export function computeReadiness(location, {
@@ -92,18 +259,29 @@ export function computeReadiness(location, {
     };
   }
 
-  const obs = pickRecoveryObservation(location.id, observations, { today });
+  // OI-0262 Ra1+Bd1: REC-1 window from the paddock close date (not the obs entry time).
+  const closeAnchor = closeRecoveryAnchor(location.id, {
+    paddockWindows, observations, defaultRecoveryMinDays, defaultRecoveryMaxDays,
+  });
+  const anchor = selectReadinessAnchor(closeAnchor, latestSurveyAnchor(location.id, observations));
   const rec1 = getCalcByName('REC-1');
 
-  if (obs && (obs.recoveryMinDays != null || obs.recoveryMaxDays != null) && obs.observedAt && rec1) {
-    const minDays = obs.recoveryMinDays ?? defaultRecoveryMinDays;
-    const maxDays = obs.recoveryMaxDays ?? defaultRecoveryMaxDays;
-    const observedAt = String(obs.observedAt).slice(0, 10);
-    const { earliestReturn, windowCloses } = rec1.fn({
-      observedAt,
-      recoveryMinDays: minDays,
-      recoveryMaxDays: maxDays,
+  if (anchor && rec1 && anchor.minDays != null && anchor.maxDays != null) {
+    let { earliestReturn, windowCloses } = rec1.fn({
+      observedAt: anchor.date,
+      recoveryMinDays: anchor.minDays,
+      recoveryMaxDays: anchor.maxDays,
     });
+    // Strip grazing: whole paddock is ready only once every strip is past its min.
+    if (anchor.dateSource === 'close' && closeAnchor?.strips?.length) {
+      for (const strip of closeAnchor.strips) {
+        const r = rec1.fn({
+          observedAt: strip.date, recoveryMinDays: strip.minDays, recoveryMaxDays: strip.maxDays,
+        });
+        if (r.earliestReturn > earliestReturn) earliestReturn = r.earliestReturn;
+      }
+      if (windowCloses < earliestReturn) windowCloses = earliestReturn;
+    }
     const confidence = readinessConfidence(today, earliestReturn, windowCloses);
     return {
       mode: 'survey',
@@ -113,7 +291,8 @@ export function computeReadiness(location, {
       daysSinceLastGraze: daysBetweenInclusive(last, today) - 1,
       relativeRank: null,
       peerCount: 0,
-      label: `Ready ${earliestReturn} – ${windowCloses}`,
+      label: readinessLabel(anchor, earliestReturn),
+      anchor,
     };
   }
 

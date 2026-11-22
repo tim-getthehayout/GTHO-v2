@@ -41,7 +41,7 @@ import { renderAmendmentsScreen } from './features/amendments/entry.js';
 import { renderManureScreen } from './features/amendments/manure.js';
 import { renderNpkPricesScreen } from './features/amendments/npk-prices.js';
 import { renderHarvestScreen } from './features/harvest/index.js';
-import { renderFarmMapScreen } from './features/map/index.js';
+import { redirectLegacyMapRoute } from './features/map/map-view.js';
 import { renderFeedbackScreen } from './features/feedback/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { renderDevHome } from './features/dev-mode/index.js';
@@ -379,7 +379,8 @@ function paintApp(app, syncAdapter) {
   route('#/field', renderFieldModeHome);
   route('#/events', renderEventsScreen);
   route('#/locations', renderLocationsScreen);
-  route('#/map', renderFarmMapScreen);
+  // OI-0263: old #/map links (bookmarks, Home Screen, intents) land on the Map view.
+  route('#/map', (c) => redirectLegacyMapRoute(c, renderEventsScreen));
   route('#/feed', renderFeedScreen);
   route('#/animals', renderAnimalsScreen);
   route('#/reports', renderReportsScreen);

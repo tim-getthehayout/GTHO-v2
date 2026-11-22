@@ -43,7 +43,7 @@ export function renderLegend(viewMode) {
         swatch('legend__swatch--nodata', 'No data'),
       ]
     : [
-        swatch('legend__swatch--dm-gradient', 'DM recovery gradient'),
+        swatch('legend__swatch--ready-window', 'Ready window (estimated)'), // OI-0262 Gc1
         swatch('legend__swatch--nodata', 'No data / survey needed'),
       ];
 

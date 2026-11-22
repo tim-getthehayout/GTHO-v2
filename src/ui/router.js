@@ -9,6 +9,9 @@ const routes = {};
 /** @type {HTMLElement|null} */
 let appContainer = null;
 
+/** OI-0263 Ex1: hash the user was on before the latest in-app hash change (null on cold launch). */
+let previousHash = null;
+
 /**
  * Register a route.
  * @param {string} hash - e.g. '#/' or '#/events'
@@ -39,7 +42,11 @@ export function navigate(hash) {
 /**
  * Handle the current hash route.
  */
-function handleRoute() {
+function handleRoute(e) {
+  if (e && typeof e.oldURL === 'string') {
+    const idx = e.oldURL.indexOf('#');
+    previousHash = idx >= 0 ? e.oldURL.slice(idx) : '#/';
+  }
   const rawHash = window.location.hash || '#/';
   const hash = rawHash.split('?')[0];
   const renderFn = routes[hash] || routes['#/'];
@@ -48,6 +55,19 @@ function handleRoute() {
     clear(appContainer);
     renderFn(appContainer);
   }
+}
+
+/**
+ * OI-0263 Ex1: the hash before the latest hash change, or null on a cold launch.
+ * @returns {string|null}
+ */
+export function getPreviousHash() {
+  return previousHash;
+}
+
+/** Test seam: set/clear the remembered previous hash. */
+export function _setPreviousHash(hash) {
+  previousHash = hash ?? null;
 }
 
 /**

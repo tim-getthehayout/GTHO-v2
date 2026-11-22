@@ -14,6 +14,7 @@ import * as SubmissionEntity from '../entities/submission.js';
 import { getFeedbackBadgeCount } from '../features/feedback/index.js';
 import { pullAllRemote, getLastPulledAt } from '../data/pull-remote.js';
 import { buildStampLabel } from './build-stamp.js';
+import { MAP_VIEW_HASH, isMapViewHash } from '../features/events/calendar-state.js';
 
 const STALE_THRESHOLD_MS = 15 * 60 * 1000;
 
@@ -58,7 +59,7 @@ export function renderHeader(container) {
       sidebarNavItem('#/animals', 'Animals', currentHash, 'nav-animals'),
       sidebarNavItem('#/events', 'Locations & Rotation', currentHash, 'nav-events'),
       sidebarNavItem('#/locations', 'Locations', currentHash, 'nav-locations'),
-      sidebarNavItem('#/map', 'Map', currentHash, 'nav-map'),
+      sidebarNavItem(MAP_VIEW_HASH, 'Map', currentHash, 'nav-map'), // OI-0263
       sidebarNavItem('#/feed', 'Feed', currentHash, 'nav-feed'),
       sidebarNavItemBadge('#/todos', 'Tasks', todoCount, currentHash, 'nav-todos'),
       sidebarNavItem('#/reports', 'Reports', currentHash, 'nav-reports'),
@@ -74,7 +75,7 @@ export function renderHeader(container) {
     navLink('#/', t('nav.dashboard'), 'nav-dashboard'),
     navLink('#/events', t('nav.events'), 'nav-events'),
     navLink('#/locations', t('nav.locations'), 'nav-locations'),
-    navLink('#/map', 'Map', 'nav-map'),
+    navLink(MAP_VIEW_HASH, 'Map', 'nav-map'), // OI-0263
     navLink('#/animals', t('nav.animals'), 'nav-animals'),
     navLink('#/feed', t('nav.feed'), 'nav-feed'),
     navLinkWithBadge('#/todos', t('nav.todos'), todoCount, 'nav-todos'),
@@ -450,6 +451,9 @@ function updateDevChip(container) {
  * @returns {boolean}
  */
 function navHrefIsActive(hash, href) {
+  // OI-0263: Map lives inside Locations & Rotation — only one of the two is active.
+  if (isMapViewHash(href)) return isMapViewHash(hash);
+  if (href === '#/events' && isMapViewHash(hash)) return false;
   if (hash === href) return true;
   if (href === '#/') return false;
   return hash.startsWith(href + '/') || hash.startsWith(href + '?');

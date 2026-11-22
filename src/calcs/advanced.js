@@ -101,10 +101,16 @@ registerCalc({
     output: { earliestReturn: '2024-06-22', windowCloses: '2024-07-06' },
   },
   fn({ observedAt, recoveryMinDays, recoveryMaxDays }) {
+    // OI-0262 Dz1 — DST-safe local calendar math: parse YYYY-MM-DD at local
+    // midnight, add calendar days, format local Y-M-D (no toISOString / UTC).
     const addDays = (iso, days) => {
-      const d = new Date(iso);
+      const str = String(iso);
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(str) ? new Date(`${str}T00:00:00`) : new Date(str);
       d.setDate(d.getDate() + days);
-      return d.toISOString().slice(0, 10);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
     };
     return {
       earliestReturn: addDays(observedAt, recoveryMinDays),

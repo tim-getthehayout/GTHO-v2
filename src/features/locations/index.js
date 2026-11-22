@@ -3,7 +3,6 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { navigate } from '../../ui/router.js';
 import { getAll, getById, add, update, remove, subscribe, getVisibleLocations, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel } from '../../utils/units.js';
@@ -185,7 +184,7 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
   contentEl.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' } }, [
     el('div', { style: { fontSize: '17px', fontWeight: '600' } }, ['Locations']),
     el('button', { className: 'btn btn-green btn-sm', onClick: () => openLocationSheet(null, operationId, farmId) }, ['+ Add']),
-    el('button', { className: 'btn btn-outline btn-sm', 'data-testid': 'locations-open-map', onClick: () => navigate('#/map') }, ['Map']),
+    // OI-0263 Tb1: Map launcher removed — Map is a View on Locations & Rotation.
     el('button', { className: 'btn btn-outline btn-sm', onClick: () => openSurveySheet(null, operationId) }, ['\uD83D\uDCCB Survey']),
     el('button', { className: 'btn btn-outline btn-sm', onClick: () => openHarvestSheet(operationId) }, ['\uD83C\uDF3E Harvest']),
     el('button', { className: 'btn btn-outline btn-sm', onClick: () => openFeedTypesSheet(operationId) }, ['\u2699 Feed types']),

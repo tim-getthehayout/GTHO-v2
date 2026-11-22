@@ -2602,7 +2602,8 @@ body:has(.auth-overlay) .pwa-update-banner {
 .legend__swatch--active { background: var(--color-green-dark); box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 3px var(--color-green-dark); }
 .legend__swatch--linked { border-style: dashed; background: transparent; }
 .legend__swatch--strip { background: linear-gradient(90deg, var(--color-green-base) 50%, var(--color-green-dark) 50%); }
-.legend__swatch--dm-gradient { background: linear-gradient(90deg, var(--color-green-light), var(--color-green-base)); }
+/* OI-0262 Gc1 */
+.legend__swatch--ready-window { background: color-mix(in srgb, var(--color-green-base) 35%, transparent); border: 1px dashed var(--color-green-dark); box-sizing: border-box; }
 .legend__swatch--capacity { background: linear-gradient(90deg, var(--color-green-base) 60%, #D4A76A 60%); }
 .legend__swatch--surplus { background: var(--color-green-base); position: relative; }
 .legend__swatch--nodata { background: #D4A76A; }
@@ -3276,22 +3277,15 @@ body:has(.auth-overlay) .pwa-update-banner {
 
 .future-block:focus-visible { outline: 3px solid var(--color-green-dark); outline-offset: 2px; }
 
-.future-block--min {
-  background: linear-gradient(90deg, var(--color-green-light), var(--color-green-light-2));
-}
-
-.future-block--mid {
-  background: linear-gradient(90deg, var(--color-green-light-2), var(--color-green-base));
-}
-
-.future-block--max {
-  background: var(--color-green-base);
-  opacity: 0.8;
-}
-
+/* OI-0262 Gc1: one readiness-band look (35% green-base + 1px dashed green-dark);
+   confidence lives in the label, not the fill. */
+.future-block--min,
+.future-block--mid,
+.future-block--max,
 .future-block--past_max {
-  background: var(--color-green-base);
-  opacity: 0.6;
+  background: color-mix(in srgb, var(--color-green-base) 35%, transparent);
+  border: 1px dashed var(--color-green-dark);
+  box-sizing: border-box;
 }
 
 .future-block--never-grazed {
@@ -3892,8 +3886,30 @@ body:has(.auth-overlay) .pwa-update-banner {
   cursor: default;
 }
 
-.farm-map-screen { display: flex; flex-direction: column; min-height: calc(100vh - 120px); }
-.farm-map-canvas { height: 70vh; min-height: 420px; width: 100%; border-radius: 8px; background: #1a1a1a; }
+/* OI-0263 Ex1: the map sits inside Locations & Rotation (Map view). The canvas is
+   its own stacking context so Leaflet panes (z 400) and controls (z 800–1000)
+   stay under the sticky app header (z 50) and the fixed bottom nav (z 100), and
+   it is sized to the viewport minus header, View toggle, map header and nav. */
+.farm-map-screen { display: flex; flex-direction: column; }
+.farm-map-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.farm-map-header .farm-map-title { margin: 0; }
+.farm-map-canvas {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  width: 100%;
+  height: calc(100vh - 300px);
+  height: calc(100dvh - 300px - var(--safe-top) - var(--safe-bottom));
+  min-height: 260px;
+  border-radius: 8px;
+  background: #1a1a1a;
+}
+@media (min-width: 900px) {
+  .farm-map-canvas {
+    height: calc(100vh - 260px);
+    height: calc(100dvh - 260px);
+  }
+}
 .farm-map-toolbar, .farm-map-hint { margin-bottom: 8px; }
 .farm-map-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 

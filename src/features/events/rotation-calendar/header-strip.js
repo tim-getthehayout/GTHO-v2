@@ -1,12 +1,13 @@
 /**
  * @file Header strip — CP-54.
- * Left: View toggle (Calendar | List). Right: Mode indicator pill.
+ * Left: View toggle (Calendar | List | Map — OI-0263 Lf-B). Right: Mode indicator pill.
  * See V2_DESIGN_SYSTEM.md §4.3.
  */
 
 import { el } from '../../../ui/dom.js';
 import { t } from '../../../i18n/i18n.js';
-import { getCalendarState, setView, getViewMode } from '../calendar-state.js';
+import { getCalendarState, setView, getViewMode, calendarHashFor } from '../calendar-state.js';
+import { navigate } from '../../../ui/router.js';
 import { buildGroupLabel } from './past-block.js';
 
 /**
@@ -22,12 +23,22 @@ export function renderHeaderStrip({ selectedGroups, period, onUpdate, onViewChan
   const state = getCalendarState();
   const viewMode = getViewMode();
   // View toggle must remount the parent screen (list lives outside calendar-grid).
-  const switchView = onViewChange || onUpdate;
+  const switchViewInPlace = onViewChange || onUpdate;
+  // OI-0263 Ex1: entering or leaving Map pushes a real history entry (hashchange
+  // → screen remount), so Back/Close and browser back return to the prior view.
+  const switchView = (next) => {
+    if (next === 'map' || state.view === 'map') {
+      navigate(calendarHashFor({ view: next }));
+      return;
+    }
+    setView(next);
+    switchViewInPlace();
+  };
 
   // View toggle
   const calBtn = el('button', {
     className: `header-strip__toggle${state.view === 'calendar' ? ' header-strip__toggle--active' : ''}`,
-    onClick: () => { setView('calendar'); switchView(); },
+    onClick: () => switchView('calendar'),
     type: 'button',
     dataset: { testid: 'view-toggle-calendar' },
     'aria-pressed': state.view === 'calendar' ? 'true' : 'false',
@@ -35,16 +46,25 @@ export function renderHeaderStrip({ selectedGroups, period, onUpdate, onViewChan
 
   const listBtn = el('button', {
     className: `header-strip__toggle${state.view === 'list' ? ' header-strip__toggle--active' : ''}`,
-    onClick: () => { setView('list'); switchView(); },
+    onClick: () => switchView('list'),
     type: 'button',
     dataset: { testid: 'view-toggle-list' },
     'aria-pressed': state.view === 'list' ? 'true' : 'false',
   }, ['\uD83D\uDCCB List']);
 
+  const mapBtn = el('button', {
+    className: `header-strip__toggle${state.view === 'map' ? ' header-strip__toggle--active' : ''}`,
+    onClick: () => switchView('map'),
+    type: 'button',
+    dataset: { testid: 'view-toggle-map' },
+    'aria-pressed': state.view === 'map' ? 'true' : 'false',
+  }, ['\uD83D\uDDFA Map']);
+
   const viewToggle = el('div', { className: 'header-strip__view-toggle' }, [
     el('span', { className: 'header-strip__view-label' }, ['View:']),
     calBtn,
     listBtn,
+    mapBtn,
   ]);
 
   // Mode indicator pill

@@ -35,6 +35,8 @@ import { openPastEventDetailSheet } from './past-event-detail-sheet.js';
 import { renderEstimatedFutureBlock, renderForecastFutureBlock } from './future-block.js';
 import { shouldPaintCap1ForecastStub, CAP1_FORECAST_STUB } from './forecaster-helpers.js';
 import { renderHeaderStrip } from './header-strip.js';
+import { renderFarmMapScreen, unmountFarmMap } from '../../map/index.js';
+import { logger } from '../../../utils/logger.js';
 import { renderToolbar } from './toolbar.js';
 import { renderLegend } from './legend.js';
 import { renderTodayLine } from './today-line.js';
@@ -188,6 +190,14 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   clear(container);
 
   const state = getCalendarState();
+  // OI-0263 Lf-B: Map view mounts the farm map under the View toggle; any other
+  // view unmounts it (Leaflet instance removed, not left running off-screen).
+  if (state.view === 'map') {
+    renderMapView(container, { onViewChange });
+    return;
+  }
+  unmountFarmMap();
+
   const viewMode = getViewMode();
   const unitSystem = getUnitSystem();
   const today = getLocalTodayStr();
@@ -492,6 +502,28 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   container.addEventListener('keydown', onKeyDown);
 }
 
+/** OI-0263 Lf-B+Ex1: View toggle + farm map (with Back/Close) inside Locations & Rotation. */
+function renderMapView(container, { onViewChange } = {}) {
+  const state = getCalendarState();
+  const allGroups = getAll('groups');
+  const selectedGroups = state.groups
+    .map(gId => allGroups.find(g => g.id === gId))
+    .filter(Boolean)
+    .map(g => ({ id: g.id, name: g.name }));
+  const onUpdate = () => renderCalendarGrid(container, { onViewChange });
+  container.appendChild(renderHeaderStrip({
+    selectedGroups, period: state.period, onUpdate, onViewChange,
+  }));
+  const host = el('div', {
+    className: 'loc-mgmt-map',
+    dataset: { testid: 'loc-mgmt-map-view', view: 'map' },
+  });
+  container.appendChild(host);
+  renderFarmMapScreen(host).catch((err) => {
+    logger.warn('map', 'Map view failed to load', { message: err?.message || String(err) });
+  });
+}
+
 /**
  * La: Locations-parity tools for List mode (search, X1 type pills, Add/Map/Survey/…).
  * Calendar toolbar stays unchanged (Cb).
@@ -535,12 +567,7 @@ function renderListTools({ onUpdate, operationId, farmId }) {
       className: 'btn btn-green btn-sm',
       onClick: () => openLocationSheet(null, operationId, farmId),
     }, ['+ Add']),
-    el('button', {
-      type: 'button',
-      className: 'btn btn-outline btn-sm',
-      'data-testid': 'loc-mgmt-open-map',
-      onClick: () => navigate('#/map'),
-    }, ['Map']),
+    // OI-0263 Tb1: Map launcher removed — Map is the third View (Calendar | List | Map).
     el('button', {
       type: 'button',
       className: 'btn btn-outline btn-sm',
@@ -768,6 +795,18 @@ function sortHeaderButton(key, label, sort, onUpdate, title) {
   }, [`${label}${arrow}`]);
 }
 
+/**
+ * OI-0261 Ml1 — month tick label: month name only ("Dec"); the year shows only on
+ * January ("Jan 2027") so a month tick never reads like a day-of-month ("Dec 26").
+ * @param {Date} date
+ * @returns {string}
+ */
+export function monthTickLabel(date) {
+  return date.getMonth() === 0
+    ? date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
+    : date.toLocaleDateString(undefined, { month: 'short' });
+}
+
 /** OI-0254 Tk1 — large=month start, medium=Saturday, small=other days. */
 function buildAxis(start, end, zoom, pxPerDay, totalWidth) {
   const ticks = enumerateTicks(start, end);
@@ -785,7 +824,7 @@ function buildAxis(start, end, zoom, pxPerDay, totalWidth) {
       || (tick.kind === 'saturday' && (zoom === 'day' || zoom === 'week'));
     if (showLabel) {
       const label = tick.kind === 'month'
-        ? tick.date.toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
+        ? monthTickLabel(tick.date)
         : tick.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       nodes.push(el('span', {
         className: `timeline-axis__label timeline-axis__label--${tick.kind}`,
@@ -1068,6 +1107,7 @@ function renderManagementRow(opts) {
         minDate: formatShort(band.start),
         maxDate: formatShort(band.end),
         confidence: readinessState.confidence || 'min',
+        label: readinessState.label || '',
         isNeverGrazed: false,
         isGrazingInProgress: false,
         hayEstimateLbs: '?',

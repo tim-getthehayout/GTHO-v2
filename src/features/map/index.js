@@ -1,4 +1,9 @@
-/** @file Farm map screen — view paddocks, draw a perimeter, import FieldMargin files. */
+/**
+ * @file Farm map — view paddocks, draw a perimeter, import FieldMargin files.
+ * OI-0263 Ex1+Lf-B: mounted as the Map view of Locations & Rotation; always shows
+ * Back/Close; the canvas is its own stacking context so Leaflet never paints over
+ * the app header or bottom nav.
+ */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
@@ -11,9 +16,18 @@ import { applyLocationGeometry } from './apply-geometry.js';
 import { openBoundaryImportPicker } from './import-sheet.js';
 import { openLocationMapPicker } from './picker.js';
 import { addPaddockLabel } from './labels.js';
+import { leaveMapView } from './map-view.js';
 import * as TodoEntity from '../../entities/todo.js';
 
 let mapInstance = null;
+
+/** OI-0263 Lf-B: remove the Leaflet instance when the Map view is left. */
+export function unmountFarmMap() {
+  if (mapInstance) {
+    try { mapInstance.remove(); } catch { /* detached container */ }
+    mapInstance = null;
+  }
+}
 
 function defaultCenter() {
   const farmId = getActiveFarmId();
@@ -33,17 +47,27 @@ export async function renderFarmMapScreen(container) {
   const toolbar = el('div', { className: 'farm-map-toolbar' });
   const hint = el('div', { className: 'farm-map-hint' });
   const canvas = el('div', { className: 'farm-map-canvas', id: 'farm-map-canvas' });
-  wrap.appendChild(el('h1', { className: 'screen-heading', style: { marginBottom: '8px' } }, [t('map.title')]));
+  // OI-0263 Ex1: always-visible Back/Close (PWA standalone has no browser back).
+  const header = el('div', { className: 'farm-map-header', 'data-testid': 'farm-map-header' }, [
+    el('button', {
+      type: 'button',
+      className: 'btn btn-outline btn-sm farm-map-back',
+      'data-testid': 'farm-map-back',
+      'aria-label': 'Close map and go back',
+      onClick: () => leaveMapView(),
+    }, ['\u2190 Back']),
+    el('h1', { className: 'screen-heading farm-map-title' }, [t('map.title')]),
+  ]);
+  wrap.appendChild(header);
   wrap.appendChild(toolbar);
   wrap.appendChild(hint);
   wrap.appendChild(canvas);
   container.appendChild(wrap);
 
   const L = await loadLeaflet();
-  if (mapInstance) {
-    mapInstance.remove();
-    mapInstance = null;
-  }
+  // The view may have been switched away while Leaflet loaded.
+  if (!canvas.isConnected) return;
+  unmountFarmMap();
   const map = L.map(canvas, { zoomControl: true }).setView(defaultCenter(), 15);
   mapInstance = map;
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
@@ -188,7 +212,7 @@ export async function renderFarmMapScreen(container) {
   requestAnimationFrame(() => map.invalidateSize());
   window.addEventListener('gtho-boundaries-imported', function onImported() {
     window.removeEventListener('gtho-boundaries-imported', onImported);
-    renderFarmMapScreen(container);
+    if (container.isConnected) renderFarmMapScreen(container);
   });
 }
 

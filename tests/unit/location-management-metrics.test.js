@@ -577,10 +577,10 @@ describe('readiness T0', () => {
   it('uses REC-1 when survey recovery days present', () => {
     const r = computeReadiness({ id: 'loc1' }, {
       today: '2026-06-15',
-      paddockWindows: [{ locationId: 'loc1', eventId: 'e1', dateOpened: '2026-05-01', dateClosed: '2026-06-01' }],
+      paddockWindows: [{ id: 'pw1', locationId: 'loc1', eventId: 'e1', dateOpened: '2026-05-01', dateClosed: '2026-06-01' }],
       events: [{ id: 'e1', dateOut: '2026-06-01' }],
       observations: [{
-        locationId: 'loc1', observedAt: '2026-06-01',
+        locationId: 'loc1', observedAt: '2026-06-01', type: 'close', source: 'event', sourceId: 'pw1',
         recoveryMinDays: 21, recoveryMaxDays: 35,
       }],
     });
@@ -590,12 +590,14 @@ describe('readiness T0', () => {
     expect(r.confidence).toBe('min'); // today before earliest
   });
 
-  it('falls back to relative days vs peers when no survey recovery', () => {
+  // OI-0262 Ra1: a closed window always anchors REC-1 (farm defaults when no close obs),
+  // so relative ranking only applies when no window carries a close date.
+  it('falls back to relative days vs peers when no window has a close date', () => {
     const locs = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
     const paddockWindows = [
-      { locationId: 'a', eventId: 'e1', dateOpened: '2026-05-01', dateClosed: '2026-05-10' },
-      { locationId: 'b', eventId: 'e2', dateOpened: '2026-05-01', dateClosed: '2026-06-01' },
-      { locationId: 'c', eventId: 'e3', dateOpened: '2026-05-01', dateClosed: '2026-04-01' },
+      { locationId: 'a', eventId: 'e1', dateOpened: '2026-05-01', dateClosed: null },
+      { locationId: 'b', eventId: 'e2', dateOpened: '2026-05-01', dateClosed: null },
+      { locationId: 'c', eventId: 'e3', dateOpened: '2026-03-01', dateClosed: null },
     ];
     const events = [
       { id: 'e1', dateOut: '2026-05-10' },

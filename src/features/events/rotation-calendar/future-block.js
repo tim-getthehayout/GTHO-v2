@@ -47,12 +47,13 @@ function formatCovers(hours) {
  * @param {string} [opts.hayEstimateLbs] - For never-grazed paddocks
  * @param {string} opts.locationId
  * @param {Function} opts.onClickBlock
+ * @param {string} [opts.label] - OI-0262 Pb1 readiness label for aria/title
  * @returns {HTMLElement}
  */
 export function renderEstimatedFutureBlock({
   leftPx, widthPx, minDate, maxDate, confidence,
   isNeverGrazed, isGrazingInProgress, hayEstimateLbs,
-  locationId, onClickBlock, forageInactive = false,
+  locationId, onClickBlock, forageInactive = false, label = '',
 }) {
   if (isGrazingInProgress) {
     return el('div', {
@@ -107,7 +108,9 @@ export function renderEstimatedFutureBlock({
     onClick: () => onClickBlock(locationId, 'detail'),
     tabindex: '0',
     role: 'button',
-    'aria-label': `Recovery forecast, ${minDate} to ${maxDate}`,
+    // OI-0262 Pb1: band carries the readiness label (Estimated / Surveyed on …).
+    'aria-label': label || `Recovery forecast, ${minDate} to ${maxDate}`,
+    ...(label ? { title: label } : {}),
   }, children);
 }
 

@@ -25,7 +25,25 @@ const DEFAULTS = {
 
 const VALID_ZOOM = ['day', 'week', 'month', 'last90'];
 const VALID_ANCHOR_PRESETS = ['today', 'last30', 'thisYear'];
-const VALID_VIEW = ['calendar', 'list'];
+// OI-0263 Lf-B+Tb1: Map is the third Locations & Rotation view.
+const VALID_VIEW = ['calendar', 'list', 'map'];
+
+/** OI-0263: canonical hash for the Map view (old `#/map` links redirect here). */
+export const MAP_VIEW_HASH = '#/events?view=map';
+
+/**
+ * OI-0263: true for the legacy `#/map` route or any `#/events?…view=map` hash.
+ * @param {string|null|undefined} hash
+ */
+export function isMapViewHash(hash) {
+  if (!hash) return false;
+  const str = String(hash);
+  const qIdx = str.indexOf('?');
+  const path = qIdx === -1 ? str : str.slice(0, qIdx);
+  if (path === '#/map') return true;
+  if (path !== '#/events' || qIdx === -1) return false;
+  return new URLSearchParams(str.slice(qIdx + 1)).get('view') === 'map';
+}
 
 // ── Session state ─────────────────────────────────────────────────
 let state = { ...DEFAULTS, groups: [] };
@@ -124,22 +142,33 @@ export function toggleMetricsCollapsed() {
 // ── URL serialization (§19.9) ─────────────────────────────────────
 
 function syncUrl() {
+  history.replaceState(null, '', calendarHashFor());
+}
+
+/**
+ * The `#/events?…` hash for the current calendar state with optional overrides
+ * (OI-0263: the Map toggle pushes a real history entry so Back returns to the view).
+ * @param {Partial<typeof state>} [overrides]
+ * @returns {string}
+ */
+export function calendarHashFor(overrides = {}) {
+  const s = { ...state, ...overrides };
   const params = new URLSearchParams();
 
-  if (state.zoom !== DEFAULTS.zoom) params.set('zoom', state.zoom);
-  if (state.anchor !== DEFAULTS.anchor) params.set('anchor', state.anchor);
-  if (state.groups.length > 0) params.set('groups', state.groups.join(','));
-  if (state.period != null) params.set('period', String(state.period));
-  if (state.showConfinement) params.set('showConfinement', '1');
-  if (state.view !== DEFAULTS.view) params.set('view', state.view);
-  if (state.metricStart) params.set('metricStart', state.metricStart);
-  if (state.metricEnd) params.set('metricEnd', state.metricEnd);
-  if (state.sortKey !== DEFAULTS.sortKey) params.set('sortKey', state.sortKey);
-  if (state.sortDir !== DEFAULTS.sortDir) params.set('sortDir', state.sortDir);
+  if (s.zoom !== DEFAULTS.zoom) params.set('zoom', s.zoom);
+  if (s.anchor !== DEFAULTS.anchor) params.set('anchor', s.anchor);
+  if (s.groups.length > 0) params.set('groups', s.groups.join(','));
+  if (s.period != null) params.set('period', String(s.period));
+  if (s.showConfinement) params.set('showConfinement', '1');
+  if (s.view !== DEFAULTS.view) params.set('view', s.view);
+  if (s.metricStart) params.set('metricStart', s.metricStart);
+  if (s.metricEnd) params.set('metricEnd', s.metricEnd);
+  if (s.sortKey !== DEFAULTS.sortKey) params.set('sortKey', s.sortKey);
+  if (s.sortDir !== DEFAULTS.sortDir) params.set('sortDir', s.sortDir);
 
   const qs = params.toString();
   const newHash = '#/events' + (qs ? '?' + qs : '');
-  history.replaceState(null, '', newHash);
+  return newHash;
 }
 
 /**

@@ -14,7 +14,14 @@ import { getUnitSystem } from '../../../utils/preferences.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
 import { display } from '../../../utils/units.js';
 import { navigate } from '../../../ui/router.js';
-import { openLocationSheet } from '../../locations/index.js';
+import {
+  openLocationSheet,
+  openSurveySheet,
+  openFeedTypesSheet,
+  openSoilTestSheet,
+} from '../../locations/index.js';
+import { openHarvestSheet } from '../../harvest/index.js';
+import { openAmendmentSheet } from '../../amendments/entry.js';
 import { getEventStartDate } from '../event-start.js';
 import { getLiveWindowHeadCount } from '../../../calcs/window-helpers.js';
 import { resolveRange, dateToPx } from './timeline.js';
@@ -41,6 +48,10 @@ import {
 
 const ROW_HEIGHT = 72;
 const NAME_WIDTH = 160;
+/** List-mode inventory filters (session memory; not Pb). */
+let listSearchQuery = '';
+let listLandUseFilter = 'all'; // all | pasture | mixed-use (Ta/X1 only)
+
 const METRIC_COLS = [
   { key: 'dmiKg', label: 'DMI', title: 'Implied pasture DMI (kg)' },
   { key: 'auds', label: 'AUDs', title: 'Animal Unit Days' },
@@ -74,7 +85,16 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   const allWeights = getAll('animalWeightRecords');
   const allObservations = getAll('paddockObservations');
   const allFeedEntries = getAll('eventFeedEntries');
+  const allFeedChecks = getAll('eventFeedChecks');
+  const allFeedCheckItems = getAll('eventFeedCheckItems');
+  const allBatches = getAll('batches');
+  const allFeedTypes = getAll('feedTypes');
+  const allBatchProfiles = getAll('batchNutritionalProfiles');
   const farmSettings = getAll('farmSettings')[0] || {};
+  const operationId = allLocations[0]?.operationId
+    || getAll('operations')[0]?.id
+    || null;
+  const farmId = allLocations[0]?.farmId || getAll('farms')[0]?.id || null;
 
   // X1 filter (pasture + mixed-use). Optional confinement toggle ignored for X1 surface.
   let locations = filterManagementLocations(allLocations);
@@ -86,6 +106,21 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   const defaultWin = defaultMetricWindow(today);
   const windowStart = state.metricStart || defaultWin.start;
   const windowEnd = state.metricEnd || defaultWin.end;
+
+  // La: List search + Ta type pills (within X1 only)
+  if (state.view === 'list') {
+    if (listLandUseFilter === 'pasture' || listLandUseFilter === 'mixed-use') {
+      locations = locations.filter(l => (l.landUse || 'pasture') === listLandUseFilter);
+    }
+    if (listSearchQuery.trim()) {
+      const q = listSearchQuery.trim().toLowerCase();
+      locations = locations.filter(l => {
+        const name = (l.name || '').toLowerCase();
+        const code = (l.fieldCode || '').toLowerCase();
+        return name.includes(q) || code.includes(q);
+      });
+    }
+  }
 
   const metricCtx = {
     windowStart,
@@ -101,6 +136,11 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     locations: allLocations,
     observations: allObservations,
     feedEntries: allFeedEntries,
+    feedChecks: allFeedChecks,
+    feedCheckItems: allFeedCheckItems,
+    batches: allBatches,
+    feedTypes: allFeedTypes,
+    batchNutritionalProfiles: allBatchProfiles,
   };
 
   let metricRows = locations.map(loc => computeLocationMetrics(loc, metricCtx));
@@ -170,8 +210,10 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   });
 
   const periodBar = renderPeriodBar({ windowStart, windowEnd, onUpdate });
-  // List = same X1 rows + agreed metrics; timeline omitted (C1/P1 should-fix).
-  const toolbar = isList ? null : renderToolbar(onUpdate);
+  // List = Locations tools + season metrics (La); Calendar keeps rotation toolbar.
+  const toolbar = isList
+    ? renderListTools({ onUpdate, operationId, farmId })
+    : renderToolbar(onUpdate);
   const legend = isList ? null : renderLegend(viewMode);
 
   const range = resolveRange(state.anchor, state.zoom);
@@ -229,6 +271,9 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
       allAnimals,
       metricsForPast: metrics,
       omitTimeline: isList,
+      isList,
+      operationId,
+      farmId,
     });
     const ts = row.querySelector(`.${TIMELINE_SCROLL_CLASS}`);
     if (ts) timelineScrollers.push(ts);
@@ -285,6 +330,89 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   container.appendChild(surface);
   container.setAttribute('tabindex', '0');
   container.addEventListener('keydown', onKeyDown);
+}
+
+/**
+ * La: Locations-parity tools for List mode (search, X1 type pills, Add/Map/Survey/…).
+ * Calendar toolbar stays unchanged (Cb).
+ */
+function renderListTools({ onUpdate, operationId, farmId }) {
+  const searchInput = el('input', {
+    type: 'search',
+    className: 'loc-mgmt__list-search',
+    placeholder: 'Filter locations…',
+    value: listSearchQuery,
+    dataset: { testid: 'loc-mgmt-list-search' },
+    'aria-label': 'Filter locations by name or field code',
+  });
+  searchInput.addEventListener('input', () => {
+    listSearchQuery = searchInput.value;
+    onUpdate();
+  });
+
+  const pill = (label, value) => el('button', {
+    type: 'button',
+    className: `btn btn-xs ${listLandUseFilter === value ? 'btn-green' : 'btn-outline'}`,
+    dataset: { testid: `loc-mgmt-list-filter-${value}` },
+    onClick: () => { listLandUseFilter = value; onUpdate(); },
+  }, [label]);
+
+  const filters = el('div', {
+    className: 'loc-mgmt__list-filters',
+    dataset: { testid: 'loc-mgmt-list-filters' },
+  }, [
+    pill('All', 'all'),
+    pill('Pasture', 'pasture'),
+    pill('Mixed-Use', 'mixed-use'),
+  ]);
+
+  const tools = el('div', {
+    className: 'loc-mgmt__list-actions',
+    dataset: { testid: 'loc-mgmt-list-tools' },
+  }, [
+    el('button', {
+      type: 'button',
+      className: 'btn btn-green btn-sm',
+      onClick: () => openLocationSheet(null, operationId, farmId),
+    }, ['+ Add']),
+    el('button', {
+      type: 'button',
+      className: 'btn btn-outline btn-sm',
+      'data-testid': 'loc-mgmt-open-map',
+      onClick: () => navigate('#/map'),
+    }, ['Map']),
+    el('button', {
+      type: 'button',
+      className: 'btn btn-outline btn-sm',
+      onClick: () => openSurveySheet(null, operationId),
+    }, ['\uD83D\uDCCB Survey']),
+    el('button', {
+      type: 'button',
+      className: 'btn btn-outline btn-sm',
+      onClick: () => openHarvestSheet(operationId),
+    }, ['\uD83C\uDF3E Harvest']),
+    el('button', {
+      type: 'button',
+      className: 'btn btn-outline btn-sm',
+      onClick: () => openFeedTypesSheet(operationId),
+    }, ['\u2699 Feed types']),
+    el('button', {
+      type: 'button',
+      className: 'btn btn-outline btn-sm',
+      onClick: () => openAmendmentSheet(null, operationId),
+    }, ['Apply input']),
+  ]);
+
+  return el('div', {
+    className: 'loc-mgmt__list-toolbar',
+    dataset: { testid: 'loc-mgmt-list-toolbar' },
+  }, [
+    el('div', { className: 'loc-mgmt__list-toolbar-row' }, [tools, searchInput]),
+    el('div', { className: 'loc-mgmt__list-toolbar-row' }, [
+      filters,
+      el('span', { className: 'loc-mgmt__list-inputs-label' }, ['Inputs & amendments']),
+    ]),
+  ]);
 }
 
 function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
@@ -431,27 +559,77 @@ function renderManagementRow(opts) {
     viewMode, selectedGroups, state, activeEvents, linkedPaddocks, stripInfo,
     allEvents, allPaddockWindows, allGroupWindows, allGroups, allMemberships, allAnimals,
     omitTimeline = false,
+    isList = false,
+    operationId = null,
+    farmId = null,
   } = opts;
 
   const areaDisplay = loc.areaHectares != null
     ? display(loc.areaHectares, 'area', unitSystem)
     : 'no acres';
   const status = statusTag(loc, activeEvents[loc.id], linkedPaddocks[loc.id], stripInfo[loc.id], readiness);
+  const opId = operationId || loc.operationId;
+  const fId = farmId || loc.farmId;
 
-  const nameCell = el('div', {
-    className: 'loc-mgmt__name',
+  // Cb: Calendar name-click still opens card edit. La: List name is not a button.
+  const nameProps = {
+    className: isList ? 'loc-mgmt__name loc-mgmt__name--static' : 'loc-mgmt__name',
     dataset: { testid: 'paddock-row', locationId: loc.id },
-    onClick: () => openLocationSheet(loc, loc.operationId, loc.farmId),
-    role: 'button',
-    tabindex: '0',
-  }, [
-    el('div', { className: 'loc-mgmt__name-text' }, [loc.name]),
+  };
+  if (!isList) {
+    nameProps.onClick = () => openLocationSheet(loc, opId, fId);
+    nameProps.role = 'button';
+    nameProps.tabindex = '0';
+  }
+
+  const typeBadge = isList
+    ? el('span', {
+      className: 'badge bg',
+      style: { fontSize: '10px', marginLeft: '6px' },
+    }, [loc.landUse || 'pasture'])
+    : null;
+  const codeLine = isList && loc.fieldCode
+    ? el('div', { className: 'loc-mgmt__code' }, [loc.fieldCode])
+    : null;
+
+  const nameCell = el('div', nameProps, [
+    el('div', { className: 'loc-mgmt__name-text' }, [
+      loc.name,
+      typeBadge,
+    ].filter(Boolean)),
+    codeLine,
     el('div', { className: 'loc-mgmt__area' }, [
       areaDisplay,
       metrics?.hasAcres ? '' : el('span', { className: 'loc-mgmt__no-acres' }, [' · no acres']),
     ].filter(Boolean)),
     status ? el('div', { className: 'loc-mgmt__tag' }, [status]) : null,
   ].filter(Boolean));
+
+  const listActions = isList
+    ? el('div', {
+      className: 'loc-mgmt__row-actions',
+      dataset: { testid: 'loc-mgmt-row-actions', locationId: loc.id },
+    }, [
+      el('button', {
+        type: 'button',
+        className: 'btn btn-outline btn-xs',
+        dataset: { testid: 'loc-mgmt-edit' },
+        onClick: (e) => { e.stopPropagation(); openLocationSheet(loc, opId, fId); },
+      }, ['Edit']),
+      el('button', {
+        type: 'button',
+        className: 'btn btn-outline btn-xs',
+        dataset: { testid: 'loc-mgmt-survey' },
+        onClick: (e) => { e.stopPropagation(); openSurveySheet(loc.id, opId); },
+      }, ['\uD83D\uDCCB Survey']),
+      el('button', {
+        type: 'button',
+        className: 'btn btn-outline btn-xs',
+        dataset: { testid: 'loc-mgmt-soil' },
+        onClick: (e) => { e.stopPropagation(); openSoilTestSheet(loc, opId); },
+      }, ['\u270E Soil']),
+    ])
+    : null;
 
   const metricCell = el('div', {
     className: 'loc-mgmt__metrics',
@@ -484,16 +662,16 @@ function renderManagementRow(opts) {
       return el('div', {
         className: 'loc-mgmt__row loc-mgmt__row--phone loc-mgmt__row--list',
         dataset: { testid: 'loc-mgmt-row', locationId: loc.id, view: 'list' },
-        style: { minHeight: `${ROW_HEIGHT}px` },
-      }, [nameCell, metricCell]);
+        style: { minHeight: `${ROW_HEIGHT + 28}px` },
+      }, [nameCell, listActions, metricCell].filter(Boolean));
     }
     metricCell.classList.add('loc-mgmt__metrics--grow');
     return el('div', {
       className: 'loc-mgmt__row loc-mgmt__row--desktop loc-mgmt__row--list',
       dataset: { testid: 'loc-mgmt-row', locationId: loc.id, view: 'list' },
-      style: { height: `${ROW_HEIGHT}px` },
+      style: { minHeight: `${ROW_HEIGHT}px`, height: 'auto' },
     }, [
-      el('div', { className: 'loc-mgmt__name-wrap', style: { width: `${NAME_WIDTH}px`, flex: `0 0 ${NAME_WIDTH}px` } }, [nameCell]),
+      el('div', { className: 'loc-mgmt__name-wrap', style: { width: `${NAME_WIDTH}px`, flex: `0 0 ${NAME_WIDTH}px` } }, [nameCell, listActions].filter(Boolean)),
       metricCell,
     ]);
   }

@@ -11,8 +11,10 @@ import {
   setPeriod,
   toggleConfinement,
   setView,
+  setMetricWindow,
   readStateFromUrl,
   resetCalendarState,
+  clearStoredMetricWindow,
 } from '../../src/features/events/calendar-state.js';
 
 describe('calendar-state', () => {
@@ -210,6 +212,42 @@ describe('calendar-state', () => {
       const s = readStateFromUrl();
       expect(s.zoom).toBe('week'); // falls back
       expect(s.view).toBe('calendar'); // falls back
+    });
+  });
+});
+
+
+describe('Pb metric window localStorage', () => {
+  beforeEach(() => {
+    resetCalendarState();
+    clearStoredMetricWindow();
+    window.location.hash = '#/events';
+  });
+
+  it('persists chosen window and restores when hash has no query', () => {
+    setMetricWindow('2026-03-01', '2026-10-07');
+    const raw = JSON.parse(localStorage.getItem('gtho_v2_locations_metric_window'));
+    expect(raw).toEqual({ start: '2026-03-01', end: '2026-10-07' });
+    window.location.hash = '#/events';
+    const s = readStateFromUrl();
+    expect(s.metricStart).toBe('2026-03-01');
+    expect(s.metricEnd).toBe('2026-10-07');
+  });
+
+  it('Season default clears stored override', () => {
+    setMetricWindow('2026-03-01', '2026-10-07');
+    setMetricWindow(null, null);
+    expect(localStorage.getItem('gtho_v2_locations_metric_window')).toBeNull();
+  });
+
+  it('URL metric params take precedence and write through to storage', () => {
+    clearStoredMetricWindow();
+    window.location.hash = '#/events?metricStart=2026-01-01&metricEnd=2026-06-30';
+    const s = readStateFromUrl();
+    expect(s.metricStart).toBe('2026-01-01');
+    expect(s.metricEnd).toBe('2026-06-30');
+    expect(JSON.parse(localStorage.getItem('gtho_v2_locations_metric_window'))).toEqual({
+      start: '2026-01-01', end: '2026-06-30',
     });
   });
 });

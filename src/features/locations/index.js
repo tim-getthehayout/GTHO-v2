@@ -392,7 +392,7 @@ function buildLocationCard(loc, operationId, farmId, unitSys) {
   rightSide.appendChild(el('button', { className: 'btn btn-outline btn-xs', onClick: () => openLocationSheet(loc, operationId, farmId) }, ['Edit']));
   if (!isConfinement) {
     rightSide.appendChild(el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSurveySheet(loc.id, operationId) }, ['\uD83D\uDCCB Survey']));
-    rightSide.appendChild(el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSoilTestSheetFn(loc, operationId) }, ['\u270E Soil']));
+    rightSide.appendChild(el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSoilTestSheet(loc, operationId) }, ['\u270E Soil']));
   }
 
   card.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' } }, [leftSide, rightSide]));
@@ -576,7 +576,7 @@ function ensureSoilTestSheetDOM() {
   ]));
 }
 
-function openSoilTestSheetFn(loc, operationId) {
+export function openSoilTestSheet(loc, operationId) {
   ensureSoilTestSheetDOM();
   if (!soilTestSheet) soilTestSheet = new Sheet('soil-sheet-wrap');
   const panel = document.getElementById('soil-sheet-panel');

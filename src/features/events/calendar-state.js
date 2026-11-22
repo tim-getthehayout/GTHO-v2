@@ -3,8 +3,8 @@
  * URL query schema, defaults, reducers, session persistence.
  * See V2_UX_FLOWS.md §19.9 for full specification.
  *
- * State is NOT persisted to user_preferences (deferred per §19.9).
- * Lives in session memory + URL only.
+ * Most state lives in session memory + URL only (not user_preferences).
+ * Pb: chosen season metric window is remembered in this browser via localStorage.
  */
 
 // ── Defaults (§19.9) ─────────────────────────────────────────────
@@ -97,6 +97,8 @@ export function setMetricWindow(start, end) {
   const s = isIsoDate(start) ? start : null;
   const e = isIsoDate(end) ? end : null;
   state = { ...state, metricStart: s, metricEnd: e };
+  // Pb: persist chosen window; Season default (null,null) clears stored override.
+  writeStoredMetricWindow(s, e);
   syncUrl();
 }
 
@@ -135,8 +137,16 @@ function syncUrl() {
 export function readStateFromUrl() {
   const hash = window.location.hash || '';
   const qIdx = hash.indexOf('?');
+  const stored = readStoredMetricWindow();
+
   if (qIdx === -1) {
-    state = { ...DEFAULTS, groups: [] };
+    state = {
+      ...DEFAULTS,
+      groups: [],
+      // Pb: restore remembered season window when hash has no query.
+      metricStart: stored?.start || null,
+      metricEnd: stored?.end || null,
+    };
     return state;
   }
 
@@ -154,6 +164,13 @@ export function readStateFromUrl() {
   const sortKey = params.get('sortKey');
   const sortDir = params.get('sortDir');
 
+  const urlStart = isIsoDate(metricStart) ? metricStart : null;
+  const urlEnd = isIsoDate(metricEnd) ? metricEnd : null;
+  // URL deep-link wins when present; otherwise restore Pb storage.
+  const resolvedStart = urlStart || stored?.start || null;
+  const resolvedEnd = urlEnd || stored?.end || null;
+  if (urlStart && urlEnd) writeStoredMetricWindow(urlStart, urlEnd);
+
   state = {
     zoom: VALID_ZOOM.includes(zoom) ? zoom : DEFAULTS.zoom,
     anchor: VALID_ANCHOR_PRESETS.includes(anchor) || isIsoDate(anchor) ? anchor : DEFAULTS.anchor,
@@ -161,8 +178,8 @@ export function readStateFromUrl() {
     period: periodStr && Number(periodStr) > 0 ? Number(periodStr) : null,
     showConfinement: confStr === '1',
     view: VALID_VIEW.includes(view) ? view : DEFAULTS.view,
-    metricStart: isIsoDate(metricStart) ? metricStart : null,
-    metricEnd: isIsoDate(metricEnd) ? metricEnd : null,
+    metricStart: resolvedStart,
+    metricEnd: resolvedEnd,
     sortKey: sortKey || DEFAULTS.sortKey,
     sortDir: sortDir === 'desc' ? 'desc' : 'asc',
   };
@@ -176,7 +193,38 @@ function isIsoDate(str) {
   return typeof str === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(str);
 }
 
+const METRIC_WINDOW_KEY = 'gtho_v2_locations_metric_window';
+
+function readStoredMetricWindow() {
+  try {
+    const saved = JSON.parse(globalThis.localStorage?.getItem(METRIC_WINDOW_KEY) ?? 'null');
+    if (saved && isIsoDate(saved.start) && isIsoDate(saved.end) && saved.end >= saved.start) {
+      return { start: saved.start, end: saved.end };
+    }
+  } catch { /* device storage unavailable or malformed */ }
+  return null;
+}
+
+function writeStoredMetricWindow(start, end) {
+  try {
+    if (isIsoDate(start) && isIsoDate(end) && end >= start) {
+      globalThis.localStorage?.setItem(METRIC_WINDOW_KEY, JSON.stringify({ start, end }));
+      return true;
+    }
+    globalThis.localStorage?.removeItem(METRIC_WINDOW_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Test helper: clear Pb storage. */
+export function clearStoredMetricWindow() {
+  try { globalThis.localStorage?.removeItem(METRIC_WINDOW_KEY); } catch { /* ignore */ }
+}
+
 /** Reset to defaults (for testing). */
 export function resetCalendarState() {
   state = { ...DEFAULTS, groups: [] };
+  clearStoredMetricWindow();
 }

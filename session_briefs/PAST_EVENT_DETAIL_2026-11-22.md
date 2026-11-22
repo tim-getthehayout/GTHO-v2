@@ -1,7 +1,7 @@
 # Past event detail on Rotation (OI-0255)
 
-**Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim feedback batch item 1, **t1032u**; batch ended **t1096u**). Awaiting Tim lock. No SQL / no migration.  
-**Owner:** GTHO Design → GTHO Build (after Tim locks + docs live on main).  
+**Status:** **LOCKED / READY FOR BUILD** 2026-11-22 ~10:41 AM ET (Tim, via Orchestrator, card **t1114s4371**) — **Ui1+Dt1**. Opened ~10:10 AM ET from Tim feedback batch item 1 (**t1032u**; batch ended **t1096u**). Docs tip only until Tim lands docs. No SQL / no migration.  
+**Owner:** GTHO Design → GTHO Build (LOCKED / READY FOR BUILD; Build may start ahead of docs land, after OI-0254).  
 **Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).  
 **Also related:** OI-0254 timeline canvas; OI-0246 calendar click rules (**Cb**); event observation / paddock-window readings.  
 **Schema / migration:** **D0 — none.** Read-only detail UI over existing event / PW / observation fields.
@@ -25,36 +25,39 @@ Today the timeline shows the block but does not surface the readings that produc
 
 | Token | Meaning |
 |---|---|
-| **Ui1** [rec] | Modal / sheet detail over the calendar (fits phone + desktop; matches other GTHO sheets). |
-| **Ui2** | Inline expand under the block on the timeline. |
-| **Ui3** | Navigate away to the full event screen. |
+| **Ui1** (LOCKED) | Modal / sheet detail over the calendar (fits phone + desktop; matches other GTHO sheets). |
+| **Ui2** (not chosen) | Inline expand under the block on the timeline. |
+| **Ui3** (not chosen) | Navigate away to the full event screen. |
 
 ### **Dt** — Which fields
 
 | Token | Meaning |
 |---|---|
-| **Dt1** [rec] | Opening + closing pasture readings **and** key event fields already on the event/PW (dates, groups, location). Do **not** invent a long field list — if Tim needs more after seeing Ui1, ask rather than guess. |
-| **Dt0** | Opening + closing readings only (minimal). |
+| **Dt1** (LOCKED) | Opening + closing pasture readings **and** key event fields already on the event/PW (dates, groups, location). Do **not** invent a long field list — if Tim needs more after seeing Ui1, ask rather than guess. |
+| **Dt0** (not chosen) | Opening + closing readings only (minimal). |
 
 ### **D** — Schema
 
 | Token | Meaning |
 |---|---|
-| **D0** [rec] | No SQL / no migration. |
+| **D0** (standing) | No SQL / no migration. |
 
-## 3. Design recommendation
+## 3. Design lock
 
-**Ui1+Dt1+D0**
+**LOCKED: Ui1+Dt1** — Tim, ~10:41 AM ET, card **t1114s4371**.
 
 - Sheet/modal matches existing mobile patterns and does not steal timeline space (**Ui2**) or yank the user off Rotation (**Ui3**).
 - **Dt1** covers Tim’s stated ask; expand fields only if he asks after trying it.
+- **D0** no SQL (standing).
 
-## 4. Acceptance (when locked + built)
+**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build may start ahead of docs land, after OI-0254. OI-0256 / OI-0257 remain PROPOSED on this same tip.
 
-1. Clicking a past event on Rotation opens the chosen UI (**Ui1/2/3**).
-2. User can see opening and closing pasture readings for that stay (**Dt1** or **Dt0**).
+## 4. Acceptance (when built)
+
+1. Clicking a past event on Rotation opens a modal/sheet detail (**Ui1**).
+2. User can see opening and closing pasture readings and key event fields already on the event/PW (dates, groups, location) (**Dt1**).
 3. No SQL (**D0**). Does not change OI-0254 canvas extent by itself.
 
 ## 5. Tip instruction
 
-**PROPOSED** — Design lean **Ui1+Dt1+D0**. Docs only. Awaiting Tim lock. Suggested Build order: after **OI-0254** (or parallel if no file clash).
+**LOCKED / READY FOR BUILD** — **Ui1+Dt1**. Docs only on this tip (OI-0256/0257 still PROPOSED). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.

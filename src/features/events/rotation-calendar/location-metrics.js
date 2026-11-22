@@ -281,8 +281,14 @@ export function computeLocationMetrics(location, ctx) {
     const rows = groupWindowsDailyDemand(date, demandOpts);
     if (!rows.length) continue;
 
-    // Unknown weights on any contributing row → DMI unknown for the whole location day
-    if (rows.some(row => {
+    // Only this location's open events — not farm-wide demand rows from other paddocks.
+    // (Farm-wide check wrongly nulled DMI when a peer location had unknown weights.)
+    const openEventIds = new Set(openHere.map(pw => pw.eventId));
+    const relevantRows = rows.filter(r => openEventIds.has(r.eventId));
+    if (!relevantRows.length) continue;
+
+    // Unknown weights on any row for this location's events → DMI unknown for the day
+    if (relevantRows.some(row => {
       if (!(row.head > 0)) return false;
       return !(Number.isFinite(row.avgWeightKg) && row.avgWeightKg > 0);
     })) {
@@ -291,7 +297,7 @@ export function computeLocationMetrics(location, ctx) {
     }
 
     for (const pw of openHere) {
-      const eventRows = rows.filter(r => r.eventId === pw.eventId && r.kg > 0);
+      const eventRows = relevantRows.filter(r => r.eventId === pw.eventId && r.kg > 0);
       const demand = eventRows.reduce((s, r) => s + r.kg, 0);
       if (!(demand > 0)) continue;
 

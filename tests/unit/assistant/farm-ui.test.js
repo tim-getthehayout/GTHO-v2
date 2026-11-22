@@ -145,7 +145,7 @@ describe('assistant uses populated normal entry UIs', () => {
     const item = FeedCheckItemEntity.create({ operationId: OP,feedCheckId: check.id,batchId: batch.id,locationId: SRC_LOC,remainingQuantity: 3 });add('eventFeedCheckItems',item,FeedCheckItemEntity.validate,FeedCheckItemEntity.toSupabaseShape,'event_feed_check_items');
     return batch;
   }
-  for (const choice of ['move','residual']) it(`Move normal ${choice} follow-up uses live remaining, retains post-graze observations and commits one durable receipt`,async () => {
+  for (const choice of ['move','residual']) it(`Move normal ${choice} follow-up uses entered remaining, retains post-graze observations and commits one durable receipt`,async () => {
     const batch = seedDeliveredFeed();
     const review = await reviewEntry({ ui: 'move',id: EVT,farmId: FARM },{ destType: 'new',locationId: DST_LOC,dateOut: '2026-11-08',timeOut: '09:00',dateIn: '2026-11-08',timeIn: '09:00',postGraze: { notes: 'Checked after grazing' },[`feed:${batch.feedTypeId}|${SRC_LOC}`]: { choice,residual: '2' } });
     // The live open-sheet field set includes the dynamic follow-ups, all declared by the sheet's definition.
@@ -154,8 +154,8 @@ describe('assistant uses populated normal entry UIs', () => {
     expect(open.fields).toEqual(expect.arrayContaining(['dateIn','postGraze',`feed:${batch.feedTypeId}|${SRC_LOC}`]));
     expect(getAll('events')).toHaveLength(1);await confirm('[data-testid="move-wizard-save"]',review);
     const transferred = getAll('eventFeedEntries').filter(row => row.eventId !== EVT);
-    if (choice === 'move') { expect(transferred).toHaveLength(1);expect(transferred[0].quantity).toBe(3); } else expect(transferred).toHaveLength(0);
-    expect(getAll('eventFeedCheckItems').at(-1).remainingQuantity).toBe(choice === 'move' ? 3 : 2);
+    if (choice === 'move') { expect(transferred).toHaveLength(1);expect(transferred[0].quantity).toBe(2); } else expect(transferred).toHaveLength(0);
+    expect(getAll('eventFeedCheckItems').at(-1).remainingQuantity).toBe(2);
     expect(getAll('paddockObservations').some(row => row.notes === 'Checked after grazing')).toBe(true);expect(review.saved().localSavedAt).toBeTruthy();
   });
   it('Move invalid residual follow-up refuses before any farm close/create writes',async () => {

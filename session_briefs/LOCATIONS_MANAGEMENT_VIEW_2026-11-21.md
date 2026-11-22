@@ -1,11 +1,11 @@
 # Locations + rotation management surface (OI-0246)
 
-**Status:** **SPEC LOCKED / READY FOR BUILD** — parent lock Tim, 2026-11-21 ~10:05 AM ET, via Orchestrator, card **t784s3247**: **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1** (docs tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b`). **List-parity + season persist addendum LOCKED** 2026-11-22: Tim **t835s3460** (5:30 AM ET) **La+Ta+Cb+Rb**; Tim **t841s3483** (5:37 AM ET) **Pb**. **Db** is **OI-0247** (docs landed on main `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee`; SQL apply still separate) — **not** this tip. Opened ~9:57 AM ET 2026-11-21 (**t777u**); revised **t782u** / **t781s3238**; first lock on tip `1d6465adff611230fa429209c860a96927d3973f`.  
+**Status:** **SPEC LOCKED / READY FOR BUILD** — parent lock Tim, 2026-11-21 ~10:05 AM ET, via Orchestrator, card **t784s3247**: **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1** (docs tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b`). **List-parity + season persist addendum LOCKED** 2026-11-22: Tim **t835s3460** (5:30 AM ET) **La+Ta+Cb+Rb**; Tim **t841s3483** (5:37 AM ET) **Pb**. **Season-metrics formula addendum LOCKED** 2026-11-22: Tim **t849s3511** (~5:45 AM ET) **S1+F1+L1+H0+C1+Z1**; Tim **t862s3559** / **t862u** (5:53 AM ET) NPK **Ns+R1+Kc**. Full formula: **S1+F1(DMI)+L1+H0+C1+Z1** with NPK = **Ns+R1+Kc** (see §11). **Db** is **OI-0247** (docs landed on main `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee`; SQL apply still separate) — **not** this tip. Residual-feed NPK uses existing `feed_types` / `batch_nutritional_profiles` `n_pct`/`p_pct`/`k_pct` — **no new column / no GATE**. Opened ~9:57 AM ET 2026-11-21 (**t777u**); revised **t782u** / **t781s3238**; first lock on tip `1d6465adff611230fa429209c860a96927d3973f`.  
 **Owner:** GTHO Design → GTHO Build (after docs land on main **or** from this locked tip ahead of land per Orchestrator coordination; Orchestrator land card — land only after Tim yes). First implementation is **live** on `origin/main` `52540a358f511bf46bceacbd7dcc7c94918acd04`; this tip is the follow-up Build brief (no SQL).  
-**Parent / base:** Forgejo `origin/main` tip `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee` (OI-0247 docs landed). Live list/nav code remains `52540a358f511bf46bceacbd7dcc7c94918acd04`. Prior LOCKED docs tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b`. This tip revises **U0/List acceptance** + **W1 persistence (Pb)**. List/Calendar citations below also read on **`52540a3`**. Historical rotation-gap citations in §3 were taken on `dc90185`.  
+**Parent / base:** Forgejo `origin/main` tip `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee` (OI-0247 docs landed). Live list/nav code remains `52540a358f511bf46bceacbd7dcc7c94918acd04`. Prior LOCKED docs tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b`. This tip revises **U0/List acceptance**, **W1 persistence (Pb)**, and the **M0 season-metrics formula** (§11). List/Calendar citations below also read on **`52540a3`**. Historical rotation-gap citations in §3 were taken on `dc90185`.  
 **Also related:** Rotation calendar CP-54 / UX §19 (`src/features/events/rotation-calendar/*`); Locations UX §15.3 (`src/features/locations/index.js`); Implied pasture / DMI-9; OI-0241 / OI-0242 forage; pasture surveys OI-0126/0131; NPK-1/3 + ANI-AU/AUD/ADA; REC recovery (`src/calcs/advanced.js`); budget period Oct 1–Sep 30; feed localStorage pattern `gtho_v2_budget_viewed_period`.  
-**Schema / migration:** **D0 HOLDS** — **compute-on-read**; **no new tables / no migration / no SQL**. Pb is device-local `localStorage` only. **Db** is **OI-0247** (docs on main; SQL + backup + a separate Tim yes at apply) — not this land.  
-**Supersedes tip:** first PROPOSED `ebb79d1e8be10757ad81998647318b22178b4cc1`; revised PROPOSED locked from `1d6465adff611230fa429209c860a96927d3973f`; parent LOCKED tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b` (this addendum revises U0/List + W1 persist, does not reopen other locked axes).
+**Schema / migration:** **D0 HOLDS** — **compute-on-read**; **no new tables / no migration / no SQL**. Pb is device-local `localStorage` only. Residual-feed NPK (**R1**) uses existing `feed_types.n_pct`/`p_pct`/`k_pct` (migration 004) and `batch_nutritional_profiles.n_pct`/`p_pct`/`k_pct` (migration 010) — **no GATE / no new column**. **Db** is **OI-0247** (docs on main; SQL + backup + a separate Tim yes at apply) — not this land.  
+**Supersedes tip:** first PROPOSED `ebb79d1e8be10757ad81998647318b22178b4cc1`; revised PROPOSED locked from `1d6465adff611230fa429209c860a96927d3973f`; parent LOCKED tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b` (this addendum revises U0/List + W1 persist + M0 formula, does not reopen other locked axes).
 
 ## 1. Problem
 
@@ -39,7 +39,7 @@ Tim **t782u** agreed with Design’s metric lean. Treat as **already locked with
 | Axis | Code | Meaning |
 |---|---|---|
 | **W** | **W1** | Selectable date range; default current budget/grazing period **Oct 1 – Sep 30** (`periodContaining` / `DEFAULT_BUDGET_PERIOD`). **Pb (LOCKED t841s3483):** this browser remembers a chosen start/end in `localStorage` across Calendar\|List and leave/return to `#/events` (see §10). **Season default** still clears the override to the hard-coded Oct 1–Sep 30. Per-farm Settings default (**Db**) is **OI-0247** (docs on main; apply gated) — not this tip. |
-| **M** | **M0** | All four: implied pasture DMI, AUDs, NPK deposited, avg pasture score |
+| **M** | **M0** | All four: implied pasture DMI, AUDs, NPK deposited, avg pasture score. **Formula LOCKED** (§11): **S1+F1(DMI)+L1+H0+C1+Z1** + NPK **Ns+R1+Kc**. |
 | **A** | **A1** | Totals **and** per-acre when acres known; else total + “no acres” badge |
 | **N** | **N1** | Separate sortable **N / P / K** + optional combined |
 | **S** | **S0** | Client-side sort on **any** management column; default Name ↑ |
@@ -48,7 +48,7 @@ Tim **t782u** agreed with Design’s metric lean. Treat as **already locked with
 
 **Superseded:** **V0** (toggle only on Locations tab) — placement reopened under new **U / F / T / C / P** axes below.
 
-**Implied DMI attribution note (unchanged for Build after lock, M0):** prefer presence-weighted share of daily group demand on days the location’s paddock window is open, minus stored feed attributed to that event/day presence (reuse DMI-8 / DMI-9 helpers). Unknowns as “—” / unknown, never silent 0. Escalate M0→M1 only if spike fails — without reopening other AGREED axes.
+**Implied DMI / AUDs / NPK formula (LOCKED — see §11):** **S1+F1(DMI)+L1+H0+C1+Z1** with NPK = **Ns+R1+Kc** (cards **t849s3511**, **t862s3559**). This supersedes the earlier M0 “presence-weighted share / escalate M0→M1” note. **D0** still holds (no SQL).
 
 ## 3. Current rotation UI (citations — `origin/main` `dc90185`)
 
@@ -192,7 +192,7 @@ Tim locked Design’s one-tap recommendation on the revised lock card (exact wor
 | Axis | Locked | Meaning |
 |---|---|---|
 | W1 | ✓ AGREED + **Pb** | Season default Oct 1 – Sep 30; editable date range. **Pb:** this browser persists the chosen window in `localStorage` (see §10). **Season default** still null → hard-coded Oct 1–Sep 30. **Db** (farm Settings) is **OI-0247** (docs on main; apply gated). |
-| M0 | ✓ AGREED | Implied pasture DMI, AUDs, NPK, avg pasture score |
+| M0 | ✓ AGREED + **formula §11** | Implied pasture DMI, AUDs, NPK, avg pasture score. Locked split/hay/NPK: **S1+F1(DMI)+L1+H0+C1+Z1** + **Ns+R1+Kc** (t849s3511 / t862s3559). Layout **C1** (Mac columns) is unchanged; metrics **C1** is the TIM-3 window clip. |
 | A1 | ✓ AGREED | Totals **and** per-acre when acres known |
 | N1 | ✓ AGREED | Separate sortable N / P / K (+ optional combined) |
 | S0 | ✓ AGREED | Client-side sort on any management column |
@@ -215,6 +215,7 @@ Tim locked Design’s one-tap recommendation on the revised lock card (exact wor
 - [ ] **T0:** past grazing activity visual; future readiness = survey/recovery when present, else relative days since last graze ranked vs other in-scope paddocks.  
 - [ ] **C1 / P1:** Mac name \| metrics \| timeline; phone metrics under name, horizontal timeline, one vertical list scroll.  
 - [ ] **AGREED metrics** over **W1** window for **X1** locations: DMI / AUDs / N / P / K / avg score; **A1** totals+per-acre; **S0** every numeric column sortable.  
+- [ ] **Season-metrics formula (§11, t849s3511 + t862s3559):** **S1/Ns** split DMI, AUDs, and NPK by day/hours × effective acres among paddocks open then (not an event-level equal share). **F1** applies to **DMI only**: subtract hay eaten when measured; no-hay day = 100% of need is pasture DMI; unmeasured hay day = “—” on DMI (do not invent eaten). **L1** floor implied pasture DMI at 0 per event-day after hay subtract (no negative pasture DMI). **H0** no hay-over-need column. **C1** (metrics clip, not layout C1) clip presence to the TIM-3 paddock/event window. **Z1** a location never present in the window shows 0; missing weights (or other missing inputs needed to compute) = “—”. **NPK:** **Ns** same split as DMI/AUDs; **Kc** excretion = head × weight × days × NRCS class rates (`excretion_n/p/k_rate`); **R1** ADD NPK from recorded residual/stored feed (NPK only; does not change F1 for DMI). Residual NPK content from existing `batch_nutritional_profiles` (latest `tested_at`) else `feed_types` `n_pct`/`p_pct`/`k_pct` — **no new column**.  
 - [ ] **D0 HOLDS:** no new migration files; no schema_version bump; no SQL apply; compute-on-read. Pb is `localStorage` only.  
 - [ ] **Ta / X1:** List inventory stays **Pasture + Mixed-Use only**. Do not add Crop / Confinement / Storage rows this implement (those types stay on `#/locations`). Type filters on List are All-within-X1 / Pasture / Mixed-Use.  
 - [ ] **Cb:** Calendar click **unchanged** — name-click still calls `openLocationSheet`. Build must not change Calendar click behavior.  
@@ -242,6 +243,10 @@ Tim locked Design’s one-tap recommendation on the revised lock card (exact wor
 - Tim via Orchestrator **t835s3460** (5:30 AM ET 2026-11-22): locked **La+Ta+Cb+Rb**.
 - Tim via Orchestrator **t837u** (~5:31 AM ET 2026-11-22): navigating away from the calendar reverts the season window to the Oct 1–Sep 30 default; also wants a way to edit the season default dates that get loaded; user should not have to reselect the season just because they clicked List.
 - Tim via Orchestrator **t841s3483** (5:37 AM ET 2026-11-22): locked **Pb** (this browser remembers the chosen start/end) and **Db** (per-farm Settings month/day) — **Db is OI-0247, not this tip**.
+- Tim via Orchestrator **t843u** / **t846u** (~5:38–5:41 AM ET 2026-11-22): how is DMI from pasture calculated across multi-paddock windows (with or without stored feed), sub-moves, and event windows — same question for NPK and AUDs.
+- Tim via Orchestrator **t849s3511** (~5:45 AM ET 2026-11-22): locked season-metrics split **S1+F1+L1+H0+C1+Z1**.
+- Tim via Orchestrator **t856u** (~5:48 AM ET 2026-11-22): NPK is a constant based on animal species, prorated equally across acres in an event window, PLUS NPK from residual feed recorded — later reconciled.
+- Tim via Orchestrator **t862u** / card **t862s3559** (5:53 AM ET 2026-11-22): locked NPK **Ns+R1+Kc** (same day×acres split as DMI/AUDs, not event-level equal share; add residual-feed NPK; keep NRCS class rates).
 
 ## 10. LOCKED list-parity + season persist (2026-11-22)
 
@@ -293,6 +298,39 @@ The `#/locations` route stays. Dropping the duplicate nav entry (once List cover
 
 A way to edit the farm’s default season start/end (month/day in Settings; matches Tim’s Nov 17 decision) is **OI-0247** (`session_briefs/FARM_SETTINGS_SEASON_DEFAULT_2026-11-22.md`). Docs landed on main `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee`. SQL + backup + a separate Tim yes at apply — **not this land.** Until Db is applied, “Season default” remains the hard-coded Oct 1–Sep 30.
 
+
+## 11. LOCKED season-metrics formula (2026-11-22)
+
+**Locked:** **S1+F1+L1+H0+C1+Z1** (card **t849s3511**, ~5:45 AM ET) + NPK **Ns+R1+Kc** (card **t862s3559** / **t862u**, 5:53 AM ET). Parent **M0/A1/N1/D0** still hold — this section locks *how* those numbers are computed for the W1 window, not which columns appear. List-parity **La+Ta+Cb+Rb+Pb** (t835s3460 / t841s3483) is unchanged. **D0 holds** (no migration / no SQL).
+
+Live as-built on `52540a3` may still use an event-level share and/or delivery-based hay; Build must align to this formula (day×area vs event-level share; DMI eaten vs deliveries; never-present 0; missing = —).
+
+**Codes (formula axes — do not confuse with placement codes):**
+
+| Axis | Locked | Meaning |
+|---|---|---|
+| **S1** / **Ns** | ✓ t849s3511 / t862s3559 | **DMI, AUDs, and NPK** (excretion) split by **day/hours × effective acres** among the paddocks that are **open in that slice**. A paddock closed for part of an event does not keep sharing after it closes; a later-opened paddock only shares while it is open. Not an event-level equal acre share, and not “prorate the whole event equally across every paddock that was ever on the event.” |
+| **F1** | ✓ t849s3511; **DMI only** | Subtract **hay eaten** when it is measured (feed checks / remaining vs delivered — reuse DMI-8 / DMI-9 eaten, not raw deliveries). A day with **no hay** on the event = **100%** of need is implied pasture DMI. A day with hay present but **eaten unmeasured** = “—” on **DMI** (do not invent eaten; do not silent-0). F1 does **not** subtract hay from AUDs or from excretion NPK. |
+| **R1** | ✓ t862s3559; **NPK only** | **ADD** NPK from **recorded residual / stored feed** that stays on the paddock (close / leave-as-residual / `event_feed_check_items.remaining_quantity` attributed to that location — not feed transferred off). This revises the earlier “F1 applies to everything” idea **for NPK only**. DMI stays F1. |
+| **Kc** | ✓ t862s3559 | Animal excretion NPK = **head × weight × days (TIM-3 hours) × NRCS class rates** (`animal_classes.excretion_n_rate` / `excretion_p_rate` / `excretion_k_rate`, kg / 1000 kg BW / day). Not a single farm-wide flat rate. |
+| **L1** | ✓ t849s3511 | **Floor** implied pasture DMI at **0 per event-day** after hay subtract. Do not show negative pasture DMI when hay eaten exceeds need. |
+| **H0** | ✓ t849s3511 | **No** hay-over-need column. (Leftover hay after need is floored by L1; it is not a displayed metric.) |
+| **C1** | ✓ t849s3511; **metrics clip** | Clip presence to the **TIM-3** paddock/event window (hours actually open that day), not a calendar-day all-or-nothing and not past the W1 season window. **Distinct from layout C1** (Mac: sortable metrics between frozen name and timeline), which is unchanged. |
+| **Z1** | ✓ t849s3511 | A location **never present** in the W1 window shows **0** (not “—”). **Missing** weights (or other missing inputs required to compute a value, including unmeasured hay on a DMI day under F1, or missing NPK % on a residual addend that should contribute) show **“—”**, never a silent 0. |
+
+### Residual-feed NPK content — no schema GATE
+
+Read-only inspect of Domain 4 / 10 (migration `004_d4_feed_inventory.sql`, `010_d10_feed_quality.sql`; `V2_SCHEMA_DESIGN.md` §4.1 / §10.1): **`feed_types` already has `n_pct` / `p_pct` / `k_pct`**, and **`batch_nutritional_profiles` already has `n_pct` / `p_pct` / `k_pct`**. `event_feed_entries` and `event_feed_check_items` record quantity / remaining only (no NPK columns of their own). **R1 does not need a new NPK-content column. No migration. No GATE.**
+
+**Resolve content (compute-on-read):** for the residual quantity on a batch at a location, use the latest `batch_nutritional_profiles` row for that `batch_id` (greatest `tested_at`) when that profile has the needed `n_pct`/`p_pct`/`k_pct`; otherwise fall back to the parent `feed_types` percents. Convert remaining (or residual) quantity to DM mass with batch (else type) `dm_pct` and `weight_per_unit_kg` as already used in feed calcs, then `mass_dm × pct`. Attribute the addend to the paddock where the residual was recorded. No residual recorded, or remaining that was transferred off, adds **0** (not “—”). If a residual quantity exists but **both** the profile and the feed type lack the needed percent, that residual addend is **“—”** (Z1 missing), not a silent 0; excretion NPK (**Kc**) can still display when its own inputs are present.
+
+### Build alignment notes
+
+- Split every day (or hour) the window is open; then sum into the W1 total / per-acre (**A1**) columns. Sub-moves and mid-event paddock opens/closes are handled by S1’s “open then” slice — do not allocate a closed paddock’s later days.
+- AUDs use the same S1 presence × acres split and C1 TIM-3 clip (no F1 hay subtract; no R1).
+- Do not use delivered quantity as eaten for F1 DMI.
+- Do not reopen layout C1 / P1, List click rules, or Db.
+
 ---
 
-**Tip instruction:** **SPEC LOCKED / READY FOR BUILD** for **La+Ta+Cb+Rb+Pb** on parent **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**. Do **not** land on main until Tim yeses the land card. **No migration / no SQL.** **Db** is **OI-0247** (docs on main; apply gated). Build from live code `52540a358f511bf46bceacbd7dcc7c94918acd04` on parent main `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee` (or this locked tip ahead of docs land per Orchestrator).
+**Tip instruction:** **SPEC LOCKED / READY FOR BUILD** for **La+Ta+Cb+Rb+Pb** + season-metrics **S1+F1(DMI)+L1+H0+C1+Z1** with NPK **Ns+R1+Kc** on parent **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**. Do **not** land on main until Tim yeses the land card. **No migration / no SQL.** Residual-feed NPK uses existing `feed_types` / `batch_nutritional_profiles` percents — **no GATE**. **Db** is **OI-0247** (docs on main; apply gated). Build from live code `52540a358f511bf46bceacbd7dcc7c94918acd04` on parent main `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee` (or this locked tip ahead of docs land per Orchestrator).

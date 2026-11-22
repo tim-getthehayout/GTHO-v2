@@ -54,6 +54,7 @@
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 | OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~7:18 AM ET (Tim, via Orchestrator, card **t759s3139**) — **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Design rec on tip `070af6c`. Rams↔ewes, bucks(billies)↔does; widen Open; Gs1 per-species protocol; **M0** widen migration **047 before apply**; Animals **Preg check settings** dialog (Ps0). After docs land; 047 apply = separate Tim yes+backup; no exposure-row write (F0). [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
 | OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). Docs tip `dc90185` now on main. After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
+| OI-0253 | Past-block unknown DMI paint + column F1 sticky (never paint unknown as 0/0%) | **PROPOSED** 2026-11-22 ~9:40 AM ET (Tim regression **t1028u**; Season window clarify **t1044u**; Build triage + Design lean) — Design lean **B1+C0+D0**. **B1** never paint past-block unknown as Pasture 0% / 0 DMI (show — or omit); **B0** keep today’s 0 paint. **C0** keep F1 season-sticky on the column (OI-0246); **C1** align column with OI-0250 **Sz** (missing-DM hay = 0 stored, no season blank). **D0** no SQL. **Window explanation withdrawn** pending Build re-triage (Tim was on Season **04/02/2026–10/07/2026**, not budget-year default) — do not treat window as closed; B/C framing may be re-carded. Not OI-0249 math zero. Past-event detail held in feedback pile (not this OI). Awaiting Tim lock + Build F1-vs-window re-triage. [brief](session_briefs/PAST_BLOCK_UNKNOWN_DMI_2026-11-22.md) |
 | OI-0252 | Per-location metrics block layout (stacked DMI/AUDs over NPK/Score + uniform width) + List buttons right | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:36–7:37 AM ET (Tim, via Orchestrator; card **t1000s3983** change; typed **t1002u**) — **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. Two stacked lines (DMI · AUDs over N · P · K · Score); uniform width from widest visible row (**Wu** — t998u: G-4 zeros vs J1-1 DMI 3793 jagged Nov 22); Calendar + List (**Sb** confirmed); List row action buttons on the **right** matching original Locations list (**Br**); phone keeps stack (**Nn**); OI-0249 partial in measure (**Pp**); farm units (**Uf**); **D0** no SQL. Sequence **after PR #126**. Does not redesign OI-0250 strip. Docs tip ready for Tim’s land of **docs**. [brief](session_briefs/METRICS_BLOCK_LAYOUT_2026-11-22.md) |
 | OI-0251 | Sheep period backfill (cattle-aligned DMI via synthetic closed event) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:27–7:28 AM ET (Tim, via Orchestrator; card **t990s3945** Ok; typed **t991u** Ap + Rotation/List prefs; typed **t993u** Ud) — **Es+Ld+Ap+Ud+Go+Ox+Sc+Wt+D2+Hn+Nm+Gw+D0**. Wt **70@100 lb** (~45.36 kg); **Ld** Sheep-history pasture; **Ap** archive + farm_settings `include_archived_locations_in_metrics` (default **true**; migration required); **Ud** small Report preferences dialog on Rotation + List (period defaults + archive pref, same farm_settings); **Gw** gates; **D0** tip no SQL apply. Docs tip ready for Tim’s land of **docs**. Migration apply + backfill write each need separate Tim yes. [brief](session_briefs/SHEEP_PERIOD_BACKFILL_2026-11-22.md) |
 | OI-0250 | Timeline period totals on Locations Calendar (pasture + stored-feed DMI + Total DMI + Total NPK) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:14 AM ET (Tim, via Orchestrator, card **t971s3875**; placement from typed **t968u**) — **Sb+Pw+En+Nk+Pp+Uf+Sz+Af+Sq+D0**. Totals strip **under season metrics selection bar, above color key** (**Sb**). Enumerate Pasture DMI · Stored-feed DMI · Total DMI (**En**); Total N/P/K separately (**Nk**); follow metric window + visible filters (**Pw+Af**); OI-0249 muted “ partial” for unknown weights (**Pp**); missing-DM feed counts as **0** and does **not** trigger partial (**Sz**, replaces Design **Sd**); farm units (**Uf**); **after PR #126** (**Sq**); **D0** no SQL. Docs tip ready for Tim’s land of **docs**. No Build until docs live on main / after #126. [brief](session_briefs/TIMELINE_PERIOD_TOTALS_2026-11-22.md) |
@@ -218,6 +219,31 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+### OI-0253 — Past-block unknown DMI paint + column F1 sticky
+
+**Status:** **PROPOSED** (opened 2026-11-22 ~9:40 AM ET, GTHO Design, via Orchestrator from Tim regression **t1028u** ~9:30 AM ET; Season window clarify **t1044u**) — Design lean **B1+C0+D0**. Awaiting Tim lock. Docs tip only. **D0** = no SQL / no migration. **Window explanation withdrawn** pending Build re-triage — do not treat as closed.
+
+**Ask / regression:** Tim saw zero pasture DMI / “Pasture 0%” on past blocks while the season column showed — (and strip still had pasture). First seen on `5dfadff` after OI-0249 A+C; still visible on live `36bc946` under Season **04/02/2026–10/07/2026** (not the budget-year default).
+
+**Design lean:** **B1+C0+D0**
+- **B1**: never paint unknown as **0 / 0%** on past blocks (show **—** or omit). Alt: **B0** keep today’s paint.
+- **C0**: keep F1 season-sticky null on the **column** (OI-0246 / list-parity). Alt: **C1** stop sticky; align column with OI-0250 **Sz**.
+- **D0**: no SQL / no migration.
+
+**Withdrawn / open:** Early “budget-year default window” explanation is **withdrawn** after **t1044u**. Build re-triaging whether F1 sticky reaches outside Tim’s Season window. Orchestrator may re-card B/C if options change.
+
+**Out of tip:** Measure DM (ops); past-event click detail + scroll ready-by (feedback pile); #129 strip aggregate “0 vs —” (Design nodded yes as separate tiny Build fix).
+
+**Not:** OI-0249 intentional math zero (Zp+Gg still sum known).
+
+**Parent / base:** Forgejo `origin/main` `36bc946d4fd6cef21d02bafed7790b7d644a1502` (OI-0250 PR #129 live; RELEASED **48**).
+
+**Related:** OI-0246 F1/Z1; OI-0249 / PR #126; OI-0250 Sz strip; OI-0252 layout (no DMI math).
+
+**Brief:** [PAST_BLOCK_UNKNOWN_DMI_2026-11-22.md](session_briefs/PAST_BLOCK_UNKNOWN_DMI_2026-11-22.md)
+
+
+---
 ### OI-0252 — Per-location metrics block layout (stack + uniform width)
 
 **Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-22 ~7:36–7:37 AM ET, via Orchestrator; card **t1000s3983** “I want to change something”; typed **t1002u**) — opened ~7:34 AM ET from Tim **t996u**; evidence **t998u**; locked **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. Docs tip ready for Tim’s land of **docs**. Docs tip only. **D0** = no SQL / no migration.

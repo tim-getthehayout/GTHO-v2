@@ -110,7 +110,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Run rate on the scorecard (Tim, 2026-11-17 6:28 AM ET, via Orchestrator):** "I would also like run rate on the view that's part of the larger feature as it's an important part of the 'grazing gamification'". Recorded as D8: the OI-0224 run-rate panel also appears on the budget scorecard, alongside budget, prior year and actual, as a grazing-gamification element — one shared calculation and component, not a second implementation (same pills 7/14/30/60, default 30; consumed; residual at close; bales, $ and lb DM; DMI actual vs forecast). **Decided N–S (Tim, 2026-11-17 6:39 AM ET, via Orchestrator):** "Accept Design's scorecard run-rate recommendations N–S" — N fed/day for budget, prior year and actual, consumed and residual beneath; O ≤ 95% green / 95–105% neutral / > 105% amber; P pills drive only the panel; Q waste % lower-is-better, not in the badge yet; R no new run-rate streaks or goals now; S one panel per screen. Landing: "Yes, land docs/run-rate-scorecard with these answers, no GitHub publish" (Forgejo only). OI-0221 stays PROPOSED.
 
-**D10 — Configurable budget dates — APPROVED (Tim, 2026-11-17 9:18 AM ET, via Orchestrator; asked 9:04 AM ET):** "Also on the forecast module the start and end dates should be configurable. For this year I will probably use October 1st to September 30th as that is the data I have." Answers Q4–Q5 in [the OI-0225 brief](session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md) §2: Q4 yes — Oct 1 – Sep 30, this year Oct 1, 2026 – Sep 30, 2027 vs Oct 1, 2025 – Sep 30, 2026, and the default for new farms (amends D1's June 1 – May 31); every "May 31" in D4, K and §10 reads "the period end". Q5 "Yes but changeable from the settings (for defaults) and also allow viewing any period with date picker on form" — per-farm default period editable in Settings (DB, with the budget migration, 046 or later); a start/end picker on the budget/forecast form views any period (calc and display only; changes neither the default nor a locked budget); non-overlap applies only to saved budgets; prior year = the same dates one year earlier for the viewed period (N). Months clipped to the period with labelled partial edge months; pills unchanged (P), `periodStart` = the period start; a locked budget's dates change only by unlock → edit → re-lock. **Implied pasture DMI (OI-0225, DMI-9, APPROVED)** is the headline of this budget view (fed basis), in green when above 0. **OI-0221 as a whole stays PROPOSED (A–L open); only D10 is approved.**
+**D10 — Configurable budget dates — APPROVED (Tim, 2026-11-17 9:18 AM ET, via Orchestrator; asked 9:04 AM ET):** "Also on the forecast module the start and end dates should be configurable. For this year I will probably use October 1st to September 30th as that is the data I have." Answers Q4–Q5 in [the OI-0225 brief](session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md) §2: Q4 yes — Oct 1 – Sep 30, this year Oct 1, 2026 – Sep 30, 2027 vs Oct 1, 2025 – Sep 30, 2026, and the default for new farms (amends D1's June 1 – May 31); every "May 31" in D4, K and §10 reads "the period end". Q5 "Yes but changeable from the settings (for defaults) and also allow viewing any period with date picker on form" — per-farm default period editable in Settings (DB, with the budget migration, 046 or later); a start/end picker on the budget/forecast form views any period (calc and display only; changes neither the default nor a locked budget); non-overlap applies only to saved budgets; prior year = the same dates one year earlier for the viewed period (N). Months clipped to the period with labelled partial edge months; pills unchanged (P), `periodStart` = the period start; a locked budget's dates change only by unlock → edit → re-lock. **Implied pasture DMI (OI-0225, DMI-9, APPROVED)** is the headline of this budget view (fed basis), in green when above 0. **OI-0221 as a whole stays PROPOSED (A–L open); only D10 is approved.** **2026-11-22:** the per-farm Settings default (Q5 start/end month-day) is opened as **OI-0247** so it can ship independently of still-PROPOSED slice 2; when slice 2 lands it **reuses that setting**, and does not invent a second farm default. OI-0247 apply still needs its own backup + Tim yes.
 
 **Decided by Tim (2026-11-16, relayed by Orchestrator):** default period June 1 – May 31 (3:05 PM); budget runs on dry matter, not hay type, Peanut Hay classification left as is (3:05 PM); forecast (3:09 PM): show budgeted on-hand vs actual on-hand today, season result = actual on-hand DM − remaining budgeted DM need through May 31 with the taper; savings to date explains the variance and is never added to on-hand.
 
@@ -189,6 +189,25 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+
+### OI-0247 — Farm Settings season-default dates
+
+**Status:** **PROPOSED** (Tim chose **Db** direction, 2026-11-22 ~5:37 AM ET, via Orchestrator, card **t841s3483**). Docs tip ready for Tim confirm/land of **docs**. Migration apply is a **separate** Tim yes + verified backup — not authorized by a docs land, and **not** part of OI-0246 list-parity land (**La+Ta+Cb+Rb+Pb**). Hard-coded Oct 1–Sep 30 remains until this OI ships and is applied.
+**Priority:** Feature — persist the per-farm season default (start/end month-day) in Settings so Locations & Rotation “Season default” and the feed budget period share one farm setting.
+**Owner:** GTHO Design → GTHO Build (after docs land / from this tip; Orchestrator land card for docs; Orchestrator brings the apply path separately).
+**Brief:** [FARM_SETTINGS_SEASON_DEFAULT_2026-11-22.md](session_briefs/FARM_SETTINGS_SEASON_DEFAULT_2026-11-22.md)
+
+**Parent / base:** Forgejo `origin/main` `52540a358f511bf46bceacbd7dcc7c94918acd04` (compiled `RELEASED_SCHEMA_VERSION` **48**).
+
+**Tim decision (Db):** Season default is a per-farm Settings start/end month-day (matches Nov 17 implied-pasture Q5). SQL + verified backup + separate Tim yes at apply. Viewing/picking a period must not change the farm default. “Season default” on Locations & Rotation loads this farm setting once it exists.
+
+**Schema:** **Yes** — additive `farm_settings` fields (month/day start+end). Intent only in this tip; no SQL/DDL in this pass. Next numbered migration after the then-current ceiling. Do not reopen or widen 047/048. RLS already covers `farm_settings`.
+
+**Related:** OI-0225 §2.3/Q5; OI-0221 D10 (this OI delivers the Settings default now; slice 2 must reuse it); OI-0246 W1 (list-parity **Pb** is the device-local viewed window, not this default).
+
+**Origin:** t837u (~5:31 AM ET); Db on t841s3483 (~5:37 AM ET) via Orchestrator.
+
+---
 
 ### OI-0246 — Locations + rotation management surface
 
@@ -7663,6 +7682,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-22 | GTHO Design — docs only | Open OI-0247 PROPOSED Farm Settings season-default dates (Db on t841s3483): per-farm start/end month-day on `farm_settings`; Settings → Farm Settings editors; Locations “Season default” and feed budget period share one setting; viewing does not write the default (Q5). SQL + verified backup + separate Tim yes at apply — not part of OI-0246 list-parity (La+Ta+Cb+Rb+Pb). Hard-coded Oct 1–Sep 30 until this OI ships. Docs tip ready for Tim confirm/land of docs. |
 | 2026-11-21 | GTHO Design — docs only | LOCK OI-0246 SPEC LOCKED / READY FOR BUILD (t784s3247): AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1. One combined Locations+rotation screen; F0 scroll sync must-fix; no migration. Sequence Build after OI-0245 code. Locked from tip 1d6465a. |
 | 2026-11-21 | GTHO Design — docs only | Revise OI-0246 PROPOSED (t782u): metrics AGREED W1+M0+A1+N1+S0+D0+X1; placement reopen U0+F0+T0+C1+P1; rotation scroll desync confirmed; integrate Locations+rotation. Supersedes tip ebb79d1. Still PROPOSED — no LOCKED. |
 | 2026-11-21 | GTHO Design — docs only | Open OI-0246 PROPOSED Locations management view (t777u); Design lean V0+W1+M0+A1+N1+S0+D0+X1; no migration. Merged under main tip dc90185 (OI-0245 LOCKED). |

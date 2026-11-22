@@ -2,7 +2,7 @@
 
 **Status:** **LOCKED / READY FOR BUILD (narrow)** 2026-11-22 ~10:49 AM ET (Tim, via Orchestrator, card **t1121s4395** answered **t1127u**) — **Ag1+St1**; **Fx1 PARKED**. Opened ~10:10 AM ET from Tim feedback batch item 5 (**t1073u** + CAP-1 stub triage; batch ended **t1096u**). Docs tip ready for Tim land (batch 0254–0257 complete). No SQL / no migration.  
 **Owner:** GTHO Design → GTHO Build (**LOCKED / READY FOR BUILD** for **Ag1+St1** only; Build may start Ag1+St1 ahead of docs land, after OI-0254). Do **not** implement **Fx1** or a presentation redesign until Tim unparks.  
-**Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).  
+**Parent:** Forgejo `origin/main` `da22c6d5978fa9864142d5bb99b7e5f3f817ae5a` (OI-0254 code LIVE via PR #135; OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).  
 **Also related:** CAP-1 forecast stub in `calendar-grid.js` (`coverageFraction: 0` / `shortfallLbsHay: 0`) when a forecaster period + groups are selected; Tim saw future readiness blocks paint tan **“Hay / stored feed, 0 lbs hay”** instead of green — **not** a #129/#131 paint regression; green returns when leaving forecast-stub mode. OI-0254 readiness bands are separate (close-event estimated range).  
 **Schema / migration:** **D0 — none** expected (UI filter + stub paint; forecast path parked).
 
@@ -80,4 +80,4 @@ Record only: a later survey-based estimated pasture could support an estimate of
 
 ## 6. Tip instruction
 
-**LOCKED / READY FOR BUILD (narrow)** — **Ag1+St1** only (**Fx1 PARKED**; **D0** standing). Docs tip ready for Tim land (batch **OI-0254..0257** complete; parent main `129b2dd`). **Do not land on main** until Tim yeses the land card. Build may start **Ag1+St1** ahead of docs land, after **OI-0254** (shares calendar-grid). Do **not** implement **Fx1** or a presentation redesign until Tim unparks. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.
+**LOCKED / READY FOR BUILD (narrow)** — **Ag1+St1** only (**Fx1 PARKED**; **D0** standing). Docs tip ready for Tim land (batch **OI-0254..0257** complete; parent main `da22c6d`). **Do not land on main** until Tim yeses the land card. Build may start **Ag1+St1** ahead of docs land; **OI-0254** code already LIVE on main (shares calendar-grid). Do **not** implement **Fx1** or a presentation redesign until Tim unparks. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.

@@ -2,7 +2,7 @@
 
 **Status:** **LOCKED / READY FOR BUILD** 2026-11-22 ~10:45 AM ET (Tim, via Orchestrator, card **t1118s4384** answered **t1121u**) — **Lv1+Sk1+Pn1+Mt1+Mx1**. Opened ~10:10 AM ET from Tim feedback batch item 3 (**t1052u**; pile lock **t1060s4208**; batch ended **t1096u**). Docs tip only until Tim lands docs.  
 **Owner:** GTHO Design → GTHO Build (LOCKED / READY FOR BUILD; Build may start ahead of docs land, after OI-0254 / OI-0255).  
-**Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 is on this parent (**B1** paint is complementary, not a substitute for this flag).  
+**Parent:** Forgejo `origin/main` `da22c6d5978fa9864142d5bb99b7e5f3f817ae5a` (OI-0254 code LIVE via PR #135; OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**). OI-0253 **B1** paint is complementary, not a substitute for this flag.  
 **Also related:** Design brief 2026-04-12 (bale-grazing anchor = this flag); mig **029** / OI-0113 dropped `stored_feed_only` on `event_observations`; v1 `ev.noPasture` → `event_paddock_windows.no_pasture`; i18n `observations.storedFeedOnly` = “100% Stored Feed” (orphan); DMI-8 confinement uses `location.type` only (metrics ignore `no_pasture` today).  
 **Schema / migration:** Column **already exists** (`event_paddock_windows.no_pasture` boolean; prod **7** rows true: Corral×4, G-2×2, G-3×1). **D0** standing — wire UI + paint + metrics to the existing column; no new column. Confirm at implement time; do not invent a second flag.
 
@@ -101,4 +101,4 @@ No second flag / no new SQL. Do not invent a strip-specific rule beyond per-loca
 
 ## 5. Tip instruction
 
-**LOCKED / READY FOR BUILD** — **Lv1+Sk1+Pn1+Mt1+Mx1** (**D0** standing). Docs only on this tip (OI-0257 LOCKED narrow; batch ready for Tim land). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254** / **OI-0255**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.
+**LOCKED / READY FOR BUILD** — **Lv1+Sk1+Pn1+Mt1+Mx1** (**D0** standing). Docs only on this tip (OI-0257 LOCKED narrow; batch ready for Tim land). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254** (code already LIVE on main `da22c6d`) / **OI-0255**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.

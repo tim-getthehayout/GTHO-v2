@@ -183,3 +183,17 @@ export function attachReadiness(locations, ctx) {
     };
   });
 }
+
+/**
+ * OI-0254 Rd1 — close-event estimated readiness band (earliest→latest), or null.
+ * @param {{ mode?: string, earliestReturn?: string|null, windowCloses?: string|null }|null|undefined} readiness
+ * @returns {{ start: string, end: string }|null}
+ */
+export function readinessBandRange(readiness) {
+  if (!readiness || readiness.mode !== 'survey') return null;
+  const start = readiness.earliestReturn ? String(readiness.earliestReturn).slice(0, 10) : null;
+  const end = readiness.windowCloses ? String(readiness.windowCloses).slice(0, 10) : null;
+  if (!start || !end) return null;
+  return { start, end };
+}
+

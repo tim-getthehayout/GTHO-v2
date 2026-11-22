@@ -2,7 +2,7 @@
 
 **Status:** **LOCKED / READY FOR BUILD** 2026-11-22 ~10:41 AM ET (Tim, via Orchestrator, card **t1114s4371**) — **Ui1+Dt1**. Opened ~10:10 AM ET from Tim feedback batch item 1 (**t1032u**; batch ended **t1096u**). Docs tip only until Tim lands docs. No SQL / no migration.  
 **Owner:** GTHO Design → GTHO Build (LOCKED / READY FOR BUILD; Build may start ahead of docs land, after OI-0254).  
-**Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).  
+**Parent:** Forgejo `origin/main` `da22c6d5978fa9864142d5bb99b7e5f3f817ae5a` (OI-0254 code LIVE via PR #135; OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).  
 **Also related:** OI-0254 timeline canvas; OI-0246 calendar click rules (**Cb**); event observation / paddock-window readings.  
 **Schema / migration:** **D0 — none.** Read-only detail UI over existing event / PW / observation fields.
 
@@ -60,4 +60,4 @@ Today the timeline shows the block but does not surface the readings that produc
 
 ## 5. Tip instruction
 
-**LOCKED / READY FOR BUILD** — **Ui1+Dt1**. Docs only on this tip (OI-0256 LOCKED; OI-0257 LOCKED narrow; batch ready for Tim land). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.
+**LOCKED / READY FOR BUILD** — **Ui1+Dt1**. Docs only on this tip (OI-0256 LOCKED; OI-0257 LOCKED narrow; batch ready for Tim land). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254** (code already LIVE on main `da22c6d`). Never edit `src/`, `tests/`, or `supabase/` on this docs tip.

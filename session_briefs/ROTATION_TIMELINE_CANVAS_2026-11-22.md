@@ -1,8 +1,8 @@
 # Rotation timeline canvas — scroll, readiness, ticks, collapse metrics (OI-0254)
 
-**Status:** **LOCKED / READY FOR BUILD** 2026-11-22 ~10:24 AM ET (Tim, via Orchestrator, card **t1107s4351** option 1 / typed **t1114u** “A on the card above”) — **Sc1+Rd1+Tk1+Cm1+Cm1a**. Opened ~10:10 AM ET from Tim feedback batch items 2+4+6 (**t1037u/t1039u/t1094u/t1067u/t1096u**). Docs tip only until Tim lands docs. No SQL / no migration.  
-**Owner:** GTHO Design → GTHO Build (after docs live on main).  
-**Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 live via PR #131; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**).  
+**Status:** **LOCKED / READY FOR BUILD** 2026-11-22 ~10:24 AM ET (Tim, via Orchestrator, card **t1107s4351** option 1 / typed **t1114u** “A on the card above”) — **Sc1+Rd1+Tk1+Cm1+Cm1a**. Opened ~10:10 AM ET from Tim feedback batch items 2+4+6 (**t1037u/t1039u/t1094u/t1067u/t1096u**). **Code LIVE** on main `da22c6d` (PR #135). Docs tip only until Tim lands docs. No SQL / no migration.  
+**Owner:** GTHO Design → GTHO Build (**code LIVE** on main `da22c6d` via PR #135; docs still pending Tim land).  
+**Parent:** Forgejo `origin/main` `da22c6d5978fa9864142d5bb99b7e5f3f817ae5a` (OI-0254 code LIVE via PR #135; OI-0253 docs live; OI-0252 PR #131 live; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**).  
 **Also related:** OI-0252 metrics layout (dropped metrics min-width → short 14-day canvas now fits; overflow still works — not broken scroll); OI-0246 calendar; estimated readiness paint from `9ce0e69` (Today→range.end shared band).  
 **Schema / migration:** **D0 — none.** Canvas extent, paint, ticks, and a collapse control only.
 
@@ -79,7 +79,7 @@ Build triage (**t1087u**): “scroll gone” after #131 = short default canvas n
 - No temporary metrics-floor softener.
 - **D0** no SQL (standing).
 
-**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build implements after docs are on main. OI-0255 / 0256 LOCKED; OI-0257 LOCKED narrow (Ag1+St1; Fx1 parked). Batch 0254–0257 tip ready for Tim land.
+**Next:** Docs only on this tip until Tim yeses the land card. **OI-0254 code is LIVE** on main `da22c6d` (PR #135). OI-0255 / 0256 LOCKED; OI-0257 LOCKED narrow (Ag1+St1; Fx1 parked). Batch 0254–0257 tip ready for Tim docs land.
 
 ## 4. Acceptance (when built)
 
@@ -92,4 +92,4 @@ Build triage (**t1087u**): “scroll gone” after #131 = short default canvas n
 
 ## 5. Tip instruction
 
-**LOCKED** — **Sc1+Rd1+Tk1+Cm1+Cm1a**. Docs only on this tip (OI-0255/0256 LOCKED; OI-0257 LOCKED narrow; batch ready for Tim land). **Do not land on main** until Tim yeses the land card. **Do not** start Build from this tip until docs are on main. Never edit `src/`, `tests/`, or `supabase/` on this docs tip. Suggested Build order after locks: **0254 → 0255 → 0256 → 0257**.
+**LOCKED** — **Sc1+Rd1+Tk1+Cm1+Cm1a**. **OI-0254 code LIVE** on main `da22c6d` (PR #135). Docs still on this tip (OI-0255/0256 LOCKED; OI-0257 LOCKED narrow; batch ready for Tim docs land). **Do not land docs on main** until Tim yeses the land card. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.

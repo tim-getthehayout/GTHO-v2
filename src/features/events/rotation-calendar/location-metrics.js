@@ -3,6 +3,7 @@
  * LOCKED formula: S1+F1(DMI)+L1+H0+C1+Z1 with NPK Ns+R1+Kc.
  * W1 window, M0 columns, A1 totals+per-acre, N1 separate N/P/K, X1 pasture+mixed-use.
  * Unknowns are null (UI shows "—"), never silent 0. Never-present → known 0 (Z1).
+ * OI-0250 Sb strip: aggregatePeriodTotals — En pasture/stored/total + Nk; Sz missing-DM=0.
  * OI-0249 Zp+Gg: season DMI/NPK sum known group-weight slices and mark partial;
  * dash only when nothing known remains. AUDs (Ua) and Score (Sc) unchanged.
  * Closed snapshots trusted as stored (Rt). F1 unmeasured-hay and R1 residual
@@ -379,6 +380,10 @@ export function computeLocationMetrics(location, ctx) {
     scoreKnown: false,
     dmiPartial: false,
     npkPartial: false,
+    // OI-0250 strip fields (Sz): stored missing-DM → 0; strip pasture ignores F1 sticky
+    storedFeedDmiKg: 0,
+    stripPastureDmiKg: null,
+    stripDmiPartial: false,
     eventCount: 0,
     dmiPerAcre: null,
     audsPerAcre: null,
@@ -407,7 +412,9 @@ export function computeLocationMetrics(location, ctx) {
   let dmiDays = 0;
   let dmiKnownSlices = 0;
   let dmiUnknownSlices = 0;
-  let dmiHayUnknown = false; // F1 sticky
+  let dmiHayUnknown = false; // F1 sticky (column only)
+  let storedFeedDmiKg = 0; // OI-0250 Sz strip
+  let stripPastureDmiKg = 0;
   let anyDemandDay = false;
 
   const classMap = Array.isArray(animalClasses)
@@ -533,6 +540,8 @@ export function computeLocationMetrics(location, ctx) {
 
     let dayBlocked = false;
     const pastureByEvent = new Map();
+    const storedSzByEvent = new Map();
+    const pastureSzByEvent = new Map();
     for (const [eventId, demand] of eventDemand) {
       const hay = measuredHayOnEventDay({
         eventId,
@@ -543,15 +552,34 @@ export function computeLocationMetrics(location, ctx) {
         batches,
         feedTypes,
       });
+      // OI-0250 Sz: missing-DM / unmeasured → 0 stored for the period strip (no invent).
+      const storedSz = hay.kind === 'measured' ? hay.dmKg : 0;
+      storedSzByEvent.set(eventId, storedSz);
+      pastureSzByEvent.set(eventId, Math.max(0, demand - storedSz));
       if (hay.kind === 'unknown') {
-        dayBlocked = true;
-        break;
+        dayBlocked = true; // column F1 sticky; strip still uses Sz zeros above
+        continue;
       }
       const stored = hay.kind === 'measured' ? hay.dmKg : 0;
       pastureByEvent.set(eventId, Math.max(0, demand - stored));
     }
+
+    // Period-strip attribution (Sz) — runs even when column F1 is blocked.
+    for (const pw of openHere) {
+      if (!pastureSzByEvent.has(pw.eventId)) continue;
+      const pastureSz = pastureSzByEvent.get(pw.eventId);
+      const storedSz = storedSzByEvent.get(pw.eventId) || 0;
+      const eventOpen = openPaddockWindowsOnDate(paddockWindows, { eventId: pw.eventId, date });
+      const myW = effectiveAreaHa(pw, locationsById);
+      const weights = eventOpen.map(w => effectiveAreaHa(w, locationsById));
+      const sumW = weights.reduce((s, a) => s + a, 0);
+      const pwShare = sumW > 0 ? myW / sumW : (1 / Math.max(1, eventOpen.length));
+      stripPastureDmiKg += pastureSz * pwShare;
+      storedFeedDmiKg += storedSz * pwShare;
+    }
+
     if (dayBlocked) {
-      dmiHayUnknown = true; // F1 unmeasured hay — season-sticky (list-parity)
+      dmiHayUnknown = true; // F1 unmeasured hay — season-sticky (list-parity); column only
       continue;
     }
 
@@ -620,6 +648,10 @@ export function computeLocationMetrics(location, ctx) {
   const npkHasUnknown = npkUnknownSlices > 0;
   const npkPartial = npkHasKnown && npkHasUnknown;
   const npkKnown = !npkResidualUnknown && (npkHasKnown || !npkHasUnknown);
+  // OI-0250 strip: Sz does not sticky-null on missing-DM; Pp partial = weight unknowns only.
+  const stripDmiPartial = dmiHasKnown && dmiHasUnknown;
+  const stripPastureUnknown = dmiHasUnknown && !dmiHasKnown;
+  const finalStripPasture = stripPastureUnknown ? null : stripPastureDmiKg;
 
   return {
     locationId: location.id,
@@ -639,6 +671,9 @@ export function computeLocationMetrics(location, ctx) {
     npkPartial,
     avgScore,
     scoreKnown: avgScore != null,
+    storedFeedDmiKg,
+    stripPastureDmiKg: finalStripPasture,
+    stripDmiPartial,
     eventCount: eventIds.size,
     dmiPerAcre: acres != null && finalDmi != null ? finalDmi / acres : null,
     audsPerAcre: acres != null ? auds / acres : null,
@@ -656,6 +691,67 @@ export function buildLocationMetricRows(locations, ctx) {
     ...ctx,
     locations,
   }));
+}
+
+/**
+ * OI-0250 period-totals strip: sum Af visible location rows.
+ * En pasture/stored/total; Nk separate N/P/K; Sz stored always numeric;
+ * Pp partial only from unknown-weight (non-DM) slices.
+ */
+export function aggregatePeriodTotals(rows = []) {
+  let pastureSum = 0;
+  let storedSum = 0;
+  let nSum = 0;
+  let pSum = 0;
+  let kSum = 0;
+  let pastureKnown = false;
+  let pastureNullLoc = false;
+  let pasturePartial = false;
+  let npkKnown = false;
+  let npkNullLoc = false;
+  let npkPartial = false;
+
+  for (const r of rows || []) {
+    const stored = Number(r?.storedFeedDmiKg);
+    storedSum += Number.isFinite(stored) ? stored : 0;
+
+    if (r?.stripPastureDmiKg != null && Number.isFinite(Number(r.stripPastureDmiKg))) {
+      pastureSum += Number(r.stripPastureDmiKg);
+      pastureKnown = true;
+    } else if (r && r.stripPastureDmiKg == null) {
+      pastureNullLoc = true;
+    }
+    if (r?.stripDmiPartial) pasturePartial = true;
+
+    if (r?.npkKnown && r?.nKg != null && Number.isFinite(Number(r.nKg))) {
+      nSum += Number(r.nKg);
+      pSum += Number.isFinite(Number(r.pKg)) ? Number(r.pKg) : 0;
+      kSum += Number.isFinite(Number(r.kKg)) ? Number(r.kKg) : 0;
+      npkKnown = true;
+    } else if (r && r.npkKnown === false) {
+      npkNullLoc = true;
+    }
+    if (r?.npkPartial) npkPartial = true;
+  }
+
+  const pastureDmiKg = pastureKnown ? pastureSum : null;
+  const totalDmiKg = pastureDmiKg != null ? pastureDmiKg + storedSum : null;
+  const dmiPartial = Boolean(pastureKnown && (pasturePartial || pastureNullLoc));
+  const nKg = npkKnown ? nSum : null;
+  const pKg = npkKnown ? pSum : null;
+  const kKg = npkKnown ? kSum : null;
+
+  return {
+    pastureDmiKg,
+    storedFeedDmiKg: storedSum,
+    totalDmiKg,
+    dmiPartial,
+    nKg,
+    pKg,
+    kKg,
+    npkKnown,
+    npkPartial: Boolean(npkKnown && (npkPartial || npkNullLoc)),
+  };
 }
 
 /** Format helper: null/unknown → em dash. */

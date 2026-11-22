@@ -2644,6 +2644,43 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 .loc-mgmt__link:hover { text-decoration: underline; }
 
+/* OI-0250 Sb: period totals under season metrics bar, above color key */
+.loc-mgmt__period-totals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.8125rem;
+}
+.loc-mgmt__period-totals-label {
+  font-weight: 600;
+  color: var(--text2);
+  margin-right: var(--space-1);
+}
+.loc-mgmt__period-total {
+  display: flex;
+  flex-direction: column;
+  min-width: 72px;
+  padding: 0 6px;
+}
+.loc-mgmt__period-total-label {
+  font-size: 0.625rem;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.loc-mgmt__period-total-value {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.loc-mgmt__period-total--partial .loc-mgmt__period-total-value {
+  color: var(--text2);
+}
+
 .loc-mgmt__head {
   display: flex;
   flex-shrink: 0;

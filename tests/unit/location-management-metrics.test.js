@@ -1,5 +1,6 @@
 /** @file Location + rotation management metrics / readiness / sort / scroll (OI-0246). */
 import { describe, it, expect, beforeAll } from 'vitest';
+import { readFileSync } from 'node:fs';
 import '../../src/calcs/core.js';
 import '../../src/calcs/advanced.js';
 import {
@@ -8,6 +9,7 @@ import {
   defaultMetricWindow,
   eachDateInclusive,
   computeLocationMetrics,
+  aggregatePeriodTotals,
   formatMetricValue,
   clipWindowToRange,
   resolveResidualNpkPercents,
@@ -609,5 +611,203 @@ describe('F0 single vertical scroll owner', () => {
     a.dispatchEvent(new Event('scroll'));
     expect(b.scrollLeft).toBe(40);
     unsub();
+  });
+});
+
+
+describe('OI-0250 period totals (Sb+En+Nk+Sz+Pp)', () => {
+  const loc = { id: 'loc1', name: 'North', type: 'land', landUse: 'pasture', areaHectares: 4.047 };
+  const event = { id: 'ev1', dateOut: '2026-10-10' };
+  const pw = { id: 'pw1', eventId: 'ev1', locationId: 'loc1', dateOpened: '2026-10-01', dateClosed: '2026-10-10', areaPct: 100 };
+  const gw = {
+    id: 'gw1', eventId: 'ev1', groupId: 'g1', animalClassId: 'ac1',
+    dateJoined: '2026-10-01', dateLeft: '2026-10-10', headCount: 10, avgWeightKg: 453.6,
+  };
+  const cls = { id: 'ac1', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136 };
+  const animals = Array.from({ length: 10 }, (_, i) => ({
+    id: `a${i}`, classId: 'ac1', archived: false, status: 'active',
+  }));
+  const memberships = animals.map(a => ({
+    id: `m${a.id}`, animalId: a.id, groupId: 'g1',
+    dateJoined: '2026-01-01', dateLeft: null,
+  }));
+  const baseCtx = {
+    windowStart: '2026-10-01',
+    windowEnd: '2026-10-10',
+    today: '2026-11-21',
+    events: [event],
+    paddockWindows: [pw],
+    groupWindows: [gw],
+    memberships,
+    animals,
+    animalClasses: [cls],
+    animalWeightRecords: [],
+    locations: [loc],
+    observations: [],
+    feedEntries: [],
+    feedChecks: [],
+    feedCheckItems: [],
+    batches: [],
+    feedTypes: [],
+    batchNutritionalProfiles: [],
+  };
+
+  it('Sz: missing-DM feed counts as 0 stored and does not sticky-null strip pasture (column F1 still unknown)', () => {
+    const none = computeLocationMetrics(loc, baseCtx);
+    expect(none.stripPastureDmiKg).toBeGreaterThan(0);
+    expect(none.storedFeedDmiKg).toBe(0);
+
+    // Deliveries alone (no DM bracketing checks) → column F1 unknown; Sz strip treats stored as 0.
+    const missingDm = computeLocationMetrics(loc, {
+      ...baseCtx,
+      feedEntries: [{
+        id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-05',
+        quantity: 2, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        kind: 'inventory_feeding', feedTypeId: 'hay',
+      }],
+      feedTypes: [{ id: 'hay', unit: 'bale', nPct: 1.5, pPct: 0.2, kPct: 1.0, dmPct: 80 }],
+    });
+    expect(missingDm.dmiKg).toBeNull(); // column F1 unchanged
+    expect(missingDm.storedFeedDmiKg).toBe(0); // Sz
+    expect(missingDm.stripPastureDmiKg).toBeGreaterThan(0);
+    expect(missingDm.stripDmiPartial).toBe(false);
+    expect(Math.abs(missingDm.stripPastureDmiKg - none.stripPastureDmiKg)).toBeLessThan(0.01);
+  });
+
+  it('Sz: measured known-DM hay raises stored-feed DMI and lowers strip pasture', () => {
+    const none = computeLocationMetrics(loc, baseCtx);
+    const withMeasured = computeLocationMetrics(loc, {
+      ...baseCtx,
+      feedEntries: [{
+        id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-01',
+        quantity: 4, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        kind: 'inventory_feeding', feedTypeId: 'hay', batchId: null,
+      }],
+      feedChecks: [
+        { id: 'fc1', eventId: 'ev1', date: '2026-10-01', time: '08:00', isCloseReading: false },
+        { id: 'fc2', eventId: 'ev1', date: '2026-10-10', time: '08:00', isCloseReading: true },
+      ],
+      feedCheckItems: [
+        {
+          id: 'fci1', feedCheckId: 'fc1', locationId: 'loc1', feedTypeId: 'hay', batchId: null,
+          remainingQuantity: 4, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        },
+        {
+          id: 'fci2', feedCheckId: 'fc2', locationId: 'loc1', feedTypeId: 'hay', batchId: null,
+          remainingQuantity: 0, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        },
+      ],
+      feedTypes: [{ id: 'hay', unit: 'bale', nPct: 1.5, pPct: 0.2, kPct: 1.0, dmPct: 80 }],
+    });
+    expect(withMeasured.storedFeedDmiKg).toBeGreaterThan(0);
+    expect(withMeasured.stripPastureDmiKg).toBeLessThan(none.stripPastureDmiKg);
+    // Total = pasture + stored (En). May exceed no-hay pasture when L1 floors pasture at 0.
+    expect(withMeasured.stripPastureDmiKg + withMeasured.storedFeedDmiKg)
+      .toBeGreaterThan(withMeasured.stripPastureDmiKg);
+    const tot = aggregatePeriodTotals([withMeasured]);
+    expect(tot.totalDmiKg).toBeCloseTo(
+      tot.pastureDmiKg + tot.storedFeedDmiKg, 5,
+    );
+  });
+
+  it('Nk: aggregatePeriodTotals exposes Total N, P, K separately (not one blob)', () => {
+    const row = computeLocationMetrics(loc, baseCtx);
+    const tot = aggregatePeriodTotals([row]);
+    expect(tot.nKg).toBeGreaterThan(0);
+    expect(tot.pKg).toBeGreaterThan(0);
+    expect(tot.kKg).toBeGreaterThan(0);
+    expect(tot.nKg).not.toBe(tot.pKg);
+    expect(tot).not.toHaveProperty('npkKg');
+    expect(tot.pastureDmiKg).toBeGreaterThan(0);
+    expect(tot.storedFeedDmiKg).toBe(0);
+    expect(tot.totalDmiKg).toBeCloseTo(tot.pastureDmiKg + tot.storedFeedDmiKg, 5);
+    expect(tot.dmiPartial).toBe(false);
+  });
+
+  it('Pp: unknown-weight partial on a location marks period DMI/NPK partial; Sz missing-DM does not', () => {
+    const gwKnown = { ...gw, id: 'gw1', groupId: 'g1', avgWeightKg: 453.6, headCount: 5 };
+    const gwUnknown = {
+      id: 'gw2', eventId: 'ev1', groupId: 'g2', animalClassId: 'ac1',
+      dateJoined: '2026-10-01', dateLeft: '2026-10-10', headCount: 5, avgWeightKg: null,
+    };
+    const animals2 = [
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `k${i}`, classId: 'ac1', archived: false, status: 'active' })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `u${i}`, classId: 'ac1', archived: false, status: 'active' })),
+    ];
+    const memberships2 = [
+      ...animals2.slice(0, 5).map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'g1', dateJoined: '2026-01-01', dateLeft: null })),
+      ...animals2.slice(5).map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'g2', dateJoined: '2026-01-01', dateLeft: null })),
+    ];
+    const partialRow = computeLocationMetrics(loc, {
+      ...baseCtx,
+      groupWindows: [gwKnown, gwUnknown],
+      animals: animals2,
+      memberships: memberships2,
+    });
+    expect(partialRow.stripDmiPartial).toBe(true);
+    expect(partialRow.stripPastureDmiKg).toBeGreaterThan(0);
+    const tot = aggregatePeriodTotals([partialRow]);
+    expect(tot.dmiPartial).toBe(true);
+    expect(tot.npkPartial).toBe(true);
+    expect(tot.pastureDmiKg).toBeGreaterThan(0);
+    expect(formatMetricValue(tot.pastureDmiKg)).not.toBe('—');
+
+    const missingDm = computeLocationMetrics(loc, {
+      ...baseCtx,
+      feedEntries: [{
+        id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-05',
+        quantity: 2, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        kind: 'inventory_feeding', feedTypeId: 'hay',
+      }],
+      feedTypes: [{ id: 'hay', unit: 'bale', nPct: 1.5, pPct: 0.2, kPct: 1.0, dmPct: 80 }],
+    });
+    const totSz = aggregatePeriodTotals([missingDm]);
+    expect(totSz.dmiPartial).toBe(false);
+    expect(totSz.storedFeedDmiKg).toBe(0);
+    expect(totSz.pastureDmiKg).toBeGreaterThan(0);
+  });
+
+  it('Sb: Calendar wires periodBar → totals strip → legend; List omits strip', () => {
+    const src = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
+    const bar = src.indexOf('container.appendChild(periodBar)');
+    const totals = src.indexOf('if (totalsStrip) container.appendChild(totalsStrip)');
+    const legend = src.indexOf('if (legend) container.appendChild(legend)');
+    expect(bar).toBeGreaterThan(-1);
+    expect(totals).toBeGreaterThan(bar);
+    expect(legend).toBeGreaterThan(totals);
+    expect(src).toContain('const periodTotals = isList ? null : aggregatePeriodTotals(metricRows)');
+    expect(src).toContain("testid: 'loc-mgmt-period-totals'");
+    expect(src).toContain('Pasture DMI');
+    expect(src).toContain('Stored-feed DMI');
+    expect(src).toContain('Total DMI');
+    expect(src).toContain('Total N');
+    expect(src).toContain('Total P');
+    expect(src).toContain('Total K');
+  });
+
+  it('aggregatePeriodTotals sums Af rows and dashes when nothing known', () => {
+    const known = computeLocationMetrics(loc, baseCtx);
+    const unknownOnly = {
+      ...known,
+      stripPastureDmiKg: null,
+      stripDmiPartial: false,
+      storedFeedDmiKg: 0,
+      nKg: null,
+      pKg: null,
+      kKg: null,
+      npkKnown: false,
+      npkPartial: false,
+    };
+    const empty = aggregatePeriodTotals([unknownOnly]);
+    expect(empty.pastureDmiKg).toBeNull();
+    expect(empty.totalDmiKg).toBeNull();
+    expect(empty.nKg).toBeNull();
+    expect(formatMetricValue(empty.pastureDmiKg)).toBe('—');
+
+    const mixed = aggregatePeriodTotals([known, unknownOnly]);
+    expect(mixed.pastureDmiKg).toBeCloseTo(known.stripPastureDmiKg, 5);
+    expect(mixed.dmiPartial).toBe(true);
+    expect(mixed.nKg).toBeCloseTo(known.nKg, 5);
+    expect(mixed.npkPartial).toBe(true);
   });
 });

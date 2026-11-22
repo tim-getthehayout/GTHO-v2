@@ -16,6 +16,7 @@ import * as OperationEntity from '../../src/entities/operation.js';
 import * as FarmEntity from '../../src/entities/farm.js';
 import * as AnimalEntity from '../../src/entities/animal.js';
 import * as AiBullEntity from '../../src/entities/ai-bull.js';
+import * as WeightEntity from '../../src/entities/animal-weight-record.js';
 
 const OP_ID = '00000000-0000-0000-0000-0000000000aa';
 const FARM_ID = '00000000-0000-0000-0000-0000000000bb';
@@ -41,6 +42,11 @@ function seed() {
   // Candidate AI bull
   add('aiBulls', AiBullEntity.create({ id: AI_BULL_ID, operationId: OP_ID, name: 'Connealy Confidence', tag: 'CONF-01', breed: 'Angus' }),
     AiBullEntity.validate, AiBullEntity.toSupabaseShape, 'ai_bulls');
+  // OI-0249 Ce: Edit Animal save requires a recorded weight; this suite is not about that gate.
+  add('animalWeightRecords', WeightEntity.create({
+    operationId: OP_ID, animalId: HEIFER_ID, recordedAt: '2026-03-01T12:00:00.000Z',
+    weightKg: 400, source: 'manual',
+  }), WeightEntity.validate, WeightEntity.toSupabaseShape, 'animal_weight_records');
 }
 
 describe('Edit Animal dialog → saveAnimal round-trips the four inputs (OI-0099)', () => {

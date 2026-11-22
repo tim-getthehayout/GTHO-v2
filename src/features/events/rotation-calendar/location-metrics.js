@@ -2,6 +2,9 @@
  * @file Location management metrics over a date window (compute-on-read).
  * AGREED: W1 window, M0 DMI/AUDs/NPK/score, A1 totals+per-acre, N1 separate N/P/K,
  * X1 pasture + mixed-use only. Unknowns are null (UI shows "—"), never silent 0.
+ * OI-0249 Zp+Gg: season DMI/NPK sum known group slices and mark partial;
+ * dash only when nothing known remains; never-present is 0. AUDs (Ua) and
+ * Score (Sc) are unchanged. Closed snapshots are trusted as stored (Rt).
  */
 
 import { getCalcByName } from '../../../utils/calc-registry.js';
@@ -9,7 +12,6 @@ import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-util
 import {
   getLiveWindowHeadCount,
   getLiveWindowAvgWeight,
-  hasUnknownLiveWindowWeights,
   groupWindowsDailyDemand,
 } from '../../../calcs/window-helpers.js';
 import { groupWindowPresenceDays } from '../../../calcs/partial-day-demand.js';
@@ -152,6 +154,8 @@ export function computeLocationMetrics(location, ctx) {
     npkKnown: true,
     avgScore: null,
     scoreKnown: false,
+    dmiPartial: false,
+    npkPartial: false,
     eventCount: 0,
     dmiPerAcre: null,
     audsPerAcre: null,
@@ -173,10 +177,12 @@ export function computeLocationMetrics(location, ctx) {
   let pKg = 0;
   let kKg = 0;
   let eventIds = new Set();
-  let npkUnknown = false;
+  let npkKnownSlices = 0;
+  let npkUnknownSlices = 0;
   let dmiKg = 0;
   let dmiDays = 0;
-  let dmiUnknown = false;
+  let dmiKnownSlices = 0;
+  let dmiUnknownSlices = 0;
   let anyDemandDay = false;
 
   // AUDs + NPK: walk events that touched this location in the window
@@ -219,12 +225,6 @@ export function computeLocationMetrics(location, ctx) {
       });
       if (!(days > 0) || !(liveHead > 0)) continue;
 
-      if (hasUnknownLiveWindowWeights(gw, {
-        memberships, animals, animalClasses, animalWeightRecords, now,
-      })) {
-        npkUnknown = true;
-      }
-
       const au = aniAu
         ? aniAu.fn({ headCount: liveHead, avgWeightKg: liveAvg || 0 })
         : (liveHead * (liveAvg || 0)) / 453.6;
@@ -244,8 +244,9 @@ export function computeLocationMetrics(location, ctx) {
         nKg += (r.nKg ?? 0) * share;
         pKg += (r.pKg ?? 0) * share;
         kKg += (r.kKg ?? 0) * share;
+        npkKnownSlices += 1;
       } else if (liveHead > 0 && !(liveAvg > 0)) {
-        npkUnknown = true;
+        npkUnknownSlices += 1;
       }
     }
   }
@@ -287,17 +288,20 @@ export function computeLocationMetrics(location, ctx) {
     const relevantRows = rows.filter(r => openEventIds.has(r.eventId));
     if (!relevantRows.length) continue;
 
-    // Unknown weights on any row for this location's events → DMI unknown for the day
-    if (relevantRows.some(row => {
-      if (!(row.head > 0)) return false;
-      return !(Number.isFinite(row.avgWeightKg) && row.avgWeightKg > 0);
-    })) {
-      dmiUnknown = true;
-      continue;
+    // OI-0249 Gg: skip only the missing-weight group; keep other groups that day.
+    const knownRows = [];
+    for (const row of relevantRows) {
+      if (!(row.head > 0)) continue;
+      if (Number.isFinite(row.avgWeightKg) && row.avgWeightKg > 0) {
+        knownRows.push(row);
+        dmiKnownSlices += 1;
+      } else {
+        dmiUnknownSlices += 1;
+      }
     }
 
     for (const pw of openHere) {
-      const eventRows = relevantRows.filter(r => r.eventId === pw.eventId && r.kg > 0);
+      const eventRows = knownRows.filter(r => r.eventId === pw.eventId && r.kg > 0);
       const demand = eventRows.reduce((s, r) => s + r.kg, 0);
       if (!(demand > 0)) continue;
 
@@ -332,11 +336,18 @@ export function computeLocationMetrics(location, ctx) {
     : null;
 
   const acres = acresOf(location);
-  const dmiKnown = !dmiUnknown && (dmiDays > 0 || !anyDemandDay);
-  // When never open in window: DMI is known 0 (no presence), not unknown
+  // Zp: sum known slices; dash only when nothing known remains; never-present = 0.
+  const dmiHasKnown = dmiKnownSlices > 0;
+  const dmiHasUnknown = dmiUnknownSlices > 0;
+  const dmiUnknown = dmiHasUnknown && !dmiHasKnown;
+  const dmiPartial = dmiHasKnown && dmiHasUnknown;
+  const dmiKnown = !dmiUnknown && (dmiHasKnown || dmiDays > 0 || !anyDemandDay);
   const finalDmi = dmiUnknown ? null : dmiKg;
   const finalAuds = auds;
-  const npkKnown = !npkUnknown;
+  const npkHasKnown = npkKnownSlices > 0;
+  const npkHasUnknown = npkUnknownSlices > 0;
+  const npkPartial = npkHasKnown && npkHasUnknown;
+  const npkKnown = npkHasKnown || !npkHasUnknown;
 
   return {
     locationId: location.id,
@@ -346,12 +357,14 @@ export function computeLocationMetrics(location, ctx) {
     hasAcres: acres != null,
     dmiKg: finalDmi,
     dmiKnown: dmiKnown || finalDmi === 0,
+    dmiPartial,
     auds: finalAuds,
     audsKnown: true,
     nKg: npkKnown ? nKg : null,
     pKg: npkKnown ? pKg : null,
     kKg: npkKnown ? kKg : null,
     npkKnown,
+    npkPartial,
     avgScore,
     scoreKnown: avgScore != null,
     eventCount: eventIds.size,

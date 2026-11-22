@@ -2739,6 +2739,12 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 .loc-mgmt__metric-label { font-size: 0.625rem; color: var(--text3); text-transform: uppercase; }
 .loc-mgmt__metric-value { font-size: 0.75rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.loc-mgmt__metric-partial {
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text3);
+  margin-left: 3px;
+}
 
 .loc-mgmt__timeline-wrap {
   flex: 1;

@@ -79,7 +79,7 @@ Build triage (**t1087u**): “scroll gone” after #131 = short default canvas n
 - No temporary metrics-floor softener.
 - **D0** no SQL (standing).
 
-**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build implements after docs are on main. OI-0255 / 0256 / 0257 remain PROPOSED on this same tip.
+**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build implements after docs are on main. OI-0255 / 0256 LOCKED; OI-0257 LOCKED narrow (Ag1+St1; Fx1 parked). Batch 0254–0257 tip ready for Tim land.
 
 ## 4. Acceptance (when built)
 
@@ -92,4 +92,4 @@ Build triage (**t1087u**): “scroll gone” after #131 = short default canvas n
 
 ## 5. Tip instruction
 
-**LOCKED** — **Sc1+Rd1+Tk1+Cm1+Cm1a**. Docs only on this tip (with OI-0255/0256/0257 still PROPOSED). **Do not land on main** until Tim yeses the land card. **Do not** start Build from this tip until docs are on main. Never edit `src/`, `tests/`, or `supabase/` on this docs tip. Suggested Build order after locks: **0254 → 0255 → 0256 → 0257**.
+**LOCKED** — **Sc1+Rd1+Tk1+Cm1+Cm1a**. Docs only on this tip (OI-0255/0256 LOCKED; OI-0257 LOCKED narrow; batch ready for Tim land). **Do not land on main** until Tim yeses the land card. **Do not** start Build from this tip until docs are on main. Never edit `src/`, `tests/`, or `supabase/` on this docs tip. Suggested Build order after locks: **0254 → 0255 → 0256 → 0257**.

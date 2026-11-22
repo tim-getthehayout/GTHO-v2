@@ -87,7 +87,7 @@ No second flag / no new SQL. Do not invent a strip-specific rule beyond per-loca
 - **Mx1** covers mixed events: the 100% stored paddock is omitted from pasture DMI/AUD inference and still participates in NPK deposits; pasture is inferred from the other open paddocks.
 - Settles legitimate NOW “no residual / bale grazing” cases; does not replace OI-0253 B1 for true unknown DMI.
 
-**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build may start ahead of docs land, after OI-0254 / OI-0255. OI-0257 remains PROPOSED on this same tip.
+**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build may start ahead of docs land, after OI-0254 / OI-0255. OI-0257 is LOCKED narrow (Ag1+St1; Fx1 parked) on this same tip. Batch 0254–0257 tip ready for Tim land.
 
 ## 4. Acceptance (when built)
 
@@ -101,4 +101,4 @@ No second flag / no new SQL. Do not invent a strip-specific rule beyond per-loca
 
 ## 5. Tip instruction
 
-**LOCKED / READY FOR BUILD** — **Lv1+Sk1+Pn1+Mt1+Mx1** (**D0** standing). Docs only on this tip (OI-0257 still PROPOSED). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254** / **OI-0255**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.
+**LOCKED / READY FOR BUILD** — **Lv1+Sk1+Pn1+Mt1+Mx1** (**D0** standing). Docs only on this tip (OI-0257 LOCKED narrow; batch ready for Tim land). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254** / **OI-0255**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.

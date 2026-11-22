@@ -50,7 +50,7 @@ Today the timeline shows the block but does not surface the readings that produc
 - **Dt1** covers Tim’s stated ask; expand fields only if he asks after trying it.
 - **D0** no SQL (standing).
 
-**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build may start ahead of docs land, after OI-0254. OI-0256 / OI-0257 remain PROPOSED on this same tip.
+**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build may start ahead of docs land, after OI-0254. OI-0256 LOCKED; OI-0257 LOCKED narrow (Ag1+St1; Fx1 parked). Batch 0254–0257 tip ready for Tim land.
 
 ## 4. Acceptance (when built)
 
@@ -60,4 +60,4 @@ Today the timeline shows the block but does not surface the readings that produc
 
 ## 5. Tip instruction
 
-**LOCKED / READY FOR BUILD** — **Ui1+Dt1**. Docs only on this tip (OI-0256/0257 still PROPOSED). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.
+**LOCKED / READY FOR BUILD** — **Ui1+Dt1**. Docs only on this tip (OI-0256 LOCKED; OI-0257 LOCKED narrow; batch ready for Tim land). **Do not land on main** until Tim yeses the land card. Build may start ahead of docs land; order after **OI-0254**. Never edit `src/`, `tests/`, or `supabase/` on this docs tip.

@@ -1,8 +1,8 @@
 /**
  * @file Future grazing readiness (T0).
- * OI-0262 Ra1+Bd1+Pb1+Dz1: REC-1 window anchored on the latest closed paddock
- * window's date_closed (close obs by sourceId, else farm defaults); band runs
- * close + min → close + max. Relative days since last graze only when no
+ * OI-0262 Ra1+Bd1+Pb1+Dz1+Sv2: REC-1 window anchored on the later of the latest
+ * closed paddock window's date_closed (close obs by sourceId, else farm defaults)
+ * and a survey dated after it; band runs anchor + min → anchor + max. Relative days since last graze only when no
  * window has a close date.
  */
 
@@ -163,10 +163,13 @@ export function latestSurveyAnchor(locationId, observations = []) {
 }
 
 /**
- * OI-0262 anchor seam — later-of(close anchor, survey anchor).
- * Interim (Sv parked → Sv1-equivalent per the locked brief): the window dates
- * always come from the Ra1 close anchor; a survey dated strictly after the close
- * only switches the label to "Surveyed on …". A same-day survey does not count.
+ * OI-0262 anchor seam — later-of(close anchor, survey anchor). Sv2 latest-wins
+ * (Tim t1275u): whichever came last carries the recovery window.
+ * - Survey dated strictly after the close → survey date + survey min..max,
+ *   "Surveyed on" label; a survey missing recovery days takes the close anchor's
+ *   min/max (close observation, else farm defaults) per field.
+ * - Otherwise (no survey, earlier survey, or same-day survey) → close date +
+ *   close min..max, "Estimated" label. A later close re-anchors automatically.
  * @param {ReturnType<typeof closeRecoveryAnchor>} closeAnchor
  * @param {ReturnType<typeof latestSurveyAnchor>} surveyAnchor
  * @returns {null | {
@@ -177,13 +180,23 @@ export function latestSurveyAnchor(locationId, observations = []) {
 export function selectReadinessAnchor(closeAnchor, surveyAnchor) {
   if (!closeAnchor) return null;
   const surveyIsLater = !!(surveyAnchor?.date && surveyAnchor.date > closeAnchor.date);
+  if (surveyIsLater) {
+    return {
+      date: surveyAnchor.date,
+      minDays: surveyAnchor.minDays ?? closeAnchor.minDays,
+      maxDays: surveyAnchor.maxDays ?? closeAnchor.maxDays,
+      dateSource: 'survey',
+      labelKind: 'surveyed',
+      surveyDate: surveyAnchor.date,
+    };
+  }
   return {
     date: closeAnchor.date,
     minDays: closeAnchor.minDays,
     maxDays: closeAnchor.maxDays,
     dateSource: 'close',
-    labelKind: surveyIsLater ? 'surveyed' : 'estimated',
-    surveyDate: surveyIsLater ? surveyAnchor.date : null,
+    labelKind: 'estimated',
+    surveyDate: null,
   };
 }
 

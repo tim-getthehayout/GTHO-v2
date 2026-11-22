@@ -111,15 +111,43 @@ describe('OI-0262 Ra1+Bd1+Pb1 — readiness anchored on the close date', () => {
     expect(r.windowCloses).toBe('2026-10-10');
   });
 
-  it('a survey dated after the close switches the label; dates stay close + min..max (interim Sv1-equivalent)', () => {
+  it('Sv2: a survey dated after the close carries the window (survey date + survey min..max)', () => {
     const survey = {
       id: 's1', locationId: LOC, type: 'open', source: 'survey', sourceId: 'survey-1',
       observedAt: '2026-10-01T12:00:00Z', recoveryMinDays: 10, recoveryMaxDays: 20,
     };
     const r = j2({ observations: [closeObs(), survey] });
+    expect(r.earliestReturn).toBe('2026-10-11');
+    expect(r.windowCloses).toBe('2026-10-21');
+    expect(r.anchor.dateSource).toBe('survey');
+    expect(r.label).toBe('Surveyed on Oct 1, estimated ready Oct 11');
+  });
+
+  it('Sv2: a later survey without recovery days → survey date + close obs min/max', () => {
+    const survey = { id: 's3', locationId: LOC, type: 'open', source: 'survey', observedAt: '2026-10-01T12:00:00Z' };
+    const r = j2({ observations: [closeObs(), survey] });
+    expect(r.earliestReturn).toBe('2026-10-31');
+    expect(r.windowCloses).toBe('2026-11-30');
+    expect(r.label).toBe('Surveyed on Oct 1, estimated ready Oct 31');
+  });
+
+  it('Sv2: a later survey without recovery days and no close obs → survey date + farm defaults', () => {
+    const survey = { id: 's4', locationId: LOC, type: 'open', source: 'survey', observedAt: '2026-10-01T12:00:00Z' };
+    const r = j2({ observations: [survey], defaults: { min: 21, max: 35 } });
+    expect(r.earliestReturn).toBe('2026-10-22');
+    expect(r.windowCloses).toBe('2026-11-05');
+  });
+
+  it('Sv2: a close after a survey re-anchors on the close (Estimated label)', () => {
+    const survey = {
+      id: 's5', locationId: LOC, type: 'open', source: 'survey',
+      observedAt: '2026-08-01T12:00:00Z', recoveryMinDays: 10, recoveryMaxDays: 20,
+    };
+    const r = j2({ observations: [closeObs(), survey] });
     expect(r.earliestReturn).toBe('2026-09-20');
     expect(r.windowCloses).toBe('2026-10-20');
-    expect(r.label).toBe('Surveyed on Oct 1, estimated ready Sep 20');
+    expect(r.anchor.dateSource).toBe('close');
+    expect(r.label).toBe('Estimated ready Sep 20');
   });
 
   it('a survey before the close never anchors the window (Ra1 stops survey rows anchoring)', () => {
@@ -179,7 +207,20 @@ describe('OI-0262 anchor seam — selectReadinessAnchor(close, survey)', () => {
     });
   });
   it('same-day survey → close wins', () => {
-    expect(selectReadinessAnchor(close, { date: '2026-08-21', minDays: 5, maxDays: 9 }).labelKind).toBe('estimated');
+    expect(selectReadinessAnchor(close, { date: '2026-08-21', minDays: 5, maxDays: 9 })).toMatchObject({
+      date: '2026-08-21', minDays: 30, maxDays: 60, dateSource: 'close', labelKind: 'estimated',
+    });
+  });
+  it('Sv2 later survey wins; missing survey days fall back per field to the close anchor', () => {
+    expect(selectReadinessAnchor(close, { date: '2026-09-01', minDays: 5, maxDays: 9 })).toMatchObject({
+      date: '2026-09-01', minDays: 5, maxDays: 9, dateSource: 'survey', labelKind: 'surveyed', surveyDate: '2026-09-01',
+    });
+    expect(selectReadinessAnchor(close, { date: '2026-09-01', minDays: 5, maxDays: null })).toMatchObject({
+      minDays: 5, maxDays: 60,
+    });
+    expect(selectReadinessAnchor(close, { date: '2026-09-01', minDays: null, maxDays: null })).toMatchObject({
+      date: '2026-09-01', minDays: 30, maxDays: 60,
+    });
   });
   it('closeRecoveryAnchor / latestSurveyAnchor read by sourceId and local date', () => {
     const a = closeRecoveryAnchor(LOC, {

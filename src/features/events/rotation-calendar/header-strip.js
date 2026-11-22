@@ -14,17 +14,20 @@ import { buildGroupLabel } from './past-block.js';
  * @param {object} opts
  * @param {Array<{id: string, name: string}>} opts.selectedGroups - Currently selected forecaster groups
  * @param {number|null} opts.period - Selected period in days
- * @param {Function} opts.onUpdate - Called after view toggle to trigger re-render
+ * @param {Function} opts.onUpdate - Called after non-view state changes to re-render the grid
+ * @param {Function} [opts.onViewChange] - Called after Calendar/List toggle (full screen remount)
  * @returns {HTMLElement}
  */
-export function renderHeaderStrip({ selectedGroups, period, onUpdate }) {
+export function renderHeaderStrip({ selectedGroups, period, onUpdate, onViewChange }) {
   const state = getCalendarState();
   const viewMode = getViewMode();
+  // View toggle must remount the parent screen (list lives outside calendar-grid).
+  const switchView = onViewChange || onUpdate;
 
   // View toggle
   const calBtn = el('button', {
     className: `header-strip__toggle${state.view === 'calendar' ? ' header-strip__toggle--active' : ''}`,
-    onClick: () => { setView('calendar'); onUpdate(); },
+    onClick: () => { setView('calendar'); switchView(); },
     type: 'button',
     dataset: { testid: 'view-toggle-calendar' },
     'aria-pressed': state.view === 'calendar' ? 'true' : 'false',
@@ -32,7 +35,7 @@ export function renderHeaderStrip({ selectedGroups, period, onUpdate }) {
 
   const listBtn = el('button', {
     className: `header-strip__toggle${state.view === 'list' ? ' header-strip__toggle--active' : ''}`,
-    onClick: () => { setView('list'); onUpdate(); },
+    onClick: () => { setView('list'); switchView(); },
     type: 'button',
     dataset: { testid: 'view-toggle-list' },
     'aria-pressed': state.view === 'list' ? 'true' : 'false',

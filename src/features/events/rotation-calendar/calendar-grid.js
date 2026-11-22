@@ -14,6 +14,7 @@ import { getUnitSystem } from '../../../utils/preferences.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
 import { display } from '../../../utils/units.js';
 import { navigate } from '../../../ui/router.js';
+import { openLocationSheet } from '../../locations/index.js';
 import { getEventStartDate } from '../event-start.js';
 import { getLiveWindowHeadCount } from '../../../calcs/window-helpers.js';
 import { resolveRange, dateToPx } from './timeline.js';
@@ -53,7 +54,7 @@ const METRIC_COLS = [
  * Render the locations + rotation management surface.
  * @param {HTMLElement} container
  */
-export function renderCalendarGrid(container) {
+export function renderCalendarGrid(container, { onViewChange } = {}) {
   clear(container);
 
   const state = getCalendarState();
@@ -161,17 +162,17 @@ export function renderCalendarGrid(container) {
     .filter(Boolean)
     .map(g => ({ id: g.id, name: g.name }));
 
-  const onUpdate = () => renderCalendarGrid(container);
+  const onUpdate = () => renderCalendarGrid(container, { onViewChange });
+  const isList = state.view === 'list';
 
-  const headerStrip = renderHeaderStrip({ selectedGroups, period: state.period, onUpdate });
-  if (state.view === 'list') {
-    container.appendChild(headerStrip);
-    return;
-  }
+  const headerStrip = renderHeaderStrip({
+    selectedGroups, period: state.period, onUpdate, onViewChange,
+  });
 
-  const toolbar = renderToolbar(onUpdate);
-  const legend = renderLegend(viewMode);
   const periodBar = renderPeriodBar({ windowStart, windowEnd, onUpdate });
+  // List = same X1 rows + agreed metrics; timeline omitted (C1/P1 should-fix).
+  const toolbar = isList ? null : renderToolbar(onUpdate);
+  const legend = isList ? null : renderLegend(viewMode);
 
   const range = resolveRange(state.anchor, state.zoom);
   const totalWidth = Math.max(4, dateToPx(range.end, range.start, range.pxPerDay));
@@ -183,6 +184,7 @@ export function renderCalendarGrid(container) {
   const sort = { key: state.sortKey || 'name', dir: state.sortDir || 'asc' };
   const head = renderTableHead({
     sort, onUpdate, isPhone, range, totalWidth, todayPx, zoom: state.zoom,
+    omitTimeline: isList,
   });
 
   // Single vertical scroll owner — F0
@@ -193,6 +195,7 @@ export function renderCalendarGrid(container) {
       scrollOwner: 'vertical',
       overflowY: 'auto',
       architecture: describeScrollArchitecture().vertical,
+      view: isList ? 'list' : 'calendar',
     },
     'data-scroll-owner': 'vertical',
     'data-overflow-y': 'auto',
@@ -225,6 +228,7 @@ export function renderCalendarGrid(container) {
       allMemberships,
       allAnimals,
       metricsForPast: metrics,
+      omitTimeline: isList,
     });
     const ts = row.querySelector(`.${TIMELINE_SCROLL_CLASS}`);
     if (ts) timelineScrollers.push(ts);
@@ -249,8 +253,8 @@ export function renderCalendarGrid(container) {
   });
 
   const surface = el('div', {
-    className: `loc-mgmt${isPhone ? ' loc-mgmt--phone' : ' loc-mgmt--desktop'}`,
-    dataset: { testid: 'calendar-grid' },
+    className: `loc-mgmt${isList ? ' loc-mgmt--list' : ''}${isPhone ? ' loc-mgmt--phone' : ' loc-mgmt--desktop'}`,
+    dataset: { testid: 'calendar-grid', view: isList ? 'list' : 'calendar' },
   }, [head, body]);
 
   const onKeyDown = (e) => {
@@ -275,9 +279,9 @@ export function renderCalendarGrid(container) {
   };
 
   container.appendChild(headerStrip);
-  container.appendChild(toolbar);
+  if (toolbar) container.appendChild(toolbar);
   container.appendChild(periodBar);
-  container.appendChild(legend);
+  if (legend) container.appendChild(legend);
   container.appendChild(surface);
   container.setAttribute('tabindex', '0');
   container.addEventListener('keydown', onKeyDown);
@@ -333,9 +337,21 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
   ]);
 }
 
-function renderTableHead({ sort, onUpdate, isPhone, range, totalWidth, todayPx, zoom }) {
+function renderTableHead({ sort, onUpdate, isPhone, range, totalWidth, todayPx, zoom, omitTimeline = false }) {
   const nameBtn = sortHeaderButton('name', 'Name', sort, onUpdate);
   const metricBtns = METRIC_COLS.map(col => sortHeaderButton(col.key, col.label, sort, onUpdate, col.title));
+
+  if (omitTimeline) {
+    if (isPhone) {
+      return el('div', { className: 'loc-mgmt__head loc-mgmt__head--phone loc-mgmt__head--list' }, [
+        el('div', { className: 'loc-mgmt__head-metrics' }, [nameBtn, ...metricBtns]),
+      ]);
+    }
+    return el('div', { className: 'loc-mgmt__head loc-mgmt__head--desktop loc-mgmt__head--list' }, [
+      el('div', { className: 'loc-mgmt__name-head', style: { width: `${NAME_WIDTH}px` } }, [nameBtn]),
+      el('div', { className: 'loc-mgmt__metrics-head loc-mgmt__metrics-head--grow' }, metricBtns),
+    ]);
+  }
 
   const axis = buildAxis(range.start, range.end, zoom, range.pxPerDay, totalWidth);
   const todayLine = renderTodayLine(todayPx);
@@ -414,6 +430,7 @@ function renderManagementRow(opts) {
     loc, metrics, readiness, unitSystem, isPhone, range, totalWidth, todayPx,
     viewMode, selectedGroups, state, activeEvents, linkedPaddocks, stripInfo,
     allEvents, allPaddockWindows, allGroupWindows, allGroups, allMemberships, allAnimals,
+    omitTimeline = false,
   } = opts;
 
   const areaDisplay = loc.areaHectares != null
@@ -424,7 +441,7 @@ function renderManagementRow(opts) {
   const nameCell = el('div', {
     className: 'loc-mgmt__name',
     dataset: { testid: 'paddock-row', locationId: loc.id },
-    onClick: () => navigate(`#/locations`),
+    onClick: () => openLocationSheet(loc, loc.operationId, loc.farmId),
     role: 'button',
     tabindex: '0',
   }, [
@@ -461,6 +478,25 @@ function renderManagementRow(opts) {
       el('span', { className: 'loc-mgmt__metric-value' }, [`${text}${perAcreText}`]),
     ]);
   }));
+
+  if (omitTimeline) {
+    if (isPhone) {
+      return el('div', {
+        className: 'loc-mgmt__row loc-mgmt__row--phone loc-mgmt__row--list',
+        dataset: { testid: 'loc-mgmt-row', locationId: loc.id, view: 'list' },
+        style: { minHeight: `${ROW_HEIGHT}px` },
+      }, [nameCell, metricCell]);
+    }
+    metricCell.classList.add('loc-mgmt__metrics--grow');
+    return el('div', {
+      className: 'loc-mgmt__row loc-mgmt__row--desktop loc-mgmt__row--list',
+      dataset: { testid: 'loc-mgmt-row', locationId: loc.id, view: 'list' },
+      style: { height: `${ROW_HEIGHT}px` },
+    }, [
+      el('div', { className: 'loc-mgmt__name-wrap', style: { width: `${NAME_WIDTH}px`, flex: `0 0 ${NAME_WIDTH}px` } }, [nameCell]),
+      metricCell,
+    ]);
+  }
 
   // Timeline strip with past + future blocks
   const blockArea = el('div', {

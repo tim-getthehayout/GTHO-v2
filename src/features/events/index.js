@@ -20,10 +20,8 @@ import { openPaddockWindows, openLocationNames } from './open-cohort.js';
 import { paddockFacts } from '../map/paddock-facts.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
-import { readStateFromUrl, getCalendarState } from './calendar-state.js';
+import { readStateFromUrl } from './calendar-state.js';
 import { renderCalendarGrid } from './rotation-calendar/calendar-grid.js';
-import { renderEventsLog } from './list-view/events-log.js';
-import { renderMobileEventsScreen } from './mobile-events-screen.js';
 import { getEventStart, getEventStartDate } from './event-start.js';
 
 /** Unsubscribe functions */
@@ -64,6 +62,7 @@ export function createObservation(operationId, locationId, type, sourceId, obser
 export function renderEventsScreen(container) {
   unsubs.forEach(fn => fn());
   unsubs = [];
+  clear(container);
 
   const operations = getAll('operations');
   const farms = getAll('farms');
@@ -77,24 +76,12 @@ export function renderEventsScreen(container) {
   readStateFromUrl();
 
   // Combined Locations + rotation management surface on Mac and phone (P1).
-  // List view still available; mobile events log reachable via List toggle.
+  // Calendar | List toggles inside the grid: List = same rows + metrics, no timeline.
   const screenEl = el('div', { className: 'events-screen', 'data-testid': 'events-screen' });
 
   const calendarContainer = el('div', { 'data-testid': 'calendar-container' });
   renderCalendarGrid(calendarContainer);
   screenEl.appendChild(calendarContainer);
-
-  const state = getCalendarState();
-  if (state.view === 'list') {
-    const listContainer = el('div');
-    // Phone list keeps the prior mobile events log chrome
-    if (window.innerWidth < 900) {
-      renderMobileEventsScreen(listContainer);
-    } else {
-      renderEventsLog(listContainer);
-    }
-    screenEl.appendChild(listContainer);
-  }
 
   // Sheet wrappers (needed by both views for event management actions)
   const sheetsContainer = el('div', { className: 'events-sheets' }, [
@@ -159,11 +146,9 @@ export function renderEventsScreen(container) {
   screenEl.appendChild(sheetsContainer);
   container.appendChild(screenEl);
 
-  // Remount when events change in list view so create/close stay current.
+  // Remount when events change so list/calendar metrics stay current.
   unsubs.push(subscribe('events', () => {
-    if (getCalendarState().view === 'list') {
-      renderEventsScreen(container);
-    }
+    renderEventsScreen(container);
   }));
 }
 

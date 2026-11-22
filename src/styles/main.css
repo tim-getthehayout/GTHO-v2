@@ -2765,6 +2765,17 @@ body:has(.auth-overlay) .pwa-update-banner {
   pointer-events: none;
 }
 
+/* List view: same rows + metrics; timeline omitted */
+.loc-mgmt--list .loc-mgmt__metrics--grow,
+.loc-mgmt--list .loc-mgmt__metrics-head--grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-right: none;
+}
+.loc-mgmt--list .loc-mgmt__row--list {
+  /* F0: still one vertical owner (.loc-mgmt__body); no nested Y scroll */
+}
+
 /* Phone: metrics under name; one vertical list scroll; timeline horizontal */
 .loc-mgmt--phone .loc-mgmt__head--phone {
   flex-direction: column;

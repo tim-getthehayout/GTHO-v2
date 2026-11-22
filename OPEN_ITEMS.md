@@ -54,6 +54,10 @@
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 | OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~7:18 AM ET (Tim, via Orchestrator, card **t759s3139**) — **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Design rec on tip `070af6c`. Rams↔ewes, bucks(billies)↔does; widen Open; Gs1 per-species protocol; **M0** widen migration **047 before apply**; Animals **Preg check settings** dialog (Ps0). After docs land; 047 apply = separate Tim yes+backup; no exposure-row write (F0). [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
 | OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). Docs tip `dc90185` now on main. After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
+| OI-0257 | DM Forecaster: active groups only + fix CAP-1 stub (no fake tan 0 lbs hay) + verify forecast works | **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim feedback batch item 5 **t1073u** + CAP-1 triage; batch ended **t1096u**) — Design lean **Ag1+St1+Fx1+D0**. Active groups only; keep readiness (or clear unavailable) while forecast loading — never fake tan “0 lbs hay”; fix/verify computation path. No SQL. Awaiting Tim lock. [brief](session_briefs/DM_FORECASTER_2026-11-22.md) |
+| OI-0256 | Restore 100% Stored Feed checkbox (`event_paddock_windows.no_pasture`) | **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim **t1052u**; pile **t1060s4208**; batch ended **t1096u**) — Design lean **Lv1+Sk1+Pn1+Mt1+D0**. Per-PW checkbox; skip open+close residual; tan/stored-feed paint; metrics known Pasture 0 / 100% stored. Column exists (7 prod rows); i18n orphan; no new SQL expected. Awaiting Tim lock. [brief](session_briefs/STORED_FEED_ONLY_RESTORE_2026-11-22.md) |
+| OI-0255 | Rotation: click past event to see opening/closing (+ key fields) | **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim **t1032u**; batch ended **t1096u**) — Design lean **Ui1+Dt1+D0**. Modal/sheet detail; opening+closing pasture readings + key event fields; ask Tim before inventing more fields. No SQL. Awaiting Tim lock. [brief](session_briefs/PAST_EVENT_DETAIL_2026-11-22.md) |
+| OI-0254 | Rotation timeline canvas: all-past + ready-by scroll, per-paddock readiness, ticks, collapse metrics | **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim batch items 2+4+6 **t1037u/t1039u/t1094u/t1067u/t1096u**; batch ended **t1096u**) — Design lean **Sc1+Rd1+Tk1+Cm1+Cm1a+D0**. Scroll all past → last ready-by; readiness = close-event estimated range (not Today→range.end); ticks month/Sat/day; collapse metrics default expanded. No temporary metrics-floor softener. No SQL. Awaiting Tim lock. [brief](session_briefs/ROTATION_TIMELINE_CANVAS_2026-11-22.md) |
 | OI-0252 | Per-location metrics block layout (stacked DMI/AUDs over NPK/Score + uniform width) + List buttons right | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:36–7:37 AM ET (Tim, via Orchestrator; card **t1000s3983** change; typed **t1002u**) — **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. Two stacked lines (DMI · AUDs over N · P · K · Score); uniform width from widest visible row (**Wu** — t998u: G-4 zeros vs J1-1 DMI 3793 jagged Nov 22); Calendar + List (**Sb** confirmed); List row action buttons on the **right** matching original Locations list (**Br**); phone keeps stack (**Nn**); OI-0249 partial in measure (**Pp**); farm units (**Uf**); **D0** no SQL. Sequence **after PR #126**. Does not redesign OI-0250 strip. Docs tip ready for Tim’s land of **docs**. [brief](session_briefs/METRICS_BLOCK_LAYOUT_2026-11-22.md) |
 | OI-0251 | Sheep period backfill (cattle-aligned DMI via synthetic closed event) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:27–7:28 AM ET (Tim, via Orchestrator; card **t990s3945** Ok; typed **t991u** Ap + Rotation/List prefs; typed **t993u** Ud) — **Es+Ld+Ap+Ud+Go+Ox+Sc+Wt+D2+Hn+Nm+Gw+D0**. Wt **70@100 lb** (~45.36 kg); **Ld** Sheep-history pasture; **Ap** archive + farm_settings `include_archived_locations_in_metrics` (default **true**; migration required); **Ud** small Report preferences dialog on Rotation + List (period defaults + archive pref, same farm_settings); **Gw** gates; **D0** tip no SQL apply. Docs tip ready for Tim’s land of **docs**. Migration apply + backfill write each need separate Tim yes. [brief](session_briefs/SHEEP_PERIOD_BACKFILL_2026-11-22.md) |
 | OI-0250 | Timeline period totals on Locations Calendar (pasture + stored-feed DMI + Total DMI + Total NPK) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:14 AM ET (Tim, via Orchestrator, card **t971s3875**; placement from typed **t968u**) — **Sb+Pw+En+Nk+Pp+Uf+Sz+Af+Sq+D0**. Totals strip **under season metrics selection bar, above color key** (**Sb**). Enumerate Pasture DMI · Stored-feed DMI · Total DMI (**En**); Total N/P/K separately (**Nk**); follow metric window + visible filters (**Pw+Af**); OI-0249 muted “ partial” for unknown weights (**Pp**); missing-DM feed counts as **0** and does **not** trigger partial (**Sz**, replaces Design **Sd**); farm units (**Uf**); **after PR #126** (**Sq**); **D0** no SQL. Docs tip ready for Tim’s land of **docs**. No Build until docs live on main / after #126. [brief](session_briefs/TIMELINE_PERIOD_TOTALS_2026-11-22.md) |
@@ -218,6 +222,110 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+### OI-0257 — DM Forecaster (active groups + CAP-1 stub)
+
+**Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim feedback batch item 5 **t1073u** + CAP-1 stub triage; batch ended **t1096u**). Awaiting Tim lock. Docs tip only. **D0** = no SQL / no migration expected.
+
+**Ask:** Forecaster should show **only active groups**; check whether it works; when a forecaster period + groups are selected, do **not** paint future blocks as tan “Hay / stored feed, 0 lbs hay” (CAP-1 stub `coverageFraction: 0` / `shortfallLbsHay: 0` in `calendar-grid.js`). Not a #129/#131 paint regression.
+
+**Design lean:** **Ag1+St1+Fx1+D0**
+- **Ag1**: active groups only. Alt **Ag0** = keep listing inactive/all.
+- **St1**: keep readiness paint (or clear loading/unavailable) while forecast loading/unavailable — never fake tan 0 lbs. Alts **St2** hide future blocks; **St3** explicit “Forecast unavailable” chip.
+- **Fx1**: fix/verify forecast computation path (Build discovery first if needed). Alt **Fx0** stub-only UX.
+- **D0**: no SQL.
+
+**Out of tip:** OI-0254 readiness geometry; OI-0253 B1; OI-0256 `no_pasture`.
+
+**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.
+
+**Related:** CAP-1; OI-0254; OI-0252 layout live.
+
+**Brief:** [DM_FORECASTER_2026-11-22.md](session_briefs/DM_FORECASTER_2026-11-22.md)
+
+**Build order (suggested):** after OI-0254 (shares calendar-grid).
+
+
+---
+### OI-0256 — Restore 100% Stored Feed / `no_pasture`
+
+**Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim **t1052u**; pile on lock card **t1060s4208**; batch ended **t1096u**). Awaiting Tim lock. Docs tip only. Column already exists — **D0** expected (no new migration).
+
+**Ask:** Put back the “100% Stored Feed” checkbox for pasture events / bale grazing: paint stored-feed color, skip pasture open/close residual, attribute DMI to stored feed. Common when rotating through pasture feeding bales with no residual.
+
+**Research (same morning):** `event_paddock_windows.no_pasture` boolean; prod **7** rows true (Corral×4, G-2×2, G-3×1); v1 `ev.noPasture` → column; `stored_feed_only` on observations dropped mig **029** / OI-0113; i18n `observations.storedFeedOnly` orphan; metrics/calendar ignore flag; Design brief 2026-04-12 bale-grazing anchor = this flag. Complementary to OI-0253 **B1** (unknown paint) — does not replace it.
+
+**Design lean:** **Lv1+Sk1+Pn1+Mt1+D0**
+- **Lv1**: per-paddock-window checkbox → `no_pasture` (matches schema). Alt **Lv0** event-level.
+- **Sk1**: skip both open and close pasture residual readings. Alts **Sk2** close-only; **Sk3** open-only.
+- **Pn1**: tan / stored-feed color (Tim remembered UX). Alt **Pn2** green + “Pasture 0% · Feed 100%”.
+- **Mt1**: metrics known Pasture DMI=0 / 100% stored when flagged. Alt **Mt0** ignore flag.
+- **D0**: no new column / no new SQL expected.
+
+**Out of tip:** Re-adding `stored_feed_only` on observations; OI-0253 B1 implementation; timeline/forecaster OIs.
+
+**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.
+
+**Related:** OI-0113 / mig 029; OI-0253 B1; DMI-8 confinement `location.type`.
+
+**Brief:** [STORED_FEED_ONLY_RESTORE_2026-11-22.md](session_briefs/STORED_FEED_ONLY_RESTORE_2026-11-22.md)
+
+**Build order (suggested):** after OI-0254 / OI-0255 (may share event sheet).
+
+
+---
+### OI-0255 — Past event detail on Rotation
+
+**Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim **t1032u**; batch ended **t1096u**). Awaiting Tim lock. Docs tip only. **D0** = no SQL / no migration.
+
+**Ask:** Click a past event on Rotation to see the data behind it (opening/starting and closing values).
+
+**Design lean:** **Ui1+Dt1+D0**
+- **Ui1**: modal/sheet detail. Alts **Ui2** inline expand; **Ui3** navigate to event screen.
+- **Dt1**: opening + closing pasture readings + key event fields; ask Tim if more needed rather than inventing. Alt **Dt0** readings only.
+- **D0**: no SQL.
+
+**Out of tip:** OI-0254 canvas; editing past events unless Tim expands Dt later.
+
+**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.
+
+**Related:** OI-0254; OI-0246 **Cb** calendar click.
+
+**Brief:** [PAST_EVENT_DETAIL_2026-11-22.md](session_briefs/PAST_EVENT_DETAIL_2026-11-22.md)
+
+**Build order (suggested):** after OI-0254 (or parallel if no file clash).
+
+
+---
+### OI-0254 — Rotation timeline canvas (scroll, readiness, ticks, collapse)
+
+**Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim batch items 2+4+6: **t1037u/t1039u/t1094u/t1067u/t1096u**; batch ended **t1096u** “lets wait on the scroll and implement the list”). Awaiting Tim lock. Docs tip only. **D0** = no SQL / no migration. No temporary metrics min-width softener (Tim declined).
+
+**Ask:**
+- Scroll left through **all** past events; scroll right to last **ready-by** from close-event recovery range.
+- Readiness band **per paddock** = close-event estimated readiness range (not shared Today→range.end from `9ce0e69`).
+- Tick marks: **large** = month start, **medium** = Saturday (end of week), **small** = other days.
+- Collapse/expand the DMI/metrics column on Rotation for more timeline.
+- Includes #131 short-canvas “scroll gone” (Build **t1087u**: overflow still works; canvas now fits — fold into stretch).
+
+**Design lean:** **Sc1+Rd1+Tk1+Cm1+Cm1a+D0**
+- **Sc1**: all-past + ready-by extent. Alt **Sc0** keep short default canvas.
+- **Rd1**: per-paddock close-event estimated range. Alt **Rd0** keep Today→range.end.
+- **Tk1**: month / Sat / other-day ticks. Alt **Tk0** no new hierarchy.
+- **Cm1**: collapse/expand metrics control; **Cm1a** default expanded (rec). Alt **Cm1b** default collapsed; **Cm0** no control.
+- **D0**: no SQL.
+
+**Out of tip:** Past-event detail → OI-0255; `no_pasture` → OI-0256; forecaster → OI-0257; OI-0253 B1; temporary ~280px metrics floor softener (declined).
+
+**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.
+
+**Related:** OI-0252 layout; OI-0246 calendar; estimated paint `9ce0e69`.
+
+**Brief:** [ROTATION_TIMELINE_CANVAS_2026-11-22.md](session_briefs/ROTATION_TIMELINE_CANVAS_2026-11-22.md)
+
+**Build order (suggested):** **0254 → 0255 → 0256 → 0257** (minimize restacks; 0254 owns calendar-grid canvas).
+
+
+---
 ### OI-0252 — Per-location metrics block layout (stack + uniform width)
 
 **Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-22 ~7:36–7:37 AM ET, via Orchestrator; card **t1000s3983** “I want to change something”; typed **t1002u**) — opened ~7:34 AM ET from Tim **t996u**; evidence **t998u**; locked **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. Docs tip ready for Tim’s land of **docs**. Docs tip only. **D0** = no SQL / no migration.
@@ -7829,6 +7937,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-22 | GTHO Design — docs only | Open **OI-0254..OI-0257 PROPOSED** from Tim feedback batch ended **t1096u** (~10:10 AM ET). One docs tip `docs/oi-0254-0257-feedback-batch` off main `2fe1e88` (OI-0252 #131 live). **0254** timeline canvas lean **Sc1+Rd1+Tk1+Cm1+Cm1a+D0** (items 2+4+6). **0255** past-event detail lean **Ui1+Dt1+D0** (item 1). **0256** restore 100% Stored Feed / `no_pasture` lean **Lv1+Sk1+Pn1+Mt1+D0** (item 3). **0257** DM Forecaster lean **Ag1+St1+Fx1+D0** (item 5 + CAP-1 stub). No temporary metrics-floor softener. OI-0253 LOCKED tip `129b2dd` may land separately. Suggested Build order 0254→0255→0256→0257. Awaiting Tim lock on each. No PROJECT_CHANGELOG on PROPOSED. |
 | 2026-11-22 | GTHO Design — docs only | LOCK OI-0252 SPEC LOCKED / READY FOR BUILD (t1000s3983 change → t1002u): **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. Tim locked Design lean A (stacked DMI·AUDs over N·P·K·Score; uniform width from widest row; Calendar+List **Sb** confirmed; phone **Nn**; partial **Pp**; units **Uf**; **D0**) plus **Br** — List row action buttons on the right-hand side matching the original Locations list. Kept t998u misalign evidence. Sequence after PR #126; no redesign of OI-0250 strip; OI-0251 separate. Docs tip ready for Tim’s land of **docs**. |
 | 2026-11-22 | GTHO Design — docs only | Revise OI-0252 PROPOSED with Tim evidence **t998u**: Week-view screenshot (G-4/G-5/J2 zeros vs J1-1 DMI 3793) showing jagged Nov 22 timeline; commit `session_briefs/assets/oi0252-misalign.png`; acceptance that G-4 and J1-1 share equal metrics width. Lean still **Ls+Wu+Sb+Nn+Pp+Uf+D0**. Still PROPOSED. |
 | 2026-11-22 | GTHO Design — docs only | Open OI-0252 PROPOSED per-location metrics block layout (t996u): Design lean **Ls+Wu+Sb+Nn+Pp+Uf+D0**. Stack DMI·AUDs over N·P·K·Score; uniform width from widest visible row; Calendar+List (**Sb**); phone keeps stack (**Nn**); include OI-0249 partial markers in measure; farm units; D0 no SQL. Sequence after PR #126. Does not redesign OI-0250 strip. Awaiting Tim lock. |

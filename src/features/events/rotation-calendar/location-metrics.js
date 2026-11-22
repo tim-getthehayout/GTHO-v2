@@ -734,12 +734,16 @@ export function aggregatePeriodTotals(rows = []) {
     if (r?.npkPartial) npkPartial = true;
   }
 
-  const pastureDmiKg = pastureKnown ? pastureSum : null;
+  // Idle never-present locs contribute stripPastureDmiKg/NPK 0 (Z1), which must not
+  // poison farm Period totals when every grazed loc is unknown (F1-null): show — not 0.
+  const pastureIdlePoison = pastureSum === 0 && pastureNullLoc;
+  const pastureDmiKg = pastureKnown && !pastureIdlePoison ? pastureSum : null;
   const totalDmiKg = pastureDmiKg != null ? pastureDmiKg + storedSum : null;
-  const dmiPartial = Boolean(pastureKnown && (pasturePartial || pastureNullLoc));
-  const nKg = npkKnown ? nSum : null;
-  const pKg = npkKnown ? pSum : null;
-  const kKg = npkKnown ? kSum : null;
+  const dmiPartial = Boolean(pastureKnown && !pastureIdlePoison && (pasturePartial || pastureNullLoc));
+  const npkIdlePoison = nSum === 0 && pSum === 0 && kSum === 0 && npkNullLoc;
+  const nKg = npkKnown && !npkIdlePoison ? nSum : null;
+  const pKg = npkKnown && !npkIdlePoison ? pSum : null;
+  const kKg = npkKnown && !npkIdlePoison ? kSum : null;
 
   return {
     pastureDmiKg,
@@ -750,7 +754,7 @@ export function aggregatePeriodTotals(rows = []) {
     pKg,
     kKg,
     npkKnown,
-    npkPartial: Boolean(npkKnown && (npkPartial || npkNullLoc)),
+    npkPartial: Boolean(npkKnown && !npkIdlePoison && (npkPartial || npkNullLoc)),
   };
 }
 

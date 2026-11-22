@@ -810,4 +810,83 @@ describe('OI-0250 period totals (Sb+En+Nk+Sz+Pp)', () => {
     expect(mixed.nKg).toBeCloseTo(known.nKg, 5);
     expect(mixed.npkPartial).toBe(true);
   });
+
+  it('OI-0250 follow-up: idle Z1 zeros + F1-null grazed → pasture/NPK — not 0', () => {
+    const idle = {
+      stripPastureDmiKg: 0,
+      stripDmiPartial: false,
+      storedFeedDmiKg: 0,
+      nKg: 0,
+      pKg: 0,
+      kKg: 0,
+      npkKnown: true,
+      npkPartial: false,
+    };
+    const grazedUnknown = {
+      stripPastureDmiKg: null,
+      stripDmiPartial: false,
+      storedFeedDmiKg: 0,
+      nKg: null,
+      pKg: null,
+      kKg: null,
+      npkKnown: false,
+      npkPartial: false,
+    };
+    const tot = aggregatePeriodTotals([idle, idle, grazedUnknown]);
+    expect(tot.pastureDmiKg).toBeNull();
+    expect(tot.totalDmiKg).toBeNull();
+    expect(tot.dmiPartial).toBe(false);
+    expect(tot.nKg).toBeNull();
+    expect(tot.pKg).toBeNull();
+    expect(tot.kKg).toBeNull();
+    expect(tot.npkPartial).toBe(false);
+    expect(formatMetricValue(tot.pastureDmiKg)).toBe('—');
+    expect(formatMetricValue(tot.nKg)).toBe('—');
+  });
+
+  it('OI-0250 follow-up: idle zeros alone still sum to known 0; any positive strip still sums', () => {
+    const idle = {
+      stripPastureDmiKg: 0,
+      stripDmiPartial: false,
+      storedFeedDmiKg: 0,
+      nKg: 0,
+      pKg: 0,
+      kKg: 0,
+      npkKnown: true,
+      npkPartial: false,
+    };
+    const zerosOnly = aggregatePeriodTotals([idle, idle]);
+    expect(zerosOnly.pastureDmiKg).toBe(0);
+    expect(zerosOnly.totalDmiKg).toBe(0);
+    expect(zerosOnly.nKg).toBe(0);
+    expect(formatMetricValue(zerosOnly.pastureDmiKg)).toBe('0');
+
+    const positive = {
+      stripPastureDmiKg: 120.5,
+      stripDmiPartial: false,
+      storedFeedDmiKg: 10,
+      nKg: 3.1,
+      pKg: 0.4,
+      kKg: 2.2,
+      npkKnown: true,
+      npkPartial: false,
+    };
+    const withPositive = aggregatePeriodTotals([idle, positive, {
+      stripPastureDmiKg: null,
+      stripDmiPartial: false,
+      storedFeedDmiKg: 0,
+      nKg: null,
+      pKg: null,
+      kKg: null,
+      npkKnown: false,
+      npkPartial: false,
+    }]);
+    expect(withPositive.pastureDmiKg).toBeCloseTo(120.5, 5);
+    expect(withPositive.totalDmiKg).toBeCloseTo(130.5, 5);
+    expect(withPositive.dmiPartial).toBe(true);
+    expect(withPositive.nKg).toBeCloseTo(3.1, 5);
+    expect(withPositive.pKg).toBeCloseTo(0.4, 5);
+    expect(withPositive.kKg).toBeCloseTo(2.2, 5);
+    expect(withPositive.npkPartial).toBe(true);
+  });
 });

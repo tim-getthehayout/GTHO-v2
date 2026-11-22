@@ -1,6 +1,6 @@
 # Per-location metrics block layout (OI-0252)
 
-**Status:** **PROPOSED** (opened 2026-11-22 ~7:34 AM ET, GTHO Design, via Orchestrator from Tim ask **t996u** ~7:32 AM ET) — Design lean **Ls+Wu+Sb+Nn+Pp+Uf+D0**. Awaiting Tim lock. This tip is **docs only**. **No SQL / no migration / no src edits on this tip.**  
+**Status:** **PROPOSED** (opened 2026-11-22 ~7:34 AM ET, GTHO Design, via Orchestrator from Tim ask **t996u** ~7:32 AM ET; revised ~7:35 AM ET with Tim evidence **t998u**) — Design lean **Ls+Wu+Sb+Nn+Pp+Uf+D0**. Awaiting Tim lock. This tip is **docs only**. **No SQL / no migration / no src edits on this tip.**  
 **Owner:** GTHO Design → GTHO Build (after Tim locks + docs live on main; implement **after PR #126 / OI-0249** is on main so partial markers are in the width measure).  
 **Parent:** Forgejo `origin/main` `d6a18e8e76d69fbb717dc4ff599b00e8c4316a83` (OI-0250 docs live via PR #127; compiled `RELEASED_SCHEMA_VERSION` **48**).  
 **Also related:** OI-0246 Locations management + season formula / list-parity ([LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)); OI-0249 partial unknown **Zp+…** (PR #126 restacking onto `d6a18e8` — sequence layout **after #126**); OI-0250 period-totals strip (**LOCKED**, docs live on main `d6a18e8` — **not** redesigned here); OI-0251 Sheep backfill + Ap include-archived preference (parallel docs tip — when Ap is on, archived locs that appear in the metrics set join the width pool).  
@@ -13,6 +13,22 @@ Tim ask **t996u** (2026-11-22 ~7:32 AM ET, via Orchestrator), verbatim intent:
 > the data on each pasture needs to be a standard length so that they all line up regardless of amounts. lets put the DMI and AUD info stacked on to of the NPK and pasture score and then standardize the width that renders based on teh loacation with the highest values and teh width that it needs
 
 Today each Calendar management row renders **six metrics in one flat horizontal cell**. Digits and optional per-acre parentheticals vary by location, so the blocks do not line up down the list. Tim wants (1) **two stacked lines** — DMI + AUDs on top, NPK + Score below — and (2) **one uniform content width** sized from the **widest-rendering** visible location so columns align.
+
+### Evidence — **t998u** (same minute, via Orchestrator)
+
+Tim typed: “example fo current issue here” and shared a screenshot of **Locations & Rotation**, **Week** view, stamp **b2026-11-22.1144-200774f**.
+
+![OI-0252 metrics width misalignment — Week view; zero rows vs high-value rows](assets/oi0252-misalign.png)
+
+Concrete rows from that shot (season metrics left of the timeline):
+
+| Location | Metrics (as rendered) | Effect on timeline |
+|---|---|---|
+| **G-4**, **G-5**, **J2** | Zeros (narrow metrics block) | Nov 22 “today” line / timeline starts further **left** |
+| **J1-1** | DMI **3793** (2385.8/ac), AUDs **335** (210.4/ac), N **22** (13.8/ac), plus P/K/Score | Wider block → timeline pushed **right** |
+| **J1-2** | Similar non-zero (DMI **2696** etc.) | Same right-shift pattern |
+
+The vertical today/timeline column is **jagged** because `.loc-mgmt__metrics` is **content-sized per row**. That is exactly the defect **Wu** fixes: one shared metrics-block width so G-4 and J1-1 (and every other visible row) align and Nov 22 is a straight vertical.
 
 ## 2. Current state (citations — do not invent)
 
@@ -105,6 +121,7 @@ Axis codes stay in values lines / lock cards; prose for Tim stays plain language
 - [ ] Tim locks (or amends) **Ls+Wu+Sb+Nn+Pp+Uf+D0** (or chosen alts).
 - [ ] Per-location metrics block is two lines: DMI · AUDs over N · P · K · Score; NPK stay separate unless Tim picks **Lc**.
 - [ ] All visible management rows on a surface share one content width from the widest rendered block (format + partial + per-acre).
+- [ ] **t998u repro:** on a Week view like the committed shot, **G-4** (zeros) and **J1-1** (high values) share **equal** metrics-block width; the Nov 22 today/timeline column aligns vertically across those rows (no jagged left edge).
 - [ ] Calendar and List (when List shows the block) both use the stack; width computed per surface’s visible rows.
 - [ ] Phone keeps the two-line stack (**Nn**); no flat six-across fallback.
 - [ ] OI-0249 partial markers included in measure after #126; farm unit helpers unchanged (**Uf**).
@@ -113,4 +130,5 @@ Axis codes stay in values lines / lock cards; prose for Tim stays plain language
 ## 7. Origin
 
 - **t996u** (2026-11-22 ~7:32 AM ET, via Orchestrator): standard length / line up; stack DMI and AUD on top of NPK and pasture score; width from the location with the highest values.
-- Design lean stamped **Ls+Wu+Sb+Nn+Pp+Uf+D0** on open. Awaiting Tim lock.
+- **t998u** (2026-11-22 ~7:32 AM ET, via Orchestrator): “example fo current issue here” + screenshot (`session_briefs/assets/oi0252-misalign.png`) — Week view stamp **b2026-11-22.1144-200774f**; G-4/G-5/J2 zeros vs J1-1/J1-2 high values → jagged Nov 22 timeline (**Wu**).
+- Design lean stamped **Ls+Wu+Sb+Nn+Pp+Uf+D0** on open; evidence folded before lock card. Awaiting Tim lock.

@@ -6,7 +6,8 @@ import { registerCalc } from '../utils/calc-registry.js';
 import { groupWindowsDailyDmiKg } from './window-helpers.js';
 import { isConfinementLocation } from './location-type.js';
 import { estimatedDemandFraction } from './partial-day-demand.js';
-import { al1EventDayAllocation, f1HaySpans } from './f1-close-allocation.js';
+import { al1EventDayAllocation, f1HaySpans, NO_PASTURE_ONLY_DAY_HAY_SPAN_FALLBACK } from './f1-close-allocation.js';
+import { deriveEventStartDate, deriveEventStartTime } from '../features/events/rotation-calendar/location-metrics.js';
 
 /**
  * Pick pre-graze paddock_observation for a paddock window (DMI-8 / dashboard).
@@ -652,6 +653,7 @@ registerCalc({
     { name: 'feedChecks', type: 'array', unit: '{ id, date }' },
     { name: 'feedCheckItems', type: 'array', unit: '{ feedCheckId, batchId, locationId, remainingQuantity }' },
     { name: 'batches', type: 'object', unit: '{ [batchId]: { weightPerUnitKg, dmPct } } — for DM conversion of feed entries + check items' },
+    { name: 'feedTypes', type: 'array', unit: 'feed type rows (same as Locations F1 hayArgs; optional — feedSnapshot also falls back to batch.feedTypeId)' },
     { name: 'paddockWindows', type: 'array', unit: '{ id, eventId, locationId, dateOpened, dateClosed, areaPct }' },
     { name: 'observations', type: 'array', unit: 'paddock_observations[] (type=open, source=event). Calc picks per-window via locationId + sourceId fallback.' },
     { name: 'forageTypes', type: 'object', unit: '{ [locationId]: { dmKgPerCmPerHa, minResidualHeightCm, utilizationPct } }' },
@@ -660,7 +662,7 @@ registerCalc({
   ],
   output: { type: 'object', shape: '{ status, totalDmiKg?, storedDmiKg?, pastureDmiKg?, deficitKg?, reason?, hint? }', unit: 'kg' },
   fn({ event, date, groupWindows, memberships, animals, animalWeightRecords,
-       feedEntries, feedChecks, feedCheckItems, batches,
+       feedEntries, feedChecks, feedCheckItems, batches, feedTypes,
        paddockWindows, observations, forageTypes, locations, animalClasses }) {
 
     // ---- Helpers -----------------------------------------------------------
@@ -828,37 +830,26 @@ registerCalc({
     const startDate = event.dateIn;
     if (!startDate) return { status: 'needs_check' };
 
-    function eventOpenTime(openDate) {
-      if (!openDate) return null;
-      let earliest = event.timeIn || null;
-      for (const pw of paddockWindows || []) {
-        if (pw.eventId !== event.id || pw.dateOpened !== openDate || !pw.timeOpened) continue;
-        if (!earliest || pw.timeOpened < earliest) earliest = pw.timeOpened;
-      }
-      for (const gw of groupWindows || []) {
-        if (gw.eventId !== event.id || gw.dateJoined !== openDate || !gw.timeJoined) continue;
-        if (!earliest || gw.timeJoined < earliest) earliest = gw.timeJoined;
-      }
-      return earliest;
-    }
-
     // OI-0260 Ch1: known Al1 spans use the same allocation as Locations F1.
     // Dates must cover the full known span (not just through the query date)
-    // so Sp-f totalDemand is the whole-span demand.
+    // so Sp-f totalDemand is the whole-span demand. Open stamp matches F1
+    // (deriveEventStartDate/Time), including feedTypes on hayArgs.
     const al1LocationsById = new Map(
       Object.entries(locations || {}).map(([id, loc]) => [
         id,
         { ...loc, areaHectares: loc.areaHectares ?? loc.areaHa ?? loc.areaHectares },
       ]),
     );
+    const al1OpenDate = deriveEventStartDate(event.id, { paddockWindows, groupWindows, event }) || startDate;
     const al1HayArgs = {
       eventId: event.id,
-      openDate: startDate,
-      openTime: eventOpenTime(startDate),
+      openDate: al1OpenDate,
+      openTime: deriveEventStartTime(event.id, al1OpenDate, { paddockWindows, groupWindows }),
       feedEntries,
       feedChecks,
       feedCheckItems,
       batches,
+      feedTypes,
     };
     let al1End = date;
     for (const span of f1HaySpans(al1HayArgs).eventSpans || []) {
@@ -884,6 +875,7 @@ registerCalc({
         demandByDate: al1DemandByDate,
         paddockWindows,
         locationsById: al1LocationsById,
+        noPastureOnlyDayHay: NO_PASTURE_ONLY_DAY_HAY_SPAN_FALLBACK,
       }));
     }
 

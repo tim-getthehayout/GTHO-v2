@@ -301,6 +301,17 @@ function holdsAny(spans, date) {
  * (Sp-f, Mx-a). `demandByDate` is that event's known-weight demand (kg) per
  * local date. Window demand uses the fraction of the local day inside the span.
  */
+/** How event-level daily hay treats days whose only open windows are no_pasture.
+ * Locations F1 does not set this; it keeps Mx-a (grazing windows only) via
+ * `prorateSpanHayByDemand` without the option.
+ * - 'span-fallback' (al1EventDayAllocation default): include those days only
+ *   when the span has no grazing day (all-no_pasture / OI-0256 Mt1). Mixed
+ *   spans keep hay on grazing days only (pending Tim).
+ * - 'always': also spread hay onto no_pasture-only days in a mixed span.
+ */
+export const NO_PASTURE_ONLY_DAY_HAY_SPAN_FALLBACK = 'span-fallback';
+export const NO_PASTURE_ONLY_DAY_HAY_ALWAYS = 'always';
+
 export function prorateSpanHayByDemand({
   hayDm,
   spanStartMs,
@@ -310,10 +321,13 @@ export function prorateSpanHayByDemand({
   paddockWindows = [],
   demandByDate = new Map(),
   locationsById = new Map(),
+  noPastureOnlyDayHay,
 } = {}) {
   const demandByPw = new Map();
   const pwById = new Map();
   const demandByDateInSpan = new Map();
+  const noPastureOnlyDates = new Set();
+  const noPastureOnlyCandidates = [];
   for (const date of dates) {
     const dayStart = localDayStartMs(date);
     const dayEnd = localDayEndMs(date);
@@ -324,18 +338,34 @@ export function prorateSpanHayByDemand({
     if (!(dayHours > 0)) continue;
     const frac = (to - from) / dayHours;
     const demand = Number(demandByDate.get(date) || 0);
-    const grazing = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date });
-    if (!grazing.length || !(demand > 0) || !(frac > 0)) continue;
-    demandByDateInSpan.set(date, demand * frac);
-    const weights = grazing.map(pw => effectiveAreaHa(pw, locationsById));
-    const sumW = weights.reduce((sum, value) => sum + value, 0);
-    grazing.forEach((pw, i) => {
-      const share = sumW > 0 ? weights[i] / sumW : 1 / grazing.length;
-      demandByPw.set(pw.id, (demandByPw.get(pw.id) || 0) + demand * share * frac);
-      pwById.set(pw.id, pw);
-    });
+    const open = openPaddockWindowsOnDate(paddockWindows, { eventId, date });
+    const grazing = open.filter(isGrazingPaddockWindow);
+    const noPastureOnly = !grazing.length && open.some(pw => !isGrazingPaddockWindow(pw));
+    if (!(demand > 0) || !(frac > 0)) continue;
+    if (grazing.length) {
+      demandByDateInSpan.set(date, demand * frac);
+      const weights = grazing.map(pw => effectiveAreaHa(pw, locationsById));
+      const sumW = weights.reduce((sum, value) => sum + value, 0);
+      grazing.forEach((pw, i) => {
+        const share = sumW > 0 ? weights[i] / sumW : 1 / grazing.length;
+        demandByPw.set(pw.id, (demandByPw.get(pw.id) || 0) + demand * share * frac);
+        pwById.set(pw.id, pw);
+      });
+    } else if (noPastureOnly) {
+      noPastureOnlyCandidates.push({ date, dateDemand: demand * frac });
+    }
+  }
+  // Event-chart option (OI-0260). Unset = F1/Mx-a: grazing days only.
+  const includeNoPastureOnly = noPastureOnlyDayHay === NO_PASTURE_ONLY_DAY_HAY_ALWAYS
+    || (noPastureOnlyDayHay === NO_PASTURE_ONLY_DAY_HAY_SPAN_FALLBACK && demandByDateInSpan.size === 0);
+  if (includeNoPastureOnly) {
+    for (const { date, dateDemand } of noPastureOnlyCandidates) {
+      demandByDateInSpan.set(date, dateDemand);
+      noPastureOnlyDates.add(date);
+    }
   }
   const totalDemand = [...demandByPw.values()].reduce((sum, value) => sum + value, 0);
+  const dateDemandTotal = [...demandByDateInSpan.values()].reduce((sum, value) => sum + value, 0);
   const hayByPw = new Map();
   const pastureByPw = new Map();
   const hayByDate = new Map();
@@ -346,13 +376,16 @@ export function prorateSpanHayByDemand({
     hayByPw.set(pwId, hayShare);
     pastureByPw.set(pwId, Math.max(0, demand - hayShare));
   }
-  // Event-level daily rollup of the same Sp-f shares (OI-0260 DMI-8 / feed-forage).
+  // Event-level daily rollup. When no_pasture-only days are included, use
+  // dateDemandTotal so hayByDate still sums to the span; hayByPw stays Mx-a.
+  const dateTotal = dateDemandTotal > 0 ? dateDemandTotal : totalDemand;
   for (const [date, dateDemand] of demandByDateInSpan) {
-    const hay = totalDemand > 0 ? knownHay * (dateDemand / totalDemand) : 0;
+    const hay = dateTotal > 0 ? knownHay * (dateDemand / dateTotal) : 0;
     hayByDate.set(date, hay);
-    pastureByDate.set(date, Math.max(0, dateDemand - hay));
+    // Mt1: no_pasture-only days are 100% stored; leftover demand is not pasture.
+    pastureByDate.set(date, noPastureOnlyDates.has(date) ? 0 : Math.max(0, dateDemand - hay));
   }
-  return { demandByPw, hayByPw, pastureByPw, pwById, totalDemand, hayByDate, pastureByDate };
+  return { demandByPw, hayByPw, pastureByPw, pwById, totalDemand, hayByDate, pastureByDate, dateDemandTotal };
 }
 
 
@@ -360,7 +393,9 @@ export function prorateSpanHayByDemand({
  * OI-0260: event-level daily hay/pasture from the same Al1+Cv1+Sp-f allocation
  * Locations F1 already uses. Kind follows f1MeasuredHayOnEventDay (measured /
  * unknown / none). Measured amounts are Sp-f demand proration (not a second
- * elapsed-time split). No SQL.
+ * elapsed-time split). `noPastureOnlyDayHay` (default 'span-fallback') is the
+ * event-chart switch for no_pasture-only days; Locations F1 does not pass it
+ * and stays Mx-a. No SQL.
  */
 export function al1EventDayAllocation({
   date,
@@ -369,6 +404,7 @@ export function al1EventDayAllocation({
   demandByDate = new Map(),
   paddockWindows = [],
   locationsById = new Map(),
+  noPastureOnlyDayHay = NO_PASTURE_ONLY_DAY_HAY_SPAN_FALLBACK,
 } = {}) {
   const kindInfo = f1MeasuredHayOnEventDay({ ...hayArgs, date });
   if (kindInfo.kind !== 'measured') {
@@ -389,6 +425,7 @@ export function al1EventDayAllocation({
       paddockWindows,
       demandByDate,
       locationsById,
+      noPastureOnlyDayHay,
     });
     storedDmiKg += alloc.hayByDate.get(date) || 0;
     pastureDmiKg += alloc.pastureByDate.get(date) || 0;

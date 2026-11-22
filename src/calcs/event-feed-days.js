@@ -61,6 +61,7 @@ export function projectEventFeedDays({ dmi8Fn, for4Fn, ctx, today } = {}) {
     feedChecks: ctx.feedChecks,
     feedCheckItems: ctx.feedCheckItems,
     batches: ctx.batches,
+    feedTypes: ctx.feedTypes,
     paddockWindows: ctx.paddockWindows,
     observations: ctx.observations,
     forageTypes: ctx.forageTypes,

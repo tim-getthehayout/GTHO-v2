@@ -195,3 +195,76 @@ describe('OI-0260 Cp0 / D0 (acceptance 5–7)', () => {
     expect(shouldPaintCap1ForecastStub({ enabled: true })).toBe(false);
   });
 });
+
+describe('OI-0260 all-no_pasture days still consume hay (Mt1, acceptance 2)', () => {
+  // A span day whose only open windows are no_pasture still counts toward
+  // span demand and takes a hay share; pasture stays 0 (OI-0256 Mt1).
+  const noPastureLandPw = [{
+    id: PW, eventId: EVT, locationId: LOC, dateOpened: '2026-10-01',
+    dateClosed: null, areaPct: 100, noPasture: true,
+  }];
+  // Height equals residual so FOR-1 is 0; days-remaining is driven by stored.
+  const residualObs = [{
+    id: 'obs-1', locationId: LOC, type: 'open', source: 'event', sourceId: PW,
+    forageHeightCm: 5, forageCoverPct: 80, createdAt: '2026-10-01T00:00:00Z',
+  }];
+
+  it('land stored-feed-only: DMI-8 actual shows hay, remaining stored falls, days-remaining matches', () => {
+    const overrides = { paddockWindows: noPastureLandPw, observations: residualObs };
+    const mid = runDmi8('2026-10-05', overrides);
+    const al1 = expectedAl1('2026-10-05', overrides);
+    expect(al1.kind).toBe('measured');
+    expect(mid.status).toBe('actual');
+    expect(mid.storedDmiKg).toBeCloseTo(dmBales(4) / 10, 8);
+    expect(mid.storedDmiKg).toBeCloseTo(al1.storedDmiKg, 8);
+    expect(mid.pastureDmiKg).toBe(0);
+    expect(mid.remainingStoredDmKg).toBeCloseTo(dmBales(4) - 5 * mid.storedDmiKg, 6);
+    expect(mid.remainingPastureDmKg).toBe(0);
+    const projected = projectEventFeedDays({
+      dmi8Fn: getCalcByName('DMI-8').fn,
+      for4Fn: getCalcByName('FOR-4').fn,
+      ctx: ctx(overrides),
+      today: '2026-10-05',
+    });
+    expect(projected.visible).toBe(true);
+    expect(projected.remainingStoredDmKg).toBeCloseTo(mid.remainingStoredDmKg, 8);
+    expect(projected.days).toBeCloseTo(mid.remainingStoredDmKg / 250, 8);
+  });
+
+  it('corral no_pasture: DMI-8 actual shows hay, remaining stored falls, days-remaining matches', () => {
+    const corralLoc = 'corral';
+    const pw = [{
+      id: 'pw-corral', eventId: EVT, locationId: corralLoc, dateOpened: '2026-10-01',
+      dateClosed: null, areaPct: 100, noPasture: true,
+    }];
+    const delivery = { ...physicalDelivery, locationId: corralLoc };
+    const closeItemCorral = { ...closeItem, locationId: corralLoc };
+    const overrides = {
+      paddockWindows: pw,
+      locations: { [corralLoc]: { type: 'confinement', areaHa: 0, areaHectares: 0 } },
+      forageTypes: {},
+      observations: [],
+      feedEntries: [delivery],
+      feedCheckItems: [closeItemCorral],
+    };
+    const mid = runDmi8('2026-10-05', overrides);
+    const al1 = expectedAl1('2026-10-05', overrides);
+    expect(al1.kind).toBe('measured');
+    expect(mid.status).toBe('actual');
+    expect(mid.storedDmiKg).toBeCloseTo(dmBales(4) / 10, 8);
+    expect(mid.storedDmiKg).toBeCloseTo(al1.storedDmiKg, 8);
+    expect(mid.pastureDmiKg).toBe(0);
+    expect(mid.remainingStoredDmKg).toBeCloseTo(dmBales(4) - 5 * mid.storedDmiKg, 6);
+    expect(mid.remainingPastureDmKg).toBe(0);
+    const projected = projectEventFeedDays({
+      dmi8Fn: getCalcByName('DMI-8').fn,
+      for4Fn: getCalcByName('FOR-4').fn,
+      ctx: ctx(overrides),
+      today: '2026-10-05',
+    });
+    expect(projected.visible).toBe(true);
+    expect(projected.remainingStoredDmKg).toBeCloseTo(mid.remainingStoredDmKg, 8);
+    expect(projected.days).toBeCloseTo(mid.remainingStoredDmKg / 250, 8);
+  });
+});
+

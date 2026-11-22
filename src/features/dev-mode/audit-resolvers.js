@@ -350,6 +350,7 @@ function resolveDMI8(ctx) {
         feedChecks: dmi8Ctx.feedChecks,
         feedCheckItems: dmi8Ctx.feedCheckItems,
         batches: dmi8Ctx.batches,
+        feedTypes: dmi8Ctx.feedTypes,
         paddockWindows: dmi8Ctx.paddockWindows,
         observations: dmi8Ctx.observations,
         forageTypes: dmi8Ctx.forageTypes,

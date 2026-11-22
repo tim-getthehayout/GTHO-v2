@@ -1275,6 +1275,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
         feedChecks: chartCtx.feedChecks,
         feedCheckItems: chartCtx.feedCheckItems,
         batches: chartCtx.batches,
+        feedTypes: chartCtx.feedTypes,
         paddockWindows: chartCtx.paddockWindows,
         observations: chartCtx.observations,
         forageTypes: chartCtx.forageTypes,

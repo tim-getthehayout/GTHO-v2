@@ -107,6 +107,7 @@ export function buildDmi8ChartContext(eventId) {
     eventStart,
     groupWindows, memberships, animals, animalWeightRecords,
     feedEntries, feedChecks, feedCheckItems, batches,
+    feedTypes: getAll('feedTypes'),
     paddockWindows, observations,
     forageTypes, locations, animalClasses,
   };
@@ -166,6 +167,7 @@ export function computeDmi8Days(event, dmi8, opts = {}) {
       feedChecks: ctx.feedChecks,
       feedCheckItems: ctx.feedCheckItems,
       batches: ctx.batches,
+      feedTypes: ctx.feedTypes,
       paddockWindows: ctx.paddockWindows,
       observations: ctx.observations,
       forageTypes: ctx.forageTypes,

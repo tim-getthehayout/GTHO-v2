@@ -321,3 +321,95 @@ describe('al1EventDayAllocation (OI-0260 shared helper)', () => {
     expect(mid.storedDmiKg).toBeNull();
   });
 });
+
+describe('noPastureOnlyDayHay (OI-0260 event-chart switch)', () => {
+  const hayArgs = {
+    eventId: 'ev1',
+    openDate: '2026-10-01',
+    openTime: null,
+    feedTypes,
+    batches: [],
+    feedEntries: [{
+      id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-01',
+      quantity: 4, kind: 'inventory_feeding', ...haySnap,
+    }],
+    feedChecks: [
+      { id: 'fcClose', eventId: 'ev1', date: '2026-10-11', time: '00:00', isCloseReading: true },
+    ],
+    feedCheckItems: [item('fci', 'fcClose', 0)],
+  };
+  const dates = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05',
+    '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10'];
+  const demandByDate = new Map(dates.map(d => [d, 250]));
+  const locationsById = new Map([['loc1', { id: 'loc1', areaHectares: 4 }]]);
+
+  it('all-no_pasture span still gives each day a hay share, pasture 0 (Mt1)', () => {
+    const pw = {
+      id: 'pwNP', eventId: 'ev1', locationId: 'loc1', dateOpened: '2026-10-01',
+      dateClosed: null, areaPct: 100, noPasture: true,
+    };
+    const mid = al1EventDayAllocation({
+      date: '2026-10-05', dates, hayArgs, demandByDate, paddockWindows: [pw], locationsById,
+    });
+    expect(mid.kind).toBe('measured');
+    expect(mid.storedDmiKg).toBeCloseTo(dmBales(4) / 10, 8);
+    expect(mid.pastureDmiKg).toBe(0);
+    let stored = 0;
+    for (const date of dates) {
+      const day = al1EventDayAllocation({
+        date, dates, hayArgs, demandByDate, paddockWindows: [pw], locationsById,
+      });
+      stored += day.storedDmiKg;
+      expect(day.pastureDmiKg).toBe(0);
+    }
+    expect(stored).toBeCloseTo(dmBales(4), 8);
+  });
+
+  it('Locations F1 path (no option) still omits no_pasture-only days (Mx-a)', () => {
+    const pw = {
+      id: 'pwNP', eventId: 'ev1', locationId: 'loc1', dateOpened: '2026-10-01',
+      dateClosed: null, areaPct: 100, noPasture: true,
+    };
+    const alloc = prorateSpanHayByDemand({
+      hayDm: dmBales(4),
+      spanStartMs: new Date(2026, 9, 1).getTime(),
+      spanEndMs: new Date(2026, 9, 11).getTime(),
+      dates,
+      eventId: 'ev1',
+      paddockWindows: [pw],
+      demandByDate,
+      locationsById,
+    });
+    expect(alloc.hayByPw.size).toBe(0);
+    expect(alloc.hayByDate.size).toBe(0);
+    expect(alloc.totalDemand).toBe(0);
+  });
+
+  it('mixed default (span-fallback): hay stays on grazing days; later no_pasture-only days get 0', () => {
+    // Grazing window closes after Oct 3 (dateClosed exclusive). no_pasture stays open.
+    // Document current default only — Tim is deciding whether the event chart
+    // should set noPastureOnlyDayHay to 'always'.
+    const pwG = {
+      id: 'pwG', eventId: 'ev1', locationId: 'loc1', dateOpened: '2026-10-01',
+      dateClosed: '2026-10-04', areaPct: 100,
+    };
+    const pwN = {
+      id: 'pwN', eventId: 'ev1', locationId: 'loc1', dateOpened: '2026-10-01',
+      dateClosed: null, areaPct: 100, noPasture: true,
+    };
+    const midGraze = al1EventDayAllocation({
+      date: '2026-10-02', dates, hayArgs, demandByDate,
+      paddockWindows: [pwG, pwN], locationsById,
+    });
+    const later = al1EventDayAllocation({
+      date: '2026-10-06', dates, hayArgs, demandByDate,
+      paddockWindows: [pwG, pwN], locationsById,
+    });
+    expect(midGraze.kind).toBe('measured');
+    // Three grazing days (Oct 1–3) take the whole 4-bale span.
+    expect(midGraze.storedDmiKg).toBeCloseTo(dmBales(4) / 3, 8);
+    expect(later.kind).toBe('measured');
+    expect(later.storedDmiKg).toBe(0);
+    expect(later.pastureDmiKg).toBe(0);
+  });
+});

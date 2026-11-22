@@ -73,8 +73,9 @@ test.describe('OI-0136 — residual input captures farmer-corrected value', () =
     await page.click('[data-testid^="location-picker-item-"]').catch(() => {});
     await page.click('[data-testid="move-wizard-step-2-next"]').catch(() => {});
 
-    // Step 3: flip to Residual, override the prefilled input with a clearly
-    // distinct value (0.07 — unlikely to match any real delivery or check).
+    // Step 3: flip to Residual and enter a clearly distinct remaining value
+    // (0.07 — unlikely to match any real delivery or check). OI-0259: input
+    // is required for both choices and is not prefilled.
     const safeKey = `${candidate.entry.batch_id}-${candidate.entry.location_id}`;
     await page.click(`[data-testid="move-wizard-transfer-residual-${safeKey}"]`);
     const input = page.locator(`[data-testid="move-wizard-residual-input-${safeKey}"]`);

@@ -1,11 +1,11 @@
 # Locations + rotation management surface (OI-0246)
 
-**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-21 ~10:05 AM ET, via Orchestrator, card **t784s3247** answering revised lock card) — opened ~9:57 AM ET (**t777u**); revised ~10:03 AM ET (**t782u** answering **t781s3238**); **locked Design lean** on tip `1d6465adff611230fa429209c860a96927d3973f`  
-**Owner:** GTHO Design → GTHO Build (after docs land on main **or** from this locked tip ahead of land per Orchestrator coordination; Orchestrator land card — land only after Tim yes). **Sequence Build after OI-0245 code** unless Design/Orchestrator says otherwise (docs-land may still proceed independently).  
-**Parent / base:** Forgejo `origin/main` tip `dc9018534e237291daf3bac0daf8835ef42afb7b` (OI-0245 LOCKED docs; prior code tip `9402a0675e5924ca311974c31fc88084249c576b`; stamp `b2026-11-21.1415-9402a06`; `RELEASED_SCHEMA_VERSION` **47**). Rotation UI citations below read on **`dc90185` / current `origin/main`**.  
-**Also related:** Rotation calendar CP-54 / UX §19 (`src/features/events/rotation-calendar/*`); Locations UX §15.3; Implied pasture / DMI-9; OI-0241 / OI-0242 forage; pasture surveys OI-0126/0131; NPK-1/3 + ANI-AU/AUD/ADA; REC recovery (`src/calcs/advanced.js`); budget period Oct 1–Sep 30.  
-**Schema / migration:** **D0 LOCKED** — **compute-on-read**; **no new tables / no migration / no SQL**.  
-**Supersedes tip:** `ebb79d1e8be10757ad81998647318b22178b4cc1` (first PROPOSED; placement V0 only — reopened). Revised PROPOSED tip locked from: `1d6465adff611230fa429209c860a96927d3973f`.
+**Status:** **SPEC LOCKED / READY FOR BUILD** — parent lock Tim, 2026-11-21 ~10:05 AM ET, via Orchestrator, card **t784s3247**: **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1** (docs tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b`). **List-parity + season persist addendum LOCKED** 2026-11-22: Tim **t835s3460** (5:30 AM ET) **La+Ta+Cb+Rb**; Tim **t841s3483** (5:37 AM ET) **Pb**. **Db** is **OI-0247** (docs landed on main `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee`; SQL apply still separate) — **not** this tip. Opened ~9:57 AM ET 2026-11-21 (**t777u**); revised **t782u** / **t781s3238**; first lock on tip `1d6465adff611230fa429209c860a96927d3973f`.  
+**Owner:** GTHO Design → GTHO Build (after docs land on main **or** from this locked tip ahead of land per Orchestrator coordination; Orchestrator land card — land only after Tim yes). First implementation is **live** on `origin/main` `52540a358f511bf46bceacbd7dcc7c94918acd04`; this tip is the follow-up Build brief (no SQL).  
+**Parent / base:** Forgejo `origin/main` tip `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee` (OI-0247 docs landed). Live list/nav code remains `52540a358f511bf46bceacbd7dcc7c94918acd04`. Prior LOCKED docs tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b`. This tip revises **U0/List acceptance** + **W1 persistence (Pb)**. List/Calendar citations below also read on **`52540a3`**. Historical rotation-gap citations in §3 were taken on `dc90185`.  
+**Also related:** Rotation calendar CP-54 / UX §19 (`src/features/events/rotation-calendar/*`); Locations UX §15.3 (`src/features/locations/index.js`); Implied pasture / DMI-9; OI-0241 / OI-0242 forage; pasture surveys OI-0126/0131; NPK-1/3 + ANI-AU/AUD/ADA; REC recovery (`src/calcs/advanced.js`); budget period Oct 1–Sep 30; feed localStorage pattern `gtho_v2_budget_viewed_period`.  
+**Schema / migration:** **D0 HOLDS** — **compute-on-read**; **no new tables / no migration / no SQL**. Pb is device-local `localStorage` only. **Db** is **OI-0247** (docs on main; SQL + backup + a separate Tim yes at apply) — not this land.  
+**Supersedes tip:** first PROPOSED `ebb79d1e8be10757ad81998647318b22178b4cc1`; revised PROPOSED locked from `1d6465adff611230fa429209c860a96927d3973f`; parent LOCKED tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b` (this addendum revises U0/List + W1 persist, does not reopen other locked axes).
 
 ## 1. Problem
 
@@ -38,7 +38,7 @@ Tim **t782u** agreed with Design’s metric lean. Treat as **already locked with
 
 | Axis | Code | Meaning |
 |---|---|---|
-| **W** | **W1** | Selectable date range; default current budget/grazing period **Oct 1 – Sep 30** (`periodContaining` / `DEFAULT_BUDGET_PERIOD`) |
+| **W** | **W1** | Selectable date range; default current budget/grazing period **Oct 1 – Sep 30** (`periodContaining` / `DEFAULT_BUDGET_PERIOD`). **Pb (LOCKED t841s3483):** this browser remembers a chosen start/end in `localStorage` across Calendar\|List and leave/return to `#/events` (see §10). **Season default** still clears the override to the hard-coded Oct 1–Sep 30. Per-farm Settings default (**Db**) is **OI-0247** (docs on main; apply gated) — not this tip. |
 | **M** | **M0** | All four: implied pasture DMI, AUDs, NPK deposited, avg pasture score |
 | **A** | **A1** | Totals **and** per-acre when acres known; else total + “no acres” badge |
 | **N** | **N1** | Separate sortable **N / P / K** + optional combined |
@@ -142,7 +142,7 @@ Metric axes **W/M/A/N/S/D/X** = **AGREED (Tim t782u)** and carried into the lock
 
 | Code | Choice |
 |---|---|
-| **U0 (LOCKED)** | **One integrated Locations + Rotation management surface** (single designed UI; absorbs/replaces the broken desktop calendar chrome for this job; Locations list/Surveys stay reachable for edit/survey entry). **Design lean — Tim locked.** |
+| **U0 (LOCKED)** | **One integrated Locations + Rotation management surface** (single designed UI; absorbs/replaces the broken desktop calendar chrome for this job). **List-parity addendum (LOCKED t835s3460 La):** List keeps this surface and replicates current `#/locations` tools (search, X1 type filters, toolbar, Inputs & amendments, card details, Edit/Survey/Soil) **plus** the season metrics already on List. Explicit **Edit** button — **no name-cell click-to-edit in List**. **Cb:** Calendar name-click still opens `openLocationSheet` — Build must **not** change Calendar click. **Rb:** `#/locations` stays; nav de-dupe later (out of this implement). **Design lean — Tim locked;** List/click revised by t835s3460. |
 | U1 | Fix rotation calendar **in place** (scroll sync + wire metrics/readiness) and keep a separate Locations management toggle. |
 | U2 | Two tabs / routes that share one row model (Locations metrics tab + Rotation timeline tab). |
 
@@ -191,33 +191,37 @@ Tim locked Design’s one-tap recommendation on the revised lock card (exact wor
 
 | Axis | Locked | Meaning |
 |---|---|---|
-| W1 | ✓ AGREED | Season default Oct 1 – Sep 30; editable date range |
+| W1 | ✓ AGREED + **Pb** | Season default Oct 1 – Sep 30; editable date range. **Pb:** this browser persists the chosen window in `localStorage` (see §10). **Season default** still null → hard-coded Oct 1–Sep 30. **Db** (farm Settings) is **OI-0247** (docs on main; apply gated). |
 | M0 | ✓ AGREED | Implied pasture DMI, AUDs, NPK, avg pasture score |
 | A1 | ✓ AGREED | Totals **and** per-acre when acres known |
 | N1 | ✓ AGREED | Separate sortable N / P / K (+ optional combined) |
 | S0 | ✓ AGREED | Client-side sort on any management column |
 | D0 | ✓ AGREED | Compute-on-read; **no migration / no SQL** |
 | X1 | ✓ AGREED | Pasture + mixed-use land only |
-| U0 | ✓ | One combined Locations + rotation management screen |
+| U0 | ✓ + **La/Cb/Rb** | One combined Locations + rotation management screen. **La:** List = Locations tools + season metrics; explicit Edit, no List name-click. **Cb:** Calendar name-click unchanged. **Rb:** keep `#/locations`. |
 | F0 | ✓ must-fix | Location names stay aligned while scrolling |
 | T0 | ✓ | Future readiness = surveys when present else relative days since last graze vs peers; past activity visual |
 | C1 | ✓ | Mac: sortable metrics between frozen name and timeline |
 | P1 | ✓ | Phone: metrics under the name; timeline scrolls sideways; one vertical scroll |
 
-**READY FOR BUILD** after docs land on `main` (Orchestrator land card; Tim’s land yes) — Build **may** also start from this locked tip ahead of docs land (same coordination pattern as recent OIs). **Sequence Build after OI-0245 code** (confirmed-bred due range) unless Design/Orchestrator says otherwise; docs-land may still proceed independently. **No migration / no SQL.**
+**READY FOR BUILD** after docs land on `main` (Orchestrator land card; Tim’s land yes) — Build **may** also start from this locked tip ahead of docs land (same coordination pattern as recent OIs). First implementation is live on `52540a3` (OI-0245 already shipped). This addendum builds from that tip. **No migration / no SQL.**
 
 ## 7. Acceptance criteria (LOCKED — Build after docs land / from locked tip)
 
 - [x] Spec **LOCKED** (t784s3247): **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**.  
 - [ ] Docs tip landed on main (separate Tim land yes) **or** Build starts from this locked tip per Orchestrator.  
-- [ ] **U0:** one combined Locations + rotation management surface; Locations Surveys / Map / card edit and event create/close still reachable.  
+- [ ] **U0 + La:** one combined Locations + rotation management surface. **List** keeps Calendar\|List and season DMI/AUDs/N/P/K/Score, and replicates current `#/locations` tools: search, type filters (within **X1/Ta**), toolbar (**+ Add**, **Map**, **Survey**, **Harvest**, **Feed types**), Inputs & amendments, card details (name, type badge, code, acres · soil · forage, soil-test status), and **Edit / Survey / Soil** buttons. Explicit **Edit** — **no name-cell click-to-edit and no name-click navigation in List**. `#/locations` remains reachable (**Rb**); event create/close still reachable from Calendar.  
 - [ ] **F0 (must-fix):** scrolling never desyncs location names from timeline/metric rows (single vertical scroll owner or hard-linked sync); QA on Mac + phone.  
 - [ ] **T0:** past grazing activity visual; future readiness = survey/recovery when present, else relative days since last graze ranked vs other in-scope paddocks.  
 - [ ] **C1 / P1:** Mac name \| metrics \| timeline; phone metrics under name, horizontal timeline, one vertical list scroll.  
 - [ ] **AGREED metrics** over **W1** window for **X1** locations: DMI / AUDs / N / P / K / avg score; **A1** totals+per-acre; **S0** every numeric column sortable.  
-- [ ] **D0:** no new migration files; no schema_version bump; no SQL apply; compute-on-read (wire real calcs — retire sidebar/past-block zeros).  
+- [ ] **D0 HOLDS:** no new migration files; no schema_version bump; no SQL apply; compute-on-read. Pb is `localStorage` only.  
+- [ ] **Ta / X1:** List inventory stays **Pasture + Mixed-Use only**. Do not add Crop / Confinement / Storage rows this implement (those types stay on `#/locations`). Type filters on List are All-within-X1 / Pasture / Mixed-Use.  
+- [ ] **Cb:** Calendar click **unchanged** — name-click still calls `openLocationSheet`. Build must not change Calendar click behavior.  
+- [ ] **Rb:** `#/locations` route remains (including the period-bar Locations · Surveys · Map link if still useful). Nav de-dupe (dropping the duplicate Locations entry once List covers it) is **out of this implement**.  
+- [ ] **Pb:** Persist the chosen metric window (`metricStart` / `metricEnd`) in `localStorage` (design key: `gtho_v2_locations_metric_window`, same family as `gtho_v2_budget_viewed_period`). Restore on mount when the URL **lacks** those params. Do not wipe on Calendar\|List toggle, remount, or leave-and-return to `#/events`. Valid URL deep-link `metricStart`/`metricEnd` still take precedence on mount and may be written through to storage. **Season default** still sets the override to null (and clears the stored override) so the window falls back to hard-coded Oct 1–Sep 30 (`periodContaining` / `DEFAULT_BUDGET_PERIOD`). Do **not** invent a local “save default” UI. **Db** (per-farm Settings month/day) is **OI-0247** (docs on main; apply gated) — not this tip.  
 - [ ] Unit tests: scroll-sync invariant (or single-scroller architecture), aggregation helpers, readiness fallback (survey vs relative days).  
-- [ ] **Sequence:** implement after OI-0245 code unless Design/Orchestrator says otherwise.
+- [ ] **Sequence:** implement from live `52540a358f511bf46bceacbd7dcc7c94918acd04` (OI-0245 already shipped). Docs-land only after Tim land yes.
 
 ## 8. Related
 
@@ -227,14 +231,68 @@ Tim locked Design’s one-tap recommendation on the revised lock card (exact wor
 - `IMPLIED_PASTURE_DMI_2026-11-17.md`; OI-0241 / OI-0242; OI-0126 / OI-0131
 - CALC: NPK-1/3, ANI-AU/AUD/ADA, FOR-1/2, SUR-1, DMI-8/9, REC recovery
 - UX §15.3 Locations; SCHEMA Domain 2 / 6
-- OI-0245 (confirmed-bred due range) — **sequence Build after that code**
+- OI-0245 (confirmed-bred due range) — already shipped; first OI-0246 implementation is live on `52540a3`
 
 ## 9. Origin
 
 - Tim via Orchestrator **t777u** (~9:57 AM ET 2026-11-21): management metrics + sort.
 - Tim via Orchestrator **t782u** answering **t781s3238** (~10:02 AM ET): agrees metrics; rotation screen is a mess (scroll desync); integrate rotation calendar + locations; past visual + future readiness (surveys else relative days since last graze).
 - Tim via Orchestrator **t784s3247** (~10:05 AM ET): locked Design one-tap rec (exact words in §6).
+- Tim via Orchestrator **t833u** (~5:25 AM ET 2026-11-22): list view should replicate current Locations screen functionality; go back to click **Edit** rather than click-to-edit.
+- Tim via Orchestrator **t835s3460** (5:30 AM ET 2026-11-22): locked **La+Ta+Cb+Rb**.
+- Tim via Orchestrator **t837u** (~5:31 AM ET 2026-11-22): navigating away from the calendar reverts the season window to the Oct 1–Sep 30 default; also wants a way to edit the season default dates that get loaded; user should not have to reselect the season just because they clicked List.
+- Tim via Orchestrator **t841s3483** (5:37 AM ET 2026-11-22): locked **Pb** (this browser remembers the chosen start/end) and **Db** (per-farm Settings month/day) — **Db is OI-0247, not this tip**.
+
+## 10. LOCKED list-parity + season persist (2026-11-22)
+
+**Locked:** **La+Ta+Cb+Rb** (card **t835s3460**, 5:30 AM ET) + **Pb** (card **t841s3483**, 5:37 AM ET). Parent lock **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1** still holds. This section revises **U0/List acceptance** and **W1 persistence**. **D0 holds** (no migration / no SQL). **F0** single vertical scroll still applies in both views.
+
+Live parent: `52540a358f511bf46bceacbd7dcc7c94918acd04`. Prior docs tip: `ea481a2f2020a24d9fdd1cf34b494ebaa809852b`.
+
+### La — List = Locations tools + season metrics
+
+List mode on the combined `#/events` surface already has Calendar|List and the season DMI / AUDs / N / P / K / Score columns. Tim (t833u, screenshot of current `#/locations`): List needs the functionality on the current Locations screen, basically replicate that; go back to an explicit **Edit** button instead of click-to-edit.
+
+**Add to List (from current `src/features/locations/index.js` Locations tab):**
+
+- Search box (name / field code).
+- Type filters — **within Ta/X1 only** (All-within-X1 / Pasture / Mixed-Use). Do not expand this view to Crop / Confinement / Storage.
+- Toolbar: **+ Add**, **Map**, **Survey**, **Harvest**, **Feed types** (same actions as Locations).
+- **Inputs & amendments** (including Apply input), as on Locations.
+- Card details: name, type badge, code, acres · soil · forage, soil-test status — alongside the season metrics already shown.
+- Row actions: **Edit / Survey / Soil** buttons (same as Locations cards).
+
+**Click rule (revises the earlier U0 / name-cell decision):** List uses the explicit **Edit** button to open `openLocationSheet`. **No name-cell click-to-edit and no name-click navigation in List** (name is not a button / not a link in List).
+
+### Ta — Pasture + Mixed-Use only (X1 holds)
+
+Do not change the in-scope land types. List inventory stays **Pasture + Mixed-Use**. Crop / Confinement / Storage remain on `#/locations` and are out of this implement.
+
+### Cb — Leave Calendar alone
+
+Calendar name-click stays as it is on `52540a3`: the name cell calls `openLocationSheet` (`renderManagementRow` in `calendar-grid.js`). **Build must not change Calendar click behavior.** Documented here so List’s new Edit-button rule is not copied onto Calendar.
+
+### Rb — Keep `#/locations`
+
+The `#/locations` route stays. Dropping the duplicate nav entry (once List covers Locations tools) is a later cleanup — **out of this implement**.
+
+### Pb — This browser remembers the chosen season window (no SQL)
+
+**Bug on live `52540a3`:** `calendar-state.js` is session memory + URL only. `readStateFromUrl()` resets to defaults (including `metricStart`/`metricEnd` = null → hard-coded Oct 1–Sep 30) when the hash has no query, so Calendar|List toggle is fine only while the hash still carries params, but leaving `#/events` and returning (or a remount without params) wipes the chosen window. Tim: the user should not have to reselect the season just because they clicked List or navigated away.
+
+**LOCKED behavior:**
+
+- Persist the chosen `metricStart` / `metricEnd` in **this browser** via `localStorage` (device-local; not `user_preferences`; no SQL).
+- Design key: `gtho_v2_locations_metric_window` (same family as the feed pattern `gtho_v2_budget_viewed_period`). Suggested value: JSON `{ "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }`. Invalid / missing storage is ignored.
+- **Restore on mount** when the URL lacks valid `metricStart`/`metricEnd` params.
+- Do **not** wipe the stored or in-memory window on Calendar|List toggle, remount, or leave-and-return to `#/events`.
+- URL deep-link params, when present and valid, **still take precedence** on mount and may be written through to `localStorage` (hash sync via existing `syncUrl` may continue).
+- **Season default** still clears the override (`setMetricWindow(null, null)`) **and** clears the stored override, so the window falls back to the hard-coded Oct 1–Sep 30 (`periodContaining` / `DEFAULT_BUDGET_PERIOD`). Do **not** invent a local “save default” UI in this tip.
+
+### Db — OI-0247 (not this tip)
+
+A way to edit the farm’s default season start/end (month/day in Settings; matches Tim’s Nov 17 decision) is **OI-0247** (`session_briefs/FARM_SETTINGS_SEASON_DEFAULT_2026-11-22.md`). Docs landed on main `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee`. SQL + backup + a separate Tim yes at apply — **not this land.** Until Db is applied, “Season default” remains the hard-coded Oct 1–Sep 30.
 
 ---
 
-**Tip instruction:** **SPEC LOCKED / READY FOR BUILD**. Do **not** land on main until Tim yeses the land card. **No migration / no SQL.** Sequence Build after OI-0245 code unless Design/Orchestrator says otherwise.
+**Tip instruction:** **SPEC LOCKED / READY FOR BUILD** for **La+Ta+Cb+Rb+Pb** on parent **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**. Do **not** land on main until Tim yeses the land card. **No migration / no SQL.** **Db** is **OI-0247** (docs on main; apply gated). Build from live code `52540a358f511bf46bceacbd7dcc7c94918acd04` on parent main `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee` (or this locked tip ahead of docs land per Orchestrator).

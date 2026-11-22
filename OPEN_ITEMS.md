@@ -54,8 +54,8 @@
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 | OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~7:18 AM ET (Tim, via Orchestrator, card **t759s3139**) — **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Design rec on tip `070af6c`. Rams↔ewes, bucks(billies)↔does; widen Open; Gs1 per-species protocol; **M0** widen migration **047 before apply**; Animals **Preg check settings** dialog (Ps0). After docs land; 047 apply = separate Tim yes+backup; no exposure-row write (F0). [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
 | OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). Docs tip `dc90185` now on main. After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
-| OI-0246 | Locations + rotation management surface (metrics + fix/integrate rotation calendar) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~10:05 AM ET (Tim, via Orchestrator, card **t784s3247**) — **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**. One combined Locations+rotation screen; F0 scroll sync must-fix; T0 surveys else relative days; C1 Mac metrics between name/timeline; P1 phone metrics under name; D0 no migration. Sequence Build **after OI-0245 code**. Docs tip on `docs/oi-0246-locations-management-view` — land only after Tim land yes. [brief](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md) |
-| OI-0247 | Farm Settings season-default dates (per-farm start/end month-day) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~5:37 AM ET (Tim, via Orchestrator, card **t841s3483**, direction **Db**). Per-farm Settings start/end month-day on `farm_settings` (Nov 17 Q5). Settings → Farm Settings editors; Locations “Season default” and feed budget period share one setting; viewing does not write the default. Docs tip on `docs/oi-0247-season-default` — land only after Tim land yes. Apply = separate Tim yes + verified backup (docs land ≠ apply). **Not** part of OI-0246 list-parity (**La+Ta+Cb+Rb+Pb**). Hard-coded Oct 1–Sep 30 until apply. [brief](session_briefs/FARM_SETTINGS_SEASON_DEFAULT_2026-11-22.md) |
+| OI-0247 | Farm Settings season-default dates (per-farm start/end month-day) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~5:37 AM ET (Tim, via Orchestrator, card **t841s3483**, direction **Db**). Per-farm Settings start/end month-day on `farm_settings` (Nov 17 Q5). Settings → Farm Settings editors; Locations “Season default” and feed budget period share one setting; viewing does not write the default. Docs landed on main `4b95c55`. Apply = separate Tim yes + verified backup (docs land ≠ apply). **Not** part of OI-0246 list-parity (**La+Ta+Cb+Rb+Pb**). Hard-coded Oct 1–Sep 30 until apply. [brief](session_briefs/FARM_SETTINGS_SEASON_DEFAULT_2026-11-22.md) |
+| OI-0246 | Locations + rotation management surface (metrics + fix/integrate rotation calendar) | **SPEC LOCKED / READY FOR BUILD** — parent **t784s3247** **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**; **list-parity + persist addendum** 2026-11-22 5:30/5:37 AM ET (Tim, cards **t835s3460** + **t841s3483**) **La+Ta+Cb+Rb+Pb**. List = Locations tools + season metrics; explicit Edit (no List name-click); Calendar click unchanged; keep `#/locations`; this-browser `localStorage` for the metric window. **D0** no SQL. **Db** is **OI-0247** (docs on main `4b95c55`; apply still separate) — not this tip. Live code `52540a3`. Docs branch `docs/oi-0246-list-parity` restacked on main `4b95c55` — land only after Tim land yes. [brief](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md) |
 
 ---
 
@@ -212,30 +212,38 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 ### OI-0246 — Locations + rotation management surface
 
-**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-21 ~10:05 AM ET, via Orchestrator, card **t784s3247**) — opened ~9:57 AM ET (**t777u**); revised ~10:03 AM ET (**t782u** answering **t781s3238**); locked Design lean on tip `1d6465adff611230fa429209c860a96927d3973f`  
-**Priority:** Feature — integrate Locations management metrics with rotation calendar; fix scroll desync; past + future readiness  
-**Owner:** GTHO Design → GTHO Build (after docs land / from locked tip; Orchestrator land card). **Sequence Build after OI-0245 code** unless Design/Orchestrator says otherwise.  
+**Status:** **SPEC LOCKED / READY FOR BUILD** — parent lock (Tim, 2026-11-21 ~10:05 AM ET, via Orchestrator, card **t784s3247**) **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1** on tip `ea481a2`. **List-parity + season persist addendum LOCKED** 2026-11-22: **t835s3460** (5:30 AM ET) **La+Ta+Cb+Rb**; **t841s3483** (5:37 AM ET) **Pb**. **Db** is **OI-0247** (docs landed on main `4b95c55`; SQL apply still separate) — **not this tip**.  
+**Priority:** Feature — integrate Locations management metrics with rotation calendar; List-parity with Locations tools; persist chosen season window in this browser  
+**Owner:** GTHO Design → GTHO Build (after docs land / from locked tip; Orchestrator land card). First implementation is live on `52540a3`; this tip is the follow-up brief.  
 **Brief:** [LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)
 
-**Parent / base:** Forgejo `origin/main` `dc9018534e237291daf3bac0daf8835ef42afb7b`. Rotation citations on current main. Supersedes first PROPOSED tip `ebb79d1`. Revised PROPOSED tip locked from: `1d6465a`.
+**Parent / base:** Forgejo `origin/main` `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee` (OI-0247 docs landed; live list/nav code still `52540a3`). Prior LOCKED docs tip `ea481a2f2020a24d9fdd1cf34b494ebaa809852b`. This tip revises U0/List acceptance + W1 persistence (Pb).
 
-**Tim lock (exact):** "Lock OI-0246: one combined Locations + rotation management screen; surveys when present else relative days since last graze; location names stay aligned while scrolling; phone metrics under the name; keep agreed metrics (season Oct 1–Sep 30 editable, DMI/AUDs/N-P-K separate/avg score, totals+per-acre, pastures+mixed-use, compute-on-read, sortable)"
+**Tim parent lock (exact, t784s3247):** "Lock OI-0246: one combined Locations + rotation management screen; surveys when present else relative days since last graze; location names stay aligned while scrolling; phone metrics under the name; keep agreed metrics (season Oct 1–Sep 30 editable, DMI/AUDs/N-P-K separate/avg score, totals+per-acre, pastures+mixed-use, compute-on-read, sortable)"
 
-**Locked:** **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**
+**Locked:** **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1** + addendum **La+Ta+Cb+Rb+Pb**
 - **AGREED metrics:** W1 season Oct1–Sep30 editable; M0 DMI/AUDs/NPK/avg score; A1 totals+per-acre; N1 N/P/K separate; S0 sortable; D0 compute-on-read; X1 pastures+mixed-use
-- **U0** one combined Locations + rotation management screen
+- **U0** one combined Locations + rotation management screen, with List-parity (**La**)
 - **F0** location names stay aligned while scrolling (**must-fix**)
 - **T0** past activity visual; future readiness = surveys when present else relative days since last graze vs peers
 - **C1** Mac: sortable metrics between frozen name and timeline
 - **P1** Phone: metrics under the name; timeline scrolls sideways; one vertical scroll
 
-**Schema:** **None** (D0) — no migration / no SQL.
+**LOCKED addendum (t835s3460 + t841s3483):**
+- **La** List = current Locations tools + season metrics (Calendar|List and DMI/AUDs/N/P/K/Score kept; add search, X1 type filters, toolbar +Add/Map/Survey/Harvest/Feed types, Inputs & amendments, card details, Edit/Survey/Soil). Explicit **Edit** button; **no name-cell click-to-edit in List**.
+- **Ta** Pasture + Mixed-Use only (X1 holds). Crop / Confinement / Storage stay on `#/locations`.
+- **Cb** Leave Calendar alone — name-click still `openLocationSheet`. Build must not change Calendar click.
+- **Rb** Keep `#/locations`; nav de-dupe later (out of this implement).
+- **Pb** This browser remembers the chosen `metricStart`/`metricEnd` in `localStorage` (design key `gtho_v2_locations_metric_window`) across Calendar|List and leave/return to `#/events`. Restore on mount when the URL lacks params; URL deep-links may still take precedence. **Season default** still clears the override to hard-coded Oct 1–Sep 30. No local “save default” UI.
+- **Db** (per-farm Settings month/day season default; SQL + backup + separate Tim yes) is **OI-0247** (docs on main `4b95c55`); apply still separate — not this tip.
 
-**Sequence:** Build after OI-0245 code (confirmed-bred due range) unless Design/Orchestrator says otherwise; docs-land may still proceed independently.
+**Schema:** **None** (D0 holds) — no migration / no SQL. Pb is device-local `localStorage` only.
 
-**Related:** Rotation CP-54 / UX §19; Locations UX §15.3; DMI-9; OI-0241/0242; surveys; CALC NPK/ANI/FOR/SUR/REC; OI-0245 sequencing.
+**Sequence:** Build from live code `52540a3` (OI-0245 already shipped; restacked on docs main `4b95c55`). Docs-land only after Tim land yes.
 
-**Origin:** t777u (~9:57 AM ET); revised t782u (~10:02 AM ET); locked t784s3247 (~10:05 AM ET) via Orchestrator.
+**Related:** Rotation CP-54 / UX §19; Locations UX §15.3; DMI-9; OI-0241/0242; surveys; CALC NPK/ANI/FOR/SUR/REC; **OI-0247** (Db; docs on main, apply gated).
+
+**Origin:** t777u / t782u / t784s3247 (2026-11-21); list-parity t833u / t835s3460 and season persist t837u / t841s3483 (2026-11-22) via Orchestrator.
 
 ---
 
@@ -7683,8 +7691,9 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
-| 2026-11-22 | GTHO Design — docs only | LOCK OI-0247 SPEC LOCKED / READY FOR BUILD (t841s3483, Db): per-farm Settings season-default start/end month-day on `farm_settings`. Docs land ≠ apply — apply still needs verified backup + separate Tim yes. Not part of OI-0246 list-parity (La+Ta+Cb+Rb+Pb). Hard-coded Oct 1–Sep 30 until apply. Locked from tip 8b04dc8. |
-| 2026-11-22 | GTHO Design — docs only | Open OI-0247 PROPOSED Farm Settings season-default dates (Db on t841s3483): per-farm start/end month-day on `farm_settings`; Settings → Farm Settings editors; Locations “Season default” and feed budget period share one setting; viewing does not write the default (Q5). SQL + verified backup + separate Tim yes at apply — not part of OI-0246 list-parity (La+Ta+Cb+Rb+Pb). Hard-coded Oct 1–Sep 30 until this OI ships. Docs tip ready for Tim confirm/land of docs. |
+| 2026-11-22 | GTHO Design — docs only | Restack OI-0246 list-parity + season persist addendum (t835s3460 La+Ta+Cb+Rb; t841s3483 Pb) onto main after OI-0247 land `4b95c55`. List replicates Locations tools + season metrics; explicit Edit, no List name-click; Calendar click unchanged; keep #/locations; localStorage metric window. D0 no SQL. Db is OI-0247 (docs on main; apply still separate). Parent lock t784s3247 / tip ea481a2; live code 52540a3. |
+| 2026-11-22 | GTHO Design — docs only | LOCK OI-0247 SPEC LOCKED / READY FOR BUILD (t841s3483, Db): per-farm Settings season-default start/end month-day on `farm_settings`. Docs land ≠ apply — apply still needs verified backup + separate Tim yes. Not part of OI-0246 list-parity (La+Ta+Cb+Rb+Pb). Hard-coded Oct 1–Sep 30 until apply. Locked from tip 8b04dc8; docs landed on main 4b95c55. |
+| 2026-11-22 | GTHO Design — docs only | Open OI-0247 PROPOSED Farm Settings season-default dates (Db on t841s3483): per-farm start/end month-day on `farm_settings`; Settings → Farm Settings editors; Locations “Season default” and feed budget period share one setting; viewing does not write the default (Q5). SQL + verified backup + separate Tim yes at apply — not part of OI-0246 list-parity (La+Ta+Cb+Rb+Pb). Hard-coded Oct 1–Sep 30 until this OI ships. |
 | 2026-11-21 | GTHO Design — docs only | LOCK OI-0246 SPEC LOCKED / READY FOR BUILD (t784s3247): AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1. One combined Locations+rotation screen; F0 scroll sync must-fix; no migration. Sequence Build after OI-0245 code. Locked from tip 1d6465a. |
 | 2026-11-21 | GTHO Design — docs only | Revise OI-0246 PROPOSED (t782u): metrics AGREED W1+M0+A1+N1+S0+D0+X1; placement reopen U0+F0+T0+C1+P1; rotation scroll desync confirmed; integrate Locations+rotation. Supersedes tip ebb79d1. Still PROPOSED — no LOCKED. |
 | 2026-11-21 | GTHO Design — docs only | Open OI-0246 PROPOSED Locations management view (t777u); Design lean V0+W1+M0+A1+N1+S0+D0+X1; no migration. Merged under main tip dc90185 (OI-0245 LOCKED). |

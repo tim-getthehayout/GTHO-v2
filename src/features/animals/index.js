@@ -69,6 +69,8 @@ let selectedSpecies = new Set();
 let selectedClassIds = new Set();
 /** @type {Set<'open'|'confirmed_bred'|'pregnancy_check'>} status multi-select. Empty = inactive. */
 let selectedStatuses = new Set();
+/** Missing-weight filter (AND). Cleared when pool has none or Reset. */
+let missingWeightFilter = false;
 let searchQuery = '';
 let showArchivedGroups = false;  // OI-0090 / SP-11 Part 4
 let sortColumn = 'tag';
@@ -149,6 +151,18 @@ export function renderAnimalsScreen(container) {
     return speciesPool.filter(a => a.classId && selectedClassIds.has(a.classId));
   }
 
+  /** Ac: All / live groups → active; Culls → culled. Farm-wide pool for Pf. */
+  function viewPoolForMissingWeight() {
+    const all = getAll('animals');
+    if (cullsSelected) return all.filter(a => a.active === false);
+    return all.filter(a => a.active !== false);
+  }
+
+  /** Mw: no recorded weight on or before today (class default does not count). */
+  function animalHasMissingWeight(animalId, weightRecords, today) {
+    return !latestWeightForAnimal(weightRecords, animalId, today);
+  }
+
   function distinctSpeciesInPool(pool) {
     const classById = new Map(getAll('animalClasses').map(c => [c.id, c]));
     const set = new Set();
@@ -196,6 +210,7 @@ export function renderAnimalsScreen(container) {
     selectedSpecies = new Set();
     selectedClassIds = new Set();
     selectedStatuses = new Set();
+    missingWeightFilter = false;
   }
 
   function liveGroupCardStats(g) {
@@ -477,6 +492,31 @@ export function renderAnimalsScreen(container) {
       }
     }
 
+    // Missing weight pill — after Class / Status; not female-gated (Pf + Ac + Pl + Sp)
+    {
+      const todayStr = getLocalTodayStr();
+      const weightRecordsForPill = getAll('animalWeightRecords');
+      const mwPool = viewPoolForMissingWeight();
+      const poolHasMissing = mwPool.some(a => animalHasMissingWeight(a.id, weightRecordsForPill, todayStr));
+      if (!poolHasMissing) missingWeightFilter = false;
+      if (poolHasMissing) {
+        const mwChips = el('div', {
+          className: 'agc-chips agc-chips-scroll agc-chips-secondary',
+          'data-testid': 'animals-missing-weight-chips',
+        });
+        const mwOn = missingWeightFilter;
+        mwChips.appendChild(el('span', {
+          className: `agc-chip${mwOn ? ' active' : ''}`,
+          'data-testid': 'animals-chip-missing-weight',
+          onClick: () => {
+            missingWeightFilter = !missingWeightFilter;
+            renderAll();
+          },
+        }, [t('animal.filterMissingWeight') || 'Missing weight']));
+        filterWrap.appendChild(mwChips);
+      }
+    }
+
     // Search + Reset + Clear search (R8)
     const searchInput = el('input', {
       type: 'search', placeholder: t('animal.searchPlaceholder') || 'Search by tag, EID, class…',
@@ -615,10 +655,14 @@ export function renderAnimalsScreen(container) {
     const groups = getAll('groups');
     const weightRecords = getAll('animalWeightRecords');
 
-    // Cascade: groups → species → class → status → search.
+    // Cascade: groups → species → class → missing-weight → status → search.
+    const todayStr = getLocalTodayStr();
     let filtered = animalsAfterGroupsFilter();
     filtered = animalsAfterSpeciesFilter(filtered);
     filtered = animalsAfterClassFilter(filtered);
+    if (missingWeightFilter) {
+      filtered = filtered.filter(a => animalHasMissingWeight(a.id, weightRecords, todayStr));
+    }
 
     // Exposure derive (compute-on-read) for Pregnancy Check + due bands.
     const allMembershipsHistory = getAll('animalGroupMemberships');
@@ -679,7 +723,7 @@ export function renderAnimalsScreen(container) {
     const latestWeightMap = new Map();
     for (const w of weightRecords) {
       if (!w.animalId || latestWeightMap.has(w.animalId)) continue;
-      const latest = latestWeightForAnimal(weightRecords, w.animalId);
+      const latest = latestWeightForAnimal(weightRecords, w.animalId, todayStr);
       if (latest) latestWeightMap.set(w.animalId, latest);
     }
 
@@ -727,6 +771,7 @@ export function renderAnimalsScreen(container) {
       const cls = animal.classId ? classes.find(c => c.id === animal.classId) : null;
       const latestW = latestWeightMap.get(animal.id);
       const weightDisplay = latestW?.weightKg ? display(latestW.weightKg, 'weight', unitSys, 0) : '—';
+      const missingWeight = animalHasMissingWeight(animal.id, weightRecords, todayStr);
       const isCulled = animal.active === false;
 
       // Location badge — inherit the group's current placement (OI-0205)
@@ -754,6 +799,17 @@ export function renderAnimalsScreen(container) {
             el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [
               `${animal.isBulk ? 'Group composite \u00B7 ' : ''}${cls?.name || 'No class'} \u00B7 ${grp?.name || 'No group'}`,
             ]),
+            missingWeight
+              ? el('div', {
+                style: { marginTop: '3px' },
+                'data-testid': `animal-missing-weight-${animal.id}`,
+              }, [
+                el('span', {
+                  className: 'badge badge-amber',
+                  style: { fontSize: '10px' },
+                }, [t('animal.missingWeightIndicator') || 'Missing weight']),
+              ])
+              : null,
             (() => {
               const showDue = selectedStatuses.has('pregnancy_check')
                 || animal.confirmedBred === true
@@ -2117,7 +2173,10 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   // impossible. Weight changes flow through Quick Weight (which calls
   // maybeSplitForGroup after save, closing the group-side OI-0094 gap).
   const weightRecords = getAll('animalWeightRecords');
-  const latestW = isEdit ? latestWeightForAnimal(weightRecords, existingAnimal.id) : null;
+  const editWeightToday = getLocalTodayStr();
+  const latestW = isEdit ? latestWeightForAnimal(weightRecords, existingAnimal.id, editWeightToday) : null;
+  // Mw: class default is not a live weight — indicator when no on-or-before-today record.
+  const editMissingWeight = isEdit && !latestW;
   if (existingAnimal?.isBulk && latestW?.weightKg > 0 && animalHeadCount(existingAnimal) > 0) {
     const perKg = latestW.weightKg / animalHeadCount(existingAnimal);
     const shown = unitSys === 'imperial' ? convert(perKg, 'weight', 'toImperial') : perKg;
@@ -2140,13 +2199,21 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   const currentWeightText = latestW?.weightKg
     ? display(latestW.weightKg, 'weight', unitSys, 0)
     : '\u2014';
-  const weightRow = el('div', { className: 'field', style: { display: existingAnimal?.isBulk ? 'none' : '' } }, [
+  // Bulk lots hide Current weight when recorded; still show when Mw so Ib indicator is reachable.
+  const weightRow = el('div', { className: 'field', style: { display: (existingAnimal?.isBulk && !editMissingWeight) ? 'none' : '' } }, [
     el('label', {}, ['Current weight']),
-    el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } }, [
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } }, [
       el('div', {
         'data-testid': 'edit-animal-current-weight',
         style: { fontSize: '15px', fontWeight: '500', color: latestW ? 'var(--text)' : 'var(--text2)' },
       }, [currentWeightText]),
+      editMissingWeight
+        ? el('span', {
+          className: 'badge badge-amber',
+          style: { fontSize: '10px' },
+          'data-testid': 'edit-animal-missing-weight',
+        }, [t('animal.missingWeightIndicator') || 'Missing weight'])
+        : null,
       isEdit ? el('button', {
         className: 'btn btn-outline btn-sm',
         'data-testid': 'edit-animal-weight-btn',

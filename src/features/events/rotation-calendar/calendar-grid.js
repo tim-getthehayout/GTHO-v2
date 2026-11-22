@@ -35,6 +35,7 @@ import {
   filterManagementLocations,
   defaultMetricWindow,
   computeLocationMetrics,
+  aggregatePeriodTotals,
   formatMetricValue,
 } from './location-metrics.js';
 import { computeReadiness, lastGrazeDate } from './readiness.js';
@@ -214,6 +215,9 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   const toolbar = isList
     ? renderListTools({ onUpdate, operationId, farmId })
     : renderToolbar(onUpdate);
+  // OI-0250 Sb: period totals under season metrics bar, above color key (Calendar only).
+  const periodTotals = isList ? null : aggregatePeriodTotals(metricRows);
+  const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals) : null;
   const legend = isList ? null : renderLegend(viewMode);
 
   const range = resolveRange(state.anchor, state.zoom);
@@ -326,6 +330,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   container.appendChild(headerStrip);
   if (toolbar) container.appendChild(toolbar);
   container.appendChild(periodBar);
+  if (totalsStrip) container.appendChild(totalsStrip);
   if (legend) container.appendChild(legend);
   container.appendChild(surface);
   container.setAttribute('tabindex', '0');
@@ -462,6 +467,52 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
       className: 'loc-mgmt__link',
       onClick: (e) => { e.preventDefault(); navigate('#/locations'); },
     }, ['Locations · Surveys · Map']),
+  ]);
+}
+
+
+/**
+ * OI-0250 Sb: period totals strip — Pasture / Stored-feed / Total DMI + Total N/P/K.
+ * Calendar only; sits under season metrics bar and above the color key.
+ */
+function renderPeriodTotalsStrip(totals) {
+  const cell = (key, label, value, partial, title) => el('div', {
+    className: `loc-mgmt__period-total${partial ? ' loc-mgmt__period-total--partial' : ''}`,
+    title,
+    dataset: {
+      key,
+      testid: `loc-mgmt-period-total-${key}`,
+      partial: partial ? 'true' : undefined,
+    },
+  }, [
+    el('span', { className: 'loc-mgmt__period-total-label' }, [label]),
+    el('span', { className: 'loc-mgmt__period-total-value' }, [
+      formatMetricValue(value, { digits: 0 }),
+      partial
+        ? el('span', {
+          className: 'loc-mgmt__metric-partial',
+          dataset: { testid: `loc-mgmt-period-total-partial-${key}` },
+        }, [' partial'])
+        : null,
+    ].filter(Boolean)),
+  ]);
+
+  return el('div', {
+    className: 'loc-mgmt__period-totals',
+    dataset: { testid: 'loc-mgmt-period-totals' },
+    role: 'region',
+    'aria-label': 'Period totals for locations in view',
+  }, [
+    el('span', { className: 'loc-mgmt__period-totals-label' }, ['Period totals:']),
+    cell('pastureDmi', 'Pasture DMI', totals.pastureDmiKg, !!totals.dmiPartial,
+      'Implied pasture DMI for the period in view (kg)'),
+    cell('storedDmi', 'Stored-feed DMI', totals.storedFeedDmiKg, false,
+      'Measured stored-feed DMI eaten (kg); missing-DM counts as 0'),
+    cell('totalDmi', 'Total DMI', totals.totalDmiKg, !!totals.dmiPartial,
+      'Pasture DMI + stored-feed DMI for the period (kg)'),
+    cell('n', 'Total N', totals.nKg, !!totals.npkPartial, 'Total nitrogen for the period (kg)'),
+    cell('p', 'Total P', totals.pKg, !!totals.npkPartial, 'Total phosphorus for the period (kg)'),
+    cell('k', 'Total K', totals.kKg, !!totals.npkPartial, 'Total potassium for the period (kg)'),
   ]);
 }
 

@@ -1,6 +1,7 @@
 /**
  * @file Past event block — CP-54.
  * Solid green rectangle for past events in the timeline.
+ * OI-0256 Pn1: no_pasture / 100% stored feed paints tan (stored-feed color).
  * Handles: multi-group labels, strip bands, linked paddocks, active NOW ring, sub-move rendering.
  * See V2_DESIGN_SYSTEM.md §4.3 and V2_UX_FLOWS.md §19.2.
  */
@@ -28,9 +29,11 @@ export function buildGroupLabel(groups) {
  * @param {Array<{areaPct: number}>} strips
  * @returns {HTMLElement}
  */
-function renderStripBands(strips) {
+function renderStripBands(strips, { storedFeedOnly = false } = {}) {
   const container = el('div', { className: 'strip-bands' });
-  const shades = ['var(--green-base)', 'var(--green-dark)', 'var(--green-light)'];
+  const shades = storedFeedOnly
+    ? ['#D4A76A', 'var(--color-tan-dark)', 'var(--color-tan-light)']
+    : ['var(--green-base)', 'var(--green-dark)', 'var(--green-light)'];
   strips.forEach((strip, i) => {
     container.appendChild(el('div', {
       className: 'strip-band',
@@ -61,6 +64,7 @@ function renderStripBands(strips) {
  * @param {string} [opts.stripNote] - e.g. "Strip 2/4" (when isStripGraze + closed)
  * @param {boolean} opts.isLinkedSecondary - Whether this is a linked (non-primary) row
  * @param {string} [opts.linkedPrimaryName] - Name of the primary paddock
+ * @param {boolean} [opts.storedFeedOnly] - OI-0256 Pn1 tan / stored-feed paint
  * @param {string} opts.eventId - Event ID for click handler
  * @param {Function} opts.onClickBlock - Click handler
  * @returns {HTMLElement}
@@ -68,7 +72,7 @@ function renderStripBands(strips) {
 export function renderPastBlock({
   leftPx, widthPx, groups, auds, days, pasturePct, feedPct, dmi, headCount,
   isActive, isStripGraze, strips, stripNote, isLinkedSecondary, linkedPrimaryName,
-  eventId, onClickBlock,
+  storedFeedOnly = false, eventId, onClickBlock,
 }) {
   const groupLabel = buildGroupLabel(groups);
 
@@ -88,6 +92,10 @@ export function renderPastBlock({
   const line2Parts = [];
   if (isLinkedSecondary) {
     line2Parts.push(el('span', {}, [`↳ linked to ${linkedPrimaryName || '—'}`]));
+  } else if (storedFeedOnly) {
+    line2Parts.push(el('span', {}, [
+      `Pasture 0% · Feed 100% · ${Math.round(dmi || 0)} DMI · ${headCount} hd`,
+    ]));
   } else {
     line2Parts.push(el('span', {}, [
       `Pasture ${Math.round(pasturePct)}% · Feed ${Math.round(feedPct)}% · ${Math.round(dmi)} DMI · ${headCount} hd`,
@@ -98,6 +106,7 @@ export function renderPastBlock({
   }
 
   const blockClasses = ['past-block'];
+  if (storedFeedOnly) blockClasses.push('past-block--stored-feed');
   if (isActive) blockClasses.push('past-block--active');
   if (isLinkedSecondary) blockClasses.push('past-block--linked');
 
@@ -105,7 +114,7 @@ export function renderPastBlock({
 
   // Strip bands behind label (active strip-grazed only)
   if (isStripGraze && isActive && strips && strips.length > 0) {
-    children.push(renderStripBands(strips));
+    children.push(renderStripBands(strips, { storedFeedOnly }));
   }
 
   children.push(

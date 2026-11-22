@@ -17,6 +17,7 @@ import { openGroupAddSheet, openGroupRemoveSheet } from './group-windows.js';
 import { openCloseEventSheet } from './close.js';
 import { openLocationMapPicker } from '../map/picker.js';
 import { openPaddockWindows, openLocationNames } from './open-cohort.js';
+import { isNoPasturePw, renderStoredFeedOnlyCheckbox } from './no-pasture.js';
 import { paddockFacts } from '../map/paddock-facts.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
@@ -547,6 +548,14 @@ function openCreateEventSheet(operationId, farmId) { // eslint-disable-line no-u
   renderLocationPicker(locPickerEl, locations, selection, { multi: true });
   panel.appendChild(locPickerEl);
 
+  // OI-0256 Lv1: 100% Stored Feed on create
+  const storedFeedOnly = renderStoredFeedOnlyCheckbox({
+    checked: false,
+    testId: 'create-event-no-pasture',
+  });
+  panel.appendChild(storedFeedOnly.container);
+  inputs.noPasture = storedFeedOnly;
+
   // Group picker
   panel.appendChild(el('label', { className: 'form-label' }, [t('event.selectGroup')]));
   const groupPickerEl = el('div', { 'data-testid': 'create-event-group-picker' });
@@ -988,15 +997,18 @@ function saveEvent(selection, inputs, operationId, farmId, unitSys, statusEl) {
 
     // 2. One window, or N windows sharing one open_cohort_id (OI-0102).
     // This dialog has no forage card; each window still gets an open observation.
+    const noPasture = !!(inputs.noPasture && inputs.noPasture.isChecked && inputs.noPasture.isChecked());
     const windows = openPaddockWindows({
       operationId,
       eventId: event.id,
       locationIds,
       dateOpened: dateIn,
       timeOpened: timeIn,
+      noPasture,
     });
     const observedAt = new Date().toISOString();
     for (const paddockWindow of windows) {
+      if (isNoPasturePw(paddockWindow)) continue; // OI-0256 Sk1
       createObservation(operationId, paddockWindow.locationId, 'open', paddockWindow.id, observedAt);
     }
 

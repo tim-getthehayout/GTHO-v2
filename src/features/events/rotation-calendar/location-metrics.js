@@ -11,6 +11,8 @@
  * OI-0258 Al1+Pd1+Mc1+Mx-a+Cv1+Sp-f(demand)+D0: hay known from opening
  * carryover + physical deliveries + close (no mid-check required); span hay
  * prorated by demand across grazing windows. Sp-w is not implemented.
+ * OI-0256 Lv1+Mt1+Mx1: no_pasture → known Pasture 0 / 100% stored on that window;
+ * omit no_pasture from pasture DMI+AUD inference; keep in NPK deposits.
  */
 
 import { getCalcByName } from '../../../utils/calc-registry.js';
@@ -191,6 +193,26 @@ export function clipWindowToRange(pw, event, windowStart, windowEnd, today, ctx 
   const end = [close, windowEnd].sort()[0];
   if (!start || !end || end < start) return null;
   return { start, end, days: daysBetweenInclusive(start, end) };
+}
+
+/** OI-0256 Lv1: window flagged 100% stored feed. */
+export function isNoPasturePw(pw) {
+  return !!pw?.noPasture;
+}
+
+/** OI-0256 Mx1: windows that participate in pasture DMI + AUD inference. */
+export function pastureInferenceWindows(eventOpen = []) {
+  return (eventOpen || []).filter((pw) => !isNoPasturePw(pw));
+}
+
+/** Acre share within an explicit window pool (Mx1 pasture vs all-open NPK). */
+export function acreShareInPool(pool, locationId, locationsById) {
+  return acreShareForLocation(pool || [], locationId, locationsById);
+}
+
+/** Effective-area weight for one paddock window. */
+export function paddockWindowAreaWeight(pw, locationsById) {
+  return effectiveAreaHa(pw, locationsById);
 }
 
 function acreShareForLocation(eventOpen, locationId, locationsById) {
@@ -480,8 +502,20 @@ export function computeLocationMetrics(location, ctx) {
       if (!openMine.length) continue;
 
       eventIds.add(eventId);
-      const share = acreShareForLocation(eventOpen, location.id, locationsById);
-      if (!(share > 0)) continue;
+      // OI-0256 Mx1: NPK keeps all open windows; on mixed events AUDs omit no_pasture
+      // (infer from other open windows). Solo no_pasture still keeps its own AUDs.
+      const pasturePool = pastureInferenceWindows(eventOpen);
+      const mineNoPastureOnly = openMine.every(isNoPasturePw);
+      let audShare;
+      if (mineNoPastureOnly && pasturePool.length === 0) {
+        audShare = acreShareForLocation(eventOpen, location.id, locationsById);
+      } else if (mineNoPastureOnly) {
+        audShare = 0;
+      } else {
+        audShare = acreShareInPool(pasturePool.length ? pasturePool : eventOpen, location.id, locationsById);
+      }
+      const npkShare = acreShareForLocation(eventOpen, location.id, locationsById);
+      if (!(audShare > 0) && !(npkShare > 0)) continue;
 
       const gws = (groupWindows || []).filter(gw => gw.eventId === eventId && groupPresentOnDate(gw, date));
       for (const gw of gws) {
@@ -503,11 +537,12 @@ export function computeLocationMetrics(location, ctx) {
           ? aniAu.fn({ headCount: liveHead, avgWeightKg: liveAvg || 0 })
           : (liveHead * (liveAvg || 0)) / 453.6;
         const dayAuds = aniAud ? aniAud.fn({ au, days: frac }) : au * frac;
-        auds += dayAuds * share;
+        if (audShare > 0) auds += dayAuds * audShare;
 
         const cls = (animalClasses || []).find(ac => ac.id === gw.animalClassId) || null;
         // OI-0249 Gg: keep known-weight groups; count missing-weight as unknown slices (Zp).
-        if (npk1 && liveAvg > 0) {
+        // OI-0256 Mx1: no_pasture window still participates in NPK deposits.
+        if (npkShare > 0 && npk1 && liveAvg > 0) {
           const r = npk1.fn({
             headCount: liveHead,
             avgWeightKg: liveAvg,
@@ -516,11 +551,11 @@ export function computeLocationMetrics(location, ctx) {
             excretionPRate: cls?.excretionPRate ?? DEFAULT_EXC.p,
             excretionKRate: cls?.excretionKRate ?? DEFAULT_EXC.k,
           });
-          nKg += (r.nKg ?? 0) * share;
-          pKg += (r.pKg ?? 0) * share;
-          kKg += (r.kKg ?? 0) * share;
+          nKg += (r.nKg ?? 0) * npkShare;
+          pKg += (r.pKg ?? 0) * npkShare;
+          kKg += (r.kKg ?? 0) * npkShare;
           npkKnownSlices += 1;
-        } else if (liveHead > 0 && !(liveAvg > 0)) {
+        } else if (npkShare > 0 && liveHead > 0 && !(liveAvg > 0)) {
           npkUnknownSlices += 1;
         }
       }
@@ -615,7 +650,10 @@ export function computeLocationMetrics(location, ctx) {
       if (openDate && !eventOpenOn(decorated, date)) continue;
       const hay = f1MeasuredHayOnEventDay({ ...hayArgs, date });
       if (hay.kind === 'unknown') {
-        dmiHayUnknown = true;
+        // OI-0256 Mt1: no_pasture-only at this location stays known Pasture 0, not F1 sticky.
+        const grazingHere = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date })
+          .some(pw => pw.locationId === location.id);
+        if (grazingHere) dmiHayUnknown = true;
         addDemandOnly(date, { stripOnly: true });
         continue;
       }

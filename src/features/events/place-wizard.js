@@ -173,9 +173,8 @@ function renderStep3(panel, state, group, operationId, farmId, parentRender, opt
   openSection.appendChild(inputs.timeIn);
 
   // OI-0256 Lv1 checkbox on new land destinations.
-  let storedFeedOnly = null;
   if (state.destType === 'new' && allDestLand) {
-    storedFeedOnly = renderStoredFeedOnlyCheckbox({
+    const storedFeedOnly = renderStoredFeedOnlyCheckbox({
       checked: !!state.noPasture,
       testId: 'place-wizard-no-pasture',
       onChange: (v) => { state.noPasture = v; parentRender(); },

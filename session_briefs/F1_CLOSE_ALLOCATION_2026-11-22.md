@@ -1,9 +1,9 @@
 # F1 close-allocation / hay-fed pasture DMI (OI-0258)
 
-**Status:** **PROPOSED** 2026-11-22 ~10:56 AM ET (GTHO Design). Tim **t1129u** (~10:50 AM ET) + opening-carryover **t1134u** (~10:51 AM ET), via Orchestrator; Build/Orchestrator real-data finding **t1136u** (D/E-5 “July hay” = Move-wizard carryover, not new summer hay). Awaiting Tim lock. Docs tip only — **do not land on main**. No SQL / no migration.  
-**Owner:** GTHO Design (PROPOSED; GTHO Build does not start until LOCKED).  
-**Parent:** Forgejo `origin/main` `da22c6d5978fa9864142d5bb99b7e5f3f817ae5a` (OI-0254 PR **#135** live; OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).  
-**Also related:** OI-0246 season formula **F1** (DMI subtracts measured hay eaten; unmeasured hay day = “—”); OI-0253 **C0** (keep F1 season-sticky on the column when in-window hay days lack DM — this OI does **not** reopen C0; it changes *when* a hay day is known); OI-0256 **Mx1** (mixed event / `no_pasture` windows — locked on the **separate** tip `docs/oi-0254-0257-feedback-batch` at `01de63b`, not on this tip); Build **t1123u** (F1 unknown unless the day sits between two feed-check readings — `feed-pools.js` `elapsedDayShares`); Tim **t1129u**, **t1134u**; Build/Orchestrator **t1136u**.  
+**Status:** **LOCKED / READY FOR BUILD** 2026-11-22 ~11:11 AM ET (Tim **t1153u** answering card **t1149s4474**, via Orchestrator). Lock **Al1+Pd1+Mc1+Mx-a+Cv1+D0**, including Tim’s mid-check span clarification. Docs tip only — **do not land on main**. No SQL / no migration.
+**Owner:** GTHO Design (LOCKED / READY FOR BUILD). Docs tip only until Tim lands docs.
+**Parent:** Forgejo `origin/main` `da22c6d5978fa9864142d5bb99b7e5f3f817ae5a` (OI-0254 PR **#135** live; OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).
+**Also related:** OI-0246 season formula **F1** (DMI subtracts measured hay eaten; unmeasured hay day = “—”); OI-0253 **C0** (keep F1 season-sticky on the column when in-window hay days lack DM — this OI does **not** reopen C0; it changes *when* a hay day is known); OI-0256 **Mx1** (mixed event / `no_pasture` windows — locked on the **separate** tip `docs/oi-0254-0257-feedback-batch` at `01de63b`, not on this tip); Build **t1123u** (F1 unknown unless the day sits between two feed-check readings — `feed-pools.js` `elapsedDayShares`); Tim **t1129u**, **t1134u**, **t1153u**; Build/Orchestrator **t1136u**.
 **Schema / migration:** **D0 — none.** Calc-path only. No new column, no migration, no data write.
 
 **Separate tip:** this branch is `docs/oi-0258-f1-close-alloc` off `origin/main` at `da22c6d`. It must **not** ride the OI-0254–0257 docs land.
@@ -22,6 +22,12 @@ Tim (**t1134u**, ~10:51 AM ET, via Orchestrator), on the opening anchor:
 
 > At opening the only feed is what may have been moved from a prior event in which case we would capture that at open
 
+Tim (**t1153u**, ~11:11 AM ET, via Orchestrator, answering card **t1149s4474**), on mid-checks and per-span pasture DMI:
+
+> We don't actually store DMI per day after a mid check, but a mid check would technically allocate to the time period prior to the check, and then the final check would allocate to the period between the last check and the close. So pasture DMI may fall over the course of an event in one paddock, or in an event with one anchor for stored feed (bale grazing a paddock) and multiple open an closes of sub moves for grazing, the DMI from pasture would go up and down across those moves
+
+(Orchestrator’s accepted read, written into this lock: each check allocates to the span since the prior anchor; close covers the last span. Pasture DMI is per span, so it can vary across the event, including multiple grazing sub-move windows sharing one stored-feed anchor.)
+
 ### Real-data finding — D/E-5 “July hay” (Build / Orchestrator **t1136u**)
 
 The hay that shows on D / E-5 as “July hay” is **not** new summer hay. It is **Move-wizard carryover** of May Corral Alfalfa Small Squares (**7** physical square bales). Synthetic deliveries are dated to the move/open with a `source_event_id` chain; batch `sum_delivery_qty` is inflated **7→21** (the same physical bales counted three times across the chain).
@@ -31,16 +37,16 @@ This is exactly Tim’s **t1134u** opening-carryover path: feed moved from a pri
 - Move-feed / `source_event_id` **synthetic** deliveries dated to move/open, versus
 - **Physical new** deliveries on this event.
 
-If the F1 hay pool naively sums delivery quantity across events that re-record the same carryover, the same 7 bales become 21. Tim’s lock must decide how the pool avoids that triple-count. Design does **not** invent his answer — see axis **Cv**.
+If the F1 hay pool naively sums delivery quantity across events that re-record the same carryover, the same 7 bales become 21. Locked **Cv1** avoids that triple-count: count opening carryover once + net new physical deliveries only.
 
-### Core rule to lock (plain language)
+### Core rule (LOCKED)
 
 At close, when feed checks imply pasture:
 
 - **Opening anchor** = carried-over feed captured at event open (**zero if none**). That capture is the Move-wizard / prior-event path in **t1134u** / **t1136u**.
-- **Hay pool for the event** = opening carryover + **net new** deliveries − close remaining, allocated across the whole event — subject to **Cv** (do not triple-count synthetic move-dated deliveries that duplicate the opening capture).
-- **Pasture DMI** = estimated demand − hay actually fed (that pool).
-- **No** opening mid-check / prior mid-check is required for those days to be **known** under F1.
+- **Hay pool for the event** = opening carryover + **net new** deliveries − close remaining, allocated across the event — **Cv1** (do not triple-count synthetic move-dated deliveries that duplicate the opening capture).
+- **Pasture DMI** is **per span** = estimated demand − hay actually fed (that span’s pool). A mid-check allocates to the span since the prior anchor; close covers the last span (**Mc1**, Tim **t1153u**). Pasture DMI may vary across the event.
+- **No** opening mid-check / prior mid-check is required for those days to be **known** under F1 (**Al1**).
 
 OI-0246 **F1** (subtract hay eaten when measured; do not invent eaten; do not use raw deliveries as eaten) and OI-0253 **C0** (column still goes “—” when an in-window hay day is unknown) stay in force. This OI only amends **when** hay eaten is measured / the day is known. Locked **L1** (floor implied pasture DMI at 0 per event-day) still applies — do not invent a negative pasture DMI if hay fed exceeds demand.
 
@@ -52,15 +58,16 @@ OI-0246 **F1** (subtract hay eaten when measured; do not invent eaten; do not us
 - Measuring missing DM on batches (ops).
 - Rewriting historical Move-wizard rows / fixing stored `sum_delivery_qty` (this OI is calc-path provenance for F1, not a data rewrite) unless Tim later asks.
 - Any SQL / new column.
+- How one hay-check span’s pool splits across several concurrent or sequential grazing sub-move windows for **per-window** pasture DMI — **open follow-up**, not blocking this lock (see §3).
 
-## 2. Lock axes (PROPOSED — Design lean marked)
+## 2. Lock axes (LOCKED)
 
 ### **Al** — Anchor / when hay days become known
 
 | Token | Meaning |
 |---|---|
-| **Al1** (rec) | Opening carryover captured at open (**zero if none**) + net new deliveries + close (or close inventory) is enough. Hay fed is that pool, allocated across the event (how deliveries are counted is **Cv**). Days in that span are **known** for F1. No mid-check required. Fixes Tim’s blank columns. |
-| **Al0** | Keep today’s dual feed-check anchor only (delivery + close alone stays unknown). Does **not** match Tim. |
+| **Al1** (locked) | Opening carryover captured at open (**zero if none**) + net new deliveries + close (or close inventory) is enough. Hay fed is that pool, allocated across the event (how deliveries are counted is **Cv1**). Days in that span are **known** for F1. No mid-check required. Fixes Tim’s blank columns. |
+| **Al0** | Keep today’s dual feed-check anchor only (delivery + close alone stays unknown). **Not chosen.** |
 
 **Al1** wording includes Tim **t1134u**: the opening anchor is carryover from a prior event captured at open, not a required mid-event feed check. If nothing was moved in, opening carryover is zero. That opening capture is the same Move-wizard path seen on D/E-5 (**t1136u**).
 
@@ -68,35 +75,35 @@ OI-0246 **F1** (subtract hay eaten when measured; do not invent eaten; do not us
 
 | Token | Meaning |
 |---|---|
-| **Pd1** (rec) | Pasture DMI = estimated demand − hay actually fed (Tim **t1129u**). Existing **L1** floor at 0 still applies. |
-| **Pd0** | Leave pasture inference as today once hay is known. |
+| **Pd1** (locked) | Pasture DMI = estimated demand − hay actually fed (Tim **t1129u**), **per span** (Tim **t1153u**). Existing **L1** floor at 0 still applies. |
+| **Pd0** | Leave pasture inference as today once hay is known. **Not chosen.** |
 
 ### **Mc** — Mid-checks when they exist
 
 | Token | Meaning |
 |---|---|
-| **Mc1** (rec) | Where mid-event feed checks exist, they still carve day shares (current `elapsedDayShares`). Close-allocation fills gaps / spans that lack dual anchors. |
-| **Mc0** | Close-span allocation always wins even when mid-checks exist. |
+| **Mc1** (locked) | Each mid-event feed check allocates to the span since the prior anchor; close / the final check covers the last span (the period between the last check and the close). Hay days in those spans are known. Pasture DMI is **per span** and may vary across the event — it may fall over the course of an event in one paddock, or go up and down across moves when one stored-feed anchor (bale grazing a paddock) is shared by multiple open-and-close grazing sub-move windows. We do **not** store DMI per day after a mid-check (Tim **t1153u**). |
+| **Mc0** | Close-span allocation always wins even when mid-checks exist. **Not chosen.** |
 
-Do **not** invent a new mid-check formula. **Mc1** reuses today’s elapsed-time shares between existing checks; the new close-allocation uses the same elapsed-time share method, with opening carryover (zero if none) and close remaining as the anchors, when a span lacks two mid-check anchors.
+Do **not** invent a new mid-check formula beyond that span rule. **Mc1** still reuses today’s elapsed-time shares between existing anchors; the new close-allocation uses the same elapsed-time share method, with opening carryover (zero if none) and close remaining as the anchors, for the last span (and for a span that lacks two mid-check anchors).
 
 ### **Mx** — Mixed with OI-0256 Mx1 (`no_pasture` windows)
 
-OI-0256 **Mx1** is locked on the **separate** 0254–0257 tip: omit a `no_pasture` window from pasture DMI/AUD inference (infer pasture from other open windows); that window still participates in NPK and is **Mt1** (known Pasture 0) on itself. This axis is how close-allocation should meet that rule.
+OI-0256 **Mx1** is locked on the **separate** 0254–0257 tip: omit a `no_pasture` window from pasture DMI/AUD inference (infer pasture from other open windows); that window still participates in NPK and is **Mt1** (known Pasture 0) on itself. This axis is how close-allocation meets that rule.
 
 | Token | Meaning |
 |---|---|
-| **Mx-a** (rec) | Allocate hay / infer pasture DMI only across **non-`no_pasture`** open windows. `no_pasture` windows stay **Mt1** (known Pasture 0) and still get NPK per Mx1. |
-| **Mx-b** | Allocate across all windows first, then apply Mx1 zeroing on `no_pasture` (risk of double-counting — ask Tim). |
+| **Mx-a** (locked) | Allocate hay / infer pasture DMI only across **non-`no_pasture`** open windows. `no_pasture` windows stay **Mt1** (known Pasture 0) and still get NPK per Mx1. |
+| **Mx-b** | Allocate across all windows first, then apply Mx1 zeroing on `no_pasture` (risk of double-counting). **Not chosen.** |
 
-### **Cv** — Carryover provenance / triple-count (open Q)
+### **Cv** — Carryover provenance / triple-count
 
-Real data (**t1136u**): Move-wizard carryover writes synthetic deliveries dated to move/open with a `source_event_id` chain. Summing delivery qty across that chain inflated 7 physical bales to 21. Do **not** invent Tim’s answer — this axis is for him to lock.
+Real data (**t1136u**): Move-wizard carryover writes synthetic deliveries dated to move/open with a `source_event_id` chain. Summing delivery qty across that chain inflated 7 physical bales to 21.
 
 | Token | Meaning |
 |---|---|
-| **Cv1** (rec) | F1 hay pool = opening carryover qty **once** + **net new physical deliveries only** − close remaining. Do **not** also sum synthetic Move-wizard / `source_event_id` deliveries that re-record the same opening capture. |
-| **Cv2** | Some other rule that also does **not** triple-count (Tim to specify — Design will not invent one). |
+| **Cv1** (locked) | F1 hay pool = opening carryover qty **once** + **net new physical deliveries only** − close remaining. Do **not** also sum synthetic Move-wizard / `source_event_id` deliveries that re-record the same opening capture. |
+| **Cv2** | Some other rule that also does **not** triple-count. **Not chosen.** |
 
 Naive “sum all delivery rows on the event / batch, including synthetic move-dated copies” is **not** offered: it recreates the 7→21 inflation and does not match “capture carryover at open.”
 
@@ -104,35 +111,34 @@ Naive “sum all delivery rows on the event / batch, including synthetic move-da
 
 | Token | Meaning |
 |---|---|
-| **D0** (standing) | No SQL / no new column. Calc path only. |
+| **D0** (standing, locked) | No SQL / no new column. Calc path only. |
 
-## 3. Design lean
+## 3. Locked package
 
-**PROPOSED lean: Al1+Pd1+Mc1+Mx-a+Cv1+D0**
+**LOCKED: Al1+Pd1+Mc1+Mx-a+Cv1+D0** (Tim **t1153u**, ~11:11 AM ET, answering card **t1149s4474**, via Orchestrator).
 
 - Matches Tim **t1129u** (allocate hay fed across the event at close; pasture DMI = demand − hay fed) and **t1134u** (opening feed is prior-event carryover captured at open, else zero).
-- **Cv1** is the Design rec against the D/E-5 real data (count the 7 bales once as opening carryover; add only new physical deliveries; subtract close remaining). It is **not locked** until Tim picks.
+- **Cv1** is locked against the D/E-5 real data (count the 7 bales once as opening carryover; add only new physical deliveries; subtract close remaining).
+- **Mc1** is locked with Tim’s **t1153u** span clarification: each check allocates to the span since the prior anchor; close covers the last span; pasture DMI is per span and may vary, including multiple grazing sub-move windows sharing one stored-feed anchor (bale grazing). We do not store DMI per day after a mid-check.
+- **Mx-a** is locked: allocate / infer only across non-`no_pasture` open windows.
 - Does not reopen OI-0253 **C0** or OI-0246 **F1**’s “don’t invent eaten / don’t use raw deliveries as eaten.”
-- **Mc**, **Mx**, and **Cv** are real open questions for Tim (see below). Lean is marked; do not treat them as locked until he picks.
 
-### Open questions (do not invent)
+### Open follow-up (does **not** block this LOCKED stamp)
 
-1. **Mid-checks:** if mid-event feed checks exist, should they still carve day shares (**Mc1**, lean), or should the close-span allocation always win (**Mc0**)?
-2. **Mixed / OI-0256 Mx1:** should hay allocation and pasture inference run only across non-`no_pasture` open windows (**Mx-a**, lean), or allocate across all windows first and then zero the `no_pasture` window (**Mx-b**, risk of double-counting)?
-3. **Carryover / triple-count:** should the F1 pool use opening carryover once + net new physical deliveries only, excluding synthetic move-dated `source_event_id` deliveries that duplicate the opening capture (**Cv1**, lean), or some other rule that also does not triple-count (**Cv2**, Tim specifies)?
+How one hay-check span’s pool splits across several **concurrent or sequential grazing sub-move windows** for **per-window** pasture DMI (for example, one stored-feed anchor shared by multiple grazing sub-move windows). Design will **not** guess day-share vs demand-share vs event-level hay. Orchestrator is carding Tim separately if needed.
 
 No other mid-check, sub-move, or delivery-sum formula is proposed here.
 
-## 4. Acceptance (when locked and built)
+## 4. Acceptance (when built)
 
 1. A closed event with opening carryover (or zero), net new deliveries, and close remaining, and no mid-checks, has **known** hay days across the event (**Al1**) — Locations D / E-5 / F-1/2/3 no longer blank solely for lack of a prior mid-check.
-2. Hay fed for that span follows the locked **Cv** pool (lean **Cv1**: opening carryover once + net new physical deliveries − close remaining); pasture DMI = estimated demand − that hay fed (**Pd1**), floored at 0 per locked **L1**.
-3. If **Cv1** is locked: the D/E-5 May Corral Alfalfa Small Squares carryover counts as **7** bales on the receiving event, not **21**. Synthetic Move-wizard / `source_event_id` deliveries that duplicate the opening capture are not added again.
-4. Mid-event feed checks, when present, still carve day shares if **Mc1** is locked; close-allocation fills only the unanchored gaps.
-5. If **Mx-a** is locked: `no_pasture` windows are omitted from this hay/pasture allocation, stay known Pasture 0 (**Mt1**), and still participate in NPK (OI-0256 **Mx1**).
+2. Hay fed for that span follows the locked **Cv1** pool (opening carryover once + net new physical deliveries − close remaining); pasture DMI = estimated demand − that hay fed (**Pd1**), floored at 0 per locked **L1**, and is **per span**.
+3. The D/E-5 May Corral Alfalfa Small Squares carryover counts as **7** bales on the receiving event, not **21**. Synthetic Move-wizard / `source_event_id` deliveries that duplicate the opening capture are not added again.
+4. Mid-event feed checks, when present, allocate to the span since the prior anchor (**Mc1**); close covers the last span. Pasture DMI may vary across those spans, including multiple grazing sub-move windows sharing one stored-feed anchor. The open follow-up on how one hay-check span’s pool splits across those sub-move windows for per-window DMI is **not** required to close this acceptance.
+5. `no_pasture` windows are omitted from this hay/pasture allocation, stay known Pasture 0 (**Mt1**), and still participate in NPK (OI-0256 **Mx1**) (**Mx-a**).
 6. OI-0253 **C0** still nulls the season column when an **in-window** hay day remains unknown for another reason (e.g. missing DM on the batch).
 7. No new migration / no new column (**D0**). If Build finds a real schema gap, stop and ask; do not invent a column.
 
 ## 5. Tip instruction
 
-**PROPOSED** — Design lean **Al1+Pd1+Mc1+Mx-a+Cv1+D0**. Awaiting Tim lock. **Do not land on main.** **Do not open a PR.** Never force-push. This tip is **separate** from `docs/oi-0254-0257-feedback-batch`. Never edit `src/`, `tests/`, or `supabase/` on this docs tip. Base is `origin/main` `da22c6d` (post-#135).
+**LOCKED / READY FOR BUILD** — **Al1+Pd1+Mc1+Mx-a+Cv1+D0** (Tim **t1153u**, card **t1149s4474**). **Do not land on main.** **Do not open a PR.** Never force-push. This tip is **separate** from `docs/oi-0254-0257-feedback-batch`. Never edit `src/`, `tests/`, or `supabase/` on this docs tip. Base is `origin/main` `da22c6d` (post-#135).

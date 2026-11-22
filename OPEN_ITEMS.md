@@ -54,6 +54,7 @@
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 | OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~7:18 AM ET (Tim, via Orchestrator, card **t759s3139**) — **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Design rec on tip `070af6c`. Rams↔ewes, bucks(billies)↔does; widen Open; Gs1 per-species protocol; **M0** widen migration **047 before apply**; Animals **Preg check settings** dialog (Ps0). After docs land; 047 apply = separate Tim yes+backup; no exposure-row write (F0). [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
 | OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). Docs tip `dc90185` now on main. After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
+| OI-0248 | Missing-weight indicator on animals + conditional filter pill | **PROPOSED** 2026-11-22 ~5:59 AM ET (Tim, via Orchestrator, **t866u** ~5:54 AM ET). Badge when an animal has no recorded weight; a “Missing weight” filter pill appears only when ≥1 active animal is missing a weight. Design rec **Ib+Mw+Aa+Pf+Pa+Pl+Sp**. No SQL. Separate from OI-0246 list-parity / metrics. [brief](session_briefs/MISSING_WEIGHT_INDICATOR_2026-11-22.md) |
 | OI-0247 | Farm Settings season-default dates (per-farm start/end month-day) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~5:37 AM ET (Tim, via Orchestrator, card **t841s3483**, direction **Db**). Per-farm Settings start/end month-day on `farm_settings` (Nov 17 Q5). Settings → Farm Settings editors; Locations “Season default” and feed budget period share one setting; viewing does not write the default. Docs landed on main `4b95c55`. Apply = separate Tim yes + verified backup (docs land ≠ apply). **Not** part of OI-0246 list-parity (**La+Ta+Cb+Rb+Pb**). Hard-coded Oct 1–Sep 30 until apply. [brief](session_briefs/FARM_SETTINGS_SEASON_DEFAULT_2026-11-22.md) |
 | OI-0246 | Locations + rotation management surface (metrics + fix/integrate rotation calendar) | **SPEC LOCKED / READY FOR BUILD** — parent **t784s3247** **AGREED(W1+M0+A1+N1+S0+D0+X1)+U0+F0+T0+C1+P1**; **list-parity + persist** **La+Ta+Cb+Rb+Pb** (t835s3460 / t841s3483); **season-metrics formula** **S1+F1(DMI)+L1+H0+C1+Z1** + NPK **Ns+R1+Kc** (t849s3511 / t862s3559). List = Locations tools + season metrics; explicit Edit (no List name-click); Calendar click unchanged; keep `#/locations`; this-browser `localStorage` for the metric window. DMI/AUDs/NPK split day×acres while open; DMI subtracts measured hay eaten; NPK adds residual-feed NPK via existing `feed_types`/`batch_nutritional_profiles` percents (**no GATE / no new column**); class rates head×weight×days×NRCS. **D0** no SQL. **Db** is **OI-0247** (docs on main `4b95c55`; apply still separate) — not this tip. Live code `52540a3`. Docs branch `docs/oi-0246-list-parity` on main `4b95c55` — land only after Tim land yes. [brief](session_briefs/LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md) |
 
@@ -190,6 +191,25 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 
 
+
+### OI-0248 — Missing-weight indicator + conditional filter
+
+**Status:** **PROPOSED** (opened 2026-11-22 ~5:59 AM ET from Tim’s ask **t866u**, ~5:54 AM ET, via Orchestrator). Docs tip only — not locked; not ready for Build until Tim locks the axes in the brief.
+**Priority:** Feature — make animals with no recorded weight easy to see and filter, after a Locations DMI “—” was traced to missing live weights.
+**Owner:** GTHO Design → Orchestrator (lock card) → GTHO Build after lock + docs land.
+**Brief:** [MISSING_WEIGHT_INDICATOR_2026-11-22.md](session_briefs/MISSING_WEIGHT_INDICATOR_2026-11-22.md)
+
+**Parent / base:** Forgejo `origin/main` `4b95c55fc9efa99a7cf75d8e63d9cb82ddd863ee` (compiled `RELEASED_SCHEMA_VERSION` **48**).
+
+**Design rec (not locked):** **Ib+Mw+Aa+Pf+Pa+Pl+Sp** — indicator on Animals list and Edit Animal; missing = no recorded weight on or before today (class default does not count); active (not culled) only; “Missing weight” pill appears farm-wide when ≥1 such active animal exists, ANDs with other Animals filters; all species. See brief §4 for the full option list (Iw/Id/Ib/Ix, Mw/Md/Ms, Aa/Ac, Pf/Pa/Pl, Sp/Sc).
+
+**Schema:** **None.** Display + filter on existing `animal_weight_records` and `animals.active`. No migration, no SQL, no backup gate.
+
+**Related:** OI-0096 (Current weight — / ⚖ Weight); OI-0236 (Animals filter cascade — this pill is an addition, not a reopen); DMI-9 §1.6 / `hasUnknownLiveWindowWeights` / Z1 (unknown metrics already show —; this OI does not change calc). **Not** part of OI-0246 list-parity or the metrics-split docs tip.
+
+**Origin:** t866u (~5:54 AM ET) via Orchestrator: “we should add a missing weight indicator on animals and also a conditional filter pill that only shows up as an option when there are active animals with missing weights present.”
+
+---
 
 ### OI-0247 — Farm Settings season-default dates
 
@@ -7698,6 +7718,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-22 | GTHO Design — docs only | Open OI-0248 PROPOSED missing-weight indicator + conditional “Missing weight” filter pill (t866u): Design rec Ib+Mw+Aa+Pf+Pa+Pl+Sp; no SQL; separate from OI-0246 list-parity / metrics. |
 | 2026-11-22 | GTHO Design — docs only | LOCK OI-0246 season-metrics formula S1+F1(DMI)+L1+H0+C1+Z1 + NPK Ns+R1+Kc (t849s3511 / t862s3559) stacked on list-parity La+Ta+Cb+Rb+Pb (t835s3460 / t841s3483) on main `4b95c55`. Day×acres split while open; DMI subtracts measured hay eaten; NPK adds residual-feed NPK from existing feed_types / batch_nutritional_profiles percents (no GATE / no new column); class rates head×weight×days×NRCS; never-present 0, missing = —. D0 no SQL. Db remains OI-0247. |
 | 2026-11-22 | GTHO Design — docs only | Restack OI-0246 list-parity + season persist addendum (t835s3460 La+Ta+Cb+Rb; t841s3483 Pb) onto main after OI-0247 land `4b95c55`. List replicates Locations tools + season metrics; explicit Edit, no List name-click; Calendar click unchanged; keep #/locations; localStorage metric window. D0 no SQL. Db is OI-0247 (docs on main; apply still separate). Parent lock t784s3247 / tip ea481a2; live code 52540a3. |
 | 2026-11-22 | GTHO Design — docs only | LOCK OI-0247 SPEC LOCKED / READY FOR BUILD (t841s3483, Db): per-farm Settings season-default start/end month-day on `farm_settings`. Docs land ≠ apply — apply still needs verified backup + separate Tim yes. Not part of OI-0246 list-parity (La+Ta+Cb+Rb+Pb). Hard-coded Oct 1–Sep 30 until apply. Locked from tip 8b04dc8; docs landed on main 4b95c55. |

@@ -250,6 +250,99 @@ describe('computeLocationMetrics', () => {
     expect(withResidual.auds).toBeCloseTo(base.auds, 5);
   });
 
+  it('Al1: delivery + close (no mid-check) makes hay days known and reduces pasture DMI', () => {
+    const none = computeLocationMetrics(loc, baseCtx);
+    const withClose = computeLocationMetrics(loc, {
+      ...baseCtx,
+      feedEntries: [{
+        id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-01',
+        quantity: 4, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        kind: 'inventory_feeding', feedTypeId: 'hay',
+      }],
+      feedChecks: [
+        { id: 'fcClose', eventId: 'ev1', date: '2026-10-10', time: '08:00', isCloseReading: true },
+      ],
+      feedCheckItems: [{
+        id: 'fci', feedCheckId: 'fcClose', locationId: 'loc1', feedTypeId: 'hay', batchId: null,
+        remainingQuantity: 0, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+      }],
+      feedTypes: [{ id: 'hay', unit: 'bale', nPct: 1.5, pPct: 0.2, kPct: 1.0, dmPct: 80 }],
+    });
+    expect(withClose.dmiKg).not.toBeNull();
+    expect(withClose.dmiKnown).toBe(true);
+    expect(withClose.dmiKg).toBeGreaterThanOrEqual(0);
+    expect(withClose.dmiKg).toBeLessThan(none.dmiKg);
+    expect(withClose.storedFeedDmiKg).toBeGreaterThan(0);
+  });
+
+  it('Cv1: duplicate synthetic carryover counts once on the receiving event', () => {
+    const synth = (id) => ({
+      id, eventId: 'ev1', locationId: 'loc1', date: '2026-10-01',
+      quantity: 7, sourceEventId: 'ev0', kind: 'pool_carry',
+      weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80, feedTypeId: 'hay',
+    });
+    const once = computeLocationMetrics(loc, {
+      ...baseCtx,
+      feedEntries: [synth('one')],
+      feedChecks: [
+        { id: 'fcClose', eventId: 'ev1', date: '2026-10-10', time: '08:00', isCloseReading: true },
+      ],
+      feedCheckItems: [{
+        id: 'fci', feedCheckId: 'fcClose', locationId: 'loc1', feedTypeId: 'hay', batchId: null,
+        remainingQuantity: 0, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+      }],
+      feedTypes: [{ id: 'hay', unit: 'bale', dmPct: 80 }],
+    });
+    const triple = computeLocationMetrics(loc, {
+      ...baseCtx,
+      feedEntries: [synth('a'), synth('b'), synth('c')],
+      feedChecks: [
+        { id: 'fcClose', eventId: 'ev1', date: '2026-10-10', time: '08:00', isCloseReading: true },
+      ],
+      feedCheckItems: [{
+        id: 'fci', feedCheckId: 'fcClose', locationId: 'loc1', feedTypeId: 'hay', batchId: null,
+        remainingQuantity: 0, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+      }],
+      feedTypes: [{ id: 'hay', unit: 'bale', dmPct: 80 }],
+    });
+    expect(once.dmiKg).not.toBeNull();
+    expect(triple.dmiKg).toBeCloseTo(once.dmiKg, 5);
+    expect(triple.storedFeedDmiKg).toBeCloseTo(once.storedFeedDmiKg, 5);
+  });
+
+  it('Mx-a: no_pasture windows get 0 pasture DMI and do not take hay share', () => {
+    const locG = { id: 'locG', name: 'Graze', type: 'land', landUse: 'pasture', areaHectares: 4 };
+    const locN = { id: 'locN', name: 'Corral', type: 'land', landUse: 'pasture', areaHectares: 4 };
+    const ctx = {
+      ...baseCtx,
+      locations: [locG, locN],
+      paddockWindows: [
+        { id: 'pwG', eventId: 'ev1', locationId: 'locG', dateOpened: '2026-10-01', dateClosed: '2026-10-10', areaPct: 100 },
+        { id: 'pwN', eventId: 'ev1', locationId: 'locN', dateOpened: '2026-10-01', dateClosed: '2026-10-10', areaPct: 100, noPasture: true },
+      ],
+      feedEntries: [{
+        id: 'fe1', eventId: 'ev1', locationId: 'locG', date: '2026-10-01',
+        quantity: 4, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+        kind: 'inventory_feeding', feedTypeId: 'hay',
+      }],
+      feedChecks: [
+        { id: 'fcClose', eventId: 'ev1', date: '2026-10-10', time: '08:00', isCloseReading: true },
+      ],
+      feedCheckItems: [{
+        id: 'fci', feedCheckId: 'fcClose', locationId: 'locG', feedTypeId: 'hay', batchId: null,
+        remainingQuantity: 0, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80,
+      }],
+      feedTypes: [{ id: 'hay', unit: 'bale', dmPct: 80 }],
+    };
+    const graze = computeLocationMetrics(locG, ctx);
+    const none = computeLocationMetrics(locN, ctx);
+    expect(graze.dmiKg).not.toBeNull();
+    expect(graze.storedFeedDmiKg).toBeGreaterThan(0);
+    expect(none.dmiKg).toBe(0);
+    expect(none.storedFeedDmiKg).toBe(0);
+    expect(none.dmiKnown).toBe(true);
+  });
+
   it('does not null DMI when a peer location has unknown weights (event-scoped check)', () => {
     const locGood = { id: 'locGood', name: 'J3-4', type: 'land', landUse: 'pasture', areaHectares: 4 };
     const locBad = { id: 'locBad', name: 'Peer', type: 'land', landUse: 'pasture', areaHectares: 4 };

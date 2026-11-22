@@ -406,6 +406,8 @@ describe('OI-0102 writes', () => {
     expect(sel.value).toBe(NORTH);
     sel.value = SOUTH;
     sel.dispatchEvent(new Event('change'));
+    const remainingInput = document.querySelector('[data-testid^="move-wizard-residual-input-"]');
+    remainingInput.value = '10';
     document.querySelector('[data-testid="move-wizard-save"]').click();
     expect(document.querySelector('[data-testid="move-wizard-save-error-toast"]')).toBeNull();
 

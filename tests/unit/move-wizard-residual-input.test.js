@@ -1,13 +1,14 @@
 // Historical batch-row UI/API regression fixture. Released pool forms run
 // unmocked in manual-feed-pools and manual-pool-chart-refresh.
 vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 41 }));
-/** @file OI-0135 + OI-0136 — move-wizard forced residual input + live-remaining
- * wiring. Drives the real move-wizard DOM and verifies:
- *   - Step 3 "remaining: N unit" label reads live-remaining (most-recent check)
- *   - Move writes quantity = live-remaining to destination
- *   - Residual with blank/negative input blocks Save
+/** @file OI-0135 + OI-0136 + OI-0259 — move-wizard Step 3 close-check input
+ * + live-remaining hint. Drives the real move-wizard DOM (schema 41 / legacy
+ * entries) and verifies:
+ *   - Step 3 Delivered/Started hint reads live-remaining (most-recent check)
+ *   - Remaining input is visible for both Move and Residual and starts blank
+ *   - Blank / NaN / neg remaining blocks Save on both choices
+ *   - Move writes destination quantity = entered remaining (not live total)
  *   - Residual with valid farmer-corrected input writes the entered value
- *   - Move selection hides the residual input (no regression)
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { _reset, add, getAll } from '../../src/data/store.js';
@@ -123,48 +124,54 @@ function driveToStep3() {
 describe('move-wizard OI-0135 live-remaining wiring', () => {
   beforeEach(seedBase);
 
-  it('Step 3 "remaining: N unit" label reads live-remaining (most-recent check)', () => {
+  it('Step 3 Delivered hint reads live-remaining (most-recent check)', () => {
     seedFeed({ delivered: 10, checkRemaining: 4 });
     driveToStep3();
-    const label = document.querySelector(`[data-testid="move-wizard-transfer-label-${BATCH}-${SRC_LOC}"]`);
-    expect(label).toBeTruthy();
-    expect(label.textContent).toMatch(/remaining: 4/);
-    expect(label.textContent).not.toMatch(/remaining: 10/);
+    const hint = document.querySelector(`[data-testid="move-wizard-remaining-hint-${BATCH}-${SRC_LOC}"]`);
+    expect(hint).toBeTruthy();
+    expect(hint.textContent).toMatch(/Delivered:\s*4/);
+    expect(hint.textContent).not.toMatch(/Delivered:\s*10/);
   });
 
-  it('no prior check → label falls back to delivery total', () => {
+  it('no prior check → hint falls back to delivery total', () => {
     seedFeed({ delivered: 10, checkRemaining: null });
     driveToStep3();
-    const label = document.querySelector(`[data-testid="move-wizard-transfer-label-${BATCH}-${SRC_LOC}"]`);
-    expect(label.textContent).toMatch(/remaining: 10/);
+    const hint = document.querySelector(`[data-testid="move-wizard-remaining-hint-${BATCH}-${SRC_LOC}"]`);
+    expect(hint.textContent).toMatch(/Delivered:\s*10/);
   });
 
-  it('Move with prior check writes live-remaining to destination feed entry, not delivery total', () => {
+  it('Move writes entered remaining to destination, not live or delivery total', () => {
     seedFeed({ delivered: 10, checkRemaining: 4 });
     driveToStep3();
-    // Move radio is the default — just save.
+    const input = document.querySelector(`[data-testid="move-wizard-residual-input-${BATCH}-${SRC_LOC}"]`);
+    input.value = '3';
     document.querySelector('[data-testid="move-wizard-save"]').click();
     const newEntries = getAll('eventFeedEntries').filter(e => e.eventId !== EVT);
     expect(newEntries).toHaveLength(1);
-    expect(Number(newEntries[0].quantity)).toBe(4);
+    expect(Number(newEntries[0].quantity)).toBe(3);
+    expect(newEntries[0].sourceEventId).toBe(EVT);
   });
 });
 
 describe('move-wizard OI-0136 forced residual input', () => {
   beforeEach(seedBase);
 
-  it('Residual radio reveals the required input, prefilled with live-remaining', () => {
+  it('Remaining input is visible for Move and Residual and starts blank (no live prefill)', () => {
     seedFeed({ delivered: 10, checkRemaining: 4 });
     driveToStep3();
     const testId = `move-wizard-residual-input-${BATCH}-${SRC_LOC}`;
     const input = document.querySelector(`[data-testid="${testId}"]`);
     expect(input).toBeTruthy();
-    expect(input.value).toBe('4');
-    // Initially hidden (Move is default).
-    expect(input.offsetParent === null || input.closest('div').style.display === 'none').toBe(true);
+    expect(input.value).toBe('');
+    const wrap = document.querySelector(`[data-testid="move-wizard-remaining-hint-${BATCH}-${SRC_LOC}"]`).parentElement;
+    expect(wrap.style.display).not.toBe('none');
 
     document.querySelector(`[data-testid="move-wizard-transfer-residual-${BATCH}-${SRC_LOC}"]`).click();
-    expect(input.closest('div').style.display).toBe('');
+    expect(input.value).toBe('');
+    expect(wrap.style.display).not.toBe('none');
+
+    document.querySelector(`[data-testid="move-wizard-transfer-move-${BATCH}-${SRC_LOC}"]`).click();
+    expect(wrap.style.display).not.toBe('none');
   });
 
   it('Residual with blank input blocks Save', () => {
@@ -177,7 +184,7 @@ describe('move-wizard OI-0136 forced residual input', () => {
     input.value = '';
     document.querySelector('[data-testid="move-wizard-save"]').click();
     const status = document.querySelector('[data-testid="move-wizard-status"]');
-    expect(status.textContent).toMatch(/remaining for every residual/i);
+    expect(status.textContent).toMatch(/remaining for every leftover stored-feed/i);
     // No new close-reading check + items written, no destination event.
     expect(getAll('eventFeedCheckItems').length).toBe(itemsBefore);
     expect(getAll('eventFeedChecks').length).toBe(checksBefore);
@@ -193,11 +200,11 @@ describe('move-wizard OI-0136 forced residual input', () => {
     input.value = '-1';
     document.querySelector('[data-testid="move-wizard-save"]').click();
     const status = document.querySelector('[data-testid="move-wizard-status"]');
-    expect(status.textContent).toMatch(/remaining for every residual/i);
+    expect(status.textContent).toMatch(/remaining for every leftover stored-feed/i);
     expect(getAll('eventFeedCheckItems').length).toBe(itemsBefore);
   });
 
-  it('Residual with farmer-corrected input writes the entered value, not the prefilled default', () => {
+  it('Residual with farmer-entered remaining writes the entered value', () => {
     seedFeed({ delivered: 10, checkRemaining: 4 });
     driveToStep3();
     document.querySelector(`[data-testid="move-wizard-transfer-residual-${BATCH}-${SRC_LOC}"]`).click();
@@ -215,16 +222,34 @@ describe('move-wizard OI-0136 forced residual input', () => {
     expect(destEntries).toHaveLength(0);
   });
 
-  it('Move selection has the residual input hidden and Save proceeds without reading it (no regression)', () => {
+  it('Move with blank remaining blocks Save (OI-0259)', () => {
     seedFeed({ delivered: 10, checkRemaining: 4 });
+    const eventsBefore = getAll('events').length;
     driveToStep3();
-    // Explicitly click Move (it's the default, but exercise the change handler too).
     document.querySelector(`[data-testid="move-wizard-transfer-move-${BATCH}-${SRC_LOC}"]`).click();
     const input = document.querySelector(`[data-testid="move-wizard-residual-input-${BATCH}-${SRC_LOC}"]`);
-    // Even if the input had a blank value, Save must not block — it's hidden.
     input.value = '';
     document.querySelector('[data-testid="move-wizard-save"]').click();
-    // Destination event created successfully.
-    expect(getAll('events').filter(e => e.id !== EVT)).toHaveLength(1);
+    const status = document.querySelector('[data-testid="move-wizard-status"]');
+    expect(status.textContent).toMatch(/remaining for every leftover stored-feed/i);
+    expect(getAll('events')).toHaveLength(eventsBefore);
+  });
+
+  it('Move with NaN or negative remaining blocks Save', () => {
+    seedFeed({ delivered: 10, checkRemaining: 4 });
+    const eventsBefore = getAll('events').length;
+    driveToStep3();
+    const input = document.querySelector(`[data-testid="move-wizard-residual-input-${BATCH}-${SRC_LOC}"]`);
+    input.value = 'abc';
+    document.querySelector('[data-testid="move-wizard-save"]').click();
+    expect(document.querySelector('[data-testid="move-wizard-status"]').textContent)
+      .toMatch(/remaining for every leftover stored-feed/i);
+    expect(getAll('events')).toHaveLength(eventsBefore);
+
+    input.value = '-1';
+    document.querySelector('[data-testid="move-wizard-save"]').click();
+    expect(document.querySelector('[data-testid="move-wizard-status"]').textContent)
+      .toMatch(/remaining for every leftover stored-feed/i);
+    expect(getAll('events')).toHaveLength(eventsBefore);
   });
 });

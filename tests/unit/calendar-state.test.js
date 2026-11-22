@@ -15,6 +15,8 @@ import {
   readStateFromUrl,
   resetCalendarState,
   clearStoredMetricWindow,
+  setMetricsCollapsed,
+  toggleMetricsCollapsed,
 } from '../../src/features/events/calendar-state.js';
 
 describe('calendar-state', () => {
@@ -32,6 +34,7 @@ describe('calendar-state', () => {
       expect(s.period).toBeNull();
       expect(s.showConfinement).toBe(false);
       expect(s.view).toBe('calendar');
+      expect(s.metricsCollapsed).toBe(false); // OI-0254 Cm1a
     });
 
     it('defaults to estimated view mode', () => {
@@ -249,5 +252,27 @@ describe('Pb metric window localStorage', () => {
     expect(JSON.parse(localStorage.getItem('gtho_v2_locations_metric_window'))).toEqual({
       start: '2026-01-01', end: '2026-06-30',
     });
+  });
+});
+
+describe('OI-0254 metrics collapse (Cm1+Cm1a)', () => {
+  beforeEach(() => {
+    resetCalendarState();
+    window.location.hash = '#/events';
+  });
+
+  it('defaults expanded and toggles in session only', () => {
+    expect(getCalendarState().metricsCollapsed).toBe(false);
+    toggleMetricsCollapsed();
+    expect(getCalendarState().metricsCollapsed).toBe(true);
+    setMetricsCollapsed(false);
+    expect(getCalendarState().metricsCollapsed).toBe(false);
+  });
+
+  it('URL remount resets collapse to expanded (Cm1a)', () => {
+    setMetricsCollapsed(true);
+    window.location.hash = '#/events?zoom=month';
+    readStateFromUrl();
+    expect(getCalendarState().metricsCollapsed).toBe(false);
   });
 });

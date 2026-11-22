@@ -19,6 +19,8 @@ const DEFAULTS = {
   metricEnd: null,
   sortKey: 'name',
   sortDir: 'asc',
+  // OI-0254 Cm1+Cm1a: metrics column collapse; default expanded (session only).
+  metricsCollapsed: false,
 };
 
 const VALID_ZOOM = ['day', 'week', 'month', 'last90'];
@@ -109,6 +111,16 @@ export function setSort(key, dir) {
   syncUrl();
 }
 
+/** OI-0254 Cm1 — collapse/expand Rotation metrics column (session; not URL). */
+export function setMetricsCollapsed(collapsed) {
+  state = { ...state, metricsCollapsed: !!collapsed };
+}
+
+/** OI-0254 Cm1 — toggle; Cm1a default is expanded (false). */
+export function toggleMetricsCollapsed() {
+  state = { ...state, metricsCollapsed: !state.metricsCollapsed };
+}
+
 // ── URL serialization (§19.9) ─────────────────────────────────────
 
 function syncUrl() {
@@ -146,6 +158,8 @@ export function readStateFromUrl() {
       // Pb: restore remembered season window when hash has no query.
       metricStart: stored?.start || null,
       metricEnd: stored?.end || null,
+      // OI-0254 Cm1a: URL remount keeps default expanded.
+      metricsCollapsed: false,
     };
     return state;
   }
@@ -182,6 +196,8 @@ export function readStateFromUrl() {
     metricEnd: resolvedEnd,
     sortKey: sortKey || DEFAULTS.sortKey,
     sortDir: sortDir === 'desc' ? 'desc' : 'asc',
+    // OI-0254 Cm1a: collapse is session-only; URL read resets to expanded.
+    metricsCollapsed: false,
   };
 
   return state;

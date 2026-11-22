@@ -27,6 +27,7 @@ import { getEventStartDate } from '../event-start.js';
 import { getLiveWindowHeadCount } from '../../../calcs/window-helpers.js';
 import { resolveRange, dateToPx } from './timeline.js';
 import { renderPastBlock } from './past-block.js';
+import { openPastEventDetailSheet } from './past-event-detail-sheet.js';
 import { renderEstimatedFutureBlock, renderForecastFutureBlock } from './future-block.js';
 import { renderHeaderStrip } from './header-strip.js';
 import { renderToolbar } from './toolbar.js';
@@ -893,7 +894,7 @@ function renderManagementRow(opts) {
         isLinkedSecondary: !!linkedPaddocks[loc.id],
         linkedPrimaryName: linkedPaddocks[loc.id]?.name,
         eventId: event.id,
-        onClickBlock: () => navigate('#/events'),
+        onClickBlock: () => openPastEventDetailSheet({ eventId: event.id, paddockWindowId: pw.id }),
       }));
     }
   }

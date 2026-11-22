@@ -780,18 +780,19 @@ function renderManagementRow(opts) {
         return s + getLiveWindowHeadCount(gw, { memberships: allMemberships, animals: allAnimals, now: nowStr });
       }, 0);
 
-      // Wire real metrics into past block (retire zeros)
+      // Wire real metrics into past block (OI-0253 B1: unknown → null → "—", not 0)
       const audsLabel = m.audsKnown ? Math.round(m.auds) : null;
-      const dmiLabel = m.dmiKnown && m.dmiKg != null ? Math.round(m.dmiKg) : null;
+      const dmiKnownVal = m.dmiKnown && m.dmiKg != null;
+      const dmiLabel = dmiKnownVal ? Math.round(m.dmiKg) : null;
       blockArea.appendChild(renderPastBlock({
         leftPx,
         widthPx: pastWidthPx,
         groups: eventGroups,
         auds: audsLabel != null ? audsLabel : 0,
         days,
-        pasturePct: m.dmiKnown && m.dmiKg != null && m.dmiKg > 0 ? 100 : 0,
+        pasturePct: dmiKnownVal ? (m.dmiKg > 0 ? 100 : 0) : null,
         feedPct: 0,
-        dmi: dmiLabel != null ? dmiLabel : 0,
+        dmi: dmiLabel,
         headCount,
         isActive,
         isStripGraze: pw.isStripGraze || false,

@@ -43,6 +43,24 @@ function renderStripBands(strips) {
   return container;
 }
 
+
+/**
+ * Format past-block line 2 Pasture/Feed/DMI/Head.
+ * OI-0253 B1: null/non-finite pasturePct or dmi → "—" (never paint unknown as 0 / 0%).
+ * Known zero still renders 0 / 0%.
+ * @param {{ pasturePct: number|null|undefined, feedPct: number, dmi: number|null|undefined, headCount: number }} opts
+ * @returns {string}
+ */
+export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }) {
+  const pastureSeg = pasturePct == null || !Number.isFinite(Number(pasturePct))
+    ? 'Pasture —%'
+    : `Pasture ${Math.round(pasturePct)}%`;
+  const dmiSeg = dmi == null || !Number.isFinite(Number(dmi))
+    ? '— DMI'
+    : `${Math.round(dmi)} DMI`;
+  return `${pastureSeg} · Feed ${Math.round(feedPct)}% · ${dmiSeg} · ${headCount} hd`;
+}
+
 /**
  * Render a past event block.
  * @param {object} opts
@@ -51,9 +69,9 @@ function renderStripBands(strips) {
  * @param {Array<{id: string, name: string}>} opts.groups - Event groups
  * @param {number} opts.auds - AUDS value
  * @param {number} opts.days - Duration in days
- * @param {number} opts.pasturePct - Pasture percentage
+ * @param {number|null} opts.pasturePct - Pasture percentage; null/unknown → "—" (OI-0253 B1)
  * @param {number} opts.feedPct - Feed percentage
- * @param {number} opts.dmi - DMI value
+ * @param {number|null} opts.dmi - DMI value; null/unknown → "—" (OI-0253 B1)
  * @param {number} opts.headCount - Head count
  * @param {boolean} opts.isActive - Whether this is the currently-open event
  * @param {boolean} opts.isStripGraze - Whether strip-grazed
@@ -84,13 +102,13 @@ export function renderPastBlock({
   line1Parts.push(groupSpan);
   line1Parts.push(el('span', {}, [` · ${auds} AUDS · ${days}d`]));
 
-  // Line 2: Pasture/Feed/DMI/Head
+  // Line 2: Pasture/Feed/DMI/Head (OI-0253 B1: unknown → — not 0)
   const line2Parts = [];
   if (isLinkedSecondary) {
     line2Parts.push(el('span', {}, [`↳ linked to ${linkedPrimaryName || '—'}`]));
   } else {
     line2Parts.push(el('span', {}, [
-      `Pasture ${Math.round(pasturePct)}% · Feed ${Math.round(feedPct)}% · ${Math.round(dmi)} DMI · ${headCount} hd`,
+      formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }),
     ]));
     if (isStripGraze && stripNote) {
       line2Parts.push(el('span', { className: 'strip-note' }, [` · ${stripNote}`]));

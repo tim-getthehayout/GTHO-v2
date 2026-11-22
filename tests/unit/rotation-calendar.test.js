@@ -1,6 +1,6 @@
 /** @file Rotation calendar component tests — CP-54. */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildGroupLabel } from '../../src/features/events/rotation-calendar/past-block.js';
+import { buildGroupLabel, formatPastureFeedDmiLine } from '../../src/features/events/rotation-calendar/past-block.js';
 import { resolveRange, dateToPx } from '../../src/features/events/rotation-calendar/timeline.js';
 
 describe('rotation-calendar components', () => {
@@ -36,6 +36,32 @@ describe('rotation-calendar components', () => {
       ]);
       expect(result.text).toBe('Multiple Groups (3)');
       expect(result.tooltip).toBe('A, B, C');
+    });
+  });
+
+
+  describe('formatPastureFeedDmiLine — OI-0253 B1 unknown paint', () => {
+    it('shows — for Pasture% and DMI when unknown (null), not 0', () => {
+      const line = formatPastureFeedDmiLine({
+        pasturePct: null, feedPct: 0, dmi: null, headCount: 12,
+      });
+      expect(line).toBe('Pasture —% · Feed 0% · — DMI · 12 hd');
+      expect(line).not.toContain('Pasture 0%');
+      expect(line).not.toMatch(/(^|[^—])0 DMI/);
+    });
+
+    it('still shows known zero as 0 / 0%', () => {
+      const line = formatPastureFeedDmiLine({
+        pasturePct: 0, feedPct: 0, dmi: 0, headCount: 5,
+      });
+      expect(line).toBe('Pasture 0% · Feed 0% · 0 DMI · 5 hd');
+    });
+
+    it('shows known positive pasture as 100% with rounded DMI', () => {
+      const line = formatPastureFeedDmiLine({
+        pasturePct: 100, feedPct: 0, dmi: 98266.4, headCount: 40,
+      });
+      expect(line).toBe('Pasture 100% · Feed 0% · 98266 DMI · 40 hd');
     });
   });
 

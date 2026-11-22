@@ -3,6 +3,10 @@
  * LOCKED formula: S1+F1(DMI)+L1+H0+C1+Z1 with NPK Ns+R1+Kc.
  * W1 window, M0 columns, A1 totals+per-acre, N1 separate N/P/K, X1 pasture+mixed-use.
  * Unknowns are null (UI shows "—"), never silent 0. Never-present → known 0 (Z1).
+ * OI-0249 Zp+Gg: season DMI/NPK sum known group-weight slices and mark partial;
+ * dash only when nothing known remains. AUDs (Ua) and Score (Sc) unchanged.
+ * Closed snapshots trusted as stored (Rt). F1 unmeasured-hay and R1 residual
+ * unknowns stay season-sticky (list-parity locks not reopened).
  */
 
 import { getCalcByName } from '../../../utils/calc-registry.js';
@@ -10,7 +14,6 @@ import { daysBetweenInclusive, getLocalTodayStr, rowInstant } from '../../../uti
 import {
   getLiveWindowHeadCount,
   getLiveWindowAvgWeight,
-  hasUnknownLiveWindowWeights,
   groupWindowsDailyDemand,
   eventOpenOn,
 } from '../../../calcs/window-helpers.js';
@@ -374,6 +377,8 @@ export function computeLocationMetrics(location, ctx) {
     npkKnown: true,
     avgScore: null,
     scoreKnown: false,
+    dmiPartial: false,
+    npkPartial: false,
     eventCount: 0,
     dmiPerAcre: null,
     audsPerAcre: null,
@@ -395,10 +400,14 @@ export function computeLocationMetrics(location, ctx) {
   let pKg = 0;
   let kKg = 0;
   let eventIds = new Set();
-  let npkUnknown = false;
+  let npkKnownSlices = 0;
+  let npkUnknownSlices = 0;
+  let npkResidualUnknown = false; // R1 sticky
   let dmiKg = 0;
   let dmiDays = 0;
-  let dmiUnknown = false;
+  let dmiKnownSlices = 0;
+  let dmiUnknownSlices = 0;
+  let dmiHayUnknown = false; // F1 sticky
   let anyDemandDay = false;
 
   const classMap = Array.isArray(animalClasses)
@@ -465,11 +474,6 @@ export function computeLocationMetrics(location, ctx) {
         const liveAvg = getLiveWindowAvgWeight(gw, {
           memberships, animals, animalClasses, animalWeightRecords, now,
         });
-        if (hasUnknownLiveWindowWeights(gw, {
-          memberships, animals, animalClasses, animalWeightRecords, now,
-        }) || !(liveAvg > 0)) {
-          npkUnknown = true;
-        }
 
         const au = aniAu
           ? aniAu.fn({ headCount: liveHead, avgWeightKg: liveAvg || 0 })
@@ -478,6 +482,7 @@ export function computeLocationMetrics(location, ctx) {
         auds += dayAuds * share;
 
         const cls = (animalClasses || []).find(ac => ac.id === gw.animalClassId) || null;
+        // OI-0249 Gg: keep known-weight groups; count missing-weight as unknown slices (Zp).
         if (npk1 && liveAvg > 0) {
           const r = npk1.fn({
             headCount: liveHead,
@@ -490,8 +495,9 @@ export function computeLocationMetrics(location, ctx) {
           nKg += (r.nKg ?? 0) * share;
           pKg += (r.pKg ?? 0) * share;
           kKg += (r.kKg ?? 0) * share;
+          npkKnownSlices += 1;
         } else if (liveHead > 0 && !(liveAvg > 0)) {
-          npkUnknown = true;
+          npkUnknownSlices += 1;
         }
       }
     }
@@ -506,18 +512,21 @@ export function computeLocationMetrics(location, ctx) {
     const relevantRows = rows.filter(r => openEventIds.has(r.eventId));
     if (!relevantRows.length) continue;
 
-    // Unknown weights on any row for this location's events → DMI unknown for the day
-    if (relevantRows.some(row => {
-      if (!(row.head > 0)) return false;
-      return !(Number.isFinite(row.avgWeightKg) && row.avgWeightKg > 0);
-    })) {
-      dmiUnknown = true;
-      continue;
+    // OI-0249 Gg: skip only the missing-weight group; keep other groups that day.
+    const knownRows = [];
+    for (const row of relevantRows) {
+      if (!(row.head > 0)) continue;
+      if (Number.isFinite(row.avgWeightKg) && row.avgWeightKg > 0) {
+        knownRows.push(row);
+        dmiKnownSlices += 1;
+      } else {
+        dmiUnknownSlices += 1;
+      }
     }
 
-    // Per event: demand − measured hay, floor 0, then S1 acre share
+    // Per event: demand − measured hay, floor 0, then S1 acre share (known groups only)
     const eventDemand = new Map();
-    for (const r of relevantRows) {
+    for (const r of knownRows) {
       if (!(r.kg > 0)) continue;
       eventDemand.set(r.eventId, (eventDemand.get(r.eventId) || 0) + r.kg);
     }
@@ -542,7 +551,7 @@ export function computeLocationMetrics(location, ctx) {
       pastureByEvent.set(eventId, Math.max(0, demand - stored));
     }
     if (dayBlocked) {
-      dmiUnknown = true;
+      dmiHayUnknown = true; // F1 unmeasured hay — season-sticky (list-parity)
       continue;
     }
 
@@ -575,7 +584,7 @@ export function computeLocationMetrics(location, ctx) {
     batchNutritionalProfiles,
   });
   if (!residual.known) {
-    npkUnknown = true;
+    npkResidualUnknown = true; // R1 — season-sticky (list-parity)
   } else {
     nKg += residual.nKg;
     pKg += residual.pKg;
@@ -599,10 +608,18 @@ export function computeLocationMetrics(location, ctx) {
     : null;
 
   const acres = acresOf(location);
-  // Z1: never present → known 0; missing inputs → —
+  // Zp (weights): sum known slices; dash only when nothing known remains; never-present = 0.
+  // F1 hay unknown and R1 residual unknown stay season-sticky (OI-0246 locks).
+  const dmiHasKnown = dmiKnownSlices > 0;
+  const dmiHasUnknown = dmiUnknownSlices > 0;
+  const dmiPartial = dmiHasKnown && dmiHasUnknown;
+  const dmiUnknown = dmiHayUnknown || (dmiHasUnknown && !dmiHasKnown);
   const finalDmi = dmiUnknown ? null : dmiKg;
-  const dmiKnown = !dmiUnknown && (dmiDays > 0 || !anyDemandDay || finalDmi === 0);
-  const npkKnown = !npkUnknown;
+  const dmiKnown = !dmiUnknown && (dmiHasKnown || dmiDays > 0 || !anyDemandDay || finalDmi === 0);
+  const npkHasKnown = npkKnownSlices > 0;
+  const npkHasUnknown = npkUnknownSlices > 0;
+  const npkPartial = npkHasKnown && npkHasUnknown;
+  const npkKnown = !npkResidualUnknown && (npkHasKnown || !npkHasUnknown);
 
   return {
     locationId: location.id,
@@ -612,12 +629,14 @@ export function computeLocationMetrics(location, ctx) {
     hasAcres: acres != null,
     dmiKg: finalDmi,
     dmiKnown: dmiKnown || finalDmi === 0,
+    dmiPartial,
     auds,
     audsKnown: true,
     nKg: npkKnown ? nKg : null,
     pKg: npkKnown ? pKg : null,
     kKg: npkKnown ? kKg : null,
     npkKnown,
+    npkPartial,
     avgScore,
     scoreKnown: avgScore != null,
     eventCount: eventIds.size,

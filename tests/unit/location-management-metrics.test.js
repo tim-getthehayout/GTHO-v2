@@ -293,7 +293,7 @@ describe('computeLocationMetrics', () => {
     expect(formatMetricValue(bad.dmiKg)).toBe('\u2014');
   });
 
-  it('keeps DMI as unknown when a multi-group event on this location has a head>0 group without weight', () => {
+  it('sums the known group and marks DMI/NPK partial when a same-event group lacks weight (Gg+Zp)', () => {
     const locD = { id: 'locD', name: 'D', type: 'land', landUse: 'pasture', areaHectares: 10 };
     const clsOk = { id: 'acOk', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, defaultWeightKg: 453.6 };
     const clsBad = { id: 'acBad', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136 };
@@ -325,8 +325,15 @@ describe('computeLocationMetrics', () => {
       feedCheckItems: [],
     });
     expect(m.auds).toBeGreaterThan(0);
-    expect(m.dmiKg).toBeNull();
-    expect(formatMetricValue(m.dmiKg)).toBe('\u2014');
+    expect(m.audsKnown).toBe(true);
+    expect(m.dmiKg).toBeGreaterThan(0);
+    expect(m.dmiKnown).toBe(true);
+    expect(m.dmiPartial).toBe(true);
+    expect(m.nKg).toBeGreaterThan(0);
+    expect(m.npkKnown).toBe(true);
+    expect(m.npkPartial).toBe(true);
+    expect(m.avgScore).toBeNull();
+    expect(m.scoreKnown).toBe(false);
   });
 });
 
@@ -347,6 +354,129 @@ describe('residual NPK helpers', () => {
   });
 });
 
+
+
+describe('OI-0249 Zp+Gg+Ua+Sc season rollup', () => {
+  const loc = { id: 'E1', name: 'E-1', type: 'land', landUse: 'pasture', areaHectares: 4.047 };
+  const clsOk = { id: 'acOk', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, defaultWeightKg: 453.6 };
+  const clsBad = { id: 'acBad', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136 };
+  const laterAnimals = Array.from({ length: 8 }, (_, i) => ({ id: `lat${i}`, classId: 'acOk', archived: false, status: 'active' }));
+  const marchAnimals = Array.from({ length: 4 }, (_, i) => ({ id: `mar${i}`, classId: 'acBad', archived: false, status: 'active' }));
+
+  function e1Ctx(overrides = {}) {
+    return {
+      windowStart: '2025-10-01',
+      windowEnd: '2026-09-30',
+      today: '2026-11-22',
+      events: [
+        { id: 'evMarch', dateOut: '2026-04-03' },
+        { id: 'evLater', dateOut: '2026-06-15' },
+      ],
+      paddockWindows: [
+        { id: 'pwM', eventId: 'evMarch', locationId: 'E1', dateOpened: '2026-03-27', dateClosed: '2026-04-03', areaPct: 100 },
+        { id: 'pwL', eventId: 'evLater', locationId: 'E1', dateOpened: '2026-05-01', dateClosed: '2026-06-15', areaPct: 100 },
+      ],
+      groupWindows: [
+        // Closed zero snapshot (the E-1 March stay). Rt: trust stored 0; do not re-derive.
+        { id: 'gwM', eventId: 'evMarch', groupId: 'gM', animalClassId: 'acBad', dateJoined: '2026-03-27', dateLeft: '2026-04-03', headCount: 4, avgWeightKg: 0 },
+        { id: 'gwL', eventId: 'evLater', groupId: 'gL', animalClassId: 'acOk', dateJoined: '2026-05-01', dateLeft: '2026-06-15', headCount: 8, avgWeightKg: 453.6 },
+      ],
+      memberships: [
+        ...marchAnimals.map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'gM', dateJoined: '2026-01-01', dateLeft: '2026-04-03' })),
+        ...laterAnimals.map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'gL', dateJoined: '2026-01-01', dateLeft: '2026-06-15' })),
+      ],
+      animals: [...marchAnimals, ...laterAnimals],
+      animalClasses: [clsOk, clsBad],
+      animalWeightRecords: laterAnimals.map(a => ({ animalId: a.id, weightKg: 453.6, recordedAt: '2026-04-15' })),
+      locations: [loc],
+      observations: [
+        { locationId: 'E1', forageQuality: 72, observedAt: '2026-05-20' },
+      ],
+      feedEntries: [],
+      ...overrides,
+    };
+  }
+
+  it('sums the later known stay and marks DMI/NPK partial when an earlier closed snapshot is 0 (Zp)', () => {
+    const m = computeLocationMetrics(loc, e1Ctx());
+    expect(m.dmiKg).toBeGreaterThan(0);
+    expect(m.dmiKnown).toBe(true);
+    expect(m.dmiPartial).toBe(true);
+    expect(m.nKg).toBeGreaterThan(0);
+    expect(m.npkKnown).toBe(true);
+    expect(m.npkPartial).toBe(true);
+    expect(m.eventCount).toBe(2);
+  });
+
+  it('AUDs still add using 0 for the zero-snapshot group and are not marked partial (Ua)', () => {
+    const withMarchZero = computeLocationMetrics(loc, e1Ctx());
+    const laterOnly = computeLocationMetrics(loc, e1Ctx({
+      events: [{ id: 'evLater', dateOut: '2026-06-15' }],
+      paddockWindows: [
+        { id: 'pwL', eventId: 'evLater', locationId: 'E1', dateOpened: '2026-05-01', dateClosed: '2026-06-15', areaPct: 100 },
+      ],
+      groupWindows: [
+        { id: 'gwL', eventId: 'evLater', groupId: 'gL', animalClassId: 'acOk', dateJoined: '2026-05-01', dateLeft: '2026-06-15', headCount: 8, avgWeightKg: 453.6 },
+      ],
+    }));
+    // Ua: zero-weight group contributes 0 AUDs, so season AUDs match the known stay alone.
+    expect(withMarchZero.auds).toBeCloseTo(laterOnly.auds, 6);
+    expect(withMarchZero.auds).toBeGreaterThan(0);
+    expect(withMarchZero.audsKnown).toBe(true);
+    expect(withMarchZero.dmiPartial).toBe(true);
+    expect(withMarchZero).not.toHaveProperty('audsPartial');
+  });
+
+  it('leaves Score as the survey average when some weights are missing (Sc)', () => {
+    const m = computeLocationMetrics(loc, e1Ctx());
+    expect(m.avgScore).toBe(72);
+    expect(m.scoreKnown).toBe(true);
+  });
+
+  it('dashes DMI and NPK when every group in the window is unknown, and still shows 0 AUDs as known', () => {
+    const m = computeLocationMetrics(loc, e1Ctx({
+      events: [{ id: 'evMarch', dateOut: '2026-04-03' }],
+      paddockWindows: [
+        { id: 'pwM', eventId: 'evMarch', locationId: 'E1', dateOpened: '2026-03-27', dateClosed: '2026-04-03', areaPct: 100 },
+      ],
+      groupWindows: [
+        { id: 'gwM', eventId: 'evMarch', groupId: 'gM', animalClassId: 'acBad', dateJoined: '2026-03-27', dateLeft: '2026-04-03', headCount: 4, avgWeightKg: 0 },
+      ],
+      memberships: marchAnimals.map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'gM', dateJoined: '2026-01-01', dateLeft: '2026-04-03' })),
+      animals: marchAnimals,
+      animalWeightRecords: [],
+    }));
+    expect(m.dmiKg).toBeNull();
+    expect(m.dmiKnown).toBe(false);
+    expect(m.dmiPartial).toBe(false);
+    expect(formatMetricValue(m.dmiKg)).toBe('\u2014');
+    expect(m.nKg).toBeNull();
+    expect(m.npkKnown).toBe(false);
+    expect(m.npkPartial).toBe(false);
+    expect(m.auds).toBe(0);
+    expect(m.audsKnown).toBe(true);
+    expect(formatMetricValue(m.auds)).toBe('0');
+  });
+
+  it('returns known 0 DMI/NPK/AUDs when the paddock was never present in the window (Z1)', () => {
+    const m = computeLocationMetrics(loc, e1Ctx({
+      paddockWindows: [
+        { id: 'pwM', eventId: 'evMarch', locationId: 'E1', dateOpened: '2024-03-27', dateClosed: '2024-04-03', areaPct: 100 },
+      ],
+      groupWindows: [
+        { id: 'gwM', eventId: 'evMarch', groupId: 'gM', animalClassId: 'acBad', dateJoined: '2024-03-27', dateLeft: '2024-04-03', headCount: 4, avgWeightKg: 0 },
+      ],
+    }));
+    expect(m.dmiKg).toBe(0);
+    expect(m.dmiKnown).toBe(true);
+    expect(m.dmiPartial).toBe(false);
+    expect(m.nKg).toBe(0);
+    expect(m.npkKnown).toBe(true);
+    expect(m.npkPartial).toBe(false);
+    expect(m.auds).toBe(0);
+    expect(m.audsKnown).toBe(true);
+  });
+});
 
 describe('readiness T0', () => {
   it('uses REC-1 when survey recovery days present', () => {

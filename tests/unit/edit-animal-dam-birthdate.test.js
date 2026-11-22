@@ -16,6 +16,7 @@ import * as OperationEntity from '../../src/entities/operation.js';
 import * as FarmEntity from '../../src/entities/farm.js';
 import * as AnimalEntity from '../../src/entities/animal.js';
 import * as CalvingEntity from '../../src/entities/animal-calving-record.js';
+import * as WeightEntity from '../../src/entities/animal-weight-record.js';
 
 const OP = '00000000-0000-0000-0000-000000020aa1';
 const FARM = '00000000-0000-0000-0000-000000020bb1';
@@ -34,6 +35,11 @@ function seed() {
     AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
   add('animals', AnimalEntity.create({ id: DAM_B, operationId: OP, sex: 'female', tagNum: 'D-B' }),
     AnimalEntity.validate, AnimalEntity.toSupabaseShape, 'animals');
+  // OI-0249 Ce: this suite is about the dam/birthDate gate; satisfy recorded-weight first.
+  add('animalWeightRecords', WeightEntity.create({
+    operationId: OP, animalId: CALF, recordedAt: '2026-01-15T12:00:00.000Z',
+    weightKg: 300, source: 'manual',
+  }), WeightEntity.validate, WeightEntity.toSupabaseShape, 'animal_weight_records');
 }
 
 beforeEach(() => {

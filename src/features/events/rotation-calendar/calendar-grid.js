@@ -647,13 +647,23 @@ function renderManagementRow(opts) {
     const perAcreText = perAcre != null && metrics?.hasAcres
       ? ` (${formatMetricValue(perAcre, { digits: 1 })}/ac)`
       : '';
+    const isPartial = (col.key === 'dmiKg' && metrics?.dmiPartial)
+      || ((col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg') && metrics?.npkPartial);
+    const title = isPartial
+      ? `${col.title} (partial — some groups missing weights)`
+      : col.title;
     return el('div', {
-      className: 'loc-mgmt__metric',
-      title: col.title,
-      dataset: { key: col.key },
+      className: `loc-mgmt__metric${isPartial ? ' loc-mgmt__metric--partial' : ''}`,
+      title,
+      dataset: { key: col.key, partial: isPartial ? 'true' : undefined },
     }, [
       el('span', { className: 'loc-mgmt__metric-label' }, [col.label]),
-      el('span', { className: 'loc-mgmt__metric-value' }, [`${text}${perAcreText}`]),
+      el('span', { className: 'loc-mgmt__metric-value' }, [
+        `${text}${perAcreText}`,
+        isPartial
+          ? el('span', { className: 'loc-mgmt__metric-partial', dataset: { testid: `loc-mgmt-metric-partial-${col.key}` } }, [' partial'])
+          : null,
+      ].filter(Boolean)),
     ]);
   }));
 

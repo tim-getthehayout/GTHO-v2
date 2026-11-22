@@ -2196,17 +2196,28 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
   inputs.bulkHeadCount.addEventListener('input', refreshCompositeLotTotal);
   inputs.totalWeight.addEventListener('input', refreshCompositeLotTotal);
   refreshCompositeLotTotal();
+  inputs.recordedWeight = el('input', {
+    type: 'number',
+    min: '0',
+    step: '0.1',
+    placeholder: unitLabel('weight', unitSys),
+    'data-testid': 'animal-recorded-weight',
+  });
+  // Ca/Ce: require a recorded weight on add, and on Edit when none is on file yet (Mw).
+  const needsRecordedWeight = !isEdit || editMissingWeight;
   const currentWeightText = latestW?.weightKg
     ? display(latestW.weightKg, 'weight', unitSys, 0)
     : '\u2014';
   // Bulk lots hide Current weight when recorded; still show when Mw so Ib indicator is reachable.
   const weightRow = el('div', { className: 'field', style: { display: (existingAnimal?.isBulk && !editMissingWeight) ? 'none' : '' } }, [
-    el('label', {}, ['Current weight']),
+    el('label', {}, [needsRecordedWeight && !existingAnimal?.isBulk ? t('animal.recordedWeight') : 'Current weight']),
     el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } }, [
-      el('div', {
-        'data-testid': 'edit-animal-current-weight',
-        style: { fontSize: '15px', fontWeight: '500', color: latestW ? 'var(--text)' : 'var(--text2)' },
-      }, [currentWeightText]),
+      needsRecordedWeight && !existingAnimal?.isBulk
+        ? inputs.recordedWeight
+        : el('div', {
+          'data-testid': 'edit-animal-current-weight',
+          style: { fontSize: '15px', fontWeight: '500', color: latestW ? 'var(--text)' : 'var(--text2)' },
+        }, [currentWeightText]),
       editMissingWeight
         ? el('span', {
           className: 'badge badge-amber',
@@ -2609,6 +2620,7 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
     compositeBlock.style.display = composite ? '' : 'none';
     damRow.style.display = composite ? 'none' : 'flex';
     sireRow.style.display = composite ? 'none' : '';
+    if (!isEdit) weightRow.style.display = composite ? 'none' : '';
     for (const [key, btn] of Object.entries(kindButtons)) {
       btn.className = kind.value === key ? 'btn btn-teal btn-xs' : 'btn btn-outline btn-xs';
     }
@@ -2876,6 +2888,44 @@ async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId,
 
   const newGroupId = inputs.groupId.value || null;
   const todayStr = getLocalTodayStr();
+  const unitSysNow = getUnitSystem();
+  const hasRecordedWeight = !!(existingAnimal && latestWeightForAnimal(
+    getAll('animalWeightRecords'), existingAnimal.id, todayStr,
+  ));
+  let weightToWriteKg = null;
+  if (isComposite) {
+    const perHead = parseFloat(inputs.totalWeight?.value);
+    if (Number.isFinite(perHead) && perHead > 0 && bulkHeadCount > 0) {
+      const perKg = unitSysNow === 'imperial' ? convert(perHead, 'weight', 'toMetric') : perHead;
+      weightToWriteKg = perKg * bulkHeadCount;
+    }
+  } else {
+    const entered = parseFloat(inputs.recordedWeight?.value);
+    if (Number.isFinite(entered) && entered > 0) {
+      weightToWriteKg = unitSysNow === 'imperial' ? convert(entered, 'weight', 'toMetric') : entered;
+    }
+  }
+  // Ca+Ce+Cb+Cw: block until a recorded weight is on file or entered.
+  // Class default may be confirmed, which then writes a real record (not a silent default).
+  if (!hasRecordedWeight && !(weightToWriteKg > 0)) {
+    const cls = data.classId ? getAll('animalClasses').find(c => c.id === data.classId) : null;
+    const defKg = Number(cls?.defaultWeightKg);
+    if (Number.isFinite(defKg) && defKg > 0 && (!isComposite || bulkHeadCount > 0)) {
+      const recordKg = isComposite ? defKg * bulkHeadCount : defKg;
+      const shown = isComposite
+        ? `${display(defKg, 'weight', unitSysNow, 0)} \u00d7 ${bulkHeadCount}`
+        : display(defKg, 'weight', unitSysNow, 0);
+      const proceed = window.confirm(t('animal.useClassDefaultWeightConfirm', { weight: shown }));
+      if (!proceed) {
+        statusEl.appendChild(el('span', {}, [t('animal.recordedWeightRequired')]));
+        return;
+      }
+      weightToWriteKg = recordKg;
+    } else {
+      statusEl.appendChild(el('span', {}, [t('animal.recordedWeightRequired')]));
+      return;
+    }
+  }
   try {
     let animalId;
     const before = existingAnimal
@@ -2905,19 +2955,15 @@ async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId,
       confirmDeleteHandler: () => true,
     });
 
-    const perHead = parseFloat(inputs.totalWeight?.value);
-    if (isComposite && Number.isFinite(perHead) && perHead > 0 && bulkHeadCount > 0) {
-      const unitSysNow = getUnitSystem();
-      const perKg = unitSysNow === 'imperial' ? convert(perHead, 'weight', 'toMetric') : perHead;
-      const lotKg = perKg * bulkHeadCount;
-      const previous = latestWeightForAnimal(getAll('animalWeightRecords'), animalId);
-      const unchanged = previous && Math.abs(previous.weightKg - lotKg) < 0.05;
+    if (weightToWriteKg > 0) {
+      const previous = latestWeightForAnimal(getAll('animalWeightRecords'), animalId, todayStr);
+      const unchanged = previous && Math.abs(previous.weightKg - weightToWriteKg) < 0.05;
       if (!unchanged) {
         const weightRec = WeightRecordEntity.create({
           operationId,
           animalId,
           recordedAt: new Date().toISOString(),
-          weightKg: lotKg,
+          weightKg: weightToWriteKg,
           source: 'manual',
         });
         add('animalWeightRecords', weightRec, WeightRecordEntity.validate, WeightRecordEntity.toSupabaseShape, 'animal_weight_records');

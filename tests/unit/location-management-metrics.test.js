@@ -171,6 +171,84 @@ describe('computeLocationMetrics', () => {
   });
 });
 
+
+  it('does not null DMI when a peer location has unknown weights (event-scoped check)', () => {
+    const locGood = { id: 'locGood', name: 'J3-4', type: 'land', landUse: 'pasture', areaHectares: 4 };
+    const locBad = { id: 'locBad', name: 'Peer', type: 'land', landUse: 'pasture', areaHectares: 4 };
+    const clsOk = { id: 'acOk', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, defaultWeightKg: 453.6 };
+    const clsBad = { id: 'acBad', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136 };
+    const animalsOk = Array.from({ length: 5 }, (_, i) => ({ id: `ok${i}`, classId: 'acOk', archived: false, status: 'active' }));
+    const animalsBad = Array.from({ length: 3 }, (_, i) => ({ id: `bad${i}`, classId: 'acBad', archived: false, status: 'active' }));
+    const ctx = {
+      windowStart: '2026-03-01',
+      windowEnd: '2026-10-07',
+      today: '2026-11-22',
+      events: [
+        { id: 'evGood', dateOut: '2026-06-01' },
+        { id: 'evBad', dateOut: '2026-06-01' },
+      ],
+      paddockWindows: [
+        { id: 'pwG', eventId: 'evGood', locationId: 'locGood', dateOpened: '2026-04-01', dateClosed: '2026-06-01', areaPct: 100 },
+        { id: 'pwB', eventId: 'evBad', locationId: 'locBad', dateOpened: '2026-04-01', dateClosed: '2026-06-01', areaPct: 100 },
+      ],
+      groupWindows: [
+        { id: 'gwG', eventId: 'evGood', groupId: 'gG', animalClassId: 'acOk', dateJoined: '2026-04-01', dateLeft: '2026-06-01', headCount: 5, avgWeightKg: 453.6 },
+        { id: 'gwB', eventId: 'evBad', groupId: 'gB', animalClassId: 'acBad', dateJoined: '2026-04-01', dateLeft: '2026-06-01', headCount: 3, avgWeightKg: null },
+      ],
+      memberships: [
+        ...animalsOk.map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'gG', dateJoined: '2026-01-01', dateLeft: null })),
+        ...animalsBad.map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'gB', dateJoined: '2026-01-01', dateLeft: null })),
+      ],
+      animals: [...animalsOk, ...animalsBad],
+      animalClasses: [clsOk, clsBad],
+      animalWeightRecords: animalsOk.map(a => ({ animalId: a.id, weightKg: 453.6, recordedAt: '2026-03-01' })),
+      locations: [locGood, locBad],
+      observations: [],
+      feedEntries: [],
+    };
+    const good = computeLocationMetrics(locGood, ctx);
+    const bad = computeLocationMetrics(locBad, ctx);
+    expect(good.auds).toBeGreaterThan(0);
+    expect(good.dmiKg).toBeGreaterThan(0);
+    expect(good.dmiKnown).toBe(true);
+    expect(bad.dmiKg).toBeNull();
+    expect(formatMetricValue(bad.dmiKg)).toBe('\u2014');
+  });
+
+  it('keeps DMI as unknown when a multi-group event on this location has a head>0 group without weight', () => {
+    const loc = { id: 'locD', name: 'D', type: 'land', landUse: 'pasture', areaHectares: 10 };
+    const clsOk = { id: 'acOk', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136, defaultWeightKg: 453.6 };
+    const clsBad = { id: 'acBad', species: 'beef_cattle', dmiPct: 2.5, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136 };
+    const aOk = Array.from({ length: 5 }, (_, i) => ({ id: `dOk${i}`, classId: 'acOk', archived: false, status: 'active' }));
+    const aBad = Array.from({ length: 3 }, (_, i) => ({ id: `dBad${i}`, classId: 'acBad', archived: false, status: 'active' }));
+    const m = computeLocationMetrics(loc, {
+      windowStart: '2026-03-01',
+      windowEnd: '2026-10-07',
+      today: '2026-11-22',
+      events: [{ id: 'evD', dateOut: null }],
+      paddockWindows: [
+        { id: 'pwD', eventId: 'evD', locationId: 'locD', dateOpened: '2026-05-01', dateClosed: null, areaPct: 100 },
+      ],
+      groupWindows: [
+        { id: 'gw1', eventId: 'evD', groupId: 'g1', animalClassId: 'acOk', dateJoined: '2026-05-01', dateLeft: null, headCount: 5, avgWeightKg: 453.6 },
+        { id: 'gw2', eventId: 'evD', groupId: 'g2', animalClassId: 'acBad', dateJoined: '2026-05-01', dateLeft: null, headCount: 3, avgWeightKg: null },
+      ],
+      memberships: [
+        ...aOk.map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'g1', dateJoined: '2026-01-01', dateLeft: null })),
+        ...aBad.map(a => ({ id: `m${a.id}`, animalId: a.id, groupId: 'g2', dateJoined: '2026-01-01', dateLeft: null })),
+      ],
+      animals: [...aOk, ...aBad],
+      animalClasses: [clsOk, clsBad],
+      animalWeightRecords: aOk.map(a => ({ animalId: a.id, weightKg: 453.6, recordedAt: '2026-03-01' })),
+      locations: [loc],
+      observations: [],
+      feedEntries: [],
+    });
+    expect(m.auds).toBeGreaterThan(0);
+    expect(m.dmiKg).toBeNull();
+    expect(formatMetricValue(m.dmiKg)).toBe('\u2014');
+  });
+
 describe('readiness T0', () => {
   it('uses REC-1 when survey recovery days present', () => {
     const r = computeReadiness({ id: 'loc1' }, {

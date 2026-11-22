@@ -54,6 +54,7 @@ export function assertLocationsFree(locationIds) {
  */
 export function openPaddockWindows({
   operationId, eventId, locationIds, dateOpened, timeOpened, strip,
+  noPasture = false, noPastureByLocationId = null,
 }) {
   const ids = [...locationIds];
   assertLocationsFree(ids);
@@ -61,6 +62,9 @@ export function openPaddockWindows({
   const useStrip = ids.length === 1 && strip?.enabled;
   const windows = [];
   for (const locationId of ids) {
+    const flagged = noPastureByLocationId && Object.prototype.hasOwnProperty.call(noPastureByLocationId, locationId)
+      ? !!noPastureByLocationId[locationId]
+      : !!noPasture;
     const pw = PaddockWindowEntity.create({
       operationId,
       eventId,
@@ -68,6 +72,7 @@ export function openPaddockWindows({
       dateOpened,
       timeOpened: timeOpened || null,
       openCohortId,
+      noPasture: flagged,
       ...(useStrip ? {
         isStripGraze: true,
         stripGroupId: crypto.randomUUID(),

@@ -25,6 +25,7 @@ import {
 } from './window-integrity.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { isConfinementLocation, wrapInactiveForage } from './confinement-forage-ui.js';
+import { isNoPasturePw } from './no-pasture.js';
 
 let closeEventSheet = null;
 
@@ -133,8 +134,9 @@ export function openCloseEventSheet(evt, operationId) {
     .filter((w) => w.eventId === evt.id && !w.dateClosed);
   const postGraze = renderPostGrazeCard({ farmSettings });
   const postGrazeWrap = el('div', { 'data-testid': 'close-event-postgraze' });
-  const landWindows = closingWindows.filter((w) => !isConfinementLocation(getById('locations', w.locationId)));
-  const confinementWindows = closingWindows.filter((w) => isConfinementLocation(getById('locations', w.locationId)));
+  // OI-0256 Sk1: no_pasture skips close residual.
+  const landWindows = closingWindows.filter((w) => !isConfinementLocation(getById('locations', w.locationId)) && !isNoPasturePw(w));
+  const confinementWindows = closingWindows.filter((w) => isConfinementLocation(getById('locations', w.locationId)) || isNoPasturePw(w));
   if (landWindows.length) postGrazeWrap.appendChild(postGraze.container);
   for (const pw of confinementWindows) {
     const loc = getById('locations', pw.locationId);
@@ -310,7 +312,7 @@ function executeClose(evt, operationId, inputs, feedCheckInputs, confinementPWs,
     );
     for (const pw of paddockPlan.toClose) {
       closePaddockWindow(pw.locationId, evt.id, dateOut, timeOut);
-      if (isConfinementLocation(getById('locations', pw.locationId))) continue;
+      if (isConfinementLocation(getById('locations', pw.locationId)) || isNoPasturePw(pw)) continue;
       createObservation(pw.operationId, pw.locationId, 'close', pw.id, new Date().toISOString(),
         postGraze ? postGraze.getValues() : {});
     }

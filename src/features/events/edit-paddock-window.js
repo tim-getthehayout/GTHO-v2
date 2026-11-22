@@ -12,6 +12,7 @@ import { renderPostGrazeCard } from '../observations/post-graze-card.js';
 import { getEventStartFloorExcluding } from './event-start.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { isConfinementLocation, wrapInactiveForage } from './confinement-forage-ui.js';
+import { isNoPasturePw, renderStoredFeedOnlyCheckbox } from './no-pasture.js';
 import { showToast } from '../../ui/toast.js';
 import { listUnacked } from '../../data/unacked.js';
 
@@ -119,6 +120,20 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
       el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [stripCheck, 'Strip graze']),
     ]),
   ]));
+
+  // OI-0256 Lv1: per-PW 100% Stored Feed -> event_paddock_windows.no_pasture
+  const showStoredFeedCheckbox = !isConfinementLocation(loc);
+  let storedFeedCheck = null;
+  if (showStoredFeedCheckbox) {
+    storedFeedCheck = renderStoredFeedOnlyCheckbox({
+      checked: isNoPasturePw(pw),
+      testId: `edit-pw-no-pasture-${pw.id}`,
+    });
+    panel.appendChild(storedFeedCheck.container);
+  }
+  const residualSkipped = () => isConfinementLocation(loc)
+    || (storedFeedCheck ? storedFeedCheck.isChecked() : isNoPasturePw(pw));
+
   if (!isClosed) {
     // OI-0095: editing area_pct / is_strip_graze on an open window splits the window so
     // the prior area is preserved as historical truth.
@@ -188,9 +203,23 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
       preGrazeSaveBtn, preGrazeSavedEl,
     ]),
   ]);
-  panel.appendChild(isConfinementLocation(loc)
+  // OI-0256 Sk1: skip open residual when no_pasture (same inactive treatment as confinement).
+  const preGrazeMount = residualSkipped()
     ? wrapInactiveForage(preGrazeWrap, `edit-pw-pregraze-inactive-${pw.id}`)
-    : preGrazeWrap);
+    : preGrazeWrap;
+  panel.appendChild(preGrazeMount);
+  if (storedFeedCheck) {
+    storedFeedCheck.input.addEventListener('change', () => {
+      const inactive = residualSkipped();
+      const current = panel.querySelector(`[data-testid="edit-pw-pregraze-${pw.id}"]`)
+        || panel.querySelector(`[data-testid="edit-pw-pregraze-inactive-${pw.id}"]`);
+      if (!current) return;
+      const next = inactive
+        ? wrapInactiveForage(preGrazeWrap, `edit-pw-pregraze-inactive-${pw.id}`)
+        : preGrazeWrap;
+      current.replaceWith(next);
+    });
+  }
 
   // Post-graze only on closed windows (Event Detail no longer duplicates inline cards).
   let postGrazeCard = null;
@@ -244,7 +273,8 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
         postGrazeSaveBtn, postGrazeSavedEl,
       ]),
     ]);
-    panel.appendChild(isConfinementLocation(loc)
+    // OI-0256 Sk1: skip close residual when no_pasture.
+    panel.appendChild(residualSkipped()
       ? wrapInactiveForage(postGrazeWrap, `edit-pw-postgraze-inactive-${pw.id}`)
       : postGrazeWrap);
   }
@@ -265,6 +295,7 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
     const newDateClosed = dateClosedInput?.value || null;
     const newAreaPct = parseInt(areaPctInput.value, 10) || 100;
     const newIsStrip = stripCheck.checked;
+    const newNoPasture = storedFeedCheck ? storedFeedCheck.isChecked() : !!pw.noPasture;
 
     // Range guards
     if (!newDateOpened) { statusEl.appendChild(el('span', {}, ['Date opened is required'])); return false; }
@@ -299,10 +330,12 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
       // edits (dateOpened, timeOpened) stay as direct update(). On a CLOSED window, direct
       // update() is the historical-correction escape hatch for all fields.
       if (!isClosed) {
-        const stateChanged = (newAreaPct !== (pw.areaPct ?? 100)) || (newIsStrip !== !!pw.isStripGraze);
+        const stateChanged = (newAreaPct !== (pw.areaPct ?? 100))
+          || (newIsStrip !== !!pw.isStripGraze)
+          || (newNoPasture !== !!pw.noPasture);
         if (stateChanged) {
           const todayStr = getLocalTodayStr();
-          const newState = { areaPct: newAreaPct, isStripGraze: newIsStrip };
+          const newState = { areaPct: newAreaPct, isStripGraze: newIsStrip, noPasture: newNoPasture };
           if (newIsStrip && !pw.isStripGraze) {
             // Turning strip-graze on: fresh stripGroupId
             newState.stripGroupId = crypto.randomUUID();
@@ -329,6 +362,7 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
           timeOpened: timeOpenedInput.value || null,
           areaPct: newAreaPct,
           isStripGraze: newIsStrip,
+          noPasture: newNoPasture,
           dateClosed: newDateClosed,
           timeClosed: timeClosedInput?.value || null,
         };
@@ -337,7 +371,8 @@ export function openEditPaddockWindowDialog(pw, event, operationId) {
 
       // Main Save must also persist forage — previously only windows were written,
       // so green Save / blur silently dropped pre-graze (and post-graze) edits.
-      if (!isConfinementLocation(loc)) {
+      // OI-0256 Sk1: do not write open/close residual when no_pasture (or confinement).
+      if (!residualSkipped()) {
         preGrazeObs = persistObservationCard({
           card: preGrazeCard,
           existingObs: findEventObservation(pw.locationId, pw.id, 'open'),

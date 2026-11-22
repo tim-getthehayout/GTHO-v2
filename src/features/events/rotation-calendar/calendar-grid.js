@@ -955,18 +955,20 @@ function renderManagementRow(opts) {
       }, 0);
 
       // Wire real metrics into past block (OI-0253 B1: unknown → null → "—", not 0)
+      // OI-0256: storedFeedOnly (no_pasture) is known Pasture 0 / Feed 100% / DMI 0.
       const audsLabel = m.audsKnown ? Math.round(m.auds) : null;
       const dmiKnownVal = m.dmiKnown && m.dmiKg != null;
       const dmiLabel = dmiKnownVal ? Math.round(m.dmiKg) : null;
+      const storedFeedOnly = !!pw.noPasture;
       blockArea.appendChild(renderPastBlock({
         leftPx,
         widthPx: pastWidthPx,
         groups: eventGroups,
         auds: audsLabel != null ? audsLabel : 0,
         days,
-        pasturePct: dmiKnownVal ? (m.dmiKg > 0 ? 100 : 0) : null,
-        feedPct: 0,
-        dmi: dmiLabel,
+        pasturePct: storedFeedOnly ? 0 : (dmiKnownVal ? (m.dmiKg > 0 ? 100 : 0) : null),
+        feedPct: storedFeedOnly ? 100 : 0,
+        dmi: storedFeedOnly ? 0 : dmiLabel,
         headCount,
         isActive,
         isStripGraze: pw.isStripGraze || false,
@@ -974,6 +976,7 @@ function renderManagementRow(opts) {
         stripNote: null,
         isLinkedSecondary: !!linkedPaddocks[loc.id],
         linkedPrimaryName: linkedPaddocks[loc.id]?.name,
+        storedFeedOnly,
         eventId: event.id,
         onClickBlock: () => openPastEventDetailSheet({ eventId: event.id, paddockWindowId: pw.id }),
       }));

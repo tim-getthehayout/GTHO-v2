@@ -359,6 +359,8 @@ export function createDestinationEvent({
     dateOpened: dateIn,
     timeOpened: timeIn,
     strip: { enabled: !!state.stripGraze, areaPct: state.stripSizePct },
+    // OI-0256 Lv1: state.noPasture from place/move checkbox
+    noPasture: !!state.noPasture,
   });
   const newPW = windows[0];
 
@@ -386,9 +388,11 @@ export function createDestinationEvent({
   // entirely — that's the place-wizard's confinement-destination path.
   // Move wizard always passes a value object (possibly `{}`) so the
   // existing "always write observation" behavior is preserved verbatim.
+  // OI-0256 Sk1: skip open residual for no_pasture windows.
   if (preGrazeValues !== null) {
     const observedAt = new Date().toISOString();
     for (const pw of windows) {
+      if (pw.noPasture) continue;
       createObservation(operationId, pw.locationId, 'open', pw.id, observedAt, preGrazeValues);
     }
   }

@@ -1,9 +1,9 @@
 # Past-block unknown DMI paint + column F1 sticky (OI-0253)
 
-**Status:** **LOCKED** 2026-11-22 ~9:52 AM ET (Tim, via Orchestrator, card **t1060s4208**) — **B1+C0** (**D0** already closed = F1 window-scoped / not the t1044u column bug). Opened ~9:40 AM ET from Tim regression **t1028u** + Build triage; Season clarify **t1044u**; **D CLOSED** Build ~9:41 AM ET. Docs tip only until Tim lands docs. No SQL / no migration.  
+**Status:** **LOCKED** 2026-11-22 ~9:52 AM ET (Tim, via Orchestrator, card **t1060s4208**) — **B1+C0** (**D0** already closed = F1 window-scoped / not the t1044u column bug). Opened ~9:40 AM ET from Tim regression **t1028u** + Build triage; Season clarify **t1044u**; **D CLOSED** Build ~9:41 AM ET. Docs tip restacked onto main `2fe1e88` (OI-0252 #131 live) ~10:03 AM ET — awaiting Tim land. No SQL / no migration.  
 **Owner:** GTHO Design → GTHO Build (after docs live on main).  
-**Parent:** Forgejo `origin/main` `36bc946d4fd6cef21d02bafed7790b7d644a1502` (OI-0250 code live via PR #129; stamp `b2026-11-22.1431-36bc946`; compiled `RELEASED_SCHEMA_VERSION` **48**).  
-**Also related:** OI-0246 season formula **S1+F1(DMI)+…+Z1** ([LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)); OI-0249 partial unknown (PR #126) — **does not** zero pasture DMI math; OI-0250 strip **Sz** (missing-DM feed → 0 stored; strip pasture ignores F1 sticky); OI-0252 metrics layout (PR #131 in flight — layout only).  
+**Parent:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 live via PR #131; stamp `b2026-11-22.1502-2fe1e88`; compiled `RELEASED_SCHEMA_VERSION` **48**). Prior parent `36bc946` (OI-0250 PR #129; stamp `b2026-11-22.1431-36bc946`).  
+**Also related:** OI-0246 season formula **S1+F1(DMI)+…+Z1** ([LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md](LOCATIONS_MANAGEMENT_VIEW_2026-11-21.md)); OI-0249 partial unknown (PR #126) — **does not** zero pasture DMI math; OI-0250 strip **Sz** (missing-DM feed → 0 stored; strip pasture ignores F1 sticky); OI-0252 metrics layout (PR #131 live — layout only).  
 **Schema / migration:** **D0 — none.** Paint + optional column-policy code only. No new column, no migration, no data write.
 
 ## 1. Problem

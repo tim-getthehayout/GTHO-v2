@@ -2700,11 +2700,17 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 .loc-mgmt__metrics-head {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
   gap: 2px;
-  padding: 0 var(--space-2);
+  padding: 4px var(--space-2);
   border-right: 1px solid var(--border);
   flex: 0 0 auto;
+  box-sizing: border-box;
+}
+.loc-mgmt__list-actions-head {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .loc-mgmt__timeline-head { flex: 1; min-width: 0; }
 .loc-mgmt__sort {
@@ -2760,13 +2766,24 @@ body:has(.auth-overlay) .pwa-update-banner {
 .loc-mgmt__tag { font-size: 0.6875rem; color: var(--text3); }
 
 .loc-mgmt__metrics {
+  /* OI-0252 Ls+Wu: two stacked lines; width set from widest visible row */
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
   gap: 2px;
-  padding: 0 var(--space-2);
+  padding: 4px var(--space-2);
   border-right: 1px solid var(--border);
   flex: 0 0 auto;
-  min-width: 280px;
+  box-sizing: border-box;
+}
+.loc-mgmt__metrics-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-wrap: nowrap;
+}
+.loc-mgmt__metrics-line--head {
+  align-items: center;
 }
 .loc-mgmt__metric {
   display: flex;
@@ -2848,13 +2865,29 @@ body:has(.auth-overlay) .pwa-update-banner {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 4px;
+  align-items: center;
+  flex-shrink: 0;
 }
-.loc-mgmt--list .loc-mgmt__metrics--grow,
-.loc-mgmt--list .loc-mgmt__metrics-head--grow {
-  flex: 1 1 auto;
-  min-width: 0;
+/* Br: List row action buttons on the right-hand side */
+.loc-mgmt--list .loc-mgmt__row--desktop.loc-mgmt__row--list .loc-mgmt__row-actions {
+  margin-left: auto;
+  margin-right: var(--space-3);
+  align-self: center;
+}
+.loc-mgmt__list-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+}
+.loc-mgmt--list .loc-mgmt__metrics,
+.loc-mgmt--list .loc-mgmt__metrics-head {
   border-right: none;
+}
+.loc-mgmt--list .loc-mgmt__metrics-head--grow {
+  /* Wu still owns width; grow class kept for head parity without stretching */
+  flex: 0 0 auto;
 }
 .loc-mgmt--list .loc-mgmt__row--list {
   /* F0: still one vertical owner (.loc-mgmt__body); no nested Y scroll */
@@ -2879,11 +2912,23 @@ body:has(.auth-overlay) .pwa-update-banner {
   border-bottom: 1px solid var(--border);
 }
 .loc-mgmt--phone .loc-mgmt__metrics {
+  /* Nn: keep two-line stack; tighter padding; no flat six-across */
   border-right: none;
   min-width: 0;
-  flex-wrap: wrap;
+  width: 100%;
   padding: 0;
+  gap: 2px;
 }
+.loc-mgmt--phone .loc-mgmt__metrics-line {
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+.loc-mgmt--phone .loc-mgmt__metric {
+  min-width: 36px;
+  padding: 0 2px;
+}
+.loc-mgmt--phone .loc-mgmt__metric-label { font-size: 0.5625rem; }
+.loc-mgmt--phone .loc-mgmt__metric-value { font-size: 0.6875rem; }
 .loc-mgmt--phone .loc-mgmt__timeline-scroll {
   width: 100%;
   min-height: 72px;

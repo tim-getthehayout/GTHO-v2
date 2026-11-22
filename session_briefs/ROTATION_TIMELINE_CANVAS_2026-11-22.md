@@ -1,7 +1,7 @@
 # Rotation timeline canvas — scroll, readiness, ticks, collapse metrics (OI-0254)
 
-**Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim ended feedback batch **t1096u**: “lets wait on the scroll and implement the list of feedback items as that should fix it”). Awaiting Tim lock. No SQL / no migration.  
-**Owner:** GTHO Design → GTHO Build (after Tim locks + docs live on main).  
+**Status:** **LOCKED / READY FOR BUILD** 2026-11-22 ~10:24 AM ET (Tim, via Orchestrator, card **t1107s4351** option 1 / typed **t1114u** “A on the card above”) — **Sc1+Rd1+Tk1+Cm1+Cm1a**. Opened ~10:10 AM ET from Tim feedback batch items 2+4+6 (**t1037u/t1039u/t1094u/t1067u/t1096u**). Docs tip only until Tim lands docs. No SQL / no migration.  
+**Owner:** GTHO Design → GTHO Build (after docs live on main).  
 **Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 live via PR #131; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**).  
 **Also related:** OI-0252 metrics layout (dropped metrics min-width → short 14-day canvas now fits; overflow still works — not broken scroll); OI-0246 calendar; estimated readiness paint from `9ce0e69` (Today→range.end shared band).  
 **Schema / migration:** **D0 — none.** Canvas extent, paint, ticks, and a collapse control only.
@@ -33,52 +33,55 @@ Build triage (**t1087u**): “scroll gone” after #131 = short default canvas n
 
 | Token | Meaning |
 |---|---|
-| **Sc1** [rec] | Canvas spans **all past events** on the left and out to the **last ready-by** date (from close-event recovery ranges) on the right. Scroll when the viewport is smaller. |
-| **Sc0** | Keep today’s default short canvas (e.g. ~14-day / 560px) — does **not** match Tim’s ask. |
+| **Sc1** (LOCKED) | Canvas spans **all past events** on the left and out to the **last ready-by** date (from close-event recovery ranges) on the right. Scroll when the viewport is smaller. |
+| **Sc0** (not chosen) | Keep today’s default short canvas (e.g. ~14-day / 560px) — does **not** match Tim’s ask. |
 
 ### **Rd** — Readiness band
 
 | Token | Meaning |
 |---|---|
-| **Rd1** [rec] | Per-paddock readiness band = that paddock’s **close-event estimated readiness range** (earliest→latest from the close). Stagger left from earliestReturn as needed. |
-| **Rd0** | Keep shared **Today→range.end** estimated paint (pre-existing `9ce0e69`). |
+| **Rd1** (LOCKED) | Per-paddock readiness band = that paddock’s **close-event estimated readiness range** (earliest→latest from the close). Stagger left from earliestReturn as needed. |
+| **Rd0** (not chosen) | Keep shared **Today→range.end** estimated paint (pre-existing `9ce0e69`). |
 
 ### **Tk** — Tick marks
 
 | Token | Meaning |
 |---|---|
-| **Tk1** [rec] | Top ticks: **large** = month start; **medium** = Saturday (end of week); **small** = other days. |
-| **Tk0** | No new tick hierarchy (keep current day marks only, if any). |
+| **Tk1** (LOCKED) | Top ticks: **large** = month start; **medium** = Saturday (end of week); **small** = other days. |
+| **Tk0** (not chosen) | No new tick hierarchy (keep current day marks only, if any). |
 
 ### **Cm** — Collapse metrics column
 
 | Token | Meaning |
 |---|---|
-| **Cm1** [rec] | Add a collapse/expand control for the DMI/metrics column on Rotation so more timeline is visible when collapsed. |
-| **Cm0** | No collapse control. |
+| **Cm1** (LOCKED) | Add a collapse/expand control for the DMI/metrics column on Rotation so more timeline is visible when collapsed. |
+| **Cm0** (not chosen) | No collapse control. |
 
 **Cm1 default (only if Cm1):**
 
 | Token | Meaning |
 |---|---|
-| **Cm1a** [rec] | Default **expanded** (today’s layout); user can collapse. |
-| **Cm1b** | Default **collapsed**. |
+| **Cm1a** (LOCKED) | Default **expanded** (today’s layout); user can collapse. |
+| **Cm1b** (not chosen) | Default **collapsed**. |
 
 ### **D** — Schema
 
 | Token | Meaning |
 |---|---|
-| **D0** [rec] | No SQL / no migration. |
+| **D0** (standing) | No SQL / no migration. |
 
-## 3. Design recommendation
+## 3. Design lock
 
-**Sc1+Rd1+Tk1+Cm1+Cm1a+D0**
+**LOCKED: Sc1+Rd1+Tk1+Cm1+Cm1a** — Tim, ~10:24 AM ET, card **t1107s4351** option 1 / typed **t1114u**.
 
 - Matches Tim’s typed asks for scroll, readiness, ticks, and collapse.
 - **Cm1a** keeps today’s expanded metrics as the default so existing Rotation muscle memory stays; collapse is opt-in for more canvas.
 - No temporary metrics-floor softener.
+- **D0** no SQL (standing).
 
-## 4. Acceptance (when locked + built)
+**Next:** Docs only on this tip until Tim yeses the land card. GTHO Build implements after docs are on main. OI-0255 / 0256 / 0257 remain PROPOSED on this same tip.
+
+## 4. Acceptance (when built)
 
 1. With many past events, the user can scroll left through **all** of them (**Sc1**).
 2. Canvas right edge reaches the **latest ready-by** date among visible paddocks’ close-event recovery ranges (**Sc1**).
@@ -89,4 +92,4 @@ Build triage (**t1087u**): “scroll gone” after #131 = short default canvas n
 
 ## 5. Tip instruction
 
-**PROPOSED** — Design lean **Sc1+Rd1+Tk1+Cm1+Cm1a+D0**. Docs only on this tip (with OI-0255/0256/0257). **Do not land on main** until Tim yeses the land card after lock. Never edit `src/`, `tests/`, or `supabase/` on this docs tip. Suggested Build order after locks: **0254 → 0255 → 0256 → 0257**.
+**LOCKED** — **Sc1+Rd1+Tk1+Cm1+Cm1a**. Docs only on this tip (with OI-0255/0256/0257 still PROPOSED). **Do not land on main** until Tim yeses the land card. **Do not** start Build from this tip until docs are on main. Never edit `src/`, `tests/`, or `supabase/` on this docs tip. Suggested Build order after locks: **0254 → 0255 → 0256 → 0257**.

@@ -2,7 +2,7 @@
 
 **Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim ended feedback batch **t1096u**: “lets wait on the scroll and implement the list of feedback items as that should fix it”). Awaiting Tim lock. No SQL / no migration.  
 **Owner:** GTHO Design → GTHO Build (after Tim locks + docs live on main).  
-**Parent:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 live via PR #131; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.  
+**Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 live via PR #131; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**).  
 **Also related:** OI-0252 metrics layout (dropped metrics min-width → short 14-day canvas now fits; overflow still works — not broken scroll); OI-0246 calendar; estimated readiness paint from `9ce0e69` (Today→range.end shared band).  
 **Schema / migration:** **D0 — none.** Canvas extent, paint, ticks, and a collapse control only.
 

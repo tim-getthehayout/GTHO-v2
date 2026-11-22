@@ -58,7 +58,8 @@
 | OI-0256 | Restore 100% Stored Feed checkbox (`event_paddock_windows.no_pasture`) | **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim **t1052u**; pile **t1060s4208**; batch ended **t1096u**) — Design lean **Lv1+Sk1+Pn1+Mt1+D0**. Per-PW checkbox; skip open+close residual; tan/stored-feed paint; metrics known Pasture 0 / 100% stored. Column exists (7 prod rows); i18n orphan; no new SQL expected. Awaiting Tim lock. [brief](session_briefs/STORED_FEED_ONLY_RESTORE_2026-11-22.md) |
 | OI-0255 | Rotation: click past event to see opening/closing (+ key fields) | **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim **t1032u**; batch ended **t1096u**) — Design lean **Ui1+Dt1+D0**. Modal/sheet detail; opening+closing pasture readings + key event fields; ask Tim before inventing more fields. No SQL. Awaiting Tim lock. [brief](session_briefs/PAST_EVENT_DETAIL_2026-11-22.md) |
 | OI-0254 | Rotation timeline canvas: all-past + ready-by scroll, per-paddock readiness, ticks, collapse metrics | **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim batch items 2+4+6 **t1037u/t1039u/t1094u/t1067u/t1096u**; batch ended **t1096u**) — Design lean **Sc1+Rd1+Tk1+Cm1+Cm1a+D0**. Scroll all past → last ready-by; readiness = close-event estimated range (not Today→range.end); ticks month/Sat/day; collapse metrics default expanded. No temporary metrics-floor softener. No SQL. Awaiting Tim lock. [brief](session_briefs/ROTATION_TIMELINE_CANVAS_2026-11-22.md) |
-| OI-0252 | Per-location metrics block layout (stacked DMI/AUDs over NPK/Score + uniform width) + List buttons right | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:36–7:37 AM ET (Tim, via Orchestrator; card **t1000s3983** change; typed **t1002u**) — **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. Two stacked lines (DMI · AUDs over N · P · K · Score); uniform width from widest visible row (**Wu** — t998u: G-4 zeros vs J1-1 DMI 3793 jagged Nov 22); Calendar + List (**Sb** confirmed); List row action buttons on the **right** matching original Locations list (**Br**); phone keeps stack (**Nn**); OI-0249 partial in measure (**Pp**); farm units (**Uf**); **D0** no SQL. Sequence **after PR #126**. Does not redesign OI-0250 strip. Docs tip ready for Tim’s land of **docs**. [brief](session_briefs/METRICS_BLOCK_LAYOUT_2026-11-22.md) |
+| OI-0253 | Past-block unknown DMI paint + column F1 sticky (never paint unknown as 0/0%) | **LOCKED** 2026-11-22 ~9:52 AM ET (Tim, via Orchestrator, card **t1060s4208**) — **B1+C0** (**D0** already closed). **B1** never paint past-block unknown as Pasture 0% / 0 DMI (show — or omit). **C0** keep F1 season-sticky on the column (OI-0246) when in-window hay days lack DM. **D0 CLOSED** (Build ~9:41 AM ET): F1 sticky is **inside the metric window only**; unmeasured hay outside **04/02/2026–10/07/2026** does **not** null the Apr–Oct column; recompute on `36bc946` + prod dump with that Season: E-1…E-5 column DMI **known** (`hayUnkIn=0`); strip totals match Tim (Total 100130, N 546); Build cannot reproduce Tim’s E-column em-dash on that window; Nov 17–22 hay only nulls E when the window includes those days (e.g. default Oct 1–Sep 30); Pasture 0% NOW = calendar-grid season `m.dmiKnown` paint (axis **B**), not a separate NOW DMI path. No SQL. Not OI-0249 math zero. Past-event detail and **100% Stored Feed / `no_pasture` restore** held in feedback pile (not this OI; restore after the batch). Docs landed on main `129b2dd` (OI-0253; restacked onto `2fe1e88`, OI-0252 #131 live). [brief](session_briefs/PAST_BLOCK_UNKNOWN_DMI_2026-11-22.md) |
+| OI-0252 | Per-location metrics block layout (stacked DMI/AUDs over NPK/Score + uniform width) + List buttons right | **MERGED / LIVE** 2026-11-22 PR #131 at `2fe1e8897dc4e2dcab413b157292d619ecee0c7d`; stamp `b2026-11-22.1502-2fe1e88` (Tim merge yes **t1068s4232**; lock ~7:36–7:37 AM ET, card **t1000s3983** / typed **t1002u**) — **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. Two stacked lines (DMI · AUDs over N · P · K · Score); uniform width from widest visible row (**Wu**); Calendar + List (**Sb**); List row action buttons on the **right** matching original Locations list (**Br**); phone keeps stack (**Nn**); OI-0249 partial in measure (**Pp**); farm units (**Uf**); **D0** no SQL. Does not redesign OI-0250 strip. [brief](session_briefs/METRICS_BLOCK_LAYOUT_2026-11-22.md) |
 | OI-0251 | Sheep period backfill (cattle-aligned DMI via synthetic closed event) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:27–7:28 AM ET (Tim, via Orchestrator; card **t990s3945** Ok; typed **t991u** Ap + Rotation/List prefs; typed **t993u** Ud) — **Es+Ld+Ap+Ud+Go+Ox+Sc+Wt+D2+Hn+Nm+Gw+D0**. Wt **70@100 lb** (~45.36 kg); **Ld** Sheep-history pasture; **Ap** archive + farm_settings `include_archived_locations_in_metrics` (default **true**; migration required); **Ud** small Report preferences dialog on Rotation + List (period defaults + archive pref, same farm_settings); **Gw** gates; **D0** tip no SQL apply. Docs tip ready for Tim’s land of **docs**. Migration apply + backfill write each need separate Tim yes. [brief](session_briefs/SHEEP_PERIOD_BACKFILL_2026-11-22.md) |
 | OI-0250 | Timeline period totals on Locations Calendar (pasture + stored-feed DMI + Total DMI + Total NPK) | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~7:14 AM ET (Tim, via Orchestrator, card **t971s3875**; placement from typed **t968u**) — **Sb+Pw+En+Nk+Pp+Uf+Sz+Af+Sq+D0**. Totals strip **under season metrics selection bar, above color key** (**Sb**). Enumerate Pasture DMI · Stored-feed DMI · Total DMI (**En**); Total N/P/K separately (**Nk**); follow metric window + visible filters (**Pw+Af**); OI-0249 muted “ partial” for unknown weights (**Pp**); missing-DM feed counts as **0** and does **not** trigger partial (**Sz**, replaces Design **Sd**); farm units (**Uf**); **after PR #126** (**Sq**); **D0** no SQL. Docs tip ready for Tim’s land of **docs**. No Build until docs live on main / after #126. [brief](session_briefs/TIMELINE_PERIOD_TOTALS_2026-11-22.md) |
 | OI-0249 | Per-event unknown season metrics + historical weight fix + require weight going forward | **SPEC LOCKED / READY FOR BUILD** 2026-11-22 ~6:30 AM ET (Tim, via Orchestrator, card **t901s3689** + **t901u**) — **Zp+Gg+Ua+Sc+Bn+Ba+Be+Rt+Ww+Ca+Ce+Cb+Cw**. Season total sums known slices and marks partial (**Zp**); skip only the missing-weight group, keep other groups that day (**Gg**, not Design rec **Gd**); AUDs keep today’s add-even-when-0 behavior (**Ua**, not **Uz**); Score unchanged (**Sc**). Fill-in latest on/before, else nearest after, leftovers to Tim (**Bn+Ba+Be**). Trust stored snapshots (**Rt**, not **Rr**); gated permanent rewrite of zero closed snapshots + missing weight records (**Ww**) only after SELECT list + verified backup + separate Tim yes. Require recorded weight on add and Edit Animal only (**Ca+Ce**, not **Cm**/**Cc**); block until a recorded weight, class default as confirmable suggestion that writes a record (**Cb+Cw**). Part A+Rt+Part C: no SQL. Part B write gated. Not part of OI-0246 list-parity / PR #123. Does not reopen OI-0248. [brief](session_briefs/PARTIAL_UNKNOWN_WEIGHTS_2026-11-22.md) |
@@ -236,7 +237,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Out of tip:** OI-0254 readiness geometry; OI-0253 B1; OI-0256 `no_pasture`.
 
-**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.
+**Parent / base:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**).
 
 **Related:** CAP-1; OI-0254; OI-0252 layout live.
 
@@ -263,7 +264,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Out of tip:** Re-adding `stored_feed_only` on observations; OI-0253 B1 implementation; timeline/forecaster OIs.
 
-**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.
+**Parent / base:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).
 
 **Related:** OI-0113 / mig 029; OI-0253 B1; DMI-8 confinement `location.type`.
 
@@ -286,7 +287,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Out of tip:** OI-0254 canvas; editing past events unless Tim expands Dt later.
 
-**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.
+**Parent / base:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).
 
 **Related:** OI-0254; OI-0246 **Cb** calendar click.
 
@@ -316,7 +317,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Out of tip:** Past-event detail → OI-0255; `no_pasture` → OI-0256; forecaster → OI-0257; OI-0253 B1; temporary ~280px metrics floor softener (declined).
 
-**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.
+**Parent / base:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**).
 
 **Related:** OI-0252 layout; OI-0246 calendar; estimated paint `9ce0e69`.
 
@@ -324,11 +325,33 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Build order (suggested):** **0254 → 0255 → 0256 → 0257** (minimize restacks; 0254 owns calendar-grid canvas).
 
+---
+### OI-0253 — Past-block unknown DMI paint + column F1 sticky
+
+**Status:** **LOCKED** 2026-11-22 ~9:52 AM ET (Tim, via Orchestrator, card **t1060s4208**) — **B1+C0** (**D0** already closed = F1 window-scoped / not the t1044u column bug). Opened ~9:40 AM ET from Tim regression **t1028u** ~9:30 AM ET; Season window clarify **t1044u**; **D CLOSED** Build ~9:41 AM ET. Docs landed on main `129b2dd`. No SQL / no migration.
+
+**Ask / regression:** Tim saw zero pasture DMI / “Pasture 0%” on past blocks while the season column showed — (and strip still had pasture). First seen on `5dfadff` after OI-0249 A+C; still reported on live `36bc946` under Season **04/02/2026–10/07/2026** (not the budget-year default).
+
+**Lock:** **B1+C0** (**D0** already closed)
+- **B1**: never paint unknown as **0 / 0%** on past blocks (show **—** or omit). **B0** not chosen.
+- **C0**: keep F1 season-sticky null on the **column** (OI-0246 / list-parity) when in-window hay days lack DM. **C1** not chosen.
+- **D0 CLOSED** (Build ~9:41 AM ET, recompute on `36bc946` + prod dump): F1 sticky is **inside the metric window only**. Unmeasured hay outside **04/02/2026–10/07/2026** does **not** null the Apr–Oct column. E-1…E-5 column DMI **known** (`hayUnkIn=0`); strip totals match Tim (Total 100130, N 546). Build **cannot reproduce** Tim’s E-column em-dash on that window. Nov 17–22 hay only nulls E when the window includes those days (e.g. default Oct 1–Sep 30). Pasture 0% NOW = calendar-grid season `m.dmiKnown` paint → axis **B**, not a separate NOW DMI path. No SQL / no migration.
+
+**Out of tip:** Measure DM (ops); past-event click detail + scroll ready-by (feedback pile); **100% Stored Feed / `no_pasture` restore** (Tim **t1052u** / lock card **t1060s4208** — pile after the feedback batch; not this OI); #129 strip aggregate “0 vs —” (Design nodded yes as separate tiny Build fix).
+
+**Not:** OI-0249 intentional math zero (Zp+Gg still sum known).
+
+**Parent / base:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; stamp `b2026-11-22.1502-2fe1e88`; RELEASED **48**). Prior parent `36bc946` (OI-0250 PR #129).
+
+**Related:** OI-0246 F1/Z1; OI-0249 / PR #126; OI-0250 Sz strip; OI-0252 layout live via PR #131 (no DMI math).
+
+**Brief:** [PAST_BLOCK_UNKNOWN_DMI_2026-11-22.md](session_briefs/PAST_BLOCK_UNKNOWN_DMI_2026-11-22.md)
+
 
 ---
 ### OI-0252 — Per-location metrics block layout (stack + uniform width)
 
-**Status:** **SPEC LOCKED / READY FOR BUILD** (Tim, 2026-11-22 ~7:36–7:37 AM ET, via Orchestrator; card **t1000s3983** “I want to change something”; typed **t1002u**) — opened ~7:34 AM ET from Tim **t996u**; evidence **t998u**; locked **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. Docs tip ready for Tim’s land of **docs**. Docs tip only. **D0** = no SQL / no migration.
+**Status:** **MERGED / LIVE** (PR #131 at `2fe1e8897dc4e2dcab413b157292d619ecee0c7d`; stamp `b2026-11-22.1502-2fe1e88`; Tim merge yes **t1068s4232**). Locked 2026-11-22 ~7:36–7:37 AM ET (Tim, via Orchestrator; card **t1000s3983** “I want to change something”; typed **t1002u**) — opened ~7:34 AM ET from Tim **t996u**; evidence **t998u**; locked **Ls+Wu+Sb+Br+Nn+Pp+Uf+D0**. **D0** = no SQL / no migration.
 
 **Ask:** Per-pasture metrics should use a standard length so they line up regardless of amounts; stack DMI and AUD on top of NPK and pasture score; set one uniform render width from the location with the highest values / the width it needs. Lock add (**t1002u**): same layout on List, and move List row action buttons to the right-hand side matching the original Locations list.
 
@@ -344,7 +367,7 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 - **Uf**: keep existing `formatMetricValue` / farm unit helpers; remeasure on unit or window change.
 - **D0**: no SQL / no migration.
 
-**Sequencing:** Build **after** docs land **and after PR #126 / OI-0249** is on main (partial markers in measure). OI-0250 strip unchanged (does not join per-location width). OI-0251 Ap (when on) adds archived locs that appear in the metrics set to the width pool; Ud dialog unrelated. **Br** does not change Calendar click rules (OI-0246 **Cb**).
+**Sequencing:** **Shipped** on main `2fe1e88` (PR #131). Built after docs land and after PR #126 / OI-0249 on main (partial markers in measure). OI-0250 strip unchanged (does not join per-location width). OI-0251 Ap (when on) adds archived locs that appear in the metrics set to the width pool; Ud dialog unrelated. **Br** does not change Calendar click rules (OI-0246 **Cb**).
 
 **Parent / base:** Forgejo `origin/main` `d6a18e8e76d69fbb717dc4ff599b00e8c4316a83` (OI-0250 docs live via PR #127; RELEASED **48**). Tip branch `docs/oi-0252-metrics-block-layout` already off that tip.
 

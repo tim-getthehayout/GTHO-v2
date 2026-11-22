@@ -2,7 +2,7 @@
 
 **Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim feedback batch item 1, **t1032u**; batch ended **t1096u**). Awaiting Tim lock. No SQL / no migration.  
 **Owner:** GTHO Design → GTHO Build (after Tim locks + docs live on main).  
-**Parent:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.  
+**Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).  
 **Also related:** OI-0254 timeline canvas; OI-0246 calendar click rules (**Cb**); event observation / paddock-window readings.  
 **Schema / migration:** **D0 — none.** Read-only detail UI over existing event / PW / observation fields.
 

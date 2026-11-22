@@ -2,7 +2,7 @@
 
 **Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim feedback batch item 3, **t1052u**; pile lock **t1060s4208**; batch ended **t1096u**). Awaiting Tim lock.  
 **Owner:** GTHO Design → GTHO Build (after Tim locks + docs live on main).  
-**Parent:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately (B1 paint — complementary, not a substitute for this flag).  
+**Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 is on this parent (**B1** paint is complementary, not a substitute for this flag).  
 **Also related:** Design brief 2026-04-12 (bale-grazing anchor = this flag); mig **029** / OI-0113 dropped `stored_feed_only` on `event_observations`; v1 `ev.noPasture` → `event_paddock_windows.no_pasture`; i18n `observations.storedFeedOnly` = “100% Stored Feed” (orphan); DMI-8 confinement uses `location.type` only (metrics ignore `no_pasture` today).  
 **Schema / migration:** Column **already exists** (`event_paddock_windows.no_pasture` boolean; prod **7** rows true: Corral×4, G-2×2, G-3×1). **D0** expected — wire UI + paint + metrics to the existing column; no new column. Confirm at implement time; do not invent a second flag.
 

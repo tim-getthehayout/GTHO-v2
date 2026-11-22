@@ -2,7 +2,7 @@
 
 **Status:** **PROPOSED** 2026-11-22 ~10:10 AM ET (Tim feedback batch item 5, **t1073u** + CAP-1 stub triage; batch ended **t1096u**). Awaiting Tim lock. No SQL / no migration expected.  
 **Owner:** GTHO Design → GTHO Build (after Tim locks + docs live on main; Build discovery first if forecast path is unclear).  
-**Parent:** Forgejo `origin/main` `2fe1e8897dc4e2dcab413b157292d619ecee0c7d` (OI-0252 PR #131 live; RELEASED **48**). OI-0253 LOCKED tip `129b2dd` may land separately.  
+**Parent:** Forgejo `origin/main` `129b2dd190574b9b6c1cb75bb21ac058a2d84cc8` (OI-0253 docs live; OI-0252 PR #131 live; RELEASED **48**).  
 **Also related:** CAP-1 forecast stub in `calendar-grid.js` (`coverageFraction: 0` / `shortfallLbsHay: 0`) when a forecaster period + groups are selected; Tim saw future readiness blocks paint tan **“Hay / stored feed, 0 lbs hay”** instead of green — **not** a #129/#131 paint regression; green returns when leaving forecast-stub mode. OI-0254 readiness bands are separate (close-event estimated range).  
 **Schema / migration:** **D0 — none** expected (UI filter + stub paint + forecast path fix).
 

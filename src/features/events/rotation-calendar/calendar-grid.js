@@ -4,12 +4,14 @@
  * Phone: metrics under name; timeline scrolls horizontally (P1).
  * X1 pasture+mixed-use; W1 season window; T0 readiness; D0 compute-on-read.
  * OI-0252 Ls+Wu+Sb+Br+Nn+Pp+Uf+D0: stacked DMI/AUDs over NPK/Score, uniform width, List buttons right.
+ * OI-0254 Sc1+Rd1+Tk1+Cm1+Cm1a: full-event canvas, per-paddock readiness band, tick hierarchy, collapsible metrics.
  */
 
 import { el, clear } from '../../../ui/dom.js';
 import { getAll } from '../../../data/store.js';
 import {
   getCalendarState, getViewMode, setJump, setMetricWindow, setSort,
+  toggleMetricsCollapsed,
 } from '../calendar-state.js';
 import { getUnitSystem } from '../../../utils/preferences.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
@@ -25,7 +27,9 @@ import { openHarvestSheet } from '../../harvest/index.js';
 import { openAmendmentSheet } from '../../amendments/entry.js';
 import { getEventStartDate } from '../event-start.js';
 import { getLiveWindowHeadCount } from '../../../calcs/window-helpers.js';
-import { resolveRange, dateToPx } from './timeline.js';
+import {
+  resolveCanvasRange, dateToPx, enumerateTicks, defaultSpanDays, parseTimelineDay,
+} from './timeline.js';
 import { renderPastBlock } from './past-block.js';
 import { renderEstimatedFutureBlock, renderForecastFutureBlock } from './future-block.js';
 import { renderHeaderStrip } from './header-strip.js';
@@ -39,7 +43,7 @@ import {
   aggregatePeriodTotals,
   formatMetricValue,
 } from './location-metrics.js';
-import { computeReadiness, lastGrazeDate } from './readiness.js';
+import { computeReadiness, lastGrazeDate, readinessBandRange } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
 import {
   VERTICAL_SCROLL_OWNER_CLASS,
@@ -74,6 +78,7 @@ const METRIC_LINE2 = METRIC_COLS.filter(c => !METRIC_LINE1.includes(c));
  */
 export function applyUniformMetricsWidth(root) {
   if (!root) return 0;
+  if (root.classList?.contains('loc-mgmt--metrics-collapsed')) return 0;
   const cells = [...root.querySelectorAll('[data-testid="loc-mgmt-metrics"]')];
   const heads = [...root.querySelectorAll('.loc-mgmt__metrics-head')];
   const targets = [...cells, ...heads];
@@ -331,17 +336,41 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals) : null;
   const legend = isList ? null : renderLegend(viewMode);
 
-  const range = resolveRange(state.anchor, state.zoom);
+  // OI-0254 Sc1: canvas = all past event starts → latest ready-by (close-event recovery).
+  const eventStarts = [];
+  for (const loc of locations) {
+    for (const pw of allPaddockWindows) {
+      if (pw.locationId !== loc.id) continue;
+      const event = allEvents.find(e => e.id === pw.eventId);
+      if (!event) continue;
+      const startIso = getEventStartDate(event.id)
+        || (pw.dateOpened ? String(pw.dateOpened).slice(0, 10) : null)
+        || (event.dateIn ? String(event.dateIn).slice(0, 10) : null);
+      if (startIso) eventStarts.push(startIso);
+    }
+  }
+  const readyByDates = [];
+  for (const loc of locations) {
+    const band = readinessBandRange(readinessById.get(loc.id));
+    if (band?.end) readyByDates.push(band.end);
+  }
+  const range = resolveCanvasRange({
+    zoom: state.zoom,
+    today,
+    eventStarts,
+    readyByDates,
+  });
   const totalWidth = Math.max(4, dateToPx(range.end, range.start, range.pxPerDay));
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  const now = parseTimelineDay(today) || new Date(`${today}T00:00:00`);
   const todayPx = dateToPx(now, range.start, range.pxPerDay);
+  const metricsCollapsed = !isList && !!state.metricsCollapsed;
 
   // Sticky header row (outside vertical scroller)
   const sort = { key: state.sortKey || 'name', dir: state.sortDir || 'asc' };
   const head = renderTableHead({
     sort, onUpdate, isPhone, range, totalWidth, todayPx, zoom: state.zoom,
     omitTimeline: isList,
+    metricsCollapsed,
   });
 
   // Single vertical scroll owner — F0
@@ -389,6 +418,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
       isList,
       operationId,
       farmId,
+      metricsCollapsed,
     });
     const ts = row.querySelector(`.${TIMELINE_SCROLL_CLASS}`);
     if (ts) timelineScrollers.push(ts);
@@ -413,8 +443,17 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   });
 
   const surface = el('div', {
-    className: `loc-mgmt${isList ? ' loc-mgmt--list' : ''}${isPhone ? ' loc-mgmt--phone' : ' loc-mgmt--desktop'}`,
-    dataset: { testid: 'calendar-grid', view: isList ? 'list' : 'calendar' },
+    className: [
+      'loc-mgmt',
+      isList ? 'loc-mgmt--list' : '',
+      isPhone ? 'loc-mgmt--phone' : 'loc-mgmt--desktop',
+      metricsCollapsed ? 'loc-mgmt--metrics-collapsed' : '',
+    ].filter(Boolean).join(' '),
+    dataset: {
+      testid: 'calendar-grid',
+      view: isList ? 'list' : 'calendar',
+      metricsCollapsed: metricsCollapsed ? '1' : '0',
+    },
   }, [head, body]);
 
   const onKeyDown = (e) => {
@@ -630,10 +669,31 @@ function renderPeriodTotalsStrip(totals) {
   ]);
 }
 
-function renderTableHead({ sort, onUpdate, isPhone, range, totalWidth, todayPx, zoom, omitTimeline = false }) {
+function renderMetricsCollapseToggle({ collapsed, onUpdate }) {
+  return el('button', {
+    type: 'button',
+    className: 'loc-mgmt__metrics-toggle',
+    dataset: { testid: 'metrics-collapse-toggle', collapsed: collapsed ? '1' : '0' },
+    title: collapsed ? 'Expand metrics column' : 'Collapse metrics column',
+    'aria-expanded': collapsed ? 'false' : 'true',
+    'aria-label': collapsed ? 'Expand metrics column' : 'Collapse metrics column',
+    onClick: () => {
+      toggleMetricsCollapsed();
+      onUpdate();
+    },
+  }, [collapsed ? '▸ Metrics' : '▾ Metrics']);
+}
+
+function renderTableHead({
+  sort, onUpdate, isPhone, range, totalWidth, todayPx, zoom,
+  omitTimeline = false, metricsCollapsed = false,
+}) {
   const nameBtn = sortHeaderButton('name', 'Name', sort, onUpdate);
   const metricBtns = METRIC_COLS.map(col => sortHeaderButton(col.key, col.label, sort, onUpdate, col.title));
   const metricBtnsByKey = new Map(METRIC_COLS.map((col, i) => [col.key, metricBtns[i]]));
+  const collapseToggle = omitTimeline
+    ? null
+    : renderMetricsCollapseToggle({ collapsed: metricsCollapsed, onUpdate });
 
   if (omitTimeline) {
     if (isPhone) {
@@ -663,11 +723,21 @@ function renderTableHead({ sort, onUpdate, isPhone, range, totalWidth, todayPx, 
     }, [axis, todayLine]),
   ]);
 
+  const metricsHead = metricsCollapsed
+    ? el('div', {
+      className: 'loc-mgmt__metrics-head loc-mgmt__metrics-head--collapsed',
+      dataset: { testid: 'loc-mgmt-metrics-head-collapsed' },
+    }, [collapseToggle])
+    : el('div', { className: 'loc-mgmt__metrics-head-wrap' }, [
+      collapseToggle,
+      renderMetricsHead(metricBtnsByKey),
+    ]);
+
   if (isPhone) {
     return el('div', { className: 'loc-mgmt__head loc-mgmt__head--phone' }, [
       el('div', { className: 'loc-mgmt__head-metrics' }, [
         nameBtn,
-        renderMetricsHead(metricBtnsByKey),
+        metricsHead,
       ]),
       el('div', { className: 'loc-mgmt__head-timeline' }, [timelineHead]),
     ]);
@@ -675,7 +745,7 @@ function renderTableHead({ sort, onUpdate, isPhone, range, totalWidth, todayPx, 
 
   return el('div', { className: 'loc-mgmt__head loc-mgmt__head--desktop' }, [
     el('div', { className: 'loc-mgmt__name-head', style: { width: `${NAME_WIDTH}px` } }, [nameBtn]),
-    renderMetricsHead(metricBtnsByKey),
+    metricsHead,
     el('div', { className: 'loc-mgmt__timeline-head' }, [timelineHead]),
   ]);
 }
@@ -696,34 +766,36 @@ function sortHeaderButton(key, label, sort, onUpdate, title) {
   }, [`${label}${arrow}`]);
 }
 
+/** OI-0254 Tk1 — large=month start, medium=Saturday, small=other days. */
 function buildAxis(start, end, zoom, pxPerDay, totalWidth) {
-  const labels = [];
-  const cursor = new Date(start);
-  while (cursor <= end) {
-    const leftPx = dateToPx(cursor, start, pxPerDay);
-    let label;
-    if (zoom === 'day') {
-      label = cursor.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-      cursor.setDate(cursor.getDate() + 1);
-    } else if (zoom === 'week') {
-      label = cursor.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      cursor.setDate(cursor.getDate() + 7);
-    } else if (zoom === 'month') {
-      label = cursor.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
-      cursor.setMonth(cursor.getMonth() + 1);
-    } else {
-      label = cursor.toLocaleDateString(undefined, { month: 'short' });
-      cursor.setMonth(cursor.getMonth() + 1);
-    }
-    labels.push(el('span', {
-      className: 'timeline-axis__label',
+  const ticks = enumerateTicks(start, end);
+  const nodes = [];
+  for (const tick of ticks) {
+    const leftPx = dateToPx(tick.date, start, pxPerDay);
+    nodes.push(el('span', {
+      className: `timeline-axis__tick timeline-axis__tick--${tick.kind}`,
       style: { left: `${leftPx}px` },
-    }, [label]));
+      dataset: { testid: `timeline-tick-${tick.kind}`, iso: tick.iso },
+      'aria-hidden': 'true',
+    }));
+    // Labels: months always; Saturdays when zoom is day/week (room to read).
+    const showLabel = tick.kind === 'month'
+      || (tick.kind === 'saturday' && (zoom === 'day' || zoom === 'week'));
+    if (showLabel) {
+      const label = tick.kind === 'month'
+        ? tick.date.toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
+        : tick.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      nodes.push(el('span', {
+        className: `timeline-axis__label timeline-axis__label--${tick.kind}`,
+        style: { left: `${leftPx}px` },
+      }, [label]));
+    }
   }
   return el('div', {
-    className: 'timeline-axis timeline-axis--top',
+    className: 'timeline-axis timeline-axis--top timeline-axis--ticks',
     style: { width: `${totalWidth}px`, position: 'relative' },
-  }, labels);
+    dataset: { testid: 'timeline-axis-ticks' },
+  }, nodes);
 }
 
 function renderManagementRow(opts) {
@@ -735,6 +807,7 @@ function renderManagementRow(opts) {
     isList = false,
     operationId = null,
     farmId = null,
+    metricsCollapsed = false,
   } = opts;
 
   const areaDisplay = loc.areaHectares != null
@@ -805,7 +878,13 @@ function renderManagementRow(opts) {
     : null;
 
   const metricsForCell = metrics ? { ...metrics, locationId: loc.id } : { locationId: loc.id };
-  const metricCell = renderMetricsCell(metricsForCell, { isPhone });
+  const metricCell = metricsCollapsed
+    ? el('div', {
+      className: 'loc-mgmt__metrics loc-mgmt__metrics--collapsed',
+      dataset: { testid: 'loc-mgmt-metrics-collapsed', locationId: loc.id },
+      'aria-hidden': 'true',
+    })
+    : renderMetricsCell(metricsForCell, { isPhone });
 
   if (omitTimeline) {
     // Br: List action buttons on the right-hand side (original Locations list parity).
@@ -898,27 +977,88 @@ function renderManagementRow(opts) {
     }
   }
 
-  // Future readiness block
-  const nowD = new Date();
-  nowD.setHours(0, 0, 0, 0);
-  if (range.end > nowD) {
-    const futureLeftPx = dateToPx(nowD, range.start, range.pxPerDay);
-    const futureWidthPx = Math.max(4, dateToPx(range.end, range.start, range.pxPerDay) - futureLeftPx);
-    // Do not shadow the destructured `readiness` param (TDZ blank-screen crash).
-    const readinessState = readiness || { mode: 'never' };
-    const hasActiveEvent = !!activeEvents[loc.id];
-    const isNeverGrazed = readinessState.mode === 'never';
+  // OI-0254 Rd1: per-paddock close-event readiness band (earliest→latest), not Today→range.end.
+  const nowD = parseTimelineDay(getLocalTodayStr()) || new Date();
+  // Do not shadow the destructured `readiness` param (TDZ blank-screen crash).
+  const readinessState = readiness || { mode: 'never' };
+  const hasActiveEvent = !!activeEvents[loc.id];
+  const isNeverGrazed = readinessState.mode === 'never';
+  const band = readinessBandRange(readinessState);
 
-    if (viewMode === 'forecast' && selectedGroups.length > 0 && state.period != null) {
-      blockArea.appendChild(renderForecastFutureBlock({
-        leftPx: Math.max(0, futureLeftPx),
-        widthPx: futureWidthPx,
-        coverageFraction: 0,
-        coversHours: 0,
-        shortfallLbsHay: 0,
-        surplusHours: 0,
-        isNeverGrazed,
-        isGrazingInProgress: hasActiveEvent,
+  // Modest clip for never/active/forecast placeholders so they do not stretch to another paddock's ready-by.
+  const stubEnd = new Date(nowD);
+  stubEnd.setDate(stubEnd.getDate() + Math.max(14, defaultSpanDays(state.zoom || 'week')));
+  if (stubEnd.getTime() > range.end.getTime()) stubEnd.setTime(range.end.getTime());
+
+  if (viewMode === 'forecast' && selectedGroups.length > 0 && state.period != null && range.end > nowD) {
+    const futureLeftPx = dateToPx(nowD, range.start, range.pxPerDay);
+    const futureWidthPx = Math.max(4, dateToPx(stubEnd, range.start, range.pxPerDay) - futureLeftPx);
+    blockArea.appendChild(renderForecastFutureBlock({
+      leftPx: Math.max(0, futureLeftPx),
+      widthPx: futureWidthPx,
+      coverageFraction: 0,
+      coversHours: 0,
+      shortfallLbsHay: 0,
+      surplusHours: 0,
+      isNeverGrazed,
+      isGrazingInProgress: hasActiveEvent,
+      hayEstimateLbs: '?',
+      locationId: loc.id,
+      forageInactive: false,
+      onClickBlock: (_id, action) => {
+        if (action === 'survey') navigate('#/locations');
+      },
+    }));
+  } else if (hasActiveEvent) {
+    const futureLeftPx = dateToPx(nowD, range.start, range.pxPerDay);
+    const futureWidthPx = Math.max(4, dateToPx(stubEnd, range.start, range.pxPerDay) - futureLeftPx);
+    blockArea.appendChild(renderEstimatedFutureBlock({
+      leftPx: Math.max(0, futureLeftPx),
+      widthPx: futureWidthPx,
+      minDate: '',
+      maxDate: '',
+      confidence: 'min',
+      isNeverGrazed: false,
+      isGrazingInProgress: true,
+      hayEstimateLbs: '?',
+      locationId: loc.id,
+      forageInactive: false,
+      onClickBlock: () => {},
+    }));
+  } else if (isNeverGrazed) {
+    const futureLeftPx = dateToPx(nowD, range.start, range.pxPerDay);
+    const futureWidthPx = Math.max(4, dateToPx(stubEnd, range.start, range.pxPerDay) - futureLeftPx);
+    blockArea.appendChild(renderEstimatedFutureBlock({
+      leftPx: Math.max(0, futureLeftPx),
+      widthPx: futureWidthPx,
+      minDate: '',
+      maxDate: '',
+      confidence: 'min',
+      isNeverGrazed: true,
+      isGrazingInProgress: false,
+      hayEstimateLbs: '?',
+      locationId: loc.id,
+      forageInactive: false,
+      onClickBlock: (_id, action) => {
+        if (action === 'survey') navigate('#/locations');
+      },
+    }));
+  } else if (band) {
+    const bandStart = parseTimelineDay(band.start);
+    const bandEnd = parseTimelineDay(band.end);
+    if (bandStart && bandEnd && bandEnd >= range.start && bandStart <= range.end) {
+      const clipStart = new Date(Math.max(bandStart.getTime(), range.start.getTime()));
+      const clipEnd = new Date(Math.min(bandEnd.getTime(), range.end.getTime()));
+      const leftPx = dateToPx(clipStart, range.start, range.pxPerDay);
+      const widthPx = Math.max(4, dateToPx(clipEnd, range.start, range.pxPerDay) - leftPx);
+      blockArea.appendChild(renderEstimatedFutureBlock({
+        leftPx: Math.max(0, leftPx),
+        widthPx,
+        minDate: formatShort(band.start),
+        maxDate: formatShort(band.end),
+        confidence: readinessState.confidence || 'min',
+        isNeverGrazed: false,
+        isGrazingInProgress: false,
         hayEstimateLbs: '?',
         locationId: loc.id,
         forageInactive: false,
@@ -926,33 +1066,17 @@ function renderManagementRow(opts) {
           if (action === 'survey') navigate('#/locations');
         },
       }));
-    } else {
-      const fb = renderEstimatedFutureBlock({
-        leftPx: Math.max(0, futureLeftPx),
-        widthPx: futureWidthPx,
-        minDate: readinessState.earliestReturn
-          ? formatShort(readinessState.earliestReturn)
-          : (readinessState.mode === 'relative' ? readinessState.label : ''),
-        maxDate: readinessState.windowCloses ? formatShort(readinessState.windowCloses) : '',
-        confidence: readinessState.confidence || 'min',
-        isNeverGrazed,
-        isGrazingInProgress: hasActiveEvent,
-        hayEstimateLbs: '?',
-        locationId: loc.id,
-        forageInactive: false,
-        onClickBlock: (_id, action) => {
-          if (action === 'survey') navigate('#/locations');
-        },
-      });
-      // Relative-mode label overlay when no survey ticks
-      if (readinessState.mode === 'relative' && !hasActiveEvent) {
-        fb.appendChild(el('span', {
-          className: 'future-block__relative',
-          dataset: { testid: 'readiness-relative' },
-        }, [readinessState.label]));
-      }
-      blockArea.appendChild(fb);
     }
+  } else if (readinessState.mode === 'relative') {
+    // Relative: label near Today — no shared Today→range.end green wash.
+    const leftPx = Math.max(0, dateToPx(nowD, range.start, range.pxPerDay));
+    blockArea.appendChild(el('div', {
+      className: 'future-block future-block--relative-only',
+      style: { left: `${leftPx}px`, width: 'auto', minWidth: '120px' },
+      dataset: { testid: 'readiness-relative', locationId: loc.id },
+    }, [
+      el('span', { className: 'future-block__relative' }, [readinessState.label || '']),
+    ]));
   }
 
   const timelineScroll = el('div', {

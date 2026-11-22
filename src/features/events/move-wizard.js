@@ -131,10 +131,16 @@ export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
 
 // Step 3: Close & Move
 function wizardPoolGroups(eventId,date,time){return Object.fromEntries([...liveFeedPools(eventId,date,time)].map(([,pool])=>[`${pool.feedTypeId}|${pool.locationId}`,{feedTypeId:pool.feedTypeId,locationId:pool.locationId,total:pool.q??NaN,unit:pool.unit||'kg'}]));}
+/** OI-0259: Step 3 remaining input is the close-check qty (no live prefill). */
+function enteredRemainingQty(toggle) {
+  const v = toggle?.residualInput ? String(toggle.residualInput.value).trim() : '';
+  return Number(v);
+}
+
 function transferWizardPools(toggles,sourceEvent,destinationEventId,destinationLocationId,operationId,date,time,arrival){
   for(const toggle of toggles||[]){if(toggle.choice!=='move')continue;
     const arrived=arrival && rowInstant(arrival.date,arrival.time)!==rowInstant(date,time)?arrival:afterObservation(date,time);
-    writePoolTransfer({operationId,eventId:sourceEvent.id,feedTypeId:toggle.feedTypeId,locationId:toggle.locationId,date,time,quantity:toggle.total,unit:toggle.unit,destinationEventId,destinationLocationId,arrival:arrived,allowClosed:true});
+    writePoolTransfer({operationId,eventId:sourceEvent.id,feedTypeId:toggle.feedTypeId,locationId:toggle.locationId,date,time,quantity:enteredRemainingQty(toggle),unit:toggle.unit,destinationEventId,destinationLocationId,arrival:arrived,allowClosed:true});
   }
 }
 
@@ -449,13 +455,12 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
       const locName = loc ? loc.name : '?';
       const unit = group.unit || batch?.unit || '';
       const safeKey = key.replace('|', '-');
-      // OI-0136: the required residual-qty input is constructed here so the
-      // Save handler can read `toggle.residualInput.value` at validation time.
-      // The wrapper toggles alongside the radio selection so neither label
-      // nor input is visible when Move is the active choice.
+      // OI-0259: remaining input is the close feed check for both Move and
+      // Residual. No live/Σ prefill — Save reads this value. The wrapper stays
+      // visible regardless of radio choice (OI-0136 was Residual-only).
       const residualInput = el('input', {
         type: 'number', className: 'auth-input settings-input',
-        value: String(group.total), min: '0', step: 'any',
+        value: '', min: '0', step: 'any',
         'data-testid': `move-wizard-residual-input-${safeKey}`,
       });
       const toggle = {
@@ -479,24 +484,24 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
         'data-testid': `move-wizard-transfer-residual-${safeKey}`,
       });
       const residualInputWrap = el('div', {
-        style: { paddingLeft: '24px', marginTop: 'var(--space-2)', display: 'none' },
+        style: { paddingLeft: '24px', marginTop: 'var(--space-2)' },
       }, [
+        el('div', {
+          className: 'form-hint',
+          'data-testid': `move-wizard-remaining-hint-${safeKey}`,
+        }, [
+          `${t('feed.feedCheckStarted')}: ${group.total} ${unit}`.trim(),
+        ]),
         el('label', { className: 'form-label', style: { fontSize: '12px' } }, [
           `${t('event.feedTransferResidualAmountLabel', { loc: locName })}${unit ? ` (${unit})` : ''}`,
         ]),
         residualInput,
       ]);
       moveRadio.addEventListener('change', () => {
-        if (moveRadio.checked) {
-          toggle.choice = 'move';
-          residualInputWrap.style.display = 'none';
-        }
+        if (moveRadio.checked) toggle.choice = 'move';
       });
       residualRadio.addEventListener('change', () => {
-        if (residualRadio.checked) {
-          toggle.choice = 'residual';
-          residualInputWrap.style.display = '';
-        }
+        if (residualRadio.checked) toggle.choice = 'residual';
       });
       toggle.setChoice = choice => {
         if (!['move','residual'].includes(choice)) throw new Error('invalid-feed-transfer-choice');
@@ -512,9 +517,6 @@ function renderStep3(panel, state, sourceEvent, operationId, farmId, unitSys, op
           'data-testid': `move-wizard-transfer-label-${safeKey}`,
         }, [
           `${batchName} → ${locName}`,
-          el('span', { style: { color: 'var(--text2)', fontWeight: '400' } }, [
-            ` — remaining: ${group.total} ${unit}`,
-          ]),
         ]),
         el('label', {
           style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: '4px 0', cursor: 'pointer' },
@@ -656,11 +658,11 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     return;
   }
 
-  // OI-0136: block Save when any Residual line's input is blank, non-numeric,
-  // or negative. Parity with OI-0119 sub-move close.
+  // OI-0259: block Save when any leftover stored-feed line's remaining input
+  // is blank, non-numeric, or negative. Extends the OI-0136 Residual-only
+  // gate to both Move and Residual (parity with OI-0119 sub-move close).
   if (transferToggles && transferToggles.length) {
     for (const toggle of transferToggles) {
-      if (toggle.choice !== 'residual') continue;
       const v = toggle.residualInput ? toggle.residualInput.value.trim() : '';
       if (v === '' || Number.isNaN(Number(v)) || Number(v) < 0) {
         statusEl.appendChild(el('span', {}, [t('event.feedTransferResidualAmountBlocked')]));
@@ -684,7 +686,8 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       if (toggle.choice !== 'move') continue;
       if(poolWritesEnabled()){
         const pool=liveFeedPools(sourceEvent.id,dateOut,timeOut).get(`${sourceEvent.id}|${toggle.locationId}|${toggle.feedTypeId}`);
-        if(!poolConversion(pool) || !Number.isFinite(toggle.total) || toggle.total<=0 || toggle.total>pool.q+1e-8){statusEl.textContent=t('pool.unavailable');return;}
+        const qty=enteredRemainingQty(toggle);
+        if(!poolConversion(pool) || !Number.isFinite(qty) || qty<=0 || qty>pool.q+1e-8){statusEl.textContent=t('pool.unavailable');return;}
         if(state.destType==='new' && rowInstant(dateInPreview,timeInPreview)<rowInstant(dateOut,timeOut)){statusEl.textContent=t('pool.arrival');return;}
         continue;
       }
@@ -695,7 +698,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
         locationId: state.locationId || toggle.locationId,
         date: dateInPreview,
         time: timeInPreview,
-        quantity: toggle.total,
+        quantity: enteredRemainingQty(toggle),
         sourceEventId: sourceEvent.id,
       });
       const v = FeedEntryEntity.validate(dryRun);
@@ -794,7 +797,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
     const feedEntries = isScoped ? [] : getAll('eventFeedEntries').filter(e => e.eventId === sourceEvent.id);
     if(feedEntries.length && poolWritesEnabled()){
       const groups=wizardPoolGroups(sourceEvent.id,dateOut,timeOut),toggles=new Map((transferToggles||[]).map(row=>[row.key,row]));
-      const readings=Object.entries(groups).map(([key,group])=>{const toggle=toggles.get(key);return {feedTypeId:group.feedTypeId,locationId:group.locationId,unit:group.unit,remainingQuantity:toggle?.choice==='residual'?Number(toggle.residualInput.value):group.total};});
+      const readings=Object.entries(groups).map(([key,group])=>{const toggle=toggles.get(key);return {feedTypeId:group.feedTypeId,locationId:group.locationId,unit:group.unit,remainingQuantity:toggle?enteredRemainingQty(toggle):group.total};});
       writePoolCheck({operationId,eventId:sourceEvent.id,date:dateOut,time:timeOut,readings,isCloseReading:true});
     } else if (feedEntries.length) {
       const check = FeedCheckEntity.create({
@@ -807,11 +810,13 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
       add('eventFeedChecks', check, FeedCheckEntity.validate,
         FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
 
-      // OI-0104 + OI-0135 + OI-0136: per-line close-reading remainingQuantity
-      // comes from the farmer's Move/Residual choice captured in transferToggles.
-      // Move lines stamp 0 (all transferred to new paddock); Residual lines
-      // stamp the farmer-confirmed value from the forced input (defaults to
-      // live-remaining from OI-0135's helper).
+      // OI-0104 + OI-0135 + OI-0136 + OI-0259: per-line close-reading
+      // remainingQuantity comes from the farmer's Move/Residual choice.
+      // Residual lines stamp the entered remaining. Move lines on this
+      // legacy (non-pool) path still stamp 0 — there is no pool_removal to
+      // take feed off the source after the check; dest carry uses entered
+      // qty. Schema 48 (poolWritesEnabled) stamps entered, then transfers
+      // entered.
       //
       // Fall-back for groups with no matching toggle (should not happen since
       // transferToggles is built from the same feedGroups earlier in the render
@@ -975,7 +980,7 @@ function executeMoveWizard(state, inputs, sourceEvent, operationId, farmId, _uni
             locationId: feedDestinationId(state),
             date: dateIn,
             time: timeIn,
-            quantity: toggle.total,
+            quantity: enteredRemainingQty(toggle),
             sourceEventId: sourceEvent.id,
           });
           add('eventFeedEntries', transferEntry, FeedEntryEntity.validate,

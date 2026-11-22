@@ -288,7 +288,10 @@ describe('plausibility warning UI', () => {
     const residualKey = `${HAY}-${LOC}`;
     expect(panel.querySelector(`[data-testid="move-wizard-transfer-move-${residualKey}"]`).checked).toBe(true);
     const residualInput = panel.querySelector(`[data-testid="move-wizard-residual-input-${residualKey}"]`);
-    expect(residualInput.style.display === 'none' || residualInput.parentElement?.style.display === 'none' || getComputedStyle(residualInput).display === 'none' || residualInput.closest('div[style*="display"]') != null).toBeTruthy();
+    expect(residualInput).toBeTruthy();
+    expect(residualInput.parentElement?.style.display).not.toBe('none');
+    expect(residualInput.value).toBe('');
+    fill(panel, `[data-testid="move-wizard-residual-input-${residualKey}"]`, '0.75');
     const beforeChecks = getAll('eventFeedChecks').length;
     panel.querySelector('[data-testid="move-wizard-save"]').click();
     expect(panel.querySelector('[data-testid="pool-plausibility-warning"]')).toBeFalsy();

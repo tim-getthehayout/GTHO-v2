@@ -8,7 +8,7 @@ vi.mock('../../src/data/schema-release.js', async original => ({ ...await origin
  *     card; stay-copy is visible; Save writes no destination feed rows and
  *     leaves source entries (and no close-reading) on the open event.
  *   - full-event and scoped-last still show Move / Leave as residual and
- *     still transfer on the default Move choice.
+ *     still transfer on the default Move choice once remaining is entered (OI-0259).
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { _reset, add, update, getAll, getById } from '../../src/data/store.js';
@@ -199,6 +199,8 @@ describe('move wizard — scoped-remaining feed stays on source', () => {
     expect(document.body.textContent).toMatch(/Feed Transfer/);
     expect(document.body.textContent).toMatch(/Move to new paddock/);
     expect(document.body.textContent).toMatch(/Leave as residual/);
+    // OI-0259: remaining is required (no live prefill). Enter the prior live remaining.
+    document.querySelector(`[data-testid="move-wizard-residual-input-${BATCH}-${SRC_LOC}"]`).value = '4';
     document.querySelector('[data-testid="move-wizard-save"]').click();
     const destEntries = getAll('eventFeedEntries').filter(e => e.eventId !== EVT);
     expect(destEntries).toHaveLength(1);
@@ -215,6 +217,7 @@ describe('move wizard — scoped-remaining feed stays on source', () => {
     expect(transferResidualRadios()).toHaveLength(1);
     expect(document.body.textContent).toMatch(/Feed Transfer/);
     expect(document.body.textContent).toMatch(/Leave as residual/);
+    document.querySelector(`[data-testid="move-wizard-residual-input-${BATCH}-${SRC_LOC}"]`).value = '4';
     document.querySelector('[data-testid="move-wizard-save"]').click();
     const destEntries = getAll('eventFeedEntries').filter(e => e.eventId !== EVT);
     expect(destEntries).toHaveLength(1);

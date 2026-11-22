@@ -401,7 +401,7 @@
     "feedTransferResidualLabel": "Leave as residual",
     "feedTransferResidualCaption": "Records to fertility ledger",
     "feedTransferResidualAmountLabel": "Amount remaining at {loc}",
-    "feedTransferResidualAmountBlocked": "Record remaining for every residual-left feed before saving.",
+    "feedTransferResidualAmountBlocked": "Record remaining for every leftover stored-feed line before saving.",
     "feedTransferNone": "No feed to transfer.",
     "feedTransferAllZero": "Source has no feed remaining — nothing to move or leave behind.",
     "feedStaysWithRemainingGroups": "Feed stays with groups remaining on this event.",

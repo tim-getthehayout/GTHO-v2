@@ -4,10 +4,9 @@
  * branch contract by mirroring the per-toggle body from executeMoveWizard and
  * asserting the resulting write-call recorder.
  *
- *   - Move: close-reading remainingQuantity = 0; a destination feed-entry row
- *     is created with quantity = live-remaining (OI-0135: not delivery total).
- *   - Residual: close-reading remainingQuantity = Number(residualInput.value)
- *     (OI-0136: farmer-confirmed value, not the auto-computed default); no
+ *   - Move (legacy path): close-reading remainingQuantity = 0; destination
+ *     feed-entry quantity = entered remaining (OI-0259), not live/Σ.
+ *   - Residual: close-reading remainingQuantity = entered remaining; no
  *     destination entry; logger.info('residual-capture', ...) is emitted.
  *   - Mixed per-line: each toggle is independent.
  */
@@ -15,12 +14,17 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Pure reproduction of the per-line branch inside executeMoveWizard. The shape
 // matches src/features/events/move-wizard.js after OI-0135 + OI-0136.
+function enteredRemainingQty(toggle) {
+  const v = toggle?.residualInput ? String(toggle.residualInput.value).trim() : '';
+  return Number(v);
+}
+
 function branchForToggle(toggle, group, { writeCheckItem, writeFeedEntry, log }) {
   const choice = toggle?.choice || 'move';
   let remaining = 0;
   if (choice === 'residual') {
     remaining = toggle?.residualInput
-      ? Number(toggle.residualInput.value)
+      ? enteredRemainingQty(toggle)
       : group.total;
   }
   writeCheckItem({
@@ -39,7 +43,9 @@ function branchForToggle(toggle, group, { writeCheckItem, writeFeedEntry, log })
     writeFeedEntry({
       batchId: group.batchId,
       locationId: toggle?.destLocationId || null,
-      quantity: group.total,  // OI-0135: group.total is already live-remaining
+      // OI-0259: dest carry is entered remaining. Legacy close-reading for
+      // Move still stamps 0 (no pool_removal on this path).
+      quantity: toggle?.residualInput ? enteredRemainingQty(toggle) : group.total,
     });
   }
 }
@@ -61,15 +67,15 @@ describe('move-wizard feed-transfer branch (OI-0104 + OI-0135 + OI-0136)', () =>
     log = vi.fn((cat, msg, ctx) => logs.push({ cat, msg, ctx }));
   });
 
-  it('Move with live-remaining group.total writes that value to destination (OI-0135)', () => {
-    // group.total is now the helper's live-remaining — e.g. delivery 30, prior
-    // check left 12 remaining → group.total = 12, not 30.
+  it('Move writes entered remaining to destination (OI-0259); legacy close-reading stays 0', () => {
+    // Live remaining is 12; farmer enters 8. Dest carry is 8, not live 12.
+    // Legacy (non-pool) close-reading for Move remains 0.
     const group = { batchId: 'b1', locationId: 'src', total: 12 };
-    const toggle = { key: 'b1|src', batchId: 'b1', locationId: 'src', total: 12, choice: 'move', destLocationId: 'dst' };
+    const toggle = { key: 'b1|src', batchId: 'b1', locationId: 'src', total: 12, choice: 'move', destLocationId: 'dst', residualInput: { value: '8' } };
     branchForToggle(toggle, group, { writeCheckItem, writeFeedEntry, log });
     expect(checkItems[0].remainingQuantity).toBe(0);
     expect(feedEntries).toHaveLength(1);
-    expect(feedEntries[0].quantity).toBe(12);
+    expect(feedEntries[0].quantity).toBe(8);
     expect(logs).toHaveLength(0);
   });
 
@@ -112,20 +118,20 @@ describe('move-wizard feed-transfer branch (OI-0104 + OI-0135 + OI-0136)', () =>
     expect(logs).toHaveLength(0);
   });
 
-  it('Mixed per-line: Move writes live-remaining destination; Residual writes farmer-confirmed close-reading', () => {
+  it('Mixed per-line: Move dest uses entered qty; Residual writes farmer-entered close-reading', () => {
     const g1 = { batchId: 'b1', locationId: 'src', total: 12 };  // live-remaining
     const g2 = { batchId: 'b2', locationId: 'src', total: 10 };
-    const t1 = { ...g1, choice: 'move', destLocationId: 'dst' };
+    const t1 = { ...g1, choice: 'move', destLocationId: 'dst', residualInput: { value: '9' } };
     const t2 = { ...g2, choice: 'residual', destLocationId: 'dst', residualInput: { value: '6' } };
     branchForToggle(t1, g1, { writeCheckItem, writeFeedEntry, log });
     branchForToggle(t2, g2, { writeCheckItem, writeFeedEntry, log });
 
     expect(checkItems).toHaveLength(2);
-    expect(checkItems[0].remainingQuantity).toBe(0);   // Move
-    expect(checkItems[1].remainingQuantity).toBe(6);   // Residual, farmer-corrected
+    expect(checkItems[0].remainingQuantity).toBe(0);   // Move, legacy path
+    expect(checkItems[1].remainingQuantity).toBe(6);   // Residual, farmer-entered
     expect(feedEntries).toHaveLength(1);
     expect(feedEntries[0].batchId).toBe('b1');
-    expect(feedEntries[0].quantity).toBe(12);
+    expect(feedEntries[0].quantity).toBe(9);
     expect(logs).toHaveLength(1);
     expect(logs[0].ctx.batchId).toBe('b2');
     expect(logs[0].ctx.remainingQty).toBe(6);

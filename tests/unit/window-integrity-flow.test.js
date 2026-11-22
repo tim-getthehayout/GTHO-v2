@@ -489,6 +489,8 @@ describe('pool-write earlier-arrival refusal', () => {
       paddocks: getAll('eventPaddockWindows'),
       entries: getAll('eventFeedEntries'),
     });
+    const remainingInput = document.querySelector('[data-testid^="move-wizard-residual-input-"]');
+    remainingInput.value = '4';
     document.querySelector('[data-testid="move-wizard-save"]').click();
     const status = document.querySelector('[data-testid="move-wizard-status"]');
     expect(status.textContent).toBe('Feed cannot arrive before the source observation.');

@@ -1,6 +1,7 @@
 /** @file Rotation calendar component tests — CP-54. */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildGroupLabel, formatPastureFeedDmiLine } from '../../src/features/events/rotation-calendar/past-block.js';
+import { readFileSync } from 'node:fs';
+import { buildGroupLabel, formatPastureFeedDmiLine, renderPastBlock } from '../../src/features/events/rotation-calendar/past-block.js';
 import { resolveRange, dateToPx } from '../../src/features/events/rotation-calendar/timeline.js';
 
 describe('rotation-calendar components', () => {
@@ -62,6 +63,52 @@ describe('rotation-calendar components', () => {
         pasturePct: 100, feedPct: 0, dmi: 98266.4, headCount: 40,
       });
       expect(line).toBe('Pasture 100% · Feed 0% · 98266 DMI · 40 hd');
+    });
+  });
+
+  // Pins calendar-grid.js merge precedence (no production helper exported).
+  describe('calendar-grid storedFeedOnly vs unknown DMI precedence', () => {
+    const gridSrc = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
+    const paint = ({ noPasture, dmiKnown, dmiKg }) => {
+      const dmiKnownVal = dmiKnown && dmiKg != null;
+      const dmiLabel = dmiKnownVal ? Math.round(dmiKg) : null;
+      const storedFeedOnly = !!noPasture;
+      return {
+        pasturePct: storedFeedOnly ? 0 : (dmiKnownVal ? (dmiKg > 0 ? 100 : 0) : null),
+        feedPct: storedFeedOnly ? 100 : 0,
+        dmi: storedFeedOnly ? 0 : dmiLabel,
+        storedFeedOnly,
+      };
+    };
+
+    it('source still prefers storedFeedOnly over unknown-DMI nulls', () => {
+      expect(gridSrc).toContain('pasturePct: storedFeedOnly ? 0 : (dmiKnownVal ? (m.dmiKg > 0 ? 100 : 0) : null)');
+      expect(gridSrc).toContain('feedPct: storedFeedOnly ? 100 : 0');
+      expect(gridSrc).toContain('dmi: storedFeedOnly ? 0 : dmiLabel');
+    });
+
+    it('storedFeedOnly + unknown DMI paints known Pasture 0 / Feed 100% / DMI 0 + tan', () => {
+      const args = paint({ noPasture: true, dmiKnown: false, dmiKg: null });
+      expect(args).toEqual({ pasturePct: 0, feedPct: 100, dmi: 0, storedFeedOnly: true });
+      const node = renderPastBlock({
+        leftPx: 0, widthPx: 100, groups: [{ id: 'g1', name: 'Cows' }],
+        auds: 0, days: 5, headCount: 10, isActive: false, isStripGraze: false,
+        isLinkedSecondary: false, eventId: 'e1', onClickBlock: () => {}, ...args,
+      });
+      expect(node.className).toContain('past-block--stored-feed');
+      expect(formatPastureFeedDmiLine({ ...args, headCount: 10 })).toBe('Pasture 0% · Feed 100% · 0 DMI · 10 hd');
+    });
+
+    it('without storedFeedOnly, unknown DMI still paints — not 0', () => {
+      const args = paint({ noPasture: false, dmiKnown: false, dmiKg: null });
+      expect(args).toEqual({ pasturePct: null, feedPct: 0, dmi: null, storedFeedOnly: false });
+      const node = renderPastBlock({
+        leftPx: 0, widthPx: 100, groups: [{ id: 'g1', name: 'Cows' }],
+        auds: 0, days: 5, headCount: 12, isActive: false, isStripGraze: false,
+        isLinkedSecondary: false, eventId: 'e1', onClickBlock: () => {}, ...args,
+      });
+      expect(node.className).not.toContain('past-block--stored-feed');
+      expect(formatPastureFeedDmiLine({ ...args, headCount: 12 })).toBe('Pasture —% · Feed 0% · — DMI · 12 hd');
     });
   });
 

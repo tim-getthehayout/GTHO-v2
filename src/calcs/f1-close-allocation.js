@@ -313,6 +313,7 @@ export function prorateSpanHayByDemand({
 } = {}) {
   const demandByPw = new Map();
   const pwById = new Map();
+  const demandByDateInSpan = new Map();
   for (const date of dates) {
     const dayStart = localDayStartMs(date);
     const dayEnd = localDayEndMs(date);
@@ -325,6 +326,7 @@ export function prorateSpanHayByDemand({
     const demand = Number(demandByDate.get(date) || 0);
     const grazing = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date });
     if (!grazing.length || !(demand > 0) || !(frac > 0)) continue;
+    demandByDateInSpan.set(date, demand * frac);
     const weights = grazing.map(pw => effectiveAreaHa(pw, locationsById));
     const sumW = weights.reduce((sum, value) => sum + value, 0);
     grazing.forEach((pw, i) => {
@@ -336,13 +338,62 @@ export function prorateSpanHayByDemand({
   const totalDemand = [...demandByPw.values()].reduce((sum, value) => sum + value, 0);
   const hayByPw = new Map();
   const pastureByPw = new Map();
+  const hayByDate = new Map();
+  const pastureByDate = new Map();
   const knownHay = finite(hayDm) ? hayDm : 0;
   for (const [pwId, demand] of demandByPw) {
     const hayShare = totalDemand > 0 ? knownHay * (demand / totalDemand) : 0;
     hayByPw.set(pwId, hayShare);
     pastureByPw.set(pwId, Math.max(0, demand - hayShare));
   }
-  return { demandByPw, hayByPw, pastureByPw, pwById, totalDemand };
+  // Event-level daily rollup of the same Sp-f shares (OI-0260 DMI-8 / feed-forage).
+  for (const [date, dateDemand] of demandByDateInSpan) {
+    const hay = totalDemand > 0 ? knownHay * (dateDemand / totalDemand) : 0;
+    hayByDate.set(date, hay);
+    pastureByDate.set(date, Math.max(0, dateDemand - hay));
+  }
+  return { demandByPw, hayByPw, pastureByPw, pwById, totalDemand, hayByDate, pastureByDate };
+}
+
+
+/**
+ * OI-0260: event-level daily hay/pasture from the same Al1+Cv1+Sp-f allocation
+ * Locations F1 already uses. Kind follows f1MeasuredHayOnEventDay (measured /
+ * unknown / none). Measured amounts are Sp-f demand proration (not a second
+ * elapsed-time split). No SQL.
+ */
+export function al1EventDayAllocation({
+  date,
+  dates = [],
+  hayArgs,
+  demandByDate = new Map(),
+  paddockWindows = [],
+  locationsById = new Map(),
+} = {}) {
+  const kindInfo = f1MeasuredHayOnEventDay({ ...hayArgs, date });
+  if (kindInfo.kind !== 'measured') {
+    return { kind: kindInfo.kind, storedDmiKg: null, pastureDmiKg: null };
+  }
+  const spans = f1HaySpans(hayArgs);
+  const metricDates = dates.length ? dates : [date];
+  let storedDmiKg = 0;
+  let pastureDmiKg = 0;
+  for (const span of spans.eventSpans) {
+    if (span.unknown || span.dm == null) continue;
+    const alloc = prorateSpanHayByDemand({
+      hayDm: span.dm,
+      spanStartMs: span.startMs,
+      spanEndMs: span.endMs,
+      dates: metricDates,
+      eventId: hayArgs.eventId,
+      paddockWindows,
+      demandByDate,
+      locationsById,
+    });
+    storedDmiKg += alloc.hayByDate.get(date) || 0;
+    pastureDmiKg += alloc.pastureByDate.get(date) || 0;
+  }
+  return { kind: 'measured', storedDmiKg, pastureDmiKg };
 }
 
 /** Acre (effective-area) share of `windows` belonging to `locationId` (Mx-a grazing set). */

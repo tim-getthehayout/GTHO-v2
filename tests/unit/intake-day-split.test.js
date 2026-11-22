@@ -83,14 +83,22 @@ describe('corral fixture (corrected 0.75; lb DM/day)', () => {
     expect(row.get(key).unit).toBe('bale');
     expect(row.get(key).units).toBeCloseTo(1.5 * 24 / ((localInstantMs('2026-11-16', '09:12') - localInstantMs('2026-11-13', '17:02')) / 3600000), 9);
   });
-  it('DMI-8 deficits: none Nov 11–15, 2.6 lb on Nov 16; Nov 17 stays estimated', () => {
-    for (const date of ['2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15']) {
+  it('DMI-8 pool path uses Al1+Sp-f (OI-0260): per-span L1, not elapsed-time first-reading-day deficit; Nov 17 stays estimated', () => {
+    // Nov 11 morning is a completed 0-hay span (3 delivered, 3 still there at
+    // 14:37). Per-span L1 in confinement is deficit for that morning demand;
+    // afternoon hay does not cancel it. Nov 12–15 hay share covers in-span
+    // demand. Nov 16 straddles two spans, so deficit is the sum of per-span
+    // shortfalls (not max(0, dayDemand − dayHay) ≈ 2.6 lb).
+    const nov11 = calc().fn(poolDmi8('2026-11-11'));
+    expect(nov11).toMatchObject({ status: 'actual', pastureDmiKg: 0 });
+    expect(nov11.deficitKg).toBeCloseTo(40.19583333333333, 8);
+    for (const date of ['2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15']) {
       expect(calc().fn(poolDmi8(date))).toMatchObject({ status: 'actual', deficitKg: 0, pastureDmiKg: 0 });
     }
     const nov16 = calc().fn(poolDmi8('2026-11-16'));
     expect(nov16.status).toBe('actual');
     near(nov16.totalDmiKg * LB, 145.5, 0.1);
-    near(nov16.deficitKg * LB, 2.6, 0.1);
+    expect(nov16.deficitKg).toBeCloseTo(28.556126253101752, 8);
     expect(calc().fn(poolDmi8('2026-11-17')).status).toBe('estimated');
     // The older path already labels the anchored open-stretch cascade 'actual';
     // this PR does not change its status predicate.

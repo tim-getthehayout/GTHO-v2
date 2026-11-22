@@ -6,6 +6,7 @@ import {
   f1MeasuredHayOnEventDay,
   prorateSpanHayByDemand,
   grazingPaddockWindowsOnDate,
+  al1EventDayAllocation,
 } from '../../src/calcs/f1-close-allocation.js';
 
 const feedTypes = [{ id: 'hay', unit: 'bale' }];
@@ -188,6 +189,21 @@ describe('Sp-f demand proration and Mx-a', () => {
     expect(alloc.hayByPw.get('pwB')).toBeCloseTo(hayDm * demandB / (demandA + demandB), 8);
     expect(alloc.pastureByPw.get('pwA')).toBeCloseTo(demandA - alloc.hayByPw.get('pwA'), 8);
     expect(alloc.pastureByPw.get('pwB')).toBeCloseTo(demandB - alloc.hayByPw.get('pwB'), 8);
+    // Event-level daily rollup is the same Sp-f shares (OI-0260).
+    const hayDaysA = ['2026-10-01', '2026-10-02', '2026-10-03'];
+    const hayDaysB = ['2026-10-04', '2026-10-05', '2026-10-06'];
+    for (const date of hayDaysA) {
+      expect(alloc.hayByDate.get(date)).toBeCloseTo(hayDm * 30 / (demandA + demandB), 8);
+      expect(alloc.pastureByDate.get(date)).toBeCloseTo(30 - alloc.hayByDate.get(date), 8);
+    }
+    for (const date of hayDaysB) {
+      expect(alloc.hayByDate.get(date)).toBeCloseTo(hayDm * 10 / (demandA + demandB), 8);
+      expect(alloc.pastureByDate.get(date)).toBeCloseTo(10 - alloc.hayByDate.get(date), 8);
+    }
+    const haySum = [...alloc.hayByDate.values()].reduce((s, v) => s + v, 0);
+    const pwSum = [...alloc.hayByPw.values()].reduce((s, v) => s + v, 0);
+    expect(haySum).toBeCloseTo(hayDm, 8);
+    expect(haySum).toBeCloseTo(pwSum, 8);
   });
 
   it('omits no_pasture windows from hay/pasture allocation (Mx-a)', () => {
@@ -223,5 +239,85 @@ describe('Sp-f demand proration and Mx-a', () => {
       locationsById,
     });
     expect(alloc.pastureByPw.get('pwA')).toBe(0);
+    expect(alloc.pastureByDate.get('2026-10-01')).toBe(0);
+    expect(alloc.pastureByDate.get('2026-10-02')).toBe(0);
+  });
+});
+
+describe('al1EventDayAllocation (OI-0260 shared helper)', () => {
+  const hayArgs = {
+    eventId: 'ev1',
+    openDate: '2026-10-01',
+    openTime: null,
+    feedTypes,
+    batches: [],
+    feedEntries: [{
+      id: 'fe1', eventId: 'ev1', locationId: 'loc1', date: '2026-10-01',
+      quantity: 4, kind: 'inventory_feeding', ...haySnap,
+    }],
+    feedChecks: [
+      { id: 'fcClose', eventId: 'ev1', date: '2026-10-11', time: '00:00', isCloseReading: true },
+    ],
+    feedCheckItems: [item('fci', 'fcClose', 0)],
+  };
+  const pw = { id: 'pwA', eventId: 'ev1', locationId: 'loc1', dateOpened: '2026-10-01', dateClosed: null, areaPct: 100 };
+  const dates = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05',
+    '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10'];
+  const demandByDate = new Map(dates.map(d => [d, 250]));
+  const locationsById = new Map([['loc1', { id: 'loc1', areaHectares: 4 }]]);
+  const common = { dates, hayArgs, demandByDate, paddockWindows: [pw], locationsById };
+
+  it('marks mid-span days measured and prorates hay by demand (Sp-f)', () => {
+    const mid = al1EventDayAllocation({ ...common, date: '2026-10-05' });
+    expect(mid.kind).toBe('measured');
+    expect(mid.storedDmiKg).toBeCloseTo(dmBales(4) / 10, 8);
+    expect(mid.pastureDmiKg).toBeCloseTo(250 - mid.storedDmiKg, 8);
+  });
+
+  it('floors pasture at 0 when hay exceeds that day\'s demand (L1)', () => {
+    const tight = new Map(dates.map(d => [d, 10]));
+    const mid = al1EventDayAllocation({ ...common, demandByDate: tight, date: '2026-10-05' });
+    expect(mid.kind).toBe('measured');
+    expect(mid.storedDmiKg).toBeCloseTo(dmBales(4) / 10, 8);
+    expect(mid.pastureDmiKg).toBe(0);
+  });
+
+  it('does not invent a second hay story: daily hay sums to the Al1 span', () => {
+    let stored = 0;
+    for (const date of dates) {
+      stored += al1EventDayAllocation({ ...common, date }).storedDmiKg;
+    }
+    expect(stored).toBeCloseTo(dmBales(4), 8);
+  });
+
+  it('counts synthetic sourceEventId carryover once (Cv1)', () => {
+    const synth = (id) => ({
+      id, eventId: 'ev1', locationId: 'loc1', date: '2026-10-01',
+      quantity: 7, sourceEventId: 'ev0', kind: 'pool_carry', ...haySnap,
+    });
+    const cvArgs = {
+      ...hayArgs,
+      feedEntries: [synth('a'), synth('b'), synth('c')],
+    };
+    const mid = al1EventDayAllocation({ ...common, hayArgs: cvArgs, date: '2026-10-05' });
+    expect(mid.kind).toBe('measured');
+    expect(mid.storedDmiKg).toBeCloseTo(dmBales(7) / 10, 8);
+  });
+
+  it('leaves days after the last known span unmeasured (Fw0 hook)', () => {
+    const after = al1EventDayAllocation({ ...common, date: '2026-10-12' });
+    expect(after.kind).not.toBe('measured');
+    expect(after.storedDmiKg).toBeNull();
+  });
+
+  it('leaves deliveries without a close unmeasured', () => {
+    const openOnly = {
+      ...hayArgs,
+      feedChecks: [],
+      feedCheckItems: [],
+    };
+    const mid = al1EventDayAllocation({ ...common, hayArgs: openOnly, date: '2026-10-05' });
+    expect(mid.kind).toBe('unknown');
+    expect(mid.storedDmiKg).toBeNull();
   });
 });

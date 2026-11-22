@@ -6,6 +6,7 @@ import { registerCalc } from '../utils/calc-registry.js';
 import { groupWindowsDailyDmiKg } from './window-helpers.js';
 import { isConfinementLocation } from './location-type.js';
 import { estimatedDemandFraction } from './partial-day-demand.js';
+import { al1EventDayAllocation, f1HaySpans } from './f1-close-allocation.js';
 
 /**
  * Pick pre-graze paddock_observation for a paddock window (DMI-8 / dashboard).
@@ -827,6 +828,65 @@ registerCalc({
     const startDate = event.dateIn;
     if (!startDate) return { status: 'needs_check' };
 
+    function eventOpenTime(openDate) {
+      if (!openDate) return null;
+      let earliest = event.timeIn || null;
+      for (const pw of paddockWindows || []) {
+        if (pw.eventId !== event.id || pw.dateOpened !== openDate || !pw.timeOpened) continue;
+        if (!earliest || pw.timeOpened < earliest) earliest = pw.timeOpened;
+      }
+      for (const gw of groupWindows || []) {
+        if (gw.eventId !== event.id || gw.dateJoined !== openDate || !gw.timeJoined) continue;
+        if (!earliest || gw.timeJoined < earliest) earliest = gw.timeJoined;
+      }
+      return earliest;
+    }
+
+    // OI-0260 Ch1: known Al1 spans use the same allocation as Locations F1.
+    // Dates must cover the full known span (not just through the query date)
+    // so Sp-f totalDemand is the whole-span demand.
+    const al1LocationsById = new Map(
+      Object.entries(locations || {}).map(([id, loc]) => [
+        id,
+        { ...loc, areaHectares: loc.areaHectares ?? loc.areaHa ?? loc.areaHectares },
+      ]),
+    );
+    const al1HayArgs = {
+      eventId: event.id,
+      openDate: startDate,
+      openTime: eventOpenTime(startDate),
+      feedEntries,
+      feedChecks,
+      feedCheckItems,
+      batches,
+    };
+    let al1End = date;
+    for (const span of f1HaySpans(al1HayArgs).eventSpans || []) {
+      if (span.endDate && span.endDate > al1End) al1End = span.endDate;
+    }
+    const al1Dates = [];
+    {
+      let cursorDate = startDate;
+      let n = 0;
+      while (cursorDate <= al1End && n++ < 400) {
+        al1Dates.push(cursorDate);
+        cursorDate = dateAddDays(cursorDate, 1);
+      }
+    }
+    const al1DemandByDate = new Map();
+    for (const d of al1Dates) al1DemandByDate.set(d, dailyDemand(d));
+    const al1ByDate = new Map();
+    for (const d of al1Dates) {
+      al1ByDate.set(d, al1EventDayAllocation({
+        date: d,
+        dates: al1Dates,
+        hayArgs: al1HayArgs,
+        demandByDate: al1DemandByDate,
+        paddockWindows,
+        locationsById: al1LocationsById,
+      }));
+    }
+
     // Sort checks (entity-native: `.date`, not `.checkDate`).
     const sortedChecks = [...(feedChecks || [])]
       .filter(c => c.date)
@@ -941,6 +1001,26 @@ registerCalc({
       }
     }
 
+    // OI-0260: on a completed/known Al1 span, chart bars use that allocation
+    // (Cv1 + Sp-f), not only bracketing checks / poolDailyActual. Fw0 keeps
+    // the cascade walk for days after the last known span (kind none/unknown).
+    const al1Today = al1ByDate.get(date);
+    if (al1Today?.kind === 'measured') {
+      const storedDmiKg = Math.max(0, al1Today.storedDmiKg);
+      // Pasture is L1 (demand − hay) from the shared Sp-f helper, not
+      // unfractioned dailyDemand minus hay (that would inflate first/last days).
+      let pastureDmiKg;
+      let deficitKg = 0;
+      if (pureConfinement) {
+        pastureDmiKg = 0;
+        deficitKg = Math.max(0, al1Today.pastureDmiKg);
+      } else {
+        pastureDmiKg = Math.max(0, al1Today.pastureDmiKg);
+      }
+      actualBars = { status: 'actual', totalDmiKg, storedDmiKg, pastureDmiKg, deficitKg };
+      if (aggregateHint) actualBars.hint = aggregateHint;
+    }
+
     // ---- Walk forward ------------------------------------------------------
     // Iterate day-by-day from startDate through date. At each day:
     //   (1) Sub-move opens on that day → add FOR-1 for new windows.
@@ -991,9 +1071,23 @@ registerCalc({
 
       // (4) Allocate. Estimated path multiplies demand by the Step 0b
       // first/last-day fraction; middle days and today-through-EOD stay 1.0.
+      // OI-0260 Ch1: known Al1 days consume demand − hay (L1), not pasture-first
+      // cascade, so remaining buckets stay on the same story. Fw0: other days
+      // keep the existing cascade. A check already re-anchored remaining.
       const demand = dailyDemand(cursor) * demandFraction(cursor);
+      const al1Cursor = al1ByDate.get(cursor);
       const storedBefore = storedRef.value;
-      const allocated = allocateDay(demand, pastureRef, storedRef);
+      let allocated;
+      if (al1Cursor?.kind === 'measured' && !cursorCheck) {
+        const stored = Math.max(0, al1Cursor.storedDmiKg);
+        const pasture = pureConfinement ? 0 : Math.max(0, al1Cursor.pastureDmiKg);
+        const deficit = pureConfinement ? Math.max(0, al1Cursor.pastureDmiKg) : 0;
+        allocated = { pasture, stored, deficit };
+        storedRef.value = Math.max(0, storedRef.value - stored);
+        pastureRef.value = Math.max(0, pastureRef.value - pasture);
+      } else {
+        allocated = allocateDay(demand, pastureRef, storedRef);
+      }
       if (poolMode && storedBefore > 0) for (const [key, value] of storedByPool) storedByPool.set(key, Math.max(0, value - allocated.stored * value / storedBefore));
       // Decrement per-window pools proportionally so sub-move close drops the
       // right remainder.

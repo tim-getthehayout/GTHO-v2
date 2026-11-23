@@ -22,11 +22,28 @@ import { paddockFacts } from '../map/paddock-facts.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
 import { readStateFromUrl, getCalendarState } from './calendar-state.js';
-import { renderCalendarGrid } from './rotation-calendar/calendar-grid.js';
+import { renderCalendarGrid, teardownScrollSurface } from './rotation-calendar/calendar-grid.js';
 import { getEventStart, getEventStartDate } from './event-start.js';
 
 /** Unsubscribe functions */
 let unsubs = [];
+
+/** OI-0266: the mounted calendar container and the hashchange "leave" listener. */
+let mountedCalendar = null;
+let leaveListener = null;
+
+/**
+ * OI-0266: release the calendar's ResizeObserver and key handler when the
+ * Events screen is left (or re-rendered). Store subscriptions are untouched.
+ */
+export function unmountEventsCalendar() {
+  if (mountedCalendar) teardownScrollSurface(mountedCalendar);
+  mountedCalendar = null;
+  if (leaveListener) {
+    window.removeEventListener('hashchange', leaveListener);
+    leaveListener = null;
+  }
+}
 
 /**
  * Create a paddock observation record.
@@ -66,6 +83,7 @@ export const LIST_RERENDER_KEYS = ['locations', 'paddockObservations', 'soilTest
 export function renderEventsScreen(container) {
   unsubs.forEach(fn => fn());
   unsubs = [];
+  unmountEventsCalendar();
   clear(container);
 
   const operations = getAll('operations');
@@ -85,6 +103,7 @@ export function renderEventsScreen(container) {
 
   const calendarContainer = el('div', { 'data-testid': 'calendar-container' });
   renderCalendarGrid(calendarContainer);
+  mountedCalendar = calendarContainer;
   screenEl.appendChild(calendarContainer);
 
   // Sheet wrappers (needed by both views for event management actions)
@@ -149,6 +168,11 @@ export function renderEventsScreen(container) {
 
   screenEl.appendChild(sheetsContainer);
   container.appendChild(screenEl);
+
+  // OI-0266: the router clears the app container on hashchange before this
+  // listener runs; once this screen is gone, release the calendar's observers.
+  leaveListener = () => { if (!screenEl.isConnected) unmountEventsCalendar(); };
+  window.addEventListener('hashchange', leaveListener);
 
   // Remount when events change so list/calendar metrics stay current.
   unsubs.push(subscribe('events', () => {

@@ -23,6 +23,7 @@ import { hasSingleScrollOwner } from '../../src/features/events/rotation-calenda
 import { pastWindowSpan, headCountAtWindowEnd } from '../../src/features/events/rotation-calendar/past-window.js';
 import { renderCalendarGrid, centerTodayOnScroller } from '../../src/features/events/rotation-calendar/calendar-grid.js';
 import { resetCalendarState } from '../../src/features/events/calendar-state.js';
+import { renderEventsScreen, unmountEventsCalendar } from '../../src/features/events/index.js';
 
 beforeAll(() => setLocale('en', enLocale));
 
@@ -323,5 +324,50 @@ describe('OI-0266 (c) guard: window still open on a closed event', () => {
     // the normal open window on the open event still carries the ring
     const live = blocks.find(b => b.dataset.paddockWindowId === PID(2));
     expect(live.classList.contains('past-block--active')).toBe(true);
+  });
+});
+
+describe('OI-0266 Events screen unmount releases the calendar observers', () => {
+  function stubRO() {
+    const instances = [];
+    class FakeRO {
+      constructor(cb) { this.cb = cb; this.disconnected = false; instances.push(this); }
+      observe() {}
+      disconnect() { this.disconnected = true; }
+    }
+    vi.stubGlobal('ResizeObserver', FakeRO);
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    return instances;
+  }
+  afterEach(() => unmountEventsCalendar());
+
+  it('leaving the screen (hashchange after the router clears it) disconnects the RO and drops the key handler', () => {
+    const instances = stubRO();
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    renderEventsScreen(app);
+    expect(instances).toHaveLength(1);
+    const cal = app.querySelector('[data-testid="calendar-container"]');
+    const removeSpy = vi.spyOn(cal, 'removeEventListener');
+    // still on the screen: a hashchange (e.g. a query change) releases nothing
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(instances[0].disconnected).toBe(false);
+    // router clears the app container for another route, then the event reaches us
+    app.innerHTML = '';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(instances[0].disconnected).toBe(true);
+    expect(removeSpy.mock.calls.some(([t]) => t === 'keydown')).toBe(true);
+    expect(cal._locMgmtKeyDown).toBeNull();
+  });
+
+  it('re-rendering the Events screen releases the previous calendar first', () => {
+    const instances = stubRO();
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    renderEventsScreen(app);
+    renderEventsScreen(app);
+    expect(instances).toHaveLength(2);
+    expect(instances[0].disconnected).toBe(true);
+    expect(instances[1].disconnected).toBe(false);
   });
 });

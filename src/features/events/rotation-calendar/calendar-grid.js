@@ -559,8 +559,9 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   container._locMgmtKeyDown = onKeyDown;
 }
 
-/** OI-0266: drop the previous render's key handler and resize observer. */
-function teardownScrollSurface(container) {
+/** OI-0266: drop the previous render's key handler and resize observer.
+ * Also called by the Events screen when it is left. */
+export function teardownScrollSurface(container) {
   if (!container) return;
   if (container._locMgmtKeyDown) {
     container.removeEventListener('keydown', container._locMgmtKeyDown);

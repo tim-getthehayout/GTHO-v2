@@ -221,7 +221,6 @@
     "auditOverlappingGroupWindows": "Overlapping group windows",
     "auditGroupWindow": "Group window",
     "auditAnimalClass": "Animal class",
-    "auditAnimalClassMissing": "No animalClassId set on this group window.",
     "auditMemberships": "Memberships",
     "auditMembershipsEmpty": "No active memberships at the reference date.",
     "auditAnimal": "animal",

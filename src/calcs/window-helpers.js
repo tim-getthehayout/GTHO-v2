@@ -375,8 +375,9 @@ export function groupDayMembers(gw, dt, { memberships, animals, animalClasses, a
 
 /**
  * Weight-weighted mix over live members. Members with no weight are left out;
- * when members are live but none has a weight, heads weight the mix instead
- * (Build reading, flagged to Design). Null when no member is live.
+ * when members are live but none has a weight or class default, heads weight
+ * the mix instead (Design ruling, OI-0279 Q3; `byHeads`). Null when no member
+ * is live.
  */
 function weightedMix(members, valueOf) {
   if (!members.length) return null;
@@ -385,7 +386,7 @@ function weightedMix(members, valueOf) {
   const w = m => (weighed.length ? m.weightKg : m.heads);
   let sw = 0, sv = 0;
   for (const m of use) { sw += w(m); sv += w(m) * valueOf(m); }
-  return sw > 0 ? { value: sv / sw, used: use } : null;
+  return sw > 0 ? { value: sv / sw, used: use, byHeads: !weighed.length } : null;
 }
 
 /**
@@ -397,7 +398,9 @@ function weightedMix(members, valueOf) {
  * values the caller already has). Lactating % stays unused (L0).
  * Returns { kg, dmiPct, basis, fallbacks, head, avgWeightKg } with basis
  * 'members' | 'members+default' | 'window-default' and fallbacks
- * { noClassHeads, noRateHeads, seedHeads } counted over weighted members.
+ * { noClassHeads, noRateHeads, seedHeads, byHeadsHeads } counted over the
+ * members in the mix (byHeadsHeads: no member had a weight, so heads weighted
+ * the mix — still 'members+default').
  */
 export function groupDayDmi(gw, dt, ctx = {}) {
   const { memberships, animals, animalWeightRecords } = ctx;
@@ -408,7 +411,7 @@ export function groupDayDmi(gw, dt, ctx = {}) {
       ? getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses: [...classMapOf(ctx.animalClasses).values()], animalWeightRecords, now: dt })
       : (gw.avgWeightKg ?? 0));
   const members = groupDayMembers(gw, dt, ctx);
-  const fallbacks = { noClassHeads: 0, noRateHeads: 0, seedHeads: 0 };
+  const fallbacks = { noClassHeads: 0, noRateHeads: 0, seedHeads: 0, byHeadsHeads: 0 };
   const pctOf = new Map(members.map(m => [m, classDmiPct(m.cls)]));
   const mix = weightedMix(members, m => pctOf.get(m).pct);
   let dmiPct = DEFAULT_DMI_PCT;
@@ -420,8 +423,10 @@ export function groupDayDmi(gw, dt, ctx = {}) {
       if (src === 'no-class') fallbacks.noClassHeads += m.heads;
       else if (src === 'no-rate') fallbacks.noRateHeads += m.heads;
       else if (src === 'seed') fallbacks.seedHeads += m.heads;
+      if (mix.byHeads) fallbacks.byHeadsHeads += m.heads;
     }
-    basis = fallbacks.noClassHeads || fallbacks.noRateHeads || fallbacks.seedHeads ? 'members+default' : 'members';
+    basis = fallbacks.noClassHeads || fallbacks.noRateHeads || fallbacks.seedHeads || fallbacks.byHeadsHeads
+      ? 'members+default' : 'members';
   }
   return { kg: (head || 0) * (avgWeightKg || 0) * (dmiPct / 100), dmiPct, basis, fallbacks, head, avgWeightKg };
 }
@@ -457,23 +462,25 @@ export function dmiBasisNote(results) {
   const byKey = new Map();
   list.forEach((r, i) => {
     const key = r.groupWindow?.id ?? `#${i}`;
-    const cur = byKey.get(key) || { noClass: 0, noRate: 0, seed: 0, w0: false };
+    const cur = byKey.get(key) || { noClass: 0, noRate: 0, seed: 0, byHeads: 0, w0: false };
     if (r.basis === 'window-default') cur.w0 = cur.w0 || r.head > 0;
     else {
       cur.noClass = Math.max(cur.noClass, r.fallbacks?.noClassHeads || 0);
       cur.noRate = Math.max(cur.noRate, r.fallbacks?.noRateHeads || 0);
       cur.seed = Math.max(cur.seed, r.fallbacks?.seedHeads || 0);
+      cur.byHeads = Math.max(cur.byHeads, r.fallbacks?.byHeadsHeads || 0);
     }
     byKey.set(key, cur);
   });
-  let noClass = 0, noRate = 0, seed = 0, w0 = 0;
+  let noClass = 0, noRate = 0, seed = 0, byHeads = 0, w0 = 0;
   for (const v of byKey.values()) {
-    noClass += v.noClass; noRate += v.noRate; seed += v.seed; if (v.w0) w0 += 1;
+    noClass += v.noClass; noRate += v.noRate; seed += v.seed; byHeads += v.byHeads; if (v.w0) w0 += 1;
   }
   const parts = [];
   if (noClass) parts.push(`${noClass} head at default ${DEFAULT_DMI_PCT}% (no class)`);
   if (noRate) parts.push(`${noRate} head at default ${DEFAULT_DMI_PCT}% (class has no DMI %)`);
   if (seed) parts.push(`${seed} head at standard class DMI % (class has no DMI %)`);
+  if (byHeads) parts.push(`${byHeads} head weighted by head (no weights)`);
   if (w0) parts.push(`${w0} group window${w0 === 1 ? '' : 's'} at default ${DEFAULT_DMI_PCT}% (no members that day)`);
   return parts.length ? parts.join('; ') : null;
 }

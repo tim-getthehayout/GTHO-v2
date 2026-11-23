@@ -21,6 +21,8 @@ import { buildLocationCard } from '../../src/features/dashboard/index.js';
 import { openEventDetailSheet } from '../../src/features/events/detail.js';
 import { convert, display } from '../../src/utils/units.js';
 import { getLocalTodayStr } from '../../src/utils/date-utils.js';
+import { groupWindowPresenceDays } from '../../src/calcs/partial-day-demand.js';
+import { getEventStartDate } from '../../src/features/events/event-start.js';
 
 const cow = { id: 'c-cow', species: 'beef_cattle', role: 'cow', dmiPct: 2.5, defaultWeightKg: 545, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136 };
 const calf = { id: 'c-calf', species: 'beef_cattle', role: 'calf', dmiPct: 3, defaultWeightKg: 113, excretionNRate: 0.2, excretionPRate: 0.05, excretionKRate: 0.1 };
@@ -95,6 +97,24 @@ describe('OI-0279 groupDayDmi — effective DMI % per group-day', () => {
     });
     expect(d.dmiPct).toBeCloseTo(3);
     expect(d.basis).toBe('members');
+  });
+
+  it('Q3: members present but none has a weight or class default → class %s weighted by head, noted in the basis', () => {
+    const d = groupDayDmi(openGw({ headCount: 3, avgWeightKg: 300 }), '2026-03-10', {
+      memberships: [mem('a1'), mem('a2'), mem('a3')],
+      animals: [{ id: 'a1', classId: 'k1' }, { id: 'a2', classId: 'k1' }, { id: 'a3', classId: 'k2' }],
+      animalClasses: [
+        { id: 'k1', species: 'beef_cattle', role: 'cow', dmiPct: 2 },
+        { id: 'k2', species: 'beef_cattle', role: 'calf', dmiPct: 5 },
+      ],
+      animalWeightRecords: [],
+    });
+    expect(d.dmiPct).toBeCloseTo((2 * 2 + 1 * 5) / 3);
+    expect(d.basis).toBe('members+default');
+    expect(d.fallbacks.byHeadsHeads).toBe(3);
+    expect(dmiBasisNote(d)).toBe('3 head weighted by head (no weights)');
+    // Not W0: W0 is only for a window with no members that day.
+    expect(d.basis).not.toBe('window-default');
   });
 
   it('a class with no DMI % takes the seed rate for its species + role, else 2.5%', () => {
@@ -266,6 +286,32 @@ describe('OI-0279 one fixture, identical per-day demand on every surface', () =>
     const detailLine = document.querySelector('[data-testid="detail-dmi-line"]');
     expect(detailLine.textContent).toContain(`${display(exp.kg, 'weight', 'metric', 1)} kg/day`);
     expect(detailLine.title).toBe('1 head at default 2.5% (no class)');
+  });
+
+  it('Q1: Home and Event detail NPK use the member-mix class excretion rates (not 0.34 / 0.092 / 0.24)', () => {
+    const gw = getAll('eventGroupWindows')[0];
+    const ctx = {
+      memberships: getAll('animalGroupMemberships'), animals: getAll('animals'),
+      animalClasses: getAll('animalClasses'), animalWeightRecords: getAll('animalWeightRecords'),
+    };
+    const rates = groupDayExcretionRates(gw, today, ctx, { n: 0.145, p: 0.041, k: 0.136 });
+    // a1 cow 500 kg @ cow rates, a2 calf 150 kg @ calf rates, a3 unclassed 400 kg @ defaults.
+    expect(rates.n).toBeCloseTo((500 * 0.145 + 150 * 0.2 + 400 * 0.145) / 1050);
+    const days = groupWindowPresenceDays(gw, { eventStartDate: getEventStartDate('e'), eventDateOut: null, eventTimeOut: null, throughDate: today });
+    const npk = getCalcByName('NPK-1');
+    const kg = (r) => npk.fn({ headCount: 3, avgWeightKg: 350, days, excretionNRate: r.n, excretionPRate: r.p, excretionKRate: r.k });
+    const now = kg(rates);
+    const old = kg({ n: 0.34, p: 0.092, k: 0.24 });
+    const lbs = (v) => convert(v, 'weight', 'toImperial').toFixed(1);
+    expect(lbs(now.nKg)).not.toBe(lbs(old.nKg));
+
+    const home = buildLocationCard({ id: 'e' }, 'op', 'farm', 'imperial').querySelector('[data-testid="dashboard-loc-npk-e"]');
+    expect(home.textContent).toContain(`NPK: N${lbs(now.nKg)} / P${lbs(now.pKg)} / K${lbs(now.kKg)} lbs`);
+
+    openEventDetailSheet({ id: 'e' }, 'op', 'farm');
+    const md = (v) => convert(v, 'weight', 'toMetric').toFixed(1);
+    expect(document.querySelector('[data-testid="detail-npk-line"]').textContent)
+      .toContain(`NPK: N ${md(now.nKg)} / P ${md(now.pKg)} / K ${md(now.kKg)}`);
   });
 });
 

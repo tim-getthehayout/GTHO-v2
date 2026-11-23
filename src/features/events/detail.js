@@ -23,7 +23,7 @@ import { openEditGroupWindowDialog } from './edit-group-window.js';
 import { openMoveFeedOutSheet } from './move-feed-out.js';
 import { openEditPaddockWindowDialog } from './edit-paddock-window.js';
 import { reopenEvent } from './reopen-event.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight, groupDayDmi, dmiBasisNote } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, groupDayDmi, groupDayExcretionRates, dmiBasisNote } from '../../calcs/window-helpers.js';
 import { openEditFeedCheckDialog } from './edit-feed-check.js';
 import { getEventStart, setEventStart } from './event-start.js';
 import { computeDmi8Days } from './dmi-chart-context.js';
@@ -39,9 +39,10 @@ import {
   closeForm as closeFeedForm,
 } from './feed-entry-inline-form.js';
 
-// Event detail NPK keeps today's fallback rates; switching to the member-mix
-// class rates is open with Design (OI-0279).
-const DETAIL_NPK_DEFAULT_EXC = { n: 0.34, p: 0.092, k: 0.24 };
+// OI-0279 Q1: Event detail NPK uses the group's member-mix class excretion
+// rates (as the calendar, Reports and the dev audit); a member without class
+// rates takes these defaults (was 0.34 / 0.092 / 0.24 for every group).
+const NPK_DEFAULT_EXC = { n: 0.145, p: 0.041, k: 0.136 };
 
 /** Active subscriptions for this view */
 let unsubs = [];
@@ -963,13 +964,14 @@ function renderDmiNpk(ctx) {
         throughDate: todayStr,
       });
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
+      const exc = groupDayExcretionRates(gw, now, { memberships, animals, animalClasses, animalWeightRecords }, NPK_DEFAULT_EXC);
       const result = npk1.fn({
         headCount: live.head,
         avgWeightKg: live.avg,
         days,
-        excretionNRate: DETAIL_NPK_DEFAULT_EXC.n,
-        excretionPRate: DETAIL_NPK_DEFAULT_EXC.p,
-        excretionKRate: DETAIL_NPK_DEFAULT_EXC.k,
+        excretionNRate: exc.n,
+        excretionPRate: exc.p,
+        excretionKRate: exc.k,
       });
       totalN += result.nKg || result.n || 0;
       totalP += result.pKg || result.p || 0;
@@ -998,7 +1000,7 @@ function renderDmiNpk(ctx) {
       }
     }
 
-    card.appendChild(el('div', { style: { fontSize: '13px', padding: '4px 0' } }, [valueLine]));
+    card.appendChild(el('div', { style: { fontSize: '13px', padding: '4px 0' }, 'data-testid': 'detail-npk-line' }, [valueLine]));
   }
 
   el2.appendChild(card);

@@ -23,7 +23,7 @@ import { openFeedCheckSheet } from '../feed/check.js';
 import { openGroupAddSheet } from '../events/group-windows.js';
 import { openEventDetailSheet } from '../events/detail.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads, animalHeadCount, groupDayDmi, dmiBasisNote } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads, animalHeadCount, groupDayDmi, groupDayExcretionRates, dmiBasisNote } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
 import { buildDmi8ChartContext, computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
@@ -33,9 +33,16 @@ import { pickPreGraze, aggregateOpenPaddockForage } from '../../calcs/feed-forag
 import { renderEventFeedRemainingLine, renderInactiveForageSummary } from '../events/confinement-forage-ui.js';
 import { FEED_REMAINING_ESTIMATE_CAPTION } from '../../calcs/event-feed-days.js';
 
-// Home NPK keeps today's fallback rates; whether Home NPK should switch to the
-// member-mix class rates (as the calendar does) is open with Design (OI-0279).
-const HOME_NPK_DEFAULT_EXC = { n: 0.34, p: 0.092, k: 0.24 };
+// OI-0279 Q1: Home NPK uses the group's member-mix class excretion rates, the
+// same as the calendar, Reports and the dev audit; a member without class rates
+// takes these defaults (was 0.34 / 0.092 / 0.24 for every group).
+const NPK_DEFAULT_EXC = { n: 0.145, p: 0.041, k: 0.136 };
+
+/** NPK-1 excretion-rate args for a group on a day (OI-0279 member mix). */
+function npkRateArgs(gw, day, ctx = groupDmiCtx()) {
+  const r = groupDayExcretionRates(gw, day, ctx, NPK_DEFAULT_EXC);
+  return { excretionNRate: r.n, excretionPRate: r.p, excretionKRate: r.k };
+}
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -484,9 +491,7 @@ function computeDesktopMetrics(events, _unitSys) {
           headCount: liveHead,
           avgWeightKg: liveAvg,
           days,
-          excretionNRate: HOME_NPK_DEFAULT_EXC.n,
-          excretionPRate: HOME_NPK_DEFAULT_EXC.p,
-          excretionKRate: HOME_NPK_DEFAULT_EXC.k,
+          ...npkRateArgs(gw, now, { memberships, animals, animalClasses, animalWeightRecords }),
         });
         totalNPK.n += (result.nKg ?? result.n ?? 0);
         totalNPK.p += (result.pKg ?? result.p ?? 0);
@@ -592,9 +597,7 @@ function computeMobileMetrics(events, _unitSys) {
           headCount: liveHead,
           avgWeightKg: liveAvg,
           days,
-          excretionNRate: HOME_NPK_DEFAULT_EXC.n,
-          excretionPRate: HOME_NPK_DEFAULT_EXC.p,
-          excretionKRate: HOME_NPK_DEFAULT_EXC.k,
+          ...npkRateArgs(gw, now, { memberships, animals, animalClasses, animalWeightRecords }),
         });
         const nKg = (result.nKg ?? result.n ?? 0);
         const pKg = (result.pKg ?? result.p ?? 0);
@@ -858,9 +861,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
         headCount: activeLiveHead,
         avgWeightKg: activeLiveAvg,
         days,
-        excretionNRate: HOME_NPK_DEFAULT_EXC.n,
-        excretionPRate: HOME_NPK_DEFAULT_EXC.p,
-        excretionKRate: HOME_NPK_DEFAULT_EXC.k,
+        ...npkRateArgs(activeGW, todayStr),
       });
       // OI-0073 Part C: NPK-1 returns {nKg,pKg,kKg}; legacy fallback to {n,p,k}. Prevents NaN.
       const nLbs = ((result.nKg ?? result.n ?? 0) * 2.20462).toFixed(1);
@@ -896,7 +897,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
           eventTimeOut: activeEvent?.timeOut,
           throughDate: todayStr,
         });
-        const r = npk1.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days2, excretionNRate: HOME_NPK_DEFAULT_EXC.n, excretionPRate: HOME_NPK_DEFAULT_EXC.p, excretionKRate: HOME_NPK_DEFAULT_EXC.k });
+        const r = npk1.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days2, ...npkRateArgs(activeGW, todayStr) });
         const val = npk2.fn({ nKg: r.nKg ?? r.n ?? 0, pKg: r.pKg ?? r.p ?? 0, kKg: r.kKg ?? r.k ?? 0, nPricePerKg: prices.nPricePerKg ?? 0, pPricePerKg: prices.pPricePerKg ?? 0, kPricePerKg: prices.kPricePerKg ?? 0 });
         npkValueStr = ` \u00B7 $${val.toFixed(2)} fert value`;
       }
@@ -995,7 +996,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
         eventTimeOut: activeEvent?.timeOut,
         throughDate: todayStr,
       });
-      const r2 = npk1b.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days4, excretionNRate: HOME_NPK_DEFAULT_EXC.n, excretionPRate: HOME_NPK_DEFAULT_EXC.p, excretionKRate: HOME_NPK_DEFAULT_EXC.k });
+      const r2 = npk1b.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days4, ...npkRateArgs(activeGW, todayStr) });
       const nL = convert(r2.nKg ?? r2.n ?? 0, 'weight', 'toImperial').toFixed(1);
       const pL = convert(r2.pKg ?? r2.p ?? 0, 'weight', 'toImperial').toFixed(1);
       const kL = convert(r2.kKg ?? r2.k ?? 0, 'weight', 'toImperial').toFixed(1);
@@ -1350,7 +1351,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
       const r = npk1.fn({
         headCount: live.head, avgWeightKg: live.avg, days,
-        excretionNRate: HOME_NPK_DEFAULT_EXC.n, excretionPRate: HOME_NPK_DEFAULT_EXC.p, excretionKRate: HOME_NPK_DEFAULT_EXC.k,
+        ...npkRateArgs(gw, todayStr),
       });
       totalN += r.nKg ?? r.n ?? 0;
       totalP += r.pKg ?? r.p ?? 0;
@@ -1632,7 +1633,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     summaryParts.push(el('div', { style: { fontSize: '12px', marginBottom: '2px' }, 'data-testid': `dashboard-loc-dmi-${event.id}`, ...(dmiNote ? { title: dmiNote } : {}) }, [dmiLine]));
   }
   if (npkLine) {
-    summaryParts.push(el('div', { style: { fontSize: '12px', color: 'var(--color-purple-dark, #5B21B6)' } }, [npkLine]));
+    summaryParts.push(el('div', { style: { fontSize: '12px', color: 'var(--color-purple-dark, #5B21B6)' }, 'data-testid': `dashboard-loc-npk-${event.id}` }, [npkLine]));
   }
   if (summaryParts.length) {
     children.push(el('div', { style: { borderTop: '1px solid var(--border)', paddingTop: 'var(--space-2)', marginTop: 'var(--space-3)' } }, summaryParts));

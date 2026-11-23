@@ -12,7 +12,9 @@ import { renderNoteReview, recordNoteUse, settleNoteAfterSave, noteOrigin } from
 import { createVoiceLog } from './voice-log.js';
 export { CONSENT_TEXT, CONSENT_KEEP, CONSENT_DECLINE, askTestingConsent, resolveTestingConsent } from './consent.js';
 
-export const OFFLINE_TEXT = 'You are offline. Tap the push-to-talk to record a voice note, or use the normal screens.';
+/** OI-0270: push-to-talk is hidden since OI-0268, so the offline copy no
+ * longer points at it (or at voice notes). */
+export const OFFLINE_TEXT = 'You are offline. The assistant needs a connection — the normal screens still work offline.';
 export const COMPOSER_PLACEHOLDER = 'Type here';
 /** Historical labels only; the shared entry path no longer renders a picker. */
 export const PANEL_INTENTS = Object.freeze([

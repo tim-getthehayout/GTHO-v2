@@ -1,6 +1,6 @@
 # Rotation axis label + readiness anchor + Map escape (OI-0261 / OI-0262 / OI-0263)
 
-**Status:** all three **LOCKED / READY FOR BUILD** (America/New_York): **OI-0261 Ml1** and **OI-0262 Ra1+Bd1+Pb1+Dz1** — Tim, 2026-11-22 6:02 PM ET, via Orchestrator, card **t1270s4938** (“Q1a: month name only, year shown on January”; “Q2a: band runs min to max”) + typed **t1270u** (Q3 wording) + typed **t1271u** (green bands); **OI-0262 Gc1** and **OI-0263 Ex1+Lf-B+Tb1** — Tim, 2026-11-22 6:15 PM ET, via Orchestrator, card **t1272s4948** (“Gc1: 35% green, dashed dark-green border, legend 'Ready window (estimated)'”; “The locations and rotation sheet with a third button to the right of lost for the map” [lost = List]; “Tb1: Map tab, remove list buttons”). **OI-0262 Sv2 (latest-wins)** — Tim, 2026-11-22 6:26 PM ET, via Orchestrator, typed **t1275u** (“On the surveys, the survey data supersedes the last grazing close data and vice a versa. What ever came last is teh data that would be used in teh recovery”); changes no band today. Opened 2026-11-22 ~5:58 PM ET.
+**Status:** all three **LOCKED / READY FOR BUILD** (America/New_York): **OI-0261 Ml1** and **OI-0262 Ra1+Bd1+Pb1+Dz1** — Tim, 2026-11-22 6:02 PM ET, via Orchestrator, card **t1270s4938** (“Q1a: month name only, year shown on January”; “Q2a: band runs min to max”) + typed **t1270u** (Q3 wording) + typed **t1271u** (green bands); **OI-0262 Gc1** and **OI-0263 Ex1+Lf-B+Tb1** — Tim, 2026-11-22 6:15 PM ET, via Orchestrator, card **t1272s4948** (“Gc1: 35% green, dashed dark-green border, legend 'Ready window (estimated)'”; “The locations and rotation sheet with a third button to the right of lost for the map” [lost = List]; “Tb1: Map tab, remove list buttons”). **OI-0262 Sv2 (latest-wins)** — Tim, 2026-11-22 6:26 PM ET, via Orchestrator, typed **t1275u** (“On the surveys, the survey data supersedes the last grazing close data and vice a versa. What ever came last is teh data that would be used in teh recovery”); changes no band today. **OI-0262 Sa1 (survey-only ready band)** — Tim, 2026-11-22 7:00 PM ET, via Orchestrator, card **t1297s5071**: “Yes, a survey alone sets the ready band when there is no closed grazing window”; follow-up PR after #149. Opened 2026-11-22 ~5:58 PM ET.
 **Branch tip:** `docs/oi-axis-readiness` (parent `origin/main` `3dda55df2532e626f2521578705ba91fca5deade`, OI-0260 PR #145 live). Docs only — do not land until Tim land yes.
 **Repro:** all three reproduce on live main `3dda55d`. No commit in `10dcc42..3dda55d` touched `src/features/events/rotation-calendar` or `src/styles` (Tim's report stamp `b2026-11-22.2137-10dcc42`).
 
@@ -131,6 +131,31 @@ Nov 3 + 30 = Dec 3 and Nov 3 + 60 = Jan 2, an exact match for both.
 7. A later survey without recovery days → survey date + close observation min/max (else farm defaults).
 8. A survey on the same calendar day as the close → close wins.
 
+### Follow-up Sa1 — survey-only ready band (LOCKED / READY FOR BUILD)
+Tim, 2026-11-22 7:00 PM ET, via Orchestrator, card **t1297s5071**: “Yes, a survey alone sets the ready band when there is no closed grazing window”. Follow-up to **Sv2 (latest-wins)**.
+
+**Rule:** a location with **no closed grazing window** (no `event_paddock_windows` row with `date_closed`: never grazed, or only an event end date) that has a survey (`paddock_observations` `source = 'survey'`, `type = 'open'`) gets a ready band from the **latest survey**: survey date + survey min → survey date + survey max. A missing min or max falls back value by value to the **farm defaults** (no close observation exists). Label “Surveyed on &lt;survey date&gt;, estimated ready &lt;date&gt;”. No close and no survey → unchanged (relative / “Never grazed — survey to confirm”).
+
+**Design readings (veto lines):**
+1. Evaluated per location.
+2. Open window → no band, unchanged: `computeReadiness` returns `mode: 'active'` (“Grazing in progress”) before any anchor is read (`readiness.js`, PR #149 `a675ede` ~L247-259).
+3. Never-grazed + survey → survey band. Today `computeReadiness` returns `mode: 'never'` when `lastGrazeDate` is null, before surveys are read; Build moves the survey check ahead of that return.
+4. Event-end-only location (window never closed, event ended): latest-wins as Sv2 — the survey anchors only if dated after that last graze date; a survey on or before it stays relative.
+
+**Implementation context:** PR #149 (`a675ede`, restacking) ships Sv2 as `selectReadinessAnchor(closeAnchor, surveyAnchor)`, returning `null` when `closeAnchor` is null (Build open item 4). Sa1: `closeAnchor` null + `surveyAnchor` present → survey anchor with farm-default fallback. **Small follow-up PR after #149, not in #149.**
+
+**Prod (SELECT-only, ~7:05 PM ET):** 58 survey rows on 32 locations; **0** of those locations lack a closed window → **changes no band today.**
+
+**Tests (Sa1):**
+1. Survey-only location (no closed window) → band survey date + survey min..max; label “Surveyed on …, estimated ready …”.
+2. Survey missing max → farm default max (min from survey).
+3. No survey, no close → unchanged (relative / never).
+4. Open window → no band (“Grazing in progress”).
+5. Never-grazed location with a survey → survey band.
+6. Event-end-only location, survey on or before the event end → relative as today.
+
+**No SQL, no migration, no data change.** Fix size: XS.
+
 ### Scope
 **No SQL, no migration, no data change.** Existing `observed_at` values stay as they are; the anchor moves to `date_closed`. The canvas right edge will pull in, because most bands end earlier.
 
@@ -195,5 +220,5 @@ The phrase is ambiguous in the code:
 
 ## Locks and open cards
 1. **OI-0261:** **LOCKED Ml1** (t1270s4938).
-2. **OI-0262:** **LOCKED Ra1+Bd1+Pb1(Tim wording)+Dz1** (t1270s4938 / t1270u) **+ Gc1** (t1272s4948) **+ Sv2 (latest-wins)** (t1275u).
+2. **OI-0262:** **LOCKED Ra1+Bd1+Pb1(Tim wording)+Dz1** (t1270s4938 / t1270u) **+ Gc1** (t1272s4948) **+ Sv2 (latest-wins)** (t1275u) **+ Sa1 (survey-only band)** (t1297s5071).
 3. **OI-0263:** **LOCKED Ex1+Lf-B+Tb1** (t1272s4948).

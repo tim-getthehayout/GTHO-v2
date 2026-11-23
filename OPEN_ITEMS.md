@@ -410,6 +410,8 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Related:** OI-0252 Wu; OI-0254 Cm1; OI-0267 Pd1; OI-0275.
 
+**Docs (2026-11-23):** `V2_UX_FLOWS.md` §19.9 updated for **Dm1** — deep-link `sortKey`/`sortDir` (valid URL sort wins), omitted sort → stored `gtho_v2_locations_sort` → Name A→Z, third per-device pref, and “Paddock sort order” rewritten (user-sortable rows, DMI/ac low first, no-acreage/unknown last both ways, shared with List per OI-0275 Lc0).
+
 **Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
 
 **Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)

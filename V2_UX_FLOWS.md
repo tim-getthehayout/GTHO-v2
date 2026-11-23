@@ -2269,18 +2269,24 @@ Parent row displays: location (multi-paddock chip summary), date range (or "ongo
         &period={days | blank}
         &showConfinement={0|1}
         &view={calendar|list}
+        &sortKey={name|dmiKg|dmiPerAcre|auds|nKg|pKg|kKg|avgScore|…per-acre keys}
+        &sortDir={asc|desc}
 ```
 
-Any omitted parameter falls back to its default. Changes to state update the URL without a full route change (history.replaceState).
+`calendarHashFor` writes `sortKey` / `sortDir` whenever the sort differs from `name` / `asc`. A valid URL sort (a known `SORT_KEYS` key) wins over the per-device stored sort (OI-0274 **Dm1**); an unknown key is ignored.
 
-**First-load defaults.** `zoom=week`, `anchor=today`, `groups=[]`, `period=null`, `showConfinement=false`, `view=calendar`. Forecaster starting empty → Estimated Status View is the default mode.
+An omitted `sortKey` / `sortDir` falls back to the per-device stored sort (`gtho_v2_locations_sort`), then to Name A→Z (`name` / `asc`). Any other omitted parameter falls back to its default. Changes to state update the URL without a full route change (history.replaceState).
 
-**State persistence policy.** Most calendar state (zoom, anchor, groups, period, confinement, view) is not persisted to `user_preferences`. It lives in session memory and the URL only, so a view can be shared by link. Two per-device preferences are remembered in `localStorage` on this browser, not in the URL and not in `user_preferences`:
+**First-load defaults.** `zoom=week`, `anchor=today`, `groups=[]`, `period=null`, `showConfinement=false`, `view=calendar`, `sortKey=name`, `sortDir=asc` (when no stored sort exists). Forecaster starting empty → Estimated Status View is the default mode.
+
+**State persistence policy.** Most calendar state (zoom, anchor, groups, period, confinement, view) is not persisted to `user_preferences`. It lives in session memory and the URL only, so a view can be shared by link. Three per-device preferences are remembered in `localStorage` on this browser, not in `user_preferences`:
 - **Pb** (OI-0246): season metric window, key `gtho_v2_locations_metric_window`.
 - **Pd1** (OI-0267): Rotation Calendar Metrics column collapse (▾/▸), key `gtho_v2_locations_metrics_collapsed`. Unset or invalid falls back to expanded (OI-0254 **Cm1a**). List view has no toggle and is unaffected.
+- **Dm1** (OI-0274): row sort, key `gtho_v2_locations_sort` (`{ key, dir }`). Unlike Pb and the collapse, the sort is also URL-addressable (`sortKey` / `sortDir`); a valid URL sort wins over the stored one. Shared by Calendar and List (OI-0275 **Lc0**).
+Pb and Pd1 are not in the URL.
 A `user_preferences.events_calendar_state jsonb` column (the original §19.9 follow-up) is not used for these prefs; it would need a migration and was rejected for Pd1.
 
-**Paddock sort order.** Paddocks render in the order locations appear in `store.locations` (stable sort by creation order / `locations.id`). Custom ordering (drag-to-reorder or a priority field) is out of scope for v2.0 — revisit once users report needing it.
+**Paddock sort order.** Rows are user-sortable by Name and by the metric keys: DMI, DMI/ac (OI-0274 **Dl1**, its own sort button), AUDs, N, P, K, Score and the per-acre keys (`sort-rows.js` `SORT_KEYS`). Default is Name A→Z. Numeric metrics sort high first on the first tap, except DMI/ac, which sorts **low first** on the first tap (**Ds1**; low-DMI/ac pastures are bale-grazing targets). Rows with no acreage (DMI/ac “—”) or an unknown value sort **last in both directions**. The sort persists per device (**Dm1**, `gtho_v2_locations_sort`) with a URL override (`sortKey` / `sortDir`), applies while the Metrics column is collapsed with a “Sorted by DMI/ac, low first” style note by the collapsed tab (**Dc1**; no note for Name), and List view shares the same sort (OI-0275 **Lc0**; List has no collapse and no note). Drag-to-reorder or a priority field stays out of scope.
 
 **Accessibility.**
 - All interactive elements (past/future blocks, lightbox pills, legend items, sidebar rows, view toggle, mode indicator, confinement pill) must have visible focus outlines meeting WCAG 2.1 AA contrast (3px outline, `--green-dark`, 3:1 min against adjacent content).
@@ -2499,6 +2505,7 @@ The sheet uses the same unit-aware descriptor pattern as the Farm Settings card 
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-23 | GTHO Design — OI-0274 Dm1 sort + deep-link (docs only) | §19.9: deep-link adds `sortKey` / `sortDir` (written by `calendarHashFor`; valid URL sort wins); omitted sort → per-device stored sort → Name A→Z; first-load default `name`/`asc`; third per-device pref **Dm1** `gtho_v2_locations_sort` (`{ key, dir }`, URL-addressable unlike collapse); “Paddock sort order” replaced: user-sortable rows (Name, DMI, DMI/ac, other metric keys), DMI/ac low first on first tap, no-acreage/unknown last both ways, persisted per device with URL override, shared with List (OI-0275 Lc0); drag-to-reorder out of scope. |
 | 2026-11-22 | GTHO Design — OI-0267 Metrics collapse persists per device (docs only) | §19.9 state persistence: most calendar state stays session/URL; per-device localStorage prefs are OI-0246 **Pb** (`gtho_v2_locations_metric_window`) and OI-0267 **Pd1** (`gtho_v2_locations_metrics_collapsed`). Unset collapse defaults expanded (Cm1a). No `user_preferences` column. |
 | 2026-11-20 | GTHO Design — OI-0240 scoped-remaining hide Feed Transfer (docs only) | §1.5 / §1.6 / §6: Feed Transfer **must** be hidden in `scoped-remaining`; stay-copy that feed stays with remaining groups; Step 8 skipped; notes the pre-OI-0240 code gap (`move-wizard.js` still rendered Move / Residual). Full-event and `scoped-last` unchanged. |
 | 2026-11-19 | GTHO Design — OI-0235 Animals multi-filters as-built (docs only) | §15.0 class pills + Open / Confirmed bred status pills flipped from Proposed (not built) to as-built at PR #86 `a997269` on main. F1–F3 unchanged. |

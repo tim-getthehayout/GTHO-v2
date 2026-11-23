@@ -21,6 +21,7 @@ import * as SurveyDraftEntryEntity from '../../entities/survey-draft-entry.js';
 import { openHarvestSheet } from '../harvest/index.js';
 import { renderSurveyCard } from '../observations/survey-card.js';
 import { openFeedTypeSheet, buildFeedTypeRow } from '../feed/index.js';
+import { LAND_USE_LABELS, landUseLabel } from './land-use-label.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -299,6 +300,8 @@ export function buildLocationCard(loc, operationId, farmId, unitSys) {
   const landUse = loc.type === 'storage'
     ? t('location.type.storage')
     : (isConfinement ? 'Confinement' : (loc.landUse || 'pasture'));
+  // OI-0271: badge shows the visible label, never the raw stored value.
+  const landUseText = (loc.type === 'storage' || isConfinement) ? landUse : landUseLabel(loc.landUse);
 
   // Badge class
   const badgeCls = { pasture: 'bg', mixed_use: 'bg', crop: 'ba', Confinement: 'bb' }[landUse] || 'bg';
@@ -329,7 +332,7 @@ export function buildLocationCard(loc, operationId, farmId, unitSys) {
   // Title row
   const titleChildren = [
     el('span', { style: { fontSize: '14px', fontWeight: '600' } }, [loc.name]),
-    el('span', { className: `badge ${badgeCls}`, style: { fontSize: '10px' } }, [landUse]),
+    el('span', { className: `badge ${badgeCls}`, style: { fontSize: '10px' } }, [landUseText]),
     el('span', { style: { fontSize: '11px', color: 'var(--text3)' } }, [loc.fieldCode || 'no code']),
   ];
   if (hasActiveEvent) titleChildren.push(el('span', { className: 'badge ba', style: { fontSize: '10px' } }, ['active']));
@@ -447,9 +450,9 @@ export function openLocationSheet(existingLoc, operationId, farmId, opts = {}) {
     ...farms.map(f => el('option', { value: f.id, selected: (existingLoc?.farmId || farmId) === f.id }, [f.name])),
   ]);
   inputs.landUse = el('select', {}, [
-    el('option', { value: 'pasture', selected: existingLoc?.landUse === 'pasture' }, ['Pasture']),
-    el('option', { value: 'mixed_use', selected: existingLoc?.landUse === 'mixed_use' }, ['Mixed-use']),
-    el('option', { value: 'crop', selected: existingLoc?.landUse === 'crop' }, ['Crop']),
+    el('option', { value: 'pasture', selected: existingLoc?.landUse === 'pasture' }, [LAND_USE_LABELS.pasture]),
+    el('option', { value: 'mixed_use', selected: existingLoc?.landUse === 'mixed_use' }, [LAND_USE_LABELS.mixed_use]),
+    el('option', { value: 'crop', selected: existingLoc?.landUse === 'crop' }, [LAND_USE_LABELS.crop]),
     el('option', { value: 'confinement', selected: existingLoc?.type === 'confinement' }, ['Confinement']),
     ...(existingLoc?.type === 'storage'
       ? [el('option', { value: 'storage', selected: true }, [t('location.type.storage')])]

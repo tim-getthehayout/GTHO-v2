@@ -130,3 +130,45 @@ describe('OI-0271 canonical mixed_use', () => {
     }
   });
 });
+
+describe('OI-0271 visible land-use label (never the raw stored value)', () => {
+  it('maps stored values to the form option labels', async () => {
+    const { LAND_USE_LABELS, landUseLabel } = await import('../../src/features/locations/land-use-label.js');
+    expect(landUseLabel('mixed_use')).toBe('Mixed-use');
+    expect(landUseLabel('pasture')).toBe('Pasture');
+    expect(landUseLabel('crop')).toBe('Crop');
+    expect(landUseLabel(null)).toBe('Pasture');
+    expect(landUseLabel('something_else')).toBe('\u2014');
+    expect(Object.keys(LAND_USE_LABELS)).toEqual(['pasture', 'mixed_use', 'crop']);
+  });
+
+  it('location form options use the same labels', () => {
+    openLocationSheet(null, OP, FARM);
+    const sel = landUseSelect();
+    const byValue = Object.fromEntries([...sel.options].map(o => [o.value, o.textContent]));
+    expect(byValue.pasture).toBe('Pasture');
+    expect(byValue.mixed_use).toBe('Mixed-use');
+    expect(byValue.crop).toBe('Crop');
+  });
+
+  it('Locations card badge shows Mixed-use / Pasture / Crop, not mixed_use', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    renderLocationsScreen(container);
+    // The legacy screen keeps its filter in module state; reset to All.
+    [...container.querySelectorAll('button')].find(b => b.textContent === 'All').click();
+    const badges = [...container.querySelectorAll('.badge')].map(b => b.textContent);
+    expect(badges).toContain('Mixed-use');
+    expect(badges).toContain('Pasture');
+    expect(badges).toContain('Crop');
+    expect(container.textContent).not.toContain('mixed_use');
+  });
+
+  it('Harvest field picker subline shows Mixed-use, not mixed_use', () => {
+    openHarvestSheet(OP, { fieldMode: true });
+    const panel = document.getElementById('harvest-sheet-panel');
+    expect(panel.textContent).toContain('Mixed-use');
+    expect(panel.textContent).not.toContain('mixed_use');
+    expect(panel.textContent).toMatch(/Crop · Farm/);
+  });
+});

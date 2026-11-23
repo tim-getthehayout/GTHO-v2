@@ -8,6 +8,7 @@ import { getAll, getById, add, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
 import { openFeedTypesSheet } from '../locations/index.js';
+import { landUseLabel } from '../locations/land-use-label.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import * as HarvestEventFieldEntity from '../../entities/harvest-event-field.js';
 import * as BatchEntity from '../../entities/batch.js';
@@ -215,7 +216,7 @@ function renderFieldPicker(panel, operationId, onSelect) {
           el('div', { style: { fontSize: '20px' } }, ['\uD83D\uDE9C']),
           el('div', { style: { flex: '1', minWidth: '0' } }, [
             el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [`${loc.name} \u00B7 ${areaVal} ${areaUnit}`]),
-            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${loc.landUse}${farm ? ` \u00B7 ${farm.name}` : ''}${loc.fieldCode ? ` \u00B7 ${loc.fieldCode}` : ''}`]),
+            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${landUseLabel(loc.landUse)}${farm ? ` \u00B7 ${farm.name}` : ''}${loc.fieldCode ? ` \u00B7 ${loc.fieldCode}` : ''}`]),
           ]),
         ]),
       ]));

@@ -1,4 +1,4 @@
-# Home DMI card + units everywhere (OI-0277, OI-0278)
+# Home DMI card + units everywhere + per-class DMI % (OI-0277, OI-0278, OI-0279)
 
 **Status (America/New_York, 2026-11-23):**
 
@@ -6,11 +6,12 @@
 |---|---|---|
 | OI-0277 | Home DMI card: Total DMI + Pasture DMI, no double counting | **SPEC LOCKED / READY FOR BUILD** — **Hd3** (Tim, via Orchestrator, card **t1352s5286**, 7:38 AM ET) |
 | OI-0278 | Units everywhere: every metric follows the farm's unit system, with units labeled | **SPEC LOCKED / READY FOR BUILD** — **Ua+Na+Pa+Fa+Da** (Tim **t1354u** / **t1355u** 7:42 AM ET scope; card **t1357s5308** 8:15 AM ET decisions) |
+| OI-0279 | Per-class DMI % everywhere (Feed, DMI-8, calendar, Home, forecast) | **SPEC LOCKED / READY FOR BUILD** — per class, compute on read, M0 (Tim **t1360u** 8:30 AM ET) |
 
-**Sources (Tim, via Orchestrator, 2026-11-23):** t1352s5286 (7:38 AM, 0277 **Hd3** + first 0278 **Un1** “lb with unit in headers”), t1354u + t1355u (7:42 AM, widened 0278: “all metrics must follow the choice of the user” / “everywhere”), t1357s5308 (8:15 AM, 0278 **Ua+Na+Pa+Fa+Da**). Units audit: Design, read-only, at `3373711` (~7:50 AM ET); its tables are Appendix A/B below.
+**Sources (Tim, via Orchestrator, 2026-11-23):** t1352s5286 (7:38 AM, 0277 **Hd3** + first 0278 **Un1** “lb with unit in headers”), t1354u + t1355u (7:42 AM, widened 0278: “all metrics must follow the choice of the user” / “everywhere”), t1357s5308 (8:15 AM, 0278 **Ua+Na+Pa+Fa+Da**), t1360u (8:30 AM, OI-0279 “Yes please fix and include with this one . Use per class”). Units audit: Design, read-only, at `3373711` (~7:50 AM ET); its tables are Appendix A/B below.
 
 **Branch tip:** `docs/oi-0277-0278-dmi-units` on `origin/main` `3373711a966f3210127f831d16fc18cb4bad3e43` (#159 docs, OI-0269..0276, live; code identical to `dbce180`). Docs only — lands through Orchestrator + Homelab Git Bridge after Tim’s land yes.
-**D0 for both items: no SQL / no migration / no RLS change / no data write.** Stored data stays canonical metric (`*_kg`, `area_hectares`, `*_cm`) and is never converted or rewritten.
+**D0 for all three items: no SQL / no migration / no RLS change / no data write.** Stored data stays canonical metric (`*_kg`, `area_hectares`, `*_cm`) and is never converted or rewritten.
 
 Line numbers are at `3373711`. Code read only.
 
@@ -24,9 +25,10 @@ Line numbers are at `3373711`. Code read only.
 4. **OI-0271**
 5. **OI-0274** + **OI-0275** with **OI-0278-S1** (Calendar + List)
 6. **OI-0273**
-7. **OI-0277** with **OI-0278-S2** (Home)
-8. **OI-0278-S3** (Events / feed / animals / Locations)
-9. **OI-0278-S4** (NPK / amendments / reports / inputs / assistant / lock-in test)
+7. **OI-0279** (per-class DMI %; shared group-day function — Home depends on it)
+8. **OI-0277** with **OI-0278-S2** (Home)
+9. **OI-0278-S3** (Events / feed / animals / Locations)
+10. **OI-0278-S4** (NPK / amendments / reports / inputs / assistant / lock-in test)
 
 OI-0278-S1 adds the shared helper (below); later slices only consume it. Each step may ship as its own PR. Every PR runs the usual gates (`node scripts/run-vitest.mjs run`, `npx eslint src/`, baseline 0 errors / 54 warnings).
 
@@ -55,7 +57,7 @@ The Pasture % helper `computePasturePercent` (`:342–393`) uses the same `daysB
 - **Land scope (Design rule):** Pasture DMI uses the same land scope as the calendar Period totals strip (pasture land; confinement / hay-only days contribute 0 pasture). Total DMI is herd need and counts every group-day wherever the animals are. Any remaining scope difference (e.g. archived locations if the calendar hides them) is stated in the tile’s `title` tooltip.
 - **Pasture %** (`computePasturePercent`) moves to the same per-group-day counting so it agrees with the two tiles (Pasture DMI ÷ Total DMI over the period).
 - The `:408` comment is corrected. **D0**.
-- **Class DMI% (noted, not changed here):** the shared helper has the same fallback (`groupWindowsDailyDemand` reads `gw.animalClassId` at `window-helpers.js:322–323`, so `dmiPct` is 2.5% unless set). Hd3 deliberately uses the shared math so Home matches Feed, DMI-8 and the calendar. Making class DMI% apply is a farm-wide demand change for every surface at once and needs its own OI + Tim decision; Design raises it to Orchestrator separately.
+- **Class DMI%:** per class via **OI-0279** (Tim t1360u). Hd3 uses the OI-0279 shared group-day function, so Home stays equal to Feed, DMI-8 and the calendar. OI-0279 lands before OI-0277.
 
 **Acceptance:**
 - On the same period, Home **Pasture DMI** reconciles with the calendar **Period totals** Pasture DMI for the same date range and land scope; where scope differs, the doc/tooltip states the difference explicitly.
@@ -115,6 +117,63 @@ Row 34 is the only wrong **number** (others are wrong unit/label). Tim’s farm 
 8. Backup JSON, prod data and schema unchanged (**D0**).
 
 **Size:** L overall (S1 M, S2 M with 0277, S3 M, S4 M).
+
+---
+
+## OI-0279 — Per-class DMI % everywhere
+
+**Tim (via Orchestrator):** t1360u, 8:30 AM ET, verbatim: “Yes please fix and include with this one . Use per class”. **SPEC LOCKED / READY FOR BUILD.** Feed, DMI-8, the calendar, Home and the forecast all use per-class DMI %. Lands **before OI-0277** (Home depends on it).
+
+### Data model (code + prod schema)
+- Class lives on the **animal**: `animals.class_id` → `animal_classes` (`species`, `role`, `dmi_pct`, `dmi_pct_lactating`, `default_weight_kg`, `excretion_*_rate`).
+- `groups` has no class or species. `event_group_windows` has `group_id`, `head_count`, `avg_weight_kg`, dates — **no class column**.
+- `animal_group_memberships` (animal, group, `date_joined`, `date_left`) links animals to groups over time.
+- Head count / avg weight: open windows recompute live from memberships + weight records (`getLiveWindowHeadCount`, `getLiveWindowAvgWeight`, `window-helpers.js:100/129`); closed windows use the stored snapshot.
+- Weights are per animal (`animal_weight_records`), class `default_weight_kg` as fallback (OI-0130).
+
+### Root cause
+Every demand path looks up `gw.animalClassId`, which group windows never carry, so `cls` is null and DMI% falls back to 2.5%:
+- `window-helpers.js:322–323` `groupWindowsDailyDemand` (DMI-8, FED-6/DMI-9 run rate + forecast, FED-7 plausibility, calendar `location-metrics.js:584`).
+- Direct DMI-2: `dashboard/index.js:359, 414, 462, 569, 813, 843, 886, 905, 984, 1171, 1336`; `events/detail.js:290, 936, 959`; `reports/index.js:200, 278`.
+- Same miss for excretion rates (`location-metrics.js:559`), the DMI-8 class map (`events/dmi-chart-context.js:94–103`, empty, so DMI-8 also loses class default weights), and `reports/index.js:450` (`animal.animalClassId`, BCS by class).
+- Already per-class: Feed day-goal banner `farmWideActiveDmiKg` (`feed/index.js:346–363`) — it disagrees with DMI-8 today.
+
+### Prod findings (SELECT-only, ~8:35 AM ET)
+| Question | Answer |
+|---|---|
+| Do animals carry a class? | Yes, `animals.class_id`. 98 animals: 85 classed, **13 unclassed, all inactive** (Cow-Calf Herd, Shenk Cows, Shenk Culls, Culls history). 5 composites. |
+| Animals per class (active heads) | Cow 26 · Heifer 11 · Calf 11 · Bull 1 · Doe 57 (1 composite) · Ewe 52 (1 composite) · Ram 2 · Steer/Buck/Lamb 0 |
+| DMI % set vs null | All 10 classes set: Bull 2, Cow 2.5, Heifer 2.5, Steer 2.5, Ram 2.5, Calf 3, Ewe 3, Buck 3, Doe 3.5, Lamb 4. Lactating % on Cow 3, Ewe 4.5, Doe 5 (unused). |
+| Class column on windows / groups? | None. `historical_animal_basis` has `class_id` + `dmi_pct_snapshot` but 0 rows. |
+| Head counts per window | Stored (`head_count`); open windows recomputed live from memberships. |
+| Weights | Per animal (113 records, 97 animals) + class default; not per group. |
+| Windows without members | 34 of 288 (all closed, Mar 4 – Nov 20, 20 zero-length) = 791 of 16,928 head-days (**4.7%**). |
+| Effect today | Active herd 2.5% flat ≈ 602 kg/day (~1,328 lb) → per-class ≈ 641 kg/day (~1,413 lb), **+6.4%**: goats +40%, ewes +20%, calves +20%, bull −20%, cows/heifers 0. |
+
+### Locked design (compute on read — **M0**, no migration)
+1. **One shared function** in `window-helpers.js` (e.g. `groupDayDmi(gw, dt, ctx)` → `{ kg, dmiPct, basis, fallbacks }`). `groupWindowsDailyDemand` and all direct DMI-2 sites call it; nothing else computes DMI%.
+2. **Effective DMI% per group-day** = Σ(wᵢ × pctᵢ) ÷ Σ wᵢ over members live in the group on `dt`; wᵢ = latest weight ≤ `dt`, else class default × heads (composites by heads). Demand = window head × avg weight (unchanged live/snapshot rule) × effective %.
+3. **Fallbacks:** no class → 2.5%. Class with null `dmi_pct` → seed value for species + role (`onboarding/seed-data.js`), else 2.5%. Member with no weight and no class default → left out of the weighting. **W0:** no live member on `dt` → today’s 2.5% × head × avg weight.
+4. **Basis in tooltips:** `members` / `members+default` / `window-default`; DMI tooltips (calendar cell, Period totals, Home tiles, Event detail, DMI-8 chart) note any fallback, e.g. “2 head at default 2.5% (no class)”.
+5. **L0:** lactating % stays unused.
+6. Same member mix supplies class excretion rates to NPK-1 (no change today — all classes at default rates). Fix the DMI-8 class map and `reports/index.js:450`. `historical_animal_basis` rows keep `dmi_pct_snapshot`.
+
+### Effects
+- **OI-0277:** Home Total DMI and Pasture DMI use this function, so per class and equal to Feed / DMI-8 / calendar.
+- **OI-0221 forecast + DMI-9 run rate, days remaining, FED-7:** demand rises ~6% today; implied pasture (need − hay) rises on pasture days.
+- **Feed day-goal banner:** unchanged (already per-class), now consistent with the rest.
+- ⚠️ **Historical numbers shift on every screen** (DMI, implied pasture, DMI/ac, Period totals, run rate, forecast). Stored data untouched.
+
+### Tests
+Mixed-class weighting (cow 2.5% + calf 3%); composite members; unclassed member → 2.5% + `members+default`; null class % → seed / 2.5%; no-member window → W0; closed window = stored head/avg × that day’s member mix; one fixture gives identical per-day demand through DMI-8, FED-6, calendar, Home and Event detail; grep test: no `.animalClassId` reads in `src/`.
+
+**Size:** M. **D0.**
+
+### Choices made by Design (Tim may override; none blocks Build)
+- **W — windows with no members (4.7% of head-days).** **W0** keep 2.5% × head × avg, flagged in tooltip (**recommended**: those groups are mostly 2.5% classes, so W1 changes little). **W1** borrow the group’s nearest membership mix. **W2** migration adding a class snapshot to windows (not recommended).
+- **L — lactation.** **L0** ignore lactating % as today (**recommended**; there is no lactation state). **L1** derive lactation from calving + weaning age — separate OI.
+- **U — 13 unclassed (inactive) animals.** **U0** 2.5% fallback with tooltip (**recommended**). Tim may also give them a class on the Animals screen (normal edit).
+- **M — migration.** **M0** none (**recommended**; class comes from membership). No DB, migration or RLS change is needed.
 
 ---
 
@@ -184,6 +243,6 @@ Inputs that already convert correctly (unchanged): location area, strip area, ev
 
 ## OPEN_ITEMS changes
 
-- Add rows + sections OI-0277 (**Hd3**) and OI-0278 (**Ua+Na+Pa+Fa+Da**), both **SPEC LOCKED / READY FOR BUILD**.
+- Add rows + sections OI-0277 (**Hd3**), OI-0278 (**Ua+Na+Pa+Fa+Da**) and OI-0279 (per-class DMI %, t1360u), all **SPEC LOCKED / READY FOR BUILD**.
 - OI-0278 supersedes **Un1** (t1352s5286) as a subset.
 - Change-log row; DOCS_MAP refs (dashboard, events, feed, animals, amendments, reports, assistant, utils).

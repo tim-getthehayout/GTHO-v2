@@ -2,7 +2,7 @@
 
 **Generated:** 2026-11-23 (America/New_York / ET) by Design
 **Status:** **SPEC LOCKED** — Tim, card **t1400s5504** (12:50 PM ET): Ts=B, Wr=C, Cp=A, Sf=A, Qp=B; delete rule **Dl=A** by Tim's 👍 (12:52 PM ET, changeable later at Tim's call); **Sg=A′** card **t1405s5526** (12:59 PM ET, after Tim's t1402u follow-up at 12:51 PM ET): “Sg A: yes, create the bot login during connect with a Connected assistants list”. Build starts nothing until the docs land. Any migration, RLS/policy change, Supabase Auth setting or edge-function secret needs Tim's separate yes at apply time, plus a verified backup for anything touching the database.
-**Source:** Tim t1390u, t1391u, t1395u (12:32–12:39 PM ET), t1397u (12:41 PM ET), locked inputs 12:40–12:41 PM ET, t1398u (12:46 PM ET, farm-side setup), t1399u (12:47 PM ET, bot side owned by the GTHO team), card t1400s5504 (12:50 PM ET), t1402u (12:51 PM ET, Sg follow-up), Dl 👍 (12:52 PM ET), card t1405s5526 (12:59 PM ET, Sg), all via Orchestrator.
+**Source:** Tim t1390u, t1391u, t1395u (12:32–12:39 PM ET), t1397u (12:41 PM ET), locked inputs 12:40–12:41 PM ET, t1398u (12:46 PM ET, farm-side setup), t1399u (12:47 PM ET, bot side owned by the GTHO team), card t1400s5504 (12:50 PM ET), t1402u (12:51 PM ET, Sg follow-up), Dl 👍 (12:52 PM ET), card t1405s5526 (12:59 PM ET, Sg), t1416u / card t1417s5582 (2:25–2:31 PM ET, client-neutral note), all via Orchestrator.
 **Base:** Forgejo `origin/main` = `c7581ce98b415d62b7973b6ece883b9d969ae176` (#167 live as `b2026-11-23.1738-c7581ce`; RELEASED 48).
 
 Tim, verbatim: “they would have a bot on their own farm data not mine. We would need a connector that allows them to do that on their farm. And a way for us to capture the data from that interaction.” Onboarding (t1397u): “Save in to GThO out but we will audit it after having done so in order to iterate the process and improve it before they use it”.
@@ -10,6 +10,12 @@ Tim, verbatim: “they would have a bot on their own farm data not mine. We woul
 ## 1. Outcome
 
 Each farm gets its own Grok Bot that uses GTHO through one **farm-scoped GTHO connector** (a remote MCP server). In the test phase the connector is wide (reads and writes every table on that farm, events included, under RLS as the farm's bot login), and every save is previewed to the farmer and committed only after their yes (Ts=B, Wr=C), so real use shows what the final connector must be. Every call is **captured**, and Design turns the capture into the narrowed connector spec (P3). A **shared onboarding bot** reads a new farm's documents and saves its base data straight into GTHO; every onboarding write is tagged to the session and source document, reviewed afterwards by Tim and Design, and can be corrected or undone per session.
+
+**Client-neutral (Tim t1416u, 2:25 PM ET; card t1417s5582, 2:31 PM ET — docs note, not a new lock).**
+1. **`gtho-mcp` holds no Grok Bot-specific logic.** Farm scope (one-farm pin, RLS as the bot login), the preview/confirm token, archive-only, the stale-write check, the per-call membership recheck and capture are all enforced server-side, so any MCP client using the standard OAuth sign-in works the same way.
+2. **Template instructions and skills under `bots/templates/` are plain, portable text.** Safety never relies on a Grok Bot-only feature, so the same text doubles as a hosted assistant's system prompt.
+3. **Capture records which client made each call:** a `client` column on `connector_calls` (and `onboarding_sessions`), values such as `grok_bot`, `gtho_hosted`, `other`, derived from the OAuth client id. It is part of the already-planned P1 migration — no extra migration.
+4. **A future GTHO-hosted assistant** that calls the xAI Grok API from our backend uses the same `gtho-mcp` tools / OI-0215 actions **as a farm bot login** (same provisioning) and **never the service role**. This converges OI-0210/0215 (today's `gtho-assistant` reads farm data with the service role) onto one safe path. That is a later OI, not P1 scope.
 
 ## 2. Locked inputs (Tim, 12:40–12:41 PM ET via Orchestrator) — decided, not questions
 
@@ -80,10 +86,10 @@ Each farm gets its own Grok Bot that uses GTHO through one **farm-scoped GTHO co
 
 ### 5.1 Capture — LOCKED Cp=A and Sf=A (card t1400s5504)
 New operational tables (migration → Tim's yes + backup at apply):
-- `connector_calls`: operation, actor (bot account), OAuth client, session (nullable), tool, tool/connector/schema version, **intent** (the bot's one-line “what the farmer asked”, a required tool argument), args, result summary, row count, error code/message, latency, time.
+- `connector_calls`: operation, actor (bot account), OAuth client, **`client`** (`grok_bot` / `gtho_hosted` / `other`, from the OAuth client id; §1 client-neutral), session (nullable), tool, tool/connector/schema version, **intent** (the bot's one-line “what the farmer asked”, a required tool argument), args, result summary, row count, error code/message, latency, time.
 - `connector_writes`: call, operation, session, **source document** (name/label given by the bot), entity, row id, op (create/update/archive/undo), before, after.
 - `connector_gaps`: `report_gap` tool — what was asked, why the connector could not do it.
-- `onboarding_sessions`: operation, onboarding account, started/ended, status, source documents, audit sign-off, full-log consent (+ time).
+- `onboarding_sessions`: operation, onboarding account, **`client`** (as above), started/ended, status, source documents, audit sign-off, full-log consent (+ time).
 - Rows are inserted only through a `SECURITY DEFINER` function that stamps actor/operation from the JWT and checks membership, so bots cannot forge or edit logs. Farm members read their own farm's rows. Tim reads other farms' rows only per **Sf**. Retention: 90 days raw (same as assistant artifacts); onboarding write logs kept until that session's audit is signed off, then 90 days; weekly digests kept. Excluded from CP-55 backups (operational telemetry, not farm data); MIG doc note at build time.
 - **Cp=A:** every bot call in full (previews and commits linked), the one-line request note, gap reports and feedback filed by the bot; raw kept 90 days, weekly summaries kept. Grok Bot chat transcripts are not visible to the connector and are not collected. Capture also flags partial workflow sequences (§4.3).
 - **Sf=A:** Tim and Design see a second farm's full capture (values included) only with that farm's opt-in, recorded at onboarding and withdrawable; otherwise a redacted view (tools, errors, timings, request notes with values removed). Tim's own bot never sees another farm's farm data under any option (L1).
@@ -141,6 +147,7 @@ New operational tables (migration → Tim's yes + backup at apply):
 - [ ] **No hard-delete tool** exists; archive/soft-delete is restorable; tables without an archive column refuse deletion.
 - [ ] Batch = one preview + one commit; capture links preview and commit and flags partial workflow sequences.
 - [ ] Every call writes a capture row; every committed write has before/after, and session/source when in onboarding.
+- [ ] Every capture row has a non-null `client` (`connector_calls` and `onboarding_sessions`).
 - [ ] Undo session preview and commit tested, including blockers; commit only with Tim's yes.
 - [ ] **Provisioning owner-only:** the bot-login step succeeds only for a signed-in accepted **owner of that farm**; admins, team members, bots, other farms' owners and signed-out callers are refused; each run writes an audit row.
 - [ ] **One farm per bot login:** the created login is a member (role `bot`) of exactly that farm; the one-farm pin refuses it if a second membership ever appears.

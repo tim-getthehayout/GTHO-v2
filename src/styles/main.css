@@ -3092,6 +3092,30 @@ body:has(.auth-overlay) .pwa-update-banner {
   z-index: 5;
   background: var(--bg);
 }
+/* OI-0273: the sticky name cell may grow to its content but never past the
+   viewport (less the row's left/right padding), so a long name ellipses before
+   the Ready chip; metrics line keeps its OI-0252 pinned width. */
+.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__row--phone > .loc-mgmt__name {
+  max-width: calc(100vw - 2 * var(--space-3));
+  box-sizing: border-box;
+}
+/* OI-0273: List — the name can shrink inside the flex top line. On phone a
+   long name takes the full line (actions wrap below) and then ellipses before
+   the chip; short names keep name + actions on one line. */
+.loc-mgmt__list-top > .loc-mgmt__name {
+  min-width: 0;
+}
+.loc-mgmt--phone .loc-mgmt__list-top {
+  flex-wrap: wrap;
+}
+.loc-mgmt--phone .loc-mgmt__list-top > .loc-mgmt__name {
+  flex: 1 1 auto;
+  width: auto;
+  max-width: 100%;
+}
+.loc-mgmt--phone .loc-mgmt__list-top > .loc-mgmt__row-actions {
+  flex-shrink: 0;
+}
 .loc-mgmt--phone .loc-mgmt__metrics {
   /* Nn: keep two-line stack; tighter padding; no flat six-across */
   border-right: none;

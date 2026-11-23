@@ -129,6 +129,46 @@ describe('OI-0273 readyChipKind (unit)', () => {
     expect(kind(r2)).toBe('ready');
   });
 
+  it('close obs with only a max set → obsSuppliedDays false → Ready (est.)', () => {
+    const data = closedAt('M', -30, 1);
+    data.observations[0].recoveryMinDays = null;
+    data.observations[0].recoveryMaxDays = 50;
+    expect(closeRecoveryAnchor('M', { ...data })).toMatchObject({ obsSuppliedDays: false, minDays: 21, maxDays: 50 });
+    const r = readiness('M', data);
+    expect(r.anchor).toMatchObject({ dateSource: 'close', obsSuppliedDays: false });
+    expect(kind(r)).toBe('estimated');
+  });
+
+  it('winning survey with no min of its own borrows the close min and shows Ready', () => {
+    const base = closedAt('B', -40, 15); // close entered min 15
+    const r = readiness('B', { ...base, observations: [...base.observations, survey('B', -20, null, null)] });
+    expect(r.anchor).toMatchObject({ dateSource: 'survey', minDays: 15 });
+    expect(r.earliestReturn).toBe(iso(-5));
+    expect(kind(r)).toBe('ready');
+    // Survey on a farm-default close borrows 21 → still a survey anchor → Ready once due.
+    const d = closedAt('B2', -60);
+    const r2 = readiness('B2', { ...d, observations: [survey('B2', -21, null, null)] });
+    expect(r2.anchor.dateSource).toBe('survey');
+    expect(r2.earliestReturn).toBe(TODAY);
+    expect(kind(r2)).toBe('ready');
+  });
+
+  it('entered-days close exactly on earliestReturn → Ready', () => {
+    const r = readiness('X', closedAt('X', -25, 25));
+    expect(r.earliestReturn).toBe(TODAY);
+    expect(kind(r)).toBe('ready');
+  });
+
+  it('day 22: farm-default close and relative mode → Ready (est.)', () => {
+    const c22 = readiness('D', closedAt('D', -22));
+    expect(c22.daysSinceLastGraze).toBe(22);
+    expect(kind(c22)).toBe('estimated');
+    const r22 = readiness('R', relativeAt('R', -22));
+    expect(r22.mode).toBe('relative');
+    expect(r22.daysSinceLastGraze).toBe(22);
+    expect(kind(r22)).toBe('estimated');
+  });
+
   it('relative mode: 20 → none; 21 and 40 → Ready (est.); farm min respected', () => {
     const r20 = readiness('R', relativeAt('R', -20));
     expect(r20.mode).toBe('relative');
@@ -270,6 +310,20 @@ describe('OI-0273 grid: chip right of the name on Calendar, List and phone', () 
     expect(label).toMatch(/min-width:\s*0/);
     expect(label).toMatch(/text-overflow:\s*ellipsis/);
     expect(label).toMatch(/white-space:\s*nowrap/);
+    // Calendar phone: the sticky name cell is capped to the viewport (less row padding).
+    const calName = rule('.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__row--phone > .loc-mgmt__name');
+    expect(calName).toMatch(/max-width:\s*calc\(100vw - 2 \* var\(--space-3\)\)/);
+    // OI-0266 sticky rule kept (position sticky, left, max-content).
+    const sticky = css.slice(css.indexOf('.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__row--phone > .loc-mgmt__name,'));
+    expect(sticky.slice(0, sticky.indexOf('}'))).toMatch(/position:\s*sticky[\s\S]*width:\s*max-content/);
+    // List: name may shrink in the flex top line; phone wraps actions under a long name.
+    expect(rule('.loc-mgmt__list-top > .loc-mgmt__name')).toMatch(/min-width:\s*0/);
+    expect(rule('.loc-mgmt--phone .loc-mgmt__list-top')).toMatch(/flex-wrap:\s*wrap/);
+    const listName = rule('.loc-mgmt--phone .loc-mgmt__list-top > .loc-mgmt__name');
+    expect(listName).toMatch(/flex:\s*1 1 auto/);
+    expect(listName).toMatch(/max-width:\s*100%/);
+    expect(rule('.loc-mgmt--phone .loc-mgmt__list-top > .loc-mgmt__row-actions')).toMatch(/flex-shrink:\s*0/);
+    expect(css).not.toMatch(/Ready\?/);
     expect(rule('.loc-mgmt__ready-chip--est')).toMatch(/dashed/);
     expect(rule('.loc-mgmt__ready-chip--ready')).toMatch(/background:\s*var\(--green-l\)/);
   });

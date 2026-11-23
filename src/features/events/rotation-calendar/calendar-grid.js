@@ -381,7 +381,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     }
   }
 
-  // OI-0273: Ready / “Ready?” chip by the name (Calendar + List, phone too).
+  // OI-0273: “Ready” / “Ready (est.)” chip by the name (Calendar + List, phone too).
   const minRestDays = farmSettings.defaultRecoveryMinDays ?? 21;
   const readyChipById = new Map();
   for (const loc of locations) {

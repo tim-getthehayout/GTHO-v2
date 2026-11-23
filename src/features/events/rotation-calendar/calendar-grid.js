@@ -50,6 +50,7 @@ import {
   computeLocationMetrics,
   aggregatePeriodTotals,
   formatMetricValue,
+  residualNpkNote,
 } from './location-metrics.js';
 import { computeReadiness, lastGrazeDate, readinessBandRange } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
@@ -134,13 +135,21 @@ function renderMetricCol(col, metrics, { includePerAcre = true } = {}) {
     : '';
   const isPartial = (col.key === 'dmiKg' && metrics?.dmiPartial)
     || ((col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg') && metrics?.npkPartial);
-  const title = isPartial
+  const baseTitle = isPartial
     ? `${col.title} (partial — some groups missing weights)`
     : col.title;
+  // OI-0276: leftover hay without NPK % / weight / DM adds 0 — subtle hover note only.
+  const isNpk = col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg';
+  const hayNote = isNpk ? residualNpkNote(metrics) : null;
+  const title = hayNote ? `${baseTitle}. ${hayNote}` : baseTitle;
   return el('div', {
     className: `loc-mgmt__metric${isPartial ? ' loc-mgmt__metric--partial' : ''}`,
     title,
-    dataset: { key: col.key, partial: isPartial ? 'true' : undefined },
+    dataset: {
+      key: col.key,
+      partial: isPartial ? 'true' : undefined,
+      ...(hayNote ? { residualNote: 'true' } : {}),
+    },
   }, [
     el('span', { className: 'loc-mgmt__metric-label' }, [col.label]),
     el('span', { className: 'loc-mgmt__metric-value' }, [
@@ -875,13 +884,16 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
  * Calendar only; sits under season metrics bar and above the color key.
  */
 function renderPeriodTotalsStrip(totals) {
-  const cell = (key, label, value, partial, title) => el('div', {
+  // OI-0276: same hover note on Total N/P/K when leftover hay was not counted.
+  const hayNote = residualNpkNote(totals);
+  const cell = (key, label, value, partial, title, note = null) => el('div', {
     className: `loc-mgmt__period-total${partial ? ' loc-mgmt__period-total--partial' : ''}`,
-    title,
+    title: note ? `${title}. ${note}` : title,
     dataset: {
       key,
       testid: `loc-mgmt-period-total-${key}`,
       partial: partial ? 'true' : undefined,
+      ...(note ? { residualNote: 'true' } : {}),
     },
   }, [
     el('span', { className: 'loc-mgmt__period-total-label' }, [label]),
@@ -909,9 +921,9 @@ function renderPeriodTotalsStrip(totals) {
       'Measured stored-feed DMI eaten (kg); missing-DM counts as 0'),
     cell('totalDmi', 'Total DMI', totals.totalDmiKg, !!totals.dmiPartial,
       'Pasture DMI + stored-feed DMI for the period (kg)'),
-    cell('n', 'Total N', totals.nKg, !!totals.npkPartial, 'Total nitrogen for the period (kg)'),
-    cell('p', 'Total P', totals.pKg, !!totals.npkPartial, 'Total phosphorus for the period (kg)'),
-    cell('k', 'Total K', totals.kKg, !!totals.npkPartial, 'Total potassium for the period (kg)'),
+    cell('n', 'Total N', totals.nKg, !!totals.npkPartial, 'Total nitrogen for the period (kg)', hayNote),
+    cell('p', 'Total P', totals.pKg, !!totals.npkPartial, 'Total phosphorus for the period (kg)', hayNote),
+    cell('k', 'Total K', totals.kKg, !!totals.npkPartial, 'Total potassium for the period (kg)', hayNote),
   ]);
 }
 

@@ -304,9 +304,24 @@ export function measuredHayOnEventDay({
   });
 }
 
+/** OI-0276: subtle hover notes when leftover hay is not counted in NPK (no "partial"). */
+export const RESIDUAL_NPK_NOTE_NO_PCT = 'Leftover hay not counted — feed type has no NPK %';
+export const RESIDUAL_NPK_NOTE_NO_WEIGHT_DM = 'Leftover hay not counted — feed has no weight or DM %';
+
+/** OI-0276: hover note for a metrics row / totals with skipped residual hay, else null. */
+export function residualNpkNote(metrics) {
+  if (!metrics) return null;
+  const notes = [];
+  if (metrics.residualNpkSkippedNoPct) notes.push(RESIDUAL_NPK_NOTE_NO_PCT);
+  if (metrics.residualNpkSkippedNoWeightDm) notes.push(RESIDUAL_NPK_NOTE_NO_WEIGHT_DM);
+  return notes.length ? notes.join('; ') : null;
+}
+
 /**
  * Residual-feed NPK (R1) left on `locationId` from close readings in the window.
- * Missing percent on a positive residual → unknown (null totals), not silent 0.
+ * OI-0276 (amends R1): a positive residual with no N/P/K %, or no weight / DM,
+ * contributes 0 and is reported as skipped — it never nulls the totals.
+ * `known` stays true; `skippedNoPct` / `skippedNoWeightDm` count the skips.
  */
 export function residualFeedNpkForLocation(locationId, {
   windowStart,
@@ -323,8 +338,8 @@ export function residualFeedNpkForLocation(locationId, {
   let nKg = 0;
   let pKg = 0;
   let kKg = 0;
-  let unknown = false;
-  let any = false;
+  let skippedNoPct = 0;
+  let skippedNoWeightDm = 0;
 
   for (const check of feedChecks || []) {
     if (!check?.isCloseReading) continue;
@@ -336,7 +351,6 @@ export function residualFeedNpkForLocation(locationId, {
     for (const item of items) {
       const qty = Number(item.remainingQuantity);
       if (!(Number.isFinite(qty)) || qty <= 0) continue;
-      any = true;
       const batch = item.batchId ? batchMap[item.batchId] : null;
       const snap = item.feedTypeId
         ? {
@@ -348,7 +362,7 @@ export function residualFeedNpkForLocation(locationId, {
       const weight = Number(snap.weight ?? item.weightPerUnitKgSnapshot ?? batch?.weightPerUnitKg);
       const dmPct = Number(snap.dmPct ?? item.dmPctSnapshot ?? batch?.dmPct);
       if (!(Number.isFinite(weight) && weight > 0) || !(Number.isFinite(dmPct) && dmPct > 0)) {
-        unknown = true;
+        skippedNoWeightDm += 1; // OI-0276: adds 0
         continue;
       }
       const dmMass = qty * weight * dmPct / 100;
@@ -360,7 +374,7 @@ export function residualFeedNpkForLocation(locationId, {
         feedTypes: typeMap,
       });
       if (pct.n == null || pct.p == null || pct.k == null) {
-        unknown = true;
+        skippedNoPct += 1; // OI-0276: adds 0
         continue;
       }
       nKg += dmMass * pct.n / 100;
@@ -369,9 +383,7 @@ export function residualFeedNpkForLocation(locationId, {
     }
   }
 
-  if (!any) return { nKg: 0, pKg: 0, kKg: 0, known: true };
-  if (unknown) return { nKg: null, pKg: null, kKg: null, known: false };
-  return { nKg, pKg, kKg, known: true };
+  return { nKg, pKg, kKg, known: true, skippedNoPct, skippedNoWeightDm };
 }
 
 /**
@@ -416,6 +428,8 @@ export function computeLocationMetrics(location, ctx) {
     pKg: 0,
     kKg: 0,
     npkKnown: true,
+    residualNpkSkippedNoPct: 0,
+    residualNpkSkippedNoWeightDm: 0,
     avgScore: null,
     scoreKnown: false,
     dmiPartial: false,
@@ -461,7 +475,6 @@ export function computeLocationMetrics(location, ctx) {
   let eventIds = new Set();
   let npkKnownSlices = 0;
   let npkUnknownSlices = 0;
-  let npkResidualUnknown = false; // R1 sticky
   let dmiKg = 0;
   let dmiDays = 0;
   let dmiKnownSlices = 0;
@@ -715,13 +728,11 @@ export function computeLocationMetrics(location, ctx) {
     feedTypes,
     batchNutritionalProfiles,
   });
-  if (!residual.known) {
-    npkResidualUnknown = true; // R1 — season-sticky (list-parity)
-  } else {
-    nKg += residual.nKg;
-    pKg += residual.pKg;
-    kKg += residual.kKg;
-  }
+  // OI-0276: always add what is known; skipped residual (no % / weight / DM)
+  // adds 0 and never blanks manure NPK. R1 season-sticky unknown retired.
+  nKg += residual.nKg;
+  pKg += residual.pKg;
+  kKg += residual.kKg;
 
   // Avg pasture score from observations in window (forageQuality 1–100)
   const scores = (observations || [])
@@ -741,7 +752,8 @@ export function computeLocationMetrics(location, ctx) {
 
   const acres = acresOf(location);
   // Zp (weights): sum known slices; dash only when nothing known remains; never-present = 0.
-  // F1 hay unknown and R1 residual unknown stay season-sticky (OI-0246 locks).
+  // F1 hay unknown stays season-sticky (OI-0246 lock). OI-0276: R1 residual
+  // unknown no longer blanks NPK (skipped residual adds 0, hover note only).
   const dmiHasKnown = dmiKnownSlices > 0;
   const dmiHasUnknown = dmiUnknownSlices > 0;
   const dmiPartial = dmiHasKnown && dmiHasUnknown;
@@ -751,7 +763,7 @@ export function computeLocationMetrics(location, ctx) {
   const npkHasKnown = npkKnownSlices > 0;
   const npkHasUnknown = npkUnknownSlices > 0;
   const npkPartial = npkHasKnown && npkHasUnknown;
-  const npkKnown = !npkResidualUnknown && (npkHasKnown || !npkHasUnknown);
+  const npkKnown = npkHasKnown || !npkHasUnknown;
   // OI-0250 strip: Sz does not sticky-null on missing-DM; Pp partial = weight unknowns only.
   const stripDmiPartial = dmiHasKnown && dmiHasUnknown;
   const stripPastureUnknown = dmiHasUnknown && !dmiHasKnown;
@@ -773,6 +785,8 @@ export function computeLocationMetrics(location, ctx) {
     kKg: npkKnown ? kKg : null,
     npkKnown,
     npkPartial,
+    residualNpkSkippedNoPct: residual.skippedNoPct,
+    residualNpkSkippedNoWeightDm: residual.skippedNoWeightDm,
     avgScore,
     scoreKnown: avgScore != null,
     storedFeedDmiKg,
@@ -814,8 +828,12 @@ export function aggregatePeriodTotals(rows = []) {
   let npkKnown = false;
   let npkNullLoc = false;
   let npkPartial = false;
+  let residualNpkSkippedNoPct = 0;
+  let residualNpkSkippedNoWeightDm = 0;
 
   for (const r of rows || []) {
+    residualNpkSkippedNoPct += Number(r?.residualNpkSkippedNoPct) || 0;
+    residualNpkSkippedNoWeightDm += Number(r?.residualNpkSkippedNoWeightDm) || 0;
     const stored = Number(r?.storedFeedDmiKg);
     storedSum += Number.isFinite(stored) ? stored : 0;
 
@@ -859,6 +877,8 @@ export function aggregatePeriodTotals(rows = []) {
     kKg,
     npkKnown,
     npkPartial: Boolean(npkKnown && !npkIdlePoison && (npkPartial || npkNullLoc)),
+    residualNpkSkippedNoPct,
+    residualNpkSkippedNoWeightDm,
   };
 }
 

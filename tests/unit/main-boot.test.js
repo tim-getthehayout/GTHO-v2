@@ -119,7 +119,7 @@ function setupMocks() {
   const rendererStub = () => {};
   vi.doMock('../../src/features/dashboard/index.js', () => ({ renderDashboard: rendererStub }));
   vi.doMock('../../src/features/events/index.js', () => ({ renderEventsScreen: rendererStub }));
-  vi.doMock('../../src/features/locations/index.js', () => ({ renderLocationsScreen: rendererStub }));
+  // OI-0265 Rd1: main.js no longer routes renderLocationsScreen (#/locations redirects to the List view).
   vi.doMock('../../src/features/feed/index.js', () => ({ renderFeedScreen: rendererStub }));
   vi.doMock('../../src/features/animals/index.js', () => ({ renderAnimalsScreen: rendererStub }));
   vi.doMock('../../src/features/reports/index.js', () => ({ renderReportsScreen: rendererStub }));

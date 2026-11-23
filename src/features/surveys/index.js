@@ -10,6 +10,7 @@ import * as DraftEntryEntity from '../../entities/survey-draft-entry.js';
 import * as ObservationEntity from '../../entities/paddock-observation.js';
 import { renderSurveyCard } from '../observations/survey-card.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { openSurveySheet } from '../locations/index.js';
 
 let unsubs = [];
 
@@ -124,7 +125,31 @@ function renderSurveyList(rootContainer, operationId) {
             }
           },
         }, [t('action.delete')]),
-      ]) : null,
+        // OI-0265 Sv-A: legacy Locations Surveys-tab parity — Resume / Discard.
+        el('button', {
+          className: 'btn btn-green btn-xs',
+          'data-testid': `surveys-resume-${survey.id}`,
+          onClick: () => openSurveySheet(null, operationId),
+        }, ['Resume']),
+        el('button', {
+          className: 'btn btn-outline btn-xs',
+          style: { color: 'var(--red)', borderColor: 'var(--red)' },
+          'data-testid': `surveys-discard-${survey.id}`,
+          onClick: () => {
+            if (!window.confirm('Discard this survey draft?')) return;
+            const draftEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === survey.id);
+            for (const d of draftEntries) remove('surveyDraftEntries', d.id, 'survey_draft_entries');
+            remove('surveys', survey.id, 'surveys');
+          },
+        }, ['Discard']),
+      ]) : el('div', { className: 'btn-row', style: { marginTop: 'var(--space-3)' } }, [
+        // OI-0265 Sv-A: committed surveys open the bulk-edit survey sheet.
+        el('button', {
+          className: 'btn btn-outline btn-xs',
+          'data-testid': `surveys-edit-${survey.id}`,
+          onClick: () => openSurveySheet(null, operationId, { editSurveyId: survey.id }),
+        }, [t('action.edit')]),
+      ]),
 
       // Show entries
       entries.length ? el('div', { style: { marginTop: 'var(--space-3)' } },

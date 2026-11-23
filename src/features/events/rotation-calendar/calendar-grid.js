@@ -22,7 +22,9 @@ import {
   openSurveySheet,
   openFeedTypesSheet,
   openSoilTestSheet,
+  buildLocationCard,
 } from '../../locations/index.js';
+import { t } from '../../../i18n/i18n.js';
 import { openHarvestSheet } from '../../harvest/index.js';
 import { openAmendmentSheet } from '../../amendments/entry.js';
 import { getEventStartDate } from '../event-start.js';
@@ -62,7 +64,9 @@ const ROW_HEIGHT = 72;
 const NAME_WIDTH = 160;
 /** List-mode inventory filters (session memory; not Pb). */
 let listSearchQuery = '';
-let listLandUseFilter = 'all'; // all | pasture | mixed-use (Ta/X1 only)
+// OI-0265 Lg1: legacy six — all | pasture | mixed-use | crop | confinement | storage
+let listLandUseFilter = 'all';
+let listFarmFilter = 'all'; // OI-0265 Lg1: multi-farm only (legacy farm pills)
 
 const METRIC_COLS = [
   { key: 'dmiKg', label: 'DMI', title: 'Implied pasture DMI (kg)' },
@@ -229,8 +233,14 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
 
   // X1 filter (pasture + mixed-use). Optional confinement toggle ignored for X1 surface.
   let locations = filterManagementLocations(allLocations);
-  if (!locations.length) {
-    container.appendChild(renderEmptyState());
+  // OI-0265 Lg1: crop / confinement / storage (non-X1) locations show as legacy
+  // cards on the List view only; Calendar keeps pasture/mixed rows.
+  const managementIds = new Set(locations.map(l => l.id));
+  let legacyCardLocations = state.view === 'list'
+    ? allLocations.filter(l => !l.archived && !managementIds.has(l.id))
+    : [];
+  if (!locations.length && !legacyCardLocations.length) {
+    container.appendChild(renderEmptyState({ operationId, farmId }));
     return;
   }
 
@@ -239,18 +249,32 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   const windowEnd = state.metricEnd || defaultWin.end;
 
   // La: List search + Ta type pills (within X1 only)
+  const allFarms = getAll('farms');
+  const isMultiFarm = allFarms.length > 1;
   if (state.view === 'list') {
     if (listLandUseFilter === 'pasture' || listLandUseFilter === 'mixed-use') {
       locations = locations.filter(l => (l.landUse || 'pasture') === listLandUseFilter);
+      legacyCardLocations = [];
+    } else if (listLandUseFilter !== 'all') {
+      // Legacy rule (locations/index.js): confinement/storage by type, else land + landUse.
+      locations = [];
+      legacyCardLocations = legacyCardLocations.filter(l => matchesLegacyTypeFilter(l, listLandUseFilter));
+    }
+    if (isMultiFarm && listFarmFilter !== 'all') {
+      locations = locations.filter(l => l.farmId === listFarmFilter);
+      legacyCardLocations = legacyCardLocations.filter(l => l.farmId === listFarmFilter);
     }
     if (listSearchQuery.trim()) {
       const q = listSearchQuery.trim().toLowerCase();
-      locations = locations.filter(l => {
+      const hit = (l) => {
         const name = (l.name || '').toLowerCase();
         const code = (l.fieldCode || '').toLowerCase();
         return name.includes(q) || code.includes(q);
-      });
+      };
+      locations = locations.filter(hit);
+      legacyCardLocations = legacyCardLocations.filter(hit);
     }
+    legacyCardLocations.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   }
 
   const metricCtx = {
@@ -343,7 +367,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   const periodBar = renderPeriodBar({ windowStart, windowEnd, onUpdate });
   // List = Locations tools + season metrics (La); Calendar keeps rotation toolbar.
   const toolbar = isList
-    ? renderListTools({ onUpdate, operationId, farmId })
+    ? renderListTools({ onUpdate, operationId, farmId, farms: isMultiFarm ? allFarms : [] })
     : renderToolbar(onUpdate);
   // OI-0250 Sb: period totals under season metrics bar, above color key (Calendar only).
   const periodTotals = isList ? null : aggregatePeriodTotals(metricRows);
@@ -441,6 +465,20 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     rowByLoc.set(loc.id, row);
     body.appendChild(row);
   });
+
+  // OI-0265 Lg1: legacy cards after the pasture/mixed rows (List only), sorted by name.
+  if (isList && legacyCardLocations.length) {
+    body.appendChild(el('div', {
+      className: 'loc-mgmt__legacy-cards',
+      dataset: { testid: 'loc-mgmt-legacy-cards' },
+    }, legacyCardLocations.map(loc => buildLocationCard(loc, operationId, loc.farmId || farmId, unitSystem))));
+  }
+  if (isList && !locations.length && !legacyCardLocations.length) {
+    body.appendChild(el('div', {
+      className: 'empty',
+      dataset: { testid: 'loc-mgmt-list-empty' },
+    }, ['No locations match this filter']));
+  }
 
   // OI-0264 Cn1: sub-move connectors between paddock rows of one event.
   const connectorLayer = isList ? null : buildConnectorLayer({
@@ -597,6 +635,14 @@ function buildConnectorLayer({ paddockWindows, rowByLoc, range, totalWidth }) {
   };
 }
 
+/** OI-0265 Lg1: legacy Locations type-pill rule (locations/index.js renderLocationList). */
+export function matchesLegacyTypeFilter(loc, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'confinement') return loc.type === 'confinement';
+  if (filter === 'storage') return loc.type === 'storage';
+  return loc.type === 'land' && loc.landUse === filter;
+}
+
 /** OI-0263 Lf-B+Ex1: View toggle + farm map (with Back/Close) inside Locations & Rotation. */
 function renderMapView(container, { onViewChange } = {}) {
   const state = getCalendarState();
@@ -620,10 +666,10 @@ function renderMapView(container, { onViewChange } = {}) {
 }
 
 /**
- * La: Locations-parity tools for List mode (search, X1 type pills, Add/Map/Survey/…).
+ * La: Locations-parity tools for List mode (search, legacy type + farm pills, Add/Survey/Surveys/…).
  * Calendar toolbar stays unchanged (Cb).
  */
-function renderListTools({ onUpdate, operationId, farmId }) {
+function renderListTools({ onUpdate, operationId, farmId, farms = [] }) {
   const searchInput = el('input', {
     type: 'search',
     className: 'loc-mgmt__list-search',
@@ -651,7 +697,33 @@ function renderListTools({ onUpdate, operationId, farmId }) {
     pill('All', 'all'),
     pill('Pasture', 'pasture'),
     pill('Mixed-Use', 'mixed-use'),
+    pill('Crop', 'crop'),
+    pill('Confinement', 'confinement'),
+    pill(t('location.filter.storage'), 'storage'),
   ]);
+
+  // OI-0265 Lg1: legacy farm pills (multi-farm only), same amber look + rule.
+  const farmPill = (label, value) => {
+    const isActive = listFarmFilter === value;
+    return el('button', {
+      type: 'button',
+      dataset: { testid: `loc-mgmt-list-farm-${value}` },
+      style: {
+        padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', cursor: 'pointer',
+        border: `1.5px solid ${isActive ? 'var(--amber-d)' : 'var(--border2)'}`,
+        background: isActive ? 'var(--amber-d)' : 'transparent',
+        color: isActive ? 'white' : 'var(--text2)',
+      },
+      onClick: () => { listFarmFilter = value; onUpdate(); },
+    }, [label]);
+  };
+  const farmRow = farms.length > 1
+    ? el('div', {
+      className: 'loc-mgmt__list-farms',
+      dataset: { testid: 'loc-mgmt-list-farms' },
+      style: { display: 'flex', gap: '6px', flexWrap: 'wrap' },
+    }, [farmPill('All farms', 'all'), ...farms.map(f => farmPill(f.name, f.id))])
+    : null;
 
   const tools = el('div', {
     className: 'loc-mgmt__list-actions',
@@ -660,6 +732,7 @@ function renderListTools({ onUpdate, operationId, farmId }) {
     el('button', {
       type: 'button',
       className: 'btn btn-green btn-sm',
+      dataset: { testid: 'loc-mgmt-list-add' },
       onClick: () => openLocationSheet(null, operationId, farmId),
     }, ['+ Add']),
     // OI-0263 Tb1: Map launcher removed — Map is the third View (Calendar | List | Map).
@@ -668,6 +741,13 @@ function renderListTools({ onUpdate, operationId, farmId }) {
       className: 'btn btn-outline btn-sm',
       onClick: () => openSurveySheet(null, operationId),
     }, ['\uD83D\uDCCB Survey']),
+    // OI-0265 Sv-A: past + draft surveys live on #/surveys.
+    el('button', {
+      type: 'button',
+      className: 'btn btn-outline btn-sm',
+      dataset: { testid: 'loc-mgmt-list-surveys' },
+      onClick: () => navigate('#/surveys'),
+    }, ['Surveys']),
     el('button', {
       type: 'button',
       className: 'btn btn-outline btn-sm',
@@ -692,9 +772,16 @@ function renderListTools({ onUpdate, operationId, farmId }) {
     el('div', { className: 'loc-mgmt__list-toolbar-row' }, [tools, searchInput]),
     el('div', { className: 'loc-mgmt__list-toolbar-row' }, [
       filters,
-      el('span', { className: 'loc-mgmt__list-inputs-label' }, ['Inputs & amendments']),
+      // OI-0265 In-A: past inputs live on #/amendments.
+      el('a', {
+        href: '#/amendments',
+        className: 'loc-mgmt__list-inputs-label loc-mgmt__link',
+        dataset: { testid: 'loc-mgmt-list-inputs-link' },
+        onClick: (e) => { e.preventDefault(); navigate('#/amendments'); },
+      }, ['Inputs & amendments']),
     ]),
-  ]);
+    farmRow ? el('div', { className: 'loc-mgmt__list-toolbar-row' }, [farmRow]) : null,
+  ].filter(Boolean));
 }
 
 function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
@@ -739,11 +826,7 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
     el('span', {}, ['–']),
     endInput,
     resetBtn,
-    el('a', {
-      href: '#/locations',
-      className: 'loc-mgmt__link',
-      onClick: (e) => { e.preventDefault(); navigate('#/locations'); },
-    }, ['Locations · Surveys · Map']),
+    // OI-0265 Lk1: "Locations · Surveys · Map" link retired (Surveys + Map live in List tools / View).
   ]);
 }
 
@@ -1150,7 +1233,7 @@ function renderManagementRow(opts) {
       locationId: loc.id,
       forageInactive: false,
       onClickBlock: (_id, action) => {
-        if (action === 'survey') navigate('#/locations');
+        if (action === 'survey') openSurveySheet(loc.id, opId); // OI-0265 Lk1
       },
     }));
   } else if (hasActiveEvent) {
@@ -1184,7 +1267,7 @@ function renderManagementRow(opts) {
       locationId: loc.id,
       forageInactive: false,
       onClickBlock: (_id, action) => {
-        if (action === 'survey') navigate('#/locations');
+        if (action === 'survey') openSurveySheet(loc.id, opId); // OI-0265 Lk1
       },
     }));
   } else if (band) {
@@ -1208,7 +1291,7 @@ function renderManagementRow(opts) {
         locationId: loc.id,
         forageInactive: false,
         onClickBlock: (_id, action) => {
-          if (action === 'survey') navigate('#/locations');
+          if (action === 'survey') openSurveySheet(loc.id, opId); // OI-0265 Lk1
         },
       }));
     }
@@ -1273,7 +1356,7 @@ function formatShort(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function renderEmptyState() {
+function renderEmptyState({ operationId = null, farmId = null } = {}) {
   return el('div', {
     className: 'calendar-empty',
     dataset: { testid: 'calendar-empty' },
@@ -1282,8 +1365,9 @@ function renderEmptyState() {
     el('p', {}, ['Add pasture or mixed-use locations to manage rotations and season metrics.']),
     el('button', {
       className: 'btn btn--primary',
-      onClick: () => navigate('#/locations'),
+      onClick: () => openLocationSheet(null, operationId, farmId), // OI-0265 Lk1
       type: 'button',
+      dataset: { testid: 'calendar-empty-add-location' },
     }, ['+ Add location']),
   ]);
 }

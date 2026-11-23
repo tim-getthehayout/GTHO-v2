@@ -58,7 +58,6 @@ export function renderHeader(container) {
       sidebarNavItem('#/', 'Dashboard', currentHash, 'nav-dashboard'),
       sidebarNavItem('#/animals', 'Animals', currentHash, 'nav-animals'),
       sidebarNavItem('#/events', 'Locations & Rotation', currentHash, 'nav-events'),
-      sidebarNavItem('#/locations', 'Locations', currentHash, 'nav-locations'),
       sidebarNavItem(MAP_VIEW_HASH, 'Map', currentHash, 'nav-map'), // OI-0263
       sidebarNavItem('#/feed', 'Feed', currentHash, 'nav-feed'),
       sidebarNavItemBadge('#/todos', 'Tasks', todoCount, currentHash, 'nav-todos'),
@@ -74,7 +73,6 @@ export function renderHeader(container) {
   const nav = el('nav', { className: 'header-nav', 'data-testid': 'header-nav' }, [
     navLink('#/', t('nav.dashboard'), 'nav-dashboard'),
     navLink('#/events', t('nav.events'), 'nav-events'),
-    navLink('#/locations', t('nav.locations'), 'nav-locations'),
     navLink(MAP_VIEW_HASH, 'Map', 'nav-map'), // OI-0263
     navLink('#/animals', t('nav.animals'), 'nav-animals'),
     navLink('#/feed', t('nav.feed'), 'nav-feed'),
@@ -537,7 +535,6 @@ function renderBottomNav(todoCount) {
     { hash: '#/animals', label: t('nav.animals'), testId: 'bnav-animals' },
     { hash: '#/todos', label: t('nav.todos'), testId: 'bnav-todos', badge: todoCount },
     { hash: '#/events', label: t('nav.events'), testId: 'bnav-events' },
-    { hash: '#/locations', label: t('nav.locations'), testId: 'bnav-locations' },
     { hash: '#/feed', label: t('nav.feed'), testId: 'bnav-feed' },
     { hash: '#/settings', label: t('nav.settings'), testId: 'bnav-settings' },
   ];

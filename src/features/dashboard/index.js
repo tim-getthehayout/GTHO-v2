@@ -8,6 +8,7 @@ import { convert, display } from '../../utils/units.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { navigate } from '../../ui/router.js';
+import { openLocationSheet } from '../locations/index.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { renderTodoCard } from '../todos/todo-card.js';
 import { openTodoSheet } from '../todos/todo-sheet.js';
@@ -1582,7 +1583,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
             if (reason === 'missing_observation' || reason === 'assumed_full_cover') {
               if (pw && ownerEvent) openEditPaddockWindowDialog(pw, ownerEvent, operationId);
             } else if (reason === 'missing_forage_type') {
-              navigate('#/locations');
+              // OI-0265 Lk1: open that paddock's location edit sheet in place.
+              const loc = pw ? getById('locations', pw.locationId) : null;
+              if (loc) openLocationSheet(loc, operationId, loc.farmId);
             }
           },
         }),

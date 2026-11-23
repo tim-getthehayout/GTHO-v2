@@ -31,6 +31,9 @@ const VALID_VIEW = ['calendar', 'list', 'map'];
 /** OI-0263: canonical hash for the Map view (old `#/map` links redirect here). */
 export const MAP_VIEW_HASH = '#/events?view=map';
 
+/** OI-0265 Rd1: canonical hash for the List view (old `#/locations` links redirect here). */
+export const LIST_VIEW_HASH = '#/events?view=list';
+
 /**
  * OI-0263: true for the legacy `#/map` route or any `#/events?…view=map` hash.
  * @param {string|null|undefined} hash

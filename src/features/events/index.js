@@ -21,7 +21,7 @@ import { isNoPasturePw, renderStoredFeedOnlyCheckbox } from './no-pasture.js';
 import { paddockFacts } from '../map/paddock-facts.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
-import { readStateFromUrl } from './calendar-state.js';
+import { readStateFromUrl, getCalendarState } from './calendar-state.js';
 import { renderCalendarGrid } from './rotation-calendar/calendar-grid.js';
 import { getEventStart, getEventStartDate } from './event-start.js';
 
@@ -59,6 +59,9 @@ export function createObservation(operationId, locationId, type, sourceId, obser
 // ---------------------------------------------------------------------------
 // Main render
 // ---------------------------------------------------------------------------
+
+/** OI-0265 Lg1: store keys that re-render the List view (legacy locations/index.js set). */
+export const LIST_RERENDER_KEYS = ['locations', 'paddockObservations', 'soilTests', 'forageTypes', 'feedTypes'];
 
 export function renderEventsScreen(container) {
   unsubs.forEach(fn => fn());
@@ -151,6 +154,12 @@ export function renderEventsScreen(container) {
   unsubs.push(subscribe('events', () => {
     renderEventsScreen(container);
   }));
+  // OI-0265 Lg1: the List view re-renders on the legacy Locations screen's set so a
+  // location saved from List "+ Add" (incl. crop / confinement / storage) shows at once.
+  const rerenderList = () => {
+    if (getCalendarState().view === 'list') renderCalendarGrid(calendarContainer);
+  };
+  for (const key of LIST_RERENDER_KEYS) unsubs.push(subscribe(key, rerenderList));
 }
 
 // Backdrop sheet refs — lazily resolved so each sub-module owns its own Sheet instance.

@@ -72,11 +72,13 @@ test.describe('Phase 3.2 + 3.3 Integration Smoke Test', () => {
     // ---------------------------------------------------------------
     // Step 3: Create locations
     // ---------------------------------------------------------------
+    // OI-0265 Rd1: #/locations redirects to the Locations & Rotation List view.
     await page.goto('/#/locations');
-    await expect(page.locator('[data-testid="locations-screen"]')).toBeVisible();
+    await expect(page).toHaveURL(/#\/events\?view=list/);
+    await expect(page.locator('[data-testid="loc-mgmt-list-toolbar"]')).toBeVisible();
 
     // Create a pasture
-    await page.locator('[data-testid="locations-add-btn"]').click();
+    await page.locator('[data-testid="loc-mgmt-list-add"]').click();
     await page.locator('[data-testid="location-sheet-name"]').fill('North Pasture');
     await page.locator('[data-testid="location-sheet-type-land"]').click();
     await page.locator('[data-testid="location-sheet-area"]').fill('40');
@@ -86,7 +88,7 @@ test.describe('Phase 3.2 + 3.3 Integration Smoke Test', () => {
     await expect(page.locator('text=North Pasture')).toBeVisible();
 
     // Create a second pasture (for move destination)
-    await page.locator('[data-testid="locations-add-btn"]').click();
+    await page.locator('[data-testid="loc-mgmt-list-add"]').click();
     await page.locator('[data-testid="location-sheet-name"]').fill('South Pasture');
     await page.locator('[data-testid="location-sheet-type-land"]').click();
     await page.locator('[data-testid="location-sheet-area"]').fill('30');

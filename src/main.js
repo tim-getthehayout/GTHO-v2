@@ -28,7 +28,6 @@ import { decideBootGate } from './features/auth/boot-gate.js';
 import { t } from './i18n/i18n.js';
 import { renderDashboard } from './features/dashboard/index.js';
 import { renderEventsScreen } from './features/events/index.js';
-import { renderLocationsScreen } from './features/locations/index.js';
 import { renderFeedScreen } from './features/feed/index.js';
 import { renderAnimalsScreen } from './features/animals/index.js';
 import { renderReportsScreen } from './features/reports/index.js';
@@ -41,7 +40,7 @@ import { renderAmendmentsScreen } from './features/amendments/entry.js';
 import { renderManureScreen } from './features/amendments/manure.js';
 import { renderNpkPricesScreen } from './features/amendments/npk-prices.js';
 import { renderHarvestScreen } from './features/harvest/index.js';
-import { redirectLegacyMapRoute } from './features/map/map-view.js';
+import { redirectLegacyMapRoute, redirectLegacyLocationsRoute } from './features/map/map-view.js';
 import { renderFeedbackScreen } from './features/feedback/index.js';
 import { renderFeedQualityScreen } from './features/feed/quality.js';
 import { renderDevHome } from './features/dev-mode/index.js';
@@ -378,7 +377,8 @@ function paintApp(app, syncAdapter) {
   route('#/', renderDashboard);
   route('#/field', renderFieldModeHome);
   route('#/events', renderEventsScreen);
-  route('#/locations', renderLocationsScreen);
+  // OI-0265 Rd1: the Locations menu item is retired; old links land on the List view.
+  route('#/locations', (c) => redirectLegacyLocationsRoute(c, renderEventsScreen));
   // OI-0263: old #/map links (bookmarks, Home Screen, intents) land on the Map view.
   route('#/map', (c) => redirectLegacyMapRoute(c, renderEventsScreen));
   route('#/feed', renderFeedScreen);

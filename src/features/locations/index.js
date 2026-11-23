@@ -5,25 +5,22 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, subscribe, getVisibleLocations, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { display, convert, unitLabel } from '../../utils/units.js';
+import { display, convert } from '../../utils/units.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { formatShortDate } from '../../utils/date-format.js';
-import { optionalFormNumber } from '../../utils/form-values.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import * as LocationEntity from '../../entities/location.js';
 import * as ForageTypeEntity from '../../entities/forage-type.js'; // eslint-disable-line no-unused-vars
 import * as PaddockObsEntity from '../../entities/paddock-observation.js';
 import { soilTestFormValues } from '../amendments/soil-test-values.js';
 import * as SoilTestEntity from '../../entities/soil-test.js';
-import * as FeedTypeEntity from '../../entities/feed-type.js';
-import { normalizeFeedUnit } from '../../utils/feed-units.js';
-import { feedUnitSelect } from '../feed/feed-unit-picker.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import { openAmendmentSheet } from '../amendments/entry.js';
 import * as SurveyEntity from '../../entities/survey.js';
 import * as SurveyDraftEntryEntity from '../../entities/survey-draft-entry.js';
 import { openHarvestSheet } from '../harvest/index.js';
 import { renderSurveyCard } from '../observations/survey-card.js';
+import { openFeedTypeSheet, buildFeedTypeRow } from '../feed/index.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
 let unsubs = [];
@@ -293,7 +290,8 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
 
 // ─── Location Card ──────────────────────────────────────────────────────
 
-function buildLocationCard(loc, operationId, farmId, unitSys) {
+/** Legacy location card; OI-0265 Lg1 reuses it on the Locations & Rotation List view. */
+export function buildLocationCard(loc, operationId, farmId, unitSys) {
   const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
   const locHa = locationAreaHa(loc);
   const areaVal = locHa ? (unitSys === 'imperial' ? convert(locHa, 'area', 'toImperial') : locHa).toFixed(2) : '';
@@ -1062,10 +1060,15 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
 }
 
 // ─── Feed Types Sheet ───────────────────────────────────────────────────
+// OI-0265 Ft1 (t1288u / t1289u): this dialog stays the list/manager; Edit and
+// "+ Add feed type" open the Feeds-screen dialog (one feed-type form app-wide).
+
+let feedTypesUnsub = null;
 
 function ensureFeedTypesSheetDOM() {
   if (document.getElementById('feed-types-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'feed-types-wrap', style: { zIndex: '210' } }, [
+  // z 220: above the harvest sheet (210) it can open over; Feeds dialog is 230.
+  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'feed-types-wrap', style: { zIndex: '220' } }, [
     el('div', { className: 'sheet-backdrop', onClick: () => feedTypesSheet?.close() }),
     el('div', { className: 'sheet-panel', id: 'feed-types-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
   ]));
@@ -1080,111 +1083,33 @@ export function openFeedTypesSheet(operationId) {
   panel.appendChild(el('div', { className: 'sheet-handle' }));
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, ['Feed types']));
 
-  const unitSys = getUnitSystem();
-  const forageTypes = getAll('forageTypes');
-  let editingFt = null;
-
-  const listEl = el('div', { style: { marginBottom: '12px' } });
-  const formEl = el('div');
+  const listEl = el('div', { style: { marginBottom: '12px' }, 'data-testid': 'feed-types-dialog-list' });
 
   function renderFtList() {
     clear(listEl);
-    const feedTypes = getAll('feedTypes');
-    for (const ft of feedTypes) {
-      const detailParts = [ft.unit, (ft.dmPct != null && !isNaN(ft.dmPct)) ? `${ft.dmPct}% DM` : null, ft.category].filter(Boolean);
-      if (ft.cuttingNumber) detailParts.push(`${ft.cuttingNumber} cut`);
-      if (ft.defaultWeightKg) detailParts.push(`${Math.round(convert(ft.defaultWeightKg, 'weight', 'toImperial'))} lbs/unit`);
-      listEl.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
-        el('div', { style: { flex: '1' } }, [
-          el('div', { style: { fontSize: '13px', fontWeight: '500' } }, [ft.name]),
-          el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [detailParts.join(' \u00B7 ')]),
-        ]),
-        el('button', { className: 'btn btn-outline btn-xs', onClick: () => { editingFt = ft; renderFtForm(); } }, ['Edit']),
-      ]));
+    const unitSys = getUnitSystem();
+    const feedTypes = getAll('feedTypes').filter(ft => !ft.archived);
+    if (!feedTypes.length) {
+      listEl.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text3)' } }, ['No feed types defined yet']));
+      return;
     }
-    if (!feedTypes.length) listEl.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text3)' } }, ['No feed types defined yet']));
-  }
-
-  function renderFtForm() {
-    clear(formEl);
-    const isEdit = !!editingFt;
-    formEl.appendChild(el('div', { className: 'div' }));
-    formEl.appendChild(el('div', { style: { fontSize: '13px', fontWeight: '600', margin: '14px 0 8px' } }, [isEdit ? 'Edit feed type' : 'Add feed type']));
-
-    const inputs = {};
-    inputs.name = el('input', { type: 'text', placeholder: 'Round bale', value: editingFt?.name || '' });
-    inputs.unit = feedUnitSelect({ 'data-testid': 'location-feed-type-unit' }, editingFt?.unit);
-    formEl.appendChild(el('div', { className: 'two' }, [
-      el('div', { className: 'field' }, [el('label', {}, ['Name']), inputs.name]),
-      el('div', { className: 'field' }, [el('label', {}, ['Unit']), inputs.unit]),
-    ]));
-
-    inputs.forageTypeId = el('select', {}, [
-      el('option', { value: '' }, ['\u2014 Custom / none \u2014']),
-      ...forageTypes.map(fgt => el('option', { value: fgt.id, selected: editingFt?.forageTypeId === fgt.id }, [fgt.name])),
-    ]);
-    inputs.forageTypeId.addEventListener('change', () => {
-      const fgt = forageTypes.find(f => f.id === inputs.forageTypeId.value);
-      if (fgt) { if (fgt.dmPct) inputs.dm.value = fgt.dmPct; }
-    });
-    formEl.appendChild(el('div', { className: 'field' }, [
-      el('label', {}, ['Forage type ', el('span', { style: { fontWeight: '400', color: 'var(--text2)', fontSize: '11px' } }, ['(auto-fills DM%)'])]),
-      inputs.forageTypeId,
-    ]));
-
-    inputs.dm = el('input', { type: 'number', placeholder: '85', value: editingFt?.dmPct ?? '' });
-    inputs.cat = el('select', {}, [
-      el('option', { value: 'hay', selected: (editingFt?.category || 'hay') === 'hay' }, ['Hay/forage']),
-      el('option', { value: 'silage', selected: editingFt?.category === 'silage' }, ['Silage']),
-      el('option', { value: 'grain', selected: editingFt?.category === 'grain' }, ['Grain/supp']),
-    ]);
-    formEl.appendChild(el('div', { className: 'two' }, [
-      el('div', { className: 'field' }, [el('label', {}, ['DM %']), inputs.dm]),
-      el('div', { className: 'field' }, [el('label', {}, ['Category']), inputs.cat]),
-    ]));
-
-    inputs.cutting = el('select', {}, [el('option', { value: '' }, ['None']), ...[1, 2, 3, 4].map(n => el('option', { value: String(n), selected: editingFt?.cuttingNumber === n }, [`${n} cut`]))]);
-    inputs.defaultWeight = el('input', { type: 'number', placeholder: '850', min: '0', step: 'any', value: editingFt?.defaultWeightKg != null ? (unitSys === 'imperial' ? convert(editingFt.defaultWeightKg, 'weight', 'toImperial') : editingFt.defaultWeightKg) : '' });
-    formEl.appendChild(el('div', { className: 'two' }, [
-      el('div', { className: 'field' }, [el('label', {}, ['Cutting #']), inputs.cutting]),
-      el('div', { className: 'field' }, [el('label', {}, [`${t('feed.defaultWeight')} (${unitLabel('weight', unitSys)})`]), inputs.defaultWeight]),
-    ]));
-
-    const statusEl = el('div', { className: 'auth-error' });
-    formEl.appendChild(statusEl);
-
-    formEl.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
-      el('button', { className: 'btn btn-green', onClick: () => {
-        clear(statusEl);
-        const name = inputs.name.value.trim();
-        if (!name) { statusEl.appendChild(el('span', {}, ['Name is required'])); return; }
-        const unit = normalizeFeedUnit(inputs.unit.value);
-        if (!unit) { statusEl.appendChild(el('span', {}, [t('feed.unitInvalid')])); return; }
-        try {
-        let defaultWeightKg = optionalFormNumber(inputs.defaultWeight.value);
-        if (defaultWeightKg && unitSys === 'imperial') defaultWeightKg = convert(defaultWeightKg, 'weight', 'toMetric');
-        const data = {
-          operationId, name, unit, category: inputs.cat.value,
-          dmPct: optionalFormNumber(inputs.dm.value), cuttingNumber: parseInt(inputs.cutting.value, 10) || null,
-          defaultWeightKg, forageTypeId: inputs.forageTypeId.value || null,
-          harvestActive: true,
-        };
-          if (isEdit) update('feedTypes', editingFt.id, data, FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types');
-          else { const rec = FeedTypeEntity.create(data); add('feedTypes', rec, FeedTypeEntity.validate, FeedTypeEntity.toSupabaseShape, 'feed_types'); }
-          editingFt = null; renderFtList(); renderFtForm();
-        } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
-      } }, [isEdit ? 'Save changes' : 'Add type']),
-      el('button', { className: 'btn btn-outline', onClick: () => { editingFt = null; renderFtForm(); } }, ['Cancel']),
-      isEdit ? el('button', { className: 'btn btn-outline', style: { color: 'var(--red)', borderColor: 'var(--red)', marginLeft: 'auto' }, onClick: () => {
-        if (window.confirm(`Delete feed type "${editingFt.name}"?`)) { remove('feedTypes', editingFt.id, 'feed_types'); editingFt = null; renderFtList(); renderFtForm(); }
-      } }, ['Delete']) : null,
-    ].filter(Boolean)));
+    const list = el('div', { className: 'ft-list' });
+    for (const ft of feedTypes) list.appendChild(buildFeedTypeRow(ft, operationId, unitSys));
+    listEl.appendChild(list);
   }
 
   renderFtList();
-  renderFtForm();
+  feedTypesUnsub?.();
+  feedTypesUnsub = subscribe('feedTypes', renderFtList);
+  feedTypesSheet.onClose = () => { feedTypesUnsub?.(); feedTypesUnsub = null; };
+
+  panel.appendChild(el('button', {
+    className: 'btn btn-green btn-sm',
+    style: { marginBottom: '12px' },
+    'data-testid': 'feed-types-dialog-add',
+    onClick: () => openFeedTypeSheet(null, operationId),
+  }, ['+ Add feed type']));
   panel.appendChild(listEl);
-  panel.appendChild(formEl);
 
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '8px' } }, [
     el('button', { className: 'btn btn-outline', onClick: () => feedTypesSheet.close() }, ['Done']),

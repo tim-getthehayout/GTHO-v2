@@ -7,7 +7,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
-import { navigate } from '../../ui/router.js';
+import { openFeedTypesSheet } from '../locations/index.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import * as HarvestEventFieldEntity from '../../entities/harvest-event-field.js';
 import * as BatchEntity from '../../entities/batch.js';
@@ -16,6 +16,7 @@ import { canonicalOrOriginal } from '../../utils/feed-units.js';
 
 let unsubs = [];
 let harvestSheet = null;
+let harvestFeedTypesUnsub = null;
 
 // ─── Harvest event list screen (#/harvest route) ────────────────────────
 
@@ -117,6 +118,7 @@ function ensureHarvestSheetDOM() {
 export function openHarvestSheet(operationId, options = {}) {
   ensureHarvestSheetDOM();
   if (!harvestSheet) harvestSheet = new Sheet('harvest-sheet-wrap');
+  harvestSheet.onClose = () => { harvestFeedTypesUnsub?.(); harvestFeedTypesUnsub = null; };
   const panel = document.getElementById('harvest-sheet-panel');
   if (!panel) return;
   clear(panel);
@@ -229,7 +231,8 @@ function renderTileGrid(panel, operationId, preSelectedLocationId) {
   const unitSys = getUnitSystem();
   const wUnit = unitSys === 'imperial' ? 'lbs' : 'kg';
   const todayStr = getLocalTodayStr();
-  const feedTypes = getAll('feedTypes').filter(ft => ft.harvestActive !== false && !ft.archived);
+  const activeFeedTypes = () => getAll('feedTypes').filter(ft => ft.harvestActive !== false && !ft.archived);
+  let feedTypes = activeFeedTypes();
   const allLocations = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed-use'));
 
   // State
@@ -246,10 +249,13 @@ function renderTileGrid(panel, operationId, preSelectedLocationId) {
   // Feed types link
   panel.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', marginTop: '10px' } }, [
     el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [t('harvest.feedTypesLink')]),
-    el('button', { className: 'btn btn-outline btn-xs', style: { flexShrink: '0', whiteSpace: 'nowrap' }, onClick: () => {
-      // Try to open feed types sheet from locations module
-      navigate('#/locations'); harvestSheet.close();
-    } }, ['\u2699\uFE0F Feed types']),
+    el('button', {
+      className: 'btn btn-outline btn-xs',
+      style: { flexShrink: '0', whiteSpace: 'nowrap' },
+      'data-testid': 'harvest-feed-types-link',
+      // OI-0265 Lk1+Ft1: open the Feed types dialog over the harvest sheet (kept open).
+      onClick: () => openFeedTypesSheet(operationId),
+    }, ['\u2699\uFE0F Feed types']),
   ]));
 
   // Tile section label
@@ -386,6 +392,18 @@ function renderTileGrid(panel, operationId, preSelectedLocationId) {
 
   renderTiles();
   renderDetails();
+
+  // OI-0265 Ft1: refresh the feed-type tiles when the Feed types dialog (opened
+  // over this sheet) adds / edits / deletes a type.
+  harvestFeedTypesUnsub?.();
+  harvestFeedTypesUnsub = subscribe('feedTypes', () => {
+    feedTypes = activeFeedTypes();
+    for (let i = tiles.length - 1; i >= 0; i--) {
+      if (!feedTypes.some(ft => ft.id === tiles[i].feedTypeId)) tiles.splice(i, 1);
+    }
+    renderTiles();
+    renderDetails();
+  });
 
   // Save button
   panel.appendChild(el('div', { className: 'btn-row', style: { marginTop: '14px' } }, [

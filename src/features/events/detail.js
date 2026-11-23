@@ -29,6 +29,7 @@ import { getEventStart, setEventStart } from './event-start.js';
 import { computeDmi8Days } from './dmi-chart-context.js';
 import { isConfinementLocation, wrapInactiveForage, renderEventFeedRemainingLine } from './confinement-forage-ui.js';
 import { navigate } from '../../ui/router.js';
+import { openLocationSheet } from '../locations/index.js';
 import {
   commitDelete as deleteFeedEntry,
   renderInlineFeedForm,
@@ -438,7 +439,9 @@ function renderDmiChart(ctx) {
         if (reason === 'missing_observation' || reason === 'assumed_full_cover') {
           if (pw && ownerEvent) openEditPaddockWindowDialog(pw, ownerEvent, ctx.operationId);
         } else if (reason === 'missing_forage_type') {
-          navigate('#/locations');
+          // OI-0265 Lk1: open that paddock's location edit sheet in place.
+          const loc = pw ? getById('locations', pw.locationId) : null;
+          if (loc) openLocationSheet(loc, ctx.operationId, loc.farmId);
         }
       },
     }),

@@ -242,15 +242,18 @@ describe('real feed forms', () => {
   });
 
   it('Locations feed-types form uses the same list: Alfalfa keeps sq bale and round-bale is no longer offered', () => {
+    // OI-0265 Ft1: Feed types dialog Edit opens the Feeds-screen dialog.
+    document.querySelectorAll('[data-testid="feed-screen"]').forEach(n => n.remove());
+    document.querySelectorAll('#feed-type-sheet-wrap').forEach(n => n.remove());
     openFeedTypesSheet(OP);
     const panel = document.getElementById('feed-types-panel');
-    const edit = [...panel.querySelectorAll('button')].find(b => b.textContent === 'Edit' && b.parentElement.textContent.includes('Alfalfa'));
+    const edit = [...panel.querySelectorAll('button')].find(b => b.textContent === 'Edit' && b.closest('.ft-row').textContent.includes('Alfalfa'));
     edit.click();
-    const unit = $('location-feed-type-unit');
+    const unit = $('feed-type-sheet-unit');
     expect(options(unit).map(([v]) => v)).toEqual(FEED_UNITS);
     expect(options(unit).map(([v]) => v)).not.toContain('round-bale');
     expect(unit.value).toBe('sq bale');
-    [...panel.querySelectorAll('button')].find(b => b.textContent === 'Save changes').click();
+    $('feed-type-sheet-save').click();
     expect(getById('feedTypes', ALFALFA).unit).toBe('sq bale');
     expect(getById('feedTypes', GRASS).unit).toBe('bale');
   });

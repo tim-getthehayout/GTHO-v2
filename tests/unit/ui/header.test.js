@@ -316,7 +316,6 @@ describe('OI-0154 — sidebar + bottom-nav active-class follows hashchange', () 
       'nav-dashboard': '#/',
       'nav-animals': '#/animals',
       'nav-events': '#/events',
-      'nav-locations': '#/locations',
       'nav-feed': '#/feed',
       'nav-todos': '#/todos',
       'nav-reports': '#/reports',
@@ -335,7 +334,6 @@ describe('OI-0154 — sidebar + bottom-nav active-class follows hashchange', () 
       'bnav-animals': '#/animals',
       'bnav-todos': '#/todos',
       'bnav-events': '#/events',
-      'bnav-locations': '#/locations',
       'bnav-feed': '#/feed',
       'bnav-settings': '#/settings',
     };
@@ -344,6 +342,11 @@ describe('OI-0154 — sidebar + bottom-nav active-class follows hashchange', () 
       expect(item, `bottom-nav item ${testid} should be present`).toBeTruthy();
       expect(item.getAttribute('data-href'), `bottom-nav item ${testid} should have data-href`).toBe(href);
     }
+
+    // OI-0265 Nv1: the standalone Locations menu item is retired everywhere.
+    expect(app.querySelector('[data-testid="nav-locations"]')).toBeNull();
+    expect(app.querySelector('[data-testid="bnav-locations"]')).toBeNull();
+    expect(app.querySelector('[data-href="#/locations"]')).toBeNull();
   });
 });
 

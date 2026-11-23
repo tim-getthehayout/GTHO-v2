@@ -102,7 +102,9 @@ describe('locations list toggle + name click', () => {
     const src = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
     // Cb: Calendar still wires name → openLocationSheet via opId/fId locals.
     expect(src).toMatch(/openLocationSheet\(loc,\s*opId,\s*fId\)/);
-    expect(src).toMatch(/Locations · Surveys · Map/);
+    // OI-0265 Lk1: the Season bar "Locations · Surveys · Map" link is retired.
+    expect(src).not.toMatch(/\['Locations · Surveys · Map'\]/);
+    expect(src).not.toMatch(/navigate\('#\/locations'\)/);
 
     const root = document.createElement('div');
     document.body.appendChild(root);

@@ -6,7 +6,7 @@
  */
 
 import { navigate, getPreviousHash } from '../../ui/router.js';
-import { MAP_VIEW_HASH, isMapViewHash } from '../events/calendar-state.js';
+import { MAP_VIEW_HASH, LIST_VIEW_HASH, isMapViewHash } from '../events/calendar-state.js';
 
 /** Cold-launch / no-history fallback for Back/Close. */
 export const MAP_BACK_FALLBACK_HASH = '#/events';
@@ -36,5 +36,16 @@ export function leaveMapView() {
  */
 export function redirectLegacyMapRoute(container, renderEventsScreen) {
   history.replaceState(null, '', MAP_VIEW_HASH);
+  renderEventsScreen(container);
+}
+
+/**
+ * OI-0265 Rd1: legacy `#/locations` route — replace the history entry with the
+ * Locations & Rotation List view (no extra Back step, no loop) and render it.
+ * @param {HTMLElement} container
+ * @param {(container: HTMLElement) => void} renderEventsScreen
+ */
+export function redirectLegacyLocationsRoute(container, renderEventsScreen) {
+  history.replaceState(null, '', LIST_VIEW_HASH);
   renderEventsScreen(container);
 }

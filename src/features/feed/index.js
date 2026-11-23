@@ -172,6 +172,8 @@ function renderBatchActivity(batch, operationId, rootContainer, showAll = false)
 export function renderFeedScreen(container) {
   unsubs.forEach(fn => fn());
   unsubs = [];
+  // OI-0265 Ft1: drop an on-demand dialog wrapper so the screen's own is the only one.
+  document.querySelectorAll(`#feed-type-sheet-wrap[${FEED_TYPE_SHEET_ONDEMAND_ATTR}]`).forEach(n => n.remove());
 
   const operations = getAll('operations');
   if (!operations.length) {
@@ -463,42 +465,49 @@ function renderFeedTypeList(rootContainer) {
   }
 
   const list = el('div', { className: 'ft-list' });
-  for (const ft of feedTypes) {
-    const detailParts = [ft.category, ft.unit].filter(Boolean);
-    if (ft.dmPct != null && !isNaN(ft.dmPct)) detailParts.push(`${ft.dmPct}% DM`);
-    if (ft.defaultWeightKg != null && !isNaN(ft.defaultWeightKg)) {
-      detailParts.push(display(ft.defaultWeightKg, 'weight', unitSys, 0) + '/unit');
-    }
-    if (ft.cuttingNumber != null && !isNaN(ft.cuttingNumber)) detailParts.push(`${ft.cuttingNumber} cut`);
-    if (ft.harvestActive) detailParts.push('harvest');
-
-    list.appendChild(el('div', {
-      className: 'ft-row',
-      'data-testid': `feed-type-${ft.id}`,
-    }, [
-      el('div', {}, [
-        el('div', { className: 'ft-row-name' }, [ft.name]),
-        el('div', { className: 'ft-row-detail' }, [detailParts.join(' · ')]),
-      ]),
-      el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
-        el('button', {
-          className: 'btn btn-outline btn-xs',
-          'data-testid': `feed-type-edit-${ft.id}`,
-          onClick: () => openFeedTypeSheet(ft, operationId),
-        }, [t('action.edit')]),
-        el('button', {
-          className: 'btn btn-outline btn-xs',
-          'data-testid': `feed-type-delete-${ft.id}`,
-          onClick: () => {
-            if (window.confirm(t('feed.confirmDeleteFeedType'))) {
-              remove('feedTypes', ft.id, 'feed_types');
-            }
-          },
-        }, [t('action.delete')]),
-      ]),
-    ]));
-  }
+  for (const ft of feedTypes) list.appendChild(buildFeedTypeRow(ft, operationId, unitSys));
   listEl.appendChild(list);
+}
+
+/**
+ * One Feeds-screen feed-type row (category · unit · DM % · weight in user units ·
+ * cut · harvest) with Edit (Feeds dialog) and Delete (confirm).
+ * OI-0265 Ft1: also used by the Locations & Rotation Feed types dialog.
+ */
+export function buildFeedTypeRow(ft, operationId, unitSys = getUnitSystem()) {
+  const detailParts = [ft.category, ft.unit].filter(Boolean);
+  if (ft.dmPct != null && !isNaN(ft.dmPct)) detailParts.push(`${ft.dmPct}% DM`);
+  if (ft.defaultWeightKg != null && !isNaN(ft.defaultWeightKg)) {
+    detailParts.push(display(ft.defaultWeightKg, 'weight', unitSys, 0) + '/unit');
+  }
+  if (ft.cuttingNumber != null && !isNaN(ft.cuttingNumber)) detailParts.push(`${ft.cuttingNumber} cut`);
+  if (ft.harvestActive) detailParts.push('harvest');
+
+  return el('div', {
+    className: 'ft-row',
+    'data-testid': `feed-type-${ft.id}`,
+  }, [
+    el('div', {}, [
+      el('div', { className: 'ft-row-name' }, [ft.name]),
+      el('div', { className: 'ft-row-detail' }, [detailParts.join(' · ')]),
+    ]),
+    el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
+      el('button', {
+        className: 'btn btn-outline btn-xs',
+        'data-testid': `feed-type-edit-${ft.id}`,
+        onClick: () => openFeedTypeSheet(ft, operationId),
+      }, [t('action.edit')]),
+      el('button', {
+        className: 'btn btn-outline btn-xs',
+        'data-testid': `feed-type-delete-${ft.id}`,
+        onClick: () => {
+          if (window.confirm(t('feed.confirmDeleteFeedType'))) {
+            remove('feedTypes', ft.id, 'feed_types');
+          }
+        },
+      }, [t('action.delete')]),
+    ]),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -507,11 +516,37 @@ function renderFeedTypeList(rootContainer) {
 
 let feedTypeSheet = null;
 
-function openFeedTypeSheet(existingFt, operationId) {
+/** OI-0265 Ft1: id of the on-demand (outside the Feed screen) dialog wrapper. */
+const FEED_TYPE_SHEET_ONDEMAND_ATTR = 'data-on-demand';
+
+/**
+ * OI-0265 Ft1: the Feeds-screen dialog DOM lives in the Feed screen; elsewhere
+ * (Feed types dialog, harvest) create it on demand at body level, stacked above
+ * the Feed types dialog (z 220).
+ */
+function ensureFeedTypeSheetDOM() {
+  if (document.getElementById('feed-type-sheet-panel')) return;
+  document.body.appendChild(el('div', {
+    className: 'sheet-wrap', id: 'feed-type-sheet-wrap', style: { zIndex: '230' },
+    [FEED_TYPE_SHEET_ONDEMAND_ATTR]: 'true',
+  }, [
+    el('div', { className: 'sheet-backdrop', onClick: () => feedTypeSheet && feedTypeSheet.close() }),
+    el('div', { className: 'sheet-panel', id: 'feed-type-sheet-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
+  ]));
+}
+
+/**
+ * The canonical feed-type create/edit dialog (Feeds screen).
+ * OI-0265 Ft1: exported so the Feed types dialog's Edit / "+ Add feed type" use it.
+ * @param {object|null} existingFt
+ * @param {string} operationId
+ */
+export function openFeedTypeSheet(existingFt, operationId) {
   if (!feedTypeSheet) {
     feedTypeSheet = new Sheet('feed-type-sheet-wrap');
   }
 
+  ensureFeedTypeSheetDOM();
   const panel = document.getElementById('feed-type-sheet-panel');
   if (!panel) return;
   clear(panel);

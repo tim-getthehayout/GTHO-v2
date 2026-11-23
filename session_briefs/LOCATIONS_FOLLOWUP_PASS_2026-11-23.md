@@ -8,12 +8,12 @@
 | OI-0270 | Voice `OFFLINE_TEXT` copy | **READY FOR BUILD** — copy fix |
 | OI-0271 | `mixed_use` vs `mixed-use` spelling | **READY FOR BUILD** — consistency fix |
 | OI-0272 | Timeline horizontal slider | **DEFERRED — not built** (Tim, card **t1349s5273**, 7:25 AM ET: #158 “Much better!”; slider dropped for now) |
-| OI-0273 | Conditional “Ready” tag by the pasture name | **SPEC LOCKED / READY FOR BUILD** — **Rg0+Ro0+Rp1** + Design “Ready?” rule |
+| OI-0273 | Conditional “Ready” / “Ready (est.)” tag by the pasture name | **SPEC LOCKED / READY FOR BUILD** — **Rg0+Ro0+Rp1**; **re-locked** Tim **t1375u** 10:34 AM ET (“Ready (est.)”; “Ready?” retired) |
 | OI-0274 | DMI per acre as its own sortable metric | **SPEC LOCKED / READY FOR BUILD** — **Dl1+Do0+Ds1+Dp1+Dm1+Dc1** (card **t1348s5263**, 7:24 AM ET) |
 | OI-0275 | List view metrics parity | **SPEC LOCKED / READY FOR BUILD** — **Lc0** (card **t1348s5263**, 7:24 AM ET) |
 | OI-0276 | NPK must not blank when leftover hay has no NPK % | **SPEC LOCKED / READY FOR BUILD** — amends OI-0246 **R1** (Tim **t1347u**) |
 
-**Sources (Tim, via Orchestrator, 2026-11-23):** t1328u (7:05 AM, slider), t1331u (Ready tag), t1332u (DMI per acre), t1333u (list complete, 7:09 AM), t1334u (7:10 AM, List parity), t1337s5223 (0273 lock), t1341u (“Ready?” for no-estimate), t1344u (7:16 AM, E3/F3 no NPK), t1347u (0276 lock), t1348s5263 (7:24 AM, 0274 + 0275 locks), t1349s5273 (7:25 AM, slider dropped). OI-0269 / 0270 / 0271 come from Design and Build review notes on PRs #158, #157 and #154.
+**Sources (Tim, via Orchestrator, 2026-11-23):** t1328u (7:05 AM, slider), t1331u (Ready tag), t1332u (DMI per acre), t1333u (list complete, 7:09 AM), t1334u (7:10 AM, List parity), t1337s5223 (0273 lock), t1341u (“Ready?” for no-estimate), t1344u (7:16 AM, E3/F3 no NPK), t1347u (0276 lock), t1348s5263 (7:24 AM, 0274 + 0275 locks), t1349s5273 (7:25 AM, slider dropped), t1375u (10:34 AM, 0273 re-lock “Ready (est.)”). OI-0269 / 0270 / 0271 come from Design and Build review notes on PRs #158, #157 and #154.
 
 **Branch tip:** `docs/oi-0269-0276-followups` on `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live; stamp `b2026-11-23.1219-dbce180`). Docs only — lands through Orchestrator + Homelab Git Bridge after Tim’s land yes.
 **D0 for every item: no SQL / no migration / no RLS change / no data write.**
@@ -113,23 +113,28 @@ Display labels (“Mixed-Use”, “Mixed-use”, i18n `location.landUse.mixedUs
 
 ---
 
-## OI-0273 — Conditional “Ready” tag by the pasture name
+## OI-0273 — Conditional “Ready” / “Ready (est.)” tag by the pasture name
 
-**Locked:** **Rg0+Ro0+Rp1** (card **t1337s5223**) + Design “Ready?” rule (t1341u; Orchestrator agreed).
+**Locked:** **Rg0+Ro0+Rp1** (card **t1337s5223**) + Design rule (t1341u; Orchestrator agreed). **Re-locked 2026-11-23 10:34 AM ET** by Tim **t1375u** (verbatim: “Let’s say ‘Ready (est.)’”): farm-default / no-estimate pastures read “Ready (est.)”; “Ready?” is retired into it (Design call; Tim may override).
 
 **Where:** a small chip just right of the pasture name in the left name column (`calendar-grid.js` row `nameCell` ~1100). That cell is shared by Calendar and List (`isList` only changes the name button / badges), so the chip shows on **both**. The existing status line (`statusTag` ~1384) is unchanged.
 
 **Why:** some ready pastures’ painted ready bar is outside the visible timeline window.
 
-**Logic:** reuse `computeReadiness` (`src/features/events/rotation-calendar/readiness.js` ~238): modes `active` / `never` / `survey` / `relative`; `earliestReturn`, `windowCloses`, `confidence` (`min`/`mid`/`max`/`past_max`), `daysSinceLastGraze`. Any later graze restarts the clock (that covers “not grazed since”).
-- **“Ready”**: `mode === 'survey'` (a real recovery anchor) **and** today ≥ `earliestReturn` **and** not active. Strip paddocks keep the existing rule (`readiness.js` ~288–296: whole paddock ready only when every strip is past its min).
+**Logic:** reuse `computeReadiness` (`src/features/events/rotation-calendar/readiness.js` ~238) and the Sv2 latest-wins anchor (`selectReadinessAnchor` ~180, `closeRecoveryAnchor` ~102). `computeReadiness` modes are `active` / `never` / `survey` / `relative`; mode `'survey'` covers **every** pasture with at least one closed paddock window, whether the anchor is a later survey (`dateSource 'survey'`) or the close itself (`dateSource 'close'`, min/max from the close obs recovery days **or** the farm defaults 21/35). Any later graze restarts the clock.
+- **“Ready”**: the **winning anchor** is a survey, or a close observation that **supplied recovery days**, **and** today ≥ `earliestReturn` **and** not active or linked. Strip paddocks keep the existing rule (`readiness.js` ~288–296: whole paddock ready only when every strip is past its min).
 - **Ro0**: past `windowCloses` (`past_max`) still shows plain “Ready”.
-- **“Ready?”**: `mode === 'relative'` (grazed before; no recovery days at close and no survey) **and** not active **and** `daysSinceLastGraze` ≥ the farm’s default minimum rest (`defaultRecoveryMinDays`, 21 today).
+- **“Ready (est.)”**: any other grazed pasture, not active or linked, with `daysSinceLastGraze` ≥ the farm’s `defaultRecoveryMinDays` (21 today). This covers (1) a close anchor whose min/max fell back to the farm defaults and (2) `mode === 'relative'` (grazed, no closed paddock window).
+- **“Ready?”**: retired, folded into “Ready (est.)”.
+- **Survey on or before the close**: Sv2 applies, the close wins; the close’s own recovery days then decide “Ready” vs “Ready (est.)”.
 - **Rg0**: never-grazed pastures get no chip and keep “Never grazed”.
 - Active pastures (and linked / strip-active) get no chip.
 - **Rp1**: shown on phone too.
+- **Implementation:** `closeRecoveryAnchor` returns a read-only flag saying whether the close obs supplied the recovery days (vs farm defaults); the chip helper reads it. No DB change (**D0**).
 
-**Tests:** survey before / on / after `earliestReturn`; past_max → “Ready”; strip paddock with one strip under min → no chip; relative under / at / over 21d; never → no chip; active → no chip; List and Calendar both render it.
+**Why re-locked:** the first text keyed “Ready” off `mode === 'survey'` and “Ready?” off `mode === 'relative'`. Because mode `'survey'` includes farm-default close estimates (the common case on Tim’s farm), default-only pastures would read plain “Ready” and “Ready?” would almost never appear. Build caught this pre-PR at `5f20f1a` (`fix/oi-0273-ready-chip`).
+
+**Tests:** later survey before / on / after `earliestReturn` → none / “Ready”; close obs **with** recovery days before / on / after `earliestReturn` → none / “Ready”; close with farm-default days at 20 / 21 / 22 days since graze → none / “Ready (est.)”; relative mode under / at / over 21d → none / “Ready (est.)”; survey on / before close day → close wins; past_max → “Ready”; strip paddock with one strip under min → no chip; never → no chip; active / linked → no chip; no “Ready?” text anywhere; List and Calendar both render it.
 
 **Size:** S.
 

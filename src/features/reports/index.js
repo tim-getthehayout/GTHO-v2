@@ -9,7 +9,7 @@ import { getUnitSystem } from '../../utils/preferences.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { renderReferenceConsole } from './reference-console.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, groupDayDmi, groupDayExcretionRates } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
 
 /** Active tab state */
@@ -197,22 +197,14 @@ function renderFeedDmiTab() {
     for (const gw of gws) {
       const group = getById('groups', gw.groupId);
       if (!group) continue;
-      const cls = animalClasses.find(ac => ac.id === gw.animalClassId) ?? null;
-      const dmiPct = cls?.dmiPct ?? 2.5;
-      const dmiPctLactating = cls?.dmiPctLactating ?? dmiPct;
       const now = gw.dateLeft || event.dateOut || todayStr;
       const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
       const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
 
       let groupDmi = 0;
       if (dmi2) {
-        groupDmi = dmi2.fn({
-          headCount: liveHead,
-          avgWeightKg: liveAvg,
-          dmiPct,
-          dmiPctLactating,
-          isLactating: false,
-        });
+        // OI-0279: per-class DMI % from the group's member mix.
+        groupDmi = groupDayDmi(gw, now, { memberships, animals, animalClasses, animalWeightRecords, head: liveHead, avgWeightKg: liveAvg }).kg;
       }
 
       const existing = groupsWithEntries.get(gw.groupId);
@@ -275,8 +267,6 @@ function renderNpkTab() {
     const dateOut = event.dateOut;
 
     for (const gw of gws) {
-      const cls = animalClasses.find(ac => ac.id === gw.animalClassId) ?? null;
-
       if (!npk1) continue;
 
       const now = gw.dateLeft || event.dateOut || todayStr;
@@ -288,13 +278,15 @@ function renderNpkTab() {
         eventTimeOut: event.timeOut,
         throughDate: todayStr,
       });
+      // OI-0279: class rates from the group's member mix (defaults as before).
+      const exc = groupDayExcretionRates(gw, now, { memberships, animals, animalClasses, animalWeightRecords }, { n: 0.145, p: 0.041, k: 0.136 });
       const npkResult = npk1.fn({
         headCount: liveHead,
         avgWeightKg: liveAvg,
         days,
-        excretionNRate: cls?.excretionN ?? 0.145,
-        excretionPRate: cls?.excretionP ?? 0.041,
-        excretionKRate: cls?.excretionK ?? 0.136,
+        excretionNRate: exc.n,
+        excretionPRate: exc.p,
+        excretionKRate: exc.k,
       });
 
       // Attribute to each paddock window of this event
@@ -447,7 +439,7 @@ function renderAnimalsTab() {
     for (const [animalId, bs] of latestBcs) {
       const animal = getById('animals', animalId);
       if (!animal) continue;
-      const classId = animal.animalClassId ?? 'unclassified';
+      const classId = animal.classId ?? 'unclassified';
       const bucket = bcsByClass.get(classId) ?? [];
       bucket.push(bs.score);
       bcsByClass.set(classId, bucket);

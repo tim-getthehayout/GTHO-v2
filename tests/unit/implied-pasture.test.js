@@ -7,7 +7,12 @@ const types = [{ id: 'hay', unit: 'bale' }];
 const feed = (id, eventId, date, q) => ({ id, eventId, locationId: 'p', feedTypeId: 'hay', kind: 'inventory_feeding', entryType: 'delivery', batchId: 'b1', date, time: '09:00', quantity: q, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80 });
 const check = (id, eventId, date) => ({ id, eventId, date, time: '12:00', isCloseReading: false });
 const item = (checkId, q) => ({ id: `i-${checkId}`, feedCheckId: checkId, locationId: 'p', feedTypeId: 'hay', batchId: null, remainingQuantity: q, unitSnapshot: 'bale', weightPerUnitKgSnapshot: 500, dmPctSnapshot: 80 });
-const classes = { cow: { id: 'cow', species: 'beef_cattle', dmiPct: 2.5 }, ewe: { id: 'ewe', species: 'sheep', dmiPct: 3 } };
+const classes = { cow: { id: 'cow', species: 'beef_cattle', role: 'cow', dmiPct: 2.5, defaultWeightKg: 500 }, ewe: { id: 'ewe', species: 'sheep', role: 'ewe', dmiPct: 3, defaultWeightKg: 50 } };
+// OI-0279: windows carry no class; a class comes from the group's members (one composite lot here).
+const lot = (id, cls, heads, groupId) => ({
+  animal: { id, classId: cls, isBulk: true, bulkHeadCount: heads },
+  membership: { id: `m-${id}`, animalId: id, groupId, dateJoined: '2026-01-01' },
+});
 
 /** 10 bales 11-01, check 6 on 11-05, +5 on 11-10, check 1 on 11-15: 10 measured days eating 400 kg DM/day. */
 function hay({ head = 10, avg = 500, cls = undefined } = {}) {
@@ -18,7 +23,8 @@ function hay({ head = 10, avg = 500, cls = undefined } = {}) {
     checks: [check('c1', 'e', '2026-11-05'), check('c2', 'e', '2026-11-15')],
     items: [item('c1', 6), item('c2', 1)],
     batches: [{ id: 'b1', feedTypeId: 'hay', unit: 'bale', costPerUnit: 60, weightPerUnitKg: 500, dmPct: 80 }],
-    groupWindows: [{ id: 'g', eventId: 'e', dateJoined: '2026-11-01', dateLeft: null, headCount: head, avgWeightKg: avg, animalClassId: cls }],
+    groupWindows: [{ id: 'g', eventId: 'e', groupId: 'grp', dateJoined: '2026-11-01', dateLeft: null, headCount: head, avgWeightKg: avg }],
+    ...(cls ? (() => { const l = lot('lot', cls, head, 'grp'); return { animals: [l.animal], memberships: [l.membership], animalWeightRecords: [] }; })() : {}),
   };
 }
 
@@ -34,9 +40,12 @@ function orphanHerd() {
     batches: [{ id: 'b1', feedTypeId: 'hay', unit: 'bale', costPerUnit: 60, weightPerUnitKg: 500, dmPct: 80 }],
     groups: [{ id: 'grp-g', name: 'Test Herd' }],
     groupWindows: [
-      { id: 'gw-orphan', eventId: 'evt-a', groupId: 'grp-g', dateJoined: '2026-07-01', dateLeft: null, headCount: 10, avgWeightKg: 500, animalClassId: 'cow' },
-      { id: 'gw-b', eventId: 'evt-b', groupId: 'grp-g', dateJoined: '2026-11-09', dateLeft: null, headCount: 10, avgWeightKg: 500, animalClassId: 'cow' },
+      { id: 'gw-orphan', eventId: 'evt-a', groupId: 'grp-g', dateJoined: '2026-07-01', dateLeft: null, headCount: 10, avgWeightKg: 500 },
+      { id: 'gw-b', eventId: 'evt-b', groupId: 'grp-g', dateJoined: '2026-11-09', dateLeft: null, headCount: 10, avgWeightKg: 500 },
     ],
+    animals: [lot('herd', 'cow', 10, 'grp-g').animal],
+    memberships: [lot('herd', 'cow', 10, 'grp-g').membership],
+    animalWeightRecords: [],
   };
 }
 
@@ -115,7 +124,10 @@ describe('DMI-9 implied pasture, window lane', () => {
   });
   it('splits an event\'s eaten feed across species by demand share and omits species with no demand', () => {
     const input = hay({ head: 100, cls: 'cow' });
-    input.groupWindows.push({ id: 'g2', eventId: 'e', dateJoined: '2026-11-01', dateLeft: null, headCount: 50, avgWeightKg: 50, animalClassId: 'ewe' });
+    input.groupWindows.push({ id: 'g2', eventId: 'e', groupId: 'grp2', dateJoined: '2026-11-01', dateLeft: null, headCount: 50, avgWeightKg: 50 });
+    const flock = lot('flock', 'ewe', 50, 'grp2');
+    input.animals.push(flock.animal);
+    input.memberships.push(flock.membership);
     const p = computeFeedRunRate(input).impliedPasture;
     // Cattle 1250 kg/day, sheep 50 × 50 × 3% = 75 kg/day; stored 400 kg/day split 1250:75.
     expect(p.bySpecies.cattle.demandDmKgPerDay).toBeCloseTo(1250);
@@ -134,13 +146,16 @@ describe('DMI-9 implied pasture, window lane', () => {
     input.memberships = [{ id: 'm1', animalId: 'a1', groupId: 'grp', dateJoined: '2026-11-01' }, { id: 'm2', animalId: 'a2', groupId: 'grp', dateJoined: '2026-11-01' }];
     input.animalWeightRecords = [];
     const p = computeFeedRunRate(input).impliedPasture;
-    expect(p.demandDmKgPerDay).toBeCloseTo(2 * 275 * 0.025);
+    // OI-0279: effective DMI % = (500 × 2.5 + 50 × 3) ÷ 550.
+    const pct = (500 * 2.5 + 50 * 3) / 550;
+    const demand = 2 * 275 * pct / 100;
+    expect(p.demandDmKgPerDay).toBeCloseTo(demand);
     expect(p.bySpecies.cattle.avgHead).toBeCloseTo(1);
     expect(p.bySpecies.sheep.avgHead).toBeCloseTo(1);
-    // 1 cow at 500 kg and 1 ewe at 50 kg: 13.75 kg/day splits 12.5 / 1.25 by weight.
-    expect(p.bySpecies.cattle.demandDmKgPerDay).toBeCloseTo(12.5);
-    expect(p.bySpecies.sheep.demandDmKgPerDay).toBeCloseTo(1.25);
-    expect(p.bySpecies.sheep.storedDmKgPerDay).toBeCloseTo(400 * 1.25 / 13.75);
+    // 1 cow at 500 kg and 1 ewe at 50 kg: demand splits 500:50 by weight.
+    expect(p.bySpecies.cattle.demandDmKgPerDay).toBeCloseTo(demand * 500 / 550);
+    expect(p.bySpecies.sheep.demandDmKgPerDay).toBeCloseTo(demand * 50 / 550);
+    expect(p.bySpecies.sheep.storedDmKgPerDay).toBeCloseTo(400 * (demand * 50 / 550) / demand);
   });
   it('a closed window still takes species from the members live on that date (a sheep group that moved mid-window)', () => {
     const input = hay();

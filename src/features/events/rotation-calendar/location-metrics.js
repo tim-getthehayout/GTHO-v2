@@ -21,6 +21,8 @@ import {
   getLiveWindowHeadCount,
   getLiveWindowAvgWeight,
   groupWindowsDailyDemand,
+  groupDayExcretionRates,
+  dmiBasisNote,
   eventOpenOn,
 } from '../../../calcs/window-helpers.js';
 import {
@@ -438,6 +440,7 @@ export function computeLocationMetrics(location, ctx) {
     storedFeedDmiKg: 0,
     stripPastureDmiKg: null,
     stripDmiPartial: false,
+    dmiBasisNote: null,
     eventCount: 0,
     dmiPerAcre: null,
     audsPerAcre: null,
@@ -485,6 +488,7 @@ export function computeLocationMetrics(location, ctx) {
   let anyDemandDay = false;
   const eventDemandByDate = new Map();
   const eventsNeedingHay = new Set();
+  const demandRowsUsed = []; // OI-0279 basis note
 
   const classMap = Array.isArray(animalClasses)
     ? Object.fromEntries((animalClasses || []).map(c => [c.id, c]))
@@ -569,7 +573,8 @@ export function computeLocationMetrics(location, ctx) {
         const dayAuds = aniAud ? aniAud.fn({ au, days: frac }) : au * frac;
         if (audShare > 0) auds += dayAuds * audShare;
 
-        const cls = (animalClasses || []).find(ac => ac.id === gw.animalClassId) || null;
+        // OI-0279: class rates from the group's member mix that day.
+        const exc = groupDayExcretionRates(gw, date, { memberships, animals, animalClasses: classMap, animalWeightRecords }, DEFAULT_EXC);
         // OI-0249 Gg: keep known-weight groups; count missing-weight as unknown slices (Zp).
         // OI-0256 Mx1: no_pasture window still participates in NPK deposits.
         if (npkShare > 0 && npk1 && liveAvg > 0) {
@@ -577,9 +582,9 @@ export function computeLocationMetrics(location, ctx) {
             headCount: liveHead,
             avgWeightKg: liveAvg,
             days: frac,
-            excretionNRate: cls?.excretionNRate ?? DEFAULT_EXC.n,
-            excretionPRate: cls?.excretionPRate ?? DEFAULT_EXC.p,
-            excretionKRate: cls?.excretionKRate ?? DEFAULT_EXC.k,
+            excretionNRate: exc.n,
+            excretionPRate: exc.p,
+            excretionKRate: exc.k,
           });
           nKg += (r.nKg ?? 0) * npkShare;
           pKg += (r.pKg ?? 0) * npkShare;
@@ -615,6 +620,7 @@ export function computeLocationMetrics(location, ctx) {
 
     for (const r of knownRows) {
       if (!(r.kg > 0)) continue;
+      demandRowsUsed.push(r);
       if (!eventDemandByDate.has(r.eventId)) eventDemandByDate.set(r.eventId, new Map());
       const byDate = eventDemandByDate.get(r.eventId);
       byDate.set(date, (byDate.get(date) || 0) + r.kg);
@@ -792,6 +798,7 @@ export function computeLocationMetrics(location, ctx) {
     storedFeedDmiKg,
     stripPastureDmiKg: finalStripPasture,
     stripDmiPartial,
+    dmiBasisNote: dmiBasisNote(demandRowsUsed),
     eventCount: eventIds.size,
     dmiPerAcre: acres != null && finalDmi != null ? finalDmi / acres : null,
     audsPerAcre: acres != null ? auds / acres : null,
@@ -830,8 +837,10 @@ export function aggregatePeriodTotals(rows = []) {
   let npkPartial = false;
   let residualNpkSkippedNoPct = 0;
   let residualNpkSkippedNoWeightDm = 0;
+  const basisNotes = new Set();
 
   for (const r of rows || []) {
+    if (r?.dmiBasisNote) basisNotes.add(r.dmiBasisNote);
     residualNpkSkippedNoPct += Number(r?.residualNpkSkippedNoPct) || 0;
     residualNpkSkippedNoWeightDm += Number(r?.residualNpkSkippedNoWeightDm) || 0;
     const stored = Number(r?.storedFeedDmiKg);
@@ -879,6 +888,8 @@ export function aggregatePeriodTotals(rows = []) {
     npkPartial: Boolean(npkKnown && !npkIdlePoison && (npkPartial || npkNullLoc)),
     residualNpkSkippedNoPct,
     residualNpkSkippedNoWeightDm,
+    // OI-0279: per-location fallback notes (a group may appear at several locations).
+    dmiBasisNote: basisNotes.size ? [...basisNotes].join('; ') : null,
   };
 }
 

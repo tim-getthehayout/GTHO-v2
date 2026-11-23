@@ -188,7 +188,12 @@ export function renderDmiChart(days, unitSys, opts = {}) {
     ]));
   }
 
-  const rightLabel = el('div', { style: { textAlign: 'right', minWidth: compact ? '60px' : '80px', paddingLeft: '8px' } }, [
+  // OI-0279: name any per-class DMI % fallback (one line per distinct note).
+  const basisNotes = [...new Set(days.map(d => d.basisNote).filter(Boolean))];
+  const rightLabel = el('div', {
+    style: { textAlign: 'right', minWidth: compact ? '60px' : '80px', paddingLeft: '8px' },
+    ...(basisNotes.length ? { title: basisNotes.join('; '), 'data-testid': 'dmi-chart-basis-note' } : {}),
+  }, [
     el('div', { style: { fontSize: compact ? '18px' : '26px', fontWeight: '700', color: 'var(--text)' } }, [todayDmi]),
     el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${unit} DMI today`]),
     ...(['actual','estimated'].includes(todayResult?.status) ? [el('div', { 'data-testid': 'dmi-today-status', style: { fontSize: '11px', color: 'var(--text2)' } }, [t(todayResult.status === 'estimated' ? 'dmi.forecast' : 'dmi.actual')])] : []),

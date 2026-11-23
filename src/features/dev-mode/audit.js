@@ -20,7 +20,7 @@ import { t } from '../../i18n/i18n.js';
 import { getAll, getById, getOperation } from '../../data/store.js';
 import { getAllCalcs } from '../../utils/calc-registry.js';
 import { getEventStartDate } from '../events/event-start.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, groupDayDmi, dmiBasisNote } from '../../calcs/window-helpers.js';
 import { renderDevModeBadge } from './index.js';
 import { resolveCalcForCalcCard } from './audit-resolvers.js';
 import {
@@ -410,7 +410,6 @@ function calcCardWrapper(name, description, testId) {
  */
 function renderGroupWindowSubBlock(parent, gw, eventId, groupWindowResultsByGwId, isoToday) {
   const group = getById('groups', gw.groupId);
-  const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
   const memberships = getAll('animalGroupMemberships').filter(m =>
     m.groupId === gw.groupId &&
     (m.dateJoined || '0000-01-01') <= isoToday &&
@@ -463,21 +462,21 @@ function renderGroupWindowSubBlock(parent, gw, eventId, groupWindowResultsByGwId
     renderFormattedValue(formatAuditValue(typeof liveAvg === 'number' ? liveAvg : null, 'weight', 2)),
   ]));
 
-  // Animal class
-  if (cls) {
-    const classCard = el('div', {
-      'data-testid': `dev-audit-animal-class-${cls.id}`,
-      style: { marginTop: '6px', padding: '6px', background: 'var(--bg)', borderRadius: '3px' },
-    });
-    classCard.appendChild(el('div', { style: { fontSize: '11px', fontWeight: '500', marginBottom: '2px' } }, [`${t('dev.auditAnimalClass')}: ${cls.name}`]));
-    classCard.appendChild(kv('id', cls.id.slice(0, 8)));
-    classCard.appendChild(kv('dmiPct', cls.dmiPct));
-    classCard.appendChild(kv('dmiPctLactating', cls.dmiPctLactating));
-    classCard.appendChild(kv('defaultWeightKg', cls.defaultWeightKg, 'weight'));
-    sub.appendChild(classCard);
-  } else {
-    sub.appendChild(el('div', { style: { fontSize: '10px', color: 'var(--red, #d33)', marginTop: '4px' } }, [t('dev.auditAnimalClassMissing')]));
-  }
+  // OI-0279: class lives on each animal; show the group's effective DMI % mix.
+  const mix = groupDayDmi(gw, gw.dateLeft || isoToday, {
+    memberships: allMemberships, animals: allAnimals,
+    animalClasses: allClasses, animalWeightRecords: allWeights,
+  });
+  const mixNote = dmiBasisNote(mix);
+  const classCard = el('div', {
+    'data-testid': `dev-audit-dmi-mix-${gw.id}`,
+    style: { marginTop: '6px', padding: '6px', background: 'var(--bg)', borderRadius: '3px' },
+  });
+  classCard.appendChild(el('div', { style: { fontSize: '11px', fontWeight: '500', marginBottom: '2px' } }, [t('dev.auditAnimalClass')]));
+  classCard.appendChild(kv('effective dmiPct', Number(mix.dmiPct.toFixed(3))));
+  classCard.appendChild(kv('basis', mix.basis));
+  if (mixNote) classCard.appendChild(kv('fallbacks', mixNote));
+  sub.appendChild(classCard);
 
   // Memberships table
   const memTable = el('div', { 'data-testid': `dev-audit-memberships-${gw.id}`, style: { marginTop: '6px' } });
@@ -498,7 +497,7 @@ function renderGroupWindowSubBlock(parent, gw, eventId, groupWindowResultsByGwId
       const wRecs = allWeights.filter(w => w.animalId === m.animalId && (w.date || w.recordedAt || '').slice(0, 10) <= refDate)
         .sort((a, b) => ((b.date || b.recordedAt) || '').localeCompare((a.date || a.recordedAt) || ''));
       const wRec = wRecs[0] || null;
-      const animalCls = animal?.animalClassId ? allClasses.find(c => c.id === animal.animalClassId) : null;
+      const animalCls = animal?.classId ? allClasses.find(c => c.id === animal.classId) : null;
       const fallbackWeight = animalCls?.defaultWeightKg ?? null;
       const weightVal = wRec?.weightKg ?? fallbackWeight ?? null;
       const weightSrc = wRec ? `animalWeightRecords.${wRec.id.slice(0, 8)}` : (fallbackWeight ? `animalClasses.${animalCls.id.slice(0, 8)}.defaultWeightKg` : '—');
@@ -508,7 +507,7 @@ function renderGroupWindowSubBlock(parent, gw, eventId, groupWindowResultsByGwId
         style: { display: 'grid', gridTemplateColumns: '90px 80px 90px 90px 80px 1fr', gap: '4px', fontSize: '10px', fontFamily: 'monospace', padding: '1px 0' },
       }, [
         el('span', {}, [animal?.tagNum || m.animalId.slice(0, 8)]),
-        el('span', {}, [m.animalClassId ? m.animalClassId.slice(0, 8) : '—']),
+        el('span', {}, [animal?.classId ? animal.classId.slice(0, 8) : '—']),
         el('span', {}, [m.dateJoined || '—']),
         el('span', {}, [m.dateLeft || '—']),
         el('span', { style: { color: weightVal == null ? 'var(--red, #d33)' : 'var(--text)' } }, [renderFormattedValue(formatted)]),

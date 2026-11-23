@@ -23,7 +23,7 @@ import { openEditGroupWindowDialog } from './edit-group-window.js';
 import { openMoveFeedOutSheet } from './move-feed-out.js';
 import { openEditPaddockWindowDialog } from './edit-paddock-window.js';
 import { reopenEvent } from './reopen-event.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, groupDayDmi, dmiBasisNote } from '../../calcs/window-helpers.js';
 import { openEditFeedCheckDialog } from './edit-feed-check.js';
 import { getEventStart, setEventStart } from './event-start.js';
 import { computeDmi8Days } from './dmi-chart-context.js';
@@ -38,6 +38,10 @@ import {
   isFormOpen as isFeedFormOpen,
   closeForm as closeFeedForm,
 } from './feed-entry-inline-form.js';
+
+// Event detail NPK keeps today's fallback rates; switching to the member-mix
+// class rates is open with Design (OI-0279).
+const DETAIL_NPK_DEFAULT_EXC = { n: 0.34, p: 0.092, k: 0.24 };
 
 /** Active subscriptions for this view */
 let unsubs = [];
@@ -285,19 +289,17 @@ function renderSummary(ctx) {
   // DMI from DMI-2 (daily target)
   const dmi2 = getCalcByName('DMI-2');
   let dailyDmi = 0;
+  const dmiResults = [];
   if (dmi2) {
     for (const gw of gws) {
-      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
-      dailyDmi += dmi2.fn({
-        headCount: live.head,
-        avgWeightKg: live.avg,
-        dmiPct: cls?.dmiPct ?? 2.5,
-        dmiPctLactating: cls?.dmiPctLactating ?? 2.5,
-        isLactating: false,
-      });
+      // OI-0279: per-class DMI % from the group's member mix.
+      const d = groupDayDmi(gw, now, { memberships, animals, animalClasses, animalWeightRecords, head: live.head, avgWeightKg: live.avg });
+      dmiResults.push({ ...d, groupWindow: gw });
+      dailyDmi += d.kg;
     }
   }
+  const dmiNote = dmiBasisNote(dmiResults);
   const dmiDisplay = dailyDmi > 0 ? display(dailyDmi, 'weight', unitSys, 1) : null;
 
   // Feed cost
@@ -325,7 +327,7 @@ function renderSummary(ctx) {
   const dateOutStr = event.dateOut ? formatShortDate(event.dateOut) : '\u2014';
 
   el2.appendChild(el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [
-    el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: 'var(--space-2)' }, 'data-testid': 'detail-hero-line' }, [
+    el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: 'var(--space-2)' }, 'data-testid': 'detail-hero-line', ...(dmiNote ? { title: dmiNote } : {}) }, [
       heroTokens.join(' \u00B7 '),
     ]),
     el('div', { style: { fontSize: '13px', color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } }, [
@@ -932,21 +934,19 @@ function renderDmiNpk(ctx) {
   // DMI line
   if (dmi2) {
     let dailyDmi = 0;
+    const dmiResults = [];
     for (const gw of gws) {
-      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
-      dailyDmi += dmi2.fn({
-        headCount: live.head,
-        avgWeightKg: live.avg,
-        dmiPct: cls?.dmiPct ?? 2.5,
-        dmiPctLactating: cls?.dmiPctLactating ?? 2.5,
-        isLactating: false,
-      });
+      // OI-0279: per-class DMI % from the group's member mix.
+      const d = groupDayDmi(gw, now, { memberships, animals, animalClasses, animalWeightRecords, head: live.head, avgWeightKg: live.avg });
+      dmiResults.push({ ...d, groupWindow: gw });
+      dailyDmi += d.kg;
     }
     if (dailyDmi > 0) {
       const dmiStr = display(dailyDmi, 'weight', unitSys, 1);
       const unit = unitLabel('weight', unitSys);
-      card.appendChild(el('div', { style: { fontSize: '13px', padding: '4px 0' } }, [
+      const dmiNote = dmiBasisNote(dmiResults);
+      card.appendChild(el('div', { style: { fontSize: '13px', padding: '4px 0' }, 'data-testid': 'detail-dmi-line', ...(dmiNote ? { title: dmiNote } : {}) }, [
         `${t('dmi.targetForecast')}: ${dmiStr} ${unit}/day`,
       ]));
     }
@@ -956,7 +956,6 @@ function renderDmiNpk(ctx) {
   if (npk1) {
     let totalN = 0, totalP = 0, totalK = 0;
     for (const gw of gws) {
-      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
       const days = groupWindowPresenceDays(gw, {
         eventStartDate: getEventStart(event.id)?.date || todayStr,
         eventDateOut: event.dateOut,
@@ -968,9 +967,9 @@ function renderDmiNpk(ctx) {
         headCount: live.head,
         avgWeightKg: live.avg,
         days,
-        excretionNRate: cls?.excretionNRate ?? 0.34,
-        excretionPRate: cls?.excretionPRate ?? 0.092,
-        excretionKRate: cls?.excretionKRate ?? 0.24,
+        excretionNRate: DETAIL_NPK_DEFAULT_EXC.n,
+        excretionPRate: DETAIL_NPK_DEFAULT_EXC.p,
+        excretionKRate: DETAIL_NPK_DEFAULT_EXC.k,
       });
       totalN += result.nKg || result.n || 0;
       totalP += result.pKg || result.p || 0;

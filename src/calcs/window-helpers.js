@@ -17,6 +17,7 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { ANIMAL_CLASSES_BY_SPECIES } from '../features/onboarding/seed-data.js';
 
 function isMembershipLive(m, groupId, now) {
   if (m.groupId !== groupId) return false;
@@ -302,49 +303,215 @@ function liveSpeciesMix(gw, dt, { memberships, animals, animalClasses, animalWei
   return heads.size ? { heads, weights } : null;
 }
 
+/** DMI% used when no class rate applies (no class, null class rate with no seed, or W0). */
+export const DEFAULT_DMI_PCT = 2.5;
+
+/** Class rows as an id-keyed Map, from an array or an id-keyed object. */
+export function classMapOf(animalClasses) {
+  if (!animalClasses) return new Map();
+  if (animalClasses instanceof Map) return animalClasses;
+  if (Array.isArray(animalClasses)) return new Map(animalClasses.map(c => [c.id, c]));
+  return new Map(Object.entries(animalClasses).map(([id, c]) => [c?.id || id, c]));
+}
+
 /**
- * Per-window predicted DMI on `dt`: one row per group window that counts
- * on `dt` with head, average weight, class DMI% (2.5 when unset), kg, the
- * window class species (null when the window has no class) and, when members
- * are live that day (open or closed window), their heads and live weight by
- * class species (`speciesMix`). `groupWindowsDailyDmiKg` is the
- * sum of `kg`, so DMI-8, FED-6 and DMI-9 share one demand.
- * `animalClasses` is a map keyed by class id. When `events` is given (farm
- * demand), only windows on events open on `dt` count, once per group
- * (farmDemandWindowsOn); DMI-8 passes one event's windows and no `events`.
+ * OI-0279: DMI% for one class. Class rate when set; a null rate falls back to
+ * the onboarding seed rate for the class species + role, else 2.5%. No class
+ * is 2.5%. `source` is 'class' | 'seed' | 'no-class' | 'no-rate'.
+ */
+export function classDmiPct(cls) {
+  if (!cls) return { pct: DEFAULT_DMI_PCT, source: 'no-class' };
+  const own = Number(cls.dmiPct);
+  if (cls.dmiPct != null && Number.isFinite(own) && own > 0) return { pct: own, source: 'class' };
+  const seed = (ANIMAL_CLASSES_BY_SPECIES[cls.species] || []).find(c => c.role === cls.role);
+  if (seed && typeof seed.dmiPct === 'number') return { pct: seed.dmiPct, source: 'seed' };
+  return { pct: DEFAULT_DMI_PCT, source: 'no-rate' };
+}
+
+function prevDay(day) {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Day whose member mix applies to `dt`. A closed window read on or after its
+ * leave day (window totals evaluated at dateLeft) uses its last present day.
+ */
+function mixDay(gw, dt) {
+  if (gw.dateLeft && dt >= gw.dateLeft) {
+    const last = prevDay(gw.dateLeft);
+    return gw.dateJoined && last < gw.dateJoined ? gw.dateJoined : last;
+  }
+  return dt;
+}
+
+/**
+ * OI-0279: members of the window's group live on `dt` (open or closed window;
+ * membership dates decide), each with heads, weight (latest record on or
+ * before the day, a composite's record is the lot total; else class default ×
+ * heads; else null) and class. Empty when no member is live that day.
+ */
+export function groupDayMembers(gw, dt, { memberships, animals, animalClasses, animalWeightRecords } = {}) {
+  if (!memberships || !animals || !gw) return [];
+  const day = mixDay(gw, dt);
+  const byId = new Map(animals.map(a => [a.id, a]));
+  const classes = classMapOf(animalClasses);
+  const out = [];
+  for (const m of memberships) {
+    if (!isMembershipLive(m, gw.groupId, day)) continue;
+    const animal = byId.get(m.animalId);
+    const heads = animalHeadCount(animal);
+    if (heads <= 0) continue;
+    const cls = animal?.classId ? (classes.get(animal.classId) || null) : null;
+    const rec = animalWeightRecords ? latestWeightForAnimal(animalWeightRecords, m.animalId, day) : null;
+    let weightKg = null;
+    if (rec && typeof rec.weightKg === 'number' && rec.weightKg > 0) weightKg = rec.weightKg;
+    else if (cls && typeof cls.defaultWeightKg === 'number' && cls.defaultWeightKg > 0) weightKg = cls.defaultWeightKg * heads;
+    out.push({ animalId: m.animalId, heads, weightKg, cls });
+  }
+  return out;
+}
+
+/**
+ * Weight-weighted mix over live members. Members with no weight are left out;
+ * when members are live but none has a weight, heads weight the mix instead
+ * (Build reading, flagged to Design). Null when no member is live.
+ */
+function weightedMix(members, valueOf) {
+  if (!members.length) return null;
+  const weighed = members.filter(m => m.weightKg > 0);
+  const use = weighed.length ? weighed : members;
+  const w = m => (weighed.length ? m.weightKg : m.heads);
+  let sw = 0, sv = 0;
+  for (const m of use) { sw += w(m); sv += w(m) * valueOf(m); }
+  return sw > 0 ? { value: sv / sw, used: use } : null;
+}
+
+/**
+ * OI-0279 — the one place DMI% is decided for a group on a day.
+ * Effective DMI% = Σ(wᵢ × pctᵢ) ÷ Σwᵢ over members live on `dt` (wᵢ = live
+ * weight, see groupDayMembers; class rate via classDmiPct). No live member
+ * → W0: 2.5%. Demand kg = head × avg weight × effective % / 100, where head
+ * and avg follow the live/snapshot rule (pass `head` / `avgWeightKg` to reuse
+ * values the caller already has). Lactating % stays unused (L0).
+ * Returns { kg, dmiPct, basis, fallbacks, head, avgWeightKg } with basis
+ * 'members' | 'members+default' | 'window-default' and fallbacks
+ * { noClassHeads, noRateHeads, seedHeads } counted over weighted members.
+ */
+export function groupDayDmi(gw, dt, ctx = {}) {
+  const { memberships, animals, animalWeightRecords } = ctx;
+  const head = ctx.head != null ? ctx.head
+    : (memberships ? getLiveWindowHeadCount(gw, { memberships, animals, now: dt }) : (gw.headCount ?? 0));
+  const avgWeightKg = ctx.avgWeightKg != null ? ctx.avgWeightKg
+    : (memberships
+      ? getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses: [...classMapOf(ctx.animalClasses).values()], animalWeightRecords, now: dt })
+      : (gw.avgWeightKg ?? 0));
+  const members = groupDayMembers(gw, dt, ctx);
+  const fallbacks = { noClassHeads: 0, noRateHeads: 0, seedHeads: 0 };
+  const pctOf = new Map(members.map(m => [m, classDmiPct(m.cls)]));
+  const mix = weightedMix(members, m => pctOf.get(m).pct);
+  let dmiPct = DEFAULT_DMI_PCT;
+  let basis = 'window-default';
+  if (mix) {
+    dmiPct = mix.value;
+    for (const m of mix.used) {
+      const src = pctOf.get(m).source;
+      if (src === 'no-class') fallbacks.noClassHeads += m.heads;
+      else if (src === 'no-rate') fallbacks.noRateHeads += m.heads;
+      else if (src === 'seed') fallbacks.seedHeads += m.heads;
+    }
+    basis = fallbacks.noClassHeads || fallbacks.noRateHeads || fallbacks.seedHeads ? 'members+default' : 'members';
+  }
+  return { kg: (head || 0) * (avgWeightKg || 0) * (dmiPct / 100), dmiPct, basis, fallbacks, head, avgWeightKg };
+}
+
+/**
+ * OI-0279: N/P/K excretion rates for a group on a day from the same member
+ * mix (weight-weighted class rates; a member without a class rate uses
+ * `defaults`). No live member → `defaults`.
+ */
+export function groupDayExcretionRates(gw, dt, ctx = {}, defaults = { n: 0.145, p: 0.041, k: 0.136 }) {
+  const members = groupDayMembers(gw, dt, ctx);
+  const rate = (m, key, d) => {
+    const v = m.cls?.[key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : d;
+  };
+  const n = weightedMix(members, m => rate(m, 'excretionNRate', defaults.n));
+  if (!n) return { ...defaults };
+  return {
+    n: n.value,
+    p: weightedMix(members, m => rate(m, 'excretionPRate', defaults.p)).value,
+    k: weightedMix(members, m => rate(m, 'excretionKRate', defaults.k)).value,
+  };
+}
+
+/**
+ * OI-0279 tooltip note for fallbacks across groupDayDmi results or demand
+ * rows, e.g. "2 head at default 2.5% (no class)". Rows that carry the same
+ * `groupWindow` (one per day) count once, at their largest head. Null when
+ * every result is on class rates.
+ */
+export function dmiBasisNote(results) {
+  const list = (Array.isArray(results) ? results : [results]).filter(Boolean);
+  const byKey = new Map();
+  list.forEach((r, i) => {
+    const key = r.groupWindow?.id ?? `#${i}`;
+    const cur = byKey.get(key) || { noClass: 0, noRate: 0, seed: 0, w0: false };
+    if (r.basis === 'window-default') cur.w0 = cur.w0 || r.head > 0;
+    else {
+      cur.noClass = Math.max(cur.noClass, r.fallbacks?.noClassHeads || 0);
+      cur.noRate = Math.max(cur.noRate, r.fallbacks?.noRateHeads || 0);
+      cur.seed = Math.max(cur.seed, r.fallbacks?.seedHeads || 0);
+    }
+    byKey.set(key, cur);
+  });
+  let noClass = 0, noRate = 0, seed = 0, w0 = 0;
+  for (const v of byKey.values()) {
+    noClass += v.noClass; noRate += v.noRate; seed += v.seed; if (v.w0) w0 += 1;
+  }
+  const parts = [];
+  if (noClass) parts.push(`${noClass} head at default ${DEFAULT_DMI_PCT}% (no class)`);
+  if (noRate) parts.push(`${noRate} head at default ${DEFAULT_DMI_PCT}% (class has no DMI %)`);
+  if (seed) parts.push(`${seed} head at standard class DMI % (class has no DMI %)`);
+  if (w0) parts.push(`${w0} group window${w0 === 1 ? '' : 's'} at default ${DEFAULT_DMI_PCT}% (no members that day)`);
+  return parts.length ? parts.join('; ') : null;
+}
+
+/**
+ * Per-window predicted DMI on `dt`: one row per group window that counts on
+ * `dt` with head, average weight, effective per-class DMI% (OI-0279
+ * groupDayDmi), its basis and fallbacks, kg and, when members are live that
+ * day (open or closed window), their heads and live weight by class species
+ * (`speciesMix`). Windows carry no class, so `species` is null and pasture
+ * splits read `speciesMix`. `groupWindowsDailyDmiKg` is the sum of `kg`, so
+ * DMI-8, FED-6 and DMI-9 share one demand. `animalClasses` is an id-keyed map
+ * or an array. When `events` is given (farm demand), only windows on events
+ * open on `dt` count, once per group (farmDemandWindowsOn); DMI-8 passes one
+ * event's windows and no `events`.
  */
 export function groupWindowsDailyDemand(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords, events, groups } = {}) {
   const rows = [];
   const counted = events ? farmDemandWindowsOn(dt, { groupWindows, events, groups }).windows : groupWindows;
+  const classMap = classMapOf(animalClasses);
+  const classObj = Object.fromEntries(classMap);
   for (const gw of counted || []) {
     if (gw.dateJoined > dt) continue;
     if (gw.dateLeft && gw.dateLeft <= dt) continue;
-    const cls = gw.animalClassId && animalClasses ? animalClasses[gw.animalClassId] : null;
-    const pct = cls?.dmiPct ?? 2.5;
-    const head = memberships
-      ? getLiveWindowHeadCount(gw, { memberships, animals, now: dt })
-      : (gw.headCount ?? 0);
-    const avg = memberships
-      // OI-0130: the helper expects the { id, defaultWeightKg, ... } array shape.
-      ? getLiveWindowAvgWeight(gw, {
-          memberships, animals,
-          animalClasses: animalClasses ? Object.values(animalClasses) : null,
-          animalWeightRecords, now: dt,
-        })
-      : (gw.avgWeightKg ?? 0);
-    rows.push({ groupWindow: gw, eventId: gw.eventId, species: cls?.species ?? null, speciesMix: liveSpeciesMix(gw, dt, { memberships, animals, animalClasses, animalWeightRecords }),
-      head, avgWeightKg: avg, dmiPct: pct, kg: head * avg * (pct / 100) });
+    const d = groupDayDmi(gw, dt, { memberships, animals, animalClasses: classMap, animalWeightRecords });
+    rows.push({ groupWindow: gw, eventId: gw.eventId, species: null, speciesMix: liveSpeciesMix(gw, dt, { memberships, animals, animalClasses: classObj, animalWeightRecords }),
+      head: d.head, avgWeightKg: d.avgWeightKg, dmiPct: d.dmiPct, basis: d.basis, fallbacks: d.fallbacks, kg: d.kg });
   }
   return rows;
 }
 
 /**
  * Predicted daily DMI (kg) of every group window that counts on `dt`:
- * head × average weight × class DMI% (2.5 when unset), live for open windows
- * (OI-0091). Shared by DMI-8's daily demand and the feed run rate forecast.
- * `animalClasses` is a map keyed by class id. When `events` is given (farm
- * demand), only windows on events open on `dt` count, once per group
- * (farmDemandWindowsOn); DMI-8 passes one event's windows and no `events`.
+ * head × average weight × effective per-class DMI% (OI-0279), live for open
+ * windows (OI-0091). Shared by DMI-8's daily demand and the feed run rate
+ * forecast. When `events` is given (farm demand), only windows on events
+ * open on `dt` count, once per group (farmDemandWindowsOn); DMI-8 passes one
+ * event's windows and no `events`.
  * Sums `groupWindowsDailyDemand` so DMI-8, FED-6 and DMI-9 share one demand.
  */
 export function groupWindowsDailyDmiKg(dt, opts = {}) {

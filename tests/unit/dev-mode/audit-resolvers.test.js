@@ -260,21 +260,14 @@ describe('audit-resolvers (OI-0157-B2 — NPK / fertility / stocking)', () => {
       expect(inst.gateStatus).toBe('ok');
     });
 
-    it('falls back to NRC defaults and marks inputs missing — eventGroupWindows entity does not carry animalClassId today', () => {
-      // Note: eventGroupWindows entity does NOT carry an animalClassId field
-      // (per OI-0157-B2 implementation note). The resolver looks up
-      // `gw.animalClassId` which is always undefined in current data, so the
-      // class lookup returns null and the resolver falls back to NRC defaults.
-      // When the field is added to the entity (separate OI), this test will
-      // need to assert the no-fallback path.
+    it('uses NRC defaults when the group has no live members (OI-0279: class comes from members, never the window)', () => {
       seedClassWithExcretionRates();
       seedOpenGroupWindow();
       const out = resolveCalcForCalcCard('NPK-1', { eventId: EVT });
       const inst = out.instances[0];
       const nRate = inst.inputs.find(i => i.name === 'excretionNRate');
       expect(nRate.value).toBe(0.145); // NRC default
-      expect(nRate.missing).toBe(true);
-      expect(nRate.source).toMatch(/fallback/);
+      expect(nRate.source).toMatch(/member class mix/);
     });
   });
 

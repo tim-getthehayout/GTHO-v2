@@ -18,6 +18,7 @@ import { getAll, getById } from '../../data/store.js';
 import { getEventStartDate } from './event-start.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { t } from '../../i18n/i18n.js';
+import { groupWindowsDailyDemand, dmiBasisNote } from '../../calcs/window-helpers.js';
 
 /**
  * Build the full DMI-8 input context for a single event.
@@ -88,17 +89,21 @@ export function buildDmi8ChartContext(eventId) {
   }
 
   // OI-0130: include `id` and `defaultWeightKg` so the map values round-trip
-  // back to an id'd class-row shape at the getLiveWindowAvgWeight call-site
-  // (Object.values(animalClasses) → array of { id, defaultWeightKg, ... }).
+  // back to an id'd class-row shape at the getLiveWindowAvgWeight call-site.
+  // OI-0279: class lives on the animal (classId), never on the group window,
+  // so the map holds every class; species/role feed the per-class DMI% mix.
   const animalClasses = {};
-  for (const gw of groupWindows) {
-    if (!gw.animalClassId || animalClasses[gw.animalClassId]) continue;
-    const cls = getById('animalClasses', gw.animalClassId);
-    if (cls) animalClasses[gw.animalClassId] = {
+  for (const cls of getAll('animalClasses')) {
+    animalClasses[cls.id] = {
       id: cls.id,
+      species: cls.species,
+      role: cls.role,
       defaultWeightKg: cls.defaultWeightKg,
       dmiPct: cls.dmiPct,
       dmiPctLactating: cls.dmiPctLactating,
+      excretionNRate: cls.excretionNRate,
+      excretionPRate: cls.excretionPRate,
+      excretionKRate: cls.excretionKRate,
     };
   }
 
@@ -179,7 +184,12 @@ export function computeDmi8Days(event, dmi8, opts = {}) {
     const label = fromPriorEvent
       ? `${baseLabel} · ${t('dmi.fromPreviousEvent')}`
       : baseLabel;
-    days.push({ date: dateStr, label, result, fromPriorEvent });
+    // OI-0279: tooltip note when any group used a DMI % fallback that day.
+    const basisNote = dmiBasisNote(groupWindowsDailyDemand(dateStr, {
+      groupWindows: ctx.groupWindows, memberships: ctx.memberships, animals: ctx.animals,
+      animalClasses: ctx.animalClasses, animalWeightRecords: ctx.animalWeightRecords,
+    }));
+    days.push({ date: dateStr, label, result, fromPriorEvent, basisNote });
   }
 
   return days;

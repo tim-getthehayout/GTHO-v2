@@ -23,7 +23,7 @@ import { openFeedCheckSheet } from '../feed/check.js';
 import { openGroupAddSheet } from '../events/group-windows.js';
 import { openEventDetailSheet } from '../events/detail.js';
 import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads, animalHeadCount } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads, animalHeadCount, groupDayDmi, dmiBasisNote } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
 import { buildDmi8ChartContext, computeDmi8Days } from '../events/dmi-chart-context.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
@@ -32,6 +32,10 @@ import { isPureConfinementOnDate, isConfinementLocation } from '../../calcs/loca
 import { pickPreGraze, aggregateOpenPaddockForage } from '../../calcs/feed-forage.js';
 import { renderEventFeedRemainingLine, renderInactiveForageSummary } from '../events/confinement-forage-ui.js';
 import { FEED_REMAINING_ESTIMATE_CAPTION } from '../../calcs/event-feed-days.js';
+
+// Home NPK keeps today's fallback rates; whether Home NPK should switch to the
+// member-mix class rates (as the calendar does) is open with Design (OI-0279).
+const HOME_NPK_DEFAULT_EXC = { n: 0.34, p: 0.092, k: 0.24 };
 
 /** Unsubscribe functions */
 let unsubs = [];
@@ -189,7 +193,7 @@ function renderDesktopStats(period, rootContainer) {
   const metrics = computeDesktopMetrics(events, unitSys);
   const grid = el('div', { className: 'dash-stats-grid' });
   for (const m of metrics) {
-    grid.appendChild(el('div', { className: 'm-cell' }, [
+    grid.appendChild(el('div', { className: 'm-cell', ...(m.title ? { title: m.title } : {}) }, [
       el('div', { className: 'mc-value', style: { color: m.color } }, [m.value]),
       el('div', { className: 'mc-label' }, [m.label]),
     ]));
@@ -215,7 +219,7 @@ function renderMobileStats(period, rootContainer) {
   const metrics = computeMobileMetrics(events, unitSys);
   const grid = el('div', { className: 'dash-stats-grid dash-stats-grid-mobile' });
   for (const m of metrics) {
-    grid.appendChild(el('div', { className: 'm-cell' }, [
+    grid.appendChild(el('div', { className: 'm-cell', ...(m.title ? { title: m.title } : {}) }, [
       el('div', { className: 'mc-value', style: { color: m.color } }, [m.value]),
       el('div', { className: 'mc-label' }, [m.label]),
     ]));
@@ -331,6 +335,16 @@ export function eventStoredFeedDm(eventId) {
   };
 }
 
+/** OI-0279: store rows for groupDayDmi on Home. */
+function groupDmiCtx() {
+  return {
+    memberships: getAll('animalGroupMemberships'),
+    animals: getAll('animals'),
+    animalClasses: getAll('animalClasses'),
+    animalWeightRecords: getAll('animalWeightRecords'),
+  };
+}
+
 /**
  * OI-0075 Bug 7: shared Pasture % computation used by both desktop and mobile
  * stat cards. Mass balance via DMI-4 across all supplied events:
@@ -353,17 +367,17 @@ export function computePasturePercent(events) {
 
   let totalDmiKg = 0;
   let totalStoredDmKg = 0;
+  const dmiResults = [];
   for (const event of events) {
     const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
     for (const gw of gws) {
-      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
       const now = gw.dateLeft || event.dateOut || todayStr;
       const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
       const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
-      const dmiKgPerDay = dmi2.fn({
-        headCount: liveHead, avgWeightKg: liveAvg,
-        dmiPct: cls?.dmiPct ?? 2.5, dmiPctLactating: cls?.dmiPctLactating ?? (cls?.dmiPct ?? 2.5), isLactating: false,
-      });
+      // OI-0279: per-class DMI % from the group's member mix.
+      const d = groupDayDmi(gw, now, { memberships, animals, animalClasses, animalWeightRecords, head: liveHead, avgWeightKg: liveAvg });
+      dmiResults.push({ ...d, groupWindow: gw });
+      const dmiKgPerDay = d.kg;
       const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
       totalDmiKg += dmiKgPerDay * days;
     }
@@ -377,6 +391,7 @@ export function computePasturePercent(events) {
       pasturePercent: null,
       color: 'var(--color-teal-base)',
       subLabel: events.length ? 'no animals on events' : 'no grazing events',
+      basisNote: null,
     };
   }
   const split = dmi4.fn({ totalDmiKg, storedConsumedKg: totalStoredDmKg });
@@ -390,7 +405,7 @@ export function computePasturePercent(events) {
   const subLabel = closedCount > 0
     ? `${closedCount} closed \u00B7 ${openCount} open`
     : 'open events';
-  return { pasturePercent: pct, color, subLabel };
+  return { pasturePercent: pct, color, subLabel, basisNote: dmiBasisNote(dmiResults) };
 }
 
 function computeDesktopMetrics(events, _unitSys) {
@@ -407,21 +422,18 @@ function computeDesktopMetrics(events, _unitSys) {
 
   // Pasture DMI
   let totalDmiKg = 0;
+  const dmiResults = [];
   for (const event of events) {
     const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
     for (const gw of gws) {
       if (dmi2) {
-        const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
         const now = gw.dateLeft || event.dateOut || todayStr;
         const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
-        const dmiKgPerDay = dmi2.fn({
-          headCount: liveHead,
-          avgWeightKg: liveAvg,
-          dmiPct: cls?.dmiPct ?? 2.5,
-          dmiPctLactating: cls?.dmiPctLactating ?? (cls?.dmiPct ?? 2.5),
-          isLactating: false,
-        });
+        // OI-0279: per-class DMI % from the group's member mix.
+        const d = groupDayDmi(gw, now, { memberships, animals, animalClasses, animalWeightRecords, head: liveHead, avgWeightKg: liveAvg });
+        dmiResults.push({ ...d, groupWindow: gw });
+        const dmiKgPerDay = d.kg;
         const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
         totalDmiKg += dmiKgPerDay * days;
       }
@@ -459,7 +471,6 @@ function computeDesktopMetrics(events, _unitSys) {
       const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
       const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === event.id);
       for (const gw of gws) {
-        const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
         const now = gw.dateLeft || event.dateOut || todayStr;
         const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
@@ -473,9 +484,9 @@ function computeDesktopMetrics(events, _unitSys) {
           headCount: liveHead,
           avgWeightKg: liveAvg,
           days,
-          excretionNRate: cls?.excretionNRate ?? 0.34,
-          excretionPRate: cls?.excretionPRate ?? 0.092,
-          excretionKRate: cls?.excretionKRate ?? 0.24,
+          excretionNRate: HOME_NPK_DEFAULT_EXC.n,
+          excretionPRate: HOME_NPK_DEFAULT_EXC.p,
+          excretionKRate: HOME_NPK_DEFAULT_EXC.k,
         });
         totalNPK.n += (result.nKg ?? result.n ?? 0);
         totalNPK.p += (result.pKg ?? result.p ?? 0);
@@ -519,6 +530,7 @@ function computeDesktopMetrics(events, _unitSys) {
       value: dmiDisplay,
       label: 'lbs DM',
       color: 'var(--color-green-base)',
+      title: dmiBasisNote(dmiResults) || undefined,
     },
     {
       value: `$${feedCostTotal.toFixed(2)}`,
@@ -529,6 +541,7 @@ function computeDesktopMetrics(events, _unitSys) {
       value: pasturePercent !== null ? `${pasturePercent}%` : '\u2014',
       label: pastureSub || '\u00A0',
       color: pastureColorDesktop,
+      title: pastureMetric.basisNote || undefined,
     },
     {
       value: npkPerAcre > 0 ? `${npkPerAcre.toFixed(1)} /ac` : '\u2014',
@@ -566,7 +579,6 @@ function computeMobileMetrics(events, _unitSys) {
       const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
       const pws = getAll('eventPaddockWindows').filter(pw => pw.eventId === event.id);
       for (const gw of gws) {
-        const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
         const now = gw.dateLeft || event.dateOut || todayStr;
         const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
         const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
@@ -580,9 +592,9 @@ function computeMobileMetrics(events, _unitSys) {
           headCount: liveHead,
           avgWeightKg: liveAvg,
           days,
-          excretionNRate: cls?.excretionNRate ?? 0.34,
-          excretionPRate: cls?.excretionPRate ?? 0.092,
-          excretionKRate: cls?.excretionKRate ?? 0.24,
+          excretionNRate: HOME_NPK_DEFAULT_EXC.n,
+          excretionPRate: HOME_NPK_DEFAULT_EXC.p,
+          excretionKRate: HOME_NPK_DEFAULT_EXC.k,
         });
         const nKg = (result.nKg ?? result.n ?? 0);
         const pKg = (result.pKg ?? result.p ?? 0);
@@ -629,6 +641,7 @@ function computeMobileMetrics(events, _unitSys) {
       value: pastureVal,
       label: 'Pasture %',
       color: pastureColor,
+      title: pastureMetric.basisNote || undefined,
     },
     {
       value: npkPerAcre > 0 ? `${npkPerAcre.toFixed(1)} /ac` : '\u2014',
@@ -810,14 +823,9 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   if (isOnPasture && activeGW) {
     const dmi2 = getCalcByName('DMI-2');
     if (dmi2 && group.dmiTarget > 0) {
-      const cls = activeGW.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
-      const dmiKgPerDay = dmi2.fn({
-        headCount: activeLiveHead,
-        avgWeightKg: activeLiveAvg,
-        dmiPct: cls?.dmiPct ?? 2.5,
-        dmiPctLactating: cls?.dmiPctLactating ?? (cls?.dmiPct ?? 2.5),
-        isLactating: false,
-      });
+      const dmiKgPerDay = groupDayDmi(activeGW, todayStr, {
+        ...groupDmiCtx(), head: activeLiveHead, avgWeightKg: activeLiveAvg,
+      }).kg;
       const target = convert(group.dmiTarget, 'weight', 'toImperial');
       const consumed = convert(dmiKgPerDay, 'weight', 'toImperial');
       const pct = target > 0 ? Math.min(100, (consumed / target) * 100) : 0;
@@ -840,7 +848,6 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   if (isOnPasture && activeGW && activeLiveAvg > 0) {
     const npk1 = getCalcByName('NPK-1');
     if (npk1) {
-      const cls = activeGW.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
       const days = groupWindowPresenceDays(activeGW, {
         eventStartDate: getEventStartDate(activeEvent.id) || todayStr,
         eventDateOut: activeEvent?.dateOut,
@@ -851,9 +858,9 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
         headCount: activeLiveHead,
         avgWeightKg: activeLiveAvg,
         days,
-        excretionNRate: cls?.excretionNRate ?? 0.34,
-        excretionPRate: cls?.excretionPRate ?? 0.092,
-        excretionKRate: cls?.excretionKRate ?? 0.24,
+        excretionNRate: HOME_NPK_DEFAULT_EXC.n,
+        excretionPRate: HOME_NPK_DEFAULT_EXC.p,
+        excretionKRate: HOME_NPK_DEFAULT_EXC.k,
       });
       // OI-0073 Part C: NPK-1 returns {nKg,pKg,kKg}; legacy fallback to {n,p,k}. Prevents NaN.
       const nLbs = ((result.nKg ?? result.n ?? 0) * 2.20462).toFixed(1);
@@ -883,14 +890,13 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
       const prices = getAll('npkPriceHistory').sort((a, b) => (b.effectiveDate || '').localeCompare(a.effectiveDate || ''))[0];
       if (prices) {
         const npk1 = getCalcByName('NPK-1');
-        const cls2 = activeGW?.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
         const days2 = groupWindowPresenceDays(activeGW, {
           eventStartDate: (activeEvent && getEventStartDate(activeEvent.id)) || todayStr,
           eventDateOut: activeEvent?.dateOut,
           eventTimeOut: activeEvent?.timeOut,
           throughDate: todayStr,
         });
-        const r = npk1.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days2, excretionNRate: cls2?.excretionNRate ?? 0.34, excretionPRate: cls2?.excretionPRate ?? 0.092, excretionKRate: cls2?.excretionKRate ?? 0.24 });
+        const r = npk1.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days2, excretionNRate: HOME_NPK_DEFAULT_EXC.n, excretionPRate: HOME_NPK_DEFAULT_EXC.p, excretionKRate: HOME_NPK_DEFAULT_EXC.k });
         const val = npk2.fn({ nKg: r.nKg ?? r.n ?? 0, pKg: r.pKg ?? r.p ?? 0, kKg: r.kKg ?? r.k ?? 0, nPricePerKg: prices.nPricePerKg ?? 0, pPricePerKg: prices.pPricePerKg ?? 0, kPricePerKg: prices.kPricePerKg ?? 0 });
         npkValueStr = ` \u00B7 $${val.toFixed(2)} fert value`;
       }
@@ -902,8 +908,9 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   if (isOnPasture && activeGW) {
     const dmi2 = getCalcByName('DMI-2');
     if (dmi2) {
-      const cls3 = activeGW.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
-      const dmiKg = dmi2.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, dmiPct: cls3?.dmiPct ?? 2.5, dmiPctLactating: cls3?.dmiPctLactating ?? 2.5, isLactating: false });
+      const dmiKg = groupDayDmi(activeGW, todayStr, {
+        ...groupDmiCtx(), head: activeLiveHead, avgWeightKg: activeLiveAvg,
+      }).kg;
       dmiTargetDisplay = convert(dmiKg, 'weight', 'toImperial').toFixed(0);
     }
   }
@@ -981,7 +988,6 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     ]));
     // NPK line (purple)
     if (npkEl) {
-      const cls4 = activeGW?.animalClassId ? getById('animalClasses', activeGW.animalClassId) : null;
       const npk1b = getCalcByName('NPK-1');
       const days4 = groupWindowPresenceDays(activeGW, {
         eventStartDate: (activeEvent && getEventStartDate(activeEvent.id)) || todayStr,
@@ -989,7 +995,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
         eventTimeOut: activeEvent?.timeOut,
         throughDate: todayStr,
       });
-      const r2 = npk1b.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days4, excretionNRate: cls4?.excretionNRate ?? 0.34, excretionPRate: cls4?.excretionPRate ?? 0.092, excretionKRate: cls4?.excretionKRate ?? 0.24 });
+      const r2 = npk1b.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days4, excretionNRate: HOME_NPK_DEFAULT_EXC.n, excretionPRate: HOME_NPK_DEFAULT_EXC.p, excretionKRate: HOME_NPK_DEFAULT_EXC.k });
       const nL = convert(r2.nKg ?? r2.n ?? 0, 'weight', 'toImperial').toFixed(1);
       const pL = convert(r2.pKg ?? r2.p ?? 0, 'weight', 'toImperial').toFixed(1);
       const kL = convert(r2.kKg ?? r2.k ?? 0, 'weight', 'toImperial').toFixed(1);
@@ -1166,16 +1172,18 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
 
   // DMI
   let dailyDmiKg = 0;
+  const dmiResults = [];
   if (dmi2) {
+    const ctx = groupDmiCtx();
     for (const gw of gws) {
-      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
-      dailyDmiKg += dmi2.fn({
-        headCount: live.head, avgWeightKg: live.avg,
-        dmiPct: cls?.dmiPct ?? 2.5, dmiPctLactating: cls?.dmiPctLactating ?? 2.5, isLactating: false,
-      });
+      // OI-0279: per-class DMI % from the group's member mix today.
+      const d = groupDayDmi(gw, todayStr, { ...ctx, head: live.head, avgWeightKg: live.avg });
+      dmiResults.push({ ...d, groupWindow: gw });
+      dailyDmiKg += d.kg;
     }
   }
+  const dmiNote = dmiBasisNote(dmiResults);
 
   // Stored feed: every check counts, not only a close reading. Deliveries and
   // removals strictly after that check adjust the residual. No check → residual 0.
@@ -1333,7 +1341,6 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   if (npk1 && gws.length) {
     let totalN = 0, totalP = 0, totalK = 0;
     for (const gw of gws) {
-      const cls = gw.animalClassId ? getById('animalClasses', gw.animalClassId) : null;
       const days = groupWindowPresenceDays(gw, {
         eventStartDate: getEventStartDate(event.id),
         eventDateOut: event.dateOut,
@@ -1343,7 +1350,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
       const r = npk1.fn({
         headCount: live.head, avgWeightKg: live.avg, days,
-        excretionNRate: cls?.excretionNRate ?? 0.34, excretionPRate: cls?.excretionPRate ?? 0.092, excretionKRate: cls?.excretionKRate ?? 0.24,
+        excretionNRate: HOME_NPK_DEFAULT_EXC.n, excretionPRate: HOME_NPK_DEFAULT_EXC.p, excretionKRate: HOME_NPK_DEFAULT_EXC.k,
       });
       totalN += r.nKg ?? r.n ?? 0;
       totalP += r.pKg ?? r.p ?? 0;
@@ -1622,7 +1629,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   if (dailyDmiDisplay) {
     let dmiLine = `${t('dmi.targetForecast')} ${dailyDmiDisplay} lbs/day`;
     if (storedPct > 0) dmiLine += ` \u00B7 ${storedPct}% stored \u00B7 ${pasturePct}% est. pasture`;
-    summaryParts.push(el('div', { style: { fontSize: '12px', marginBottom: '2px' } }, [dmiLine]));
+    summaryParts.push(el('div', { style: { fontSize: '12px', marginBottom: '2px' }, 'data-testid': `dashboard-loc-dmi-${event.id}`, ...(dmiNote ? { title: dmiNote } : {}) }, [dmiLine]));
   }
   if (npkLine) {
     summaryParts.push(el('div', { style: { fontSize: '12px', color: 'var(--color-purple-dark, #5B21B6)' } }, [npkLine]));

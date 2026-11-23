@@ -21,7 +21,7 @@
 
 import { getAll, getById } from '../../data/store.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
-import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
+import { getLiveWindowHeadCount, getLiveWindowAvgWeight, groupDayDmi, groupDayExcretionRates, dmiBasisNote } from '../../calcs/window-helpers.js';
 import { buildDmi8ChartContext } from '../events/dmi-chart-context.js';
 import { getEventStartDate } from '../events/event-start.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
@@ -71,7 +71,6 @@ function computeNpk1PerWindow(ctx) {
 
   const rows = [];
   for (const gw of groupWindows) {
-    const cls = gw.animalClassId ? animalClasses.find(c => c.id === gw.animalClassId) : null;
     const rawHead = getLiveWindowHeadCount(gw, { memberships, animals, now: today });
     const headCount = rawHead || (gw.headCount ?? 0);
     const rawAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: today });
@@ -83,12 +82,11 @@ function computeNpk1PerWindow(ctx) {
       eventTimeOut: event?.timeOut,
       throughDate: today,
     }), 0);
-    const nFromCls = cls?.excretionNRate;
-    const pFromCls = cls?.excretionPRate;
-    const kFromCls = cls?.excretionKRate;
-    const nRate = nFromCls ?? NRC_DEFAULT_EXCRETION.n;
-    const pRate = pFromCls ?? NRC_DEFAULT_EXCRETION.p;
-    const kRate = kFromCls ?? NRC_DEFAULT_EXCRETION.k;
+    // OI-0279: class rates from the group's member mix today (NRC defaults per unclassed member).
+    const exc = groupDayExcretionRates(gw, today, { memberships, animals, animalClasses, animalWeightRecords }, NRC_DEFAULT_EXCRETION);
+    const nRate = exc.n;
+    const pRate = exc.p;
+    const kRate = exc.k;
     let output = { nKg: 0, pKg: 0, kKg: 0 };
     let gateStatus = 'ok';
     try {
@@ -100,9 +98,8 @@ function computeNpk1PerWindow(ctx) {
       gateStatus = `error: ${err.message}`;
     }
     rows.push({
-      gw, cls, headCount, avgWeightKg, days,
+      gw, headCount, avgWeightKg, days,
       nRate, pRate, kRate,
-      nFromCls, pFromCls, kFromCls,
       output, gateStatus,
     });
   }
@@ -139,8 +136,6 @@ function resolveDMI2(ctx) {
   const instances = [];
   for (const gw of groupWindows) {
     const group = getById('groups', gw.groupId);
-    const cls = gw.animalClassId ? animalClasses.find(c => c.id === gw.animalClassId) : null;
-
     // Mirror DMI-8's fallback: when memberships aren't populated, the live
     // recompute returns 0; fall back to the window's stored values so the
     // audit reflects the same value calc consumers see in the dashboard.
@@ -154,15 +149,18 @@ function resolveDMI2(ctx) {
     const avgSource = rawLiveAvg
       ? `eventGroupWindows.${gw.id}.avgWeightKg (live)`
       : `eventGroupWindows.${gw.id}.avgWeightKg (stored fallback)`;
-    const dmiPct = cls?.dmiPct ?? 2.5;
-    const dmiPctLactating = cls?.dmiPctLactating ?? null;
+    // OI-0279: effective per-class DMI % from the group's member mix today.
+    const mix = groupDayDmi(gw, today, { memberships, animals, animalClasses, animalWeightRecords, head: liveHead, avgWeightKg: liveAvg });
+    const dmiPct = mix.dmiPct;
+    const dmiPctLactating = null; // L0: lactating % unused.
     const isLactating = false; // OI-0144 placeholder.
+    const note = dmiBasisNote(mix);
 
     const inputs = [
       input('headCount', liveHead, headSource),
       input('avgWeightKg', liveAvg, avgSource, 'weight'),
-      input('dmiPct', dmiPct, cls ? `animalClasses.${cls.id}.dmiPct` : 'fallback (2.5%)', null, !cls),
-      input('dmiPctLactating', dmiPctLactating, cls ? `animalClasses.${cls.id}.dmiPctLactating` : 'n/a'),
+      input('dmiPct', dmiPct, `member class mix (basis ${mix.basis})${note ? `; ${note}` : ''}`, null, mix.basis !== 'members'),
+      input('dmiPctLactating', dmiPctLactating, 'n/a (L0)'),
       input('isLactating', isLactating, 'placeholder (OI-0144 follow-on)'),
     ];
 
@@ -451,23 +449,18 @@ function resolveNPK1(ctx) {
   }
   const instances = [];
   for (const row of data.rows) {
-    const { gw, cls, headCount, avgWeightKg, days,
-            nRate, pRate, kRate, nFromCls, pFromCls, kFromCls,
+    const { gw, headCount, avgWeightKg, days,
+            nRate, pRate, kRate,
             output, gateStatus } = row;
+    const excSource = 'member class mix (OI-0279; NRC beef defaults per unclassed member)';
     const group = getById('groups', gw.groupId);
     const inputs = [
       input('headCount', headCount, `eventGroupWindows.${gw.id}.headCount (live)`),
       input('avgWeightKg', avgWeightKg, `eventGroupWindows.${gw.id}.avgWeightKg (live)`, 'weight'),
       input('days', days, `TIM-3 presence (${gw.dateJoined || 'eventStart'} → today)`),
-      input('excretionNRate', nRate,
-        nFromCls != null ? `animalClasses.${cls.id}.excretionNRate` : 'fallback (NRC beef defaults)',
-        null, nFromCls == null),
-      input('excretionPRate', pRate,
-        pFromCls != null ? `animalClasses.${cls.id}.excretionPRate` : 'fallback (NRC beef defaults)',
-        null, pFromCls == null),
-      input('excretionKRate', kRate,
-        kFromCls != null ? `animalClasses.${cls.id}.excretionKRate` : 'fallback (NRC beef defaults)',
-        null, kFromCls == null),
+      input('excretionNRate', nRate, excSource),
+      input('excretionPRate', pRate, excSource),
+      input('excretionKRate', kRate, excSource),
     ];
     instances.push({
       label: group?.name ? `Group: ${group.name}` : `Window ${gw.id.slice(0, 8)}`,

@@ -158,7 +158,10 @@ function renderMetricCol(col, metrics, { includePerAcre = true } = {}) {
   // OI-0276: leftover hay without NPK % / weight / DM adds 0 — subtle hover note only.
   const isNpk = col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg';
   const hayNote = isNpk ? residualNpkNote(metrics) : null;
-  const title = hayNote ? `${baseTitle}. ${hayNote}` : baseTitle;
+  // OI-0279: name any per-class DMI % fallback on the DMI cells.
+  const isDmi = col.key === 'dmiKg' || col.key === 'dmiPerAcre';
+  const basisNote = isDmi ? metrics?.dmiBasisNote || null : null;
+  const title = [baseTitle, hayNote, basisNote].filter(Boolean).join('. ');
   return el('div', {
     className: `loc-mgmt__metric${isPartial ? ' loc-mgmt__metric--partial' : ''}`,
     title,
@@ -166,6 +169,7 @@ function renderMetricCol(col, metrics, { includePerAcre = true } = {}) {
       key: col.key,
       partial: isPartial ? 'true' : undefined,
       ...(hayNote ? { residualNote: 'true' } : {}),
+      ...(basisNote ? { dmiBasisNote: 'true' } : {}),
     },
   }, [
     el('span', {
@@ -917,6 +921,8 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
 function renderPeriodTotalsStrip(totals) {
   // OI-0276: same hover note on Total N/P/K when leftover hay was not counted.
   const hayNote = residualNpkNote(totals);
+  // OI-0279: per-class DMI % fallback note on the DMI totals.
+  const dmiNote = totals.dmiBasisNote ? `. ${totals.dmiBasisNote}` : '';
   const cell = (key, label, value, partial, title, note = null) => el('div', {
     className: `loc-mgmt__period-total${partial ? ' loc-mgmt__period-total--partial' : ''}`,
     title: note ? `${title}. ${note}` : title,
@@ -947,11 +953,11 @@ function renderPeriodTotalsStrip(totals) {
   }, [
     el('span', { className: 'loc-mgmt__period-totals-label' }, ['Period totals:']),
     cell('pastureDmi', 'Pasture DMI', totals.pastureDmiKg, !!totals.dmiPartial,
-      'Implied pasture DMI for the period in view (kg)'),
+      `Implied pasture DMI for the period in view (kg)${dmiNote}`),
     cell('storedDmi', 'Stored-feed DMI', totals.storedFeedDmiKg, false,
       'Measured stored-feed DMI eaten (kg); missing-DM counts as 0'),
     cell('totalDmi', 'Total DMI', totals.totalDmiKg, !!totals.dmiPartial,
-      'Pasture DMI + stored-feed DMI for the period (kg)'),
+      `Pasture DMI + stored-feed DMI for the period (kg)${dmiNote}`),
     cell('n', 'Total N', totals.nKg, !!totals.npkPartial, 'Total nitrogen for the period (kg)', hayNote),
     cell('p', 'Total P', totals.pKg, !!totals.npkPartial, 'Total phosphorus for the period (kg)', hayNote),
     cell('k', 'Total K', totals.kKg, !!totals.npkPartial, 'Total potassium for the period (kg)', hayNote),

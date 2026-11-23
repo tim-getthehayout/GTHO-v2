@@ -4,7 +4,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActiveFarmId, isCurrentUserDev, resolveGroupCurrentPlacement } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert, display } from '../../utils/units.js';
+import { formatMeasure, formatPerArea, shortUnit } from '../../utils/units.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { navigate } from '../../ui/router.js';
@@ -13,7 +13,7 @@ import { getCalcByName } from '../../utils/calc-registry.js';
 import { renderTodoCard } from '../todos/todo-card.js';
 import { openTodoSheet } from '../todos/todo-sheet.js';
 import { formatShortDate } from '../../utils/date-format.js';
-import { unitLabel } from '../../utils/units.js';
+import { computeHomeDmi, totalDmiTitle, pastureDmiTitle } from './home-dmi.js';
 import { openMoveWizard } from '../events/move-wizard.js';
 import { openPlaceWizard } from '../events/place-wizard.js';
 import { openCloseEventSheet } from '../events/close.js';
@@ -197,10 +197,10 @@ function renderDesktopStats(period, rootContainer) {
   }
 
   // 5 metric cells
-  const metrics = computeDesktopMetrics(events, unitSys);
+  const metrics = computeDesktopMetrics(events, unitSys, period);
   const grid = el('div', { className: 'dash-stats-grid' });
   for (const m of metrics) {
-    grid.appendChild(el('div', { className: 'm-cell', ...(m.title ? { title: m.title } : {}) }, [
+    grid.appendChild(el('div', { className: 'm-cell', ...(m.title ? { title: m.title } : {}), ...(m.testId ? { 'data-testid': m.testId } : {}) }, [
       el('div', { className: 'mc-value', style: { color: m.color } }, [m.value]),
       el('div', { className: 'mc-label' }, [m.label]),
     ]));
@@ -223,10 +223,10 @@ function renderMobileStats(period, rootContainer) {
   ]));
 
   // 3 metric cells
-  const metrics = computeMobileMetrics(events, unitSys);
+  const metrics = computeMobileMetrics(events, unitSys, period);
   const grid = el('div', { className: 'dash-stats-grid dash-stats-grid-mobile' });
   for (const m of metrics) {
-    grid.appendChild(el('div', { className: 'm-cell', ...(m.title ? { title: m.title } : {}) }, [
+    grid.appendChild(el('div', { className: 'm-cell', ...(m.title ? { title: m.title } : {}), ...(m.testId ? { 'data-testid': m.testId } : {}) }, [
       el('div', { className: 'mc-value', style: { color: m.color } }, [m.value]),
       el('div', { className: 'mc-label' }, [m.label]),
     ]));
@@ -353,73 +353,35 @@ function groupDmiCtx() {
 }
 
 /**
- * OI-0075 Bug 7: shared Pasture % computation used by both desktop and mobile
- * stat cards. Mass balance via DMI-4 across all supplied events:
- *   pasture_pct = (total_dmi - stored_consumed) / total_dmi × 100
+ * OI-0075 Bug 7 / OI-0277 Hd3: shared Pasture % for the desktop and mobile
+ * stat cards = Pasture DMI ÷ Total DMI over the period pill, both counted per
+ * group-day inside the period (see ./home-dmi.js). The old whole-life,
+ * inclusive-days stint loop (move days and overlaps twice) is retired.
  *
- * Returns { pasturePercent: number|null, color: string, subLabel: string }.
- * Null when no events have animals + DMI data to compute from.
+ * Returns { pasturePercent: number|null, color, subLabel, basisNote }.
+ * @param {string} period - '24h' | '3d' | '7d' | '30d' | 'All'
+ * @param {object[]} [events] - events in the period (sub-label only)
+ * @param {{ today?: string, ctx?: object, homeDmi?: object }} [opts]
  */
-export function computePasturePercent(events) {
-  const dmi1 = getCalcByName('DMI-1');
-  const dmi2 = getCalcByName('DMI-2');
-  const dmi4 = getCalcByName('DMI-4');
-  if (!dmi2 || !dmi4) return { pasturePercent: null, color: 'var(--color-teal-base)', subLabel: 'no grazing events' };
-
-  const memberships = getAll('animalGroupMemberships');
-  const animals = getAll('animals');
-  const animalClasses = getAll('animalClasses');
-  const animalWeightRecords = getAll('animalWeightRecords');
-  const todayStr = getLocalTodayStr();
-
-  let totalDmiKg = 0;
-  let totalStoredDmKg = 0;
-  const dmiResults = [];
-  for (const event of events) {
-    const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
-    for (const gw of gws) {
-      const now = gw.dateLeft || event.dateOut || todayStr;
-      const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
-      const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
-      // OI-0279: per-class DMI % from the group's member mix.
-      const d = groupDayDmi(gw, now, { memberships, animals, animalClasses, animalWeightRecords, head: liveHead, avgWeightKg: liveAvg });
-      dmiResults.push({ ...d, groupWindow: gw });
-      const dmiKgPerDay = d.kg;
-      const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
-      totalDmiKg += dmiKgPerDay * days;
-    }
-    if (dmi1) {
-      totalStoredDmKg += eventStoredFeedDm(event.id).storedConsumedKg;
-    }
+export function computePasturePercent(period, events = getEventsInPeriod(period), opts = {}) {
+  const r = opts.homeDmi || computeHomeDmi(period, opts);
+  if (r.pasturePercent == null) {
+    let subLabel = 'no grazing events';
+    if (events.length) subLabel = r.totalDmiKg > 0 ? 'pasture DMI unknown' : 'no animals on events';
+    return { pasturePercent: null, color: r.color, subLabel, basisNote: r.basisNote || null };
   }
-
-  if (totalDmiKg <= 0) {
-    return {
-      pasturePercent: null,
-      color: 'var(--color-teal-base)',
-      subLabel: events.length ? 'no animals on events' : 'no grazing events',
-      basisNote: null,
-    };
-  }
-  const split = dmi4.fn({ totalDmiKg, storedConsumedKg: totalStoredDmKg });
-  const pct = Math.max(0, Math.min(100, Math.round(split.pasturePct)));
-  // Color grade: green ≥ 75%, amber 50–74%, red < 50% (matches v1 color logic).
-  let color = 'var(--color-red-base)';
-  if (pct >= 75) color = 'var(--color-green-base)';
-  else if (pct >= 50) color = 'var(--color-amber-base)';
   const closedCount = events.filter(e => e.dateOut).length;
   const openCount = events.length - closedCount;
   const subLabel = closedCount > 0
     ? `${closedCount} closed \u00B7 ${openCount} open`
     : 'open events';
-  return { pasturePercent: pct, color, subLabel, basisNote: dmiBasisNote(dmiResults) };
+  return { pasturePercent: r.pasturePercent, color: r.color, subLabel, basisNote: r.basisNote || null };
 }
 
-function computeDesktopMetrics(events, _unitSys) {
+function computeDesktopMetrics(events, unitSys, period) {
   const cst1 = getCalcByName('CST-1');
   const npk1 = getCalcByName('NPK-1');
   const npk2 = getCalcByName('NPK-2');
-  const dmi2 = getCalcByName('DMI-2');
 
   const memberships = getAll('animalGroupMemberships');
   const animals = getAll('animals');
@@ -427,27 +389,11 @@ function computeDesktopMetrics(events, _unitSys) {
   const animalWeightRecords = getAll('animalWeightRecords');
   const todayStr = getLocalTodayStr();
 
-  // Pasture DMI
-  let totalDmiKg = 0;
-  const dmiResults = [];
-  for (const event of events) {
-    const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
-    for (const gw of gws) {
-      if (dmi2) {
-        const now = gw.dateLeft || event.dateOut || todayStr;
-        const liveHead = getLiveWindowHeadCount(gw, { memberships, animals, now });
-        const liveAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now });
-        // OI-0279: per-class DMI % from the group's member mix.
-        const d = groupDayDmi(gw, now, { memberships, animals, animalClasses, animalWeightRecords, head: liveHead, avgWeightKg: liveAvg });
-        dmiResults.push({ ...d, groupWindow: gw });
-        const dmiKgPerDay = d.kg;
-        const days = daysBetweenInclusive(gw.dateJoined || getEventStartDate(event.id), now);
-        totalDmiKg += dmiKgPerDay * days;
-      }
-    }
-  }
-  const dmiLbs = convert(totalDmiKg, 'weight', 'toImperial');
-  const dmiDisplay = dmiLbs >= 1000 ? `${(dmiLbs / 1000).toFixed(1)}k` : Math.round(dmiLbs).toString();
+  // OI-0277 Hd3: Total DMI (herd need) + Pasture DMI (implied pasture), each
+  // group-day once and only inside the period; per-class DMI % (OI-0279).
+  // OI-0278 Na: compact "12.3k lb" in the farm unit on Home tiles.
+  const homeDmi = computeHomeDmi(period);
+  const fmtTile = (kg) => formatMeasure(kg, 'weight', { unitSystem: unitSys, compact: true });
 
   // Feed cost
   let feedCostTotal = 0;
@@ -464,15 +410,15 @@ function computeDesktopMetrics(events, _unitSys) {
     }
   }
 
-  // Pasture % — OI-0075 Bug 7: live compute via mass balance DMI-4 across events.
-  const pastureMetric = computePasturePercent(events);
+  // Pasture % — OI-0277: Pasture DMI ÷ Total DMI over the period (same counting as the tiles).
+  const pastureMetric = computePasturePercent(period, events, { homeDmi });
   const pasturePercent = pastureMetric.pasturePercent;
   const pastureSub = pastureMetric.subLabel;
   const pastureColorDesktop = pastureMetric.color;
 
   // NPK / Acre
   let totalNPK = { n: 0, p: 0, k: 0 };
-  let totalAcres = 0;
+  let totalHa = 0;
   if (npk1) {
     for (const event of events) {
       const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
@@ -502,19 +448,20 @@ function computeDesktopMetrics(events, _unitSys) {
         // OI-0075: entity field is areaHectares; areaHa kept as legacy fallback.
         const ha = loc?.areaHectares ?? loc?.areaHa;
         if (ha) {
-          totalAcres += convert(ha, 'area', 'toImperial');
+          totalHa += Number(ha);
         }
       }
     }
   }
-  const npkPerAcre = totalAcres > 0 ? ((totalNPK.n + totalNPK.p + totalNPK.k) * 2.20462) / totalAcres : 0;
-  const npkSubN = (totalNPK.n * 2.20462).toFixed(0);
-  const npkSubP = (totalNPK.p * 2.20462).toFixed(0);
-  const npkSubK = (totalNPK.k * 2.20462).toFixed(0);
+  // OI-0278 S2 rows 13–14: canonical kg / ha; the helper converts (lb/ac or kg/ha).
+  const npkKgPerHa = totalHa > 0 ? (totalNPK.n + totalNPK.p + totalNPK.k) / totalHa : 0;
+  const npkSub = (v) => formatMeasure(v, 'npk', { unitSystem: unitSys, compact: true, unitInHeader: true });
+  const npkUnit = shortUnit('npk', unitSys);
+  const areaText = formatMeasure(totalHa, 'area', { unitSystem: unitSys });
 
   // NPK Value
   let npkValue = 0;
-  if (npk2 && totalAcres > 0) {
+  if (npk2 && totalHa > 0) {
     const prices = getAll('npkPriceHistory');
     const latestPrice = prices.length ? prices.sort((a, b) => new Date(b.effectiveDate) - new Date(a.effectiveDate))[0] : null;
     if (latestPrice) {
@@ -528,14 +475,22 @@ function computeDesktopMetrics(events, _unitSys) {
       });
     }
   }
-  const npkValuePerAcre = totalAcres > 0 ? npkValue / totalAcres : 0;
+  const npkValuePerHa = totalHa > 0 ? npkValue / totalHa : 0;
 
   return [
     {
-      value: dmiDisplay,
-      label: 'lbs DM',
+      value: fmtTile(homeDmi.start ? homeDmi.totalDmiKg : null),
+      label: 'Total DMI',
       color: 'var(--color-green-base)',
-      title: dmiBasisNote(dmiResults) || undefined,
+      title: totalDmiTitle(homeDmi),
+      testId: 'dashboard-total-dmi',
+    },
+    {
+      value: fmtTile(homeDmi.pastureDmiKg),
+      label: 'Pasture DMI',
+      color: 'var(--color-green-dark, var(--color-green-base))',
+      title: pastureDmiTitle(homeDmi),
+      testId: 'dashboard-pasture-dmi',
     },
     {
       value: `$${feedCostTotal.toFixed(2)}`,
@@ -549,19 +504,22 @@ function computeDesktopMetrics(events, _unitSys) {
       title: pastureMetric.basisNote || undefined,
     },
     {
-      value: npkPerAcre > 0 ? `${npkPerAcre.toFixed(1)} /ac` : '\u2014',
-      label: totalAcres > 0 ? `N${npkSubN}/P${npkSubP}/K${npkSubK} lbs \u00B7 ${totalAcres.toFixed(2)} ac` : '\u00A0',
+      value: npkKgPerHa > 0 ? formatPerArea(npkKgPerHa, 'npk', { unitSystem: unitSys }) : '\u2014',
+      label: totalHa > 0 ? `N${npkSub(totalNPK.n)}/P${npkSub(totalNPK.p)}/K${npkSub(totalNPK.k)} ${npkUnit} \u00B7 ${areaText}` : '\u00A0',
       color: 'var(--color-purple-dark)',
+      testId: 'dashboard-npk-per-area',
     },
     {
-      value: npkValuePerAcre > 0 ? `$${npkValuePerAcre.toFixed(2)}/ac` : '\u2014',
-      label: totalAcres > 0 ? `$${npkValue.toFixed(0)} total \u00B7 ${totalAcres.toFixed(2)} ac` : '\u00A0',
+      // $ per farm area: "$/ac" or "$/ha" (count family = no weight unit).
+      value: npkValuePerHa > 0 ? `$${formatPerArea(npkValuePerHa, 'count', { unitSystem: unitSys, decimals: 2 })}` : '\u2014',
+      label: totalHa > 0 ? `$${npkValue.toFixed(0)} total \u00B7 ${areaText}` : '\u00A0',
       color: 'var(--color-blue-base)',
+      testId: 'dashboard-npk-value-per-area',
     },
   ];
 }
 
-function computeMobileMetrics(events, _unitSys) {
+function computeMobileMetrics(events, unitSys, period) {
   const cst1 = getCalcByName('CST-1');
   const npk1 = getCalcByName('NPK-1');
 
@@ -571,14 +529,14 @@ function computeMobileMetrics(events, _unitSys) {
   const animalWeightRecords = getAll('animalWeightRecords');
   const todayStr = getLocalTodayStr();
 
-  // Pasture % — OI-0075 Bug 7: live compute via the shared helper. Was hard-coded em-dash.
-  const pastureMetric = computePasturePercent(events);
+  // Pasture % — OI-0075 Bug 7 / OI-0277: Pasture DMI ÷ Total DMI over the period.
+  const pastureMetric = computePasturePercent(period, events);
   const pastureVal = pastureMetric.pasturePercent !== null ? `${pastureMetric.pasturePercent}%` : '\u2014';
   const pastureColor = pastureMetric.color;
 
   // NPK / Acre
   let totalNPK = 0;
-  let totalAcres = 0;
+  let totalHa = 0;
   if (npk1) {
     for (const event of events) {
       const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id);
@@ -602,16 +560,17 @@ function computeMobileMetrics(events, _unitSys) {
         const nKg = (result.nKg ?? result.n ?? 0);
         const pKg = (result.pKg ?? result.p ?? 0);
         const kKg = (result.kKg ?? result.k ?? 0);
-        totalNPK += (nKg + pKg + kKg) * 2.20462;
+        totalNPK += nKg + pKg + kKg;
       }
       for (const pw of pws) {
         const loc = getById('locations', pw.locationId);
         const ha = loc?.areaHectares ?? loc?.areaHa;
-        if (ha) totalAcres += convert(ha, 'area', 'toImperial');
+        if (ha) totalHa += Number(ha);
       }
     }
   }
-  const npkPerAcre = totalAcres > 0 ? totalNPK / totalAcres : 0;
+  // OI-0278 S2 row 15: canonical kg / ha; the helper shows lb/ac or kg/ha.
+  const npkKgPerHa = totalHa > 0 ? totalNPK / totalHa : 0;
 
   // Feed cost / day
   let feedCostTotal = 0;
@@ -647,8 +606,9 @@ function computeMobileMetrics(events, _unitSys) {
       title: pastureMetric.basisNote || undefined,
     },
     {
-      value: npkPerAcre > 0 ? `${npkPerAcre.toFixed(1)} /ac` : '\u2014',
-      label: 'NPK / Acre',
+      value: npkKgPerHa > 0 ? formatPerArea(npkKgPerHa, 'npk', { unitSystem: unitSys, compact: true }) : '\u2014',
+      label: unitSys === 'metric' ? 'NPK / Hectare' : 'NPK / Acre',
+      testId: 'dashboard-npk-per-area',
       color: 'var(--color-purple-dark)',
     },
     {
@@ -772,7 +732,7 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   // Average weight. Unplaced groups have no window, so the average still
   // comes from the same live helper (lot total / head for a composite).
   const avgWeightDisplay = activeLiveAvg > 0
-    ? display(activeLiveAvg, 'weight', unitSys, 0)
+    ? formatMeasure(activeLiveAvg, 'weight', { unitSystem: unitSys, decimals: 0 })
     : '';
 
   // Location info
@@ -826,15 +786,21 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
   if (isOnPasture && activeGW) {
     const dmi2 = getCalcByName('DMI-2');
     if (dmi2 && group.dmiTarget > 0) {
-      const dmiKgPerDay = groupDayDmi(activeGW, todayStr, {
+      const dmiRes = groupDayDmi(activeGW, todayStr, {
         ...groupDmiCtx(), head: activeLiveHead, avgWeightKg: activeLiveAvg,
-      }).kg;
-      const target = convert(group.dmiTarget, 'weight', 'toImperial');
-      const consumed = convert(dmiKgPerDay, 'weight', 'toImperial');
-      const pct = target > 0 ? Math.min(100, (consumed / target) * 100) : 0;
+      });
+      const dmiKgPerDay = dmiRes.kg;
+      // OI-0278 S2 row 16: farm unit via the helper (ratio is unit-free).
+      const pct = group.dmiTarget > 0 ? Math.min(100, (dmiKgPerDay / group.dmiTarget) * 100) : 0;
+      const consumedTxt = formatMeasure(dmiKgPerDay, 'weight', { unitSystem: unitSys, unitInHeader: true });
+      const targetTxt = formatMeasure(group.dmiTarget, 'weight', { unitSystem: unitSys });
+      const dmiNote = dmiBasisNote([{ ...dmiRes, groupWindow: activeGW }]);
       dmiEl = el('div', { style: { marginBottom: 'var(--space-3)' } }, [
-        el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [
-          `DMI: ${consumed.toFixed(0)} / ${target.toFixed(0)} lbs`,
+        el('div', {
+          style: { fontSize: '12px', color: 'var(--text2)' },
+          ...(dmiNote ? { title: dmiNote } : {}),
+        }, [
+          `DMI: ${consumedTxt} / ${targetTxt}`,
         ]),
         el('div', { className: 'progress-bar' }, [
           el('div', {
@@ -864,11 +830,10 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
         ...npkRateArgs(activeGW, todayStr),
       });
       // OI-0073 Part C: NPK-1 returns {nKg,pKg,kKg}; legacy fallback to {n,p,k}. Prevents NaN.
-      const nLbs = ((result.nKg ?? result.n ?? 0) * 2.20462).toFixed(1);
-      const pLbs = ((result.pKg ?? result.p ?? 0) * 2.20462).toFixed(1);
-      const kLbs = ((result.kKg ?? result.k ?? 0) * 2.20462).toFixed(1);
+      // OI-0278 S2 row 17: farm unit via the helper, one unit after the triple.
+      const nv = (v) => formatMeasure(v ?? 0, 'npk', { unitSystem: unitSys, unitInHeader: true });
       npkEl = el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-3)' } }, [
-        `NPK deposited: N${nLbs} P${pLbs} K${kLbs} lbs`,
+        `NPK deposited: N${nv(result.nKg ?? result.n)} P${nv(result.pKg ?? result.p)} K${nv(result.kKg ?? result.k)} ${shortUnit('npk', unitSys)}`,
       ]);
     }
   }
@@ -906,13 +871,17 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
 
   // DMI target display
   let dmiTargetDisplay = '';
+  let dmiTargetNote = null;
   if (isOnPasture && activeGW) {
     const dmi2 = getCalcByName('DMI-2');
     if (dmi2) {
-      const dmiKg = groupDayDmi(activeGW, todayStr, {
+      const dmiRes = groupDayDmi(activeGW, todayStr, {
         ...groupDmiCtx(), head: activeLiveHead, avgWeightKg: activeLiveAvg,
-      }).kg;
-      dmiTargetDisplay = convert(dmiKg, 'weight', 'toImperial').toFixed(0);
+      });
+      // OI-0278 S2 row 18: "1,234 lb/day" (farm unit + "/day").
+      dmiTargetDisplay = `${formatMeasure(dmiRes.kg, 'weight', { unitSystem: unitSys })}/day`;
+      // OI-0279 Design note: Group-card DMI line names any per-class fallback.
+      dmiTargetNote = dmiBasisNote([{ ...dmiRes, groupWindow: activeGW }]);
     }
   }
 
@@ -923,7 +892,6 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
 
   // Build v1-parity card
   const isExpanded = expandedGroups.has(group.id) || isOnPasture;
-  const wUnit = unitLabel('weight', unitSys);
 
   const card = el('div', {
     className: `grp-card${isExpanded ? ' expanded' : ''}`,
@@ -981,8 +949,12 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
 
   // DMI + NPK block
   if (isOnPasture && dmiTargetDisplay) {
-    const dmiBlock = el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '10px' } }, [
-      `${t('dmi.targetForecast')} ${dmiTargetDisplay} lbs/day`,
+    const dmiBlock = el('div', {
+      style: { fontSize: '12px', color: 'var(--text2)', marginBottom: '10px' },
+      'data-testid': `dashboard-group-dmi-${group.id}`,
+      ...(dmiTargetNote ? { title: dmiTargetNote } : {}),
+    }, [
+      `${t('dmi.targetForecast')} ${dmiTargetDisplay}`,
     ]);
     dmiBlock.appendChild(el('div', { className: 'prog', style: { marginTop: '4px' } }, [
       el('div', { className: 'prog-fill', style: { width: '0%', background: 'var(--amber)' } }),
@@ -997,11 +969,10 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
         throughDate: todayStr,
       });
       const r2 = npk1b.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days4, ...npkRateArgs(activeGW, todayStr) });
-      const nL = convert(r2.nKg ?? r2.n ?? 0, 'weight', 'toImperial').toFixed(1);
-      const pL = convert(r2.pKg ?? r2.p ?? 0, 'weight', 'toImperial').toFixed(1);
-      const kL = convert(r2.kKg ?? r2.k ?? 0, 'weight', 'toImperial').toFixed(1);
+      // OI-0278 S2 row 19: farm unit via the helper.
+      const nv = (v) => formatMeasure(v ?? 0, 'npk', { unitSystem: unitSys, unitInHeader: true });
       dmiBlock.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--purple-d)', marginTop: '3px' } }, [
-        `NPK deposited: N${nL} / P${pL} / K${kL} lbs${npkValueStr}`,
+        `NPK deposited: N${nv(r2.nKg ?? r2.n)} / P${nv(r2.pKg ?? r2.p)} / K${nv(r2.kKg ?? r2.k)} ${shortUnit('npk', unitSys)}${npkValueStr}`,
       ]));
     }
     body.appendChild(dmiBlock);
@@ -1119,8 +1090,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     locName = loc?.name || '?';
     totalAreaHa = locArea(loc);
   }
-  const areaDisplay = totalAreaHa > 0 ? display(totalAreaHa, 'area', unitSys, 2) : '';
-  const areaUnit = unitSys === 'imperial' ? 'ac' : 'ha';
+  // OI-0278 S2: helper formatting for every unit-bearing value on this card.
+  const fmtW = (kg, opts = {}) => formatMeasure(kg, 'weight', { unitSystem: unitSys, ...opts });
 
   // Groups
   const gws = getAll('eventGroupWindows').filter(gw => gw.eventId === event.id && !gw.dateLeft);
@@ -1247,7 +1218,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     if (for2) estAuds = for2.fn({ availableDmKg, dmPerAudKg: 11 });
   }
   if (forageAgg.heightCm != null) {
-    forageHeightDisplay = display(forageAgg.heightCm, 'length', unitSys, 1);
+    // OI-0278 S2 row 20: "4.0 in" / "10.2 cm" (no trailing inch mark).
+    forageHeightDisplay = formatMeasure(forageAgg.heightCm, 'length', { unitSystem: unitSys });
   }
 
   // Pasture bottoms at 0 and cannot exceed the FOR-1 estimate when we have one.
@@ -1325,17 +1297,17 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   // Weight + AU — OI-0157-B1: route through ANI-AU registry call. Math is
   // preserved via the headCount × (totalWeightKg / max(totalHead, 1))
   // back-conversion; for totalHead=0 the empty-group result remains 0.
-  const totalWeightDisplay = display(totalWeightKg, 'weight', unitSys, 0);
-  const wUnit = unitLabel('weight', unitSys);
   const auValue = getCalcByName('ANI-AU').fn({
     headCount: totalHead,
     avgWeightKg: totalWeightKg / Math.max(totalHead, 1),
   });
 
   // ADA (animal days per acre) — OI-0157-B1: ANI-AUD + ANI-ADA chain.
-  const totalAcres = totalAreaHa > 0 ? convert(totalAreaHa, 'area', 'toImperial') : 0;
+  // OI-0278 S2 row 21: ADA per canonical ha (AUDs ÷ ha — ANI-ADA's ratio on the
+  // stored area); the helper shows "/ac" or "/ha".
   const aUds = getCalcByName('ANI-AUD').fn({ au: auValue, days: dayCount });
-  const adaPerAc = getCalcByName('ANI-ADA').fn({ auds: aUds, areaAcres: totalAcres });
+  const adaPerHa = totalAreaHa > 0 ? aUds / totalAreaHa : 0;
+  const adaText = totalAreaHa > 0 ? `ADA est: ${formatPerArea(adaPerHa, 'count', { unitSystem: unitSys })}` : '';
 
   // NPK
   let npkLine = null;
@@ -1357,10 +1329,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       totalP += r.pKg ?? r.p ?? 0;
       totalK += r.kKg ?? r.k ?? 0;
     }
-    const nDisp = convert(totalN, 'weight', 'toImperial').toFixed(1);
-    const pDisp = convert(totalP, 'weight', 'toImperial').toFixed(1);
-    const kDisp = convert(totalK, 'weight', 'toImperial').toFixed(1);
-    let npkText = `NPK: N${nDisp} / P${pDisp} / K${kDisp} lbs`;
+    // OI-0278 S2 row 22: farm unit via the helper.
+    const nv = (v) => formatMeasure(v, 'npk', { unitSystem: unitSys, unitInHeader: true });
+    let npkText = `NPK: N${nv(totalN)} / P${nv(totalP)} / K${nv(totalK)} ${shortUnit('npk', unitSys)}`;
     if (npk2) {
       const prices = getAll('npkPriceHistory').sort((a, b) => (b.effectiveDate || '').localeCompare(a.effectiveDate || ''))[0];
       if (prices) {
@@ -1372,7 +1343,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   }
 
   // Daily DMI display
-  const dailyDmiDisplay = dailyDmiKg > 0 ? convert(dailyDmiKg, 'weight', 'toImperial').toFixed(0) : null;
+  // OI-0278 S2 row 23: "1,234 lb/day" in the farm unit.
+  const dailyDmiDisplay = dailyDmiKg > 0 ? `${fmtW(dailyDmiKg)}/day` : null;
 
   // Neighbors sit under the open set. A cohort opened together is the base,
   // not one real paddock plus sub-moves. A sole open window has no sub rows.
@@ -1409,7 +1381,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
       el('span', { style: { fontSize: '22px', color: 'var(--color-green-base)' } }, ['\uD83C\uDF3F']),
       el('span', { style: { fontSize: '18px', fontWeight: '700' } }, [locName]),
-      totalAreaHa > 0 ? el('span', { style: { fontSize: '14px', fontWeight: '400', color: 'var(--text2)' } }, [`${convert(totalAreaHa, 'area', 'toImperial').toFixed(2)} ${areaUnit}`]) : null,
+      // OI-0278 S2 row 24: area in the farm unit ("9.9 ac" / "4.0 ha"; was acres labelled ha on metric).
+      totalAreaHa > 0 ? el('span', { style: { fontSize: '14px', fontWeight: '400', color: 'var(--text2)' }, 'data-testid': `dashboard-loc-area-${event.id}` }, [formatMeasure(totalAreaHa, 'area', { unitSystem: unitSys })]) : null,
     ].filter(Boolean)),
     // §3: Top-right action buttons
     el('div', { style: { display: 'flex', gap: '6px' } }, [
@@ -1453,7 +1426,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   // §6: Weight line
   if (totalHead > 0) {
     children.push(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: 'var(--space-1)' } }, [
-      `Weight: ${totalWeightKg > 0 ? convert(totalWeightKg, 'weight', 'toImperial').toLocaleString('en-US', { maximumFractionDigits: 0 }) : '0'} ${wUnit} \u00B7 ${auValue.toFixed(1)} AU`,
+      // OI-0278 S2 row 25: herd weight in the farm unit (was lb labelled kg on metric).
+      `Weight: ${fmtW(totalWeightKg > 0 ? totalWeightKg : 0)} \u00B7 ${auValue.toFixed(1)} AU`,
     ]));
   }
 
@@ -1462,7 +1436,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   if (isPureConfinement) {
     children.push(renderInactiveForageSummary({
       forageTypeName: forageType?.name,
-      heightDisplay: forageHeightDisplay ? `${forageHeightDisplay}"` : '',
+      heightDisplay: forageHeightDisplay || '',
       testId: `dashboard-confinement-forage-${event.id}`,
     }));
     const feedLine = renderEventFeedRemainingLine(event.id, {
@@ -1474,9 +1448,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     const daysText = Number(daysRemaining).toFixed(2);
     let capText = `Est. capacity: ${Math.round(estAuds)} AUDs · ~${daysText} days after today`;
     if (daysIncludeStored) capText += ' (incl. stored feed)';
-    if (forageHeightDisplay) capText += ` · ${forageHeightDisplay}"`;
+    if (forageHeightDisplay) capText += ` · ${forageHeightDisplay}`;
     if (forageAgg.partial) capText += ` · ${t('dashboard.partialPreGraze')}`;
-    if (totalAcres > 0) capText += ` · ADA est: ${adaPerAc.toFixed(1)}/ac`;
+    if (adaText) capText += ` · ${adaText}`;
     children.push(el('div', {
       className: 'event-feed-remaining',
       'data-testid': `dashboard-capacity-${event.id}`,
@@ -1489,8 +1463,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     // Informative hint: tell the user which inputs are missing instead of
     // dropping the row silently. Partial info (ADA) is shown when available.
     const partialParts = [];
-    if (forageHeightDisplay) partialParts.push(`${forageHeightDisplay}"`);
-    if (totalAcres > 0 && adaPerAc > 0) partialParts.push(`ADA est: ${adaPerAc.toFixed(1)}/ac`);
+    if (forageHeightDisplay) partialParts.push(forageHeightDisplay);
+    if (adaText && adaPerHa > 0) partialParts.push(adaText);
     const hintText = `Capacity: add ${capacityBlockers.join(' + ')} to estimate`
       + (partialParts.length ? ` · ${partialParts.join(' · ')}` : '');
     children.push(el('div', {
@@ -1501,10 +1475,11 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
 
   // §8: Breakdown line (gray)
   if (dailyDmiDisplay) {
-    const fmtNum = (n) => Math.round(n).toLocaleString('en-US');
-    let breakdownParts = [`Pasture: ${fmtNum(convert(pastureDmKg, 'weight', 'toImperial'))} lbs DM`];
-    if (hasStoredFeed) breakdownParts.push(`Stored feed: ${fmtNum(convert(storedDmKg, 'weight', 'toImperial'))} lbs DM`);
-    breakdownParts.push(`${t('dmi.targetForecast')}: ${fmtNum(convert(dailyDmiKg, 'weight', 'toImperial'))} lbs/day`);
+    // OI-0278 S2 row 23: "Pasture: 1,234 lb DM" (farm unit, whole numbers as before).
+    const fmtDm = (kg) => fmtW(kg, { decimals: 0 });
+    let breakdownParts = [`Pasture: ${fmtDm(pastureDmKg)} DM`];
+    if (hasStoredFeed) breakdownParts.push(`Stored feed: ${fmtDm(storedDmKg)} DM`);
+    breakdownParts.push(`${t('dmi.targetForecast')}: ${fmtDm(dailyDmiKg)}/day`);
     children.push(el('div', { style: { fontSize: '12px', color: 'var(--text3, var(--text2))', marginBottom: 'var(--space-2)' } }, [breakdownParts.join(' \u00B7 ')]));
   }
 
@@ -1519,7 +1494,8 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       const subLoc = getById('locations', pw.locationId);
       const subName = subLoc?.name || '?';
       const subLocHa = subLoc?.areaHectares ?? subLoc?.areaHa;
-      const subArea = subLocHa ? `${display(subLocHa, 'area', unitSys, 2)} ${areaUnit}` : '';
+      // OI-0278 S2 row 26: one unit ("2.0 ac"; was "2.00 acres ac").
+      const subArea = subLocHa ? formatMeasure(subLocHa, 'area', { unitSystem: unitSys }) : '';
       const isActive = !pw.dateClosed;
       children.push(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--border)' } }, [
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } }, [
@@ -1550,7 +1526,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
       const grp = getById('groups', gw.groupId);
       const grpName = grp?.name || '?';
       const live = liveByGwId.get(gw.id) || { head: 0, avg: 0 };
-      const gwWeight = live.avg > 0 ? display(live.avg, 'weight', unitSys, 0) : '\u2014';
+      const gwWeight = live.avg > 0 ? fmtW(live.avg, { decimals: 0 }) : '\u2014';
       children.push(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--border)' } }, [
         el('div', {}, [
           el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: '600' } }, [
@@ -1628,7 +1604,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
   // §15: DMI/NPK summary
   const summaryParts = [];
   if (dailyDmiDisplay) {
-    let dmiLine = `${t('dmi.targetForecast')} ${dailyDmiDisplay} lbs/day`;
+    let dmiLine = `${t('dmi.targetForecast')} ${dailyDmiDisplay}`;
     if (storedPct > 0) dmiLine += ` \u00B7 ${storedPct}% stored \u00B7 ${pasturePct}% est. pasture`;
     summaryParts.push(el('div', { style: { fontSize: '12px', marginBottom: '2px' }, 'data-testid': `dashboard-loc-dmi-${event.id}`, ...(dmiNote ? { title: dmiNote } : {}) }, [dmiLine]));
   }

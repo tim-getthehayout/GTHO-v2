@@ -116,9 +116,9 @@ describe('grazing event card DMI floor', () => {
   it('floors pasture at 0 when stored feed exceeds demand', () => {
     addDelivery(BATCH, 40, '2026-11-02', '11:00');
     const text = cardText();
-    expect(text).toMatch(/Pasture:\s*0\s*lbs DM/);
+    expect(text).toMatch(/Pasture:\s*0\s*lb DM/);
     expect(text).not.toMatch(/Pasture:\s*-/);
-    const stored = text.match(/Stored feed:\s*([\d,]+)\s*lbs DM/);
+    const stored = text.match(/Stored feed:\s*([\d,]+)\s*lb DM/);
     expect(parseInt(stored[1].replace(/,/g, ''), 10)).toBe(21600);
   });
 
@@ -164,7 +164,7 @@ describe('grazing event card DMI floor', () => {
     expect(mass.storedConsumedKg).toBeCloseTo(0, 4);
     const text = cardText();
     expect(text).toContain('(incl. stored feed)');
-    expect(text).toMatch(/Stored feed:\s*0\s*lbs DM/);
+    expect(text).toMatch(/Stored feed:\s*0\s*lb DM/);
   });
 
   it('reproduces event eeb2febe intermediates from the recorded bale sequence', () => {

@@ -99,7 +99,8 @@ describe('composite group average', () => {
     document.querySelector('[data-testid="toggle-groups"]').click();
     const card = document.querySelector(`[data-testid="dashboard-group-card-${GROUP}"]`).textContent;
     expect(card).toContain('59 head');
-    expect(card).toContain('avg 2 lbs');
+    expect(card).toContain('avg 2 lb'); // OI-0278 S2 row 25: helper unit (was "lbs")
+    expect(card).not.toContain('lb lb');
     expect(card).toContain('59 female');
   });
 });

@@ -25,6 +25,8 @@ import * as MembershipEntity from '../../src/entities/animal-group-membership.js
 import * as FeedTypeEntity from '../../src/entities/feed-type.js';
 import * as BatchEntity from '../../src/entities/batch.js';
 import * as FeedEntryEntity from '../../src/entities/event-feed-entry.js';
+import * as FeedCheckEntity from '../../src/entities/event-feed-check.js';
+import * as FeedCheckItemEntity from '../../src/entities/event-feed-check-item.js';
 import * as PaddockObsEntity from '../../src/entities/paddock-observation.js';
 import { setLocale } from '../../src/i18n/i18n.js';
 import enLocale from '../../src/i18n/locales/en.json';
@@ -34,6 +36,7 @@ import '../../src/calcs/feed-forage.js';
 import '../../src/calcs/advanced.js';
 import '../../src/calcs/capacity.js';
 import { buildLocationCard, computePasturePercent } from '../../src/features/dashboard/index.js';
+import { computeHomeDmi } from '../../src/features/dashboard/home-dmi.js';
 
 const OP = '00000000-0000-0000-0000-0000000000aa';
 const FARM = '00000000-0000-0000-0000-0000000000bb';
@@ -221,8 +224,9 @@ describe('OI-0075 Bug 5 — stored feed DMI matches v1 calcConsumedDMI', () => {
     const event = { id: EVT, dateIn: '2026-04-01', dateOut: null };
     const card = buildLocationCard(event, OP, FARM, 'imperial');
     const text = card.textContent;
-    // 850 kg DM × 2.20462 = ~1874 lbs DM. Allow ±3 lbs for rounding.
-    const match = text.match(/Stored feed:\s*([\d,]+)\s*lbs DM/);
+    // 850 kg DM ≈ 1874 lb DM. Allow ±3 lb for rounding. OI-0278 S2: "lb DM"
+    // through the shared helper (was "lbs DM").
+    const match = text.match(/Stored feed:\s*([\d,]+)\s*lb DM/);
     expect(match, 'Stored feed line should render').toBeTruthy();
     const lbs = parseInt(match[1].replace(/,/g, ''), 10);
     expect(lbs).toBeGreaterThan(1870);
@@ -230,11 +234,26 @@ describe('OI-0075 Bug 5 — stored feed DMI matches v1 calcConsumedDMI', () => {
   });
 });
 
-describe('OI-0075 Bug 7 — computePasturePercent (top stat card)', () => {
+// OI-0277 Hd3 supersedes the OI-0075 whole-life DMI-4 balance: Pasture % is
+// Pasture DMI ÷ Total DMI over the period pill (each group-day once). These
+// tests pin the 'All' period at a fixed today.
+const TODAY = '2026-04-01';
+function seedPastureLoc() {
+  add('locations', LocationEntity.create({
+    id: LOC, operationId: OP, farmId: FARM, name: 'North 40',
+    type: 'land', landUse: 'pasture', areaHectares: 4, forageTypeId: FORAGE_TYPE,
+  }), LocationEntity.validate, LocationEntity.toSupabaseShape, 'locations');
+  add('eventPaddockWindows', PaddockWindowEntity.create({
+    id: PW, operationId: OP, eventId: EVT, locationId: LOC,
+    dateOpened: '2026-04-01', areaPct: 100,
+  }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+}
+
+describe('OI-0075 Bug 7 / OI-0277 — computePasturePercent (top stat card)', () => {
   beforeEach(seedCommon);
 
   it('returns null when no events supplied', () => {
-    const r = computePasturePercent([]);
+    const r = computePasturePercent('All', [], { today: TODAY });
     expect(r.pasturePercent).toBeNull();
     expect(r.subLabel).toMatch(/no grazing events/);
   });
@@ -244,12 +263,12 @@ describe('OI-0075 Bug 7 — computePasturePercent (top stat card)', () => {
       dateIn: '2026-04-01', dateOut: null };
     add('events', EventEntity.create(evtNoGws),
       EventEntity.validate, EventEntity.toSupabaseShape, 'events');
-    const r = computePasturePercent([evtNoGws]);
+    const r = computePasturePercent('All', [evtNoGws], { today: TODAY });
     expect(r.pasturePercent).toBeNull();
     expect(r.subLabel).toMatch(/no animals/);
   });
 
-  it('computes pasture % via DMI-4 mass balance across events', () => {
+  it('computes pasture % as Pasture DMI ÷ Total DMI over the period', () => {
     // Seed an open event with 10 head × 500 kg × 2.5% DMI over 1 day = 125 kg/day total DMI.
     // No stored feed. Pasture should be 100%.
     const evt = { id: EVT, operationId: OP, farmId: FARM, type: 'graze',
@@ -261,8 +280,9 @@ describe('OI-0075 Bug 7 — computePasturePercent (top stat card)', () => {
       animalClassId: CLASS, dateJoined: '2026-04-01',
       headCount: 10, avgWeightKg: 500,
     }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
+    seedPastureLoc();
 
-    const r = computePasturePercent([evt]);
+    const r = computePasturePercent('All', [evt], { today: TODAY });
     expect(r.pasturePercent).not.toBeNull();
     expect(r.pasturePercent).toBe(100);
     // Color grade: 100% → green.
@@ -271,15 +291,16 @@ describe('OI-0075 Bug 7 — computePasturePercent (top stat card)', () => {
 
   it('shifts to amber band when 50–74% pasture', () => {
     // Total DMI (10 head × 500 × 2.5% × 1 day) = 125 kg. Stored consumed = 50 kg.
-    // Pasture % = (125-50)/125 = 60% → amber. Bound the day count to 1 by
-    // closing the event on the same day it opened.
+    // Pasture % = (125-50)/125 = 60% → amber. The event closes on 04-02, so
+    // the only counted day is 04-01 (leave / close day excluded, Hd3), and the
+    // close reading (nothing left) makes the hay eaten known: 50 kg DM.
     const evt = { id: EVT, operationId: OP, farmId: FARM, type: 'graze',
-      dateIn: '2026-04-01', dateOut: '2026-04-01' };
+      dateIn: '2026-04-01', dateOut: '2026-04-02' };
     add('events', EventEntity.create(evt),
       EventEntity.validate, EventEntity.toSupabaseShape, 'events');
     add('eventGroupWindows', GroupWindowEntity.create({
       id: GW, operationId: OP, eventId: EVT, groupId: GROUP,
-      animalClassId: CLASS, dateJoined: '2026-04-01', dateLeft: '2026-04-01',
+      animalClassId: CLASS, dateJoined: '2026-04-01', dateLeft: '2026-04-02',
       headCount: 10, avgWeightKg: 500,
     }), GroupWindowEntity.validate, GroupWindowEntity.toSupabaseShape, 'event_group_windows');
     add('feedTypes', FeedTypeEntity.create({
@@ -296,7 +317,15 @@ describe('OI-0075 Bug 7 — computePasturePercent (top stat card)', () => {
       date: '2026-04-01', quantity: 100,
     }), FeedEntryEntity.validate, FeedEntryEntity.toSupabaseShape, 'event_feed_entries');
 
-    const r = computePasturePercent([evt]);
+    const CHECK = '00000000-0000-0000-0000-000000000121';
+    add('eventFeedChecks', FeedCheckEntity.create({
+      id: CHECK, operationId: OP, eventId: EVT, date: '2026-04-02', time: '00:00', isCloseReading: true,
+    }), FeedCheckEntity.validate, FeedCheckEntity.toSupabaseShape, 'event_feed_checks');
+    add('eventFeedCheckItems', FeedCheckItemEntity.create({
+      operationId: OP, feedCheckId: CHECK, batchId: BATCH, locationId: LOC, remainingQuantity: 0,
+    }), FeedCheckItemEntity.validate, FeedCheckItemEntity.toSupabaseShape, 'event_feed_check_items');
+    seedPastureLoc();
+    const r = computePasturePercent('All', [evt], { today: '2026-04-02' });
     // 60% pasture.
     expect(r.pasturePercent).toBe(60);
     expect(r.color).toBe('var(--color-amber-base)');

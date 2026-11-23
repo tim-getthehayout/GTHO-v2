@@ -8,7 +8,7 @@
 
 import { el } from './dom.js';
 import { t } from '../i18n/i18n.js';
-import { convert } from '../utils/units.js';
+import { formatMeasure, shortUnit } from '../utils/units.js';
 
 const COLOR_PASTURE = '#A5C56B';
 const COLOR_PASTURE_STRIPED = 'repeating-linear-gradient(45deg, #A5C56B, #A5C56B 4px, #C2DB9B 4px, #C2DB9B 8px)';
@@ -41,13 +41,15 @@ export function renderDmiChart(days, unitSys, opts = {}) {
   }
   if (maxKg <= 0) maxKg = 1;
 
-  // Metric is stored internally, so metric display is identity; imperial converts.
-  const toDisplay = (kg) => unitSys === 'imperial' ? convert(kg, 'weight', 'toImperial') : kg;
-  const unit = unitSys === 'imperial' ? 'lbs' : 'kg';
+  // OI-0278 S2: values in the farm unit via the shared helper; the unit sits
+  // in the "lb DMI today" label (Ua short label), bar labels are numbers only.
+  const us = unitSys === 'metric' ? 'metric' : 'imperial';
+  const toDisplay = (kg) => formatMeasure(kg, 'weight', { unitSystem: us, unitInHeader: true, decimals: 0 });
+  const unit = shortUnit('weight', us);
 
   // Right-side today value uses the most recent bar that has a total.
   const todayResult = days[days.length - 1]?.result;
-  const todayDmi = todayResult?.totalDmiKg ? toDisplay(todayResult.totalDmiKg).toFixed(0) : '\u2014';
+  const todayDmi = todayResult?.totalDmiKg ? toDisplay(todayResult.totalDmiKg) : '\u2014';
 
   const anyDeficit = days.some(d => (d.result?.deficitKg || 0) > 0);
 
@@ -104,8 +106,8 @@ export function renderDmiChart(days, unitSys, opts = {}) {
     const stored = r.storedDmiKg || 0;
     const deficit = r.deficitKg || 0;
     const total = r.totalDmiKg || 0;
-    const totalDisplay = toDisplay(total).toFixed(0);
-    const deficitDisplay = deficit > 0 ? toDisplay(deficit).toFixed(0) : null;
+    const totalDisplay = toDisplay(total);
+    const deficitDisplay = deficit > 0 ? toDisplay(deficit) : null;
 
     const pastureH = (pasture / maxKg) * barHeight;
     const storedH = (stored / maxKg) * barHeight;

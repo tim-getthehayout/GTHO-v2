@@ -2110,7 +2110,8 @@ body:has(.auth-overlay) .pwa-update-banner {
 
 .dash-stats-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* OI-0277 Hd3: Total DMI + Pasture DMI tiles → 6 desktop tiles. */
+  grid-template-columns: repeat(6, 1fr);
   gap: 10px;
 }
 

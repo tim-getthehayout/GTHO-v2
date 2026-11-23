@@ -278,7 +278,7 @@ describe('OI-0279 one fixture, identical per-day demand on every surface', () =>
     // Home location card.
     const card = buildLocationCard({ id: 'e' }, 'op', 'farm', 'imperial');
     const homeLine = card.querySelector('[data-testid="dashboard-loc-dmi-e"]');
-    expect(homeLine.textContent).toContain(`${convert(exp.kg, 'weight', 'toImperial').toFixed(0)} lbs/day`);
+    expect(homeLine.textContent).toContain(`${convert(exp.kg, 'weight', 'toImperial').toFixed(0)} lb/day`);
     expect(homeLine.title).toBe('1 head at default 2.5% (no class)');
 
     // Event detail DMI line.
@@ -306,7 +306,7 @@ describe('OI-0279 one fixture, identical per-day demand on every surface', () =>
     expect(lbs(now.nKg)).not.toBe(lbs(old.nKg));
 
     const home = buildLocationCard({ id: 'e' }, 'op', 'farm', 'imperial').querySelector('[data-testid="dashboard-loc-npk-e"]');
-    expect(home.textContent).toContain(`NPK: N${lbs(now.nKg)} / P${lbs(now.pKg)} / K${lbs(now.kKg)} lbs`);
+    expect(home.textContent).toContain(`NPK: N${lbs(now.nKg)} / P${lbs(now.pKg)} / K${lbs(now.kKg)} lb`);
 
     openEventDetailSheet({ id: 'e' }, 'op', 'farm');
     const md = (v) => convert(v, 'weight', 'toMetric').toFixed(1);

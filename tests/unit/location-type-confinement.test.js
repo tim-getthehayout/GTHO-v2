@@ -42,7 +42,7 @@ describe('confinement classification uses loc.type', () => {
     expect(grid).toMatch(/filterManagementLocations/);
     expect(metrics).toMatch(/isManagementLocation/);
     expect(metrics).toMatch(/landUse/);
-    expect(metrics).toMatch(/mixed-use/);
+    expect(metrics).toMatch(/mixed_use/);
     // Confinement pens are not X1 management locations
     expect(isManagementLocation({ id: 'pen', type: 'land', landUse: 'confinement' })).toBe(false);
     expect(isManagementLocation({ id: 'barn', type: 'confinement' })).toBe(false);

@@ -192,7 +192,7 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
   const filterRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' } });
   function renderFilterPills() {
     clear(filterRow);
-    for (const [val, label] of [['all', 'All'], ['pasture', 'Pasture'], ['mixed-use', 'Mixed-Use'], ['crop', 'Crop'], ['confinement', 'Confinement'], ['storage', t('location.filter.storage')]]) {
+    for (const [val, label] of [['all', 'All'], ['pasture', 'Pasture'], ['mixed_use', 'Mixed-Use'], ['crop', 'Crop'], ['confinement', 'Confinement'], ['storage', t('location.filter.storage')]]) {
       const isActive = landUseFilter === val;
       filterRow.appendChild(el('button', {
         style: { padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green)' : 'transparent', color: isActive ? 'white' : 'var(--text2)' },
@@ -301,7 +301,7 @@ export function buildLocationCard(loc, operationId, farmId, unitSys) {
     : (isConfinement ? 'Confinement' : (loc.landUse || 'pasture'));
 
   // Badge class
-  const badgeCls = { pasture: 'bg', 'mixed-use': 'bg', crop: 'ba', Confinement: 'bb' }[landUse] || 'bg';
+  const badgeCls = { pasture: 'bg', mixed_use: 'bg', crop: 'ba', Confinement: 'bb' }[landUse] || 'bg';
 
   // Latest survey observation
   const observations = getAll('paddockObservations').filter(o => o.locationId === loc.id).sort((a, b) => (b.observedAt || '').localeCompare(a.observedAt || ''));
@@ -448,7 +448,7 @@ export function openLocationSheet(existingLoc, operationId, farmId, opts = {}) {
   ]);
   inputs.landUse = el('select', {}, [
     el('option', { value: 'pasture', selected: existingLoc?.landUse === 'pasture' }, ['Pasture']),
-    el('option', { value: 'mixed-use', selected: existingLoc?.landUse === 'mixed-use' }, ['Mixed-use']),
+    el('option', { value: 'mixed_use', selected: existingLoc?.landUse === 'mixed_use' }, ['Mixed-use']),
     el('option', { value: 'crop', selected: existingLoc?.landUse === 'crop' }, ['Crop']),
     el('option', { value: 'confinement', selected: existingLoc?.type === 'confinement' }, ['Confinement']),
     ...(existingLoc?.type === 'storage'
@@ -880,7 +880,7 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
       }
       // Type pills
       const typeRow = el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', padding: '4px 0' } });
-      for (const [val, label] of [['all', 'All'], ['pasture', 'Pasture'], ['mixed-use', 'Mixed-Use']]) {
+      for (const [val, label] of [['all', 'All'], ['pasture', 'Pasture'], ['mixed_use', 'Mixed-Use']]) {
         const isActive = typeFilter === val;
         typeRow.appendChild(el('button', { type: 'button', style: { padding: '4px 10px', fontSize: '11px', borderRadius: '12px', cursor: 'pointer', fontFamily: 'inherit', border: `0.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green-l)' : 'transparent', color: isActive ? 'var(--green-d)' : 'var(--text2)', fontWeight: isActive ? '600' : '400' }, onClick: () => { typeFilter = val; renderFilters(); renderPaddockList(); } }, [label]));
       }

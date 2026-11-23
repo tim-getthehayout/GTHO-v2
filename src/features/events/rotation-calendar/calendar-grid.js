@@ -262,7 +262,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   const allFarms = getAll('farms');
   const isMultiFarm = allFarms.length > 1;
   if (state.view === 'list') {
-    if (listLandUseFilter === 'pasture' || listLandUseFilter === 'mixed-use') {
+    if (listLandUseFilter === 'pasture' || listLandUseFilter === 'mixed_use') {
       locations = locations.filter(l => (l.landUse || 'pasture') === listLandUseFilter);
       legacyCardLocations = [];
     } else if (listLandUseFilter !== 'all') {
@@ -744,7 +744,7 @@ function renderListTools({ onUpdate, operationId, farmId, farms = [] }) {
   }, [
     pill('All', 'all'),
     pill('Pasture', 'pasture'),
-    pill('Mixed-Use', 'mixed-use'),
+    pill('Mixed-Use', 'mixed_use'),
     pill('Crop', 'crop'),
     pill('Confinement', 'confinement'),
     pill(t('location.filter.storage'), 'storage'),

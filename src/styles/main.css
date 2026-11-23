@@ -2869,6 +2869,27 @@ body:has(.auth-overlay) .pwa-update-banner {
   font-size: 0.6875rem;
 }
 .loc-mgmt__tag { font-size: 0.6875rem; color: var(--text3); }
+/* OI-0273: Ready / “Ready?” chip by the pasture name. */
+.loc-mgmt__ready-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.loc-mgmt__ready-chip--ready {
+  background: var(--green-l);
+  color: var(--green-d);
+}
+.loc-mgmt__ready-chip--maybe {
+  background: transparent;
+  color: var(--green-d);
+  border: 1px dashed var(--green-d);
+}
 
 .loc-mgmt__metrics {
   /* OI-0252 Ls+Wu: two stacked lines; width set from widest visible row */

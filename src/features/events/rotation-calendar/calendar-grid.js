@@ -52,7 +52,7 @@ import {
   formatMetricValue,
   residualNpkNote,
 } from './location-metrics.js';
-import { computeReadiness, lastGrazeDate, readinessBandRange } from './readiness.js';
+import { computeReadiness, lastGrazeDate, readinessBandRange, readyChipKind, READY_CHIP_TEXT } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
 import {
   SCROLL_OWNER_CLASS,
@@ -380,6 +380,17 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     }
   }
 
+  // OI-0273: Ready / “Ready?” chip by the name (Calendar + List, phone too).
+  const minRestDays = farmSettings.defaultRecoveryMinDays ?? 21;
+  const readyChipById = new Map();
+  for (const loc of locations) {
+    readyChipById.set(loc.id, readyChipKind(readinessById.get(loc.id), {
+      today,
+      minRestDays,
+      isActive: !!activeEvents[loc.id] || !!linkedPaddocks[loc.id],
+    }));
+  }
+
   const selectedGroups = state.groups
     .map(gId => allGroups.find(g => g.id === gId))
     .filter(Boolean)
@@ -462,6 +473,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
       loc,
       metrics,
       readiness,
+      readyChip: readyChipById.get(loc.id) || null,
       unitSystem,
       isPhone,
       range,
@@ -1123,6 +1135,7 @@ function renderManagementRow(opts) {
     farmId = null,
     metricsCollapsed = false,
     metricCtx = null,
+    readyChip = null,
   } = opts;
 
   const areaDisplay = loc.areaHectares != null
@@ -1153,9 +1166,21 @@ function renderManagementRow(opts) {
     ? el('div', { className: 'loc-mgmt__code' }, [loc.fieldCode])
     : null;
 
+  // OI-0273: small chip just right of the name (shared Calendar / List cell).
+  const readyChipEl = readyChip
+    ? el('span', {
+      className: `loc-mgmt__ready-chip loc-mgmt__ready-chip--${readyChip}`,
+      title: readyChip === 'ready'
+        ? 'Ready to graze: past its earliest return date'
+        : 'Maybe ready: no rest estimate, rested at least the farm minimum',
+      dataset: { testid: 'loc-mgmt-ready-chip', locationId: loc.id, kind: readyChip },
+    }, [READY_CHIP_TEXT[readyChip]])
+    : null;
+
   const nameCell = el('div', nameProps, [
     el('div', { className: 'loc-mgmt__name-text' }, [
       loc.name,
+      readyChipEl,
       typeBadge,
     ].filter(Boolean)),
     codeLine,

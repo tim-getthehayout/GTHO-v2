@@ -340,6 +340,34 @@ export function computeReadiness(location, {
   };
 }
 
+/**
+ * OI-0273 Rg0+Ro0+Rp1 — the chip by the pasture name.
+ * - 'ready'  (“Ready”):  survey mode (a real recovery anchor; strip rule already
+ *   folded into earliestReturn) and today ≥ earliestReturn. Past windowCloses
+ *   (past_max) still plain “Ready” (Ro0).
+ * - 'maybe'  (“Ready?”): relative mode (grazed before, no rest estimate) and
+ *   daysSinceLastGraze ≥ the farm default minimum rest.
+ * - null: active / linked (caller passes isActive), never grazed (Rg0), or not yet.
+ * @param {object|null|undefined} readiness - computeReadiness result
+ * @param {{ today: string, minRestDays?: number, isActive?: boolean }} opts
+ * @returns {'ready'|'maybe'|null}
+ */
+export function readyChipKind(readiness, { today, minRestDays = 21, isActive = false } = {}) {
+  if (!readiness || isActive || readiness.mode === 'active') return null;
+  if (readiness.mode === 'survey') {
+    return readiness.earliestReturn && today >= readiness.earliestReturn ? 'ready' : null;
+  }
+  if (readiness.mode === 'relative') {
+    const days = readiness.daysSinceLastGraze;
+    const min = Number.isFinite(Number(minRestDays)) ? Number(minRestDays) : 21;
+    return days != null && days >= min ? 'maybe' : null;
+  }
+  return null;
+}
+
+/** OI-0273: visible chip text. */
+export const READY_CHIP_TEXT = Object.freeze({ ready: 'Ready', maybe: 'Ready?' });
+
 export function readinessConfidence(today, earliestReturn, windowCloses) {
   if (!earliestReturn || !windowCloses) return 'min';
   if (today < earliestReturn) return 'min';

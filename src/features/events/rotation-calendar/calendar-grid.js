@@ -26,6 +26,7 @@ import {
 } from '../../locations/index.js';
 import { t } from '../../../i18n/i18n.js';
 import { openHarvestSheet } from '../../harvest/index.js';
+import { landUseLabel } from '../../locations/land-use-label.js';
 import { openAmendmentSheet } from '../../amendments/entry.js';
 import { getEventStartDate } from '../event-start.js';
 import {
@@ -1160,7 +1161,8 @@ function renderManagementRow(opts) {
     ? el('span', {
       className: 'badge bg',
       style: { fontSize: '10px', marginLeft: '6px' },
-    }, [loc.landUse || 'pasture'])
+      dataset: { testid: 'loc-mgmt-land-use-badge', locationId: loc.id },
+    }, [landUseLabel(loc.landUse)])
     : null;
   const codeLine = isList && loc.fieldCode
     ? el('div', { className: 'loc-mgmt__code' }, [loc.fieldCode])
@@ -1169,17 +1171,18 @@ function renderManagementRow(opts) {
   // OI-0273: small chip just right of the name (shared Calendar / List cell).
   const readyChipEl = readyChip
     ? el('span', {
-      className: `loc-mgmt__ready-chip loc-mgmt__ready-chip--${readyChip}`,
+      className: `loc-mgmt__ready-chip loc-mgmt__ready-chip--${readyChip === 'ready' ? 'ready' : 'est'}`,
       title: readyChip === 'ready'
         ? 'Ready to graze: past its earliest return date'
-        : 'Maybe ready: no rest estimate, rested at least the farm minimum',
+        : 'Estimated ready: rested at least the farm default minimum (no entered rest days or survey)',
       dataset: { testid: 'loc-mgmt-ready-chip', locationId: loc.id, kind: readyChip },
     }, [READY_CHIP_TEXT[readyChip]])
     : null;
 
   const nameCell = el('div', nameProps, [
     el('div', { className: 'loc-mgmt__name-text' }, [
-      loc.name,
+      // OI-0273: own span so the name can ellipsis on phone before the chip wraps.
+      el('span', { className: 'loc-mgmt__name-label' }, [loc.name]),
       readyChipEl,
       typeBadge,
     ].filter(Boolean)),

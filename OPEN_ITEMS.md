@@ -54,6 +54,14 @@
 | OI-0243 | Bull exposure → Animals Pregnancy Check + due windows (derive; protocol; retroactive dry-run) | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~6:34 AM ET (Tim, via Orchestrator, card **t745s3078**) — **A0+B0+C0+C3+D0+D4+E0+F0+Fg1+Gh0+Gs0+Gg0+Gd0(35/45)+Gc0+Ux1**. Design rec on tip `6ee631e` + Tim: display current protocol settings when Pregnancy Check is on. Animals Pregnancy Check filter; due bands from exposure; farm_settings protocol (35d exposure / 45d post-calving, AND). F0 compute-on-read + dry-run; Gh0 migration gated (yes+backup). After docs land. [brief](session_briefs/BULL_EXPOSURE_PREG_DUE_2026-11-21.md) |
 | OI-0244 | Multispecies exposure → Pregnancy Check (sheep+goat) + Animals protocol dialog | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~7:18 AM ET (Tim, via Orchestrator, card **t759s3139**) — **A0+E1+B0-extend+C3-keep+D0+D4+F0+Fg1+Gh0+Gs1+Gg0+Gd-cattle(35/45)+Gd-sheep(25/30)+Gd-goat(25/30)+Gc0+UxA0+Ux-copy1+M0+Pb0+Ps0+Ps-farm0+Pe0+Pg0**. Design rec on tip `070af6c`. Rams↔ewes, bucks(billies)↔does; widen Open; Gs1 per-species protocol; **M0** widen migration **047 before apply**; Animals **Preg check settings** dialog (Ps0). After docs land; 047 apply = separate Tim yes+backup; no exposure-row write (F0). [brief](session_briefs/MULTISPECIES_EXPOSURE_PREG_2026-11-21.md) |
 | OI-0245 | Confirmed-bred due range: postpartum earliest + exposure capped by confirmed_bred_date as latest | **SPEC LOCKED / READY FOR BUILD** 2026-11-21 ~9:55 AM ET (Tim, via Orchestrator, card **t776u** answering **t775s3213**) — **B0+R1+E1+L1+P-a(cattle45/sheep25/goat25)+S1+U0+X1**. Design rec on tip `52026be` with **S0→S1** (editable return-to-cycle). Shared dueBand for all due lines; migration **048** (file-only; RELEASED stays **47**); editors beside Preg check settings / Farm Settings (Ps0 + Pg0-style). Docs tip `dc90185` now on main. After docs land; 048 apply = separate Tim yes+backup; no reopen 047; no exposure-row write. [brief](session_briefs/CONFIRMED_BRED_DUE_RANGE_2026-11-21.md) |
+| OI-0276 | NPK must not blank when leftover hay has no NPK % (manure NPK always counts) | **SPEC LOCKED / READY FOR BUILD** 2026-11-23 (Tim **t1344u** 7:16 AM ET report E3/F3 no NPK; **t1347u** lock: “that would be no NPK from hay, but if there were animals there that is the main source of NPK anyway and should always be counted.”). Amends OI-0246 **R1**: `location-metrics.js` `residualFeedNpkForLocation` (~311) unknown → `npkResidualUnknown` (~719, sticky) blanks all NPK incl. manure. Prod (SELECT-only): all 3 feed types null n/p/k %, no batch profiles; affected E-3, F-3, G-2, J1-1, J1-2 (period-dependent). Lock: manure NPK always counts; residual without % (or missing weight/DM) adds 0, never blanks; known % adds as today; hover/title note only (no “partial”); OI-0249 weight partial unchanged. **D0**. Build order **2nd**. [brief](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md) |
+| OI-0275 | List view metrics parity with the timeline | **SPEC LOCKED / READY FOR BUILD** 2026-11-23 7:24 AM ET (Tim, via Orchestrator, card **t1348s5263**) — **Lc0**. From **t1334u**. List + Calendar already share `renderMetricsCell`; only gap is the collapse tab (`metricsCollapsed = !isList && …`). Rule: every timeline metrics change (incl. OI-0274) also applies to List; **Lc0** List stays always expanded. **D0**. Rides on OI-0274. [brief](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md) |
+| OI-0274 | DMI per acre as its own sortable metric (“DMI/ac”) | **SPEC LOCKED / READY FOR BUILD** 2026-11-23 7:24 AM ET (Tim, via Orchestrator, card **t1348s5263**) — **Dl1+Do0+Ds1+Dp1+Dm1+Dc1**. From **t1332u**. Separate “DMI/ac” metric right of DMI on line 1, no parentheses, own sort button; only DMI changes (Do0); first tap lowest-first (Ds1); no-acre “—” sorts last; shown on phone (Dp1); sort remembered per device in localStorage (Dm1, Pb/Pd1 pattern); collapsed-tab “Sorted by DMI/ac, low first” note (Dc1). **D0**. [brief](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md) |
+| OI-0273 | Conditional “Ready” / “Ready?” tag by the pasture name | **SPEC LOCKED / READY FOR BUILD** 2026-11-23 (Tim **t1331u**; card **t1337s5223** **Rg0+Ro0+Rp1**; **t1341u** “Ready?” for no-estimate, Design rule). Chip right of the name (shared Calendar + List name cell). “Ready” = `computeReadiness` survey mode, today ≥ `earliestReturn`, not active (strip rule kept; past_max still “Ready”, Ro0). “Ready?” = relative mode, not active, `daysSinceLastGraze` ≥ farm default min rest (21). Never grazed: no chip (Rg0). Phone too (Rp1). **D0**. [brief](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md) |
+| OI-0272 | Timeline horizontal slider (top + bottom) | **DEFERRED — not built** 2026-11-23 7:25 AM ET (Tim, via Orchestrator, card **t1349s5273**: tried #158 live, “Much better!”; slider dropped for now). From **t1328u** (7:05 AM ET, on `d07bb1f` before #158). The OI-0266 single scroller (#158, `dbce180`) resolved the jumpiness. Proposal + options (Sp/St/Sx/Sd; rec Sp1+St1+Sx0+Sd1) kept for reference. Not in the build order. [brief](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md) |
+| OI-0271 | `mixed_use` vs `mixed-use` land-use spelling mismatch | **READY FOR BUILD** 2026-11-23 (consistency; raised by Build in the OI-0265 review). Canonical stored value **`mixed_use`** (mig 002 CHECK, `location.js` `VALID_LAND_USES`, SCHEMA §2). `mixed-use` value sites in `locations/index.js` (form option :451 fails validation), `location-metrics.js:80` (X1 drops mixed_use), `calendar-grid.js:256/738`, `harvest/index.js`. Labels unchanged. No data rewrite; if stored values disagree, stop and raise a gated item. **D0**. [brief](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md) |
+| OI-0270 | Voice `OFFLINE_TEXT` still mentions push-to-talk | **READY FOR BUILD** 2026-11-23 (copy fix; PR #157 review follow-up). `panel.js:15` “Tap the push-to-talk to record a voice note” but PTT hidden since OI-0268 (`PUSH_TO_TALK_ENABLED = false`). Plain, short copy without PTT; wording Build’s call. **D0**. XS. [brief](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md) |
+| OI-0269 | Hotfix: Events screen redraws over other screens (subscription leak) | **READY FOR BUILD** 2026-11-23 (bug fix, no lock needed; PR #158 review finding). `events/index.js:178` `subscribe('events', () => renderEventsScreen(container))` (and `:186` `rerenderList`) have no `isConnected` guard; old unsubs only released at next Events render (`:84`). A Dashboard move/close, Field mode action or sync pull repaints Events over the current screen. Fix: no-op + unsubscribe when disconnected (Dashboard pattern `dashboard/index.js:120`); optionally release on route change. Unit test for the guard. **D0**. Build order **1st**. XS. [brief](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md) |
 | OI-0268 | Hotfix: hide the voice module controls that sit over the screen | **LOCKED / READY FOR BUILD** 2026-11-22 8:12 PM ET (Tim, via Orchestrator, card **t1319s5157**: “Voice bar: A, hide the floating mic bar everywhere” + “Typed chat: keep the header Assistant button”) — **Hv1+Ha0+D0**. Opened 8:07 PM ET from **t1318u** (“Can we do a hot fix to hide the voice module controls? Especially on mobile they are in my way all the time.”). The thing in the way is the global push-to-talk: a fixed mic + Log bar (`#gtho-push-to-talk`, `push-to-talk.js` `mountPushToTalk` ~56; CSS `main.css:3955–3971`, `z-index: 300`) on every screen when `VITE_GTHO_ASSISTANT=1` and the backend returns config. On a phone (`≤899px`, `gtho-ptt--compact`) it is a 72px mic parked just above the bottom nav (`bottom: calc(76px + safe-area)`). On desktop it is a 56px floating button at the bottom center, draggable, position remembered in `localStorage` `gtho-ptt-position` (placement only — not a show/hide pref). No `user_preferences` or Settings toggle exists. A separate header “Assistant” button (`header.js` `renderAssistantControl` ~678, `header-assistant-btn`) sits in the Feedback / Help sub-row and opens **typed** chat (`panel.js` `openAssistant` mode `text`); it is not floating. Field mode hides the sub-row, not the PTT. **Hv1** hide the floating PTT everywhere (locked; skip `mountPushToTalk` in `wiring.js:50`). **Hv2** / **Hv3** not chosen. **Ha0** keep the header Assistant button (locked). **Ha1** not chosen. Keep `push-to-talk.js` (do not delete) so the bar can be restored later. `VITE_GTHO_ASSISTANT` unchanged. **D0** no SQL. Feedback and Get Help stay on the header; farm screens stay as they are. Opened ~8:07 PM ET from **t1318u**. Independent of PR #154 (header.js only drops the Locations nav lines) and of OI-0266 (calendar scroll). XS. [brief](session_briefs/HIDE_VOICE_CONTROLS_2026-11-22.md) |
 | OI-0267 | Rotation Calendar Metrics collapse persists per device | **LOCKED / READY FOR BUILD** 2026-11-22 7:27 PM ET (Design rec; Tim, 2026-11-22 7:27 PM ET, via Orchestrator, typed **t1303u**: “The metrics column tab should stay in the last state it was in the user selected (opened or closed) right now it reopens on any refresh of that screen”) — **Pd1**. Persist the ▾/▸ Metrics toggle per device in `localStorage` key `gtho_v2_locations_metrics_collapsed` (same pattern as OI-0246 **Pb** `gtho_v2_locations_metric_window`, `calendar-state.js` 7/120–121/241–264). Today the control is session-only: `metricsCollapsed` defaults false at `:22`; `readStateFromUrl` (`:178–230`) forces false; every `renderEventsScreen` remount calls it (`events/index.js` 76–77), so it reopens on reload, leave/return, Calendar↔Map, and events-store subscribe updates (`index.js` 150–153). Toggle: `calendar-grid.js` `renderMetricsCollapseToggle` ~701; setters `setMetricsCollapsed` / `toggleMetricsCollapsed` (`:133–140`) write memory only. **Pd1:** setters write the key; mount / `readStateFromUrl` restores it; unset or invalid falls back to expanded (**Cm1a** kept); List view unaffected (no toggle); not added to the URL. **D0** no SQL / no `user_preferences` column. Rejected: cross-device `user_preferences.events_calendar_state jsonb` (would need a migration). Opened ~7:27 PM ET from Tim **t1303u**. Independent of PR #152 / OI-0264–0266; stacked on OI-0262 Sa1 `710a961`. XS. **No SQL / no migration / no data change.** [brief](session_briefs/METRICS_COLLAPSE_PERSIST_2026-11-22.md) |
 | OI-0266 | Rotation calendar jiggles while scrolling sideways (single scroller) | **PROPOSED → READY FOR BUILD pending Tim's land yes.** Bug fix, no product question — Tim's land card is the approval. From Tim, 2026-11-22 6:47 PM ET, typed **t1291u**: “when scrolling left or right the grazing windows are very 'jumpy' kind of vibrating or jiggling while scrolling” + 6:48 PM ET, typed **t1292u**: “its only on teh row that the mouse arrow is floating over”. Each row is its own sideways scroller (~38 incl. the axis) kept in step by `bindHorizontalScrollSync` (`scroll-owner.js:38-56`); the `locking` guard (`:44-51`) does not work because follower scroll events fire after it resets, so followers write their older position back into the row under the pointer — that row jiggles, the rest lag. Introduced `9ce0e69` (2026-11-21). **Fix:** one scroller (`.loc-mgmt__body`, both axes), axis sticky top, name/metrics sticky left, sync removed; drop `.past-block:hover` opacity fade for a focus-visible outline (Design reading). Stacks after OI-0264 + OI-0265. S–M. **No SQL / no migration / no data change.** [brief](session_briefs/CALENDAR_SCROLL_SINGLE_OWNER_2026-11-22.md) |
@@ -232,6 +240,166 @@ OI-0210 — Assistant entry across the whole app (schema-driven). Status: being 
 
 **Brief:** [SHEEP_PERIOD_BACKFILL_2026-11-22.md](session_briefs/SHEEP_PERIOD_BACKFILL_2026-11-22.md)
 
+
+
+### OI-0276 — NPK must not blank when leftover hay has no NPK %
+
+**Status:** **SPEC LOCKED / READY FOR BUILD** 2026-11-23 (Tim, via Orchestrator: report **t1344u** 7:16 AM ET; lock **t1347u**). Amends OI-0246 **R1**. Build order **2nd** (after OI-0269).
+
+**Tim (verbatim):** t1347u “that would be no NPK from hay, but if there were animals there that is the main source of NPK anyway and should always be counted.”
+
+**Root cause (SELECT-only prod checks 2026-11-23):** `src/features/events/rotation-calendar/location-metrics.js` `residualFeedNpkForLocation` (~311) returns unknown (null N/P/K, ~373) when a positive close-reading residual is missing weight/DM (~351) or its feed type / batch has no N/P/K % (~363). The caller sets `npkResidualUnknown` (~719, season-sticky) and `npkKnown` (~754) nulls the whole NPK (`nKg`/`pKg`/`kKg` + per-acre), including manure (**Kc**) NPK. Prod: all 3 feed types (Alfalfa, Round bale- Grass, Round Bale- Peanut) have null `n_pct`/`p_pct`/`k_pct`; no batch nutrition profiles. Positive close residuals: E-3 (2026-04-21 0.5; 2026-11-16 2), F-3 (2026-05-06 0.5), G-2 (2026-11-02 1), J1-1 (2026-10-21 0.3), J1-2 (2026-10-21 0.3 and 0.08). Visibility depends on the period.
+
+**Locked behavior:**
+- Manure / excretion NPK always counts and shows.
+- Residual hay without N/P/K % contributes 0 and never blanks the pasture.
+- Residual hay with known % still adds as today.
+- Missing weight or DM on a residual: contributes 0, no blanking.
+- Marker: subtle hover/`title` note only (e.g. “Leftover hay not counted — feed type has no NPK %”). Do **not** use the “partial” word or marker. OI-0249 missing-animal-weight partial logic unchanged. OI-0250 period strip follows the same rule.
+
+**Data note:** Tim may enter N/P/K % on his feed types in the app himself (normal user edit).
+
+**Related:** OI-0246 **Ns+R1+Kc**; OI-0249; OI-0250.
+
+**Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
+
+**Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)
+
+
+### OI-0275 — List view metrics parity with the timeline
+
+**Status:** **SPEC LOCKED / READY FOR BUILD** 2026-11-23 7:24 AM ET (Tim, via Orchestrator, card **t1348s5263**) — **Lc0**. Opened from Tim **t1334u** (7:10 AM ET): “I dont see the same metrics change and label on teh list view”.
+
+**Finding (code at `dbce180`):** List and Calendar already share `renderMetricsCell` (`calendar-grid.js` ~160) — same labels, values and OI-0252 stacking. The only gap is the collapse tab: `metricsCollapsed = !isList && …` (~405); OI-0267 Pd1 is Calendar-only.
+
+**Rule:** every timeline metrics change, including OI-0274 (DMI/ac label, sort, persistence), also applies to List. OI-0273’s chip shows on List too (shared name cell).
+
+**Lc0:** List stays always expanded. **Lc1** (List gets the collapse tab, per device) not chosen.
+
+**Fix size:** XS (rides on OI-0274).
+
+**Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
+
+**Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)
+
+
+### OI-0274 — DMI per acre as its own sortable metric (“DMI/ac”)
+
+**Status:** **SPEC LOCKED / READY FOR BUILD** 2026-11-23 7:24 AM ET (Tim, via Orchestrator, card **t1348s5263**) — **Dl1+Do0+Ds1+Dp1+Dm1+Dc1** (Design rec). Opened from Tim **t1332u**.
+
+**Today (code at `dbce180`):** `calendar-grid.js` `renderMetricCol` (~121–133) appends “ (x.x/ac)” to DMI; `renderMetricsCell` (~160–161) hides it on phone (`includePerAcre = !isPhone`). `sort-rows.js` `SORT_KEYS` already has `dmiPerAcre` but no header button exposes it; `nextSortState` (~57–62) defaults numeric keys to desc. Sort state `state.sortKey`/`sortDir` (`calendar-state.js`).
+
+**Locked:**
+- **Dl1** separate “DMI/ac” metric on line 1 right of DMI, no parentheses, own sort button. (**Dl2** “DMI per acre” not chosen.)
+- **Do0** only DMI changes; AUDs/N/P/K keep their suffix rules. (**Do1** not chosen.)
+- **Ds1** first tap lowest-first. No acreage → “—”, always sorts last.
+- **Dp1** shown on phone.
+- **Dm1** sort remembered per device in `localStorage` (OI-0246 Pb / OI-0267 Pd1 pattern; URL param wins when present; fallback `name` asc).
+- **Dc1** sort applies while collapsed, with a small “Sorted by DMI/ac, low first” note by the collapsed tab.
+
+**Why:** low DMI/ac pastures are winter bale-grazing targets.
+
+**Fix size:** S–M.
+
+**Related:** OI-0252 Wu; OI-0254 Cm1; OI-0267 Pd1; OI-0275.
+
+**Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
+
+**Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)
+
+
+### OI-0273 — Conditional “Ready” / “Ready?” tag by the pasture name
+
+**Status:** **SPEC LOCKED / READY FOR BUILD** 2026-11-23 (Tim, via Orchestrator: request **t1331u**; card **t1337s5223** **Rg0+Ro0+Rp1**; **t1341u** “Ready?” for no-estimate — Design-defined rule, Orchestrator agreed).
+
+**Where:** small chip just right of the pasture name in the left name column (`calendar-grid.js` row `nameCell` ~1100). That cell is shared by Calendar and List, so the chip shows on both. `statusTag` (~1384) unchanged.
+
+**Logic:** reuse `readiness.js` `computeReadiness` (~238; modes active/never/survey/relative; `earliestReturn`, `windowCloses`, `confidence`; any later graze restarts the clock).
+- “Ready”: `mode === 'survey'`, today ≥ `earliestReturn`, not active. Strip paddocks: existing rule (~288–296, whole paddock ready only when every strip is past its min).
+- **Ro0**: past `windowCloses` (past_max) still plain “Ready”.
+- “Ready?”: `mode === 'relative'`, not active, `daysSinceLastGraze` ≥ farm `defaultRecoveryMinDays` (21 today).
+- **Rg0**: never-grazed → no chip, keeps “Never grazed”.
+- **Rp1**: shown on phone.
+
+**Why:** some ready pastures’ painted ready bar is outside the visible window.
+
+**Fix size:** S.
+
+**Related:** OI-0254 readiness; OI-0262 close-entry anchor.
+
+**Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
+
+**Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)
+
+
+### OI-0272 — Timeline horizontal slider (top + bottom)
+
+**Status:** **DEFERRED — not built** 2026-11-23 7:25 AM ET (Tim, via Orchestrator, card **t1349s5273**). Opened from Tim **t1328u** (7:05 AM ET). Not in the build order.
+
+**Why deferred:** Tim raised this while on `d07bb1f`, before #158. After trying #158 (OI-0266 single scroller, `dbce180`) live he said “Much better!” — the single scroller resolved the jumpiness he reported — and he dropped the slider for now.
+
+**Proposal (reference only):** thin slider strips at the top (under the sticky date row) and bottom, both driving the one OI-0266 scroller; two-way sync (rAF-throttled, feedback-loop guard); thumb = visible fraction; track tap pages one viewport; hidden when everything fits; re-measures via the existing ResizeObserver; iPhone ≥44px target with `touch-action`; accessible keyboard slider; position not persisted.
+
+**Options (not locked):** Sp1 top+bottom / Sp2 bottom / Sp3 top; St1 plain / St2 + date label; Sx0 none / Sx1 Today / Sx2 Today + arrows; Sd1 phone+Mac / Sd2 Mac and wide. Design rec was **Sp1+St1+Sx0+Sd1**.
+
+**Related:** OI-0266.
+
+**Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
+
+**Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)
+
+
+### OI-0271 — `mixed_use` vs `mixed-use` land-use spelling mismatch
+
+**Status:** **READY FOR BUILD** 2026-11-23 (consistency fix, no lock needed). Raised by Build during the OI-0265 review.
+
+**Canonical:** `mixed_use` — `supabase/migrations/002_d2_locations.sql:54` CHECK (only migration defining `land_use`), V2_SCHEMA_DESIGN.md §2 (`:331`, `:354`), `src/entities/location.js:25` `VALID_LAND_USES` (validated at `:47`), `events/index.js:906` badge map.
+
+**`mixed-use` value sites to change:** `locations/index.js:195`, `:250`, `:304`, `:451` (form option — saving Mixed-use fails validation), `:883`; `rotation-calendar/location-metrics.js:80` (X1 drops stored `mixed_use` from metrics); `rotation-calendar/calendar-grid.js:256`, `:738`; `harvest/index.js:177`, `:193`, `:236`. Labels unchanged. List filter value is in-memory only (`calendar-grid.js:68`).
+
+**No data rewrite.** If stored values disagree, stop and raise a separate gated item (backup + Tim’s yes).
+
+**Fix size:** S.
+
+**Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
+
+**Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)
+
+
+### OI-0270 — Voice `OFFLINE_TEXT` still mentions push-to-talk
+
+**Status:** **READY FOR BUILD** 2026-11-23 (copy fix, no lock needed). PR #157 (OI-0268) review follow-up.
+
+`src/features/assistant/client/panel.js:15` `OFFLINE_TEXT` = “You are offline. Tap the push-to-talk to record a voice note, or use the normal screens.” (used `:155`, `:203`, `:229`, `:327`). PTT hidden since OI-0268 (`wiring.js:47` `PUSH_TO_TALK_ENABLED = false`). Fix: plain, short copy without push-to-talk / voice notes; wording Build’s call; update any test pinning the old string.
+
+**Fix size:** XS.
+
+**Related:** OI-0268.
+
+**Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
+
+**Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)
+
+
+### OI-0269 — Hotfix: Events screen redraws over other screens (subscription leak)
+
+**Status:** **READY FOR BUILD** 2026-11-23 (bug fix, no lock needed). PR #158 review finding. Build order **1st**.
+
+**Bug:** after visiting Events, an events-store change made elsewhere (Dashboard move/close, Field mode actions, sync pull bringing event changes) redraws the Events screen over the current screen.
+
+**Cause:** `src/features/events/index.js:178` `subscribe('events', () => renderEventsScreen(container))` has no `isConnected` guard; `:186` `rerenderList` likewise. Old unsubs are released only at Events’ next render (`:84`). `store.js:504–509` `subscribe()` returns an unsubscribe. Dashboard guard pattern: `dashboard/index.js:120`.
+
+**Fix:** callbacks no-op and release Events’ unsubs when the screen element is no longer connected; optionally also release from the existing hashchange `leaveListener` (`:174`).
+
+**Acceptance:** visit Events → Dashboard → move or close an event: Dashboard stays. **Tests:** unit test for the guard (disconnected → no re-render + unsubscribed; connected → re-renders).
+
+**Fix size:** XS.
+
+**Related:** OI-0266 (`leaveListener`); OI-0265 Lg1 (`LIST_RERENDER_KEYS`).
+
+**Parent / base:** Forgejo `origin/main` `dbce180483cea9c3484a8e3c0473c3c702b35a2d` (#158 / OI-0266 live, stamp `b2026-11-23.1219-dbce180`). Docs tip `docs/oi-0269-0276-followups`. **D0** = no SQL / no migration / no RLS / no data write.
+
+**Brief:** [LOCATIONS_FOLLOWUP_PASS_2026-11-23.md](session_briefs/LOCATIONS_FOLLOWUP_PASS_2026-11-23.md)
 
 
 ### OI-0268 — Hotfix: hide the voice module controls that sit over the screen
@@ -8279,6 +8447,7 @@ Prior OI-0148 / OI-0149 / OI-0151 / OI-0152 / OI-0153 / OI-0154 / OI-0155 / OI-0
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-23 | GTHO Design — docs only | Open Locations follow-up pass **OI-0269..OI-0276** on `origin/main` `dbce180` (#158 live), brief `LOCATIONS_FOLLOWUP_PASS_2026-11-23.md`. **READY FOR BUILD** (no lock): OI-0269 Events subscription-leak hotfix, OI-0270 voice `OFFLINE_TEXT` copy, OI-0271 canonical `mixed_use`. **LOCKED**: OI-0273 Ready/“Ready?” chip **Rg0+Ro0+Rp1** (t1337s5223, t1341u); OI-0274 DMI/ac **Dl1+Do0+Ds1+Dp1+Dm1+Dc1** and OI-0275 List parity **Lc0** (t1348s5263, 7:24 AM ET); OI-0276 manure NPK always counts, residual hay without % adds 0 (t1347u; amends OI-0246 R1). **DEFERRED**: OI-0272 timeline slider (t1349s5273, 7:25 AM ET — #158 “Much better!”). Build order 0269 → 0276 → 0270 → 0271 → 0274/0275 → 0273. **D0** all. DOCS_MAP refs added. |
 | 2026-11-22 | GTHO Design — docs only | LOCK OI-0260 **LOCKED / READY FOR BUILD** **Ch1+Fw0+Cp0+D0** (Tim card **t1244s4822**, ~1:00 PM ET, via Orchestrator, verbatim: “Lock OI-0260 Ch1+Fw0+Cp0+D0: both charts + days-remaining; keep current forward forecast; CAP-1 out”). Wire both DMI-8 charts and days-remaining / estimated-demand (feed-forage) to the same **Al1+Cv1+Sp-f(demand)** hay allocation OI-0258 already gave Locations F1; keep existing forward forecast (**Fw0**); CAP-1 / DM forecaster **out** (**Cp0**); **D0** no SQL. Open Qs resolved. Does not reopen OI-0258 lock axes; OI-0256 Mx1, alfalfa cleanup, and OI-0259 out of scope. Depends on OI-0258 code live (PR #143 tip `edc0b94`, now on `origin/main`). Build slot after pending merges #138/#132/#134 (Tim did not ask for sooner). Docs tip only — do not land until Tim land yes; do not open a PR from this tip. Docs tip `docs/oi-0260-dmi8-al1` off `edc0b94`. Brief: [DMI8_AL1_ALLOCATION_2026-11-22.md](session_briefs/DMI8_AL1_ALLOCATION_2026-11-22.md). |
 | 2026-11-22 | GTHO Design — docs only | Open **OI-0260 PROPOSED** DMI-8 / feed-forage use Al1 allocation (OI-0258 PR #143 soft notes / Build caveat #5 + Tim ask via Orchestrator ~12:45 PM ET: when will the “DMI-8 Al1 follow-up” be done?). Design lean **Ch1+Fw0+Cp0+D0**: one story — event DMI-8 charts and days-remaining / estimated-demand (feed-forage) consume the same **Al1+Cv1+Sp-f(demand)** hay allocation OI-0258 already gave Locations F1. Open Qs: Ch1 vs chart-only **Ch-c**; **Fw0** keep existing forward forecast vs **Fw1** Al1 run-rate; **Cp0** CAP-1 / DM forecaster out. **D0** no SQL. Does not reopen OI-0258 lock axes; OI-0256 Mx1, alfalfa cleanup, and OI-0259 out of scope. Depends on OI-0258 code live (PR #143 tip `edc0b94`, now on `origin/main`). Build after Tim lock; Design rec after pending #138/#132/#134 or sooner if Tim wants (independent of 0256/0250/0253). Awaiting Tim lock. Docs tip `docs/oi-0260-dmi8-al1` off `edc0b94`. Brief: [DMI8_AL1_ALLOCATION_2026-11-22.md](session_briefs/DMI8_AL1_ALLOCATION_2026-11-22.md). |
 | 2026-11-22 | GTHO Build | Implement OI-0258 **Al1+Pd1+Mc1+Mx-a+Cv1+Sp-f(demand)+D0** on `fix/oi-0258-sp-f-demand` (merged onto origin/main `e548f9b`, cite docs tip `9ec1212`). No SQL. **Sp-w** not implemented. |

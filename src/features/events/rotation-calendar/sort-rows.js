@@ -21,6 +21,20 @@ export const SORT_KEYS = Object.freeze([
   'kPerAcre',
 ]);
 
+/**
+ * OI-0278: the per-area sort keys keep their OI-0274 ids (deep links,
+ * `gtho_v2_locations_sort`, `sort-dmiPerAcre` test ids) but read the canonical
+ * per-ha fields. Sorting stays on metric values; ha → ac is monotonic, so the
+ * order is the same on both unit systems.
+ */
+export const SORT_FIELD = Object.freeze({
+  dmiPerAcre: 'dmiPerHa',
+  audsPerAcre: 'audsPerHa',
+  nPerAcre: 'nPerHa',
+  pPerAcre: 'pPerHa',
+  kPerAcre: 'kPerHa',
+});
+
 /** OI-0274 Ds1: first tap sorts lowest first for these keys (others: name asc, metrics desc). */
 export const FIRST_TAP_ASC = Object.freeze(['name', 'dmiPerAcre']);
 
@@ -40,8 +54,9 @@ export function sortMetricRows(rows, sort = { key: 'name', dir: 'asc' }) {
       const bn = String(b.locationName || b.name || '');
       return mult * an.localeCompare(bn, undefined, { sensitivity: 'base' });
     }
-    const av = a[key];
-    const bv = b[key];
+    const field = SORT_FIELD[key] || key;
+    const av = a[field];
+    const bv = b[field];
     const aNull = av == null || !Number.isFinite(Number(av));
     const bNull = bv == null || !Number.isFinite(Number(bv));
     if (aNull && bNull) {

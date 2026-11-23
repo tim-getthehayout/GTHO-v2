@@ -81,7 +81,7 @@ describe('OI-0276 residual hay without NPK % never blanks manure NPK', () => {
     expect(m.nKg).toBeCloseTo(base.nKg, 6);
     expect(m.pKg).toBeCloseTo(base.pKg, 6);
     expect(m.kKg).toBeCloseTo(base.kKg, 6);
-    expect(m.nPerAcre).toBeCloseTo(base.nPerAcre, 6);
+    expect(m.nPerHa).toBeCloseTo(base.nPerHa, 6);
     expect(formatMetricValue(m.nKg)).not.toBe('\u2014');
     expect(m.npkPartial).toBe(false);
     expect(m.residualNpkSkippedNoPct).toBe(3);

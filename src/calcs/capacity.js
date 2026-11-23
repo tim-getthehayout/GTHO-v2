@@ -15,7 +15,7 @@ registerCalc({
     { name: 'groupDmiKgPerDay', type: 'array', unit: '{ dmiKgPerDay }', notes: 'One entry per selected group, from ANI-1 / DMI-2' },
     { name: 'periodDays', type: 'integer', unit: 'days' },
   ],
-  output: { type: 'object', shape: '{ dmAvailableKg, dmDemandKg, coverageFraction, coversHours, shortfallLbsHay, surplusHours }', unit: 'kg / fraction / hours / lbs' },
+  output: { type: 'object', shape: '{ dmAvailableKg, dmDemandKg, coverageFraction, coversHours, shortfallKg, surplusHours }', unit: 'kg / fraction / hours / kg' },
   example: {
     inputs: {
       forecastDmKg: 3000,
@@ -27,7 +27,7 @@ registerCalc({
       dmDemandKg: 1200,
       coverageFraction: 1,
       coversHours: 72,
-      shortfallLbsHay: 0,
+      shortfallKg: 0,
       surplusHours: 108,
     },
   },
@@ -41,15 +41,15 @@ registerCalc({
         dmDemandKg: 0,
         coverageFraction: 1,
         coversHours: periodDays * 24,
-        shortfallLbsHay: 0,
+        shortfallKg: 0,
         surplusHours: 0,
       };
     }
 
     const coverageFraction = Math.min(1, forecastDmKg / dmDemandKg);
     const coversHours = coverageFraction * periodDays * 24;
+    // OI-0278 S1: canonical kg; the calendar converts for display via the units helper.
     const shortfallKg = Math.max(0, dmDemandKg - forecastDmKg);
-    const shortfallLbsHay = shortfallKg * 2.20462;
     const surplusKg = Math.max(0, forecastDmKg - dmDemandKg);
     const surplusHours = totalDmiPerDay > 0 ? (surplusKg / totalDmiPerDay) * 24 : 0;
 
@@ -58,7 +58,7 @@ registerCalc({
       dmDemandKg,
       coverageFraction,
       coversHours,
-      shortfallLbsHay,
+      shortfallKg,
       surplusHours,
     };
   },

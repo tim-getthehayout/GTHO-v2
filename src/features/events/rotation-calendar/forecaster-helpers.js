@@ -3,14 +3,14 @@
  */
 
 /**
- * CAP-1 stub values that previously painted tan "Hay / stored feed, 0 lbs hay"
+ * CAP-1 stub values that previously painted tan "Hay / stored feed, 0 lb hay"
  * on future blocks when a forecaster period + groups were selected.
  * Kept for tests / Fx1 reference; must not be painted under St1.
  */
 export const CAP1_FORECAST_STUB = Object.freeze({
   coverageFraction: 0,
   coversHours: 0,
-  shortfallLbsHay: 0,
+  shortfallKg: 0,
   surplusHours: 0,
 });
 
@@ -29,7 +29,7 @@ export function listActiveForecasterGroups(groups = [], selectedIds = []) {
 
 /**
  * OI-0257 St1: whether calendar-grid may paint `renderForecastFutureBlock`
- * with the CAP-1 stub (`coverageFraction:0` / `shortfallLbsHay:0`).
+ * with the CAP-1 stub (`coverageFraction:0` / `shortfallKg:0`).
  *
  * Always false under this lock — future blocks keep green readiness where
  * there is pasture. Real capacity paint waits on Fx1 (parked).

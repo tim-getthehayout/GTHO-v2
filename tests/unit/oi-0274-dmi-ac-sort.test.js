@@ -25,11 +25,12 @@ const COLLAPSE_LS = 'gtho_v2_locations_metrics_collapsed';
 
 describe('OI-0274 sort rules (unit)', () => {
   const rows = [
-    { locationId: 'a', locationName: 'A', dmiPerAcre: 50 },
-    { locationId: 'n', locationName: 'NoAcres', dmiPerAcre: null },
-    { locationId: 'b', locationName: 'B', dmiPerAcre: 10 },
-    { locationId: 'u', locationName: 'Unknown', dmiPerAcre: undefined },
-    { locationId: 'c', locationName: 'C', dmiPerAcre: 30 },
+    // OI-0278 S1: the dmiPerAcre sort key reads the canonical per-ha field.
+    { locationId: 'a', locationName: 'A', dmiPerHa: 50 },
+    { locationId: 'n', locationName: 'NoAcres', dmiPerHa: null },
+    { locationId: 'b', locationName: 'B', dmiPerHa: 10 },
+    { locationId: 'u', locationName: 'Unknown', dmiPerHa: undefined },
+    { locationId: 'c', locationName: 'C', dmiPerHa: 30 },
   ];
 
   it('Ds1: first tap on DMI/ac is lowest first; second tap flips', () => {
@@ -52,15 +53,20 @@ describe('OI-0274 sort rules (unit)', () => {
   });
 
   it('formatDmiPerAcre: one decimal; no acreage or unknown → —', () => {
-    expect(formatDmiPerAcre({ hasAcres: true, dmiPerAcre: 12.345 })).toBe('12.3');
-    expect(formatDmiPerAcre({ hasAcres: false, dmiPerAcre: null })).toBe('—');
-    expect(formatDmiPerAcre({ hasAcres: true, dmiPerAcre: null })).toBe('—');
+    // OI-0278 S1: input is kg/ha; 12.345 kg/ha = 11.0 lb/ac (imperial) / 12.3 kg/ha (metric).
+    expect(formatDmiPerAcre({ hasArea: true, dmiPerHa: 12.345 }, { unitSystem: 'metric' })).toBe('12.3');
+    expect(formatDmiPerAcre({ hasArea: true, dmiPerHa: 12.345 }, { unitSystem: 'imperial' })).toBe('11.0');
+    expect(formatDmiPerAcre({ hasArea: false, dmiPerHa: null })).toBe('—');
+    expect(formatDmiPerAcre({ hasArea: true, dmiPerHa: null })).toBe('—');
     expect(formatDmiPerAcre(null)).toBe('—');
   });
 
   it('Dc1 note text: DMI/ac low first; none for name', () => {
-    expect(collapsedSortNote({ key: 'dmiPerAcre', dir: 'asc' })).toBe('Sorted by DMI/ac, low first');
-    expect(collapsedSortNote({ key: 'dmiPerAcre', dir: 'desc' })).toBe('Sorted by DMI/ac, high first');
+    expect(collapsedSortNote({ key: 'dmiPerAcre', dir: 'asc' }, 'imperial')).toBe('Sorted by DMI/ac, low first');
+    expect(collapsedSortNote({ key: 'dmiPerAcre', dir: 'desc' }, 'imperial')).toBe('Sorted by DMI/ac, high first');
+    // OI-0278 S1: farm area unit on a metric farm.
+    expect(collapsedSortNote({ key: 'dmiPerAcre', dir: 'asc' }, 'metric')).toBe('Sorted by DMI/ha, low first');
+    expect(collapsedSortNote({ key: 'nPerAcre', dir: 'desc' }, 'metric')).toBe('Sorted by N/ha, high first');
     expect(collapsedSortNote({ key: 'auds', dir: 'desc' })).toBe('Sorted by AUDs, high first');
     expect(collapsedSortNote({ key: 'name', dir: 'asc' })).toBeNull();
   });
@@ -174,7 +180,8 @@ describe('OI-0274/0275 grid: DMI/ac metric, sort button, phone, collapsed note, 
     document.body.innerHTML = '';
     vi.stubGlobal('requestAnimationFrame', () => 0);
     window.innerWidth = 1280;
-    put('operations', { id: 'op', name: 'Op', unitSystem: 'metric' });
+    // OI-0278 S1: OI-0274's "DMI/ac" labels are the imperial farm's; metric is covered in oi-0278-s1-units.test.js.
+    put('operations', { id: 'op', name: 'Op', unitSystem: 'imperial' });
     put('farms', { id: 'farm', operationId: 'op', name: 'Farm' });
     put('farmSettings', { id: 'fs', farmId: 'farm', operationId: 'op' });
     // Grazed (known DMI/ac), idle with acres (0 DMI/ac), and no acreage (—).
@@ -248,7 +255,7 @@ describe('OI-0274/0275 grid: DMI/ac metric, sort button, phone, collapsed note, 
     document.body.innerHTML = '';
     c = mount();
     expect(rowOrder(c)).toEqual(['L-graze', 'L-idle', 'L-noac']);
-    expect(c.querySelector('[data-testid="sort-dmiPerAcre"]').textContent).toBe('DMI/ac ↓');
+    expect(c.querySelector('[data-testid="sort-dmiPerAcre"]').textContent).toBe('DMI/ac (lb) ↓');
   });
 
   it('Dc1: collapsed Calendar shows the sort note; default name sort shows none', () => {

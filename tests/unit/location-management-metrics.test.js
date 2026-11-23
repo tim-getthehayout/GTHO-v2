@@ -112,8 +112,8 @@ describe('computeLocationMetrics', () => {
     expect(m.pKg).toBeGreaterThan(0);
     expect(m.kKg).toBeGreaterThan(0);
     expect(m.avgScore).toBe(70);
-    expect(m.hasAcres).toBe(true);
-    expect(m.audsPerAcre).toBeGreaterThan(0);
+    expect(m.hasArea).toBe(true);
+    expect(m.audsPerHa).toBeGreaterThan(0);
     expect(m.eventCount).toBe(1);
   });
 

@@ -15,7 +15,7 @@ import {
 } from '../calendar-state.js';
 import { getUnitSystem } from '../../../utils/preferences.js';
 import { getLocalTodayStr } from '../../../utils/date-utils.js';
-import { display } from '../../../utils/units.js';
+import { formatMeasure, formatPerArea, unitSuffix, shortUnit } from '../../../utils/units.js';
 import { navigate } from '../../../ui/router.js';
 import {
   openLocationSheet,
@@ -70,20 +70,42 @@ let listSearchQuery = '';
 let listLandUseFilter = 'all';
 let listFarmFilter = 'all'; // OI-0265 Lg1: multi-farm only (legacy farm pills)
 
-const METRIC_COLS = [
-  { key: 'dmiKg', label: 'DMI', title: 'Implied pasture DMI (kg)' },
-  // OI-0274 Dl1: DMI per acre is its own metric + sort button, right of DMI.
-  { key: 'dmiPerAcre', label: 'DMI/ac', title: 'Implied pasture DMI per acre (kg/ac); no acreage shows —' },
-  { key: 'auds', label: 'AUDs', title: 'Animal Unit Days' },
-  { key: 'nKg', label: 'N', title: 'Nitrogen deposited (kg)' },
-  { key: 'pKg', label: 'P', title: 'Phosphorus deposited (kg)' },
-  { key: 'kKg', label: 'K', title: 'Potassium deposited (kg)' },
-  { key: 'avgScore', label: 'Score', title: 'Average pasture score' },
-];
+/**
+ * OI-0278 S1: metric columns in the farm's unit system. `label` is the short
+ * in-cell label; `head` is the sort-header text carrying the unit ("DMI (lb)");
+ * `title` is the tooltip with the unit. Values in the cells are numbers only
+ * (unit in header); per-area parentheticals carry their full unit.
+ * Keys stay the OI-0274 ids (deep links / stored sort) — see sort-rows SORT_FIELD.
+ * @param {'metric'|'imperial'} [unitSystem]
+ */
+export function metricCols(unitSystem = getUnitSystem()) {
+  const us = unitSystem === 'metric' ? 'metric' : 'imperial';
+  const w = unitSuffix('weight', us); // "(lb)" | "(kg)"
+  const area = shortUnit('area', us); // "ac" | "ha"
+  const perArea = shortUnit('weight', us, { perArea: true }); // "lb/ac" | "kg/ha"
+  const areaWord = us === 'metric' ? 'hectare' : 'acre';
+  return [
+    { key: 'dmiKg', label: 'DMI', head: `DMI ${w}`, title: `Implied pasture DMI ${w}`, family: 'weight' },
+    // OI-0274 Dl1: DMI per area is its own metric + sort button, right of DMI.
+    {
+      key: 'dmiPerAcre',
+      label: `DMI/${area}`,
+      head: `DMI/${area} ${w}`,
+      title: `Implied pasture DMI per ${areaWord} (${perArea}); no area shows —`,
+      family: 'weight',
+    },
+    { key: 'auds', label: 'AUDs', head: 'AUDs', title: 'Animal Unit Days', family: null },
+    { key: 'nKg', label: 'N', head: `N ${w}`, title: `Nitrogen deposited ${w}`, family: 'npk' },
+    { key: 'pKg', label: 'P', head: `P ${w}`, title: `Phosphorus deposited ${w}`, family: 'npk' },
+    { key: 'kKg', label: 'K', head: `K ${w}`, title: `Potassium deposited ${w}`, family: 'npk' },
+    { key: 'avgScore', label: 'Score', head: 'Score', title: 'Average pasture score', family: null },
+  ];
+}
 
 /** OI-0252 Ls: line 1 = DMI · DMI/ac (OI-0274) · AUDs; line 2 = N · P · K · Score. */
-const METRIC_LINE1 = METRIC_COLS.filter(c => c.key === 'dmiKg' || c.key === 'dmiPerAcre' || c.key === 'auds');
-const METRIC_LINE2 = METRIC_COLS.filter(c => !METRIC_LINE1.includes(c));
+const METRIC_LINE1_KEYS = ['dmiKg', 'dmiPerAcre', 'auds'];
+const metricLine1 = (cols) => cols.filter(c => METRIC_LINE1_KEYS.includes(c.key));
+const metricLine2 = (cols) => cols.filter(c => !METRIC_LINE1_KEYS.includes(c.key));
 
 /**
  * OI-0252 Wu: one uniform content width from the widest rendered metrics block
@@ -118,37 +140,47 @@ export function applyUniformMetricsWidth(root) {
 }
 
 /**
- * OI-0274: the ONE place the DMI/ac value is formatted (wrap here for the shared
- * units helper later). No acreage or unknown DMI → "—" (OI-0253 style).
+ * OI-0274: the ONE place the DMI/ac value is formatted. OI-0278: via the shared
+ * helper from canonical kg/ha → lb/ac (imperial) or kg/ha (metric); the unit
+ * sits in the header ("DMI/ac (lb)"). No area or unknown DMI → "—" (OI-0253 style).
  * @param {object|null|undefined} metrics
+ * @param {{ unitSystem?: 'metric'|'imperial', compact?: boolean }} [opts]
  * @returns {string}
  */
-export function formatDmiPerAcre(metrics) {
-  if (!metrics?.hasAcres) return '—';
-  return formatMetricValue(metrics?.dmiPerAcre, { digits: 1 });
+export function formatDmiPerAcre(metrics, { unitSystem, compact = false } = {}) {
+  if (!metrics?.hasArea) return '—';
+  return formatPerArea(metrics?.dmiPerHa, 'weight', { unitSystem, compact, unitInHeader: true });
 }
+
+/** OI-0278: per-area field + family behind each metric's "(x lb/ac)" parenthetical. */
+const PER_AREA_OF = {
+  auds: { field: 'audsPerHa', family: 'count' },
+  nKg: { field: 'nPerHa', family: 'npk' },
+  pKg: { field: 'pPerHa', family: 'npk' },
+  kKg: { field: 'kPerHa', family: 'npk' },
+};
 
 /**
  * @param {object} col
  * @param {object|null|undefined} metrics
  * @param {{ includePerAcre?: boolean }} [opts]
  */
-function renderMetricCol(col, metrics, { includePerAcre = true } = {}) {
+function renderMetricCol(col, metrics, { includePerAcre = true, compact = false, unitSystem } = {}) {
   const raw = metrics?.[col.key];
   // OI-0274 Dp1: DMI/ac is a metric of its own and shows on phone too.
+  // OI-0278 S1: unit-bearing values via the shared helper (unit in the header);
+  // Na compact ("12.3k") on phone only. AUDs / Score are not unit-bound.
   const text = col.key === 'dmiPerAcre'
-    ? formatDmiPerAcre(metrics)
-    : formatMetricValue(raw, { digits: col.key === 'avgScore' ? 0 : 0 });
+    ? formatDmiPerAcre(metrics, { unitSystem, compact })
+    : col.family
+      ? formatMeasure(raw, col.family, { unitSystem, compact, unitInHeader: true })
+      : formatMetricValue(raw, { digits: 0 });
   // OI-0274 Do0: DMI no longer carries a "(x/ac)" suffix; AUDs/N/P/K keep theirs.
-  const perAcreKey = col.key === 'auds' ? 'audsPerAcre'
-    : col.key === 'nKg' ? 'nPerAcre'
-    : col.key === 'pKg' ? 'pPerAcre'
-    : col.key === 'kKg' ? 'kPerAcre'
-    : null;
-  const perAcre = perAcreKey ? metrics?.[perAcreKey] : null;
+  const perArea = PER_AREA_OF[col.key] || null;
+  const perAreaVal = perArea ? metrics?.[perArea.field] : null;
   // Nn: drop per-acre parentheticals on phone before shortening digits.
-  const perAcreText = includePerAcre && perAcre != null && metrics?.hasAcres
-    ? ` (${formatMetricValue(perAcre, { digits: 1 })}/ac)`
+  const perAcreText = includePerAcre && perAreaVal != null && metrics?.hasArea
+    ? ` (${formatPerArea(perAreaVal, perArea.family, { unitSystem })})`
     : '';
   const isPartial = (col.key === 'dmiKg' && metrics?.dmiPartial)
     || ((col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg') && metrics?.npkPartial);
@@ -189,8 +221,10 @@ function renderMetricCol(col, metrics, { includePerAcre = true } = {}) {
  * @param {object|null|undefined} metrics
  * @param {{ isPhone?: boolean }} [opts]
  */
-function renderMetricsCell(metrics, { isPhone = false } = {}) {
+function renderMetricsCell(metrics, { isPhone = false, unitSystem = getUnitSystem() } = {}) {
   const includePerAcre = !isPhone;
+  const cols = metricCols(unitSystem);
+  const opts = { includePerAcre, compact: isPhone, unitSystem };
   return el('div', {
     className: 'loc-mgmt__metrics',
     dataset: { testid: 'loc-mgmt-metrics', locationId: metrics?.locationId },
@@ -198,11 +232,11 @@ function renderMetricsCell(metrics, { isPhone = false } = {}) {
     el('div', {
       className: 'loc-mgmt__metrics-line',
       dataset: { testid: 'loc-mgmt-metrics-line1' },
-    }, METRIC_LINE1.map(col => renderMetricCol(col, metrics, { includePerAcre }))),
+    }, metricLine1(cols).map(col => renderMetricCol(col, metrics, opts))),
     el('div', {
       className: 'loc-mgmt__metrics-line',
       dataset: { testid: 'loc-mgmt-metrics-line2' },
-    }, METRIC_LINE2.map(col => renderMetricCol(col, metrics, { includePerAcre }))),
+    }, metricLine2(cols).map(col => renderMetricCol(col, metrics, opts))),
   ]);
 }
 
@@ -210,8 +244,9 @@ function renderMetricsCell(metrics, { isPhone = false } = {}) {
  * OI-0252 Ls: stacked sort headers matching metric lines.
  */
 function renderMetricsHead(metricBtnsByKey, { grow = false } = {}) {
-  const line1 = METRIC_LINE1.map(c => metricBtnsByKey.get(c.key)).filter(Boolean);
-  const line2 = METRIC_LINE2.map(c => metricBtnsByKey.get(c.key)).filter(Boolean);
+  const cols = metricCols();
+  const line1 = metricLine1(cols).map(c => metricBtnsByKey.get(c.key)).filter(Boolean);
+  const line2 = metricLine2(cols).map(c => metricBtnsByKey.get(c.key)).filter(Boolean);
   return el('div', {
     className: `loc-mgmt__metrics-head${grow ? ' loc-mgmt__metrics-head--grow' : ''}`,
   }, [
@@ -415,7 +450,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     : renderToolbar(onUpdate);
   // OI-0250 Sb: period totals under season metrics bar, above color key (Calendar only).
   const periodTotals = isList ? null : aggregatePeriodTotals(metricRows);
-  const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals) : null;
+  const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals, { unitSystem, isPhone }) : null;
   const legend = isList ? null : renderLegend(viewMode);
 
   // OI-0254 Sc1: canvas = all past event starts → latest ready-by (close-event recovery).
@@ -918,12 +953,14 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
  * OI-0250 Sb: period totals strip — Pasture / Stored-feed / Total DMI + Total N/P/K.
  * Calendar only; sits under season metrics bar and above the color key.
  */
-function renderPeriodTotalsStrip(totals) {
+function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone = false } = {}) {
+  // OI-0278 S1: unit in the label ("Total DMI (lb)"); values via the helper.
+  const w = unitSuffix('weight', unitSystem);
   // OI-0276: same hover note on Total N/P/K when leftover hay was not counted.
   const hayNote = residualNpkNote(totals);
   // OI-0279: per-class DMI % fallback note on the DMI totals.
   const dmiNote = totals.dmiBasisNote ? `. ${totals.dmiBasisNote}` : '';
-  const cell = (key, label, value, partial, title, note = null) => el('div', {
+  const cell = (key, label, value, partial, title, note = null, family = 'weight') => el('div', {
     className: `loc-mgmt__period-total${partial ? ' loc-mgmt__period-total--partial' : ''}`,
     title: note ? `${title}. ${note}` : title,
     dataset: {
@@ -935,7 +972,7 @@ function renderPeriodTotalsStrip(totals) {
   }, [
     el('span', { className: 'loc-mgmt__period-total-label' }, [label]),
     el('span', { className: 'loc-mgmt__period-total-value' }, [
-      formatMetricValue(value, { digits: 0 }),
+      formatMeasure(value, family, { unitSystem, compact: isPhone, unitInHeader: true }),
       partial
         ? el('span', {
           className: 'loc-mgmt__metric-partial',
@@ -952,15 +989,15 @@ function renderPeriodTotalsStrip(totals) {
     'aria-label': 'Period totals for locations in view',
   }, [
     el('span', { className: 'loc-mgmt__period-totals-label' }, ['Period totals:']),
-    cell('pastureDmi', 'Pasture DMI', totals.pastureDmiKg, !!totals.dmiPartial,
-      `Implied pasture DMI for the period in view (kg)${dmiNote}`),
-    cell('storedDmi', 'Stored-feed DMI', totals.storedFeedDmiKg, false,
-      'Measured stored-feed DMI eaten (kg); missing-DM counts as 0'),
-    cell('totalDmi', 'Total DMI', totals.totalDmiKg, !!totals.dmiPartial,
-      `Pasture DMI + stored-feed DMI for the period (kg)${dmiNote}`),
-    cell('n', 'Total N', totals.nKg, !!totals.npkPartial, 'Total nitrogen for the period (kg)', hayNote),
-    cell('p', 'Total P', totals.pKg, !!totals.npkPartial, 'Total phosphorus for the period (kg)', hayNote),
-    cell('k', 'Total K', totals.kKg, !!totals.npkPartial, 'Total potassium for the period (kg)', hayNote),
+    cell('pastureDmi', `Pasture DMI ${w}`, totals.pastureDmiKg, !!totals.dmiPartial,
+      `Implied pasture DMI for the period in view ${w}${dmiNote}`),
+    cell('storedDmi', `Stored-feed DMI ${w}`, totals.storedFeedDmiKg, false,
+      `Measured stored-feed DMI eaten ${w}; missing-DM counts as 0`),
+    cell('totalDmi', `Total DMI ${w}`, totals.totalDmiKg, !!totals.dmiPartial,
+      `Pasture DMI + stored-feed DMI for the period ${w}${dmiNote}`),
+    cell('n', `Total N ${w}`, totals.nKg, !!totals.npkPartial, `Total nitrogen for the period ${w}`, hayNote, 'npk'),
+    cell('p', `Total P ${w}`, totals.pKg, !!totals.npkPartial, `Total phosphorus for the period ${w}`, hayNote, 'npk'),
+    cell('k', `Total K ${w}`, totals.kKg, !!totals.npkPartial, `Total potassium for the period ${w}`, hayNote, 'npk'),
   ]);
 }
 
@@ -984,8 +1021,9 @@ function renderTableHead({
   omitTimeline = false, metricsCollapsed = false,
 }) {
   const nameBtn = sortHeaderButton('name', 'Name', sort, onUpdate);
-  const metricBtns = METRIC_COLS.map(col => sortHeaderButton(col.key, col.label, sort, onUpdate, col.title));
-  const metricBtnsByKey = new Map(METRIC_COLS.map((col, i) => [col.key, metricBtns[i]]));
+  const cols = metricCols();
+  const metricBtns = cols.map(col => sortHeaderButton(col.key, col.head, sort, onUpdate, col.title));
+  const metricBtnsByKey = new Map(cols.map((col, i) => [col.key, metricBtns[i]]));
   const collapseToggle = omitTimeline
     ? null
     : renderMetricsCollapseToggle({ collapsed: metricsCollapsed, onUpdate });
@@ -1052,10 +1090,13 @@ function renderTableHead({
   ]);
 }
 
-/** Labels for sort keys with no header button (URL / stored deep links). */
-const SORT_NOTE_LABELS = {
-  audsPerAcre: 'AUDs/ac', nPerAcre: 'N/ac', pPerAcre: 'P/ac', kPerAcre: 'K/ac',
-};
+/** Labels for sort keys with no header button (URL / stored deep links); OI-0278: farm area unit. */
+function sortNoteLabels(unitSystem) {
+  const area = shortUnit('area', unitSystem);
+  return {
+    audsPerAcre: `AUDs/${area}`, nPerAcre: `N/${area}`, pPerAcre: `P/${area}`, kPerAcre: `K/${area}`,
+  };
+}
 
 /**
  * OI-0274 Dc1: note shown by the collapsed Metrics tab, e.g.
@@ -1063,10 +1104,10 @@ const SORT_NOTE_LABELS = {
  * @param {{ key: string, dir: 'asc'|'desc' }} sort
  * @returns {string|null}
  */
-export function collapsedSortNote(sort) {
+export function collapsedSortNote(sort, unitSystem = getUnitSystem()) {
   const key = sort?.key || 'name';
   if (key === 'name') return null;
-  const label = METRIC_COLS.find(c => c.key === key)?.label || SORT_NOTE_LABELS[key];
+  const label = metricCols(unitSystem).find(c => c.key === key)?.label || sortNoteLabels(unitSystem)[key];
   if (!label) return null;
   return `Sorted by ${label}, ${sort?.dir === 'desc' ? 'high first' : 'low first'}`;
 }
@@ -1145,9 +1186,11 @@ function renderManagementRow(opts) {
     readyChip = null,
   } = opts;
 
-  const areaDisplay = loc.areaHectares != null
-    ? display(loc.areaHectares, 'area', unitSystem)
-    : 'no acres';
+  // OI-0278 S1: area via the helper ("12.3 ac" / "5.0 ha"); none → "no area".
+  const hasArea = Number(loc.areaHectares) > 0;
+  const areaDisplay = hasArea
+    ? formatMeasure(loc.areaHectares, 'area', { unitSystem })
+    : 'no area';
   const status = statusTag(loc, activeEvents[loc.id], linkedPaddocks[loc.id], stripInfo[loc.id], readiness);
   const opId = operationId || loc.operationId;
   const fId = farmId || loc.farmId;
@@ -1194,8 +1237,7 @@ function renderManagementRow(opts) {
     ].filter(Boolean)),
     codeLine,
     el('div', { className: 'loc-mgmt__area' }, [
-      areaDisplay,
-      metrics?.hasAcres ? '' : el('span', { className: 'loc-mgmt__no-acres' }, [' · no acres']),
+      hasArea ? areaDisplay : el('span', { className: 'loc-mgmt__no-acres' }, [areaDisplay]),
     ].filter(Boolean)),
     status ? el('div', { className: 'loc-mgmt__tag' }, [status]) : null,
   ].filter(Boolean));
@@ -1233,7 +1275,7 @@ function renderManagementRow(opts) {
       dataset: { testid: 'loc-mgmt-metrics-collapsed', locationId: loc.id },
       'aria-hidden': 'true',
     })
-    : renderMetricsCell(metricsForCell, { isPhone });
+    : renderMetricsCell(metricsForCell, { isPhone, unitSystem });
 
   if (omitTimeline) {
     // Br: List action buttons on the right-hand side (original Locations list parity).
@@ -1313,7 +1355,8 @@ function renderManagementRow(opts) {
         days: span.days,
         pasturePct: wm.pasturePct,
         feedPct: wm.feedPct,
-        dmi: storedFeedOnly ? 0 : (wm.dmi != null ? Math.round(wm.dmi) : null),
+        // OI-0278 S1: pass canonical kg; past-block formats it in the farm unit.
+        dmi: storedFeedOnly ? 0 : (wm.dmi != null ? wm.dmi : null),
         headCount: hc.headCount,
         isActive,
         isStripGraze: pw.isStripGraze || false,
@@ -1342,7 +1385,7 @@ function renderManagementRow(opts) {
   stubEnd.setDate(stubEnd.getDate() + Math.max(14, defaultSpanDays(state.zoom || 'week')));
   if (stubEnd.getTime() > range.end.getTime()) stubEnd.setTime(range.end.getTime());
 
-  // OI-0257 St1: never paint CAP-1 stub zeros (tan "0 lbs hay"); keep green readiness
+  // OI-0257 St1: never paint CAP-1 stub zeros (tan "0 lb hay"); keep green readiness
   // where there is pasture. Real forecast capacity paint waits on Fx1 (parked).
   if (
     shouldPaintCap1ForecastStub({ viewMode, selectedGroups, period: state.period })
@@ -1359,7 +1402,7 @@ function renderManagementRow(opts) {
       ...CAP1_FORECAST_STUB,
       isNeverGrazed,
       isGrazingInProgress: hasActiveEvent,
-      hayEstimateLbs: '?',
+      hayEstimateKg: null,
       locationId: loc.id,
       forageInactive: false,
       onClickBlock: (_id, action) => {
@@ -1377,7 +1420,7 @@ function renderManagementRow(opts) {
       confidence: 'min',
       isNeverGrazed: false,
       isGrazingInProgress: true,
-      hayEstimateLbs: '?',
+      hayEstimateKg: null,
       locationId: loc.id,
       forageInactive: false,
       onClickBlock: () => {},
@@ -1393,7 +1436,7 @@ function renderManagementRow(opts) {
       confidence: 'min',
       isNeverGrazed: true,
       isGrazingInProgress: false,
-      hayEstimateLbs: '?',
+      hayEstimateKg: null,
       locationId: loc.id,
       forageInactive: false,
       onClickBlock: (_id, action) => {
@@ -1417,7 +1460,7 @@ function renderManagementRow(opts) {
         label: readinessState.label || '',
         isNeverGrazed: false,
         isGrazingInProgress: false,
-        hayEstimateLbs: '?',
+        hayEstimateKg: null,
         locationId: loc.id,
         forageInactive: false,
         onClickBlock: (_id, action) => {

@@ -428,7 +428,7 @@ describe('calculation engine', () => {
       // demand = 400 * 3 = 1200; supply = 3000
       expect(result.coverageFraction).toBe(1);
       expect(result.coversHours).toBe(72);
-      expect(result.shortfallLbsHay).toBe(0);
+      expect(result.shortfallKg).toBe(0);
       // surplus = (3000 - 1200) / (400/24) = 1800 / 16.667 = 108 hours
       expect(result.surplusHours).toBeCloseTo(108, 0);
     });
@@ -443,7 +443,8 @@ describe('calculation engine', () => {
       // demand = 1200; supply = 600; coverage = 0.5
       expect(result.coverageFraction).toBe(0.5);
       expect(result.coversHours).toBe(36);
-      expect(result.shortfallLbsHay).toBeCloseTo(600 * 2.20462, 0);
+      // OI-0278 S1: CAP-1 returns canonical kg (display converts).
+      expect(result.shortfallKg).toBeCloseTo(600, 6);
       expect(result.surplusHours).toBe(0);
     });
 
@@ -456,7 +457,7 @@ describe('calculation engine', () => {
       });
       expect(result.coverageFraction).toBe(0);
       expect(result.coversHours).toBe(0);
-      expect(result.shortfallLbsHay).toBeCloseTo(1200 * 2.20462, 0);
+      expect(result.shortfallKg).toBeCloseTo(1200, 6);
     });
 
     it('multi-group: sums DMI across groups', () => {

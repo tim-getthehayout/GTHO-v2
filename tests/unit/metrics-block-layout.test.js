@@ -125,8 +125,9 @@ describe('OI-0252 metrics block layout', () => {
 
   it('Nn: phone keeps two-line stack (source lock; no flat six fallback)', () => {
     const src = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
-    expect(src).toMatch(/METRIC_LINE1/);
-    expect(src).toMatch(/METRIC_LINE2/);
+    // OI-0278 S1: lines are built per unit system (metricLine1/metricLine2 over metricCols()).
+    expect(src).toMatch(/metricLine1\(cols\)/);
+    expect(src).toMatch(/metricLine2\(cols\)/);
     expect(src).toMatch(/includePerAcre = !isPhone/);
     expect(src).toMatch(/applyUniformMetricsWidth/);
     // No path that rebuilds a single flat METRIC_COLS.map into the metrics cell

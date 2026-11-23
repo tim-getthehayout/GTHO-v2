@@ -6,6 +6,18 @@
 
 import { el } from '../../../ui/dom.js';
 import { t } from '../../../i18n/i18n.js';
+import { formatMeasure, shortUnit } from '../../../utils/units.js';
+
+/**
+ * OI-0278 S1: hay amount (canonical kg) in the farm unit → "1,234 lb hay";
+ * unknown → "? lb hay".
+ * @param {number|null|undefined} kg
+ * @returns {string}
+ */
+export function formatHayAmount(kg) {
+  const known = kg != null && kg !== '' && Number.isFinite(Number(kg));
+  return known ? `${formatMeasure(kg, 'weight')} hay` : `? ${shortUnit('weight')} hay`;
+}
 
 /**
  * Format surplus hours as "Xd Yh".
@@ -44,7 +56,7 @@ function formatCovers(hours) {
  * @param {string} opts.confidence - 'min' | 'mid' | 'max' | 'past_max'
  * @param {boolean} opts.isNeverGrazed
  * @param {boolean} opts.isGrazingInProgress
- * @param {string} [opts.hayEstimateLbs] - For never-grazed paddocks
+ * @param {number|null} [opts.hayEstimateKg] - For never-grazed paddocks (canonical kg; null → "?")
  * @param {string} opts.locationId
  * @param {Function} opts.onClickBlock
  * @param {string} [opts.label] - OI-0262 Pb1 readiness label for aria/title
@@ -52,7 +64,7 @@ function formatCovers(hours) {
  */
 export function renderEstimatedFutureBlock({
   leftPx, widthPx, minDate, maxDate, confidence,
-  isNeverGrazed, isGrazingInProgress, hayEstimateLbs,
+  isNeverGrazed, isGrazingInProgress, hayEstimateKg = null,
   locationId, onClickBlock, forageInactive = false, label = '',
 }) {
   if (isGrazingInProgress) {
@@ -87,9 +99,9 @@ export function renderEstimatedFutureBlock({
       onClick: () => onClickBlock(locationId, 'survey'),
       tabindex: '0',
       role: 'button',
-      'aria-label': `Never grazed, estimated ${hayEstimateLbs || '?'} lbs hay needed`,
+      'aria-label': `Never grazed, estimated ${formatHayAmount(hayEstimateKg)} needed`,
     }, [
-      el('span', {}, [`Est. ${hayEstimateLbs || '?'} lbs hay needed \u2014 survey to confirm`]),
+      el('span', {}, [`Est. ${formatHayAmount(hayEstimateKg)} needed \u2014 survey to confirm`]),
     ]);
   }
 
@@ -122,18 +134,18 @@ export function renderEstimatedFutureBlock({
  * @param {number} opts.widthPx
  * @param {number} opts.coverageFraction - 0 to 1
  * @param {number} opts.coversHours
- * @param {number} opts.shortfallLbsHay
+ * @param {number} opts.shortfallKg - CAP-1 shortfall, canonical kg (OI-0278 S1)
  * @param {number} opts.surplusHours
  * @param {boolean} opts.isNeverGrazed
  * @param {boolean} opts.isGrazingInProgress
- * @param {string} [opts.hayEstimateLbs]
+ * @param {number|null} [opts.hayEstimateKg]
  * @param {string} opts.locationId
  * @param {Function} opts.onClickBlock
  * @returns {HTMLElement}
  */
 export function renderForecastFutureBlock({
-  leftPx, widthPx, coverageFraction, coversHours, shortfallLbsHay, surplusHours,
-  isNeverGrazed, isGrazingInProgress, hayEstimateLbs,
+  leftPx, widthPx, coverageFraction, coversHours, shortfallKg, surplusHours,
+  isNeverGrazed, isGrazingInProgress, hayEstimateKg = null,
   locationId, onClickBlock, forageInactive = false,
 }) {
   if (forageInactive) {
@@ -155,7 +167,7 @@ export function renderForecastFutureBlock({
   if (isNeverGrazed) {
     return renderEstimatedFutureBlock({
       leftPx, widthPx, isNeverGrazed: true,
-      hayEstimateLbs, locationId, onClickBlock,
+      hayEstimateKg, locationId, onClickBlock,
       minDate: '', maxDate: '', confidence: 'min', isGrazingInProgress: false,
     });
   }
@@ -182,7 +194,7 @@ export function renderForecastFutureBlock({
       style: { width: `${tanPct}%` },
     }, [
       el('span', { className: 'future-block__segment-label' }, [
-        `${Math.round(shortfallLbsHay)} lbs hay`,
+        formatHayAmount(shortfallKg),
       ]),
     ]));
   }

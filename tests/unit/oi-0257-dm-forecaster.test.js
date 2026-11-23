@@ -48,16 +48,16 @@ describe('OI-0257 DM forecaster narrow (Ag1+St1)', () => {
       })).toBe(false);
     });
 
-    it('documents the stub values that used to fake tan "0 lbs hay"', () => {
+    it('documents the stub values that used to fake tan "0 lb hay"', () => {
       expect(CAP1_FORECAST_STUB).toEqual({
         coverageFraction: 0,
         coversHours: 0,
-        shortfallLbsHay: 0,
+        shortfallKg: 0,
         surplusHours: 0,
       });
     });
 
-    it('CAP-1 stub values would paint a full tan "0 lbs hay" segment (why St1 blocks it)', () => {
+    it('CAP-1 stub values would paint a full tan "0 lb hay" segment (why St1 blocks it)', () => {
       const node = renderForecastFutureBlock({
         leftPx: 0,
         widthPx: 100,
@@ -70,7 +70,7 @@ describe('OI-0257 DM forecaster narrow (Ag1+St1)', () => {
       expect(node.dataset.testid).toBe('future-block-forecast');
       const tan = node.querySelector('.future-block__segment--tan');
       expect(tan).toBeTruthy();
-      expect(tan.textContent).toContain('0 lbs hay');
+      expect(tan.textContent).toContain('0 lb hay');
       // No green segment when coverageFraction is 0
       expect(node.querySelector('.future-block__segment--green')).toBeNull();
     });

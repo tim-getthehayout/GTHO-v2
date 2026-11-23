@@ -9,6 +9,7 @@
 
 import { el } from '../../../ui/dom.js';
 import { t } from '../../../i18n/i18n.js';
+import { formatMeasure } from '../../../utils/units.js';
 
 /**
  * Build the group label per multi-group rule.
@@ -52,16 +53,18 @@ function renderStripBands(strips, { storedFeedOnly = false } = {}) {
  * Format past-block line 2 Pasture/Feed/DMI/Head.
  * OI-0253 B1: null/non-finite pasturePct or dmi → "—" (never paint unknown as 0 / 0%).
  * Known zero still renders 0 / 0%.
- * @param {{ pasturePct: number|null|undefined, feedPct: number|null|undefined, dmi: number|null|undefined, headCount: number }} opts
+ * @param {{ pasturePct: number|null|undefined, feedPct: number|null|undefined, dmi: number|null|undefined, headCount: number, unitSystem?: 'metric'|'imperial' }} opts
+ *   `dmi` is canonical kg (unrounded); the helper converts and rounds.
  * @returns {string}
  */
-export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }) {
+export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, unitSystem }) {
   const pastureSeg = pasturePct == null || !Number.isFinite(Number(pasturePct))
     ? 'Pasture —%'
     : `Pasture ${Math.round(pasturePct)}%`;
+  // OI-0278 S1: DMI (canonical kg) in the farm unit via the shared helper → "272 lb DMI".
   const dmiSeg = dmi == null || !Number.isFinite(Number(dmi))
     ? '— DMI'
-    : `${Math.round(dmi)} DMI`;
+    : `${formatMeasure(dmi, 'weight', { unitSystem })} DMI`;
   // OI-0264 Mw1: feedPct may be unknown too ("Feed —%").
   const feedSeg = feedPct == null || !Number.isFinite(Number(feedPct))
     ? 'Feed —%'
@@ -79,7 +82,7 @@ export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }
  * @param {number} opts.days - Duration in days
  * @param {number|null} opts.pasturePct - Pasture percentage; null/unknown → "—" (OI-0253 B1)
  * @param {number|null} opts.feedPct - Feed percentage; null → "—" (OI-0264 Mw1)
- * @param {number|null} opts.dmi - DMI value; null/unknown → "—" (OI-0253 B1)
+ * @param {number|null} opts.dmi - DMI in canonical kg (unrounded); null/unknown → "—" (OI-0253 B1)
  * @param {number} opts.headCount - Head count
  * @param {boolean} opts.isActive - Whether this is the currently-open event
  * @param {boolean} opts.isStripGraze - Whether strip-grazed
@@ -118,7 +121,7 @@ export function renderPastBlock({
     line2Parts.push(el('span', {}, [`↳ linked to ${linkedPrimaryName || '—'}`]));
   } else if (storedFeedOnly) {
     line2Parts.push(el('span', {}, [
-      `Pasture 0% · Feed 100% · ${Math.round(dmi || 0)} DMI · ${headCount} hd`,
+      `Pasture 0% · Feed 100% · ${formatMeasure(dmi || 0, 'weight')} DMI · ${headCount} hd`,
     ]));
   } else {
     line2Parts.push(el('span', {}, [

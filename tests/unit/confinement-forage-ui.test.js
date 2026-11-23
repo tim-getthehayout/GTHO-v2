@@ -41,7 +41,7 @@ describe('confinement forage UI (OI-0209)', () => {
   it('calendar confinement future blocks are greyed out and do not request a survey', () => {
     const node = renderEstimatedFutureBlock({
       leftPx: 0, widthPx: 40, minDate: '', maxDate: '', confidence: 'min',
-      isNeverGrazed: true, isGrazingInProgress: false, hayEstimateLbs: '12',
+      isNeverGrazed: true, isGrazingInProgress: false, hayEstimateKg: 12,
       locationId: 'loc-corral', onClickBlock: () => { throw new Error('survey should not run'); },
       forageInactive: true,
     });

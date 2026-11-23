@@ -42,7 +42,6 @@ import {
 } from '../../../calcs/f1-close-allocation.js';
 import { periodContaining, DEFAULT_BUDGET_PERIOD } from '../../../calcs/budget-period.js';
 
-const HA_TO_ACRES = 2.47105;
 const DEFAULT_EXC = { n: 0.145, p: 0.041, k: 0.136 };
 
 /** Derive event start from passed-in windows (store-free for unit tests). */
@@ -115,10 +114,11 @@ function effectiveAreaHa(pw, locationsById) {
   return area * frac;
 }
 
-function acresOf(location) {
+/** OI-0278: canonical area in hectares; no / zero area → null. Per-area metrics are per ha. */
+function areaHaOf(location) {
   const ha = Number(location?.areaHectares);
   if (!Number.isFinite(ha) || ha <= 0) return null;
-  return ha * HA_TO_ACRES;
+  return ha;
 }
 
 function mapById(rows) {
@@ -420,8 +420,7 @@ export function computeLocationMetrics(location, ctx) {
     locationId: location?.id,
     locationName: location?.name || '',
     areaHectares: location?.areaHectares ?? null,
-    areaAcres: acresOf(location),
-    hasAcres: acresOf(location) != null,
+    hasArea: areaHaOf(location) != null,
     dmiKg: null,
     dmiKnown: false,
     auds: 0,
@@ -442,11 +441,12 @@ export function computeLocationMetrics(location, ctx) {
     stripDmiPartial: false,
     dmiBasisNote: null,
     eventCount: 0,
-    dmiPerAcre: null,
-    audsPerAcre: null,
-    nPerAcre: null,
-    pPerAcre: null,
-    kPerAcre: null,
+    // OI-0278: per-area metrics are canonical per hectare; display converts.
+    dmiPerHa: null,
+    audsPerHa: null,
+    nPerHa: null,
+    pPerHa: null,
+    kPerHa: null,
   };
 
   if (!location?.id || !windowStart || !windowEnd) return empty;
@@ -756,7 +756,7 @@ export function computeLocationMetrics(location, ctx) {
     ? scorePool.reduce((s, v) => s + v, 0) / scorePool.length
     : null;
 
-  const acres = acresOf(location);
+  const ha = areaHaOf(location);
   // Zp (weights): sum known slices; dash only when nothing known remains; never-present = 0.
   // F1 hay unknown stays season-sticky (OI-0246 lock). OI-0276: R1 residual
   // unknown no longer blanks NPK (skipped residual adds 0, hover note only).
@@ -779,8 +779,7 @@ export function computeLocationMetrics(location, ctx) {
     locationId: location.id,
     locationName: location.name || '',
     areaHectares: location.areaHectares ?? null,
-    areaAcres: acres,
-    hasAcres: acres != null,
+    hasArea: ha != null,
     dmiKg: finalDmi,
     dmiKnown: dmiKnown || finalDmi === 0,
     dmiPartial,
@@ -800,11 +799,11 @@ export function computeLocationMetrics(location, ctx) {
     stripDmiPartial,
     dmiBasisNote: dmiBasisNote(demandRowsUsed),
     eventCount: eventIds.size,
-    dmiPerAcre: acres != null && finalDmi != null ? finalDmi / acres : null,
-    audsPerAcre: acres != null ? auds / acres : null,
-    nPerAcre: acres != null && npkKnown ? nKg / acres : null,
-    pPerAcre: acres != null && npkKnown ? pKg / acres : null,
-    kPerAcre: acres != null && npkKnown ? kKg / acres : null,
+    dmiPerHa: ha != null && finalDmi != null ? finalDmi / ha : null,
+    audsPerHa: ha != null ? auds / ha : null,
+    nPerHa: ha != null && npkKnown ? nKg / ha : null,
+    pPerHa: ha != null && npkKnown ? pKg / ha : null,
+    kPerHa: ha != null && npkKnown ? kKg / ha : null,
   };
 }
 

@@ -4,8 +4,8 @@ import { convert, display, unitLabel, MEASURE_TYPES } from '../../src/utils/unit
 
 describe('units', () => {
   describe('MEASURE_TYPES', () => {
-    it('has all 7 measurement types', () => {
-      expect(MEASURE_TYPES).toEqual(['weight', 'area', 'length', 'temperature', 'volume', 'yieldRate', 'dmYieldDensity']);
+    it('has all 9 measurement types (OI-0278 adds pricePerWeight + nutrientPerDm)', () => {
+      expect(MEASURE_TYPES).toEqual(['weight', 'area', 'length', 'temperature', 'volume', 'yieldRate', 'dmYieldDensity', 'pricePerWeight', 'nutrientPerDm']);
     });
   });
 
@@ -83,6 +83,27 @@ describe('units', () => {
     it('unitLabel returns "lbs/in/ac" for imperial, "kg/cm/ha" for metric', () => {
       expect(unitLabel('dmYieldDensity', 'imperial')).toBe('lbs/in/ac');
       expect(unitLabel('dmYieldDensity', 'metric')).toBe('kg/cm/ha');
+    });
+  });
+
+  describe('convert — pricePerWeight (OI-0278)', () => {
+    it('$/kg to $/lb and round-trip returns original', () => {
+      expect(convert(2.20462, 'pricePerWeight', 'toImperial')).toBeCloseTo(1, 9);
+      for (const x of [0, 0.45, 1, 3.17]) {
+        expect(convert(convert(x, 'pricePerWeight', 'toImperial'), 'pricePerWeight', 'toMetric')).toBeCloseTo(x, 9);
+        expect(convert(convert(x, 'pricePerWeight', 'toMetric'), 'pricePerWeight', 'toImperial')).toBeCloseTo(x, 9);
+      }
+    });
+  });
+
+  describe('convert — nutrientPerDm (OI-0278 Fa)', () => {
+    it('kg/t × 2.0 = lb/ton and round-trip returns original', () => {
+      expect(convert(10, 'nutrientPerDm', 'toImperial')).toBe(20);
+      expect(convert(20, 'nutrientPerDm', 'toMetric')).toBe(10);
+      for (const x of [0, 4.5, 12.3, 30]) {
+        expect(convert(convert(x, 'nutrientPerDm', 'toImperial'), 'nutrientPerDm', 'toMetric')).toBeCloseTo(x, 9);
+        expect(convert(convert(x, 'nutrientPerDm', 'toMetric'), 'nutrientPerDm', 'toImperial')).toBeCloseTo(x, 9);
+      }
     });
   });
 

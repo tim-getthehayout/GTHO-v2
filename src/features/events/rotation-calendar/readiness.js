@@ -96,6 +96,7 @@ export function pickRecoveryObservation(locationId, observations = []) {
  * @returns {null | {
  *   source: 'close', date: string, minDays: number, maxDays: number,
  *   paddockWindowId: string|null, observationId: string|null,
+ *   obsSuppliedDays: boolean,  // OI-0273: close obs entered its own minimum rest (else farm default)
  *   strips: Array<{ date: string, minDays: number, maxDays: number }>,
  * }}
  */
@@ -137,6 +138,9 @@ export function closeRecoveryAnchor(locationId, {
     maxDays: anchorRec.maxDays,
     paddockWindowId: anchorPw.id ?? null,
     observationId: anchorRec.obs?.id ?? null,
+    // OI-0273 (read-only flag): true when the close observation entered its own
+    // minimum rest days (what earliestReturn is built from); false = farm default.
+    obsSuppliedDays: anchorRec.obs?.recoveryMinDays != null,
     strips,
   };
 }
@@ -197,6 +201,7 @@ export function selectReadinessAnchor(closeAnchor, surveyAnchor) {
     dateSource: 'close',
     labelKind: 'estimated',
     surveyDate: null,
+    obsSuppliedDays: !!closeAnchor.obsSuppliedDays,
   };
 }
 
@@ -339,6 +344,40 @@ export function computeReadiness(location, {
     label: `${daysSince}d since last graze${rankText}`,
   };
 }
+
+/**
+ * OI-0273 Rg0+Ro0+Rp1 + Tim t1375u (Rq1, “Ready (est.)”) — the chip by the pasture name.
+ * - 'ready' (“Ready”): survey mode whose winning Sv2 anchor is a survey, or a
+ *   close obs that entered its own recovery days, and today ≥ earliestReturn
+ *   (inclusive; strip rule already in earliestReturn). past_max still “Ready” (Ro0).
+ * - 'estimated' (“Ready (est.)”): any other grazed pasture — a close anchor that
+ *   fell back to farm defaults, or relative mode (no closed window) — with
+ *   daysSinceLastGraze ≥ the farm default minimum rest. A default close anchor
+ *   also waits for earliestReturn so the every-strip-past-min rule still holds.
+ * - null: active / linked (caller passes isActive), never grazed (Rg0), a real
+ *   anchor before earliestReturn, or under the minimum rest.
+ * @param {object|null|undefined} readiness - computeReadiness result
+ * @param {{ today: string, minRestDays?: number, isActive?: boolean }} opts
+ * @returns {'ready'|'estimated'|null}
+ */
+export function readyChipKind(readiness, { today, minRestDays = 21, isActive = false } = {}) {
+  if (!readiness || isActive || readiness.mode === 'active' || readiness.mode === 'never') return null;
+  const min = Number.isFinite(Number(minRestDays)) ? Number(minRestDays) : 21;
+  const days = readiness.daysSinceLastGraze;
+  const restedMin = days != null && days >= min;
+  if (readiness.mode === 'survey') {
+    const pastReturn = !!readiness.earliestReturn && today >= readiness.earliestReturn;
+    const a = readiness.anchor;
+    const real = a?.dateSource === 'survey' || (a?.dateSource === 'close' && a.obsSuppliedDays === true);
+    if (real) return pastReturn ? 'ready' : null;
+    return pastReturn && restedMin ? 'estimated' : null;
+  }
+  if (readiness.mode === 'relative') return restedMin ? 'estimated' : null;
+  return null;
+}
+
+/** OI-0273: visible chip text. */
+export const READY_CHIP_TEXT = Object.freeze({ ready: 'Ready', estimated: 'Ready (est.)' });
 
 export function readinessConfidence(today, earliestReturn, windowCloses) {
   if (!earliestReturn || !windowCloses) return 'min';

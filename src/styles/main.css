@@ -2869,6 +2869,43 @@ body:has(.auth-overlay) .pwa-update-banner {
   font-size: 0.6875rem;
 }
 .loc-mgmt__tag { font-size: 0.6875rem; color: var(--text3); }
+/* OI-0273 (Tim t1375u): “Ready” filled pill / “Ready (est.)” dashed outline by the pasture name. */
+.loc-mgmt__ready-chip {
+  display: inline-block;
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.loc-mgmt__ready-chip--ready {
+  background: var(--green-l);
+  color: var(--green-d);
+}
+.loc-mgmt__ready-chip--est {
+  background: transparent;
+  color: var(--green-d);
+  border: 1px dashed var(--green-d);
+}
+/* Phone: one line — the name ellipses first; chip and badge never shrink or wrap. */
+.loc-mgmt--phone .loc-mgmt__name-text {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.loc-mgmt--phone .loc-mgmt__name-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.loc-mgmt--phone .loc-mgmt__name-text > .badge { flex-shrink: 0; white-space: nowrap; }
 
 .loc-mgmt__metrics {
   /* OI-0252 Ls+Wu: two stacked lines; width set from widest visible row */
@@ -3054,6 +3091,30 @@ body:has(.auth-overlay) .pwa-update-banner {
   width: max-content;
   z-index: 5;
   background: var(--bg);
+}
+/* OI-0273: the sticky name cell may grow to its content but never past the
+   viewport (less the row's left/right padding), so a long name ellipses before
+   the Ready chip; metrics line keeps its OI-0252 pinned width. */
+.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__row--phone > .loc-mgmt__name {
+  max-width: calc(100vw - 2 * var(--space-3));
+  box-sizing: border-box;
+}
+/* OI-0273: List — the name can shrink inside the flex top line. On phone a
+   long name takes the full line (actions wrap below) and then ellipses before
+   the chip; short names keep name + actions on one line. */
+.loc-mgmt__list-top > .loc-mgmt__name {
+  min-width: 0;
+}
+.loc-mgmt--phone .loc-mgmt__list-top {
+  flex-wrap: wrap;
+}
+.loc-mgmt--phone .loc-mgmt__list-top > .loc-mgmt__name {
+  flex: 1 1 auto;
+  width: auto;
+  max-width: 100%;
+}
+.loc-mgmt--phone .loc-mgmt__list-top > .loc-mgmt__row-actions {
+  flex-shrink: 0;
 }
 .loc-mgmt--phone .loc-mgmt__metrics {
   /* Nn: keep two-line stack; tighter padding; no flat six-across */

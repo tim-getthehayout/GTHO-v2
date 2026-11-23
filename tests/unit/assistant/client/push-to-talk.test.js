@@ -99,10 +99,13 @@ describe('header assistant sheet', () => {
     expect(document.querySelector('[data-testid="assistant-text"]')).not.toBeNull();
     for (const button of document.querySelectorAll('#assistant-sheet-panel button')) button.click();
     expect(started.talk).not.toHaveBeenCalled();
-    // Offline, the sheet points to the push-to-talk instead of recording.
+    // Offline, the sheet shows the offline copy instead of recording. OI-0270:
+    // push-to-talk is hidden (OI-0268), so the copy no longer points at it.
     document.body.innerHTML = '';
     openAssistant(deps(false), {});
-    expect(document.querySelector('[data-testid="assistant-status"]').textContent).toContain('push-to-talk');
+    const offlineCopy = document.querySelector('[data-testid="assistant-status"]').textContent;
+    expect(offlineCopy).toContain('You are offline');
+    expect(offlineCopy).not.toContain('push-to-talk');
     expect(createOfflineNoteRecorder.mock.calls.length).toBe(before);
   });
 });

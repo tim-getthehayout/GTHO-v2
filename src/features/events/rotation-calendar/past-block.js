@@ -3,6 +3,7 @@
  * Solid green rectangle for past events in the timeline.
  * OI-0256 Pn1: no_pasture / 100% stored feed paints tan (stored-feed color).
  * Handles: multi-group labels, strip bands, linked paddocks, active NOW ring, sub-move rendering.
+ * OI-0264 Pw1: one block per paddock window (calendar-grid / past-window.js).
  * See V2_DESIGN_SYSTEM.md §4.3 and V2_UX_FLOWS.md §19.2.
  */
 
@@ -51,7 +52,7 @@ function renderStripBands(strips, { storedFeedOnly = false } = {}) {
  * Format past-block line 2 Pasture/Feed/DMI/Head.
  * OI-0253 B1: null/non-finite pasturePct or dmi → "—" (never paint unknown as 0 / 0%).
  * Known zero still renders 0 / 0%.
- * @param {{ pasturePct: number|null|undefined, feedPct: number, dmi: number|null|undefined, headCount: number }} opts
+ * @param {{ pasturePct: number|null|undefined, feedPct: number|null|undefined, dmi: number|null|undefined, headCount: number }} opts
  * @returns {string}
  */
 export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }) {
@@ -61,7 +62,11 @@ export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }
   const dmiSeg = dmi == null || !Number.isFinite(Number(dmi))
     ? '— DMI'
     : `${Math.round(dmi)} DMI`;
-  return `${pastureSeg} · Feed ${Math.round(feedPct)}% · ${dmiSeg} · ${headCount} hd`;
+  // OI-0264 Mw1: feedPct may be unknown too ("Feed —%").
+  const feedSeg = feedPct == null || !Number.isFinite(Number(feedPct))
+    ? 'Feed —%'
+    : `Feed ${Math.round(feedPct)}%`;
+  return `${pastureSeg} · ${feedSeg} · ${dmiSeg} · ${headCount} hd`;
 }
 
 /**
@@ -73,7 +78,7 @@ export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }
  * @param {number} opts.auds - AUDS value
  * @param {number} opts.days - Duration in days
  * @param {number|null} opts.pasturePct - Pasture percentage; null/unknown → "—" (OI-0253 B1)
- * @param {number} opts.feedPct - Feed percentage
+ * @param {number|null} opts.feedPct - Feed percentage; null → "—" (OI-0264 Mw1)
  * @param {number|null} opts.dmi - DMI value; null/unknown → "—" (OI-0253 B1)
  * @param {number} opts.headCount - Head count
  * @param {boolean} opts.isActive - Whether this is the currently-open event
@@ -84,13 +89,14 @@ export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }
  * @param {string} [opts.linkedPrimaryName] - Name of the primary paddock
  * @param {boolean} [opts.storedFeedOnly] - OI-0256 Pn1 tan / stored-feed paint
  * @param {string} opts.eventId - Event ID for click handler
+ * @param {string} [opts.paddockWindowId] - OI-0264 Pw1: the window this bar draws
  * @param {Function} opts.onClickBlock - Click handler
  * @returns {HTMLElement}
  */
 export function renderPastBlock({
   leftPx, widthPx, groups, auds, days, pasturePct, feedPct, dmi, headCount,
   isActive, isStripGraze, strips, stripNote, isLinkedSecondary, linkedPrimaryName,
-  storedFeedOnly = false, eventId, onClickBlock,
+  storedFeedOnly = false, eventId, paddockWindowId = null, onClickBlock,
 }) {
   const groupLabel = buildGroupLabel(groups);
 
@@ -145,7 +151,9 @@ export function renderPastBlock({
   return el('div', {
     className: blockClasses.join(' '),
     style: { left: `${leftPx}px`, width: `${widthPx}px` },
-    dataset: { testid: 'past-block', eventId },
+    dataset: paddockWindowId
+      ? { testid: 'past-block', eventId, paddockWindowId }
+      : { testid: 'past-block', eventId },
     onClick: () => onClickBlock(eventId),
     tabindex: '0',
     role: 'button',

@@ -397,6 +397,9 @@ export function computeLocationMetrics(location, ctx) {
     batches = [],
     feedTypes = [],
     batchNutritionalProfiles = [],
+    // OI-0264 Mw1: restrict this location's contribution to one paddock window
+    // (past-block label). Full paddockWindows still drive acre shares + Al1.
+    onlyPaddockWindowId = null,
   } = ctx;
 
   const empty = {
@@ -432,7 +435,21 @@ export function computeLocationMetrics(location, ctx) {
   if (!location?.id || !windowStart || !windowEnd) return empty;
 
   const locationsById = new Map((locations || []).map(l => [l.id, l]));
-  const locPws = (paddockWindows || []).filter(pw => pw.locationId === location.id);
+  const isMine = (pw) => pw.locationId === location.id
+    && (!onlyPaddockWindowId || pw.id === onlyPaddockWindowId);
+  const locPws = (paddockWindows || []).filter(isMine);
+  // Acre share of "mine" in a pool; identical to the location share unless scoped to one window.
+  const scopedShare = (pool) => {
+    if (!pool.length) return 0;
+    const sumW = pool.reduce((sum, pw) => sum + effectiveAreaHa(pw, locationsById), 0);
+    const mine = pool.filter(isMine);
+    const myW = mine.reduce((sum, pw) => sum + effectiveAreaHa(pw, locationsById), 0);
+    if (sumW > 0) return myW / sumW;
+    return mine.length / Math.max(1, pool.length);
+  };
+  const shareInPool = (pool) => (onlyPaddockWindowId
+    ? scopedShare(pool)
+    : acreShareForLocation(pool, location.id, locationsById));
   const aniAu = getCalcByName('ANI-AU');
   const aniAud = getCalcByName('ANI-AUD');
   const npk1 = getCalcByName('NPK-1');
@@ -498,7 +515,7 @@ export function computeLocationMetrics(location, ctx) {
       if (!eventOpenOn(decorated, date)) continue;
 
       const eventOpen = openPaddockWindowsOnDate(paddockWindows, { eventId, date });
-      const openMine = eventOpen.filter(pw => pw.locationId === location.id);
+      const openMine = eventOpen.filter(isMine);
       if (!openMine.length) continue;
 
       eventIds.add(eventId);
@@ -508,13 +525,13 @@ export function computeLocationMetrics(location, ctx) {
       const mineNoPastureOnly = openMine.every(isNoPasturePw);
       let audShare;
       if (mineNoPastureOnly && pasturePool.length === 0) {
-        audShare = acreShareForLocation(eventOpen, location.id, locationsById);
+        audShare = shareInPool(eventOpen);
       } else if (mineNoPastureOnly) {
         audShare = 0;
       } else {
-        audShare = acreShareInPool(pasturePool.length ? pasturePool : eventOpen, location.id, locationsById);
+        audShare = shareInPool(pasturePool.length ? pasturePool : eventOpen);
       }
-      const npkShare = acreShareForLocation(eventOpen, location.id, locationsById);
+      const npkShare = shareInPool(eventOpen);
       if (!(audShare > 0) && !(npkShare > 0)) continue;
 
       const gws = (groupWindows || []).filter(gw => gw.eventId === eventId && groupPresentOnDate(gw, date));
@@ -622,13 +639,15 @@ export function computeLocationMetrics(location, ctx) {
       const demand = demandByDate.get(date) || 0;
       const grazing = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date });
       if (!grazing.length) return;
-      const share = acreShareAmong(grazing, location.id, locationsById);
+      const share = onlyPaddockWindowId
+        ? scopedShare(grazing)
+        : acreShareAmong(grazing, location.id, locationsById);
       if (!(share > 0) && share !== 0) return;
       const pasture = Math.max(0, demand * share);
       stripPastureDmiKg += pasture;
       if (!stripOnly) {
         dmiKg += pasture;
-        if (grazing.some(pw => pw.locationId === location.id)) dmiDays += 1;
+        if (grazing.some(isMine)) dmiDays += 1;
       }
     };
 
@@ -652,7 +671,7 @@ export function computeLocationMetrics(location, ctx) {
       if (hay.kind === 'unknown') {
         // OI-0256 Mt1: no_pasture-only at this location stays known Pasture 0, not F1 sticky.
         const grazingHere = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date })
-          .some(pw => pw.locationId === location.id);
+          .some(isMine);
         if (grazingHere) dmiHayUnknown = true;
         addDemandOnly(date, { stripOnly: true });
         continue;
@@ -676,7 +695,7 @@ export function computeLocationMetrics(location, ctx) {
       });
       for (const [pwId, pasture] of alloc.pastureByPw) {
         const pw = alloc.pwById.get(pwId);
-        if (!pw || pw.locationId !== location.id) continue;
+        if (!pw || !isMine(pw)) continue;
         dmiKg += pasture;
         stripPastureDmiKg += pasture;
         storedFeedDmiKg += alloc.hayByPw.get(pwId) || 0;

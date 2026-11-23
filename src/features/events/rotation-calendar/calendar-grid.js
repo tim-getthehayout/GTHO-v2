@@ -14,7 +14,7 @@ import {
   toggleMetricsCollapsed,
 } from '../calendar-state.js';
 import { getUnitSystem } from '../../../utils/preferences.js';
-import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
+import { getLocalTodayStr } from '../../../utils/date-utils.js';
 import { display } from '../../../utils/units.js';
 import { navigate } from '../../../ui/router.js';
 import {
@@ -26,7 +26,9 @@ import {
 import { openHarvestSheet } from '../../harvest/index.js';
 import { openAmendmentSheet } from '../../amendments/entry.js';
 import { getEventStartDate } from '../event-start.js';
-import { getLiveWindowHeadCount } from '../../../calcs/window-helpers.js';
+import {
+  pastWindowSpan, headCountAtWindowEnd, computePaddockWindowMetrics, eventConnectors,
+} from './past-window.js';
 import {
   resolveCanvasRange, dateToPx, enumerateTicks, defaultSpanDays, parseTimelineDay,
 } from './timeline.js';
@@ -400,6 +402,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   });
 
   const timelineScrollers = [];
+  const rowByLoc = new Map();
 
   locations.forEach((loc) => {
     const metrics = metricsById.get(loc.id);
@@ -431,11 +434,19 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
       operationId,
       farmId,
       metricsCollapsed,
+      metricCtx: isList ? null : metricCtx,
     });
     const ts = row.querySelector(`.${TIMELINE_SCROLL_CLASS}`);
     if (ts) timelineScrollers.push(ts);
+    rowByLoc.set(loc.id, row);
     body.appendChild(row);
   });
+
+  // OI-0264 Cn1: sub-move connectors between paddock rows of one event.
+  const connectorLayer = isList ? null : buildConnectorLayer({
+    paddockWindows: allPaddockWindows, rowByLoc, range, totalWidth,
+  });
+  if (connectorLayer) body.appendChild(connectorLayer.overlay);
 
   // Axis scroller at top of timeline column — sync with rows
   const axisScroller = head.querySelector(`.${TIMELINE_SCROLL_CLASS}`);
@@ -452,7 +463,13 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
       const left = Math.max(0, todayPx - viewWidth / 2);
       for (const s of timelineScrollers) s.scrollLeft = left;
     }
+    if (connectorLayer) connectorLayer.layout(body, timelineScrollers[timelineScrollers.length - 1] || null);
   });
+  if (connectorLayer) {
+    for (const sc of timelineScrollers) {
+      sc.addEventListener('scroll', () => connectorLayer.follow(sc.scrollLeft), { passive: true });
+    }
+  }
 
   const surface = el('div', {
     className: [
@@ -500,6 +517,84 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   requestAnimationFrame(() => applyUniformMetricsWidth(surface));
   container.setAttribute('tabindex', '0');
   container.addEventListener('keydown', onKeyDown);
+}
+
+/**
+ * OI-0264 Cn1 — one pointer-events:none overlay in the body; a vertical line at
+ * each later window's open date from the source bar's row to the new bar's row
+ * (arrow at the new bar). Skips same-row pairs, unrendered rows, and dates
+ * outside the visible range. Vertical positions come from rendered rows.
+ */
+function buildConnectorLayer({ paddockWindows, rowByLoc, range, totalWidth }) {
+  const byEvent = new Map();
+  for (const pw of paddockWindows || []) {
+    if (!byEvent.has(pw.eventId)) byEvent.set(pw.eventId, []);
+    byEvent.get(pw.eventId).push(pw);
+  }
+  const specs = [];
+  for (const wins of byEvent.values()) {
+    if (wins.length < 2) continue;
+    for (const c of eventConnectors(wins)) {
+      if (c.fromLocationId === c.toLocationId) continue;
+      if (!rowByLoc.has(c.fromLocationId) || !rowByLoc.has(c.toLocationId)) continue;
+      const d = parseTimelineDay(c.date);
+      if (!d || d < range.start || d > range.end) continue;
+      specs.push({ ...c, x: dateToPx(d, range.start, range.pxPerDay) });
+    }
+  }
+  if (!specs.length) return null;
+  const inner = el('div', {
+    className: 'loc-mgmt__connectors-inner',
+    style: { width: `${totalWidth}px` },
+  });
+  const nodes = specs.map((c) => {
+    const node = el('div', {
+      className: 'loc-mgmt__connector',
+      style: { left: `${c.x}px` },
+      dataset: {
+        testid: 'submove-connector',
+        date: c.date,
+        fromLocationId: c.fromLocationId,
+        toLocationId: c.toLocationId,
+        toPwId: c.toPwId,
+      },
+    });
+    inner.appendChild(node);
+    return { c, node };
+  });
+  const overlay = el('div', {
+    className: 'loc-mgmt__connectors',
+    'aria-hidden': 'true',
+    dataset: { testid: 'submove-connectors' },
+  }, [inner]);
+
+  const rowCenterY = (row, bodyRect, body) => {
+    const area = row.querySelector('.loc-mgmt__block-area') || row;
+    const r = area.getBoundingClientRect();
+    return r.top - bodyRect.top + body.scrollTop + r.height / 2;
+  };
+  return {
+    overlay,
+    follow(scrollLeft) {
+      inner.style.transform = `translateX(${-(scrollLeft || 0)}px)`;
+    },
+    layout(body, scroller) {
+      if (!body || !scroller) return;
+      const bodyRect = body.getBoundingClientRect();
+      const scRect = scroller.getBoundingClientRect();
+      overlay.style.left = `${scRect.left - bodyRect.left}px`;
+      overlay.style.width = `${scroller.clientWidth}px`;
+      overlay.style.height = `${body.scrollHeight}px`;
+      for (const { c, node } of nodes) {
+        const yFrom = rowCenterY(rowByLoc.get(c.fromLocationId), bodyRect, body);
+        const yTo = rowCenterY(rowByLoc.get(c.toLocationId), bodyRect, body);
+        node.style.top = `${Math.min(yFrom, yTo)}px`;
+        node.style.height = `${Math.abs(yTo - yFrom)}px`;
+        node.dataset.dir = yTo >= yFrom ? 'down' : 'up';
+      }
+      this.follow(scroller.scrollLeft);
+    },
+  };
 }
 
 /** OI-0263 Lf-B+Ex1: View toggle + farm map (with Back/Close) inside Locations & Rotation. */
@@ -849,6 +944,7 @@ function renderManagementRow(opts) {
     operationId = null,
     farmId = null,
     metricsCollapsed = false,
+    metricCtx = null,
   } = opts;
 
   const areaDisplay = loc.areaHectares != null
@@ -957,58 +1053,55 @@ function renderManagementRow(opts) {
   });
 
   const locWindows = allPaddockWindows.filter(w => w.locationId === loc.id);
-  const m = metrics || {};
+  const todayStr = getLocalTodayStr();
+  const nowMid = new Date();
+  nowMid.setHours(0, 0, 0, 0);
 
+  // OI-0264 Pw1+Hc1+Mw1: one past block per paddock window (its own dates,
+  // head count at its end, label metrics scoped to it).
   for (const pw of locWindows) {
     const event = allEvents.find(e => e.id === pw.eventId);
     if (!event) continue;
-    const eventStartDate = getEventStartDate(event.id);
-    if (!eventStartDate) continue;
-    const eventStart = new Date(eventStartDate + 'T00:00:00');
-    const eventEnd = event.dateOut ? new Date(event.dateOut + 'T00:00:00') : new Date();
-    if (eventEnd < range.start || eventStart > range.end) continue;
+    const span = pastWindowSpan(pw, event, { today: todayStr, fallbackStart: getEventStartDate(event.id) });
+    if (!span) continue;
+    const winStart = new Date(span.start + 'T00:00:00');
+    const winEnd = new Date(span.end + 'T00:00:00');
+    if (winEnd < range.start || winStart > range.end) continue;
 
-    const eventGroupWindows = allGroupWindows.filter(gw => gw.eventId === event.id && !gw.closedAt);
-    const eventGroups = eventGroupWindows
-      .map(gw => allGroups.find(g => g.id === gw.groupId))
-      .filter(Boolean)
-      .map(g => ({ id: g.id, name: g.name }));
-
-    const days = daysBetweenInclusive(eventStartDate, event.dateOut || getLocalTodayStr());
-    const isActive = !event.dateOut;
-    const blockStart = new Date(Math.max(eventStart.getTime(), range.start.getTime()));
-    const blockEnd = new Date(Math.min(eventEnd.getTime(), range.end.getTime()));
+    const isActive = span.isActive;
+    const blockStart = new Date(Math.max(winStart.getTime(), range.start.getTime()));
+    const blockEnd = new Date(Math.min(winEnd.getTime(), range.end.getTime()));
     const leftPx = dateToPx(blockStart, range.start, range.pxPerDay);
-    const nowD = new Date();
-    nowD.setHours(0, 0, 0, 0);
 
-    if (blockStart < nowD) {
-      const pastEnd = new Date(Math.min(blockEnd.getTime(), nowD.getTime()));
+    if (blockStart < nowMid) {
+      const pastEnd = new Date(Math.min(blockEnd.getTime(), nowMid.getTime()));
       const pastWidthPx = Math.max(4, dateToPx(pastEnd, range.start, range.pxPerDay) - leftPx);
       const strips = pw.isStripGraze && isActive
         ? allPaddockWindows.filter(w => w.stripGroupId === pw.stripGroupId).map(w => ({ areaPct: w.areaPct || 100 }))
         : [];
-      const headCount = eventGroupWindows.reduce((s, gw) => {
-        const nowStr = gw.dateLeft || event.dateOut || getLocalTodayStr();
-        return s + getLiveWindowHeadCount(gw, { memberships: allMemberships, animals: allAnimals, now: nowStr });
-      }, 0);
-
-      // Wire real metrics into past block (OI-0253 B1: unknown → null → "—", not 0)
-      // OI-0256: storedFeedOnly (no_pasture) is known Pasture 0 / Feed 100% / DMI 0.
-      const audsLabel = m.audsKnown ? Math.round(m.auds) : null;
-      const dmiKnownVal = m.dmiKnown && m.dmiKg != null;
-      const dmiLabel = dmiKnownVal ? Math.round(m.dmiKg) : null;
-      const storedFeedOnly = !!pw.noPasture;
+      const hc = headCountAtWindowEnd(pw, {
+        eventGroupWindows: allGroupWindows.filter(gw => gw.eventId === event.id),
+        groups: allGroups,
+        memberships: allMemberships,
+        animals: allAnimals,
+        today: todayStr,
+      });
+      // Mw1: List-metrics calc over this window only (OI-0256 stored-feed first,
+      // OI-0253 unknown → null → "—").
+      const wm = metricCtx
+        ? computePaddockWindowMetrics(pw, loc, event, span, metricCtx)
+        : { auds: null, dmi: null, pasturePct: null, feedPct: null, storedFeedOnly: !!pw.noPasture };
+      const storedFeedOnly = wm.storedFeedOnly;
       blockArea.appendChild(renderPastBlock({
         leftPx,
         widthPx: pastWidthPx,
-        groups: eventGroups,
-        auds: audsLabel != null ? audsLabel : 0,
-        days,
-        pasturePct: storedFeedOnly ? 0 : (dmiKnownVal ? (m.dmiKg > 0 ? 100 : 0) : null),
-        feedPct: storedFeedOnly ? 100 : 0,
-        dmi: storedFeedOnly ? 0 : dmiLabel,
-        headCount,
+        groups: hc.groups,
+        auds: wm.auds != null ? Math.round(wm.auds) : 0,
+        days: span.days,
+        pasturePct: wm.pasturePct,
+        feedPct: wm.feedPct,
+        dmi: storedFeedOnly ? 0 : (wm.dmi != null ? Math.round(wm.dmi) : null),
+        headCount: hc.headCount,
         isActive,
         isStripGraze: pw.isStripGraze || false,
         strips,
@@ -1017,6 +1110,7 @@ function renderManagementRow(opts) {
         linkedPrimaryName: linkedPaddocks[loc.id]?.name,
         storedFeedOnly,
         eventId: event.id,
+        paddockWindowId: pw.id,
         onClickBlock: () => openPastEventDetailSheet({ eventId: event.id, paddockWindowId: pw.id }),
       }));
     }

@@ -28,7 +28,7 @@ export function renderLegend(viewMode) {
   // Past group — always shown
   const pastItems = [
     swatch('legend__swatch--pasture', 'Pasture grazing'),
-    swatch('legend__swatch--submove', 'Sub-move'),
+    swatch('legend__swatch--submove-connector', 'Sub-move connector'), // OI-0264 Cn1
     swatch('legend__swatch--hay', 'Hay / stored feed'),
     swatch('legend__swatch--active', 'Active now'),
     swatch('legend__swatch--linked', 'Linked paddocks'),

@@ -82,9 +82,15 @@ describe('rotation-calendar components', () => {
     };
 
     it('source still prefers storedFeedOnly over unknown-DMI nulls', () => {
-      expect(gridSrc).toContain('pasturePct: storedFeedOnly ? 0 : (dmiKnownVal ? (m.dmiKg > 0 ? 100 : 0) : null)');
-      expect(gridSrc).toContain('feedPct: storedFeedOnly ? 100 : 0');
-      expect(gridSrc).toContain('dmi: storedFeedOnly ? 0 : dmiLabel');
+      // OI-0264 Mw1: per-window metrics live in past-window.js; the noPasture
+      // branch still returns before any unknown-DMI null handling.
+      const pwSrc = readFileSync('src/features/events/rotation-calendar/past-window.js', 'utf8');
+      const fn = pwSrc.slice(pwSrc.indexOf('export function computePaddockWindowMetrics'));
+      const noPastureAt = fn.indexOf('if (pw?.noPasture)');
+      expect(noPastureAt).toBeGreaterThan(-1);
+      expect(noPastureAt).toBeLessThan(fn.indexOf('const dmiKnown'));
+      expect(fn).toContain('dmi: 0, pasturePct: 0, feedPct: 100, storedFeedOnly: true');
+      expect(gridSrc).toContain('dmi: storedFeedOnly ? 0 : (wm.dmi != null ? Math.round(wm.dmi) : null)');
     });
 
     it('storedFeedOnly + unknown DMI paints known Pasture 0 / Feed 100% / DMI 0 + tan', () => {

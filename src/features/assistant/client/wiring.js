@@ -41,12 +41,19 @@ export function createAssistantDeps({ operationId, getUser, openFeedbackSheet, s
   };
 }
 
-/** Header control (feedback, questions, how-to) plus the one global push-to-talk
- * for farm voice entry. Both stay hidden unless the backend returns config. */
+/** OI-0268 Hv1 (Tim t1319s5157): the floating push-to-talk bar (mic + Log) is
+ * hidden everywhere — it sat over the screen, worst on phones. push-to-talk.js
+ * and its CSS stay in the tree; set this to true to restore the bar. */
+export const PUSH_TO_TALK_ENABLED = false;
+
+/** Header control (feedback, questions, how-to; typed chat — OI-0268 Ha0 keeps
+ * it). Hidden unless the backend returns config. The global push-to-talk is
+ * only mounted while PUSH_TO_TALK_ENABLED. */
 export async function mountHeaderAssistant(button, options) {
   const deps = createAssistantDeps(options);
   if (!deps) { button.hidden = true; unmountPushToTalk(); return null; }
   const config = await mountAssistantControl(button, deps);
-  mountPushToTalk(deps, config);
+  if (PUSH_TO_TALK_ENABLED) mountPushToTalk(deps, config);
+  else unmountPushToTalk();
   return config;
 }

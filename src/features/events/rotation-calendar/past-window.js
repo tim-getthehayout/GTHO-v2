@@ -28,8 +28,10 @@ export function pastWindowSpan(pw, event, { today = getLocalTodayStr(), fallback
     start,
     end,
     days: daysBetweenInclusive(start, end),
-    // NOW ring follows the window, not the event (Pw1).
-    isActive: !pw.dateClosed,
+    // NOW ring follows the window (Pw1). OI-0266 (c) guard: a window still open
+    // on a closed event stops at the event close, so it is not "now" either —
+    // ring only when the window has no close date AND the event has no end date.
+    isActive: !pw.dateClosed && !day(event?.dateOut),
   };
 }
 
@@ -70,8 +72,9 @@ export function groupWindowPresentOnEnd(gw, endDate) {
 }
 
 /**
- * Hc1 — head count at the window's end date E (pw.dateClosed, else today), each
- * group once. Returns the picked group windows, distinct groups (label) and head.
+ * Hc1 — head count at the window's end date E (pw.dateClosed, else the event's
+ * dateOut when the window is still open on a closed event — OI-0266 (c) guard,
+ * matching the bar — else today), each group once. Returns the picked group windows, distinct groups (label) and head.
  * @returns {{ endDate: string, picks: object[], groups: Array<{id: string, name: string}>, headCount: number }}
  */
 export function headCountAtWindowEnd(pw, {
@@ -80,8 +83,9 @@ export function headCountAtWindowEnd(pw, {
   memberships = [],
   animals = [],
   today = getLocalTodayStr(),
+  event = null,
 } = {}) {
-  const endDate = day(pw?.dateClosed) || today;
+  const endDate = day(pw?.dateClosed) || day(event?.dateOut) || today;
   const byGroup = new Map();
   for (const gw of eventGroupWindows || []) {
     if (!groupWindowPresentOnEnd(gw, endDate)) continue;

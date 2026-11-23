@@ -57,7 +57,7 @@ describe('locations list toggle + name click', () => {
     renderEventsScreen(root);
     expect(getCalendarState().view).toBe('calendar');
     expect(root.querySelector('[data-testid="loc-mgmt-row"]')).toBeTruthy();
-    expect(root.querySelector('[data-testid="timeline-scroll"]')).toBeTruthy();
+    expect(root.querySelector('[data-testid="timeline-strip"]')).toBeTruthy();
 
     root.querySelector('[data-testid="view-toggle-list"]').click();
 
@@ -67,11 +67,11 @@ describe('locations list toggle + name click', () => {
     expect(root.querySelector('[data-testid="loc-mgmt-row"]')).toBeTruthy();
     expect(root.querySelector('[data-testid="loc-mgmt-metrics"]')).toBeTruthy();
     expect(root.textContent).toContain('North Pasture');
-    expect(root.querySelector('[data-testid="timeline-scroll"]')).toBeFalsy();
+    expect(root.querySelector('[data-testid="timeline-strip"]')).toBeFalsy();
     expect(root.querySelector('[data-testid="events-log"]')).toBeFalsy();
   });
 
-  it('list mode keeps F0 single vertical scroll owner on the body', () => {
+  it('list mode keeps the F0 single scroll owner on the body', () => {
     window.history.replaceState(null, '', '#/events?view=list');
     readStateFromUrl();
     expect(getCalendarState().view).toBe('list');
@@ -80,9 +80,9 @@ describe('locations list toggle + name click', () => {
     document.body.appendChild(container);
     renderCalendarGrid(container);
     const body = container.querySelector('[data-testid="loc-mgmt-body"]');
-    expect(body?.getAttribute('data-scroll-owner')).toBe('vertical');
+    expect(body?.getAttribute('data-scroll-owner')).toBe('both');
     expect(container.querySelectorAll('[data-testid="loc-mgmt-row"]').length).toBe(1);
-    expect(container.querySelector('[data-testid="timeline-scroll"]')).toBeFalsy();
+    expect(container.querySelector('[data-testid="timeline-strip"]')).toBeFalsy();
   });
 
   it('header strip prefers onViewChange over onUpdate for view toggles', () => {

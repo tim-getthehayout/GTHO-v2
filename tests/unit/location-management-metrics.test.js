@@ -26,10 +26,9 @@ import {
 import { sortMetricRows, nextSortState } from '../../src/features/events/rotation-calendar/sort-rows.js';
 import {
   hasSingleVerticalScrollOwner,
-  bindHorizontalScrollSync,
   describeScrollArchitecture,
   VERTICAL_SCROLL_OWNER_CLASS,
-  TIMELINE_SCROLL_CLASS,
+  TIMELINE_CLASS,
 } from '../../src/features/events/rotation-calendar/scroll-owner.js';
 import { el } from '../../src/ui/dom.js';
 
@@ -657,38 +656,59 @@ describe('sort S0', () => {
   });
 });
 
-describe('F0 single vertical scroll owner', () => {
-  it('describeScrollArchitecture forbids independent Y columns', () => {
+describe('F0 single scroll owner, both axes (OI-0266)', () => {
+  it('describeScrollArchitecture: one owner for X and Y, sticky axis and columns', () => {
     const d = describeScrollArchitecture();
     expect(d.vertical).toBe('single-owner');
+    expect(d.horizontal).toBe('single-owner');
+    expect(d.axis).toBe('sticky-top');
+    expect(d.nameColumn).toBe('sticky-left');
+    expect(d.metricsColumn).toBe('sticky-left');
+    expect(d.perRowHorizontalScrollers).toBe(false);
+    expect(d.scrollLeftWriteBack).toBe(false);
     expect(d.nameColumnIndependentY).toBe(false);
     expect(d.metricsColumnIndependentY).toBe(false);
     expect(d.sidebarIndependentY).toBe(false);
   });
 
-  it('hasSingleVerticalScrollOwner detects the invariant', () => {
+  it('hasSingleVerticalScrollOwner detects the both-axes invariant', () => {
     const root = el('div', { className: 'loc-mgmt' }, [
       el('div', {
         className: VERTICAL_SCROLL_OWNER_CLASS,
-        dataset: { scrollOwner: 'vertical', overflowY: 'auto' },
-        'data-scroll-owner': 'vertical',
+        'data-scroll-owner': 'both',
         'data-overflow-y': 'auto',
+        'data-overflow-x': 'auto',
       }, [
         el('div', { className: 'loc-mgmt__row' }, [
           el('div', { className: 'loc-mgmt__name' }, ['A']),
-          el('div', { className: TIMELINE_SCROLL_CLASS, 'data-overflow-x': 'auto' }, ['t']),
+          el('div', { className: TIMELINE_CLASS }, ['t']),
         ]),
       ]),
     ]);
     expect(hasSingleVerticalScrollOwner(root)).toBe(true);
   });
 
+  it('fails when a row timeline is its own horizontal scroller', () => {
+    const root = el('div', {}, [
+      el('div', {
+        className: VERTICAL_SCROLL_OWNER_CLASS,
+        'data-scroll-owner': 'both',
+        'data-overflow-y': 'auto',
+        'data-overflow-x': 'auto',
+      }, [
+        el('div', { className: TIMELINE_CLASS, 'data-overflow-x': 'auto' }, ['t']),
+      ]),
+    ]);
+    expect(hasSingleVerticalScrollOwner(root)).toBe(false);
+  });
+
   it('fails when a nested name column also scrolls on Y', () => {
     const root = el('div', {}, [
       el('div', {
         className: VERTICAL_SCROLL_OWNER_CLASS,
-        'data-scroll-owner': 'vertical',
+        'data-scroll-owner': 'both',
         'data-overflow-y': 'auto',
+        'data-overflow-x': 'auto',
       }, [
         el('div', { className: 'paddock-col', 'data-overflow-y': 'auto' }, ['name']),
       ]),
@@ -696,16 +716,15 @@ describe('F0 single vertical scroll owner', () => {
     expect(hasSingleVerticalScrollOwner(root)).toBe(false);
   });
 
-  it('bindHorizontalScrollSync mirrors scrollLeft', () => {
-    const a = el('div', {});
-    const b = el('div', {});
-    Object.defineProperty(a, 'scrollLeft', { writable: true, value: 0 });
-    Object.defineProperty(b, 'scrollLeft', { writable: true, value: 0 });
-    const unsub = bindHorizontalScrollSync([a, b]);
-    a.scrollLeft = 40;
-    a.dispatchEvent(new Event('scroll'));
-    expect(b.scrollLeft).toBe(40);
-    unsub();
+  it('fails when the owner only scrolls on Y (old F0 shape)', () => {
+    const root = el('div', {}, [
+      el('div', {
+        className: VERTICAL_SCROLL_OWNER_CLASS,
+        'data-scroll-owner': 'vertical',
+        'data-overflow-y': 'auto',
+      }, []),
+    ]);
+    expect(hasSingleVerticalScrollOwner(root)).toBe(false);
   });
 });
 

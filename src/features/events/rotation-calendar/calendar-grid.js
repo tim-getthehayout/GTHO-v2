@@ -54,9 +54,9 @@ import {
 import { computeReadiness, lastGrazeDate, readinessBandRange } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
 import {
-  VERTICAL_SCROLL_OWNER_CLASS,
-  TIMELINE_SCROLL_CLASS,
-  bindHorizontalScrollSync,
+  SCROLL_OWNER_CLASS,
+  TIMELINE_CLASS,
+  AXIS_CLASS,
   describeScrollArchitecture,
 } from './scroll-owner.js';
 
@@ -193,6 +193,7 @@ function renderMetricsHead(metricBtnsByKey, { grow = false } = {}) {
  * @param {HTMLElement} container
  */
 export function renderCalendarGrid(container, { onViewChange } = {}) {
+  teardownScrollSurface(container);
   clear(container);
 
   const state = getCalendarState();
@@ -403,7 +404,7 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   const todayPx = dateToPx(now, range.start, range.pxPerDay);
   const metricsCollapsed = !isList && !!state.metricsCollapsed;
 
-  // Sticky header row (outside vertical scroller)
+  // OI-0266: header row lives INSIDE the single scroller, sticky to the top.
   const sort = { key: state.sortKey || 'name', dir: state.sortDir || 'asc' };
   const head = renderTableHead({
     sort, onUpdate, isPhone, range, totalWidth, todayPx, zoom: state.zoom,
@@ -411,21 +412,20 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     metricsCollapsed,
   });
 
-  // Single vertical scroll owner — F0
+  // F0 / OI-0266: ONE scroll owner for both axes. The axis (head) is sticky to
+  // the top; name + metrics are sticky to the left. Nothing else scrolls.
   const body = el('div', {
-    className: VERTICAL_SCROLL_OWNER_CLASS,
+    className: SCROLL_OWNER_CLASS,
     dataset: {
       testid: 'loc-mgmt-body',
-      scrollOwner: 'vertical',
-      overflowY: 'auto',
       architecture: describeScrollArchitecture().vertical,
       view: isList ? 'list' : 'calendar',
     },
-    'data-scroll-owner': 'vertical',
+    'data-scroll-owner': 'both',
     'data-overflow-y': 'auto',
-  });
+    'data-overflow-x': 'auto',
+  }, [head]);
 
-  const timelineScrollers = [];
   const rowByLoc = new Map();
 
   locations.forEach((loc) => {
@@ -460,8 +460,6 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
       metricsCollapsed,
       metricCtx: isList ? null : metricCtx,
     });
-    const ts = row.querySelector(`.${TIMELINE_SCROLL_CLASS}`);
-    if (ts) timelineScrollers.push(ts);
     rowByLoc.set(loc.id, row);
     body.appendChild(row);
   });
@@ -486,27 +484,31 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   });
   if (connectorLayer) body.appendChild(connectorLayer.overlay);
 
-  // Axis scroller at top of timeline column — sync with rows
-  const axisScroller = head.querySelector(`.${TIMELINE_SCROLL_CLASS}`);
-  if (axisScroller) timelineScrollers.unshift(axisScroller);
-
-  const unsubH = bindHorizontalScrollSync(timelineScrollers);
-  container._locMgmtUnsubH = unsubH;
-
-  // Center today
+  // Centre today on the single scroller (calendar only). The connector overlay
+  // sits inside the scrolling content, so it needs no scroll listener at all.
   requestAnimationFrame(() => {
-    const first = timelineScrollers[0];
-    if (first) {
-      const viewWidth = first.clientWidth || 300;
-      const left = Math.max(0, todayPx - viewWidth / 2);
-      for (const s of timelineScrollers) s.scrollLeft = left;
-    }
-    if (connectorLayer) connectorLayer.layout(body, timelineScrollers[timelineScrollers.length - 1] || null);
+    if (!isList) centerTodayOnScroller(body, todayPx);
+    if (connectorLayer) connectorLayer.layout(body);
   });
-  if (connectorLayer) {
-    for (const sc of timelineScrollers) {
-      sc.addEventListener('scroll', () => connectorLayer.follow(sc.scrollLeft), { passive: true });
-    }
+  // OI-0266 (b): re-measure connectors when layout resizes (window, metrics
+  // width / collapse). Guarded — jsdom has no ResizeObserver.
+  const RO = typeof globalThis !== 'undefined' ? globalThis.ResizeObserver : undefined;
+  if (connectorLayer && typeof RO === 'function') {
+    let pending = false;
+    const ro = new RO(() => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => {
+        pending = false;
+        if (body.isConnected) connectorLayer.layout(body);
+      });
+    });
+    ro.observe(body);
+    const firstRow = body.querySelector(`.loc-mgmt__row`);
+    if (firstRow) ro.observe(firstRow);
+    const firstMetrics = body.querySelector('[data-testid="loc-mgmt-metrics"]');
+    if (firstMetrics) ro.observe(firstMetrics);
+    container._locMgmtResizeObserver = ro;
   }
 
   const surface = el('div', {
@@ -521,18 +523,17 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
       view: isList ? 'list' : 'calendar',
       metricsCollapsed: metricsCollapsed ? '1' : '0',
     },
-  }, [head, body]);
+  }, [body]);
 
   const onKeyDown = (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    const first = timelineScrollers[0];
-    if (!first) return;
+    if (isList) return;
     switch (e.key) {
       case 'ArrowLeft':
-        first.scrollLeft -= e.shiftKey ? range.pxPerDay * 7 : range.pxPerDay;
+        body.scrollLeft -= e.shiftKey ? range.pxPerDay * 7 : range.pxPerDay;
         break;
       case 'ArrowRight':
-        first.scrollLeft += e.shiftKey ? range.pxPerDay * 7 : range.pxPerDay;
+        body.scrollLeft += e.shiftKey ? range.pxPerDay * 7 : range.pxPerDay;
         break;
       case 't':
       case 'T':
@@ -555,6 +556,46 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   requestAnimationFrame(() => applyUniformMetricsWidth(surface));
   container.setAttribute('tabindex', '0');
   container.addEventListener('keydown', onKeyDown);
+  container._locMgmtKeyDown = onKeyDown;
+}
+
+/** OI-0266: drop the previous render's key handler and resize observer. */
+function teardownScrollSurface(container) {
+  if (!container) return;
+  if (container._locMgmtKeyDown) {
+    container.removeEventListener('keydown', container._locMgmtKeyDown);
+    container._locMgmtKeyDown = null;
+  }
+  if (container._locMgmtResizeObserver) {
+    container._locMgmtResizeObserver.disconnect();
+    container._locMgmtResizeObserver = null;
+  }
+}
+
+/**
+ * OI-0266: x of the timeline origin inside the single scroller's content
+ * (name + metrics on desktop; row padding on phone).
+ */
+function timelineOriginX(body) {
+  const inner = body.querySelector(`.${TIMELINE_CLASS} .loc-mgmt__timeline-inner`)
+    || body.querySelector('.loc-mgmt__timeline-inner');
+  if (!inner) return 0;
+  const bodyRect = body.getBoundingClientRect();
+  const r = inner.getBoundingClientRect();
+  return r.left - bodyRect.left + body.scrollLeft;
+}
+
+/**
+ * OI-0266: centre today in the visible timeline area of the single scroller.
+ * Writes scrollLeft once (on open / jump to today) — never from a scroll event.
+ */
+export function centerTodayOnScroller(body, todayPx) {
+  if (!body) return 0;
+  const origin = timelineOriginX(body);
+  const viewWidth = Math.max(0, (body.clientWidth || 300) - origin) || 300;
+  const left = Math.max(0, todayPx - viewWidth / 2);
+  body.scrollLeft = left;
+  return left;
 }
 
 /**
@@ -585,6 +626,8 @@ function buildConnectorLayer({ paddockWindows, rowByLoc, range, totalWidth }) {
     className: 'loc-mgmt__connectors-inner',
     style: { width: `${totalWidth}px` },
   });
+  // OI-0266 (a): the overlay lives inside the single scrolling content, so it
+  // scrolls with the rows natively — no scroll listener, no transform follow.
   const nodes = specs.map((c) => {
     const node = el('div', {
       className: 'loc-mgmt__connector',
@@ -613,15 +656,11 @@ function buildConnectorLayer({ paddockWindows, rowByLoc, range, totalWidth }) {
   };
   return {
     overlay,
-    follow(scrollLeft) {
-      inner.style.transform = `translateX(${-(scrollLeft || 0)}px)`;
-    },
-    layout(body, scroller) {
-      if (!body || !scroller) return;
+    layout(body) {
+      if (!body) return;
       const bodyRect = body.getBoundingClientRect();
-      const scRect = scroller.getBoundingClientRect();
-      overlay.style.left = `${scRect.left - bodyRect.left}px`;
-      overlay.style.width = `${scroller.clientWidth}px`;
+      overlay.style.left = `${timelineOriginX(body)}px`;
+      overlay.style.width = `${totalWidth}px`;
       overlay.style.height = `${body.scrollHeight}px`;
       for (const { c, node } of nodes) {
         const yFrom = rowCenterY(rowByLoc.get(c.fromLocationId), bodyRect, body);
@@ -630,7 +669,6 @@ function buildConnectorLayer({ paddockWindows, rowByLoc, range, totalWidth }) {
         node.style.height = `${Math.abs(yTo - yFrom)}px`;
         node.dataset.dir = yTo >= yFrom ? 'down' : 'up';
       }
-      this.follow(scroller.scrollLeft);
     },
   };
 }
@@ -921,8 +959,8 @@ function renderTableHead({
   const axis = buildAxis(range.start, range.end, zoom, range.pxPerDay, totalWidth);
   const todayLine = renderTodayLine(todayPx);
   const timelineHead = el('div', {
-    className: TIMELINE_SCROLL_CLASS,
-    dataset: { testid: 'timeline-axis-scroll' },
+    className: AXIS_CLASS,
+    dataset: { testid: 'timeline-axis' },
   }, [
     el('div', {
       className: 'loc-mgmt__timeline-inner',
@@ -1168,6 +1206,7 @@ function renderManagementRow(opts) {
         memberships: allMemberships,
         animals: allAnimals,
         today: todayStr,
+        event, // OI-0266 (c): open window on a closed event counts at the event close
       });
       // Mw1: List-metrics calc over this window only (OI-0256 stored-feed first,
       // OI-0253 unknown → null → "—").
@@ -1307,9 +1346,10 @@ function renderManagementRow(opts) {
     ]));
   }
 
+  // OI-0266: the strip does not scroll by itself; the single body owns X.
   const timelineScroll = el('div', {
-    className: TIMELINE_SCROLL_CLASS,
-    dataset: { testid: 'timeline-scroll', locationId: loc.id },
+    className: TIMELINE_CLASS,
+    dataset: { testid: 'timeline-strip', locationId: loc.id },
   }, [
     el('div', {
       className: 'loc-mgmt__timeline-inner',

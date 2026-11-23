@@ -2689,7 +2689,13 @@ body:has(.auth-overlay) .pwa-update-banner {
   align-items: stretch;
   border-bottom: 1px solid var(--border);
   background: var(--bg2);
-  z-index: 3;
+  /* OI-0266: head lives inside the single scroller, sticky to the top; spans
+     the full content width so the axis moves with the rows. */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  width: max-content;
+  min-width: 100%;
 }
 .loc-mgmt__head--desktop { min-height: 40px; }
 .loc-mgmt__name-head {
@@ -2699,6 +2705,21 @@ body:has(.auth-overlay) .pwa-update-banner {
   padding: 0 var(--space-3);
   border-right: 1px solid var(--border);
   font-weight: 600;
+  box-sizing: border-box;
+}
+/* OI-0266: name + metrics heads stay pinned left inside the sticky head. */
+.loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__name-head {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg2);
+}
+.loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__metrics-head-wrap,
+.loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__metrics-head {
+  position: sticky;
+  left: 160px; /* NAME_WIDTH */
+  z-index: 2;
+  background: var(--bg2);
 }
 .loc-mgmt__metrics-head {
   display: flex;
@@ -2753,7 +2774,8 @@ body:has(.auth-overlay) .pwa-update-banner {
   flex: 1 1 auto;
   min-width: 0;
 }
-.loc-mgmt__timeline-head { flex: 1; min-width: 0; }
+.loc-mgmt__timeline-head { flex: 1 0 auto; min-width: 0; }
+.loc-mgmt__axis { overflow: visible; } /* OI-0266: never scrolls by itself */
 .loc-mgmt__sort {
   font: inherit;
   font-size: 0.75rem;
@@ -2768,13 +2790,15 @@ body:has(.auth-overlay) .pwa-update-banner {
 .loc-mgmt__sort--active { color: var(--color-green-dark); }
 .loc-mgmt__sort:hover { color: var(--text); }
 
-/* F0: ONE vertical scroll owner — name/metrics/timeline rows share this */
+/* F0 / OI-0266: ONE scroll owner for BOTH axes — axis sticky top, name +
+   metrics sticky left; rows and the axis never scroll on their own. */
 .loc-mgmt__body {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: auto;
   min-height: 0;
-  position: relative; /* OI-0264 Cn1: connector overlay anchor */
+  position: relative; /* OI-0264 Cn1: connector overlay anchor (scrolls with content) */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
 /* OI-0264 Cn1: sub-move connectors — 2px dark-green line above row backgrounds,
@@ -2808,7 +2832,11 @@ body:has(.auth-overlay) .pwa-update-banner {
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--border);
+  width: max-content; /* OI-0266: full content width inside the single scroller */
+  min-width: 100%;
 }
+.loc-mgmt--list .loc-mgmt__row--desktop,
+.loc-mgmt--list .loc-mgmt__head { width: auto; }
 .loc-mgmt__name-wrap {
   flex: 0 0 160px;
   border-right: 1px solid var(--border);
@@ -2818,7 +2846,8 @@ body:has(.auth-overlay) .pwa-update-banner {
   background: var(--bg);
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 5; /* OI-0266: above blocks (labels z 2), today line (z 3) */
+  box-sizing: border-box;
 }
 .loc-mgmt__name { cursor: pointer; width: 100%; }
 .loc-mgmt__name-text { font-weight: 600; font-size: 0.875rem; line-height: 1.2; }
@@ -2854,6 +2883,13 @@ body:has(.auth-overlay) .pwa-update-banner {
 .loc-mgmt__metrics-line--head {
   align-items: center;
 }
+/* OI-0266: desktop calendar metrics column pinned right of the name column. */
+.loc-mgmt--desktop:not(.loc-mgmt--list) .loc-mgmt__row--desktop > .loc-mgmt__metrics {
+  position: sticky;
+  left: 160px; /* NAME_WIDTH */
+  z-index: 5;
+  background: var(--bg);
+}
 .loc-mgmt__metric {
   display: flex;
   flex-direction: column;
@@ -2870,15 +2906,14 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 
 .loc-mgmt__timeline-wrap {
-  flex: 1;
+  flex: 1 0 auto;
   min-width: 0;
   position: relative;
 }
-.loc-mgmt__timeline-scroll {
-  overflow-x: auto;
-  overflow-y: hidden; /* Y owned by .loc-mgmt__body only */
+/* OI-0266: no per-row scroller — the strip moves with .loc-mgmt__body. */
+.loc-mgmt__timeline {
+  overflow: visible;
   height: 100%;
-  width: 100%;
 }
 .loc-mgmt__timeline-inner { position: relative; }
 .loc-mgmt__block-area { position: relative; }
@@ -2973,12 +3008,43 @@ body:has(.auth-overlay) .pwa-update-banner {
   padding: var(--space-2);
   border-bottom: 1px solid var(--border);
 }
+/* OI-0266 phone: name/metrics head pinned to the left edge above the axis. */
+.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__head-metrics {
+  position: sticky;
+  left: 0;
+  width: max-content;
+  max-width: 100vw;
+  box-sizing: border-box;
+  background: var(--bg2);
+  z-index: 2;
+}
+/* Axis origin lines up with the row strips (row padding + strip border). */
+.loc-mgmt--phone .loc-mgmt__head-timeline {
+  width: max-content;
+  padding: 0 var(--space-3) 0 calc(var(--space-3) + 1px);
+}
 .loc-mgmt--phone .loc-mgmt__row--phone {
   display: flex;
   flex-direction: column;
   padding: var(--space-3);
   gap: var(--space-2);
   border-bottom: 1px solid var(--border);
+}
+/* OI-0266 phone: rows span the content width; the name and metrics lines stay
+   pinned to the left edge above each strip while the single body scrolls X. */
+.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__row--phone {
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+  align-items: flex-start;
+}
+.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__row--phone > .loc-mgmt__name,
+.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__row--phone > .loc-mgmt__metrics {
+  position: sticky;
+  left: var(--space-3);
+  width: max-content;
+  z-index: 5;
+  background: var(--bg);
 }
 .loc-mgmt--phone .loc-mgmt__metrics {
   /* Nn: keep two-line stack; tighter padding; no flat six-across */
@@ -2998,8 +3064,8 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 .loc-mgmt--phone .loc-mgmt__metric-label { font-size: 0.5625rem; }
 .loc-mgmt--phone .loc-mgmt__metric-value { font-size: 0.6875rem; }
-.loc-mgmt--phone .loc-mgmt__timeline-scroll {
-  width: 100%;
+.loc-mgmt--phone .loc-mgmt__timeline {
+  /* OI-0266: boxed strip is a visual frame only; it does not scroll itself. */
   min-height: 72px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -3188,10 +3254,10 @@ body:has(.auth-overlay) .pwa-update-banner {
   color: #fff;
   overflow: hidden;
   cursor: pointer;
-  transition: opacity 0.15s;
 }
 
-.past-block:hover { opacity: 0.9; }
+/* OI-0266: no hover fade (it flickered as bars slid under a still pointer);
+   keyboard focus shows an outline instead. */
 .past-block:focus-visible { outline: 3px solid var(--color-green-dark); outline-offset: 2px; }
 
 .past-block--active {

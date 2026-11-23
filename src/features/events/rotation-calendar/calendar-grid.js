@@ -71,6 +71,8 @@ let listFarmFilter = 'all'; // OI-0265 Lg1: multi-farm only (legacy farm pills)
 
 const METRIC_COLS = [
   { key: 'dmiKg', label: 'DMI', title: 'Implied pasture DMI (kg)' },
+  // OI-0274 Dl1: DMI per acre is its own metric + sort button, right of DMI.
+  { key: 'dmiPerAcre', label: 'DMI/ac', title: 'Implied pasture DMI per acre (kg/ac); no acreage shows —' },
   { key: 'auds', label: 'AUDs', title: 'Animal Unit Days' },
   { key: 'nKg', label: 'N', title: 'Nitrogen deposited (kg)' },
   { key: 'pKg', label: 'P', title: 'Phosphorus deposited (kg)' },
@@ -78,8 +80,8 @@ const METRIC_COLS = [
   { key: 'avgScore', label: 'Score', title: 'Average pasture score' },
 ];
 
-/** OI-0252 Ls: line 1 = DMI · AUDs; line 2 = N · P · K · Score. */
-const METRIC_LINE1 = METRIC_COLS.filter(c => c.key === 'dmiKg' || c.key === 'auds');
+/** OI-0252 Ls: line 1 = DMI · DMI/ac (OI-0274) · AUDs; line 2 = N · P · K · Score. */
+const METRIC_LINE1 = METRIC_COLS.filter(c => c.key === 'dmiKg' || c.key === 'dmiPerAcre' || c.key === 'auds');
 const METRIC_LINE2 = METRIC_COLS.filter(c => !METRIC_LINE1.includes(c));
 
 /**
@@ -115,15 +117,29 @@ export function applyUniformMetricsWidth(root) {
 }
 
 /**
+ * OI-0274: the ONE place the DMI/ac value is formatted (wrap here for the shared
+ * units helper later). No acreage or unknown DMI → "—" (OI-0253 style).
+ * @param {object|null|undefined} metrics
+ * @returns {string}
+ */
+export function formatDmiPerAcre(metrics) {
+  if (!metrics?.hasAcres) return '—';
+  return formatMetricValue(metrics?.dmiPerAcre, { digits: 1 });
+}
+
+/**
  * @param {object} col
  * @param {object|null|undefined} metrics
  * @param {{ includePerAcre?: boolean }} [opts]
  */
 function renderMetricCol(col, metrics, { includePerAcre = true } = {}) {
   const raw = metrics?.[col.key];
-  const text = formatMetricValue(raw, { digits: col.key === 'avgScore' ? 0 : 0 });
-  const perAcreKey = col.key === 'dmiKg' ? 'dmiPerAcre'
-    : col.key === 'auds' ? 'audsPerAcre'
+  // OI-0274 Dp1: DMI/ac is a metric of its own and shows on phone too.
+  const text = col.key === 'dmiPerAcre'
+    ? formatDmiPerAcre(metrics)
+    : formatMetricValue(raw, { digits: col.key === 'avgScore' ? 0 : 0 });
+  // OI-0274 Do0: DMI no longer carries a "(x/ac)" suffix; AUDs/N/P/K keep theirs.
+  const perAcreKey = col.key === 'auds' ? 'audsPerAcre'
     : col.key === 'nKg' ? 'nPerAcre'
     : col.key === 'pKg' ? 'pPerAcre'
     : col.key === 'kKg' ? 'kPerAcre'
@@ -151,7 +167,9 @@ function renderMetricCol(col, metrics, { includePerAcre = true } = {}) {
       ...(hayNote ? { residualNote: 'true' } : {}),
     },
   }, [
-    el('span', { className: 'loc-mgmt__metric-label' }, [col.label]),
+    el('span', {
+      className: `loc-mgmt__metric-label${col.key === 'dmiPerAcre' ? ' loc-mgmt__metric-label--per-acre' : ''}`,
+    }, [col.label]),
     el('span', { className: 'loc-mgmt__metric-value' }, [
       `${text}${perAcreText}`,
       isPartial
@@ -981,11 +999,18 @@ function renderTableHead({
     }, [axis, todayLine]),
   ]);
 
+  // OI-0274 Dc1: the sort still applies while collapsed; say which one (not for name).
+  const sortNote = metricsCollapsed ? collapsedSortNote(sort) : null;
   const metricsHead = metricsCollapsed
     ? el('div', {
       className: 'loc-mgmt__metrics-head loc-mgmt__metrics-head--collapsed',
       dataset: { testid: 'loc-mgmt-metrics-head-collapsed' },
-    }, [collapseToggle])
+    }, [
+      collapseToggle,
+      sortNote
+        ? el('span', { className: 'loc-mgmt__sort-note', dataset: { testid: 'loc-mgmt-collapsed-sort-note' } }, [sortNote])
+        : null,
+    ].filter(Boolean))
     : el('div', { className: 'loc-mgmt__metrics-head-wrap' }, [
       collapseToggle,
       renderMetricsHead(metricBtnsByKey),
@@ -1006,6 +1031,25 @@ function renderTableHead({
     metricsHead,
     el('div', { className: 'loc-mgmt__timeline-head' }, [timelineHead]),
   ]);
+}
+
+/** Labels for sort keys with no header button (URL / stored deep links). */
+const SORT_NOTE_LABELS = {
+  audsPerAcre: 'AUDs/ac', nPerAcre: 'N/ac', pPerAcre: 'P/ac', kPerAcre: 'K/ac',
+};
+
+/**
+ * OI-0274 Dc1: note shown by the collapsed Metrics tab, e.g.
+ * "Sorted by DMI/ac, low first". Default name sort → null (no note).
+ * @param {{ key: string, dir: 'asc'|'desc' }} sort
+ * @returns {string|null}
+ */
+export function collapsedSortNote(sort) {
+  const key = sort?.key || 'name';
+  if (key === 'name') return null;
+  const label = METRIC_COLS.find(c => c.key === key)?.label || SORT_NOTE_LABELS[key];
+  if (!label) return null;
+  return `Sorted by ${label}, ${sort?.dir === 'desc' ? 'high first' : 'low first'}`;
 }
 
 function sortHeaderButton(key, label, sort, onUpdate, title) {

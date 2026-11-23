@@ -170,7 +170,7 @@ describe('OI-0254 timeline canvas', () => {
       expect(getCalendarState().metricsCollapsed).toBe(false);
     });
 
-    it('toggle and setMetricsCollapsed flip session state', () => {
+    it('toggle and setMetricsCollapsed flip state (OI-0267 Pd1: persisted per device)', () => {
       toggleMetricsCollapsed();
       expect(getCalendarState().metricsCollapsed).toBe(true);
       setMetricsCollapsed(false);

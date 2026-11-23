@@ -261,7 +261,7 @@ describe('OI-0254 metrics collapse (Cm1+Cm1a)', () => {
     window.location.hash = '#/events';
   });
 
-  it('defaults expanded and toggles in session only', () => {
+  it('defaults expanded and toggles (OI-0267 Pd1: setters persist per device)', () => {
     expect(getCalendarState().metricsCollapsed).toBe(false);
     toggleMetricsCollapsed();
     expect(getCalendarState().metricsCollapsed).toBe(true);
@@ -269,9 +269,12 @@ describe('OI-0254 metrics collapse (Cm1+Cm1a)', () => {
     expect(getCalendarState().metricsCollapsed).toBe(false);
   });
 
-  it('URL remount resets collapse to expanded (Cm1a)', () => {
+  it('OI-0267 Pd1: URL remount restores the last chosen collapse state', () => {
     setMetricsCollapsed(true);
     window.location.hash = '#/events?zoom=month';
+    readStateFromUrl();
+    expect(getCalendarState().metricsCollapsed).toBe(true);
+    setMetricsCollapsed(false);
     readStateFromUrl();
     expect(getCalendarState().metricsCollapsed).toBe(false);
   });

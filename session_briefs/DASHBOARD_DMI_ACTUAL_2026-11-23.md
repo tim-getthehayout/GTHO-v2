@@ -122,11 +122,11 @@ OI-0280 builds on the S2 branch: S2 rewrites the same card lines (`:1497–1499`
 - **Sq1 (rec, Tim's direction):** finish the stored-feed plan (OI-0281) first, then build OI-0280 once, with the context wording and the plan term together.
 - Sq2: ship OI-0280 now (after OI-0277 + 0278-S2) with the context wording, and add the plan term when OI-0281 lands. No rework of the math: OI-0280's per-event hay eaten / target / day-kind numbers are exactly the inputs OI-0281 sums; only the line's text changes later.
 
-**Order (Sq1):** … → OI-0279 → OI-0277 + OI-0278-S2 → **OI-0281** (migration apply = Tim yes + backup) → **OI-0280** → OI-0278-S3 → S4 → OI-0221 remaining slices.
+**Order (Sq1; corrected 2:32 PM ET for S1):** … → OI-0279 (live `e8bc570`) → **OI-0278-S1** → OI-0277 + OI-0278-S2 → **OI-0281** (migration apply = Tim yes + backup) → **OI-0280** → OI-0278-S3 → S4 → OI-0221 remaining slices.
 
 ## 10. Full lock (card t1387s5445, 12:13 PM ET, via Orchestrator) — card labels ↔ doc labels
 
-Earlier 0280 picks still stand: **Ac1**, and the last-two-checks window (card “Wn2” = §5 **Wn3**) once there are ≥ 2 checks (t1382s5420). Context wording stays the §9 rule. Sequence stays **Sq1** (t1385u): OI-0279 → OI-0277 + OI-0278-S2 → **OI-0281** → **OI-0280** → OI-0278-S3 → S4 → rest of OI-0221.
+Earlier 0280 picks still stand: **Ac1**, and the last-two-checks window (card “Wn2” = §5 **Wn3**) once there are ≥ 2 checks (t1382s5420). Context wording stays the §9 rule. Sequence stays **Sq1** (t1385u; S1 inserted per Design ruling 2026-11-23 2:32 PM ET): OI-0279 (live `e8bc570`) → **OI-0278-S1** → OI-0277 + OI-0278-S2 → **OI-0281** → **OI-0280** → OI-0278-S3 → S4 → rest of OI-0221.
 
 **Locked on t1387s5445:**
 - **Display — card “Dp3” = §9 Dp3:** one line replacing today's DMI line (same layout as Dp1: “Target 1,410 · hay eaten … · …” with wording by context). On **full-feed (stored-only) events** the line turns **amber when `|hay eaten − target| / target > 10%`**. Exactly 10% off is not amber. Grazing events never turn amber or red; pasture is green. Mixed windows (any grazing day in the span) follow the grazing colour rule: no amber/red on the line.

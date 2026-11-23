@@ -23,12 +23,15 @@ Line numbers are at `3373711`. Code read only.
 2. **OI-0276**
 3. **OI-0270**
 4. **OI-0271**
-5. **OI-0274** + **OI-0275** with **OI-0278-S1** (Calendar + List)
+5. **OI-0274** + **OI-0275** (shipped; **OI-0278-S1 did not ride with them** — see correction below)
 6. **OI-0273**
-7. **OI-0279** (per-class DMI %; shared group-day function — Home depends on it)
-8. **OI-0277** with **OI-0278-S2** (Home)
+7. **OI-0279** (per-class DMI %; shared group-day function — Home depends on it) — live `e8bc570`
+7a. **OI-0278-S1** (helper + Calendar + List rows 1–9) — **own PR, first**
+8. **OI-0277** with **OI-0278-S2** (Home), stacked on S1
 9. **OI-0278-S3** (Events / feed / animals / Locations)
 10. **OI-0278-S4** (NPK / amendments / reports / inputs / assistant / lock-in test)
+
+**Queue correction (Design ruling 2026-11-23 2:32 PM ET; sequencing within the locked spec, not a new decision):** OI-0278-S1 never landed — the OI-0274/0275 branch predates the units lock, so main `e8bc570` has no `formatMeasure`, `formatPerArea`, `unitSuffix`, `pricePerWeight` or `nutrientPerDm`. S1 ships as its own PR first; OI-0277 + OI-0278-S2 stack on it. Full order: 0279 (live) → 0278-S1 → 0277+0278-S2 → 0281 → 0280 → 0278-S3 → S4 → rest of OI-0221, then OI-0233 → OI-0282 P1.
 
 OI-0278-S1 adds the shared helper (below); later slices only consume it. Each step may ship as its own PR. Every PR runs the usual gates (`node scripts/run-vitest.mjs run`, `npx eslint src/`, baseline 0 errors / 54 warnings).
 
@@ -66,7 +69,7 @@ The Pasture % helper `computePasturePercent` (`:342–393`) uses the same `daysB
 
 **Tests:** fixture with a move (leave day = next join day) and a same-group overlapping stint → Total DMI counts each group-day once (no move-day or overlap double count); period clipping (event longer than the period counts only in-period days); Pasture DMI = Σ max(0, need − hay) and equals `aggregatePeriodTotals` for the same fixture; Total DMI equals Σ `groupWindowsDailyDmiKg` over the period; both unit systems render.
 
-**Size:** M. Rides with OI-0278-S2.
+**Size:** M. Rides with OI-0278-S2 (stacked on OI-0278-S1).
 
 ---
 

@@ -85,7 +85,7 @@ Abbreviations: **ARCH** = `V2_APP_ARCHITECTURE.md`, **INFRA** = `V2_INFRASTRUCTU
 | Code area | Docs |
 |---|---|
 | `supabase/migrations/` | SCHEMA (the table's domain); MIG §5.3, §5.8, §5.9, §5.11a; INFRA §5.1 (RLS); AGENTS.md "Migration Execution Rule"; briefs `SYNC_SERVER_GUARDS_2026-11-18.md` (stale-write guard, insert RLS), `CONFIRMED_BRED_DATE_2026-11-18.md`, `FARM_SETTINGS_SEASON_DEFAULT_2026-11-22.md` (OI-0247 **SPEC LOCKED / READY FOR BUILD** additive `farm_settings` season default; apply gated) |
-| `supabase/functions/` | INFRA §8 |
+| `supabase/functions/` | INFRA §8; brief `FARM_CONNECTOR_2026-11-23.md` (OI-0282 **PROPOSED** farm-scoped `gtho-mcp` connector, usage capture, onboarding audit/undo) |
 | `scripts/` | the OI or brief that owns the script (e.g. `oi-0222-backfill.mjs` → `HAY_FEEDING_BACKFILL_BUILD_LOCK_2026-11-17.md`) |
 | `.github/workflows/`, `.githooks/` | INFRA §6.3; AGENTS.md "Git Workflow" |
 | `tests/` only (no `src/` change) | Docs unaffected unless the PR changes what a doc says is tested (ARCH §5.4) |

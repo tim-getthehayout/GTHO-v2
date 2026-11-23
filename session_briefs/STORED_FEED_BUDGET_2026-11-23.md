@@ -1,9 +1,9 @@
 # OI-0281 — Expected stored-feed plan (season budget core): plan by month or date range, pasture counted as savings
 
-**Date:** 2026-11-23 | **Owner:** GTHO Design | **Status:** **PROPOSED** — lock needed on **Pg / Pq / Sv / Sh** (Design rec **Pg2+Pq1+Sv1+Sh1**). Docs only; no code, no SQL, no data change in this tip. **Build needs a new migration** (plan storage): writing it needs this spec locked; applying it needs Tim's explicit yes at the time **plus a verified backup**.
+**Date:** 2026-11-23 | **Owner:** GTHO Design | **Status:** **SPEC LOCKED / READY FOR BUILD** 2026-11-23 12:13 PM ET (Tim, via Orchestrator, card **t1387s5445** — card **Pe1+Pm3+Pu1+Pw2** = doc **Pg2+Pq3+Sv1+Sh2**). Docs only; no code, no SQL, no data change in this tip. **Build needs a new migration** (plan storage; number TBD, 049 or later — OI-0247 may take 049): Build writes the file only after these docs land; applying it needs Tim's explicit yes at the time **plus a verified backup**.
 **Requested:** Tim **t1384u** (2026-11-23 12:03 PM ET) and **t1385u** (12:04 PM ET), via Orchestrator.
 **Base:** Forgejo `origin/main` `0264c26cb62e727e3dcb69a8cb982e4e921a12d7` (RELEASED schema **48**). Code read only. Prod not queried.
-**Parent:** **OI-0221** (Stored forage budgeting, PROPOSED since 2026-11-16, A–L open). OI-0281 is the plan-and-savings core of OI-0221 slice 2, given its own number so it can lock and ship without re-opening all of A–M. OI-0221 keeps the on-hand forecast (D4), cost (D5), scorecard (D8/D9) and history report (slice 1), which build on this plan later.
+**Parent:** **OI-0221** (Stored forage budgeting, still **PROPOSED** since 2026-11-16, A–L open; status otherwise unchanged). OI-0281 is the plan-and-savings core of OI-0221 slice 2, given its own number so it can lock and ship without re-opening all of A–M. OI-0221 keeps the on-hand forecast (D4), cost (D5), scorecard (D8/D9) and history report (slice 1), which build on this plan later.
 **Related:** OI-0280 (event-card actual vs target; integrates after this), OI-0225 (DMI-9 implied pasture), OI-0224 (FED-6 run rate), OI-0247 (farm season-default dates), OI-0279 (per-class need), OI-0258 / OI-0260 (Al1 hay eaten per event-day), OI-0256 (`no_pasture`), OI-0209 (confinement), OI-0222 (045 history), OI-0257 (DM forecaster; Fx1 parked).
 
 ## Tim (verbatim)
@@ -37,61 +37,61 @@
 
 **How the budget is computed (compute-on-read from the saved plan):**
 - `need(d)` = farm herd DM need on day d from the OI-0279 per-class group-day function (the same demand Al1, DMI-8 and Home use; OI-0238 partial days).
-- **Planned stored DM(d)** = `need(d)` × `planned%(d)` (Pq1), or the fixed amount (Pq2).
-- Past days use the **actual** herd need, so buying or selling animals moves the budget, not the savings. Future days use the current herd held flat (OI-0221 §4) until planned herd changes exist.
+- **Planned stored DM(d)** depends on the line kind (**Pq3** / card Pm3). A **% line**: `need(d)` × `planned%(d)`. An **amount line**: the entered fixed amount for that day (lb DM/day in farm units via the OI-0278 helper; stored as canonical metric, kg DM/day). Exactly one of % or amount per line.
+- On a % line, past days use the **actual** herd need, so buying or selling animals moves the budget, not the savings. Future days use the current herd held flat (OI-0221 §4) until planned herd changes exist. On an amount line the planned figure is the entered amount and does not follow herd changes.
 
 **Actual and savings:**
-- **Actual stored feed (Sv1, rec)** = Σ Al1 `storedDmiKg` over all events on measured days (hay eaten from feed checks). Days not yet covered by a check are not counted; the budget is compared over the **same counted days**.
+- **Actual stored feed (Sv1 / card Pu1, locked)** = Σ Al1 `storedDmiKg` over all events on measured days (hay eaten from feed checks). Days not yet covered by a check are not counted; the budget is compared over the **same counted days**.
 - **Savings vs plan** = planned stored DM − actual stored DM over the counted days. Positive = pasture beyond plan (green). Negative = over plan (amber, never red). On a day planned at 100%, every lb of implied pasture is savings; at 50%, savings = planned half − hay eaten.
 - Shown with the waste figure beside it (OI-0224 residual at close) and, for inventory, hay **fed** (left the stack); fed stays the basis for prior-year comparison (OI-0221 N) because last winter has no checks.
 
-**Where it shows (Sh1, rec):** Feed screen card at the top (OI-0221 L): season to date planned vs eaten, savings in lb DM (and bales of the main batch), this month, a plan editor behind Edit; desktop adds the month table (planned / eaten / savings by month). Home: OI-0280's event line gains the plan term after this ships (§4). Reports: month table. No Home tile in this OI.
+**Where it shows (Sh2 / card Pw2, locked):** Feed screen card at the top (OI-0221 L): season to date planned vs eaten, savings in lb DM (and bales of the main batch), this month, a plan editor behind Edit; desktop adds the month table (planned / eaten / savings by month); **plus a Home tile** for savings to date. Home event cards also gain the plan term in OI-0280 after this ships (§4). Reports: month table.
 
 **Interaction:**
-- **OI-0221:** this is its slice-2 core. Question E (monthly share %) is answered by **Pg/Pq** here; F (stored plan) is assumed (a plan the user sets has to be saved). D4 on-hand forecast (“hay covers through”), D5 cost, D8/D9 scorecard and the history pre-fill stay in OI-0221 and read this plan.
+- **OI-0221:** this is its slice-2 core. Question E (monthly share %) is answered by **Pg2+Pq3** here; F (stored plan) is assumed (a plan the user sets has to be saved). D4 on-hand forecast (“hay covers through”), D5 cost, D8/D9 scorecard and the history pre-fill stay in OI-0221 and read this plan.
 - **OI-0225 / OI-0224:** same implied-pasture identity; the panel can add “vs plan” later without a second calc.
 - **OI-0247:** plan period follows the farm budget period; no second farm default.
 - **CAP-1 / Fx1:** a later forecaster can use planned% for future days; not here.
 
-**Schema / CP-55/CP-56 (flag):** needs a **new migration** (next free number at write time, **049 or later**; OI-0247's own `farm_settings` migration is also still unwritten): a plan header per farm and period (start, end, status, notes) and plan rows (start date, end date, planned %, optional fixed DM/day). Operation-scoped, member RLS like other farm tables (OI-0233 pattern); added to CP-55 export / CP-56 restore with a schema step. **Writing the file needs this spec locked; applying it needs Tim's explicit yes plus a verified backup.** No SQL in this tip.
+**Schema / CP-55/CP-56 (flag):** needs a **new migration** (next free number at write time, **049 or later**; OI-0247 may take 049 — its own `farm_settings` migration is also still unwritten): a plan header per farm and period (start, end, status, notes) and plan rows (start date, end date, planned % **or** fixed kg DM/day — exactly one). Operation-scoped, member RLS like other farm tables (OI-0233 pattern); added to CP-55 export / CP-56 restore with a schema step. **Build writes the migration file only after these docs land; applying it needs Tim's explicit yes plus a verified backup.** No SQL in this tip.
 
-## 3. Decisions for Tim (plain language; Design rec first)
+## 3. Locked decisions (card t1387s5445, 12:13 PM ET) — card labels ↔ doc labels
 
-**Pg — How you enter the plan (by month or by day)**
-- **Pg2 (rec): Date ranges.** Each line is “from – to, % from stored feed”, e.g. Oct 1 – Mar 31 at 100%, Apr 1 – Apr 30 at 50%. Day-precise, matches how you think about it (“full feed Oct 1 through Apr 1”). A month summary is shown underneath.
-- Pg1: By month. Twelve months, one % each (Oct 100%, Nov 100% … Apr 50%, May 0%). Simplest screen, but a change on Apr 10 can't be entered.
-- Pg3: Both: a month grid for quick entry, with day ranges for exceptions inside a month. Most flexible, most screen.
+**Pg — How you enter the plan (by month or by day)** — **locked Pg2 (card “Pe1”)**.
+- **Pg2 (locked): Date ranges.** Each line is “from – to”, e.g. Oct 1 – Mar 31 at 100%, Apr 1 – Apr 30 at 50%. Day-precise, matches how you think about it (“full feed Oct 1 through Apr 1”). A **month summary is shown underneath**. Days not covered by any line = **0% planned**.
+- Pg1 (not chosen): By month. Twelve months, one % each (Oct 100%, Nov 100% … Apr 50%, May 0%).
+- Pg3 (not chosen): Both: a month grid for quick entry, with day ranges for exceptions inside a month.
 
-**Pq — What each line says**
-- **Pq1 (rec): % of the herd's need** (100% = full feed). The plan follows the herd: if you add animals, the planned hay grows with them, so savings only reflect grazing.
-- Pq2: A fixed amount per day (e.g. 1,400 lb DM/day or 2 bales/day). Easy to read, but herd changes show up as savings or overruns.
-- Pq3: % of need by default, with an optional fixed amount on any line.
+**Pq — What each line says** — **locked Pq3 (card “Pm3”)**.
+- Pq1 (not chosen): % of the herd's need only.
+- Pq2 (not chosen): A fixed amount per day only.
+- **Pq3 (locked): % of the herd's daily need from stored feed by default, with an optional fixed amount per day on any line instead of %.** The amount is lb DM/day in farm units (OI-0278 helper) and is stored as canonical metric (kg DM/day). Exactly one of % or amount per line. Planned stored DM(d): a % line is `planned%(d) × need(d)` (OI-0279 per-class group-day need; actual herd for past days, current herd held flat for future); an amount line is the entered amount and does not follow herd changes. Validation: overlapping ranges blocked; % in 0–100 inclusive; amount ≥ 0; start ≤ end; lines fit the farm budget period (`validatePeriod`).
 
-**Sv — What counts as hay actually used**
-- **Sv1 (rec): Hay eaten, from your feed checks** (the same number OI-0280 shows on the event card). Savings = what you planned to feed minus what they ate, which is the pasture they got beyond your plan. Waste left at close is shown beside it.
-- Sv2: Hay fed (what left the stack, including waste). Matches inventory and last winter's records, but counts waste as “used”.
+**Sv — What counts as hay actually used** — **locked Sv1 (card “Pu1”)**.
+- **Sv1 (locked): Hay eaten, from your feed checks** (Al1; the same number OI-0280 shows on the event card). Savings = planned stored − hay eaten, which is the pasture they got beyond your plan (or an overrun if they ate more than planned). Waste left at close is shown beside it.
+- Sv2 (not chosen): Hay fed (what left the stack, including waste).
 
-**Sh — Where you see it first**
-- **Sh1 (rec):** A card at the top of the Feed screen (planned vs eaten, savings, this month and season to date, Edit plan), month table on desktop; event cards pick up the plan in OI-0280 after.
-- Sh2: Sh1 plus a Home tile for savings to date.
-- Sh3: Home tile only.
+**Sh — Where you see it first** — **locked Sh2 (card “Pw2”)**.
+- Sh1 (not chosen): Feed screen card only.
+- **Sh2 (locked): Feed screen card plus a Home tile** for savings to date. The Feed card: planned vs eaten, savings, this month and season to date, Edit plan; month table on desktop. Event cards pick up the plan term in OI-0280 after this ships.
+- Sh3 (not chosen): Home tile only.
 
-**Design defaults (no lock needed):** one plan per farm per budget period (per-group plans later); days outside any line = 0% planned; overlapping lines not allowed; plan editable any time with a change note (OI-0221's lock/re-lock and the frozen-snapshot question stay with the scorecard slice); units through the OI-0278 helper.
+**Design defaults (unchanged):** one plan per farm per budget period (per-group plans later); days outside any line = 0% planned; overlapping lines not allowed; plan editable any time with a change note (OI-0221's lock/re-lock and the frozen-snapshot question stay with the scorecard slice); units through the OI-0278 helper.
 
-## 4. Sequencing (Tim t1385u: finish the plan, then integrate 0280)
+## 4. Sequencing (Tim t1385u, locked: finish the plan, then integrate 0280)
 
-Default plan, per Tim: … → OI-0279 → OI-0277 + OI-0278-S2 → **OI-0281 (plan; migration apply = Tim yes + backup)** → **OI-0280 integrated** (event line with context gap wording and the plan term) → OI-0278-S3 → S4 → OI-0221 remaining slices (history pre-fill, on-hand forecast, cost, scorecard).
-
-Can a small OI-0280 slice ship alongside without rework? **Yes, optionally.** OI-0280's math (hay eaten per day over the last check span from Al1, target on the same days, the stored-only vs grazing day rule) is exactly the per-event input OI-0281's actuals sum up, so nothing is thrown away; only the line's wording gains the plan term later. Design still defaults to Tim's order (plan first) and offers the early slice as an option (OI-0280 axis **Sq**).
+… → OI-0279 → OI-0277 + OI-0278-S2 → **OI-0281 (plan; migration write after these docs land; apply = Tim yes + backup)** → **OI-0280 integrated** (event line with context gap wording and the plan term) → OI-0278-S3 → S4 → rest of OI-0221 (history pre-fill, on-hand forecast, cost, scorecard).
 
 ## 5. Acceptance / tests (for Build after lock)
 
-- Plan Oct 1 – Mar 31 at 100%, herd need 1,400 lb DM/day, hay eaten 1,000 → savings 400/day on counted days; Apr line at 50% → planned 700, eaten 800 → over plan 100 (amber).
-- Herd change mid-period: planned follows actual need (Pq1); savings unchanged by the head-count change.
+- Plan Oct 1 – Mar 31 at 100%, herd need 1,400 lb DM/day, hay eaten 1,000 → savings 400/day on counted days; Apr line at 50% → planned 700, eaten 800 → over plan 100 (amber). Month summary lists those months underneath the date-range editor.
+- **%-vs-amount lines:** a % line planned = need × % (OI-0279). An amount line planned = the entered lb DM/day (canonical kg DM/day stored; farm units via OI-0278). A line with both % and amount, or neither, is rejected.
+- **Herd change mid-period:** a % line follows actual need on past days, so savings are unchanged by the head-count change. An amount line stays at the entered amount, so a herd change can show as savings or an overrun.
 - Uncounted days (after the latest check) excluded on both sides.
-- 100%-stored events (confinement / `no_pasture`) count in actual like any other; their gap is not pasture (see OI-0280 context rule).
-- Days outside any line = 0% planned: any hay eaten there is “over plan”.
-- Overlapping lines rejected; period must fit the farm budget period (`validatePeriod`).
+- 100%-stored events (confinement / `no_pasture`) count in actual like any other; their event-card gap is not pasture (see OI-0280 context rule).
+- **Uncovered days = 0% planned:** any hay eaten on a day with no plan line is “over plan”.
+- **Overlap / bounds validation:** overlapping ranges rejected; % outside 0–100 rejected; amount < 0 rejected; start after end rejected; period must fit the farm budget period (`validatePeriod`).
+- Waste (residual at close) is shown beside hay eaten. Used figure is Al1 hay eaten, same as OI-0280.
 - Per-class need (OI-0279); imperial and metric (OI-0278).
 
-**Fix size:** M (migration + plan editor + card). **Migration needed** (Tim yes + backup to apply).
+**Fix size:** M (migration + plan editor + Feed card + Home tile). **Migration needed** (write after docs land; Tim yes + backup to apply).

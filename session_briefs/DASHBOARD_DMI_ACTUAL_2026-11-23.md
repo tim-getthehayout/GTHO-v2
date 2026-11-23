@@ -1,6 +1,6 @@
 # OI-0280 — Home event cards: DMI target vs actual (hay eaten from feed checks)
 
-**Date:** 2026-11-23 | **Owner:** GTHO Design | **Status:** **PROPOSED (partially locked: actual Ac1, window = last two feed checks, no-data = hide, per t1382s5420; display Dp + sequencing Sq pending; gap context per Tim t1384u, §9)**. Docs only; no code, no SQL, no data change (**D0**). Integrates with **OI-0281** (stored-feed plan) per Tim t1385u.
+**Date:** 2026-11-23 | **Owner:** GTHO Design | **Status:** **SPEC LOCKED / READY FOR BUILD** 2026-11-23 12:13 PM ET (Tim, via Orchestrator: card **t1382s5420** ~12:00 PM ET + card **t1387s5445** 12:13 PM ET; gap context **t1384u**; sequence **t1385u**). Docs only; no code, no SQL, no data change (**D0**). Builds after **OI-0281**. See §10 for the lock and card-label ↔ doc-label mapping.
 **Requested:** Tim, **t1379u**, 2026-11-23 11:50 AM ET (via Orchestrator).
 **Base:** Forgejo `origin/main` `3cc9a84db640f88918cf2e308752df062544cdbd`. Code read only; line numbers at `3cc9a84`. Prod not queried.
 **Related:** OI-0224 (E actual vs forecast, F per-event later), OI-0225 (DMI-9 implied pasture), OI-0258 / OI-0260 (Al1 allocation), OI-0277 + OI-0278-S2 (Home), OI-0279 (per-class need).
@@ -44,7 +44,7 @@ Per event, over the window’s counted days:
 - `none` days (no stored feed on the event): hay 0 known, need = pasture. `unknown` days: not counted, named in the hint.
 - Units via OI-0278 helper; canonical metric stored.
 
-## 5. Decisions for Tim (plain language; Design rec first) — Ac / Wn / Nc answered on t1382s5420, Dp re-asked in §9
+## 5. Decisions as first offered (plain language; Design rec first) — later locks in §9–§10
 
 **Ac — What “actual” means**
 - **Ac1 (rec):** Hay eaten per day from your feed checks, next to the target, and the gap explained: on grazing it is what pasture supplied; in a dry lot it is how far under or over target they ate.
@@ -80,23 +80,26 @@ OI-0280 builds on the S2 branch: S2 rewrites the same card lines (`:1497–1499`
 
 ## 8. Acceptance / tests
 
-- Opening delivery + two checks: hay eaten/day = Σ Al1 `storedDmiKg` ÷ measured days; pasture gap = Σ Al1 `pastureDmiKg` (same as the DMI-8 “Actual” bars; equals OI-0277 Pasture DMI for a one-group event on the same days).
+- Opening delivery + two checks: hay eaten/day = Σ Al1 `storedDmiKg` ÷ measured days in the last-two-checks window; pasture gap = Σ Al1 `pastureDmiKg` on those days (same as the DMI-8 “Actual” bars; equals OI-0277 Pasture DMI for a one-group event on the same days).
 - Per-day floor; hay over need reported as over target.
-- Pure confinement: variance = DMI-6.
-- No-hay grazing: 100% pasture text.
-- One check only / unknown pool: Nc text; unknown days excluded and named.
-- Window ends at the latest check (Wn).
+- Pure confinement (stored-only): variance = DMI-6; wording is “eating X under/over target”, never “pasture”.
+- **One-check window (Ec1):** opening hay delivery (Al1 event-open anchor) → that check; the line shows (does not hide).
+- **Two or more checks:** window is only the span between the last two checks (not the whole event, not 7 days).
+- **Hide cases (remaining Nc0):** no feed check yet → line hidden, today's “DMI target (forecast)” line stays. Grazing with no stored feed (kind `none`) → same. A check missing its unit, leaving no measured days in the window → same. Unknown days among measured days are excluded, not counted.
+- **Amber threshold (Dp3, stored-only events only):** `|hay eaten − target| / target > 10%` turns the line amber. Exactly 10% off is not amber (neutral). 10.1% (and greater) is amber, whether under or over. Grazing events, including mixed windows that have any grazing day, are never amber or red; pasture stays green.
+- Mixed window: both phrases, each over its own days.
+- After OI-0281 ships: grazing phrase adds “plan N% · saved ≈ X”.
 - Per-class need (OI-0279); imperial and metric (OI-0278).
 
 **Fix size:** S–M on top of S2. **D0.**
 
-## 9. Tim's partial lock and framing (2026-11-23) — context gap rule, display re-ask, sequencing
+## 9. Partial lock and framing (t1382s5420 / t1384u / t1385u) — superseded in part by §10
 
 **Locked (card t1382s5420, ~12:00 PM ET, via Orchestrator; card labels differ from §5 numbering):**
 - **Ac1** — hay eaten per day from feed checks next to the target, gap labelled.
-- **Window = only the time between the last two feed checks** (card “Wn2” = §5 **Wn3**). Design reading: the span runs from the latest check back to the previous check; when the event has one check so far, the event-open anchor (opening delivery) is the span start, as Al1 already does. Orchestrator to confirm with Tim if he meant “two real checks”.
-- **No data = hide the line** (card “Nc0” = §5 **Nc2**). When hidden, the card keeps today's “DMI target (forecast)” line so the target never disappears.
-- **Display (Dp): still open** (re-asked below).
+- **Window = only the time between the last two feed checks** (card “Wn2” = §5 **Wn3**), once there are ≥ 2 checks. The one-check case was still a Design reading here; confirmed as Ec1 in §10.
+- **No data = hide the line** (card “Nc0” = §5 **Nc2**). When hidden, the card keeps today's “DMI target (forecast)” line so the target never disappears. §10 keeps this for no-check / no-hay-grazing / unit-less-check, and overrides it for the one-check case.
+- **Display (Dp): was still open here**; locked Dp3 in §10.
 
 **Tim's framing (t1384u, 12:03 PM ET, verbatim):** “When on 100% stored feed the gap tells us that our DMI numbers are off, when on stored feed and pasture the difference gets allocated to pasture not a forecast gap. …” and the stored-feed budget is “the missing piece” (t1385u, 12:04 PM ET: “Expected stored feed by month/day in the missing piece we need to finish and then integrate with this”). Budget = **OI-0281** ([brief](STORED_FEED_BUDGET_2026-11-23.md)).
 
@@ -120,3 +123,13 @@ OI-0280 builds on the S2 branch: S2 rewrites the same card lines (`:1497–1499`
 - Sq2: ship OI-0280 now (after OI-0277 + 0278-S2) with the context wording, and add the plan term when OI-0281 lands. No rework of the math: OI-0280's per-event hay eaten / target / day-kind numbers are exactly the inputs OI-0281 sums; only the line's text changes later.
 
 **Order (Sq1):** … → OI-0279 → OI-0277 + OI-0278-S2 → **OI-0281** (migration apply = Tim yes + backup) → **OI-0280** → OI-0278-S3 → S4 → OI-0221 remaining slices.
+
+## 10. Full lock (card t1387s5445, 12:13 PM ET, via Orchestrator) — card labels ↔ doc labels
+
+Earlier 0280 picks still stand: **Ac1**, and the last-two-checks window (card “Wn2” = §5 **Wn3**) once there are ≥ 2 checks (t1382s5420). Context wording stays the §9 rule. Sequence stays **Sq1** (t1385u): OI-0279 → OI-0277 + OI-0278-S2 → **OI-0281** → **OI-0280** → OI-0278-S3 → S4 → rest of OI-0221.
+
+**Locked on t1387s5445:**
+- **Display — card “Dp3” = §9 Dp3:** one line replacing today's DMI line (same layout as Dp1: “Target 1,410 · hay eaten … · …” with wording by context). On **full-feed (stored-only) events** the line turns **amber when `|hay eaten − target| / target > 10%`**. Exactly 10% off is not amber. Grazing events never turn amber or red; pasture is green. Mixed windows (any grazing day in the span) follow the grazing colour rule: no amber/red on the line.
+- **One check so far — card “Ec1”:** measure from the event's opening hay delivery (Al1 event-open anchor) to that check. This **overrides** the earlier hide rule (card “Nc0” = §5 **Nc2**) for that case, so the line shows after the first check.
+- **Hide (remaining Nc0 / §5 Nc2 cases):** the line stays hidden only when there is no feed check yet, the event is grazing with no stored feed, or a check is missing its unit (no measured days in the window). In those cases today's “DMI target (forecast)” line stays.
+- **After OI-0281 ships:** the grazing phrase adds “plan N% · saved ≈ X” (savings = planned stored − hay eaten on the same days).

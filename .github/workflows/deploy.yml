@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,5 +47,19 @@ jobs:
         with:
           path: dist
 
+      # deploy-pages lists this run's artifacts by API ~0.3 s after the upload
+      # finalizes; sometimes the list is not caught up yet and it fails with
+      # 'No artifacts named "github-pages" were found' (runs 45032178574,
+      # 45044088293, 45048777574, 45228377048). Retry once after a short wait
+      # instead of needing a manual re-run of the whole build.
       - id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Wait for the Pages artifact before retrying the deploy
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+
+      - id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4

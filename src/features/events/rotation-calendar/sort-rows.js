@@ -1,7 +1,9 @@
 /**
  * @file Client-side sort for location management rows (S0).
  * Default: Name ↑. Every numeric management column is sortable.
- * Unknown (null) sorts after known values in ascending, before in descending.
+ * Unknown (null) sorts after known values in BOTH directions (the comparator
+ * returns before applying the direction). OI-0274 relies on this: DMI/ac with no
+ * acreage or unknown DMI sorts last whether lowest- or highest-first.
  */
 
 export const SORT_KEYS = Object.freeze([
@@ -18,6 +20,9 @@ export const SORT_KEYS = Object.freeze([
   'pPerAcre',
   'kPerAcre',
 ]);
+
+/** OI-0274 Ds1: first tap sorts lowest first for these keys (others: name asc, metrics desc). */
+export const FIRST_TAP_ASC = Object.freeze(['name', 'dmiPerAcre']);
 
 /**
  * @param {Array<object>} rows - metric rows from computeLocationMetrics
@@ -42,7 +47,7 @@ export function sortMetricRows(rows, sort = { key: 'name', dir: 'asc' }) {
     if (aNull && bNull) {
       return String(a.locationName || '').localeCompare(String(b.locationName || ''), undefined, { sensitivity: 'base' });
     }
-    // Unknowns after knowns when ascending; before when descending
+    // Unknowns after knowns in both directions (not multiplied by dir).
     if (aNull) return 1;
     if (bNull) return -1;
     const diff = Number(av) - Number(bv);
@@ -59,5 +64,5 @@ export function nextSortState(current, key) {
   if (current?.key === key) {
     return { key, dir: current.dir === 'asc' ? 'desc' : 'asc' };
   }
-  return { key, dir: key === 'name' ? 'asc' : 'desc' };
+  return { key, dir: FIRST_TAP_ASC.includes(key) ? 'asc' : 'desc' };
 }

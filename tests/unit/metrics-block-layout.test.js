@@ -64,7 +64,7 @@ describe('OI-0252 metrics block layout', () => {
     expect(line1).toBeTruthy();
     expect(line2).toBeTruthy();
     expect([...line1.querySelectorAll('[data-key]')].map(n => n.dataset.key))
-      .toEqual(['dmiKg', 'auds']);
+      .toEqual(['dmiKg', 'dmiPerAcre', 'auds']); // OI-0274 Dl1: DMI · DMI/ac · AUDs
     expect([...line2.querySelectorAll('[data-key]')].map(n => n.dataset.key))
       .toEqual(['nKg', 'pKg', 'kKg', 'avgScore']);
     // Not a flat single-line of six direct children

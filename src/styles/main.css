@@ -2754,6 +2754,13 @@ body:has(.auth-overlay) .pwa-update-banner {
   white-space: nowrap;
 }
 .loc-mgmt__metrics-toggle:hover { color: var(--text); }
+/* OI-0274 Dc1: sort note by the collapsed Metrics tab. */
+.loc-mgmt__sort-note {
+  font-size: 0.625rem;
+  color: var(--text3);
+  white-space: nowrap;
+  padding-right: 6px;
+}
 .loc-mgmt__metrics-head--collapsed {
   display: flex;
   align-items: center;
@@ -2897,6 +2904,8 @@ body:has(.auth-overlay) .pwa-update-banner {
   padding: 0 4px;
 }
 .loc-mgmt__metric-label { font-size: 0.625rem; color: var(--text3); text-transform: uppercase; }
+/* OI-0274 Dl1: "DMI/ac" reads as written (not "DMI/AC"). */
+.loc-mgmt__metric-label--per-acre { text-transform: none; }
 .loc-mgmt__metric-value { font-size: 0.75rem; font-weight: 500; font-variant-numeric: tabular-nums; }
 .loc-mgmt__metric-partial {
   font-size: 0.625rem;

@@ -126,7 +126,7 @@ New operational tables (migration → Tim's yes + backup at apply):
 | P2 | Second farm + shared onboarding bot: onboarding sessions/logins, bulk insert via preview/commit + dedupe, checklist, audit report, undo session, Sf opt-in and reviewer access; Orchestrator creates the onboarding bot with Tim's yes | M |
 | P3 | Weekly Design usage-capture review/digest (top tools, top request notes, failed calls, gaps, partial sequences, generic-call sequences that should be one action) → new OI: narrowed connector spec | S per cycle |
 
-- **Order (Qp=B):** after all current DMI and units work — 0279 → 0277 + 0278-S2 → 0281 → 0280 → 0278-S3 → S4 — then **P0 OI-0233** → **P1** → **P2** → P1b / P3 as usage directs.
+- **Order (Qp=B; corrected 2026-11-23 2:32 PM ET for OI-0278-S1, Design ruling):** after all current DMI and units work — 0279 (live `e8bc570`) → 0278-S1 → 0277 + 0278-S2 → 0281 → 0280 → 0278-S3 → S4 → rest of OI-0221 — then **P0 OI-0233** → **P1** → **P2** → P1b / P3 as usage directs.
 - **OI-0226 PR C** (DB stale-write guard) should land before P1 or with it; until then the connector's own `updated_at` re-check at commit is the only guard against an unsynced phone edit.
 
 ## 8. Decisions (all locked)

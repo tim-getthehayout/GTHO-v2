@@ -80,7 +80,7 @@
 
 ## 4. Sequencing (Tim t1385u, locked: finish the plan, then integrate 0280)
 
-… → OI-0279 → OI-0277 + OI-0278-S2 → **OI-0281 (plan; migration write after these docs land; apply = Tim yes + backup)** → **OI-0280 integrated** (event line with context gap wording and the plan term) → OI-0278-S3 → S4 → rest of OI-0221 (history pre-fill, on-hand forecast, cost, scorecard).
+… → OI-0279 (live `e8bc570`) → **OI-0278-S1** (own PR; Design ruling 2026-11-23 2:32 PM ET) → OI-0277 + OI-0278-S2 → **OI-0281 (plan; migration write after these docs land; apply = Tim yes + backup)** → **OI-0280 integrated** (event line with context gap wording and the plan term) → OI-0278-S3 → S4 → rest of OI-0221 (history pre-fill, on-hand forecast, cost, scorecard), then OI-0233 → OI-0282 P1.
 
 ## 5. Acceptance / tests (for Build after lock)
 

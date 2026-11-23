@@ -2275,7 +2275,10 @@ Any omitted parameter falls back to its default. Changes to state update the URL
 
 **First-load defaults.** `zoom=week`, `anchor=today`, `groups=[]`, `period=null`, `showConfinement=false`, `view=calendar`. Forecaster starting empty → Estimated Status View is the default mode.
 
-**State persistence policy.** Calendar state is NOT persisted to `user_preferences` in v2.0. It lives in session memory and the URL only. Rationale: the URL is enough for deep-linking and sharing; sticky defaults are a small follow-up (one column + one getter/setter) that should be driven by user feedback, not pre-emptively. When user feedback asks for sticky defaults, add a `user_preferences.events_calendar_state jsonb` column and persist on change.
+**State persistence policy.** Most calendar state (zoom, anchor, groups, period, confinement, view) is not persisted to `user_preferences`. It lives in session memory and the URL only, so a view can be shared by link. Two per-device preferences are remembered in `localStorage` on this browser, not in the URL and not in `user_preferences`:
+- **Pb** (OI-0246): season metric window, key `gtho_v2_locations_metric_window`.
+- **Pd1** (OI-0267): Rotation Calendar Metrics column collapse (▾/▸), key `gtho_v2_locations_metrics_collapsed`. Unset or invalid falls back to expanded (OI-0254 **Cm1a**). List view has no toggle and is unaffected.
+A `user_preferences.events_calendar_state jsonb` column (the original §19.9 follow-up) is not used for these prefs; it would need a migration and was rejected for Pd1.
 
 **Paddock sort order.** Paddocks render in the order locations appear in `store.locations` (stable sort by creation order / `locations.id`). Custom ordering (drag-to-reorder or a priority field) is out of scope for v2.0 — revisit once users report needing it.
 
@@ -2496,6 +2499,7 @@ The sheet uses the same unit-aware descriptor pattern as the Farm Settings card 
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-22 | GTHO Design — OI-0267 Metrics collapse persists per device (docs only) | §19.9 state persistence: most calendar state stays session/URL; per-device localStorage prefs are OI-0246 **Pb** (`gtho_v2_locations_metric_window`) and OI-0267 **Pd1** (`gtho_v2_locations_metrics_collapsed`). Unset collapse defaults expanded (Cm1a). No `user_preferences` column. |
 | 2026-11-20 | GTHO Design — OI-0240 scoped-remaining hide Feed Transfer (docs only) | §1.5 / §1.6 / §6: Feed Transfer **must** be hidden in `scoped-remaining`; stay-copy that feed stays with remaining groups; Step 8 skipped; notes the pre-OI-0240 code gap (`move-wizard.js` still rendered Move / Residual). Full-event and `scoped-last` unchanged. |
 | 2026-11-19 | GTHO Design — OI-0235 Animals multi-filters as-built (docs only) | §15.0 class pills + Open / Confirmed bred status pills flipped from Proposed (not built) to as-built at PR #86 `a997269` on main. F1–F3 unchanged. |
 | 2026-11-18 | GTHO Design — OI-0230 PR 1 as-built; OI-0232/0233/PR C locks (docs only) | §15.1 OI-0232 Q1–Q3 locks; §17.2 signed-out state as-built; §20.3/§20.5 Resync as-built at PR #82 `d22e004` with exact plural/singular strings, already-on-server line, Send replan and navigation Cancel. |

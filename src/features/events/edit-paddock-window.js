@@ -27,13 +27,20 @@ function ensureSheetDOM() {
 }
 
 
-/** Fresh open/close observation for this paddock window (sourceId first, else newest). */
-function findEventObservation(locationId, pwId, type) {
-  const allObs = getAll('paddockObservations')
-    .filter(o => o.locationId === locationId && o.type === type && o.source === 'event');
-  return allObs.find(o => o.sourceId === pwId)
-    || allObs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0]
-    || null;
+/**
+ * Fresh open/close observation for this paddock window. OI-0283: strict
+ * `sourceId === pwId` — no fallback to another event's reading on the same
+ * paddock (editing would otherwise overwrite that event's observation).
+ * @param {string} locationId
+ * @param {string} pwId
+ * @param {'open'|'close'} type
+ * @returns {object|null}
+ */
+export function findEventObservation(locationId, pwId, type) {
+  if (!pwId) return null;
+  return getAll('paddockObservations')
+    .find(o => o.locationId === locationId && o.type === type && o.source === 'event'
+      && o.sourceId === pwId) || null;
 }
 
 /**

@@ -169,21 +169,44 @@ export function renderEventsScreen(container) {
   screenEl.appendChild(sheetsContainer);
   container.appendChild(screenEl);
 
+  // OI-0269: this render's own subscriptions. Released when the screen element
+  // is gone (another route took the app container), so a store change on another
+  // screen never repaints Events over it. Only THIS render's list is released.
+  const myUnsubs = [];
+  unsubs = myUnsubs;
+  const releaseMine = () => {
+    myUnsubs.splice(0).forEach(fn => fn());
+    if (unsubs === myUnsubs) unsubs = [];
+  };
+  const leftScreen = () => {
+    if (screenEl.isConnected) return false;
+    releaseMine();
+    return true;
+  };
+
   // OI-0266: the router clears the app container on hashchange before this
-  // listener runs; once this screen is gone, release the calendar's observers.
-  leaveListener = () => { if (!screenEl.isConnected) unmountEventsCalendar(); };
+  // listener runs; once this screen is gone, release the calendar's observers
+  // and (OI-0269) the store subscriptions.
+  leaveListener = () => {
+    if (!screenEl.isConnected) {
+      unmountEventsCalendar();
+      releaseMine();
+    }
+  };
   window.addEventListener('hashchange', leaveListener);
 
   // Remount when events change so list/calendar metrics stay current.
-  unsubs.push(subscribe('events', () => {
+  myUnsubs.push(subscribe('events', () => {
+    if (leftScreen()) return; // OI-0269 guard
     renderEventsScreen(container);
   }));
   // OI-0265 Lg1: the List view re-renders on the legacy Locations screen's set so a
   // location saved from List "+ Add" (incl. crop / confinement / storage) shows at once.
   const rerenderList = () => {
+    if (leftScreen()) return; // OI-0269 guard
     if (getCalendarState().view === 'list') renderCalendarGrid(calendarContainer);
   };
-  for (const key of LIST_RERENDER_KEYS) unsubs.push(subscribe(key, rerenderList));
+  for (const key of LIST_RERENDER_KEYS) myUnsubs.push(subscribe(key, rerenderList));
 }
 
 // Backdrop sheet refs — lazily resolved so each sub-module owns its own Sheet instance.

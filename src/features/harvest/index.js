@@ -8,6 +8,7 @@ import { getAll, getById, add, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
 import { openFeedTypesSheet } from '../locations/index.js';
+import { landUseLabel } from '../locations/land-use-label.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';
 import * as HarvestEventFieldEntity from '../../entities/harvest-event-field.js';
 import * as BatchEntity from '../../entities/batch.js';
@@ -174,7 +175,7 @@ function renderFieldPicker(panel, operationId, onSelect) {
 
     // Type filter pills
     const typeRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' } });
-    for (const [val, label] of [['all', 'All crop & mixed-use'], ['crop', 'Crop'], ['mixed-use', 'Mixed-Use']]) {
+    for (const [val, label] of [['all', 'All crop & mixed-use'], ['crop', 'Crop'], ['mixed_use', 'Mixed-Use']]) {
       const isActive = typeFilter === val;
       typeRow.appendChild(el('button', {
         type: 'button',
@@ -190,7 +191,7 @@ function renderFieldPicker(panel, operationId, onSelect) {
     contentEl.appendChild(searchInput);
 
     // Field cards
-    let locs = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed-use'));
+    let locs = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed_use'));
     if (farmFilter !== 'all') locs = locs.filter(l => l.farmId === farmFilter);
     if (typeFilter !== 'all') locs = locs.filter(l => l.landUse === typeFilter);
     if (search) { const q = search.toLowerCase(); locs = locs.filter(l => (l.name || '').toLowerCase().includes(q) || (l.fieldCode || '').toLowerCase().includes(q)); }
@@ -215,7 +216,7 @@ function renderFieldPicker(panel, operationId, onSelect) {
           el('div', { style: { fontSize: '20px' } }, ['\uD83D\uDE9C']),
           el('div', { style: { flex: '1', minWidth: '0' } }, [
             el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [`${loc.name} \u00B7 ${areaVal} ${areaUnit}`]),
-            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${loc.landUse}${farm ? ` \u00B7 ${farm.name}` : ''}${loc.fieldCode ? ` \u00B7 ${loc.fieldCode}` : ''}`]),
+            el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${landUseLabel(loc.landUse)}${farm ? ` \u00B7 ${farm.name}` : ''}${loc.fieldCode ? ` \u00B7 ${loc.fieldCode}` : ''}`]),
           ]),
         ]),
       ]));
@@ -233,7 +234,7 @@ function renderTileGrid(panel, operationId, preSelectedLocationId) {
   const todayStr = getLocalTodayStr();
   const activeFeedTypes = () => getAll('feedTypes').filter(ft => ft.harvestActive !== false && !ft.archived);
   let feedTypes = activeFeedTypes();
-  const allLocations = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed-use'));
+  const allLocations = getAll('locations').filter(l => !l.archived && l.type === 'land' && (l.landUse === 'crop' || l.landUse === 'mixed_use'));
 
   // State
   const tiles = []; // { feedTypeId, fieldRows: [{ landId, quantity, weightPerUnitKg, batchId, batchIdDirty, notes }] }

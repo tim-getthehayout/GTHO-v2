@@ -36,7 +36,7 @@ describe('X1 location filter', () => {
   it('keeps pasture and mixed-use land only', () => {
     const locs = [
       { id: '1', type: 'land', landUse: 'pasture' },
-      { id: '2', type: 'land', landUse: 'mixed-use' },
+      { id: '2', type: 'land', landUse: 'mixed_use' },
       { id: '3', type: 'land', landUse: 'crop' },
       { id: '4', type: 'confinement' },
       { id: '5', type: 'storage' },

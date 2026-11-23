@@ -72,12 +72,12 @@ export function deriveEventStartTime(eventId, openDate, { paddockWindows = [], g
   return earliest;
 }
 
-/** X1: pasture + mixed-use land only. */
+/** X1: pasture + mixed-use land only. OI-0271: canonical stored value is 'mixed_use' (entity + DB CHECK). */
 export function isManagementLocation(loc) {
   if (!loc || loc.archived) return false;
   if (loc.type !== 'land') return false;
   const use = loc.landUse || 'pasture';
-  return use === 'pasture' || use === 'mixed-use';
+  return use === 'pasture' || use === 'mixed_use';
 }
 
 /** Filter locations to X1 set. */

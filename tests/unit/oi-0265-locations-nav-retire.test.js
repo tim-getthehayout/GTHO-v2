@@ -59,7 +59,7 @@ function seed({ twoFarms = false } = {}) {
   add('farmSettings', FarmSettingEntity.create({ farmId: FARM, operationId: OP }),
     FarmSettingEntity.validate, FarmSettingEntity.toSupabaseShape, 'farm_settings');
   addLoc(L.past, 'A Pasture', { type: 'land', landUse: 'pasture' });
-  // Entity stores mixed use as 'mixed_use' (not the 'mixed-use' the X1 filter reads), so use a 2nd pasture.
+  // Entity stores mixed use as 'mixed_use' (X1 reads it since OI-0271); this fixture keeps a 2nd pasture.
   addLoc(L.mixed, 'B Pasture', { type: 'land', landUse: 'pasture', farmId: twoFarms ? FARM2 : FARM });
   addLoc(L.crop, 'Corn', { type: 'land', landUse: 'crop' });
   addLoc(L.conf, 'Barn lot', { type: 'confinement' });

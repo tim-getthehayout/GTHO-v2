@@ -2819,6 +2819,67 @@ body:has(.auth-overlay) .pwa-update-banner {
 /* OI-0284: each row wrapper snaps its top edge to just below the head. */
 .loc-mgmt__body > .loc-mgmt__row { scroll-snap-align: start; }
 
+/* #443: always-visible horizontal scroll rail. Pinned under the single scroller
+   (outside it, so it never scrolls away) and spanning only the timeline portion
+   (margin-left = pinned name + metrics width, set by scroll-rail.js). Display-only:
+   it drives .loc-mgmt__body scrollLeft; native scrolling is unchanged. */
+.loc-mgmt__rail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+  border-top: 1px solid var(--border);
+  background: var(--bg2);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.loc-mgmt__rail[hidden] { display: none; }
+.loc-mgmt__rail-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--bg3);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: pointer;
+  touch-action: none;
+}
+.loc-mgmt__rail-track:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.loc-mgmt__rail-thumb {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 7px;
+  background: var(--text3);
+  cursor: grab;
+  touch-action: none;
+}
+.loc-mgmt__rail-thumb:hover,
+.loc-mgmt__rail-thumb--dragging { background: var(--text2); }
+.loc-mgmt__rail-thumb--dragging { cursor: grabbing; }
+.loc-mgmt__rail-btn {
+  flex: none;
+  width: 24px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text2);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.loc-mgmt__rail-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+/* Phone: at least a 24px touch height (track 24px, buttons 32px). */
+.loc-mgmt__rail--phone { gap: 6px; padding: 4px 6px; }
+.loc-mgmt__rail--phone .loc-mgmt__rail-track { height: 24px; border-radius: 12px; }
+.loc-mgmt__rail--phone .loc-mgmt__rail-thumb { border-radius: 12px; }
+.loc-mgmt__rail--phone .loc-mgmt__rail-btn { width: 36px; height: 32px; font-size: 20px; }
+
 /* OI-0264 Cn1: sub-move connectors — 2px dark-green line above row backgrounds,
    below block labels; never intercepts clicks. */
 .loc-mgmt__connectors {

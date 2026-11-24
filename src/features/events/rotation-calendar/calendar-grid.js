@@ -62,8 +62,11 @@ import {
   AXIS_CLASS,
   describeScrollArchitecture,
 } from './scroll-owner.js';
+import { createScrollRail } from './scroll-rail.js';
 
 const ROW_HEIGHT = 72;
+/** #443: id of the single scroller (the rail's aria-controls target). */
+export const SCROLL_BODY_ID = 'loc-mgmt-scroller';
 const NAME_WIDTH = 160;
 /** List-mode inventory filters (session memory; not Pb). */
 let listSearchQuery = '';
@@ -506,6 +509,7 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
   // the top; name + metrics are sticky to the left. Nothing else scrolls.
   const body = el('div', {
     className: SCROLL_OWNER_CLASS,
+    id: SCROLL_BODY_ID,
     dataset: {
       testid: 'loc-mgmt-body',
       architecture: describeScrollArchitecture().vertical,
@@ -575,25 +579,39 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
   });
   if (connectorLayer) body.appendChild(connectorLayer.overlay);
 
+  // #443: always-visible horizontal rail under the scroller (Calendar only).
+  // Display-only: it reads body.scrollLeft and writes it only from its own input.
+  const rail = isList ? null : createScrollRail(body, {
+    isPhone,
+    controlsId: SCROLL_BODY_ID,
+    getOrigin: () => timelineOriginX(body),
+    stepPx: range.pxPerDay,
+  });
+  container._locMgmtRail = rail;
+
   // Centre today on the single scroller (calendar only). The connector overlay
   // sits inside the scrolling content, so it needs no scroll listener at all.
   requestAnimationFrame(() => {
     if (!isList) centerTodayOnScroller(body, todayPx);
     if (connectorLayer) connectorLayer.layout(body);
+    if (rail && body.isConnected) rail.sync();
   });
   // OI-0266 (b): re-measure connectors when layout resizes (window, metrics
   // width / collapse). OI-0284: the same observer watches the sticky head and
-  // keeps --loc-mgmt-head-h current. Guarded — jsdom has no ResizeObserver.
+  // keeps --loc-mgmt-head-h current. #443: the rail re-measures from the same
+  // observer (still ONE per render). Guarded — jsdom has no ResizeObserver.
   let onResize = null;
   const resizeTargets = [];
-  if (connectorLayer) {
+  if (connectorLayer || rail) {
     let pending = false;
     onResize = () => {
       if (pending) return;
       pending = true;
       requestAnimationFrame(() => {
         pending = false;
-        if (body.isConnected) connectorLayer.layout(body);
+        if (!body.isConnected) return;
+        if (connectorLayer) connectorLayer.layout(body);
+        if (rail) rail.sync();
       });
     };
     resizeTargets.push(body);
@@ -616,7 +634,7 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
       view: isList ? 'list' : 'calendar',
       metricsCollapsed: metricsCollapsed ? '1' : '0',
     },
-  }, [body]);
+  }, rail ? [body, rail.el] : [body]);
 
   const onKeyDown = (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
@@ -663,6 +681,10 @@ export function teardownScrollSurface(container) {
   if (container._locMgmtResizeObserver) {
     container._locMgmtResizeObserver.disconnect();
     container._locMgmtResizeObserver = null;
+  }
+  if (container._locMgmtRail) {
+    container._locMgmtRail.destroy();
+    container._locMgmtRail = null;
   }
 }
 

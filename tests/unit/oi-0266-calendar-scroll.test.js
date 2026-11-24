@@ -106,9 +106,13 @@ describe('OI-0266 single scroller, both axes', () => {
     expect(body.firstElementChild.classList.contains('loc-mgmt__head')).toBe(true);
     expect(body.querySelector('[data-testid="timeline-axis"]')).toBeTruthy();
     expect(hasSingleScrollOwner(c)).toBe(true);
-    // the surface holds only the body — no head outside the scroller
+    // the surface holds the body — no head outside the scroller. #443: the
+    // display-only scroll rail sits under it and is not itself a scroller.
     const surface = c.querySelector('[data-testid="calendar-grid"]');
-    expect([...surface.children]).toEqual([body]);
+    const rail = c.querySelector('[data-testid="calendar-scroll-rail"]');
+    expect([...surface.children]).toEqual([body, rail]);
+    expect(rail.hasAttribute('data-overflow-x')).toBe(false);
+    expect(rail.querySelector('[data-overflow-x], [data-overflow-y], .loc-mgmt__head')).toBeNull();
   });
 
   it('no per-row horizontal scrollers: strips are non-scrolling .loc-mgmt__timeline', () => {
@@ -144,10 +148,28 @@ describe('OI-0266 single scroller, both axes', () => {
     expect(gridSrc).not.toMatch(/translateX/);
   });
 
-  it('no scroll listener is attached anywhere in the rendered surface', () => {
+  it('only the #443 rail listens for scroll: one passive, read-only listener on the body', () => {
     const spy = vi.spyOn(EventTarget.prototype, 'addEventListener');
-    mount();
-    expect(spy.mock.calls.filter(([type]) => type === 'scroll')).toHaveLength(0);
+    const c = mount();
+    const body = c.querySelector('[data-testid="loc-mgmt-body"]');
+    const scrollCalls = spy.mock.contexts
+      .map((ctx, i) => [ctx, spy.mock.calls[i]])
+      .filter(([, [type]]) => type === 'scroll');
+    expect(scrollCalls).toHaveLength(1);
+    const [target, [, handler, opts]] = scrollCalls[0];
+    expect(target).toBe(body);
+    expect(opts).toMatchObject({ passive: true });
+    // the listener never writes scrollLeft (no OI-0266 write-back)
+    let writes = 0;
+    const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollLeft');
+    vi.spyOn(Element.prototype, 'scrollLeft', 'set').mockImplementation(function (v) {
+      writes += 1;
+      desc.set.call(this, v);
+    });
+    vi.stubGlobal('requestAnimationFrame', (cb) => { cb(); return 0; });
+    handler(new Event('scroll'));
+    body.dispatchEvent(new Event('scroll'));
+    expect(writes).toBe(0);
   });
 });
 

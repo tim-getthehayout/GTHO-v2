@@ -88,16 +88,31 @@ export function deriveEventStartTime(eventId, openDate, { paddockWindows = [], g
 }
 
 /** X1: pasture + mixed-use land only. OI-0271: canonical stored value is 'mixed_use' (entity + DB CHECK). */
-export function isManagementLocation(loc) {
-  if (!loc || loc.archived) return false;
+export function isManagementLocation(loc, { includeArchived = false } = {}) {
+  if (!loc) return false;
+  if (loc.archived && !includeArchived) return false;
   if (loc.type !== 'land') return false;
   const use = loc.landUse || 'pasture';
   return use === 'pasture' || use === 'mixed_use';
 }
 
 /** Filter locations to X1 set. */
-export function filterManagementLocations(locations = []) {
-  return (locations || []).filter(isManagementLocation);
+export function filterManagementLocations(locations = [], opts = {}) {
+  return (locations || []).filter(loc => isManagementLocation(loc, opts));
+}
+
+/**
+ * OI-0251 Ap: farm setting `include_archived_locations_in_metrics` (default
+ * true). Absent column / unset / pre-054 → true. Only an explicit false
+ * excludes archived X1 locations from metrics (rows and lists never show them).
+ */
+export function includeArchivedInMetrics(farmSettings) {
+  return farmSettings?.includeArchivedLocationsInMetrics !== false;
+}
+
+/** OI-0251 Ap: the X1 set metrics aggregate over (rows stay !archived). */
+export function filterMetricLocations(locations = [], farmSettings = null) {
+  return filterManagementLocations(locations, { includeArchived: includeArchivedInMetrics(farmSettings) });
 }
 
 /**
@@ -911,7 +926,9 @@ export function computeLocationMetrics(location, ctx) {
  * Build metric rows for all X1 locations.
  */
 export function buildLocationMetricRows(locations, ctx) {
-  return filterManagementLocations(locations).map(loc => computeLocationMetrics(loc, {
+  // OI-0251 Ap: same X1 set as the calendar Period totals (archived included
+  // unless the farm setting is explicitly off; ctx.farmSettings absent → on).
+  return filterMetricLocations(locations, ctx?.farmSettings).map(loc => computeLocationMetrics(loc, {
     ...ctx,
     locations,
   }));

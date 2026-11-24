@@ -228,9 +228,11 @@ describe('OI-0277 Pasture DMI + Pasture %', () => {
     expect(r.color).toBe('var(--color-amber-base)');
   });
 
-  it('archived and non-pasture land are excluded from Pasture DMI', () => {
+  it('archived (setting off) and non-pasture land are excluded from Pasture DMI', () => {
+    // OI-0251 Ap: archived counts unless the farm setting is explicitly off.
     seed({ today: TODAY, bArchived: true });
-    expect(computeHomeDmi('3d', { today: TODAY }).pasturePercent).toBe(0);
+    expect(computeHomeDmi('3d', { today: TODAY, ctx: { ...homeDmiCtxFromStore(), farmSettings: { includeArchivedLocationsInMetrics: false } } }).pasturePercent).toBe(0);
+    expect(computeHomeDmi('3d', { today: TODAY, ctx: { ...homeDmiCtxFromStore(), farmSettings: null } }).pasturePercent).toBe(100);
     seed({ today: TODAY, bLandUse: 'crop' });
     const r = computeHomeDmi('3d', { today: TODAY });
     expect(r.pastureDmiKg).toBe(0);

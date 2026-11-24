@@ -6,11 +6,16 @@
  * month-days, #402) are released after verified apply.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
 export const RELEASED_SCHEMA_VERSION = 49;
-export const HELD_SCHEMA_VERSIONS = [];
+// OI-0251 Ap: farm_settings.include_archived_locations_in_metrics (054, file
+// only). Held until Tim yes + verified backup apply + a separate RELEASED bump
+// (which also needs 050–053 released first). Reads treat absent as true.
+export const ARCHIVED_METRICS_SCHEMA_VERSION = 54;
+export const HELD_SCHEMA_VERSIONS = [54];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.
 export const STAGED_COLUMNS = {
+  54: { farm_settings: ['include_archived_locations_in_metrics'] },
   49: {
     farm_settings: [
       'season_start_month',

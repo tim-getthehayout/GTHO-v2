@@ -57,6 +57,8 @@ import {
   residualNpkNote,
   earliestGroupWindowDate,
   periodStartsBeforeFirstGroupWindow,
+  filterMetricLocations,
+  includeArchivedInMetrics,
 } from './location-metrics.js';
 import { computeReadiness, lastGrazeDate, readinessBandRange, readyChipKind, READY_CHIP_TEXT } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
@@ -74,6 +76,10 @@ import {
 import {
   areFarmSeasonSettingsReleased, updateFarmSeasonSettings,
 } from '../../settings/farm-season-settings.js';
+import {
+  isArchivedMetricsSettingReleased, updateIncludeArchivedInMetrics,
+  REPORT_PREFS_TITLE, INCLUDE_ARCHIVED_LABEL, INCLUDE_ARCHIVED_HINT, INCLUDE_ARCHIVED_HELD_NOTE,
+} from '../../settings/report-preferences.js';
 
 const ROW_HEIGHT = 72;
 /** #443: id of the single scroller (the rail's aria-controls target). */
@@ -87,6 +93,8 @@ let listFarmFilter = 'all'; // OI-0265 Lg1: multi-farm only (legacy farm pills)
 /** #402: "Farm default…" inline editor open (session memory) + one-shot saved note. */
 let farmSeasonEditorOpen = false;
 let farmSeasonSavedNote = false;
+/** OI-0251 Ud: Report preferences dialog open (session memory). */
+let reportPrefsOpen = false;
 
 /**
  * OI-0278 S1: metric columns in the farm's unit system. `label` is the short
@@ -513,12 +521,13 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
   // #465 Ls1: List shows the same strip (season bar → strip → List table). It
   // aggregates the same management-location rows and window as Calendar (not
   // the List search / type / farm pills), so List and Calendar totals match.
-  const totalsRows = isList
-    ? filterManagementLocations(allLocations).map(loc => ({
-      ...memoByStoreVersion(`cal-row|${loc.id}|${windowStart}|${windowEnd}|${today}`,
-        () => computeLocationMetrics(loc, metricCtx)),
-    }))
-    : metricRows;
+  // OI-0251 Ap: totals also include archived X1 locations (e.g. Sheep history)
+  // when the farm setting is on (default; absent column → on). Their calendar
+  // rows stay hidden; Calendar and List aggregate the same set.
+  const totalsRows = filterMetricLocations(allLocations, farmSettings).map(loc => ({
+    ...memoByStoreVersion(`cal-row|${loc.id}|${windowStart}|${windowEnd}|${today}`,
+      () => computeLocationMetrics(loc, metricCtx)),
+  }));
   const periodTotals = aggregatePeriodTotals(totalsRows);
   const earliestGw = earliestGroupWindowDate(allGroupWindows);
   const preWindowNote = periodStartsBeforeFirstGroupWindow(windowStart, earliestGw)
@@ -1095,8 +1104,24 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate, farmSettings = {}, 
     dataset: { testid: 'metric-window-device-hint' },
   }, ['Custom dates apply to this device only.']);
 
-  const editor = canEditFarm && farmSeasonEditorOpen
+  const editor = canEditFarm && farmSeasonEditorOpen && !reportPrefsOpen
     ? renderFarmSeasonEditor({ farmSettings, today, onUpdate })
+    : null;
+
+  // OI-0251 Ud: "Report preferences" (Rotation calendar + List share this bar).
+  const prefsBtn = farmSettings?.id ? el('button', {
+    type: 'button',
+    className: ['toolbar__pill', reportPrefsOpen ? 'toolbar__pill--active' : ''].filter(Boolean).join(' '),
+    dataset: { testid: 'report-prefs-open' },
+    'aria-haspopup': 'dialog',
+    'aria-expanded': reportPrefsOpen ? 'true' : 'false',
+    onClick: () => {
+      reportPrefsOpen = !reportPrefsOpen;
+      onUpdate();
+    },
+  }, [`${REPORT_PREFS_TITLE}…`]) : null;
+  const prefsDialog = farmSettings?.id && reportPrefsOpen
+    ? renderReportPrefsDialog({ farmSettings, today, onUpdate, canEditFarm })
     : null;
 
   return el('div', {
@@ -1109,10 +1134,12 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate, farmSettings = {}, 
     endInput,
     resetBtn,
     farmBtn,
+    prefsBtn,
     savedNote,
     // OI-0265 Lk1: "Locations · Surveys · Map" link retired (Surveys + Map live in List tools / View).
     hint,
     editor,
+    prefsDialog,
   ].filter(Boolean));
 }
 
@@ -1187,6 +1214,7 @@ function renderFarmSeasonEditor({ farmSettings, today, onUpdate }) {
         return;
       }
       farmSeasonEditorOpen = false;
+      reportPrefsOpen = false;
       farmSeasonSavedNote = true;
       onUpdate();
     },
@@ -1197,6 +1225,7 @@ function renderFarmSeasonEditor({ farmSettings, today, onUpdate }) {
     dataset: { testid: 'farm-season-cancel' },
     onClick: () => {
       farmSeasonEditorOpen = false;
+      reportPrefsOpen = false;
       onUpdate();
     },
   }, ['Cancel']);
@@ -1219,8 +1248,66 @@ function renderFarmSeasonEditor({ farmSettings, today, onUpdate }) {
   return editor;
 }
 
+/**
+ * OI-0251 Ud: small Report preferences dialog — (1) period defaults (the #402
+ * farm season editor, same farm_settings columns as Settings) and (2) the Ap
+ * archive preference. One farm_settings write path each; nothing device-only.
+ */
+function renderReportPrefsDialog({ farmSettings, today, onUpdate, canEditFarm }) {
+  const released = isArchivedMetricsSettingReleased();
+  const errorEl = el('div', { className: 'auth-error', dataset: { testid: 'report-prefs-error' }, role: 'alert' });
+  const checkbox = el('input', {
+    type: 'checkbox',
+    dataset: { testid: 'report-prefs-include-archived' },
+    checked: includeArchivedInMetrics(farmSettings) ? 'checked' : undefined,
+    disabled: released ? undefined : 'disabled',
+    onChange: (e) => {
+      try {
+        updateIncludeArchivedInMetrics(farmSettings.id, e.target.checked);
+      } catch (err) {
+        clear(errorEl);
+        errorEl.appendChild(document.createTextNode(err.message));
+        return;
+      }
+      onUpdate();
+    },
+  });
+  const archiveSection = el('div', { className: 'loc-mgmt__season-row', dataset: { testid: 'report-prefs-archive' } }, [
+    el('label', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' } }, [checkbox, INCLUDE_ARCHIVED_LABEL]),
+  ]);
+  const archiveHint = el('div', { className: 'loc-mgmt__period-hint' }, [
+    released ? INCLUDE_ARCHIVED_HINT : INCLUDE_ARCHIVED_HELD_NOTE,
+  ]);
+  const period = canEditFarm
+    ? renderFarmSeasonEditor({ farmSettings, today, onUpdate })
+    : null;
+  const close = el('button', {
+    type: 'button',
+    className: 'btn btn-outline btn-sm',
+    dataset: { testid: 'report-prefs-close' },
+    onClick: () => {
+      reportPrefsOpen = false;
+      onUpdate();
+    },
+  }, ['Close']);
+  return el('div', {
+    className: 'loc-mgmt__season-editor',
+    role: 'dialog',
+    'aria-label': REPORT_PREFS_TITLE,
+    dataset: { testid: 'report-prefs-dialog' },
+  }, [
+    el('div', { className: 'loc-mgmt__period-label' }, [REPORT_PREFS_TITLE]),
+    period,
+    archiveSection,
+    archiveHint,
+    errorEl,
+    el('div', { className: 'loc-mgmt__season-row' }, [close]),
+  ].filter(Boolean));
+}
+
 /** Test hook: reset the #402 editor session state. */
 export function _resetFarmSeasonEditor() {
+  reportPrefsOpen = false;
   farmSeasonEditorOpen = false;
   farmSeasonSavedNote = false;
 }

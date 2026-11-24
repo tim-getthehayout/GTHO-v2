@@ -40,6 +40,9 @@ import {
 import { renderV1ImportButton } from './v1-import.js';
 import { areFarmSeasonSettingsReleased } from './farm-season-settings.js';
 import {
+  isArchivedMetricsSettingReleased, INCLUDE_ARCHIVED_LABEL, INCLUDE_ARCHIVED_HINT, INCLUDE_ARCHIVED_HELD_NOTE,
+} from './report-preferences.js';
+import {
   resolveFarmSeason, validateFarmSeason, formatFarmSeason, MONTH_SHORT,
 } from '../../calcs/farm-season.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
@@ -205,6 +208,23 @@ function renderFarmSection(fs, _rootContainer) {
   // Rotation calendar "Farm default…" editor. Hidden until schema 49 is released.
   const season = renderFarmSeasonFields(fs);
 
+  // OI-0251 Ap: include archived locations in metrics (same column as the
+  // Report preferences dialog). Absent/unset = on; editable once 54 is released.
+  const archivedReleased = isArchivedMetricsSettingReleased();
+  const archivedCheckbox = el('input', {
+    type: 'checkbox',
+    checked: fs.includeArchivedLocationsInMetrics !== false ? 'checked' : undefined,
+    disabled: archivedReleased ? undefined : 'disabled',
+    'data-testid': 'settings-farm-includeArchivedLocationsInMetrics',
+  });
+  const archivedToggle = el('div', { className: 'settings-field', 'data-testid': 'settings-farm-archived-metrics' }, [
+    el('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' } }, [
+      archivedCheckbox,
+      INCLUDE_ARCHIVED_LABEL,
+    ]),
+    el('div', { className: 'form-hint' }, [archivedReleased ? INCLUDE_ARCHIVED_HINT : INCLUDE_ARCHIVED_HELD_NOTE]),
+  ]);
+
   const statusEl = el('div', { className: 'auth-info', 'data-testid': 'settings-farm-status' });
 
   return el('div', { className: 'card settings-card' }, [
@@ -212,6 +232,7 @@ function renderFarmSection(fs, _rootContainer) {
     recoveryToggle,
     ...fieldEls,
     ...(season ? [season.el] : []),
+    archivedToggle,
     el('button', {
       className: 'btn btn-green btn-sm',
       'data-testid': 'settings-farm-save',
@@ -228,6 +249,7 @@ function renderFarmSection(fs, _rootContainer) {
           changes[f.key] = toStoredValue(parsed, f, unitSystem);
         }
         changes.recoveryRequired = recoveryCheckbox.checked;
+        if (archivedReleased) changes.includeArchivedLocationsInMetrics = archivedCheckbox.checked;
         if (season) {
           const check = validateFarmSeason(season.values(), getLocalTodayStr());
           if (!check.valid) {

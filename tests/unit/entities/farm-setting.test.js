@@ -24,7 +24,9 @@ describe('entity: farm-setting', () => {
     expect(keys).toContain('returnToCycleDaysGoat');
     // #402 schema 49 (released): farm season default month-days
     for (const k of ['seasonStartMonth', 'seasonStartDay', 'seasonEndMonth', 'seasonEndDay']) expect(keys).toContain(k);
-    expect(keys).toHaveLength(39);
+    // OI-0251 schema 54 (held): include archived locations in metrics
+    expect(keys).toContain('includeArchivedLocationsInMetrics');
+    expect(keys).toHaveLength(40);
   });
 
   it('every FIELDS entry has sbColumn', () => {

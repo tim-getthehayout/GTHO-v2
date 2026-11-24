@@ -25,7 +25,7 @@ afterEach(() => { setSyncAdapter(null); vi.restoreAllMocks(); });
 
 it('045–049 are released: ceiling 49; held empty; staged manifests kept as proofs', () => {
   expect(RELEASED_SCHEMA_VERSION).toBe(49);
-  expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+  expect(HELD_SCHEMA_VERSIONS).toEqual([54]); // OI-0251 054 held
   expect(Object.keys(STAGED_COLUMNS[45])).toEqual(HISTORICAL_TABLES);
   expect(STAGED_TABLES[45]).toEqual(HISTORICAL_TABLES);
   for (const table of HISTORICAL_TABLES) expect(isTableReleased(table)).toBe(true);

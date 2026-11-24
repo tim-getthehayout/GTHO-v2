@@ -1,4 +1,5 @@
 import { releasedColumns } from '../data/schema-columns.js';
+import { RELEASED_SCHEMA_VERSION, ARCHIVED_METRICS_SCHEMA_VERSION } from '../data/schema-release.js';
 
 /** @file Entity: farm_settings — V2_SCHEMA_DESIGN.md §1.3 */
 
@@ -40,6 +41,7 @@ export const FIELDS = {
   seasonStartDay: { type: 'integer', required: false, sbColumn: 'season_start_day' },
   seasonEndMonth: { type: 'integer', required: false, sbColumn: 'season_end_month' },
   seasonEndDay: { type: 'integer', required: false, sbColumn: 'season_end_day' },
+  includeArchivedLocationsInMetrics: { type: 'boolean', required: false, sbColumn: 'include_archived_locations_in_metrics' },
   createdAt:                   { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:                   { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -86,6 +88,8 @@ export function create(data = {}) {
     seasonStartDay: data.seasonStartDay ?? null,
     seasonEndMonth: data.seasonEndMonth ?? null,
     seasonEndDay: data.seasonEndDay ?? null,
+    // Schema 54 (OI-0251 Ap): null if unset → include archived (default true).
+    includeArchivedLocationsInMetrics: data.includeArchivedLocationsInMetrics ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
   };
@@ -143,6 +147,9 @@ export function toSupabaseShape(record) {
       season_end_month: record.seasonEndMonth ?? null,
       season_end_day: record.seasonEndDay ?? null,
     }),
+    ...releasedColumns(ARCHIVED_METRICS_SCHEMA_VERSION, {
+      include_archived_locations_in_metrics: record.includeArchivedLocationsInMetrics ?? null,
+    }),
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -192,6 +199,12 @@ export function fromSupabaseShape(row) {
     seasonStartDay: n(row.season_start_day),
     seasonEndMonth: n(row.season_end_month),
     seasonEndDay: n(row.season_end_day),
+    // Schema 54: read only once released, so a pre-release pull (column applied,
+    // ceiling still below 54) never feeds an unreleased write. Absent → null → true.
+    includeArchivedLocationsInMetrics: RELEASED_SCHEMA_VERSION >= ARCHIVED_METRICS_SCHEMA_VERSION
+      && row.include_archived_locations_in_metrics != null
+      ? row.include_archived_locations_in_metrics === true || row.include_archived_locations_in_metrics === 'true'
+      : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

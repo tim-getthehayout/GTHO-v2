@@ -34,7 +34,7 @@ describe('return-to-cycle released at schema 49', () => {
   it('keeps ceiling 49 with held cleared and staged 48 proof kept', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(49);
     expect(CURRENT_SCHEMA_VERSION).toBe(49);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([54]); // OI-0251 054 held
     expect(STAGED_COLUMNS[48]).toEqual({ farm_settings: COLS48 });
     expect(areReturnToCycleSettingsReleased()).toBe(true);
     expect(areReturnToCycleSettingsReleased(47)).toBe(false);

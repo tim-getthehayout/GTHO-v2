@@ -325,3 +325,20 @@ export const BACKUP_MIGRATIONS = {
     return b;
   },
 };
+
+/**
+ * OI-0251 Ap (schema 54, held): CP-56 default for
+ * farm_settings.include_archived_locations_in_metrics — absent-only true (the
+ * 054 column default); preserves supplied values. NOT registered in
+ * BACKUP_MIGRATIONS yet: the chain must stay contiguous and 050–053 are not
+ * written. Register as the 53 → 54 step (stamp 54) when 053 lands, or as the
+ * 49 → 50 step if Design renumbers this migration to 050.
+ */
+export function applyArchivedMetricsBackupDefault(b) {
+  for (const row of b.tables?.farm_settings || []) {
+    if (!Object.hasOwn(row, 'include_archived_locations_in_metrics')) {
+      row.include_archived_locations_in_metrics = true;
+    }
+  }
+  return b;
+}

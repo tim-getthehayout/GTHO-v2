@@ -8,8 +8,8 @@
  *   Herd need, wherever the animals are (hay and confinement days included).
  * - Pasture DMI = the calendar Period totals strip's implied pasture DMI for the
  *   same date range (`buildLocationMetricRows` → `aggregatePeriodTotals`):
- *   Σ max(0, need − hay eaten) on pasture / mixed-use land, archived
- *   locations excluded. One formula, reused — not a second implementation.
+ *   Σ max(0, need − hay eaten) on pasture / mixed-use land; archived
+ *   locations follow the farm setting (OI-0251 Ap, default included). One formula, reused — not a second implementation.
  * - Pasture % = Pasture DMI ÷ Total DMI over the period.
  * Class DMI % is per class through OI-0279's `groupDayDmi` (inside the demand rows).
  */
@@ -86,6 +86,7 @@ export function homeDmiCtxFromStore() {
     batches: getAll('batches'),
     feedTypes: getAll('feedTypes'),
     batchNutritionalProfiles: getAll('batchNutritionalProfiles'),
+    farmSettings: getAll('farmSettings')[0] || null,
   };
 }
 
@@ -188,7 +189,7 @@ export function totalDmiTitle(r) {
 
 /** Tooltip for the Pasture DMI tile (states the land scope, as the calendar Period totals). */
 export function pastureDmiTitle(r) {
-  const parts = [`Implied pasture DMI ${r.start || '—'} to ${r.end}: need minus hay eaten, on pasture and mixed-use land only (archived locations and confinement / hay-only days count 0) — same as the calendar Period totals`];
+  const parts = [`Implied pasture DMI ${r.start || '—'} to ${r.end}: need minus hay eaten, on pasture and mixed-use land only (archived locations per Report preferences; confinement / hay-only days count 0) — same as the calendar Period totals`];
   if (r.dmiPartial) parts.push('partial — some groups missing weights');
   if (r.pastureBasisNote) parts.push(r.pastureBasisNote);
   return parts.join('. ');

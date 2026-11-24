@@ -31,6 +31,8 @@ describe('OI-0251 Ap: schema 50 held (mocked ceiling 49)', () => {
   it('entity: default null omits the column; a pre-release pull with the column reads null (→ include)', () => {
     const shape = FarmSetting.toSupabaseShape(FarmSetting.create({ id: 'fs', farmId: 'farm', operationId: 'op' }));
     expect(Object.hasOwn(shape, 'include_archived_locations_in_metrics')).toBe(false);
+    // Null-push coercion (?? true) applies only once released: below 50 the column is omitted.
+    expect(Object.hasOwn(FarmSetting.toSupabaseShape({ ...FarmSetting.create({ farmId: 'farm', operationId: 'op' }), includeArchivedLocationsInMetrics: undefined }), 'include_archived_locations_in_metrics')).toBe(false);
     const pulled = FarmSetting.fromSupabaseShape({ ...shape, include_archived_locations_in_metrics: false });
     expect(pulled.includeArchivedLocationsInMetrics).toBeNull();
     expect(includeArchivedInMetrics(pulled)).toBe(true);

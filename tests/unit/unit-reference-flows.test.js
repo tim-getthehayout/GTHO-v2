@@ -101,6 +101,7 @@ it('real onboarding stamps its one operation INSERT at 47 and never seeds or que
   await vi.waitFor(() => expect(done).toHaveBeenCalledOnce());
   expect(unitCalls()).toEqual([]); expect(getAll('doseUnits')).toEqual([]); expect(getAll('inputProductUnits')).toEqual([]);
   expect(getAll('operations')[0].schemaVersion).toBe(50);expect(db.calls.find(call=>call.table==='operations'&&call.operation==='insert').payload.schema_version).toBe(50);
+  expect(getAll('farmSettings')[0].includeArchivedLocationsInMetrics).toBe(true);
 });
 
 it('real dose-unit editor creates, edits and archives with insert/update only', async () => {

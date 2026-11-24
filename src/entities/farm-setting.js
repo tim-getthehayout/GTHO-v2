@@ -148,7 +148,11 @@ export function toSupabaseShape(record) {
       season_end_day: record.seasonEndDay ?? null,
     }),
     ...releasedColumns(ARCHIVED_METRICS_SCHEMA_VERSION, {
-      include_archived_locations_in_metrics: record.includeArchivedLocationsInMetrics ?? null,
+      // NOT NULL DEFAULT true: once released, unset pushes the locked default
+      // (include), never null (Design null-push ruling). Below 50 it stays null → omitted.
+      include_archived_locations_in_metrics: RELEASED_SCHEMA_VERSION >= ARCHIVED_METRICS_SCHEMA_VERSION
+        ? (record.includeArchivedLocationsInMetrics ?? true)
+        : (record.includeArchivedLocationsInMetrics ?? null),
     }),
     created_at: record.createdAt,
     updated_at: record.updatedAt,

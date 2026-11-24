@@ -217,6 +217,17 @@ describe('OI-0251 Ap: schema 50 released', () => {
     expect(includeArchivedInMetrics(absent)).toBe(true);
   });
 
+  it('null-push: an unset record pushes true (never null); an explicit false stays false', () => {
+    const unset = FarmSetting.create({ id: 'fs', farmId: 'farm', operationId: 'op' });
+    expect(unset.includeArchivedLocationsInMetrics).toBeNull();
+    const pushed = FarmSetting.toSupabaseShape(unset);
+    expect(Object.hasOwn(pushed, 'include_archived_locations_in_metrics')).toBe(true);
+    expect(pushed.include_archived_locations_in_metrics).toBe(true);
+    expect(FarmSetting.toSupabaseShape({ ...unset, includeArchivedLocationsInMetrics: undefined }).include_archived_locations_in_metrics).toBe(true);
+    expect(FarmSetting.toSupabaseShape({ ...unset, includeArchivedLocationsInMetrics: false }).include_archived_locations_in_metrics).toBe(false);
+    expect(FarmSetting.toSupabaseShape({ ...unset, includeArchivedLocationsInMetrics: true }).include_archived_locations_in_metrics).toBe(true);
+  });
+
   it('backup: CP-56 49 → 50 adds the default true (absent-only); a 50 backup with the column imports', () => {
     const b = { schema_version: 49, tables: { operations: [{ schema_version: 49 }], farm_settings: [{ id: 'a' }, { id: 'b', include_archived_locations_in_metrics: false }] } };
     const out = BACKUP_MIGRATIONS[49](b);

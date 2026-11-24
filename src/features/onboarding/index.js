@@ -7,6 +7,7 @@ import { getUser } from '../auth/session.js';
 import { create as createOperation, validate as validateOperation, toOnboardingSupabaseShape as opToSb } from '../../entities/operation.js';
 import { create as createFarm, validate as validateFarm, toSupabaseShape as farmToSb } from '../../entities/farm.js';
 import { create as createFarmSetting, validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
+import { isArchivedMetricsSettingReleased } from '../settings/report-preferences.js';
 import { create as createOpMember, validate as validateOpMember, toSupabaseShape as memberToSb } from '../../entities/operation-member.js';
 import { create as createUserPref, validate as validateUserPref, toSupabaseShape as prefToSb } from '../../entities/user-preference.js';
 import { create as createAnimalClass, validate as validateAnimalClass, toSupabaseShape as classToSb } from '../../entities/animal-class.js';
@@ -311,6 +312,8 @@ async function executeOnboarding(data) {
   const farmSettings = createFarmSetting({
     farmId: farm.id,
     operationId: operation.id,
+    // OI-0251: locked default 'include' once schema 50 is released (column is NOT NULL DEFAULT true).
+    includeArchivedLocationsInMetrics: isArchivedMetricsSettingReleased() ? true : null,
   });
   add('farmSettings', farmSettings, validateFarmSetting, fsToSb, 'farm_settings');
 

@@ -74,7 +74,10 @@ describe('entity: farm-setting', () => {
         thresholdNpkWarnPerHa: 50, thresholdCostPerDayTarget: 5.0,
       });
       const roundTripped = fromSupabaseShape(toSupabaseShape(record));
-      expect(roundTripped).toEqual(record);
+      // OI-0251 null-push: unset include_archived pushes the locked default true.
+      expect(roundTripped).toEqual({ ...record, includeArchivedLocationsInMetrics: true });
+      const explicit = { ...record, includeArchivedLocationsInMetrics: false };
+      expect(fromSupabaseShape(toSupabaseShape(explicit))).toEqual(explicit);
     });
   });
 

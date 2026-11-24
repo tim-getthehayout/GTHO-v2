@@ -20,9 +20,14 @@ import { leaveMapView } from './map-view.js';
 import * as TodoEntity from '../../entities/todo.js';
 
 let mapInstance = null;
+let mapResizeObserver = null;
 
 /** OI-0263 Lf-B: remove the Leaflet instance when the Map view is left. */
 export function unmountFarmMap() {
+  if (mapResizeObserver) {
+    try { mapResizeObserver.disconnect(); } catch { /* already detached */ }
+    mapResizeObserver = null;
+  }
   if (mapInstance) {
     try { mapInstance.remove(); } catch { /* detached container */ }
     mapInstance = null;
@@ -209,7 +214,13 @@ export async function renderFarmMapScreen(container) {
   }
 
   renderToolbar();
-  requestAnimationFrame(() => map.invalidateSize());
+  const invalidate = () => { if (mapInstance && canvas.isConnected) map.invalidateSize(); };
+  requestAnimationFrame(invalidate);
+  const ResizeObs = typeof globalThis !== 'undefined' ? globalThis.ResizeObserver : undefined;
+  if (typeof ResizeObs === 'function') {
+    mapResizeObserver = new ResizeObs(() => invalidate());
+    mapResizeObserver.observe(canvas);
+  }
   window.addEventListener('gtho-boundaries-imported', function onImported() {
     window.removeEventListener('gtho-boundaries-imported', onImported);
     if (container.isConnected) renderFarmMapScreen(container);

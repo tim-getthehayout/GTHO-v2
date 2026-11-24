@@ -101,7 +101,7 @@ export function renderEventsScreen(container) {
   // Calendar | List toggles inside the grid: List = same rows + metrics, no timeline.
   const screenEl = el('div', { className: 'events-screen', 'data-testid': 'events-screen' });
 
-  const calendarContainer = el('div', { 'data-testid': 'calendar-container' });
+  const calendarContainer = el('div', { className: 'calendar-container', 'data-testid': 'calendar-container' });
   renderCalendarGrid(calendarContainer);
   mountedCalendar = calendarContainer;
   screenEl.appendChild(calendarContainer);

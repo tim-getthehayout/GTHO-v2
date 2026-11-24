@@ -4157,10 +4157,11 @@ body:has(.auth-overlay) .pwa-update-banner {
   cursor: default;
 }
 
-/* OI-0263 Ex1: the map sits inside Locations & Rotation (Map view). The canvas is
-   its own stacking context so Leaflet panes (z 400) and controls (z 800–1000)
-   stay under the sticky app header (z 50) and the fixed bottom nav (z 100), and
-   it is sized to the viewport minus header, View toggle, map header and nav. */
+/* OI-0263 / #418 Ex1: the map sits inside Locations & Rotation (Map view). The
+   canvas is its own stacking context so Leaflet panes (z 400) and controls
+   (z 800–1000) stay under the sticky app header (z 50) and the fixed bottom
+   nav (z 100), and it is sized to the viewport minus header, View toggle, map
+   chrome and nav. */
 .farm-map-screen { display: flex; flex-direction: column; }
 .farm-map-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .farm-map-header .farm-map-title { margin: 0; }
@@ -4179,6 +4180,38 @@ body:has(.auth-overlay) .pwa-update-banner {
   .farm-map-canvas {
     height: calc(100vh - 260px);
     height: calc(100dvh - 260px);
+  }
+}
+/* Phone: the 300px subtract left the canvas 47–62px under the tab bar
+   (390×844 / 430×932). Fill the leftover column above the nav instead. */
+@media (max-width: 899px) {
+  #app:has(.loc-mgmt-map) {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+  .app-content:has(.loc-mgmt-map) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: calc(72px + var(--safe-bottom));
+  }
+  .app-content:has(.loc-mgmt-map) .events-screen,
+  .app-content:has(.loc-mgmt-map) .calendar-container,
+  .app-content:has(.loc-mgmt-map) .loc-mgmt-map,
+  .app-content:has(.loc-mgmt-map) .farm-map-screen {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .app-content:has(.loc-mgmt-map) .farm-map-canvas {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 260px;
   }
 }
 .farm-map-toolbar, .farm-map-hint { margin-bottom: 8px; }

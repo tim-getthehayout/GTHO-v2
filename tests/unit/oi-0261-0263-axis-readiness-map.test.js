@@ -429,4 +429,16 @@ describe('OI-0263 Ex1 — Back/Close + stacking context', () => {
     expect(rule[1]).toMatch(/var\(--safe-bottom\)/);
     expect(rule[1]).not.toMatch(/70vh/);
   });
+
+  it('phone Map view fills the leftover column above the bottom nav (no 300px overflow)', () => {
+    expect(css).toMatch(/#app:has\(\.loc-mgmt-map\)/);
+    expect(css).toMatch(/\.app-content:has\(\.loc-mgmt-map\)/);
+    expect(css).toMatch(/\.app-content:has\(\.loc-mgmt-map\) \.events-screen/);
+    expect(css).toMatch(/\.app-content:has\(\.loc-mgmt-map\) \.calendar-container/);
+    expect(css).toMatch(/padding-bottom:\s*calc\(72px \+ var\(--safe-bottom\)\)/);
+    const phoneCanvas = css.match(/\.app-content:has\(\.loc-mgmt-map\) \.farm-map-canvas\s*\{([^}]*)\}/);
+    expect(phoneCanvas).toBeTruthy();
+    expect(phoneCanvas[1]).toMatch(/flex:\s*1 1 auto/);
+    expect(phoneCanvas[1]).toMatch(/height:\s*auto/);
+  });
 });

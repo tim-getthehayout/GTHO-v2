@@ -1,6 +1,6 @@
 /**
  * @file OI-0251 Ap/Ud — farm setting include_archived_locations_in_metrics
- * (schema 50, held). Archived land pasture/mixed-use locations (e.g. the Sheep
+ * (schema 50, released; held gate in oi-0251-archived-metrics-held.test.js). Archived land pasture/mixed-use locations (e.g. the Sheep
  * history backfill) count in the Period totals strip (Calendar + List) and the
  * Home pasture DMI unless the setting is explicitly false; an absent column
  * (pre-050) means true. Rows, lists and pickers stay !archived. The Report
@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import '../../src/calcs/core.js';
 import '../../src/calcs/advanced.js';
-import { _reset, add } from '../../src/data/store.js';
+import { _reset, add, getAll } from '../../src/data/store.js';
 import { setLocale } from '../../src/i18n/i18n.js';
 import enLocale from '../../src/i18n/locales/en.json';
 import { resetCalendarState, setMetricWindow, setView } from '../../src/features/events/calendar-state.js';
@@ -170,7 +170,7 @@ describe('OI-0251 Ud: Report preferences dialog', () => {
   afterEach(() => { window.innerWidth = origWidth; _reset(); document.body.innerHTML = ''; });
 
   for (const view of ['calendar', 'list']) {
-    it(`opens from ${view}; holds period defaults + the archive toggle (disabled until 54 is released)`, () => {
+    it(`opens from ${view}; holds period defaults + the archive toggle (enabled at schema 50)`, () => {
       seed(undefined);
       setView(view);
       let c = mount();
@@ -182,43 +182,53 @@ describe('OI-0251 Ud: Report preferences dialog', () => {
       expect(c.querySelector('[data-testid="farm-season-editor"]')).toBeTruthy();
       const box = c.querySelector('[data-testid="report-prefs-include-archived"]');
       expect(box.checked).toBe(true);
-      expect(box.disabled).toBe(!isArchivedMetricsSettingReleased());
+      expect(box.disabled).toBe(false);
       expect(c.textContent).toContain('Include archived locations in metrics');
     });
   }
 });
 
-describe('OI-0251 Ap: schema 50 held plumbing', () => {
-  it('050 is held above the ceiling (049 pattern); the column is staged; writes refuse until released', () => {
+describe('OI-0251 Ap: schema 50 released', () => {
+  afterEach(() => { _reset(); document.body.innerHTML = ''; });
+
+  it('050 is released at the real ceiling; held empty; staged 50 proof kept; the toggle writes', () => {
     expect(ARCHIVED_METRICS_SCHEMA_VERSION).toBe(50);
-    expect(RELEASED_SCHEMA_VERSION).toBe(49);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([50]);
+    expect(RELEASED_SCHEMA_VERSION).toBe(50);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
     expect(STAGED_COLUMNS[50]).toEqual({ farm_settings: ['include_archived_locations_in_metrics'] });
-    expect(isArchivedMetricsSettingReleased()).toBe(false);
-    expect(isArchivedMetricsSettingReleased(50)).toBe(true);
-    expect(() => updateIncludeArchivedInMetrics('fs', false)).toThrow(/schema 50/);
+    expect(isArchivedMetricsSettingReleased()).toBe(true);
+    expect(isArchivedMetricsSettingReleased(49)).toBe(false);
+    seed(undefined);
+    updateIncludeArchivedInMetrics('fs', false);
+    const row = getAll('farmSettings').find(r => r.id === 'fs');
+    expect(row.includeArchivedLocationsInMetrics).toBe(false);
+    expect(includeArchivedInMetrics(row)).toBe(false);
   });
 
-  it('entity: default null omits the column; a pre-release pull with the column reads null (→ include)', () => {
-    const shape = FarmSetting.toSupabaseShape(FarmSetting.create({ id: 'fs', farmId: 'farm', operationId: 'op' }));
-    expect(Object.hasOwn(shape, 'include_archived_locations_in_metrics')).toBe(false);
-    const pulled = FarmSetting.fromSupabaseShape({ ...shape, include_archived_locations_in_metrics: false });
-    expect(pulled.includeArchivedLocationsInMetrics).toBeNull();
-    expect(() => FarmSetting.toSupabaseShape(pulled)).not.toThrow();
+  it('entity: the column round-trips once released; absent/null still means include', () => {
+    const base = FarmSetting.create({ id: 'fs', farmId: 'farm', operationId: 'op' });
+    expect(FarmSetting.toSupabaseShape({ ...base, includeArchivedLocationsInMetrics: false }).include_archived_locations_in_metrics).toBe(false);
+    const shape = FarmSetting.toSupabaseShape(base);
+    expect(FarmSetting.fromSupabaseShape({ ...shape, include_archived_locations_in_metrics: false }).includeArchivedLocationsInMetrics).toBe(false);
+    expect(FarmSetting.fromSupabaseShape({ ...shape, include_archived_locations_in_metrics: true }).includeArchivedLocationsInMetrics).toBe(true);
+    const { include_archived_locations_in_metrics: _drop, ...pre050 } = shape;
+    const absent = FarmSetting.fromSupabaseShape(pre050);
+    expect(absent.includeArchivedLocationsInMetrics).toBeNull();
+    expect(includeArchivedInMetrics(absent)).toBe(true);
   });
 
-  it('backup: CP-56 49 → 50 adds the default true (absent-only); unreleased column is rejected on import', () => {
+  it('backup: CP-56 49 → 50 adds the default true (absent-only); a 50 backup with the column imports', () => {
     const b = { schema_version: 49, tables: { operations: [{ schema_version: 49 }], farm_settings: [{ id: 'a' }, { id: 'b', include_archived_locations_in_metrics: false }] } };
     const out = BACKUP_MIGRATIONS[49](b);
     expect(out.schema_version).toBe(50);
     expect(out.tables.operations[0].schema_version).toBe(50);
     expect(out.tables.farm_settings.map(r => r.include_archived_locations_in_metrics)).toEqual([true, false]);
     const res = validateBackup({
-      format: 'gtho-v2-backup', format_version: 1, schema_version: RELEASED_SCHEMA_VERSION, operation_id: 'op',
-      tables: { operations: [{ schema_version: RELEASED_SCHEMA_VERSION }], farm_settings: [{ id: 'x', include_archived_locations_in_metrics: true }] },
+      format: 'gtho-v2-backup', format_version: 1, schema_version: 50, operation_id: 'op',
+      tables: { operations: [{ schema_version: 50 }], farm_settings: [{ id: 'x', include_archived_locations_in_metrics: true }] },
     });
-    expect(res.valid).toBe(false);
-    expect(res.error).toMatch(/unreleased schema 50/);
+    expect(res.valid).toBe(true);
+    expect(validateBackup({ format: 'gtho-v2-backup', format_version: 1, schema_version: 51, operation_id: 'op', tables: {} }).valid).toBe(false);
   });
 
   it('migration file 050: additive boolean NOT NULL DEFAULT true; unconditional 49 → 50 stamp', () => {
@@ -227,5 +237,7 @@ describe('OI-0251 Ap: schema 50 held plumbing', () => {
     const sql = fs.readFileSync(path.join(dir, '050_farm_settings_include_archived_locations_in_metrics.sql'), 'utf8');
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS include_archived_locations_in_metrics boolean NOT NULL DEFAULT true/);
     expect(sql).toMatch(/SET schema_version = 50\s+WHERE schema_version < 50;/);
+    expect(sql).toMatch(/Design 1687 final slots: 050 OI-0251, 051 #388, 052 #437, 053 #449/);
+    expect(sql).not.toMatch(/#449→054/);
   });
 });

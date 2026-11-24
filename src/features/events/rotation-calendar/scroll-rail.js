@@ -170,16 +170,17 @@ export function createScrollRail(body, {
   // Keyboard when the rail is focused (same steps as the surface arrow keys).
   track.addEventListener('keydown', (e) => {
     const g = measure();
-    let left = null;
-    switch (e.key) {
-      case 'ArrowLeft': left = body.scrollLeft - stepPx * (e.shiftKey ? 7 : 1); break;
-      case 'ArrowRight': left = body.scrollLeft + stepPx * (e.shiftKey ? 7 : 1); break;
-      case 'PageUp': left = body.scrollLeft - g.visible; break;
-      case 'PageDown': left = body.scrollLeft + g.visible; break;
-      case 'Home': left = 0; break;
-      case 'End': left = g.max; break;
-      default: return;
-    }
+    const step = stepPx * (e.shiftKey ? 7 : 1);
+    const targets = {
+      ArrowLeft: body.scrollLeft - step,
+      ArrowRight: body.scrollLeft + step,
+      PageUp: body.scrollLeft - g.visible,
+      PageDown: body.scrollLeft + g.visible,
+      Home: 0,
+      End: g.max,
+    };
+    if (!Object.hasOwn(targets, e.key)) return;
+    const left = targets[e.key];
     e.preventDefault();
     e.stopPropagation(); // the surface's own arrow-key handler must not step again
     scrollTo(left);

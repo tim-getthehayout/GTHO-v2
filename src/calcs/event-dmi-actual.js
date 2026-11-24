@@ -23,7 +23,6 @@ import { localDayStartMs, localDayEndMs } from './partial-day-demand.js';
 import { rowInstant } from '../utils/date-utils.js';
 import { deriveEventStartDate, deriveEventStartTime } from '../features/events/rotation-calendar/location-metrics.js';
 
-const DAY_MS = 86400000;
 /** Dp3: amber when |hay − target| / target is MORE than 10 % (10 % exactly is not). */
 export const DMI_ACTUAL_AMBER_RATIO = 0.10;
 

@@ -16,6 +16,7 @@
 
 import { getAll } from '../../data/store.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { inMetricsPass, memoByStoreVersion } from '../../calcs/metrics-memo.js';
 import { groupWindowsDailyDemand, dmiBasisNote } from '../../calcs/window-helpers.js';
 import {
   buildLocationMetricRows, aggregatePeriodTotals, eachDateInclusive, deriveEventStartDate,
@@ -140,7 +141,19 @@ function pastureColor(pct) {
  * @param {string} period - '24h' | '3d' | '7d' | '30d' | 'All'
  * @param {{ today?: string, ctx?: object }} [opts]
  */
-export function computeHomeDmi(period, { today = getLocalTodayStr(), ctx = homeDmiCtxFromStore() } = {}) {
+export function computeHomeDmi(period, opts = {}) {
+  const today = opts.today === undefined ? getLocalTodayStr() : opts.today;
+  // L1: same period + day + store version → same tiles (Home renders it twice and
+  // again on every notify of an unrelated type). A caller-supplied ctx is not cached.
+  if (opts.ctx === undefined) {
+    const r = memoByStoreVersion(`homeDmi|${period}|${today}`,
+      () => inMetricsPass(() => computeHomeDmiFor(period, today, homeDmiCtxFromStore())));
+    return { ...r };
+  }
+  return inMetricsPass(() => computeHomeDmiFor(period, today, opts.ctx));
+}
+
+function computeHomeDmiFor(period, today, ctx) {
   const { start, end } = homePeriodRange(period, { today, events: eventsWithDates(ctx.events, ctx), groupWindows: ctx.groupWindows });
   if (!start) {
     return {

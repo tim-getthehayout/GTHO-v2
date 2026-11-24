@@ -13,6 +13,7 @@ import { feedSnapshot, poolKey, poolHistory, replayFeedPools, elapsedDayShares, 
 import { rowInstant } from '../utils/date-utils.js';
 import { openPaddockWindowsOnDate } from './location-type.js';
 import { localDayStartMs, localDayEndMs } from './partial-day-demand.js';
+import { passMemo, ref, metricsPassActive } from './metrics-memo.js';
 
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 
@@ -80,7 +81,16 @@ function compareStamp(a, b) {
  * check, or between two feed checks. Days after the last check stay unmeasured
  * (open events with no close stay unknown — do not invent an open-event rule).
  */
-export function f1HaySpans({
+/** L1: pass-memo key for one event's hay inputs (identity of the row lists). */
+function hayArgsKey(a = {}) {
+  return `${a.eventId}|${a.openDate}|${a.openTime ?? null}|${ref(a.feedEntries)}|${ref(a.feedChecks)}|${ref(a.feedCheckItems)}|${ref(a.batches)}|${ref(a.feedTypes)}`;
+}
+
+export function f1HaySpans(args = {}) {
+  return passMemo('f1HaySpans', metricsPassActive() ? hayArgsKey(args) : null, () => computeF1HaySpans(args));
+}
+
+function computeF1HaySpans({
   eventId,
   openDate,
   openTime = null,
@@ -247,6 +257,11 @@ function poolHoldsOnDate(history, input, key, date) {
  * @returns {{ kind: 'none' } | { kind: 'measured', dmKg: number } | { kind: 'unknown' }}
  */
 export function f1MeasuredHayOnEventDay(args) {
+  return passMemo('f1MeasuredHay', metricsPassActive() ? `${hayArgsKey(args)}|${args.date}` : null,
+    () => computeF1MeasuredHayOnEventDay(args));
+}
+
+function computeF1MeasuredHayOnEventDay(args) {
   const { date } = args;
   const spans = f1HaySpans(args);
   if (!spans.identities.size) return { kind: 'none' };

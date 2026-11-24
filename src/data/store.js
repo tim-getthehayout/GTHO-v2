@@ -14,6 +14,7 @@ import * as PaddockWindowEntity from '../entities/event-paddock-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../calcs/window-helpers.js';
 import { resolveCurrentPlacement } from './current-placement.js';
 import { logger } from '../utils/logger.js';
+import { bumpMetricsStoreVersion, inMetricsPass } from '../calcs/metrics-memo.js';
 
 /**
  * All entity type keys used in the store.
@@ -89,6 +90,7 @@ export function runDurableWrite(key, write) {
     return receipt;
   } catch (error) {
     Object.assign(state,before);
+    bumpMetricsStoreVersion();
     throw error;
   } finally { durableWrite = null; }
 }
@@ -146,6 +148,7 @@ initState();
  * Load all entity types from localStorage into state.
  */
 export function init() {
+  bumpMetricsStoreVersion();
   recoverDurableWrite();
   for (const type of ENTITY_TYPES) {
     const cached = loadFromStorage(type);
@@ -556,6 +559,8 @@ export function endBatch() {
  * @param {string} entityType
  */
 function notify(entityType) {
+  // L1: any change drops the metric memo before a subscriber can read it.
+  bumpMetricsStoreVersion();
   dirtyEntities.add(entityType);
   if (batchDepth > 0) return;
   if (drainQueued) return;
@@ -576,6 +581,11 @@ function notify(entityType) {
  * @param {string[]} dirtyTypes
  */
 function drainNotifications(dirtyTypes) {
+  // L1: subscribers repainting on one drain share one metrics render pass.
+  inMetricsPass(() => drainNotificationsNow(dirtyTypes));
+}
+
+function drainNotificationsNow(dirtyTypes) {
   const fired = new Set();
   for (const e of dirtyTypes) {
     const subs = subscribers[e];
@@ -648,6 +658,7 @@ export function mergeRemote(entityType, remoteRecords) {
  * Reset the store (for testing).
  */
 export function _reset() {
+  bumpMetricsStoreVersion();
   initState();
   syncAdapter = null;
 }

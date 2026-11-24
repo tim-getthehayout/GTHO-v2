@@ -14,6 +14,7 @@ import { renderTodoCard } from '../todos/todo-card.js';
 import { openTodoSheet } from '../todos/todo-sheet.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { computeHomeDmi, totalDmiTitle, pastureDmiTitle } from './home-dmi.js';
+import { inMetricsPass } from '../../calcs/metrics-memo.js';
 import { openMoveWizard } from '../events/move-wizard.js';
 import { openPlaceWizard } from '../events/place-wizard.js';
 import { openCloseEventSheet } from '../events/close.js';
@@ -87,6 +88,12 @@ function setStatsPeriod(period) {
 // ---------------------------------------------------------------------------
 
 export function renderDashboard(container) {
+  // L1: one metrics render pass for the whole Home paint (cards + tiles share
+  // group-day demand instead of recomputing it per card and per location).
+  return inMetricsPass(() => renderDashboardNow(container));
+}
+
+function renderDashboardNow(container) {
   unsubs.forEach(fn => fn());
   unsubs = [];
 
@@ -127,14 +134,14 @@ export function renderDashboard(container) {
   renderWeaningNudge(container);
 
   // Subscribe to relevant entity changes
-  const rerender = () => {
+  const rerender = () => inMetricsPass(() => {
     if (!screenEl.isConnected) return;
     renderStatsRow(container);
     renderCardGrid(container);
     renderTasksSection(container);
     renderSurveyDraft(container);
     renderWeaningNudge(container);
-  };
+  });
   unsubs.push(subscribe('groups', rerender));
   unsubs.push(subscribe('events', rerender));
   unsubs.push(subscribe('eventPaddockWindows', rerender));

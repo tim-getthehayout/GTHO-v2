@@ -16,6 +16,7 @@
  */
 
 import { getCalcByName } from '../../../utils/calc-registry.js';
+import { passMemo, ref, metricsPassActive } from '../../../calcs/metrics-memo.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
 import {
   getLiveWindowHeadCount,
@@ -45,7 +46,14 @@ import { periodContaining, DEFAULT_BUDGET_PERIOD } from '../../../calcs/budget-p
 const DEFAULT_EXC = { n: 0.145, p: 0.041, k: 0.136 };
 
 /** Derive event start from passed-in windows (store-free for unit tests). */
-export function deriveEventStartDate(eventId, { paddockWindows = [], groupWindows = [], event = null } = {}) {
+export function deriveEventStartDate(eventId, opts = {}) {
+  const { paddockWindows = [], groupWindows = [], event = null } = opts;
+  return passMemo('eventStartDate', metricsPassActive()
+    ? `${eventId}|${ref(paddockWindows)}|${ref(groupWindows)}|${ref(event)}` : null,
+  () => computeEventStartDate(eventId, { paddockWindows, groupWindows, event }));
+}
+
+function computeEventStartDate(eventId, { paddockWindows = [], groupWindows = [], event = null } = {}) {
   let earliest = null;
   for (const pw of paddockWindows) {
     if (pw.eventId !== eventId || !pw.dateOpened) continue;
@@ -490,15 +498,22 @@ export function computeLocationMetrics(location, ctx) {
   const eventsNeedingHay = new Set();
   const demandRowsUsed = []; // OI-0279 basis note
 
-  const classMap = Array.isArray(animalClasses)
-    ? Object.fromEntries((animalClasses || []).map(c => [c.id, c]))
-    : (animalClasses || {});
-  const eventsForDemand = (events || []).map(event => ({
+  // L1: one class map and one demand event list per render pass (same inputs →
+  // same objects), so the group-day demand memo is shared across location rows.
+  const classMap = passMemo('lmClassMap', metricsPassActive() ? String(ref(animalClasses)) : null,
+    () => (Array.isArray(animalClasses)
+      ? Object.fromEntries((animalClasses || []).map(c => [c.id, c]))
+      : (animalClasses || {})));
+  const eventsForDemand = passMemo('lmEventsForDemand', metricsPassActive()
+    // Keyed by the event objects, not the list: every past block of one event
+    // (Mw1 passes a fresh [event]) shares one demand per day.
+    ? `${(events || []).map(ref).join(',')}|${ref(paddockWindows)}|${ref(groupWindows)}` : null,
+  () => (events || []).map(event => ({
     id: event.id,
     dateIn: event.dateIn
       || deriveEventStartDate(event.id, { paddockWindows, groupWindows, event }),
     dateOut: event.dateOut ?? null,
-  })).filter(e => e.dateIn);
+  })).filter(e => e.dateIn));
   const eventsById = new Map((events || []).map(e => [e.id, e]));
   const demandOpts = {
     groupWindows,

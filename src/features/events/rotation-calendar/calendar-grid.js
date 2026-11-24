@@ -9,6 +9,7 @@
 
 import { el, clear } from '../../../ui/dom.js';
 import { getAll } from '../../../data/store.js';
+import { inMetricsPass, memoByStoreVersion } from '../../../calcs/metrics-memo.js';
 import {
   getCalendarState, getViewMode, setJump, setMetricWindow, setSort,
   toggleMetricsCollapsed,
@@ -259,7 +260,13 @@ function renderMetricsHead(metricBtnsByKey, { grow = false } = {}) {
  * Render the locations + rotation management surface.
  * @param {HTMLElement} container
  */
-export function renderCalendarGrid(container, { onViewChange } = {}) {
+export function renderCalendarGrid(container, opts = {}) {
+  // L1: one metrics render pass per Calendar/List paint (season rows, past-block
+  // labels and the totals strip share group-day demand and hay spans).
+  return inMetricsPass(() => renderCalendarGridNow(container, opts));
+}
+
+function renderCalendarGridNow(container, { onViewChange } = {}) {
   teardownScrollSurface(container);
   clear(container);
 
@@ -366,7 +373,12 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     batchNutritionalProfiles: allBatchProfiles,
   };
 
-  let metricRows = locations.map(loc => computeLocationMetrics(loc, metricCtx));
+  // L1: metricCtx is the store at this version; a row is reused until the next
+  // store notify (or a new day / metric window). Copies, so sort/reads are safe.
+  let metricRows = locations.map(loc => ({
+    ...memoByStoreVersion(`cal-row|${loc.id}|${windowStart}|${windowEnd}|${today}`,
+      () => computeLocationMetrics(loc, metricCtx)),
+  }));
   metricRows = sortMetricRows(metricRows, { key: state.sortKey || 'name', dir: state.sortDir || 'asc' });
   // Reorder locations to match sort
   const byId = new Map(locations.map(l => [l.id, l]));
@@ -738,17 +750,24 @@ function buildConnectorLayer({ paddockWindows, rowByLoc, range, totalWidth }) {
     overlay,
     layout(body) {
       if (!body) return;
+      // L1: read every position first, then write — one layout instead of one
+      // forced layout per connector (the overlay never moves the rows).
       const bodyRect = body.getBoundingClientRect();
-      overlay.style.left = `${timelineOriginX(body)}px`;
+      const originX = timelineOriginX(body);
+      const scrollHeight = body.scrollHeight;
+      const ys = nodes.map(({ c }) => [
+        rowCenterY(rowByLoc.get(c.fromLocationId), bodyRect, body),
+        rowCenterY(rowByLoc.get(c.toLocationId), bodyRect, body),
+      ]);
+      overlay.style.left = `${originX}px`;
       overlay.style.width = `${totalWidth}px`;
-      overlay.style.height = `${body.scrollHeight}px`;
-      for (const { c, node } of nodes) {
-        const yFrom = rowCenterY(rowByLoc.get(c.fromLocationId), bodyRect, body);
-        const yTo = rowCenterY(rowByLoc.get(c.toLocationId), bodyRect, body);
+      overlay.style.height = `${scrollHeight}px`;
+      nodes.forEach(({ node }, i) => {
+        const [yFrom, yTo] = ys[i];
         node.style.top = `${Math.min(yFrom, yTo)}px`;
         node.style.height = `${Math.abs(yTo - yFrom)}px`;
         node.dataset.dir = yTo >= yFrom ? 'down' : 'up';
-      }
+      });
     },
   };
 }
@@ -1344,7 +1363,8 @@ function renderManagementRow(opts) {
       // Mw1: List-metrics calc over this window only (OI-0256 stored-feed first,
       // OI-0253 unknown → null → "—").
       const wm = metricCtx
-        ? computePaddockWindowMetrics(pw, loc, event, span, metricCtx)
+        ? memoByStoreVersion(`cal-win|${pw.id}|${loc.id}|${event.id}|${span.start}|${span.end}|${todayStr}`,
+          () => computePaddockWindowMetrics(pw, loc, event, span, metricCtx))
         : { auds: null, dmi: null, pasturePct: null, feedPct: null, storedFeedOnly: !!pw.noPasture };
       const storedFeedOnly = wm.storedFeedOnly;
       blockArea.appendChild(renderPastBlock({

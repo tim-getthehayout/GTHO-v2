@@ -17,6 +17,7 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { passMemo, ref, metricsPassActive } from './metrics-memo.js';
 import { ANIMAL_CLASSES_BY_SPECIES } from '../features/onboarding/seed-data.js';
 
 function isMembershipLive(m, groupId, now) {
@@ -84,7 +85,10 @@ export function weightRecordDay(record) {
 export function latestWeightForAnimal(records, animalId, now) {
   let best = null;
   let bestStamp = '';
-  for (const w of records || []) {
+  // L1: inside a metrics render pass, scan only this animal's records (same
+  // order as `records`, so ties resolve exactly as the full scan does).
+  const scan = records && metricsPassActive() ? (weightIndexOf(records).get(animalId) || []) : records;
+  for (const w of scan || []) {
     if (w.animalId !== animalId) continue;
     if (typeof w.weightKg !== 'number' || !Number.isFinite(w.weightKg)) continue;
     const day = weightRecordDay(w);
@@ -96,6 +100,22 @@ export function latestWeightForAnimal(records, animalId, now) {
     }
   }
   return best;
+}
+
+/**
+ * L1: weight records grouped by animal, in their original order. One index per
+ * record list per render pass (the pass is dropped on every store notify).
+ */
+function weightIndexOf(records) {
+  return passMemo('weightIndex', String(ref(records)), () => {
+    const byAnimal = new Map();
+    for (const w of records) {
+      const list = byAnimal.get(w.animalId);
+      if (list) list.push(w);
+      else byAnimal.set(w.animalId, [w]);
+    }
+    return byAnimal;
+  });
 }
 
 export function getLiveWindowHeadCount(gw, { memberships, now, animals } = {}) {
@@ -127,7 +147,18 @@ export function getOpenPwForLocation(locationId, eventId, paddockWindows) {
   ) || null;
 }
 
-export function getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now }) {
+/**
+ * Live average weight for a window (see computeLiveWindowAvgWeight). L1: inside
+ * a metrics render pass the same inputs return the cached value.
+ */
+export function getLiveWindowAvgWeight(gw, opts) {
+  const { memberships, animals, animalClasses, animalWeightRecords, now } = opts;
+  return passMemo('liveAvgWeight', gw && metricsPassActive()
+    ? `${ref(gw)}|${now}|${ref(memberships)}|${ref(animals)}|${ref(animalClasses)}|${ref(animalWeightRecords)}`
+    : null, () => computeLiveWindowAvgWeight(gw, opts));
+}
+
+function computeLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now }) {
   if (gw.dateLeft != null) return gw.avgWeightKg ?? 0;
   if (!memberships || !animals || !now) return gw.avgWeightKg ?? 0;
 
@@ -284,8 +315,15 @@ export function farmDemandWindowsOn(dt, { groupWindows, events, groups } = {}) {
  * helper). Works for closed windows too (membership dates decide). Null when
  * no member is live that day.
  */
-function liveSpeciesMix(gw, dt, { memberships, animals, animalClasses, animalWeightRecords }) {
+function liveSpeciesMix(gw, dt, opts) {
+  const { memberships, animals, animalClasses, animalWeightRecords } = opts;
   if (!memberships || !animals) return null;
+  return passMemo('liveSpeciesMix', metricsPassActive()
+    ? `${ref(gw)}|${dt}|${ref(memberships)}|${ref(animals)}|${ref(animalClasses)}|${ref(animalWeightRecords)}`
+    : null, () => computeLiveSpeciesMix(gw, dt, opts));
+}
+
+function computeLiveSpeciesMix(gw, dt, { memberships, animals, animalClasses, animalWeightRecords }) {
   const byId = new Map(animals.map(a => [a.id, a]));
   const heads = new Map(), weights = new Map();
   for (const m of memberships) {
@@ -310,8 +348,22 @@ export const DEFAULT_DMI_PCT = 2.5;
 export function classMapOf(animalClasses) {
   if (!animalClasses) return new Map();
   if (animalClasses instanceof Map) return animalClasses;
-  if (Array.isArray(animalClasses)) return new Map(animalClasses.map(c => [c.id, c]));
-  return new Map(Object.entries(animalClasses).map(([id, c]) => [c?.id || id, c]));
+  // L1: one Map per class list per render pass, so callers key on the same object.
+  return passMemo('classMap', metricsPassActive() ? String(ref(animalClasses)) : null, () => {
+    if (Array.isArray(animalClasses)) return new Map(animalClasses.map(c => [c.id, c]));
+    return new Map(Object.entries(animalClasses).map(([id, c]) => [c?.id || id, c]));
+  });
+}
+
+/** L1: class rows as an array, one array per class Map per render pass. */
+function classValuesOf(animalClasses) {
+  const map = classMapOf(animalClasses);
+  return passMemo('classValues', metricsPassActive() ? String(ref(map)) : null, () => [...map.values()]);
+}
+
+/** L1: the classes key used by the pass memo (same Map → same key). */
+function classesKey(animalClasses) {
+  return animalClasses instanceof Map ? ref(animalClasses) : ref(classMapOf(animalClasses));
 }
 
 /**
@@ -352,7 +404,15 @@ function mixDay(gw, dt) {
  * before the day, a composite's record is the lot total; else class default ×
  * heads; else null) and class. Empty when no member is live that day.
  */
-export function groupDayMembers(gw, dt, { memberships, animals, animalClasses, animalWeightRecords } = {}) {
+export function groupDayMembers(gw, dt, ctx = {}) {
+  const { memberships, animals, animalClasses, animalWeightRecords } = ctx;
+  if (!memberships || !animals || !gw) return [];
+  return passMemo('groupDayMembers', metricsPassActive()
+    ? `${ref(gw)}|${dt}|${ref(memberships)}|${ref(animals)}|${classesKey(animalClasses)}|${ref(animalWeightRecords)}`
+    : null, () => computeGroupDayMembers(gw, dt, ctx));
+}
+
+function computeGroupDayMembers(gw, dt, { memberships, animals, animalClasses, animalWeightRecords } = {}) {
   if (!memberships || !animals || !gw) return [];
   const day = mixDay(gw, dt);
   const byId = new Map(animals.map(a => [a.id, a]));
@@ -403,12 +463,18 @@ function weightedMix(members, valueOf) {
  * the mix — still 'members+default').
  */
 export function groupDayDmi(gw, dt, ctx = {}) {
+  return passMemo('groupDayDmi', gw && metricsPassActive()
+    ? `${ref(gw)}|${dt}|${ref(ctx.memberships)}|${ref(ctx.animals)}|${classesKey(ctx.animalClasses)}|${ref(ctx.animalWeightRecords)}|${ctx.head}|${ctx.avgWeightKg}`
+    : null, () => computeGroupDayDmi(gw, dt, ctx));
+}
+
+function computeGroupDayDmi(gw, dt, ctx = {}) {
   const { memberships, animals, animalWeightRecords } = ctx;
   const head = ctx.head != null ? ctx.head
     : (memberships ? getLiveWindowHeadCount(gw, { memberships, animals, now: dt }) : (gw.headCount ?? 0));
   const avgWeightKg = ctx.avgWeightKg != null ? ctx.avgWeightKg
     : (memberships
-      ? getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses: [...classMapOf(ctx.animalClasses).values()], animalWeightRecords, now: dt })
+      ? getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses: classValuesOf(ctx.animalClasses), animalWeightRecords, now: dt })
       : (gw.avgWeightKg ?? 0));
   const members = groupDayMembers(gw, dt, ctx);
   const fallbacks = { noClassHeads: 0, noRateHeads: 0, seedHeads: 0, byHeadsHeads: 0 };
@@ -437,6 +503,13 @@ export function groupDayDmi(gw, dt, ctx = {}) {
  * `defaults`). No live member → `defaults`.
  */
 export function groupDayExcretionRates(gw, dt, ctx = {}, defaults = { n: 0.145, p: 0.041, k: 0.136 }) {
+  const rates = passMemo('groupDayExcretion', gw && metricsPassActive()
+    ? `${ref(gw)}|${dt}|${ref(ctx.memberships)}|${ref(ctx.animals)}|${classesKey(ctx.animalClasses)}|${ref(ctx.animalWeightRecords)}|${defaults.n}|${defaults.p}|${defaults.k}`
+    : null, () => computeGroupDayExcretionRates(gw, dt, ctx, defaults));
+  return { ...rates };
+}
+
+function computeGroupDayExcretionRates(gw, dt, ctx = {}, defaults = { n: 0.145, p: 0.041, k: 0.136 }) {
   const members = groupDayMembers(gw, dt, ctx);
   const rate = (m, key, d) => {
     const v = m.cls?.[key];
@@ -497,11 +570,19 @@ export function dmiBasisNote(results) {
  * open on `dt` count, once per group (farmDemandWindowsOn); DMI-8 passes one
  * event's windows and no `events`.
  */
-export function groupWindowsDailyDemand(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords, events, groups } = {}) {
+export function groupWindowsDailyDemand(dt, opts = {}) {
+  const { groupWindows, memberships, animals, animalClasses, animalWeightRecords, events, groups } = opts;
+  const rows = passMemo('groupWindowsDailyDemand', metricsPassActive()
+    ? `${dt}|${ref(groupWindows)}|${ref(memberships)}|${ref(animals)}|${classesKey(animalClasses)}|${ref(animalWeightRecords)}|${ref(events)}|${ref(groups)}`
+    : null, () => computeGroupWindowsDailyDemand(dt, opts));
+  return rows.slice();
+}
+
+function computeGroupWindowsDailyDemand(dt, { groupWindows, memberships, animals, animalClasses, animalWeightRecords, events, groups } = {}) {
   const rows = [];
   const counted = events ? farmDemandWindowsOn(dt, { groupWindows, events, groups }).windows : groupWindows;
   const classMap = classMapOf(animalClasses);
-  const classObj = Object.fromEntries(classMap);
+  const classObj = passMemo('classObj', metricsPassActive() ? String(ref(classMap)) : null, () => Object.fromEntries(classMap));
   for (const gw of counted || []) {
     if (gw.dateJoined > dt) continue;
     if (gw.dateLeft && gw.dateLeft <= dt) continue;

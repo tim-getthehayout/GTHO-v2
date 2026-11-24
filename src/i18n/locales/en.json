@@ -592,6 +592,25 @@
     "forageTypeSaved": "Forage type saved",
     "forageTypeDeleted": "Forage type deleted"
   },
+  "map": {
+    "title": "Farm map",
+    "import": "Import boundaries",
+    "whereIAm": "Where am I?",
+    "draw": "Draw perimeter",
+    "viewHint": "Tap a paddock to see its details.",
+    "drawHint": "Tap the map to place each corner of the perimeter. Use Undo to remove the last corner.",
+    "pinHint": "Tap the map to drop the pin.",
+    "undo": "Undo",
+    "savePerimeter": "Save perimeter",
+    "savePin": "Save pin",
+    "needThreeCorners": "Place at least 3 corners before saving.",
+    "unknownLocation": "No location with that name. Check the spelling and try again.",
+    "tapToPin": "Tap the map to place the pin first.",
+    "noGps": "This device can't share its location.",
+    "gpsDenied": "Couldn't get your location. Check that location access is allowed.",
+    "youAreIn": "You're in {name}.",
+    "youAreOutside": "You're outside all mapped paddocks."
+  },
   "onboarding": {
     "title": "Set Up Your Operation",
     "step1Title": "Name Your Operation",

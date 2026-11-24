@@ -1,6 +1,7 @@
 /** @file OI-0261 Ml1 month tick · OI-0262 Ra1+Bd1+Pb1+Dz1+Gc1 readiness anchor · OI-0263 Ex1+Lf-B+Tb1 Map view. */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import '../../src/calcs/core.js';
 import '../../src/calcs/advanced.js';
 import { getCalcByName } from '../../src/utils/calc-registry.js';
@@ -22,6 +23,8 @@ import {
 import { renderHeaderStrip } from '../../src/features/events/rotation-calendar/header-strip.js';
 import { mapBackTarget, redirectLegacyMapRoute, MAP_BACK_FALLBACK_HASH } from '../../src/features/map/map-view.js';
 import { mapIntent, setMapIntent, startDrawLocation, startDropTodoPin, openFarmMap } from '../../src/features/map/intent.js';
+import { t, setLocale } from '../../src/i18n/i18n.js';
+import enLocale from '../../src/i18n/locales/en.json';
 import { _setPreviousHash, getPreviousHash, initRouter, route } from '../../src/ui/router.js';
 
 const css = readFileSync('src/styles/main.css', 'utf8');
@@ -440,5 +443,32 @@ describe('OI-0263 Ex1 — Back/Close + stacking context', () => {
     expect(phoneCanvas).toBeTruthy();
     expect(phoneCanvas[1]).toMatch(/flex:\s*1 1 auto/);
     expect(phoneCanvas[1]).toMatch(/height:\s*auto/);
+  });
+});
+
+describe('OI-0263 / #418 — map i18n keys', () => {
+  beforeAll(() => setLocale('en', enLocale));
+
+  it("every t('map.*') key used in src/features/map resolves in en.json", () => {
+    const keys = new Set();
+    const re = /t\(\s*['"]map\.([^'"]+)['"]/g;
+    const walk = (dir) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, ent.name);
+        if (ent.isDirectory()) walk(p);
+        else if (ent.name.endsWith('.js')) {
+          const src = readFileSync(p, 'utf8');
+          for (const m of src.matchAll(re)) keys.add(`map.${m[1]}`);
+        }
+      }
+    };
+    walk('src/features/map');
+    expect(keys.size).toBeGreaterThan(0);
+    for (const key of [...keys].sort()) {
+      const value = t(key);
+      expect(value, key).not.toBe(key);
+      expect(typeof value, key).toBe('string');
+      expect(value.length, key).toBeGreaterThan(0);
+    }
   });
 });

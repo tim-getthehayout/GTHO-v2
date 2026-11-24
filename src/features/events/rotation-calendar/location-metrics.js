@@ -6,8 +6,12 @@
  * OI-0250 Sb strip: aggregatePeriodTotals — En pasture/stored/total + Nk; Sz missing-DM=0.
  * OI-0249 Zp+Gg: season DMI/NPK sum known group-weight slices and mark partial;
  * dash only when nothing known remains. AUDs (Ua) and Score (Sc) unchanged.
- * Closed snapshots trusted as stored (Rt). F1 unmeasured-hay and R1 residual
- * unknowns stay season-sticky (list-parity locks not reopened).
+ * Closed snapshots trusted as stored (Rt). OI-0285: F1 unmeasured-hay days use
+ * the same Zp partial rule (add nothing; season = known sum, partial; dash only
+ * when nothing known remains). OI-0285 B: on an OPEN event, days with feed held
+ * and no feed check since count hay eaten 0 (pasture = full need) as KNOWN
+ * estimates flagged dmiFeedCheckNeeded; a check or close replaces them on read.
+ * OI-0276: R1 residual no longer blanks NPK.
  * OI-0258 Al1+Pd1+Mc1+Mx-a+Cv1+Sp-f(demand)+D0: hay known from opening
  * carryover + physical deliveries + close (no mid-check required); span hay
  * prorated by demand across grazing windows. Sp-w is not implemented.
@@ -276,7 +280,7 @@ export function resolveResidualNpkPercents({ batchId, feedTypeId, batchNutrition
 
 /**
  * Measured hay status for one event on one date (F1).
- * @returns {{ kind: 'none' } | { kind: 'measured', dmKg: number } | { kind: 'unknown' }}
+ * @returns {{ kind: 'none' } | { kind: 'measured', dmKg: number } | { kind: 'unknown', pendingCheck: boolean }}
  */
 export function measuredHayOnEventDay({
   eventId,
@@ -447,6 +451,9 @@ export function computeLocationMetrics(location, ctx) {
     avgScore: null,
     scoreKnown: false,
     dmiPartial: false,
+    dmiHayUnknown: false,
+    dmiWeightUnknown: false,
+    dmiFeedCheckNeeded: false,
     npkPartial: false,
     // OI-0250 strip fields (Sz): stored missing-DM → 0; strip pasture ignores F1 sticky
     storedFeedDmiKg: 0,
@@ -495,7 +502,14 @@ export function computeLocationMetrics(location, ctx) {
   let dmiDays = 0;
   let dmiKnownSlices = 0;
   let dmiUnknownSlices = 0;
-  let dmiHayUnknown = false; // F1 sticky (column only)
+  // OI-0285: F1 hay-unknown location-days add nothing to the column (Zp, like
+  // weights). Their known-weight slices stop counting as known for that day.
+  let dmiHayUnknownDays = 0;
+  let dmiHayVoidedKnownSlices = 0;
+  // OI-0285 B (Tim t1475u): open event, hay held with no feed check since →
+  // hay eaten 0, pasture = full need; KNOWN days, flagged "Feed check needed".
+  let dmiFeedCheckNeededDays = 0;
+  const knownSlicesByEventDate = new Map(); // eventId → date → known slice count
   let storedFeedDmiKg = 0; // OI-0250 Sz strip
   let stripPastureDmiKg = 0;
   let anyDemandDay = false;
@@ -633,6 +647,9 @@ export function computeLocationMetrics(location, ctx) {
       if (Number.isFinite(row.avgWeightKg) && row.avgWeightKg > 0) {
         knownRows.push(row);
         dmiKnownSlices += 1;
+        if (!knownSlicesByEventDate.has(row.eventId)) knownSlicesByEventDate.set(row.eventId, new Map());
+        const byDay = knownSlicesByEventDate.get(row.eventId);
+        byDay.set(date, (byDay.get(date) || 0) + 1);
       } else {
         dmiUnknownSlices += 1;
       }
@@ -649,8 +666,10 @@ export function computeLocationMetrics(location, ctx) {
   }
 
   // OI-0258: after the day walk, allocate each event's hay spans (Al1/Mc1/Cv1)
-  // by demand across grazing windows (Sp-f, Mx-a). Unknown hay days stay
-  // season-sticky on the column (C0/F1); the Sz strip uses stored 0 those days.
+  // by demand across grazing windows (Sp-f, Mx-a). OI-0285: an unknown hay day
+  // adds nothing to the column (dmiKg / storedFeedDmiKg / dmiDays) and marks it
+  // partial (Zp); the Sz strip still uses stored 0 those days. OI-0285 B: an
+  // open event's "no check yet" day is known (hay 0, pasture = need), flagged.
   const metricDates = eachDateInclusive(windowStart, through);
   for (const eventId of eventsNeedingHay) {
     const event = eventsById.get(eventId);
@@ -707,11 +726,24 @@ export function computeLocationMetrics(location, ctx) {
     for (const date of metricDates) {
       if (openDate && !eventOpenOn(decorated, date)) continue;
       const hay = f1MeasuredHayOnEventDay({ ...hayArgs, date });
-      if (hay.kind === 'unknown') {
-        // OI-0256 Mt1: no_pasture-only at this location stays known Pasture 0, not F1 sticky.
+      // OI-0285 B: only an OPEN event's "no check yet" days become hay-0 estimates;
+      // a missing unit / DM, or a closed event never measured, stays unknown (Zp).
+      if (hay.kind === 'unknown' && hay.pendingCheck && !decorated.dateOut) {
         const grazingHere = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date })
           .some(isMine);
-        if (grazingHere) dmiHayUnknown = true;
+        if (grazingHere) dmiFeedCheckNeededDays += 1;
+        // A known span from another pool already allocates this day (hay − 0).
+        if (!overlapsKnownSpan(date)) addDemandOnly(date);
+        continue;
+      }
+      if (hay.kind === 'unknown') {
+        // OI-0256 Mt1: no_pasture-only at this location stays known Pasture 0, not F1 unknown.
+        const grazingHere = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date })
+          .some(isMine);
+        if (grazingHere) {
+          dmiHayUnknownDays += 1;
+          dmiHayVoidedKnownSlices += knownSlicesByEventDate.get(eventId)?.get(date) || 0;
+        }
         addDemandOnly(date, { stripOnly: true });
         continue;
       }
@@ -778,14 +810,20 @@ export function computeLocationMetrics(location, ctx) {
 
   const ha = areaHaOf(location);
   // Zp (weights): sum known slices; dash only when nothing known remains; never-present = 0.
-  // F1 hay unknown stays season-sticky (OI-0246 lock). OI-0276: R1 residual
+  // OI-0285: F1 hay-unknown days follow the same Zp rule (no longer season-sticky):
+  // they add nothing, the season is the known sum marked partial, and it is —
+  // only when every DMI day is hay- or weight-unknown. OI-0276: R1 residual
   // unknown no longer blanks NPK (skipped residual adds 0, hover note only).
   const dmiHasKnown = dmiKnownSlices > 0;
   const dmiHasUnknown = dmiUnknownSlices > 0;
-  const dmiPartial = dmiHasKnown && dmiHasUnknown;
-  const dmiUnknown = dmiHayUnknown || (dmiHasUnknown && !dmiHasKnown);
+  const colKnownSlices = Math.max(0, dmiKnownSlices - dmiHayVoidedKnownSlices);
+  const colHasKnown = colKnownSlices > 0;
+  const colHasUnknown = dmiHasUnknown || dmiHayUnknownDays > 0;
+  const dmiPartial = colHasKnown && colHasUnknown;
+  const dmiUnknown = colHasUnknown && !colHasKnown;
+  const dmiHayPartial = dmiHayUnknownDays > 0;
   const finalDmi = dmiUnknown ? null : dmiKg;
-  const dmiKnown = !dmiUnknown && (dmiHasKnown || dmiDays > 0 || !anyDemandDay || finalDmi === 0);
+  const dmiKnown = !dmiUnknown && (colHasKnown || dmiDays > 0 || !anyDemandDay || finalDmi === 0);
   const npkHasKnown = npkKnownSlices > 0;
   const npkHasUnknown = npkUnknownSlices > 0;
   const npkPartial = npkHasKnown && npkHasUnknown;
@@ -803,6 +841,13 @@ export function computeLocationMetrics(location, ctx) {
     dmiKg: finalDmi,
     dmiKnown: dmiKnown || finalDmi === 0,
     dmiPartial,
+    // OI-0285: some DMI days were hay-unknown (hover note reason; no new marker).
+    dmiHayUnknown: dmiHayPartial,
+    // OI-0285: some DMI slices had no weight (OI-0249) — names the weight reason.
+    dmiWeightUnknown: dmiHasUnknown,
+    // OI-0285 B: some counted days are hay-0 estimates on an open event with no
+    // feed check since the feed went out (~ marker + "Feed check needed").
+    dmiFeedCheckNeeded: finalDmi != null && dmiFeedCheckNeededDays > 0,
     auds,
     audsKnown: true,
     nKg: npkKnown ? nKg : null,

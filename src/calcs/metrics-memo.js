@@ -11,8 +11,11 @@
  *    so going back to a screen reuses rows. Only for callers whose context is
  *    read from the store at that version. Any store notify bumps the version.
  *
- * Outside a pass, and before the store version is set, everything computes
- * directly — unit tests calling the calcs see no cache.
+ * Outside a pass the hot helpers compute directly, so unit tests calling the
+ * calcs see no pass cache. `memoByStoreVersion` caches at every version,
+ * version 0 included (before the first notify); that is harmless because the
+ * store's init() bumps the version, so rows cached at 0 are never reused after
+ * data loads, and `_resetMetricsMemo()` clears it for tests.
  */
 
 let pass = null;

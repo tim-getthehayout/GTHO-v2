@@ -53,18 +53,19 @@ function renderStripBands(strips, { storedFeedOnly = false } = {}) {
  * Format past-block line 2 Pasture/Feed/DMI/Head.
  * OI-0253 B1: null/non-finite pasturePct or dmi → "—" (never paint unknown as 0 / 0%).
  * Known zero still renders 0 / 0%.
- * @param {{ pasturePct: number|null|undefined, feedPct: number|null|undefined, dmi: number|null|undefined, headCount: number, unitSystem?: 'metric'|'imperial' }} opts
+ * @param {{ pasturePct: number|null|undefined, feedPct: number|null|undefined, dmi: number|null|undefined, headCount: number, unitSystem?: 'metric'|'imperial', estimate?: boolean }} opts
+ *   `estimate` (OI-0285 B) prefixes the DMI with "~" (hay 0 until a feed check).
  *   `dmi` is canonical kg (unrounded); the helper converts and rounds.
  * @returns {string}
  */
-export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, unitSystem }) {
+export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, unitSystem, estimate = false }) {
   const pastureSeg = pasturePct == null || !Number.isFinite(Number(pasturePct))
     ? 'Pasture —%'
     : `Pasture ${Math.round(pasturePct)}%`;
   // OI-0278 S1: DMI (canonical kg) in the farm unit via the shared helper → "272 lb DMI".
   const dmiSeg = dmi == null || !Number.isFinite(Number(dmi))
     ? '— DMI'
-    : `${formatMeasure(dmi, 'weight', { unitSystem })} DMI`;
+    : `${estimate ? '~' : ''}${formatMeasure(dmi, 'weight', { unitSystem })} DMI`;
   // OI-0264 Mw1: feedPct may be unknown too ("Feed —%").
   const feedSeg = feedPct == null || !Number.isFinite(Number(feedPct))
     ? 'Feed —%'
@@ -91,6 +92,7 @@ export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, 
  * @param {boolean} opts.isLinkedSecondary - Whether this is a linked (non-primary) row
  * @param {string} [opts.linkedPrimaryName] - Name of the primary paddock
  * @param {boolean} [opts.storedFeedOnly] - OI-0256 Pn1 tan / stored-feed paint
+ * @param {boolean} [opts.dmiEstimate] - OI-0285 B: hay-0 estimate (no feed check yet) → "~" on DMI
  * @param {string} opts.eventId - Event ID for click handler
  * @param {string} [opts.paddockWindowId] - OI-0264 Pw1: the window this bar draws
  * @param {Function} opts.onClickBlock - Click handler
@@ -99,7 +101,7 @@ export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, 
 export function renderPastBlock({
   leftPx, widthPx, groups, auds, days, pasturePct, feedPct, dmi, headCount,
   isActive, isStripGraze, strips, stripNote, isLinkedSecondary, linkedPrimaryName,
-  storedFeedOnly = false, eventId, paddockWindowId = null, onClickBlock,
+  storedFeedOnly = false, eventId, paddockWindowId = null, onClickBlock, dmiEstimate = false,
 }) {
   const groupLabel = buildGroupLabel(groups);
 
@@ -125,7 +127,7 @@ export function renderPastBlock({
     ]));
   } else {
     line2Parts.push(el('span', {}, [
-      formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount }),
+      formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, estimate: dmiEstimate }),
     ]));
     if (isStripGraze && stripNote) {
       line2Parts.push(el('span', { className: 'strip-note' }, [` · ${stripNote}`]));

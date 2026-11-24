@@ -27,6 +27,7 @@ import { renderDmiChart as renderDmiChartComponent } from '../../ui/dmi-chart.js
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight, sumMembershipHeads, animalHeadCount, groupDayDmi, groupDayExcretionRates, dmiBasisNote } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
 import { buildDmi8ChartContext, computeDmi8Days } from '../events/dmi-chart-context.js';
+import { computeEventDmiActual } from '../../calcs/event-dmi-actual.js';
 import { openEditPaddockWindowDialog } from '../events/edit-paddock-window.js';
 import { listOpenPaddocksForEvent, formatPaddockDisplayName } from '../../data/current-placement.js';
 import { isPureConfinementOnDate, isConfinementLocation } from '../../calcs/location-type.js';
@@ -1066,6 +1067,59 @@ function renderLocationsView(gridEl) {
 // §17.7a: Location card builder (SP-3 — v1 parity)
 // ---------------------------------------------------------------------------
 
+/**
+ * OI-0280 Dp3 line: "Target 1,410 · hay eaten 1,020 lb DM/day (72%) · pasture ≈ 390".
+ * Units via the OI-0278 helper only. Stored-only windows: "eating X under/over
+ * target", amber when > 10 % off; grazing never amber/red, pasture green.
+ * @param {ReturnType<typeof computeEventDmiActual>} a
+ */
+export function renderDmiActualLine(a, eventId, unitSys, dmiNote = null) {
+  const num = (kg) => formatMeasure(kg, 'weight', { unitSystem: unitSys, decimals: 0, unitInHeader: true });
+  const withUnit = (kg) => formatMeasure(kg, 'weight', { unitSystem: unitSys, decimals: 0 });
+  const parts = [
+    el('span', {}, [t('dmi.actualTarget', { target: num(a.targetKgPerDay) })]),
+    el('span', {}, [t('dmi.actualHayEaten', {
+      hay: withUnit(a.hayKgPerDay), pct: a.hayPct == null ? '—' : Math.round(a.hayPct),
+    })]),
+  ];
+  const hints = [];
+  if (a.kind !== 'stored') {
+    parts.push(el('span', {
+      style: { color: 'var(--color-green-dark, var(--color-green-base))' },
+      'data-testid': `dashboard-loc-dmi-actual-pasture-${eventId}`,
+    }, [t('dmi.actualPasture', { pasture: num(a.pastureKgPerDay) })]));
+    const over = num(a.hayOverKgPerDay);
+    if (a.hayOverKgPerDay > 0 && over !== '0') {
+      parts.push(el('span', {}, [t('dmi.actualHayOver', { over })]));
+    }
+  }
+  if (a.kind !== 'grazing' && a.storedGapKgPerDay != null) {
+    const under = a.storedGapKgPerDay < 0;
+    let text = t(under ? 'dmi.actualUnder' : 'dmi.actualOver', { gap: num(Math.abs(a.storedGapKgPerDay)) });
+    if (a.kind === 'mixed') text += ` ${t('dmi.actualOnStoredDays')}`;
+    parts.push(el('span', {}, [text]));
+    hints.push(t(under ? 'dmi.actualUnderHint' : 'dmi.actualOverHint'));
+  }
+  const children = [];
+  parts.forEach((p, i) => {
+    if (i) children.push(' \u00B7 ');
+    children.push(p);
+  });
+  hints.unshift(t('dmi.actualWindow', { start: a.windowStart, end: a.windowEnd }));
+  if (dmiNote) hints.push(dmiNote);
+  return el('div', {
+    style: {
+      fontSize: '12px',
+      marginBottom: '2px',
+      ...(a.amber ? { color: 'var(--color-amber-dark, #92400E)' } : {}),
+    },
+    'data-testid': `dashboard-loc-dmi-${eventId}`,
+    'data-dmi-actual': a.kind,
+    ...(a.amber ? { 'data-amber': 'true' } : {}),
+    title: hints.join('. '),
+  }, children);
+}
+
 export function buildLocationCard(event, operationId, farmId, unitSys) {
   const todayStr = getLocalTodayStr();
   const allPws = getAll('eventPaddockWindows').filter(w => w.eventId === event.id);
@@ -1480,13 +1534,20 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     }, [hintText]));
   }
 
+  // OI-0280 (#435): target vs hay eaten from feed checks replaces today's DMI
+  // line (Dp3, §15); hidden cases (Nc2) keep the "DMI target (forecast)" line.
+  const actual = dailyDmiDisplay && dmi8
+    ? computeEventDmiActual(buildDmi8ChartContext(event.id), { today: todayStr })
+    : null;
+
   // §8: Breakdown line (gray)
   if (dailyDmiDisplay) {
     // OI-0278 S2 row 23: "Pasture: 1,234 lb DM" (farm unit, whole numbers as before).
     const fmtDm = (kg) => fmtW(kg, { decimals: 0 });
     let breakdownParts = [`Pasture: ${fmtDm(pastureDmKg)} DM`];
     if (hasStoredFeed) breakdownParts.push(`Stored feed: ${fmtDm(storedDmKg)} DM`);
-    breakdownParts.push(`${t('dmi.targetForecast')}: ${fmtDm(dailyDmiKg)}/day`);
+    // OI-0280 §6: the Dp3 line carries "Target"; drop the duplicate here when it shows.
+    if (!actual?.show) breakdownParts.push(`${t('dmi.targetForecast')}: ${fmtDm(dailyDmiKg)}/day`);
     children.push(el('div', { style: { fontSize: '12px', color: 'var(--text3, var(--text2))', marginBottom: 'var(--space-2)' } }, [breakdownParts.join(' \u00B7 ')]));
   }
 
@@ -1610,7 +1671,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
 
   // §15: DMI/NPK summary
   const summaryParts = [];
-  if (dailyDmiDisplay) {
+  if (actual?.show) {
+    summaryParts.push(renderDmiActualLine(actual, event.id, unitSys, dmiNote));
+  } else if (dailyDmiDisplay) {
     let dmiLine = `${t('dmi.targetForecast')} ${dailyDmiDisplay}`;
     if (storedPct > 0) dmiLine += ` \u00B7 ${storedPct}% stored \u00B7 ${pasturePct}% est. pasture`;
     summaryParts.push(el('div', { style: { fontSize: '12px', marginBottom: '2px' }, 'data-testid': `dashboard-loc-dmi-${event.id}`, ...(dmiNote ? { title: dmiNote } : {}) }, [dmiLine]));

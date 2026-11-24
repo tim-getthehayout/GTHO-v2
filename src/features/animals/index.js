@@ -2530,6 +2530,47 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
       ]));
       inputs.confirmedBred = bredCheck;
 
+      // OI-0232 (#387, Tim-locked Nov 18): confirmed-bred date sits under the
+      // box and shows only while it is ticked (DB check: confirmed_bred OR
+      // confirmed_bred_date IS NULL). Fresh tick → today; back-dating allowed;
+      // untick → null. A legacy tick with no date shows empty and may save blank.
+      const bredTodayStr = getLocalTodayStr();
+      const bredDateInput = el('input', {
+        type: 'date',
+        value: existingAnimal.confirmedBred ? (existingAnimal.confirmedBredDate || '') : '',
+        max: bredTodayStr,
+        'data-testid': 'edit-animal-confirmed-bred-date',
+      });
+      if (existingAnimal.birthDate) bredDateInput.min = existingAnimal.birthDate;
+      // Gets the auth-error look only while it holds an error, so the sheet's
+      // first .auth-error stays the save status line.
+      const bredDateError = el('div', {
+        'data-testid': 'edit-animal-confirmed-bred-date-error',
+      });
+      const bredDateField = el('div', {
+        className: 'field',
+        'data-testid': 'edit-animal-confirmed-bred-date-field',
+      }, [
+        el('label', {}, [t('animal.confirmedBredDateLabel'), ' ',
+          el('span', { style: { fontSize: '10px', color: 'var(--text2)' } }, [t('animal.confirmedBredDateHint')])]),
+        bredDateInput,
+        bredDateError,
+      ]);
+      bredDateField.hidden = !bredCheck.checked;
+      bredCheck.addEventListener('change', () => {
+        clear(bredDateError);
+        if (bredCheck.checked) {
+          if (!bredDateInput.value) bredDateInput.value = bredTodayStr;
+          bredDateField.hidden = false;
+        } else {
+          bredDateInput.value = '';
+          bredDateField.hidden = true;
+        }
+      });
+      panel.appendChild(bredDateField);
+      inputs.confirmedBredDate = bredDateInput;
+      inputs.confirmedBredDateError = bredDateError;
+
       // Heat history
       panel.appendChild(el('div', { className: 'div' }));
       const heatRecords = getAll('animalHeatRecords').filter(r => r.animalId === existingAnimal.id);
@@ -2865,7 +2906,38 @@ async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId,
     sireAiBullId: isComposite ? null : (inputs.sireAiBullId?.value || null),
     // OI-0099 Class B confirmedBred: new column migration 026.
     confirmedBred: inputs.confirmedBred ? inputs.confirmedBred.checked : false,
+    // OI-0232 (#387): date only while ticked; untick (or no box) → null.
+    confirmedBredDate: inputs.confirmedBred && inputs.confirmedBred.checked
+      ? (inputs.confirmedBredDate?.value || null)
+      : null,
   };
+
+  // OI-0232 (#387): no future date, none before a known birth date. Inline
+  // error under the field; nothing is written.
+  const bredErrEl = inputs.confirmedBredDateError;
+  if (bredErrEl) {
+    clear(bredErrEl);
+    bredErrEl.className = '';
+  }
+  if (data.confirmedBredDate) {
+    const errEl = bredErrEl;
+    const fail = (key) => {
+      if (errEl) {
+        errEl.className = 'auth-error';
+        errEl.appendChild(el('span', {}, [t(key)]));
+      } else {
+        statusEl.appendChild(el('span', {}, [t(key)]));
+      }
+    };
+    if (data.confirmedBredDate > getLocalTodayStr()) {
+      fail('animal.confirmedBredDateFuture');
+      return;
+    }
+    if (data.birthDate && data.confirmedBredDate < data.birthDate) {
+      fail('animal.confirmedBredDateBeforeBirth');
+      return;
+    }
+  }
 
   // OI-0132 Class A hard gate: damId set without birthDate is an inline error.
   // Catches both "set dam on calf with no birthDate" and "clear birthDate on

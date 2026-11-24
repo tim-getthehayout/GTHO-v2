@@ -633,6 +633,8 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   // OI-0252 Wu: measure after attach so widest row (incl. partial markers) sets shared width.
   applyUniformMetricsWidth(surface);
   requestAnimationFrame(() => applyUniformMetricsWidth(surface));
+  // OI-0284: publish the sticky head's rendered height for main.css scroll-padding-top.
+  requestAnimationFrame(() => body.style.setProperty('--loc-mgmt-head-h', `${body.querySelector('.loc-mgmt__head')?.offsetHeight || 0}px`));
   container.setAttribute('tabindex', '0');
   container.addEventListener('keydown', onKeyDown);
   container._locMgmtKeyDown = onKeyDown;

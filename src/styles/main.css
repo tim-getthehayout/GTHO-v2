@@ -2807,7 +2807,14 @@ body:has(.auth-overlay) .pwa-update-banner {
   position: relative; /* OI-0264 Cn1: connector overlay anchor (scrolls with content) */
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
+  /* OI-0284: rows come to rest fully below the sticky head. The head's rendered
+     height is published as --loc-mgmt-head-h by calendar-grid.js; proximity (not
+     mandatory) keeps free scrolling and OI-0266 single ownership unchanged. */
+  scroll-padding-top: var(--loc-mgmt-head-h, 0px);
+  scroll-snap-type: y proximity;
 }
+/* OI-0284: each row wrapper snaps its top edge to just below the head. */
+.loc-mgmt__body > .loc-mgmt__row { scroll-snap-align: start; }
 
 /* OI-0264 Cn1: sub-move connectors — 2px dark-green line above row backgrounds,
    below block labels; never intercepts clicks. */

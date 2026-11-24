@@ -5,7 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup, resolveGroupCurrentPlacement, runDurableWrite } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { display, convert, unitLabel } from '../../utils/units.js';
+import { display, convert, unitLabel, formatMeasure, shortUnit } from '../../utils/units.js';
 import * as GroupEntity from '../../entities/group.js';
 import * as AnimalClassEntity from '../../entities/animal-class.js';
 import * as AnimalEntity from '../../entities/animal.js';
@@ -1565,7 +1565,8 @@ export function openClassesManager(operationId) {
     clear(classList);
     const classes = getAll('animalClasses');
     for (const cls of classes) {
-      const weightDisplay = cls.defaultWeightKg ? display(cls.defaultWeightKg, 'weight', unitSys, 0) : '—';
+      // OI-0278 S3 row 50: one short unit ("1,100 lb"), not "1100 lbs lbs".
+      const weightDisplay = cls.defaultWeightKg ? formatMeasure(cls.defaultWeightKg, 'weight', { unitSystem: unitSys }) : '—';
       const isArchived = cls.archived;
       classList.appendChild(el('div', {
         style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '0.5px solid var(--border)', fontSize: '13px', opacity: isArchived ? '0.45' : '1' },
@@ -1573,7 +1574,7 @@ export function openClassesManager(operationId) {
         el('span', {}, [
           el('strong', {}, [cls.name]), ' ',
           el('span', { className: 'badge bb' }, [cls.species || '']), ' ',
-          el('span', { className: 'badge bt' }, [`${weightDisplay} ${unitLabel('weight', unitSys)}`]), ' ',
+          el('span', { className: 'badge bt' }, [weightDisplay]), ' ',
           cls.dmiPct ? el('span', { className: 'badge bg' }, [`${cls.dmiPct}% DMI`]) : null,
         ].filter(Boolean)),
         el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
@@ -1640,16 +1641,19 @@ export function openClassesManager(operationId) {
     el('div', { className: 'field' }, [el('label', {}, ['Role']), inputs.role]),
     el('div', { className: 'field' }, [el('label', {}, [`Default weight (${unitLabel('weight', unitSys)})`]), inputs.defaultWeightKg]),
   ]));
+  // OI-0278 S4 (Appendix B): the rate is a ratio, so it only relabels (no conversion).
+  const excretionW = shortUnit('weight', unitSys);
+  const excretionUnit = `${excretionW} / 1000 ${excretionW} BW / day`;
   panel.appendChild(el('div', { className: 'two' }, [
     el('div', { className: 'field' }, [el('label', {}, ['DMI % of body weight']), inputs.dmiPct]),
     el('div', { className: 'field' }, [el('label', {}, ['DMI % when lactating']), inputs.dmiPctLactating]),
   ]));
   panel.appendChild(el('div', { className: 'two' }, [
-    el('div', { className: 'field' }, [el('label', {}, ['Excretion N (kg / 1000 kg BW / day)']), inputs.excretionNRate]),
-    el('div', { className: 'field' }, [el('label', {}, ['Excretion P (kg / 1000 kg BW / day)']), inputs.excretionPRate]),
+    el('div', { className: 'field' }, [el('label', {}, [`Excretion N (${excretionUnit})`]), inputs.excretionNRate]),
+    el('div', { className: 'field' }, [el('label', {}, [`Excretion P (${excretionUnit})`]), inputs.excretionPRate]),
   ]));
   panel.appendChild(el('div', { className: 'two' }, [
-    el('div', { className: 'field' }, [el('label', {}, ['Excretion K (kg / 1000 kg BW / day)']), inputs.excretionKRate]),
+    el('div', { className: 'field' }, [el('label', {}, [`Excretion K (${excretionUnit})`]), inputs.excretionKRate]),
     el('div', { className: 'field' }, [el('label', {}, ['Weaning age (days)']), inputs.weaningAgeDays]),
   ]));
   panel.appendChild(el('div', { className: 'field' }, [
@@ -1953,7 +1957,8 @@ function openGroupWeightsSheet(group, operationId) {
     const latestW = latestWeightForAnimal(weightRecords, a.id);
     const heads = a.isBulk ? animalHeadCount(a) : 1;
     const perHeadKg = latestW?.weightKg > 0 && heads > 0 ? latestW.weightKg / heads : null;
-    const currentDisplay = perHeadKg ? display(perHeadKg, 'weight', unitSys, 0) : '—';
+    // OI-0278 S3 row 51: one short unit.
+    const currentDisplay = perHeadKg ? formatMeasure(perHeadKg, 'weight', { unitSystem: unitSys }) : '—';
     const cls = a.classId ? getAll('animalClasses').find(c => c.id === a.classId) : null;
     const newWtInput = el('input', { type: 'number', 'data-testid': `group-weight-${a.id}`, placeholder: t('manualEntry.groupWeightPlaceholder'), step: 'any', style: { width: '90px', padding: '7px 8px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit', textAlign: 'right' } });
     weightInputs.push({ animalId: a.id, heads, input: newWtInput });
@@ -1963,7 +1968,7 @@ function openGroupWeightsSheet(group, operationId) {
         el('div', { style: { fontSize: '13px', fontWeight: '600' } }, [a.tagNum || a.name || `A-${a.id.slice(0, 5)}`]),
         el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [`${a.sex} \u00B7 ${cls?.name || ''}${a.isBulk ? ` · ${t('manualEntry.groupWeightComposite', { heads })}` : ''}`]),
       ]),
-      el('div', { style: { textAlign: 'right', fontSize: '12px', color: 'var(--text2)', marginRight: '4px' } }, [`Current: ${currentDisplay} ${unitLabel('weight', unitSys)}`]),
+      el('div', { style: { textAlign: 'right', fontSize: '12px', color: 'var(--text2)', marginRight: '4px' } }, [`Current: ${currentDisplay}`]),
       newWtInput,
     ]));
   }

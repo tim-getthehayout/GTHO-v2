@@ -1,6 +1,7 @@
 /** Staged pool forms, mounted only by the compiled compatible release. */
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
+import { formatMeasure } from '../../utils/units.js';
 import { getAll, getById, runDurableWrite } from '../../data/store.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { explicitObservationTime, validateObservationTime } from '../../ui/explicit-observation-time.js';
@@ -16,7 +17,8 @@ function clocks(panel,check){
  return {date,time,validate(){state.date=date.value;state.time=time.value;validateObservationTime(state);if(date.value>getLocalTodayStr())throw new Error(t('pool.future'));}};
 }
 function poolLabel(pool){return `${getById('feedTypes',pool.feedTypeId)?.name||'?'} → ${getById('locations',pool.locationId)?.name||'?'}`;}
-function describe(pool){return `${pool.q??'?'} ${pool.unit||'kg'} · ${pool.massBased?t('pool.mass'):pool.estimate?t('pool.estimate'):t('pool.blended')}`;}
+// OI-0278 S3 row 37: a mass-based pool (canonical kg) reads in the farm unit; entered units stay (Pa).
+function describe(pool){return `${pool.massBased&&pool.q!=null?formatMeasure(pool.q,'weight'):`${pool.q??'?'} ${pool.unit||'kg'}`} · ${pool.massBased?t('pool.mass'):pool.estimate?t('pool.estimate'):t('pool.blended')}`;}
 export function renderPoolCheckForm(panel,event,operationId,{check=null,item=null,close}={}){
  clear(panel);panel.appendChild(el('h3',{},[check?t('pool.edit'):t('pool.check')]));const clock=clocks(panel,check),input=poolInput(event.id),notes=el('input',{type:'text',value:check?.notes||'','data-testid':'pool-notes'});
  let pools=liveFeedPools(event.id,clock.date.value,clock.time.value);

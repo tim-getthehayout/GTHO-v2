@@ -14,7 +14,10 @@
  *   - measureType : null for unitless, or one of the families in `units.js`
  *                   ('weight', 'length', 'dmYieldDensity', …)
  *   - unitLabelKey: i18n key for a static unit suffix (only when measureType
- *                   is null — e.g. '%', 'days', 'kg/t DM')
+ *                   is null — e.g. '%', 'days')
+ *   - unitLabelKeyByUnit: { imperial, metric } — i18n keys for the unit suffix
+ *                   of a converted family whose label carries a basis
+ *                   (OI-0278 Fa: 'lb/ton DM' / 'kg/t DM' for nutrientPerDm)
  *   - inverted    : true for price-per-weight ($/kg ↔ $/lb — divide on display,
  *                   multiply on save)
  *   - currency    : true to compose the label as "label ($/unit)"
@@ -44,6 +47,9 @@ export function composeFieldLabel(f, unitSystem) {
   if (f.measureType === null) {
     if (!f.unitLabelKey) return base;
     return `${base} (${t(f.unitLabelKey)})`;
+  }
+  if (f.unitLabelKeyByUnit) {
+    return `${base} (${t(f.unitLabelKeyByUnit[unitSystem] ?? f.unitLabelKeyByUnit.metric)})`;
   }
   if (f.currency) {
     // $/kg ↔ $/lb — use the weight unit label.

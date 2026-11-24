@@ -6,6 +6,22 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, add, remove, subscribe } from '../../data/store.js';
 import * as NpkPriceHistoryEntity from '../../entities/npk-price-history.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { getUnitSystem } from '../../utils/preferences.js';
+import { formatMeasure, shortUnit } from '../../utils/units.js';
+import { toDisplayValue, toStoredValue } from '../settings/unit-descriptor.js';
+
+// OI-0278 S4 row 48 + Appendix B: $/lb on imperial, $/kg on metric; stored $/kg.
+const PRICE_FIELD = { measureType: 'weight', inverted: true, currency: true, precision: { metric: 2, imperial: 2 } };
+export function npkPriceInputValue(perKg, unitSystem = getUnitSystem()) {
+  if (perKg == null || perKg === '') return '';
+  if (unitSystem === 'metric') return String(perKg);
+  return String(Number(toDisplayValue(Number(perKg), PRICE_FIELD, unitSystem).toFixed(4)));
+}
+export function npkPriceFromInput(text, unitSystem = getUnitSystem()) {
+  const raw = String(text ?? '').trim();
+  if (raw === '') return null;
+  return toStoredValue(parseFloat(raw), PRICE_FIELD, unitSystem);
+}
 
 let unsubs = [];
 
@@ -84,7 +100,7 @@ function renderNpkPriceList(rootContainer, operationId) {
             }, [t('amendment.current')]) : el('span', {}),
           ]),
           el('div', { className: 'ft-row-detail' }, [
-            `N: $${entry.nPricePerKg ?? '—'}/kg  P: $${entry.pPricePerKg ?? '—'}/kg  K: $${entry.kPricePerKg ?? '—'}/kg`,
+            `N: ${formatMeasure(entry.nPricePerKg, 'pricePerWeight')}  P: ${formatMeasure(entry.pPricePerKg, 'pricePerWeight')}  K: ${formatMeasure(entry.kPricePerKg, 'pricePerWeight')}`,
           ]),
           entry.notes
             ? el('div', { className: 'form-hint' }, [entry.notes])
@@ -124,26 +140,26 @@ function openNpkPriceSheet(existing, operationId, farmId) {
   });
   panel.appendChild(dateInput);
 
-  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.npkN')]));
+  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.npkN', { unit: shortUnit('pricePerWeight') })]));
   const nInput = el('input', {
     type: 'number', className: 'auth-input settings-input',
-    value: existing?.nPricePerKg ?? '',
+    value: npkPriceInputValue(existing?.nPricePerKg),
     'data-testid': 'npk-price-n',
   });
   panel.appendChild(nInput);
 
-  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.npkP')]));
+  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.npkP', { unit: shortUnit('pricePerWeight') })]));
   const pInput = el('input', {
     type: 'number', className: 'auth-input settings-input',
-    value: existing?.pPricePerKg ?? '',
+    value: npkPriceInputValue(existing?.pPricePerKg),
     'data-testid': 'npk-price-p',
   });
   panel.appendChild(pInput);
 
-  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.npkK')]));
+  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.npkK', { unit: shortUnit('pricePerWeight') })]));
   const kInput = el('input', {
     type: 'number', className: 'auth-input settings-input',
-    value: existing?.kPricePerKg ?? '',
+    value: npkPriceInputValue(existing?.kPricePerKg),
     'data-testid': 'npk-price-k',
   });
   panel.appendChild(kInput);
@@ -166,15 +182,14 @@ function openNpkPriceSheet(existing, operationId, farmId) {
       'data-testid': 'npk-price-save',
       onClick: () => {
         clear(statusEl);
-        const parseNum = v => v === '' ? null : parseFloat(v);
         try {
           const data = NpkPriceHistoryEntity.create({
             farmId: farmId || null,
             operationId,
             effectiveDate: dateInput.value,
-            nPricePerKg: parseNum(nInput.value),
-            pPricePerKg: parseNum(pInput.value),
-            kPricePerKg: parseNum(kInput.value),
+            nPricePerKg: npkPriceFromInput(nInput.value),
+            pPricePerKg: npkPriceFromInput(pInput.value),
+            kPricePerKg: npkPriceFromInput(kInput.value),
             notes: notesInput.value.trim() || null,
           });
           add('npkPriceHistory', data, NpkPriceHistoryEntity.validate,

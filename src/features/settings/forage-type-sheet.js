@@ -40,17 +40,23 @@ export const FORAGE_FIELD_DESCRIPTORS = [
   },
   {
     key: 'nPerTonneDm', labelKey: 'forageType.nLabel',
-    measureType: null, unitLabelKey: 'forageType.kgPerTDm',
+    // OI-0278 Fa: lb/ton DM on imperial (kg/t × 2.0), kg/t DM on metric.
+    measureType: 'nutrientPerDm',
+    unitLabelKeyByUnit: { imperial: 'forageType.lbPerTonDm', metric: 'forageType.kgPerTDm' },
     precision: { metric: 1, imperial: 1 },
   },
   {
     key: 'pPerTonneDm', labelKey: 'forageType.pLabel',
-    measureType: null, unitLabelKey: 'forageType.kgPerTDm',
+    // OI-0278 Fa: lb/ton DM on imperial (kg/t × 2.0), kg/t DM on metric.
+    measureType: 'nutrientPerDm',
+    unitLabelKeyByUnit: { imperial: 'forageType.lbPerTonDm', metric: 'forageType.kgPerTDm' },
     precision: { metric: 1, imperial: 1 },
   },
   {
     key: 'kPerTonneDm', labelKey: 'forageType.kLabel',
-    measureType: null, unitLabelKey: 'forageType.kgPerTDm',
+    // OI-0278 Fa: lb/ton DM on imperial (kg/t × 2.0), kg/t DM on metric.
+    measureType: 'nutrientPerDm',
+    unitLabelKeyByUnit: { imperial: 'forageType.lbPerTonDm', metric: 'forageType.kgPerTDm' },
     precision: { metric: 1, imperial: 1 },
   },
   {

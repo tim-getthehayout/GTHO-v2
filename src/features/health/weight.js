@@ -5,7 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { add, getAll, maybeSplitForGroup } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert, unitLabel, display } from '../../utils/units.js';
+import { convert, unitLabel, display, formatMeasure } from '../../utils/units.js';
 import { animalHeadCount, latestWeightForAnimal } from '../../calcs/window-helpers.js';
 import * as WeightRecordEntity from '../../entities/animal-weight-record.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
@@ -42,13 +42,13 @@ export function openWeightSheet(animal, operationId) {
     const shown = unitSys === 'imperial' ? convert(perKg, 'weight', 'toImperial') : perKg;
     perHeadPrefill = String(Math.round(shown * 1000) / 1000);
   }
-  const currentText = latest?.weightKg ? display(latest.weightKg, 'weight', unitSys, 0) : '\u2014';
+  const currentText = latest?.weightKg ? formatMeasure(latest.weightKg, 'weight', { unitSystem: unitSys }) : '\u2014';
 
   panel.appendChild(el('div', { style: { fontSize: '16px', fontWeight: '600', marginBottom: '4px' } }, [isBulk ? t('animal.weightPerHead') : 'Update weight']));
   panel.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '14px' } }, [
     isBulk
       ? `${displayName} \u00B7 ${t('animal.totalWeight')}: ${currentText}`
-      : `${displayName} \u00B7 current: ${animal.currentWeightKg ? display(animal.currentWeightKg, 'weight', unitSys, 0) : '\u2014'} ${wUnit}`,
+      : `${displayName} \u00B7 current: ${animal.currentWeightKg ? formatMeasure(animal.currentWeightKg, 'weight', { unitSystem: unitSys }) : '\u2014'}`,
   ]));
 
   const weightInput = el('input', {

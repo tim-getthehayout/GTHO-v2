@@ -3,6 +3,7 @@ import { renderPoolCheckForm } from './pool-forms.js';
 /** @file Feed check sheet — CP-28. V1 parity: triple-sync stepper + pct + slider. */
 
 import { el, clear } from '../../ui/dom.js';
+import { formatMeasure } from '../../utils/units.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, runDurableWrite } from '../../data/store.js';
@@ -25,7 +26,6 @@ function ensureSheetDOM() {
   ]));
 }
 
-const KG_TO_LBS = 2.20462;
 
 function unitLabel(unit) {
   const map = { 'round-bale': 'bales', 'square-bale': 'bales', bale: 'bales', tub: 'tubs', bag: 'bags', ton: 'tons', lb: 'lbs', kg: 'kg' };
@@ -161,8 +161,9 @@ export function openFeedCheckSheet(evt, operationId) {
       const consumed = Math.max(0, item.startedUnits - item.remaining);
       let consumedText = `${consumed.toFixed(2)} ${unitLabel(item.unit)}`;
       if (item.weightPerUnitKg && item.dmPct) {
-        const dmiLbs = consumed * item.weightPerUnitKg * KG_TO_LBS * (item.dmPct / 100);
-        consumedText += ` \u00B7 ~${Math.round(dmiLbs)} lbs DMI`;
+        // OI-0278 S3 row 40: farm unit via the shared helper.
+        const dmiKg = consumed * item.weightPerUnitKg * (item.dmPct / 100);
+        consumedText += ` \u00B7 ~${formatMeasure(dmiKg, 'weight')} DMI`;
       }
       item.consumedEl.appendChild(el('span', { style: { fontSize: '11px', color: 'var(--amber-d)' } }, [t('feed.feedCheckConsumed')]));
       item.consumedEl.appendChild(el('span', { style: { fontSize: '13px', fontWeight: '500', color: 'var(--amber-d)' } }, [consumedText]));

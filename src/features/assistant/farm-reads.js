@@ -1,6 +1,8 @@
 /** GTHO-owned read capabilities. No utterance catalog, writes or model-memory answers. */
 import { animalHeadCount } from '../../calcs/window-helpers.js';
 import { lastClosedGraze } from '../map/grazing-evidence.js';
+// Store-free helper core (this module also runs in the assistant edge function).
+import { formatMeasure } from '../../utils/units-core.js';
 
 export const FARM_READ_TOOLS = Object.freeze([
   { name: 'animal-reproductive-evidence', description: 'Read one resolved animal ID, stored open-set assessment and reproductive evidence.' },
@@ -9,6 +11,23 @@ export const FARM_READ_TOOLS = Object.freeze([
 ]);
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const unknown = reason => ({ state: 'unknown', reason });
+const unitSystemOf = op => (op?.unitSystem === 'metric' ? 'metric' : 'imperial');
+
+/**
+ * OI-0278 S4: pre-formatted display strings in the farm's unit system, so the
+ * assistant speaks in lb/ac or kg/ha without converting. Canonical metric
+ * values stay in the payload unchanged. Unknown → no string.
+ */
+export function farmReadDisplay(result, unitSystem, { latestWeightKg = null } = {}) {
+  const us = unitSystem === 'metric' ? 'metric' : 'imperial';
+  const fmt = (v, family) => (v == null || !Number.isFinite(Number(v)) ? null : formatMeasure(Number(v), family, { unitSystem: us }));
+  const display = {};
+  if (result?.location) display.locationArea = fmt(result.location.areaHectares, 'area');
+  if (result?.animal) display.animalWeight = fmt(latestWeightKg, 'weight');
+  if (result?.animalClass) display.classDefaultWeight = fmt(result.animalClass.defaultWeightKg, 'weight');
+  for (const [k, v] of Object.entries(display)) if (v == null) delete display[k];
+  return display;
+}
 
 /** Same predicate for named animals and counts; class role is authoritative, never its label. */
 export function assessOpenAnimal(animal, animalClass) {
@@ -39,6 +58,7 @@ export function createFarmReadPort({ authorize, getAll }) {
     if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(key => key !== field) || (field && !uuid(args[field]))) throw new Error('farm-read-invalid-arguments');
     const rows = async entity => (await getAll(entity)).filter(row => row.operationId === scope.operationId);
     let result;
+    let latestWeightKg = null;
     if (name === 'paddock-grazing-evidence') {
       const location = (await rows('locations')).find(row => row.id === args.locationId);
       if (!location) return unknown('paddock-not-found');
@@ -61,6 +81,9 @@ export function createFarmReadPort({ authorize, getAll }) {
         const animal = animals.find(row => row.id === args.animalId);
         if (!animal) return unknown('animal-not-found');
         const animalClass = classes.get(animal.classId);
+        const weights = (await rows('animalWeightRecords')).filter(row => row.animalId === animal.id && row.weightKg != null)
+          .sort((a, b) => String(b.recordedAt || b.date || '').localeCompare(String(a.recordedAt || a.date || '')));
+        latestWeightKg = weights[0]?.weightKg ?? null;
         result = {
           animal, animalClass: animalClass ?? null, open: assessOpenAnimal(animal, animalClass),
           breedingRecords: (await rows('animalBreedingRecords')).filter(row => row.animalId === animal.id),
@@ -69,6 +92,10 @@ export function createFarmReadPort({ authorize, getAll }) {
         };
       }
     }
+    // OI-0278 S4: the read payload carries the farm unit system + formatted values.
+    const operation = (await getAll('operations')).find(row => row.id === scope.operationId);
+    const unitSystem = unitSystemOf(operation);
+    result = { ...result, unitSystem, display: farmReadDisplay(result, unitSystem, { latestWeightKg }) };
     // A downstream model/provider cannot mutate local records through returned references.
     return globalThis.structuredClone(result);
   };

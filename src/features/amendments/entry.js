@@ -10,7 +10,7 @@ import * as AmendmentEntity from '../../entities/amendment.js';
 import * as AmendmentLocationEntity from '../../entities/amendment-location.js';
 import { isCalendarDate, optionalFormNumber } from '../../utils/form-values.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert } from '../../utils/units.js';
+import { convert, formatMeasure } from '../../utils/units.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let unsubs = [];
@@ -291,10 +291,9 @@ export function openAmendmentSheet(existing, operationId) {
       npkPreviewEl.appendChild(el('span', {}, [t('amendment.npkPreviewNoData')]));
       return;
     }
-    const nKg = nPct != null ? ((nPct / 100) * qty).toFixed(2) : '—';
-    const pKg = pPct != null ? ((pPct / 100) * qty).toFixed(2) : '—';
-    const kKg = kPct != null ? ((kPct / 100) * qty).toFixed(2) : '—';
-    npkPreviewEl.appendChild(el('span', {}, [`N: ${nKg} kg  P: ${pKg} kg  K: ${kKg} kg`]));
+    // OI-0278 S4 row 44: NPK preview in the farm unit (qty is kg here).
+    const npk = pct => (pct != null ? formatMeasure((pct / 100) * qty, 'npk', { decimals: 2 }) : '—');
+    npkPreviewEl.appendChild(el('span', {}, [`N: ${npk(nPct)}  P: ${npk(pPct)}  K: ${npk(kPct)}`]));
   }
 
   // Paddock multi-select

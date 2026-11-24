@@ -5,7 +5,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, subscribe, getVisibleLocations, getActiveFarmId } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { display, convert } from '../../utils/units.js';
+import { display, convert, formatMeasure } from '../../utils/units.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { formatShortDate } from '../../utils/date-format.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
@@ -46,7 +46,6 @@ function ratingColor(rating) {
   return { color: 'var(--green-d)', bg: 'var(--green-l)' };
 }
 
-function fmtNum(n) { return Math.round(n).toLocaleString('en-US'); }
 
 // ─── Main Entry ─────────────────────────────────────────────────────────
 
@@ -232,7 +231,7 @@ function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMu
   }
 
   contentEl.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0 6px', borderBottom: '0.5px solid var(--border)', fontSize: '11px', marginBottom: '6px' } }, [
-    el('div', { style: { color: 'var(--text2)' } }, [sortEl('Name', 'name'), ' \u00B7 ', sortEl('Acres', 'acres')]),
+    el('div', { style: { color: 'var(--text2)' } }, [sortEl('Name', 'name'), ' \u00B7 ', sortEl('Area', 'acres')]),
     el('div', { style: { color: 'var(--text2)' } }, [sortEl('Survey', 'survey')]),
   ]));
 
@@ -373,11 +372,12 @@ export function buildLocationCard(loc, operationId, farmId, unitSys) {
       const openPwForArea = epws.find(pw => { const evt = getById('events', pw.eventId); return evt && !evt.dateOut; });
       const areaPctForCalc = openPwForArea?.areaPct ?? 100;
       const dmAvail = for1.fn({ forageHeightCm: latestObs.forageHeightCm, residualHeightCm: residual, areaHectares: locHa, areaPct: areaPctForCalc, coverPct: latestObs.forageCoverPct ?? 80, dmKgPerCmPerHa: forageType.dmKgPerCmPerHa ?? 110 });
-      const dmLbs = fmtNum(convert(dmAvail, 'weight', 'toImperial'));
+      // OI-0278 S3 row 30: farm unit via the shared helper.
+      const dmText = formatMeasure(dmAvail, 'weight', { unitSystem: unitSys });
       const auds = (dmAvail / 11).toFixed(0);
       const heightDisplay = display(latestObs.forageHeightCm, 'length', unitSys, 1);
       leftSide.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--teal)', marginTop: '3px', fontWeight: '500' } }, [
-        `\uD83C\uDF3F Est. available: ${dmLbs} lbs DM \u00B7 ~${auds} AUDs`,
+        `\uD83C\uDF3F Est. available: ${dmText} DM \u00B7 ~${auds} AUDs`,
       ]));
       leftSide.appendChild(el('div', { style: { fontSize: '10px', color: 'var(--text3)', marginTop: '1px' } }, [
         `Survey ${rating ?? '\u2014'} \u00B7 ${heightDisplay}`,

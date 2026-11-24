@@ -8,6 +8,25 @@ import { getAll, add, update, remove, subscribe } from '../../data/store.js';
 import * as ManureBatchEntity from '../../entities/manure-batch.js';
 import * as ManureBatchTransactionEntity from '../../entities/manure-batch-transaction.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
+import { getUnitSystem } from '../../utils/preferences.js';
+import { formatMeasure, shortUnit } from '../../utils/units.js';
+import { toDisplayValue, toStoredValue } from '../settings/unit-descriptor.js';
+
+// OI-0278 S4 (Appendix B): manure masses render in the farm unit and save
+// canonical kg via the shared unit descriptor. Unchanged text keeps the stored
+// value (no round-trip drift on an untouched field).
+const WEIGHT_FIELD = { measureType: 'weight', precision: { metric: 2, imperial: 2 } };
+export function manureWeightInputValue(kg, unitSystem = getUnitSystem()) {
+  if (kg == null || kg === '') return '';
+  const shown = toDisplayValue(Number(kg), WEIGHT_FIELD, unitSystem);
+  return unitSystem === 'metric' ? String(kg) : String(Number(shown.toFixed(2)));
+}
+export function manureWeightFromInput(text, unitSystem = getUnitSystem(), previousKg = null) {
+  const raw = String(text ?? '').trim();
+  if (raw === '') return null;
+  if (previousKg != null && raw === manureWeightInputValue(previousKg, unitSystem)) return previousKg;
+  return toStoredValue(parseFloat(raw), WEIGHT_FIELD, unitSystem);
+}
 
 const NUTRIENT_KEYS = ['nKg', 'pKg', 'kKg', 'sKg', 'caKg', 'mgKg', 'cuKg', 'feKg', 'mnKg', 'moKg', 'znKg', 'bKg', 'clKg'];
 const NUTRIENT_LABELS = {
@@ -74,9 +93,10 @@ function renderManureList(rootContainer, operationId) {
   for (const batch of sorted) {
     const sourceLoc = locations.find(l => l.id === batch.sourceLocationId);
     const npkSummary = [
-      batch.nKg != null ? `N: ${batch.nKg}` : null,
-      batch.pKg != null ? `P: ${batch.pKg}` : null,
-      batch.kKg != null ? `K: ${batch.kKg}` : null,
+      // OI-0278 S4 row 46: N/P/K with the farm unit.
+      batch.nKg != null ? `N: ${formatMeasure(batch.nKg, 'npk')}` : null,
+      batch.pKg != null ? `P: ${formatMeasure(batch.pKg, 'npk')}` : null,
+      batch.kKg != null ? `K: ${formatMeasure(batch.kKg, 'npk')}` : null,
     ].filter(Boolean).join(' ');
     const txns = getAll('manureBatchTransactions').filter(tx => tx.batchId === batch.id);
     const totalUsed = txns.filter(tx => tx.type === 'use').reduce((sum, tx) => sum + (tx.volumeKg || 0), 0);
@@ -95,7 +115,8 @@ function renderManureList(rootContainer, operationId) {
             [
               sourceLoc ? sourceLoc.name : null,
               batch.captureDate || null,
-              vol != null ? `${remaining?.toFixed(0) ?? '?'}/${vol} kg` : null,
+              // OI-0278 S4 row 47: remaining / volume in the farm unit.
+              vol != null ? `${remaining != null ? formatMeasure(remaining, 'weight', { unitInHeader: true }) : '?'}/${formatMeasure(vol, 'weight')}` : null,
               npkSummary || null,
             ].filter(Boolean).join(' · '),
           ]),
@@ -164,10 +185,10 @@ function openManureBatchSheet(existing, operationId) {
   panel.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [inputs.sourceLocationId, mapPickButton(inputs.sourceLocationId, { title: 'Pick a source pasture' })]));
 
   // Estimated volume (kg)
-  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.manureBatchVolume')]));
+  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.manureBatchVolume', { unit: shortUnit('weight') })]));
   inputs.estimatedVolumeKg = el('input', {
     type: 'number', className: 'auth-input settings-input',
-    value: existing?.estimatedVolumeKg ?? '',
+    value: manureWeightInputValue(existing?.estimatedVolumeKg),
     'data-testid': 'manure-batch-volume',
   });
   panel.appendChild(inputs.estimatedVolumeKg);
@@ -182,13 +203,13 @@ function openManureBatchSheet(existing, operationId) {
   panel.appendChild(inputs.captureDate);
 
   // 13-element composition
-  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.manureBatchComposition')]));
+  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.manureBatchComposition', { unit: shortUnit('weight') })]));
   const nutrientGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-2)' } });
   for (const key of NUTRIENT_KEYS) {
     inputs[key] = el('input', {
       type: 'number', className: 'auth-input settings-input',
       placeholder: NUTRIENT_LABELS[key],
-      value: existing?.[key] ?? '',
+      value: manureWeightInputValue(existing?.[key]),
       'data-testid': `manure-batch-${key}`,
       style: { fontSize: '12px' },
     });
@@ -215,16 +236,15 @@ function openManureBatchSheet(existing, operationId) {
       'data-testid': 'manure-batch-save',
       onClick: () => {
         clear(statusEl);
-        const parseNum = v => v === '' ? null : parseFloat(v);
         const data = {
           operationId,
           label: inputs.label.value.trim(),
           sourceLocationId: inputs.sourceLocationId.value || null,
-          estimatedVolumeKg: parseNum(inputs.estimatedVolumeKg.value),
+          estimatedVolumeKg: manureWeightFromInput(inputs.estimatedVolumeKg.value, undefined, existing?.estimatedVolumeKg ?? null),
           captureDate: inputs.captureDate.value || null,
           notes: inputs.notes.value.trim() || null,
         };
-        for (const key of NUTRIENT_KEYS) data[key] = parseNum(inputs[key].value);
+        for (const key of NUTRIENT_KEYS) data[key] = manureWeightFromInput(inputs[key].value, undefined, existing?.[key] ?? null);
         try {
           if (isEdit) {
             update('manureBatches', existing.id, data,
@@ -285,7 +305,7 @@ function openManureTxSheet(batch, operationId) {
             el('div', { className: 'form-hint' }, [tx.transactionDate || '']),
           ]),
           el('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' } }, [
-            el('span', { style: { fontSize: '13px' } }, [`${tx.volumeKg} kg`]),
+            el('span', { style: { fontSize: '13px' } }, [formatMeasure(tx.volumeKg, 'weight')]),
             el('button', {
               className: 'btn btn-outline btn-xs',
               'data-testid': `manure-tx-delete-${tx.id}`,
@@ -327,7 +347,7 @@ function openManureTxSheet(batch, operationId) {
   });
   panel.appendChild(txDateInput);
 
-  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.txVolume')]));
+  panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.txVolume', { unit: shortUnit('weight') })]));
   const txVolumeInput = el('input', {
     type: 'number', className: 'auth-input settings-input',
     value: '', 'data-testid': 'manure-tx-volume',
@@ -352,8 +372,8 @@ function openManureTxSheet(batch, operationId) {
       'data-testid': 'manure-tx-save',
       onClick: () => {
         clear(txStatusEl);
-        const volumeKg = parseFloat(txVolumeInput.value);
-        if (isNaN(volumeKg)) {
+        const volumeKg = manureWeightFromInput(txVolumeInput.value);
+        if (volumeKg == null || isNaN(volumeKg)) {
           txStatusEl.appendChild(el('span', {}, [t('amendment.txVolumeRequired')]));
           return;
         }

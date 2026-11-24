@@ -6,7 +6,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, subscribe, update, remove, isCurrentUserDev } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert, display, unitLabel, formatMeasure, shortUnit } from '../../utils/units.js';
+import { convert, display, formatMeasure, shortUnit } from '../../utils/units.js';
 import { fertilizerHover, ELEMENTAL_SUFFIX } from '../../calcs/fertilizer-equivalents.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
@@ -682,8 +682,6 @@ function renderGroups(ctx) {
 // §8: Feed Entries
 // ---------------------------------------------------------------------------
 
-const KG_TO_LBS = 2.20462;
-
 /**
  * OI-0108 — pure helper for the feed-entry DM display (testable seam).
  * Returns { text, missing } where `missing` is true when the batch lacks
@@ -693,12 +691,13 @@ export function computeFeedEntryDm(quantity, batch, unitSys) {
   const weightKg = batch?.weightPerUnitKg;
   const dmPct = batch?.dmPct;
   const canCompute = weightKg != null && weightKg > 0 && dmPct != null && dmPct > 0;
-  const massUnit = unitLabel('weight', unitSys);
+  // OI-0278 Ua: short unit ("lb" / "kg") via the shared helper.
+  const massUnit = shortUnit('weight', unitSys);
   if (!canCompute) {
     return { text: t('event.feedEntryDm', { n: '—', unit: massUnit }), missing: true };
   }
   const dmKg = (quantity || 0) * weightKg * (dmPct / 100);
-  const n = Math.round(unitSys === 'imperial' ? dmKg * KG_TO_LBS : dmKg);
+  const n = formatMeasure(dmKg, 'weight', { unitSystem: unitSys, decimals: 0, unitInHeader: true });
   return { text: t('event.feedEntryDm', { n, unit: massUnit }), missing: false };
 }
 
@@ -947,11 +946,11 @@ function renderDmiNpk(ctx) {
       dailyDmi += d.kg;
     }
     if (dailyDmi > 0) {
-      const dmiStr = display(dailyDmi, 'weight', unitSys, 1);
-      const unit = unitLabel('weight', unitSys);
+      // OI-0278 S3 row 33: one unit ("12.3 lb/day"), not "12.3 lbs lbs/day".
+      const dmiStr = formatMeasure(dailyDmi, 'weight', { unitSystem: unitSys, decimals: 1 });
       const dmiNote = dmiBasisNote(dmiResults);
       card.appendChild(el('div', { style: { fontSize: '13px', padding: '4px 0' }, 'data-testid': 'detail-dmi-line', ...(dmiNote ? { title: dmiNote } : {}) }, [
-        `${t('dmi.targetForecast')}: ${dmiStr} ${unit}/day`,
+        `${t('dmi.targetForecast')}: ${dmiStr}/day`,
       ]));
     }
   }

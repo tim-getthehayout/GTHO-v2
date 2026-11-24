@@ -20,7 +20,7 @@ import { computeDmi8Days } from '../../src/features/events/dmi-chart-context.js'
 import { getCalcByName } from '../../src/utils/calc-registry.js';
 import { buildLocationCard } from '../../src/features/dashboard/index.js';
 import { openEventDetailSheet } from '../../src/features/events/detail.js';
-import { convert, display } from '../../src/utils/units.js';
+import { convert, formatMeasure } from '../../src/utils/units.js';
 import { getLocalTodayStr } from '../../src/utils/date-utils.js';
 import { groupWindowPresenceDays } from '../../src/calcs/partial-day-demand.js';
 import { getEventStartDate } from '../../src/features/events/event-start.js';
@@ -285,7 +285,8 @@ describe('OI-0279 one fixture, identical per-day demand on every surface', () =>
     // Event detail DMI line.
     openEventDetailSheet({ id: 'e' }, 'op', 'farm');
     const detailLine = document.querySelector('[data-testid="detail-dmi-line"]');
-    expect(detailLine.textContent).toContain(`${display(exp.kg, 'weight', 'metric', 1)} kg/day`);
+    // OI-0278 S3 row 33: one unit ("27.0 kg/day"), the old "27.0 kg kg/day" was the bug.
+    expect(detailLine.textContent).toContain(`${formatMeasure(exp.kg, 'weight', { unitSystem: 'metric', decimals: 1 })}/day`);
     expect(detailLine.title).toBe('1 head at default 2.5% (no class)');
   });
 

@@ -13,6 +13,8 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, remove } from '../../data/store.js';
+import { getUnitSystem } from '../../utils/preferences.js';
+import { formatMeasure } from '../../utils/units.js';
 import { openForageTypeSheet, renderForageTypeSheetMarkup } from './forage-type-sheet.js';
 
 export { renderForageTypeSheetMarkup };
@@ -82,11 +84,15 @@ function renderRow(ft, operationId, rerender) {
     }, [t('forageType.seededBadge')]));
   }
 
+  // OI-0278 S4 row 49 (Fa): NPK removal in lb/ton DM on imperial, kg/t DM on metric.
+  const us = getUnitSystem();
+  const perDm = (v) => (v == null ? '?' : formatMeasure(Number(v), 'nutrientPerDm', { unitSystem: us, unitInHeader: true }).replace(/\.0$/, ''));
   const meta = t('forageType.metaLine', {
     dm: formatMetaValue(ft.dmPct),
-    n: formatMetaValue(ft.nPerTonneDm),
-    p: formatMetaValue(ft.pPerTonneDm),
-    k: formatMetaValue(ft.kPerTonneDm),
+    n: perDm(ft.nPerTonneDm),
+    p: perDm(ft.pPerTonneDm),
+    k: perDm(ft.kPerTonneDm),
+    unit: t(us === 'metric' ? 'forageType.kgPerTDm' : 'forageType.lbPerTonDm'),
   });
 
   return el('div', {

@@ -7,7 +7,7 @@
  *   2. Label reads "DM" with kg under metric
  *   3. Em-dash guard when batch is missing weightPerUnitKg
  *   4. Em-dash guard when batch is missing dmPct
- *   5. Legitimate zero: quantity === 0 with valid batch params still shows "0 lbs DM"
+ *   5. Legitimate zero: quantity === 0 with valid batch params still shows "0 lb DM"
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { computeFeedEntryDm } from '../../src/features/events/detail.js';
@@ -23,13 +23,13 @@ function batch(overrides = {}) {
 }
 
 describe('computeFeedEntryDm (OI-0108)', () => {
-  it('renders "{N} lbs DM" under imperial for a populated batch', () => {
+  it('renders "{N} lb DM" under imperial for a populated batch', () => {
     // 2 bales × 500 kg × 85% DM = 850 kg DM = ~1874 lbs.
     const { text, missing } = computeFeedEntryDm(2, batch(), 'imperial');
     expect(missing).toBe(false);
     expect(text).toMatch(/DM$/);
-    expect(text).toMatch(/lbs DM$/);
-    expect(text).toMatch(/1874/);
+    expect(text).toMatch(/lb DM$/);
+    expect(text).toBe("1,874 lb DM"); // OI-0278 Na: thousands separator, Ua short unit
   });
 
   it('renders "{N} kg DM" under metric for a populated batch', () => {
@@ -40,39 +40,39 @@ describe('computeFeedEntryDm (OI-0108)', () => {
     expect(text).toMatch(/850/);
   });
 
-  it('renders "— lbs DM" when batch is missing weightPerUnitKg', () => {
+  it('renders "— lb DM" when batch is missing weightPerUnitKg', () => {
     const { text, missing } = computeFeedEntryDm(2, batch({ weightPerUnitKg: null }), 'imperial');
     expect(missing).toBe(true);
-    expect(text).toBe('— lbs DM');
+    expect(text).toBe('— lb DM');
   });
 
-  it('renders "— lbs DM" when batch is missing dmPct', () => {
+  it('renders "— lb DM" when batch is missing dmPct', () => {
     const { text, missing } = computeFeedEntryDm(2, batch({ dmPct: null }), 'imperial');
     expect(missing).toBe(true);
-    expect(text).toBe('— lbs DM');
+    expect(text).toBe('— lb DM');
   });
 
-  it('legitimate zero: quantity === 0 with valid batch params shows "0 lbs DM"', () => {
+  it('legitimate zero: quantity === 0 with valid batch params shows "0 lb DM"', () => {
     const { text, missing } = computeFeedEntryDm(0, batch(), 'imperial');
     expect(missing).toBe(false);
-    expect(text).toBe('0 lbs DM');
+    expect(text).toBe('0 lb DM');
   });
 
   it('zero-weight batch (weightPerUnitKg === 0) is treated as missing (not silent-zero)', () => {
     const { text, missing } = computeFeedEntryDm(2, batch({ weightPerUnitKg: 0 }), 'imperial');
     expect(missing).toBe(true);
-    expect(text).toBe('— lbs DM');
+    expect(text).toBe('— lb DM');
   });
 
   it('zero-dm batch (dmPct === 0) is treated as missing (not silent-zero)', () => {
     const { text, missing } = computeFeedEntryDm(2, batch({ dmPct: 0 }), 'imperial');
     expect(missing).toBe(true);
-    expect(text).toBe('— lbs DM');
+    expect(text).toBe('— lb DM');
   });
 
   it('undefined batch (batch lookup miss) is treated as missing', () => {
     const { text, missing } = computeFeedEntryDm(2, undefined, 'imperial');
     expect(missing).toBe(true);
-    expect(text).toBe('— lbs DM');
+    expect(text).toBe('— lb DM');
   });
 });

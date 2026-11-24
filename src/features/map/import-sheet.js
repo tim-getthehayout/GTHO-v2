@@ -5,6 +5,7 @@ import { Sheet } from '../../ui/sheet.js';
 import { getAll, getActiveFarmId } from '../../data/store.js';
 import { parseBoundaryFile, matchImportedFeatures } from '../../utils/geo-import.js';
 import { polygonAreaHectares } from '../../utils/geo.js';
+import { formatMeasure } from '../../utils/units.js';
 import { applyLocationGeometry, createLocationFromImport } from './apply-geometry.js';
 
 let sheet = null;
@@ -62,11 +63,12 @@ export function openImportReview(features, fileName) {
     clear(list);
     for (const row of rows) {
       const ha = polygonAreaHectares(row.geojson);
-      const acres = ha != null ? (ha * 2.47105).toFixed(1) : '—';
+      // OI-0278 S3 row 54: file area in the farm unit (ac / ha).
+      const areaText = formatMeasure(ha, 'area', { decimals: 1 });
       const card = el('div', { style: { padding: '10px 12px', border: '0.5px solid var(--border)', borderRadius: '10px', marginBottom: '8px', background: 'var(--bg2)' } });
       card.appendChild(el('div', { style: { fontWeight: '600', fontSize: '13px' } }, [row.name]));
       card.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text2)', marginBottom: '6px' } }, [
-        `${acres} ac from file${row.matchName ? ` · matched ${row.matchName}` : ''}`,
+        `${areaText} from file${row.matchName ? ` · matched ${row.matchName}` : ''}`,
       ]));
       const select = el('select', { className: 'auth-select' }, [
         el('option', { value: 'create', selected: row.action === 'create' }, ['Create new location']),

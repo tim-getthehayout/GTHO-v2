@@ -5,6 +5,7 @@ import { renderPlausibilityWarnings, clearPlausibilityWarnings } from './plausib
 /** @file Deliver feed (Log feeding) sheet — CP-27. V1 parity: batch cards + inline stepper + summary. */
 
 import { el, clear } from '../../ui/dom.js';
+import { formatMeasure } from '../../utils/units.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { runDurableWrite, getAll, getById, add } from '../../data/store.js';
@@ -32,7 +33,6 @@ function ensureSheetDOM() {
   ]));
 }
 
-const KG_TO_LBS = 2.20462;
 
 function unitLabel(unit) {
   const map = { 'round-bale': 'bales', 'square-bale': 'bales', bale: 'bales', tub: 'tubs', bag: 'bags', ton: 'tons', lb: 'lbs', kg: 'kg' };
@@ -195,9 +195,10 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
           if (qty > 0) {
             const parts = [];
             if (batch.weightPerUnitKg) {
-              const asFedLbs = qty * batch.weightPerUnitKg * KG_TO_LBS;
-              parts.push(`${Math.round(asFedLbs).toLocaleString()} lbs as-fed`);
-              if (batch.dmPct) parts.push(`${Math.round(asFedLbs * batch.dmPct / 100).toLocaleString()} lbs DM`);
+              // OI-0278 S3 row 38: farm unit via the shared helper.
+              const asFedKg = qty * batch.weightPerUnitKg;
+              parts.push(`${formatMeasure(asFedKg, 'weight')} as-fed`);
+              if (batch.dmPct) parts.push(`${formatMeasure(asFedKg * batch.dmPct / 100, 'weight')} DM`);
             }
             if (batch.costPerUnit) parts.push(`$${(qty * batch.costPerUnit).toFixed(2)}`);
             detailLine = parts.join(' \u00B7 ');
@@ -234,15 +235,15 @@ export function openDeliverFeedSheet(evt, operationId, options = {}) {
       if (line.qty <= 0) continue;
       const batch = getById('batches', line.batchId);
       if (!batch) continue;
-      const asFed = batch.weightPerUnitKg ? line.qty * batch.weightPerUnitKg * KG_TO_LBS : line.qty;
-      totalDmi += asFed * ((batch.dmPct || 0) / 100);
+      // OI-0278 S3 row 39: canonical kg; a batch with no weight adds no mass.
+      if (batch.weightPerUnitKg) totalDmi += line.qty * batch.weightPerUnitKg * ((batch.dmPct || 0) / 100);
       totalCost += line.qty * (batch.costPerUnit || 0);
     }
     summaryEl.appendChild(el('div', { className: 'card-inset', style: { marginTop: '10px' } }, [
       el('div', { className: 'two' }, [
         el('div', {}, [
           el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('feed.feedDMI')]),
-          el('div', { style: { fontSize: '18px', fontWeight: '700' } }, [`${Math.round(totalDmi).toLocaleString()} lbs`]),
+          el('div', { style: { fontSize: '18px', fontWeight: '700' } }, [formatMeasure(totalDmi, 'weight')]),
         ]),
         el('div', {}, [
           el('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, [t('feed.feedCost')]),

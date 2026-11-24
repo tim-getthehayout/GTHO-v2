@@ -22,7 +22,8 @@ const requireData = ({ data, error }) => { if (error) throw new Error('assistant
 
 const INSTRUCTIONS = {
   feedback: 'Run the pinned feedback interview. Ask exactly the one nextQuestion given in data when present; never invent answers, host fields or consent. Propose only interview fields (title, type, expected, actual, reproSteps, severity, impact, needsDecision, unknowns) as facts {state, value?, source:"user"} from what the user said. The user reviews and confirms in the normal feedback sheet; you never file.',
-  'data-questions': 'Answer farm questions only from the allowlisted read tools. Missing or unresolved evidence is unknown, never no. Do not propose writes.',
+  // OI-0278 S4: one prompt line (server/edge deploy needed to take effect).
+  'data-questions': 'Answer farm questions only from the allowlisted read tools. Missing or unresolved evidence is unknown, never no. Do not propose writes.\nSpeak in the farm\'s unit system (read results carry unitSystem); quote the display strings, never convert units yourself.',
   'how-to': 'Answer how-to questions about using GTHO in plain words. Answer only; never propose, file or write.',
 };
 

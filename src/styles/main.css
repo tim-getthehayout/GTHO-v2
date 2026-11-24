@@ -117,9 +117,11 @@
   --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.12);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.18);
 
-  /* Safe area */
+  /* Safe area — #456: env() is non-zero only with viewport-fit=cover */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 
   /* Typography */
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -204,7 +206,10 @@ textarea::placeholder {
 }
 
 .app-header {
-  padding: var(--space-4) var(--space-5);
+  padding-top: calc(var(--space-4) + var(--safe-top));
+  padding-right: calc(var(--space-5) + var(--safe-right));
+  padding-bottom: var(--space-4);
+  padding-left: calc(var(--space-5) + var(--safe-left));
   border-bottom: 1px solid var(--border);
   background: var(--bg);
   position: sticky;
@@ -290,6 +295,8 @@ textarea::placeholder {
   background: var(--bg);
   border-radius: var(--radius-xl);
   padding: 16px 16px 24px;
+  padding-left: calc(16px + var(--safe-left));
+  padding-right: calc(16px + var(--safe-right));
   width: min(92vw, 680px);
   max-height: min(90dvh, 90vh);
   min-height: 0;
@@ -297,6 +304,11 @@ textarea::placeholder {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   box-shadow: var(--shadow-lg);
+}
+/* #456: last region carries safe-bottom. Sticky actions take it when present;
+   otherwise the scroll body does. Regular sheets get no top inset. */
+.sheet-panel:not(:has(.sheet-actions-sticky)) {
+  padding-bottom: calc(24px + var(--safe-bottom));
 }
 
 .sheet-handle {
@@ -408,6 +420,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: center;
   background: var(--bg);
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
 .auth-card {
@@ -559,8 +572,8 @@ body.field-mode .auth-overlay .header-build-stamp {
   bottom: 0;
   z-index: 2;
   background: var(--bg);
-  margin: var(--space-4) -16px 0;
-  padding: 12px 16px 4px;
+  margin: var(--space-4) calc(-16px - var(--safe-right)) 0 calc(-16px - var(--safe-left));
+  padding: 12px calc(16px + var(--safe-right)) calc(4px + var(--safe-bottom)) calc(16px + var(--safe-left));
   border-top: 0.5px solid var(--border);
 }
 
@@ -1530,7 +1543,7 @@ body.field-mode .auth-overlay .header-build-stamp {
 .fab-wrap {
   position: fixed;
   bottom: calc(20px + var(--safe-bottom));
-  right: 20px;
+  right: calc(20px + var(--safe-right));
   z-index: 50;
 }
 
@@ -1675,6 +1688,8 @@ body.field-mode .sheet-panel {
   max-height: min(100dvh, 100vh);
   min-height: 0;
   max-width: 100%;
+  /* #456: full-screen (field mode) sheets also get safe-top on the header. */
+  padding-top: calc(16px + var(--safe-top));
 }
 body.field-mode .dsk-sidebar { display: none !important; }
 body.field-mode .bottom-nav { display: none !important; }
@@ -1945,7 +1960,7 @@ body.field-mode .sheet-handle { display: none; }
   background: var(--bg);
   border-top: 1px solid var(--border);
   z-index: 100;
-  padding: var(--space-2) 0 calc(var(--space-2) + var(--safe-bottom));
+  padding: var(--space-2) var(--safe-right) calc(var(--space-2) + var(--safe-bottom)) var(--safe-left);
 }
 
 .bnav-item {
@@ -2019,7 +2034,7 @@ body.field-mode .sheet-handle { display: none; }
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
-  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  padding: var(--space-3) var(--space-4);
   background: var(--bg);
   color: var(--text);
   border-top: 1px solid var(--border);
@@ -2856,7 +2871,7 @@ body:has(.auth-overlay) .pwa-update-banner {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 4px;
+  padding: 3px calc(4px + var(--safe-right)) 3px calc(4px + var(--safe-left));
   border-top: 1px solid var(--border);
   background: var(--bg2);
   user-select: none;
@@ -2903,7 +2918,7 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 .loc-mgmt__rail-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
 /* Phone: at least a 24px touch height (track 24px, buttons 32px). */
-.loc-mgmt__rail--phone { gap: 6px; padding: 4px 6px; }
+.loc-mgmt__rail--phone { gap: 6px; padding: 4px calc(6px + var(--safe-right)) 4px calc(6px + var(--safe-left)); }
 .loc-mgmt__rail--phone .loc-mgmt__rail-track { height: 24px; border-radius: 12px; }
 .loc-mgmt__rail--phone .loc-mgmt__rail-thumb { border-radius: 12px; }
 .loc-mgmt__rail--phone .loc-mgmt__rail-btn { width: 36px; height: 32px; font-size: 20px; }
@@ -4165,6 +4180,18 @@ body:has(.auth-overlay) .pwa-update-banner {
 .farm-map-screen { display: flex; flex-direction: column; }
 .farm-map-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .farm-map-header .farm-map-title { margin: 0; }
+/* #456: canvas stays edge to edge; overlay / chrome controls take side insets.
+   Scoped to .farm-map-screen so the picker overlay (already padded as a
+   full-screen sheet) does not get a second set of insets. */
+.farm-map-screen .farm-map-header,
+.farm-map-screen .farm-map-toolbar,
+.farm-map-screen .farm-map-hint,
+.farm-map-screen .farm-map-actions {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+.farm-map-screen .farm-map-canvas .leaflet-left { left: var(--safe-left); }
+.farm-map-screen .farm-map-canvas .leaflet-right { right: var(--safe-right); }
 .farm-map-canvas {
   position: relative;
   z-index: 0;
@@ -4214,10 +4241,21 @@ body:has(.auth-overlay) .pwa-update-banner {
     min-height: 260px;
   }
 }
+/* #456: phone landscape — drop the 260px min so flex can shrink the canvas
+   above the tab bar. Don't hide the nav and don't make the Map view scroll.
+   Portrait keeps 260px. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app-content:has(.loc-mgmt-map) .farm-map-canvas {
+    min-height: 0;
+  }
+}
 .farm-map-toolbar, .farm-map-hint { margin-bottom: 8px; }
 .farm-map-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-.map-picker-overlay { position: fixed; inset: 0; z-index: 500; background: var(--bg, #111); display: flex; flex-direction: column; padding: 12px; }
+/* #456: full-screen sheet. Actions live in the top toolbar, so the overlay
+   itself carries safe-top / safe-bottom (and left/right) rather than padding
+   .farm-map-actions, which would gap the header buttons. */
+.map-picker-overlay { position: fixed; inset: 0; z-index: 500; background: var(--bg, #111); display: flex; flex-direction: column; padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left)); }
 .map-picker-overlay .farm-map-canvas { flex: 1; height: auto; min-height: 0; }
 
 .paddock-label { background: transparent; border: none; box-shadow: none; }

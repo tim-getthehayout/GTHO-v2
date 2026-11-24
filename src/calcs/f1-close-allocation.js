@@ -254,7 +254,11 @@ function poolHoldsOnDate(history, input, key, date) {
 
 /**
  * Measured hay status for one event on one date (F1 / Al1).
- * @returns {{ kind: 'none' } | { kind: 'measured', dmKg: number } | { kind: 'unknown' }}
+ * OI-0285 B: an `unknown` day carries `pendingCheck: true` when the only reason
+ * is that a pool still holds feed past its latest reading (no feed check since —
+ * nothing to measure yet). A span with a missing unit / DM stays plain unknown.
+ * Callers that do not read `pendingCheck` see the same result as before.
+ * @returns {{ kind: 'none' } | { kind: 'measured', dmKg: number } | { kind: 'unknown', pendingCheck: boolean }}
  */
 export function f1MeasuredHayOnEventDay(args) {
   return passMemo('f1MeasuredHay', metricsPassActive() ? `${hayArgsKey(args)}|${args.date}` : null,
@@ -270,6 +274,7 @@ function computeF1MeasuredHayOnEventDay(args) {
   let measured = 0;
   let active = 0;
   let unknown = false;
+  let hardUnknown = false; // OI-0285 B: a missing unit / DM, not just "no check yet"
   for (const key of spans.identities.keys()) {
     const readings = (spans.readingsByKey.get(key) || []).map(row => ({ date: row.date, time: row.time }));
     const shares = elapsedDayShares(readings, date);
@@ -292,14 +297,15 @@ function computeF1MeasuredHayOnEventDay(args) {
     }
     if (partUnknown) {
       unknown = true;
+      hardUnknown = true;
       continue;
     }
     measured += 1;
     dmKg += value;
   }
-  if (unknown) return { kind: 'unknown' };
-  if (active === 0) return holdsAny(spans, date) ? { kind: 'unknown' } : { kind: 'none' };
-  if (measured !== active) return { kind: 'unknown' };
+  if (unknown) return { kind: 'unknown', pendingCheck: !hardUnknown };
+  if (active === 0) return holdsAny(spans, date) ? { kind: 'unknown', pendingCheck: true } : { kind: 'none' };
+  if (measured !== active) return { kind: 'unknown', pendingCheck: false };
   return { kind: 'measured', dmKg };
 }
 

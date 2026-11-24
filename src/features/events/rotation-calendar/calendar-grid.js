@@ -196,9 +196,14 @@ function renderMetricCol(col, metrics, { includePerAcre = true, compact = false,
   // OI-0279: name any per-class DMI % fallback on the DMI cells.
   const isDmi = col.key === 'dmiKg' || col.key === 'dmiPerAcre';
   const basisNote = isDmi ? metrics?.dmiBasisNote || null : null;
-  // OI-0285: hay on an open / unchecked event is not counted (Zp) — say why.
+  // OI-0285: hay never measured (missing unit, or a closed event) is not counted (Zp).
   const dmiHayNote = isDmi && metrics?.dmiHayUnknown ? t('event.dmiHayNotCounted') : null;
-  const title = [baseTitle, hayNote, dmiHayNote, basisNote].filter(Boolean).join('. ');
+  // OI-0285 B: open event, no feed check since the feed went out — hay 0 estimate,
+  // shown with the ~ marker and "Feed check needed" (DMI and DMI/area alike).
+  const feedCheckNeeded = isDmi && !!metrics?.dmiFeedCheckNeeded && text !== '—';
+  const checkNote = feedCheckNeeded ? t('event.dmiFeedCheckNeeded') : null;
+  const shownText = feedCheckNeeded ? `~${text}` : text;
+  const title = [baseTitle, hayNote, checkNote, dmiHayNote, basisNote].filter(Boolean).join('. ');
   return el('div', {
     className: `loc-mgmt__metric${isPartial ? ' loc-mgmt__metric--partial' : ''}`,
     title,
@@ -208,13 +213,14 @@ function renderMetricCol(col, metrics, { includePerAcre = true, compact = false,
       ...(hayNote ? { residualNote: 'true' } : {}),
       ...(basisNote ? { dmiBasisNote: 'true' } : {}),
       ...(dmiHayNote ? { dmiHayNote: 'true' } : {}),
+      ...(feedCheckNeeded ? { feedCheckNeeded: 'true' } : {}),
     },
   }, [
     el('span', {
       className: `loc-mgmt__metric-label${col.key === 'dmiPerAcre' ? ' loc-mgmt__metric-label--per-acre' : ''}`,
     }, [col.label]),
     el('span', { className: 'loc-mgmt__metric-value' }, [
-      `${text}${perAcreText}`,
+      `${shownText}${perAcreText}`,
       isPartial
         ? el('span', { className: 'loc-mgmt__metric-partial', dataset: { testid: `loc-mgmt-metric-partial-${col.key}` } }, [' partial'])
         : null,
@@ -1414,6 +1420,8 @@ function renderManagementRow(opts) {
         feedPct: wm.feedPct,
         // OI-0278 S1: pass canonical kg; past-block formats it in the farm unit.
         dmi: storedFeedOnly ? 0 : (wm.dmi != null ? wm.dmi : null),
+        // OI-0285 B: hay-0 estimate on an open event with no check since → "~".
+        dmiEstimate: !storedFeedOnly && !!wm.raw?.dmiFeedCheckNeeded,
         headCount: hc.headCount,
         isActive,
         isStripGraze: pw.isStripGraze || false,

@@ -4,6 +4,9 @@
  * DMI days; the season is the known sum marked partial; "—" only when nothing
  * known remains. Calendar rows + List (computeLocationMetrics), per-window
  * metrics (OI-0283 sheet) and sort all read the same values.
+ * B amendment (Tim t1475u, #440): on an OPEN event with feed out and no check
+ * since, hay eaten = 0 and pasture = full need — KNOWN days flagged
+ * dmiFeedCheckNeeded (~ + "Feed check needed"); a check or close replaces it.
  */
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import '../../src/calcs/core.js';
@@ -31,6 +34,8 @@ import * as FeedTypeEntity from '../../src/entities/feed-type.js';
 import * as BatchEntity from '../../src/entities/batch.js';
 import * as FeedEntryEntity from '../../src/entities/event-feed-entry.js';
 import { getLocalTodayStr } from '../../src/utils/date-utils.js';
+import { resetCalendarState } from '../../src/features/events/calendar-state.js';
+import { renderCalendarGrid } from '../../src/features/events/rotation-calendar/calendar-grid.js';
 import {
   computeLocationMetrics,
   formatMetricValue,
@@ -42,6 +47,7 @@ import {
 } from '../../src/features/events/rotation-calendar/past-event-detail-sheet.js';
 
 const HAY_NOTE = "Hay not counted yet: do a feed check.";
+const CHECK_NOTE = 'Feed check needed';
 const DAY_KG = 10 * 453.6 * 0.025; // 113.4 kg DM / day for the 10-head herd
 
 const loc = { id: 'loc1', name: 'J2', type: 'land', landUse: 'pasture', areaHectares: 4.047 };
@@ -97,53 +103,96 @@ const withOpenHay = (extra = {}) => ctx({
 });
 
 describe('OI-0285 — hay unknowns use the Zp partial rule', () => {
-  it('1. known closed event + open event with unchecked hay: known sum, partial, per-ha non-null', () => {
+  it('1. B: open event, bale delivered, no check since → hay 0, pasture = full need, KNOWN + flagged', () => {
     const known = computeLocationMetrics(loc, ctx());
+    const noHay = computeLocationMetrics(loc, withOpenHay({ feedEntries: [] }));
     const m = computeLocationMetrics(loc, withOpenHay());
-    expect(m.dmiKg).not.toBeNull();
-    expect(m.dmiKg).toBeCloseTo(known.dmiKg, 6); // open-event hay days add nothing
-    expect(m.dmiPartial).toBe(true);
+    expect(noHay.dmiKg).toBeGreaterThan(known.dmiKg); // the open days carry demand
+    expect(m.dmiKg).toBeCloseTo(noHay.dmiKg, 6); // hay eaten 0 → pasture = need
+    expect(m.dmiFeedCheckNeeded).toBe(true);
+    expect(m.dmiPartial).toBe(false);
     expect(m.dmiKnown).toBe(true);
-    expect(m.dmiHayUnknown).toBe(true);
-    expect(m.dmiWeightUnknown).toBe(false);
-    expect(m.dmiPerHa).toBeCloseTo(known.dmiKg / 4.047, 6);
-    expect(m.storedFeedDmiKg).toBe(known.storedFeedDmiKg); // unknown hay adds no stored feed
-    expect(formatMetricValue(m.dmiKg)).not.toBe('—');
+    expect(m.dmiHayUnknown).toBe(false); // not "Hay not counted yet" for this case
+    expect(m.storedFeedDmiKg).toBe(known.storedFeedDmiKg); // no stored feed until a check
+    expect(m.dmiPerHa).toBeCloseTo(m.dmiKg / 4.047, 6);
+    // No stored-feed NPK deposit until a check: N/P/K match the no-hay run.
+    expect(m.nKg).toBeCloseTo(noHay.nKg, 6);
+    expect(m.kKg).toBeCloseTo(noHay.kKg, 6);
   });
 
-  it('2. only DMI days are hay-unknown: dmiKg null (—), dmiPerHa null', () => {
+  it('2. B: only the open event in the window: DMI and DMI/area both numbers (not —), flagged', () => {
     const m = computeLocationMetrics(loc, ctx({
       events: [evOpen], paddockWindows: [pwOpen], groupWindows: [gwOpen], feedEntries: [openBale],
     }));
-    expect(m.dmiKg).toBeNull();
-    expect(formatMetricValue(m.dmiKg)).toBe('—');
+    expect(m.dmiKg).toBeGreaterThan(0);
+    expect(m.dmiPerHa).toBeCloseTo(m.dmiKg / 4.047, 6);
+    expect(m.dmiFeedCheckNeeded).toBe(true);
     expect(m.dmiPartial).toBe(false);
-    expect(m.dmiKnown).toBe(false);
-    expect(m.dmiHayUnknown).toBe(true);
-    expect(m.dmiPerHa).toBeNull();
-    // Sz strip unchanged: still uses stored 0 on unknown hay days.
-    expect(m.stripPastureDmiKg).toBeGreaterThan(0);
-    expect(m.storedFeedDmiKg).toBe(0);
+    expect(m.stripPastureDmiKg).toBeCloseTo(m.dmiKg, 6); // same as the Sz strip
   });
 
-  it('3. weight-unknown + hay-unknown with known days: partial known sum', () => {
+  it('2b. B: a feed check replaces the estimate (compute-on-read)', () => {
+    const noHay = computeLocationMetrics(loc, withOpenHay({ feedEntries: [] }));
+    const check = (remaining) => ({
+      feedChecks: [{ id: 'fcO', eventId: 'ev2', date: '2026-11-22', time: '12:00', isCloseReading: false }],
+      feedCheckItems: [{ id: 'iO', feedCheckId: 'fcO', locationId: 'loc1', feedTypeId: 'hay', remainingQuantity: remaining, weightPerUnitKgSnapshot: 500, dmPctSnapshot: 85 }],
+    });
+    const eaten = computeLocationMetrics(loc, withOpenHay(check(0)));
+    expect(eaten.dmiFeedCheckNeeded).toBe(false); // pool empty after the check
+    expect(eaten.storedFeedDmiKg).toBeGreaterThan(0); // measured hay now counted
+    expect(eaten.dmiKg).toBeLessThan(noHay.dmiKg);
+    expect(eaten.dmiPartial).toBe(false);
+    const left = computeLocationMetrics(loc, withOpenHay(check(0.5)));
+    expect(left.storedFeedDmiKg).toBeGreaterThan(0);
+    expect(left.dmiFeedCheckNeeded).toBe(true); // hay still out after the check
+  });
+
+  it('2c. B: a check missing its unit stays unknown (Zp partial), not an estimate', () => {
+    const m = computeLocationMetrics(loc, withOpenHay({
+      feedChecks: [{ id: 'fcU', eventId: 'ev2', date: '2026-11-22', time: '12:00', isCloseReading: false }],
+      feedCheckItems: [{ id: 'iU', feedCheckId: 'fcU', locationId: 'loc1', feedTypeId: 'hay', remainingQuantity: 0.5, weightPerUnitKgSnapshot: null, dmPctSnapshot: null }],
+      feedTypes: [{ id: 'hay', unit: 'bale' }],
+    }));
+    expect(m.dmiHayUnknown).toBe(true);
+    expect(m.dmiPartial).toBe(true);
+  });
+
+  it('2d. J2-style row over Mar 1 – Nov 24: DMI and DMI per acre both fill in', () => {
+    const base = withOpenHay({ events: [evClosed, evOpen] });
+    const today = computeLocationMetrics(loc, { ...base, windowStart: '2026-03-01', windowEnd: '2026-11-24' });
+    const nov22 = computeLocationMetrics(loc, { ...base, windowStart: '2026-03-01', windowEnd: '2026-11-22' });
+    expect(today.dmiKg).not.toBeNull();
+    expect(today.dmiPerHa).not.toBeNull();
+    expect(today.dmiPerHa).toBeCloseTo(today.dmiKg / 4.047, 6);
+    expect(today.dmiFeedCheckNeeded).toBe(true);
+    expect(today.dmiKg).toBeGreaterThan(nov22.dmiKg); // Nov 23–24 count at full need
+    expect(nov22.dmiFeedCheckNeeded).toBe(true); // Nov 20–22 are also after the bale
+  });
+
+  it('3. weight-unknown + closed unmeasured hay with known days: partial known sum', () => {
     const gwBad = { id: 'gw3', eventId: 'ev1', groupId: 'g2', animalClassId: 'acBad', dateJoined: '2026-10-01', dateLeft: '2026-10-10', headCount: 3, avgWeightKg: null };
+    const unmeasured = [{ ...openBale, id: 'fe1', eventId: 'ev1', date: '2026-10-05', time: null }];
     const weightOnly = computeLocationMetrics(loc, ctx({ groupWindows: [gwClosed, gwBad], withBad: true }));
-    expect(weightOnly.dmiPartial).toBe(true);
-    const m = computeLocationMetrics(loc, withOpenHay({ groupWindows: [gwClosed, gwBad, gwOpen], withBad: true }));
-    expect(m.dmiKg).toBeCloseTo(weightOnly.dmiKg, 6);
+    const m = computeLocationMetrics(loc, ctx({ groupWindows: [gwClosed, gwBad], withBad: true, feedEntries: unmeasured }));
+    expect(m.dmiKg).toBeLessThan(weightOnly.dmiKg);
+    expect(m.dmiKg).toBeGreaterThan(0);
     expect(m.dmiPartial).toBe(true);
     expect(m.dmiHayUnknown).toBe(true);
     expect(m.dmiWeightUnknown).toBe(true);
-    expect(m.dmiPerHa).toBeCloseTo(weightOnly.dmiKg / 4.047, 6);
+    expect(m.dmiFeedCheckNeeded).toBe(false); // closed event: no estimate
   });
 
-  it('3b. weight-unknown days + hay-unknown days with nothing known left: —', () => {
-    const gwBadOnly = { id: 'gw3', eventId: 'ev1', groupId: 'g2', animalClassId: 'acBad', dateJoined: '2026-10-01', dateLeft: '2026-10-10', headCount: 3, avgWeightKg: null };
-    const m = computeLocationMetrics(loc, withOpenHay({ groupWindows: [gwBadOnly, gwOpen], withBad: true }));
+  it('3b. closed event, hay from day one never measured, nothing known left: —', () => {
+    const m = computeLocationMetrics(loc, ctx({
+      feedEntries: [{ ...openBale, id: 'fe1', eventId: 'ev1', date: '2026-10-01', time: '00:00' }],
+    }));
     expect(m.dmiKg).toBeNull();
+    expect(m.dmiPerHa).toBeNull();
     expect(m.dmiPartial).toBe(false);
+    expect(m.dmiHayUnknown).toBe(true);
+    expect(m.dmiFeedCheckNeeded).toBe(false);
   });
+
 
   it('4. closed event with an unmeasured hay span: known days count, partial (not season-blank)', () => {
     // Delivery Oct 5, no feed check / close reading → Oct 5..10 hay unknown, Oct 1..4 known.
@@ -191,12 +240,17 @@ describe('OI-0285 — hay unknowns use the Zp partial rule', () => {
     expect(measured.dmiHayUnknown).toBe(false);
   });
 
-  it('sort: a partial row sorts by its known number (not as —)', () => {
-    const a = { ...computeLocationMetrics(loc, withOpenHay()), locationName: 'A' };
+  it('sort: a partial row and a feed-check estimate sort by their numbers (not as —)', () => {
+    const a = { ...computeLocationMetrics(loc, ctx({
+      feedEntries: [{ ...openBale, id: 'fe1', eventId: 'ev1', date: '2026-10-05', time: null }],
+    })), locationName: 'A' };
+    expect(a.dmiPartial).toBe(true);
+    const est = { ...computeLocationMetrics(loc, withOpenHay()), locationName: 'E' };
+    expect(est.dmiFeedCheckNeeded).toBe(true);
     const b = { ...computeLocationMetrics({ ...loc, id: 'loc1', name: 'B' }, ctx()), locationName: 'B', dmiKg: a.dmiKg - 1 };
     const dash = { ...a, locationName: 'C', dmiKg: null, dmiPartial: false };
-    const order = sortMetricRows([dash, b, a], { key: 'dmiKg', dir: 'desc' }).map(r => r.locationName);
-    expect(order.slice(0, 2)).toEqual(['A', 'B']);
+    const order = sortMetricRows([dash, b, a, est], { key: 'dmiKg', dir: 'desc' }).map(r => r.locationName);
+    expect(order).toEqual(['E', 'A', 'B', 'C']);
   });
 
   it('calendar row hover: DMI cells add the hay note; weight reason only when weights caused it', () => {
@@ -204,6 +258,7 @@ describe('OI-0285 — hay unknowns use the Zp partial rule', () => {
     expect(src).toMatch(/metrics\?\.dmiHayUnknown \? t\('event\.dmiHayNotCounted'\)/);
     expect(src).toMatch(/dmiWeightUnknown !== false/);
     expect(enLocale.event.dmiHayNotCounted).toBe(HAY_NOTE);
+    expect(enLocale.event.dmiFeedCheckNeeded).toBe(CHECK_NOTE);
   });
 
   it('retires the season-sticky lock comment in location-metrics.js', () => {
@@ -231,11 +286,14 @@ const GOLDEN = {
 };
 
 describe('OI-0285 — 6. per-window metrics + OI-0283 sheet', () => {
-  it('open window with unchecked hay: unknown (—) per Zp; mixed window: partial', () => {
+  it('open window with unchecked hay: hay-0 estimate (flagged); closed unmeasured window: partial', () => {
     const span = { start: '2026-11-20', end: '2026-11-24', days: 5 };
     const wm = computePaddockWindowMetrics(pwOpen, loc, evOpen, span, withOpenHay());
-    expect(wm.dmi).toBeNull();
-    expect(wm.raw.dmiHayUnknown).toBe(true);
+    expect(wm.dmi).toBeGreaterThan(0);
+    expect(wm.pasturePct).toBe(100);
+    expect(wm.feedPct).toBe(0);
+    expect(wm.raw.dmiFeedCheckNeeded).toBe(true);
+    expect(wm.raw.dmiHayUnknown).toBe(false);
     const closedSpan = { start: '2026-10-01', end: '2026-10-10', days: 10 };
     const wm2 = computePaddockWindowMetrics(pwClosed, loc, evClosed, closedSpan, ctx({
       feedEntries: [{ ...openBale, id: 'fe1', eventId: 'ev1', date: '2026-10-05', time: null }],
@@ -320,24 +378,49 @@ describe('OI-0285 — 6b. OI-0283 sheet shows the partial cue + hay note', () =>
     document.body.innerHTML = '';
   });
 
-  it('open window, hay delivered part-way with no check: "~" partial values + hay note, no weight note', () => {
+  it('open window, hay delivered part-way with no check: "~" estimate + Feed check needed, no hay / weight note', () => {
     seedStore({ daysAgo: 6, deliveredDaysAgo: 2 });
     const s = buildPwDmiStats(getById('eventPaddockWindows', PW), getById('locations', LOC), getById('events', EVT));
-    expect(s.dmiPartial).toBe(true);
-    expect(s.dmiHayUnknown).toBe(true);
+    expect(s.dmiPartial).toBe(false);
+    expect(s.dmiFeedCheckNeeded).toBe(true);
+    expect(s.dmiHayUnknown).toBe(false);
     expect(s.pastureKg).toBeGreaterThan(0);
+    expect(s.pastureKgPerHa).not.toBeNull();
     openPastEventDetailSheet({ eventId: EVT, paddockWindowId: PW });
     expect(val('past-event-detail-dmi-total')).toMatch(/^~[\d,]+ lb DM$/);
     expect(val('past-event-detail-dmi-pasture')).toMatch(/^~/);
-    expect(q('past-event-detail-dmi-hay').textContent).toBe(HAY_NOTE);
+    expect(val('past-event-detail-dmi-pasture-per-area')).toMatch(/^~/);
+    expect(q('past-event-detail-dmi-feed-check').textContent).toBe(CHECK_NOTE);
+    expect(q('past-event-detail-dmi-hay')).toBeNull();
     expect(q('past-event-detail-dmi-partial')).toBeNull(); // weights are all known
   });
 
-  it('open window, hay from day one with no check: — and the hay note', () => {
+  it('open window, hay from day one with no check: "~" numbers (not —) + Feed check needed', () => {
     seedStore({ daysAgo: 3, deliveredDaysAgo: 3 });
     openPastEventDetailSheet({ eventId: EVT, paddockWindowId: PW });
-    expect(val('past-event-detail-dmi-total')).toBe('—');
-    expect(q('past-event-detail-dmi-hay').textContent).toBe(HAY_NOTE);
+    expect(val('past-event-detail-dmi-total')).toMatch(/^~[\d,]+ lb DM$/);
+    expect(q('past-event-detail-dmi-feed-check').textContent).toBe(CHECK_NOTE);
+    expect(q('past-event-detail-dmi-hay')).toBeNull();
+  });
+
+  it('calendar row + past block: "~" on DMI and DMI/ac, "Feed check needed" on hover', () => {
+    seedStore({ daysAgo: 3, deliveredDaysAgo: 3 });
+    resetCalendarState();
+    window.history.replaceState(null, '', '#/events');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    renderCalendarGrid(container);
+    const cell = container.querySelector(`[data-testid="loc-mgmt-metrics"][data-location-id="${LOC}"]`);
+    for (const key of ['dmiKg', 'dmiPerAcre']) {
+      const m = cell.querySelector(`.loc-mgmt__metric[data-key="${key}"]`);
+      expect(m.querySelector('.loc-mgmt__metric-value').textContent).toMatch(/^~[\d,.]+/);
+      expect(m.getAttribute('title')).toContain(CHECK_NOTE);
+      expect(m.getAttribute('title')).not.toContain(HAY_NOTE);
+      expect(m.dataset.feedCheckNeeded).toBe('true');
+    }
+    expect(cell.querySelector('.loc-mgmt__metric[data-key="dmiKg"]').dataset.partial).not.toBe('true');
+    const strip = container.querySelector(`[data-testid="timeline-strip"][data-location-id="${LOC}"]`);
+    expect(strip.textContent).toMatch(/Pasture 100% · Feed 0% · ~[\d,]+ lb DMI/);
   });
 
   it('no hay: no hay note', () => {

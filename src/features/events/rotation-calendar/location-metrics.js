@@ -8,7 +8,10 @@
  * dash only when nothing known remains. AUDs (Ua) and Score (Sc) unchanged.
  * Closed snapshots trusted as stored (Rt). OI-0285: F1 unmeasured-hay days use
  * the same Zp partial rule (add nothing; season = known sum, partial; dash only
- * when nothing known remains). OI-0276: R1 residual no longer blanks NPK.
+ * when nothing known remains). OI-0285 B: on an OPEN event, days with feed held
+ * and no feed check since count hay eaten 0 (pasture = full need) as KNOWN
+ * estimates flagged dmiFeedCheckNeeded; a check or close replaces them on read.
+ * OI-0276: R1 residual no longer blanks NPK.
  * OI-0258 Al1+Pd1+Mc1+Mx-a+Cv1+Sp-f(demand)+D0: hay known from opening
  * carryover + physical deliveries + close (no mid-check required); span hay
  * prorated by demand across grazing windows. Sp-w is not implemented.
@@ -272,7 +275,7 @@ export function resolveResidualNpkPercents({ batchId, feedTypeId, batchNutrition
 
 /**
  * Measured hay status for one event on one date (F1).
- * @returns {{ kind: 'none' } | { kind: 'measured', dmKg: number } | { kind: 'unknown' }}
+ * @returns {{ kind: 'none' } | { kind: 'measured', dmKg: number } | { kind: 'unknown', pendingCheck: boolean }}
  */
 export function measuredHayOnEventDay({
   eventId,
@@ -445,6 +448,7 @@ export function computeLocationMetrics(location, ctx) {
     dmiPartial: false,
     dmiHayUnknown: false,
     dmiWeightUnknown: false,
+    dmiFeedCheckNeeded: false,
     npkPartial: false,
     // OI-0250 strip fields (Sz): stored missing-DM → 0; strip pasture ignores F1 sticky
     storedFeedDmiKg: 0,
@@ -497,6 +501,9 @@ export function computeLocationMetrics(location, ctx) {
   // weights). Their known-weight slices stop counting as known for that day.
   let dmiHayUnknownDays = 0;
   let dmiHayVoidedKnownSlices = 0;
+  // OI-0285 B (Tim t1475u): open event, hay held with no feed check since →
+  // hay eaten 0, pasture = full need; KNOWN days, flagged "Feed check needed".
+  let dmiFeedCheckNeededDays = 0;
   const knownSlicesByEventDate = new Map(); // eventId → date → known slice count
   let storedFeedDmiKg = 0; // OI-0250 Sz strip
   let stripPastureDmiKg = 0;
@@ -656,7 +663,8 @@ export function computeLocationMetrics(location, ctx) {
   // OI-0258: after the day walk, allocate each event's hay spans (Al1/Mc1/Cv1)
   // by demand across grazing windows (Sp-f, Mx-a). OI-0285: an unknown hay day
   // adds nothing to the column (dmiKg / storedFeedDmiKg / dmiDays) and marks it
-  // partial (Zp); the Sz strip still uses stored 0 those days.
+  // partial (Zp); the Sz strip still uses stored 0 those days. OI-0285 B: an
+  // open event's "no check yet" day is known (hay 0, pasture = need), flagged.
   const metricDates = eachDateInclusive(windowStart, through);
   for (const eventId of eventsNeedingHay) {
     const event = eventsById.get(eventId);
@@ -713,6 +721,16 @@ export function computeLocationMetrics(location, ctx) {
     for (const date of metricDates) {
       if (openDate && !eventOpenOn(decorated, date)) continue;
       const hay = f1MeasuredHayOnEventDay({ ...hayArgs, date });
+      // OI-0285 B: only an OPEN event's "no check yet" days become hay-0 estimates;
+      // a missing unit / DM, or a closed event never measured, stays unknown (Zp).
+      if (hay.kind === 'unknown' && hay.pendingCheck && !decorated.dateOut) {
+        const grazingHere = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date })
+          .some(isMine);
+        if (grazingHere) dmiFeedCheckNeededDays += 1;
+        // A known span from another pool already allocates this day (hay − 0).
+        if (!overlapsKnownSpan(date)) addDemandOnly(date);
+        continue;
+      }
       if (hay.kind === 'unknown') {
         // OI-0256 Mt1: no_pasture-only at this location stays known Pasture 0, not F1 unknown.
         const grazingHere = grazingPaddockWindowsOnDate(paddockWindows, { eventId, date })
@@ -822,6 +840,9 @@ export function computeLocationMetrics(location, ctx) {
     dmiHayUnknown: dmiHayPartial,
     // OI-0285: some DMI slices had no weight (OI-0249) — names the weight reason.
     dmiWeightUnknown: dmiHasUnknown,
+    // OI-0285 B: some counted days are hay-0 estimates on an open event with no
+    // feed check since the feed went out (~ marker + "Feed check needed").
+    dmiFeedCheckNeeded: finalDmi != null && dmiFeedCheckNeededDays > 0,
     auds,
     audsKnown: true,
     nKg: npkKnown ? nKg : null,

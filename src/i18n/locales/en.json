@@ -526,6 +526,7 @@
     "detailDays": "Days",
     "detailDmiPartial": "~ Partial: some groups have no weight, so their DMI is not counted.",
     "dmiHayNotCounted": "Hay not counted yet: do a feed check.",
+    "dmiFeedCheckNeeded": "Feed check needed",
     "pastEventFields": "Event",
     "location": "Location"
   },

@@ -3,6 +3,16 @@
     "forecast": "Forecast",
     "actual": "Actual",
     "targetForecast": "DMI target (forecast)",
+    "actualTarget": "Target {target}",
+    "actualHayEaten": "hay eaten {hay} DM/day ({pct}%)",
+    "actualPasture": "pasture ≈ {pasture}",
+    "actualHayOver": "hay over need +{over}",
+    "actualUnder": "eating {gap} under target",
+    "actualOver": "eating {gap} over target",
+    "actualOnStoredDays": "on stored-only days",
+    "actualUnderHint": "DMI estimate may be high",
+    "actualOverHint": "DMI estimate may be low",
+    "actualWindow": "Hay eaten from feed checks, {start} – {end}",
     "fromPreviousEvent": "prior event"
   },
   "pool": {

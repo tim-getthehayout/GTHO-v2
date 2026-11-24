@@ -406,7 +406,12 @@ export function prorateSpanHayByDemand({
     // Mt1: no_pasture-only days are 100% stored; leftover demand is not pasture.
     pastureByDate.set(date, noPastureOnlyDates.has(date) ? 0 : Math.max(0, dateDemand - hay));
   }
-  return { demandByPw, hayByPw, pastureByPw, pwById, totalDemand, hayByDate, pastureByDate, dateDemandTotal };
+  // OI-0280: `demandByDate` = each counted day's in-span need (same keys as
+  // hayByDate / pastureByDate) — read-only extra, no allocation change.
+  return {
+    demandByPw, hayByPw, pastureByPw, pwById, totalDemand, hayByDate, pastureByDate, dateDemandTotal,
+    demandByDate: demandByDateInSpan,
+  };
 }
 
 

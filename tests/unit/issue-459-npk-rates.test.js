@@ -14,13 +14,13 @@ import { setLocale, t } from '../../src/i18n/i18n.js';
 import enLocale from '../../src/i18n/locales/en.json';
 import {
   ANIMAL_CLASSES_BY_SPECIES,
-  DEFAULT_EXCRETION_RATES,
   SEED_EXCRETION_RATES,
 } from '../../src/features/onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from '../../src/calcs/excretion-defaults.js';
+import { formatShortDate } from '../../src/utils/date-format.js';
 import {
   earliestGroupWindowDate,
   periodStartsBeforeFirstGroupWindow,
-  formatPreWindowDate,
 } from '../../src/features/events/rotation-calendar/location-metrics.js';
 import { resetCalendarState, setMetricWindow } from '../../src/features/events/calendar-state.js';
 import { renderCalendarGrid } from '../../src/features/events/rotation-calendar/calendar-grid.js';
@@ -84,9 +84,12 @@ describe('#459 seed and fallback excretion rates', () => {
     expect(DEFAULT_EXCRETION_RATES).toEqual(SEED_EXCRETION_RATES.beef_cattle.cow);
   });
 
-  it('runtime fallbacks import DEFAULT_EXCRETION_RATES; stale 0.145/0.041/0.136 remain only as the NPK-1 worked example', () => {
-    const skip = new Set(['src/calcs/core.js']);
-    const hits = [];
+  it('pins the shared fallback 0.35/0.08/0.25 and keeps those literals only in excretion-defaults.js', () => {
+    expect(DEFAULT_EXCRETION_RATES).toEqual({ n: 0.35, p: 0.08, k: 0.25 });
+    const skipOld = new Set(['src/calcs/core.js']);
+    const oldHits = [];
+    const fallbackHits = [];
+    const fallbackRe = /\{\s*n:\s*0\.35\s*,\s*p:\s*0\.08\s*,\s*k:\s*0\.25\s*\}/;
     function walk(dir) {
       for (const name of readdirSync(dir, { withFileTypes: true })) {
         const p = join(dir, name.name);
@@ -98,13 +101,17 @@ describe('#459 seed and fallback excretion rates', () => {
         if (!name.name.endsWith('.js')) continue;
         const rel = p.replace(/^\.\//, '');
         const src = readFileSync(p, 'utf8');
-        if (/0\.145/.test(src) && !skip.has(rel)) hits.push(rel);
+        if (/0\.145/.test(src) && !skipOld.has(rel)) oldHits.push(rel);
+        if (fallbackRe.test(src) && rel !== 'src/calcs/excretion-defaults.js') fallbackHits.push(rel);
       }
     }
     walk('src');
-    expect(hits).toEqual([]);
+    expect(oldHits).toEqual([]);
+    expect(fallbackHits).toEqual([]);
     const core = readFileSync('src/calcs/core.js', 'utf8');
     expect(core).toMatch(/excretionNRate: 0\.145/);
+    const defaultsSrc = readFileSync('src/calcs/excretion-defaults.js', 'utf8');
+    expect(defaultsSrc).toMatch(fallbackRe);
   });
 });
 
@@ -125,11 +132,11 @@ describe('#459 pre-first-window strip note', () => {
     expect(periodStartsBeforeFirstGroupWindow('2026-01-01', null)).toBe(false);
   });
 
-  it('formats the first-window date and uses the locked hover copy', () => {
-    expect(formatPreWindowDate('2026-03-04')).toBe('Mar 4, 2026');
-    expect(t('event.periodTotalsPreWindow', { date: formatPreWindowDate('2026-03-04') }))
-      .toBe("Totals start on Mar 4, 2026; earlier days aren't recorded.");
-    expect(enLocale.event.periodTotalsPreWindow).toBe("Totals start on {date}; earlier days aren't recorded.");
+  it('formats the first-window date with formatShortDate and uses the locked hover copy', () => {
+    expect(formatShortDate('2026-03-04')).toBe('Mar 4, 26');
+    expect(t('event.periodTotalsPreWindow', { date: formatShortDate('2026-03-04') }))
+      .toBe('Totals start on Mar 4, 26. Earlier days have no grazing records.');
+    expect(enLocale.event.periodTotalsPreWindow).toBe('Totals start on {date}. Earlier days have no grazing records.');
   });
 
   const ok = () => ({ valid: true, errors: [] });
@@ -187,7 +194,7 @@ describe('#459 pre-first-window strip note', () => {
     return c;
   }
 
-  const NOTE = "Totals start on Mar 4, 2026; earlier days aren't recorded.";
+  const NOTE = 'Totals start on Mar 4, 26. Earlier days have no grazing records.';
   const DMI_KEYS = ['pastureDmi', 'storedDmi', 'totalDmi'];
   const NPK_KEYS = ['n', 'p', 'k'];
 
@@ -211,7 +218,7 @@ describe('#459 pre-first-window strip note', () => {
       const cell = c.querySelector(`[data-testid="loc-mgmt-period-total-${key}"]`);
       expect(cell, key).toBeTruthy();
       expect(cell.dataset.preWindowNote, key).not.toBe('true');
-      expect(cell.title || '', key).not.toContain("earlier days aren't recorded");
+      expect(cell.title || '', key).not.toContain('have no grazing records');
     }
   });
 });

@@ -1,22 +1,18 @@
 /** @file Seed data for onboarding — NRCS defaults, system categories, reference units */
 
-/**
- * Fallback excretion rates (unknown class): NRCS AWMFH ch. 4 Table 4-8(b)
- * beef cow in confinement. Units are kg per 1000 kg body weight per day;
- * P and K are elemental. Numerically identical to lb / 1000 lb AU / day.
- * #459 (lock comment 1571; goat amendment 1575).
- */
-export const DEFAULT_EXCRETION_RATES = { n: 0.35, p: 0.08, k: 0.25 };
+import { DEFAULT_EXCRETION_RATES } from '../../calcs/excretion-defaults.js';
 
 /**
- * Per seed species+role excretion rates, same units as DEFAULT_EXCRETION_RATES.
+ * Per seed species+role excretion rates, same units as DEFAULT_EXCRETION_RATES
+ * (kg / 1000 kg BW / day, elemental P and K).
  * Citations: USDA NRCS AWMFH Part 651 ch. 4 (210-VI-AWMFH, March 2008),
  * except goats: ASAE D384.1 FEB03 Table 1 (Goat column).
+ * Beef cow / bull use the shared unknown-class fallback (T4-8(b) beef cow).
  */
 export const SEED_EXCRETION_RATES = {
   beef_cattle: {
-    cow:    { n: 0.35, p: 0.08, k: 0.25 },
-    bull:   { n: 0.35, p: 0.08, k: 0.25 },
+    cow:    DEFAULT_EXCRETION_RATES,
+    bull:   DEFAULT_EXCRETION_RATES,
     heifer: { n: 0.45, p: 0.08, k: 0.29 },
     steer:  { n: 0.45, p: 0.08, k: 0.29 },
     calf:   { n: 0.45, p: 0.08, k: 0.29 },

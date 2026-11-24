@@ -47,7 +47,7 @@ import {
 } from '../../../calcs/f1-close-allocation.js';
 import { periodContaining } from '../../../calcs/budget-period.js';
 import { resolveFarmSeason } from '../../../calcs/farm-season.js';
-import { DEFAULT_EXCRETION_RATES } from '../../onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from '../../../calcs/excretion-defaults.js';
 
 const DEFAULT_EXC = DEFAULT_EXCRETION_RATES;
 
@@ -346,15 +346,6 @@ export function earliestGroupWindowDate(groupWindows = []) {
 export function periodStartsBeforeFirstGroupWindow(periodStart, earliestWindowDate) {
   if (!periodStart || !earliestWindowDate) return false;
   return String(periodStart).slice(0, 10) < String(earliestWindowDate).slice(0, 10);
-}
-
-/** Display date for the #459 pre-window hover note ("Mar 4, 2026"). */
-export function formatPreWindowDate(isoDate) {
-  if (!isoDate) return '';
-  const iso = String(isoDate).slice(0, 10);
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(d);
 }
 
 

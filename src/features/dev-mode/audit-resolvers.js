@@ -27,7 +27,7 @@ import { getEventStartDate } from '../events/event-start.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays, paddockWindowPresenceHours } from '../../calcs/partial-day-demand.js';
 
-import { DEFAULT_EXCRETION_RATES } from '../onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from '../../calcs/excretion-defaults.js';
 
 // #459: unknown-class fallback is the NRCS AWMFH T4-8(b) beef cow row
 // (kg / 1000 kg BW / day, elemental P and K).

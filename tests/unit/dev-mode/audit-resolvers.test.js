@@ -30,7 +30,7 @@ import '../../../src/calcs/feed-forage.js'; // ensure calcs are registered
 import '../../../src/calcs/core.js'; // OI-0157-B2: NPK-1 + NPK-3 + ANI-AU/AUD/ADA
 import '../../../src/calcs/advanced.js'; // OI-0157-B2: NPK-2 + NPK-4 + CST-3 + REC-1
 import { resolveCalcForCalcCard, getResolverNames } from '../../../src/features/dev-mode/audit-resolvers.js';
-import { DEFAULT_EXCRETION_RATES } from '../../../src/features/onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from '../../../src/calcs/excretion-defaults.js';
 
 const OP = '00000000-0000-0000-0000-0000000000aa';
 const FARM = '00000000-0000-0000-0000-0000000000bb';

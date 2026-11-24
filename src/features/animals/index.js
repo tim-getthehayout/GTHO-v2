@@ -53,7 +53,8 @@ import {
   splitWindowsForGroups,
   clearSplitUndo,
 } from './split-heads.js';
-import { ANIMAL_CLASSES_BY_SPECIES, DEFAULT_EXCRETION_RATES } from '../onboarding/seed-data.js';
+import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from '../../calcs/excretion-defaults.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { localFormTimestamp, optionalFormNumber } from '../../utils/form-values.js';
 

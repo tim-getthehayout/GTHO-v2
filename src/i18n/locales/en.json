@@ -537,7 +537,7 @@
     "detailDmiPartial": "~ Partial: some groups have no weight, so their DMI is not counted.",
     "dmiHayNotCounted": "Hay not counted yet: do a feed check.",
     "dmiFeedCheckNeeded": "Feed check needed",
-    "periodTotalsPreWindow": "Totals start on {date}; earlier days aren't recorded.",
+    "periodTotalsPreWindow": "Totals start on {date}. Earlier days have no grazing records.",
     "pastEventFields": "Event",
     "location": "Location"
   },

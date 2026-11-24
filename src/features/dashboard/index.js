@@ -38,7 +38,7 @@ import { FEED_REMAINING_ESTIMATE_CAPTION } from '../../calcs/event-feed-days.js'
 // OI-0279 Q1: Home NPK uses the group's member-mix class excretion rates, the
 // same as the calendar, Reports and the dev audit; a member without class rates
 // takes these defaults (was 0.34 / 0.092 / 0.24 for every group).
-import { DEFAULT_EXCRETION_RATES } from '../onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from '../../calcs/excretion-defaults.js';
 
 const NPK_DEFAULT_EXC = DEFAULT_EXCRETION_RATES;
 

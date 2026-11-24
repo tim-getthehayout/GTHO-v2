@@ -14,7 +14,7 @@ import '../../src/calcs/feed-forage.js';
 import { computeFeedRunRate } from '../../src/calcs/feed-run-rate.js';
 import { buildDmi8ChartContext } from '../../src/features/events/dmi-chart-context.js';
 import { computeLocationMetrics, aggregatePeriodTotals } from '../../src/features/events/rotation-calendar/location-metrics.js';
-import { DEFAULT_EXCRETION_RATES } from '../../src/features/onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from '../../src/calcs/excretion-defaults.js';
 import { renderDmiChart } from '../../src/ui/dmi-chart.js';
 import { computeDmi8Days } from '../../src/features/events/dmi-chart-context.js';
 import { getCalcByName } from '../../src/utils/calc-registry.js';

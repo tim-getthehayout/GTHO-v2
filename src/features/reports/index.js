@@ -11,7 +11,7 @@ import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { renderReferenceConsole } from './reference-console.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight, groupDayDmi, groupDayExcretionRates } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
-import { DEFAULT_EXCRETION_RATES } from '../onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from '../../calcs/excretion-defaults.js';
 
 /** Active tab state */
 let activeTab = 'feed';

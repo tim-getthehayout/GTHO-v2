@@ -16,6 +16,7 @@ import {
 } from '../calendar-state.js';
 import { getUnitSystem } from '../../../utils/preferences.js';
 import { getLocalTodayStr } from '../../../utils/date-utils.js';
+import { formatShortDate } from '../../../utils/date-format.js';
 import { formatMeasure, formatPerArea, unitSuffix, shortUnit } from '../../../utils/units.js';
 import { navigate } from '../../../ui/router.js';
 import {
@@ -55,7 +56,6 @@ import {
   residualNpkNote,
   earliestGroupWindowDate,
   periodStartsBeforeFirstGroupWindow,
-  formatPreWindowDate,
 } from './location-metrics.js';
 import { computeReadiness, lastGrazeDate, readinessBandRange, readyChipKind, READY_CHIP_TEXT } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
@@ -491,7 +491,7 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
   const periodTotals = isList ? null : aggregatePeriodTotals(metricRows);
   const earliestGw = earliestGroupWindowDate(allGroupWindows);
   const preWindowNote = periodStartsBeforeFirstGroupWindow(windowStart, earliestGw)
-    ? t('event.periodTotalsPreWindow', { date: formatPreWindowDate(earliestGw) })
+    ? t('event.periodTotalsPreWindow', { date: formatShortDate(earliestGw) })
     : null;
   const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals, { unitSystem, isPhone, preWindowNote }) : null;
   const legend = isList ? null : renderLegend(viewMode);

@@ -18,7 +18,8 @@
 
 import { logger } from '../utils/logger.js';
 import { passMemo, ref, metricsPassActive } from './metrics-memo.js';
-import { ANIMAL_CLASSES_BY_SPECIES, DEFAULT_EXCRETION_RATES } from '../features/onboarding/seed-data.js';
+import { ANIMAL_CLASSES_BY_SPECIES } from '../features/onboarding/seed-data.js';
+import { DEFAULT_EXCRETION_RATES } from './excretion-defaults.js';
 
 function isMembershipLive(m, groupId, now) {
   if (m.groupId !== groupId) return false;

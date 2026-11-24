@@ -210,7 +210,13 @@ export const DECISIONS = Object.freeze({
     // 2025-12-31 (2026-03-15 once relabeled). '(opening)' is a report label only.
     { key: 'Peanut Hay (opening)', name: 'Peanut Hay', match: { quantity: 17, purchaseDates: ['2025-12-31', '2026-03-15'] }, quantity: 17, remaining: 0, reconcile: { prev: 17, next: 0 }, v2Fed: 0, trueUp: -15, end: 0, adjustmentDate: '2026-05-03',
       relabel: { source: 'opening', purchaseDate: '2026-03-15', fromPurchaseDate: '2025-12-31', costPerUnit: 45 } },
-    { name: 'Alfalfa Small Squares', quantity: 100, remaining: 15, reconcile: { prev: 93, next: 15 }, v2Fed: 21, trueUp: -39.5, end: 15, adjustmentDate: '2026-11-03',
+    // Alfalfa: Tim's answers S and N lock the result (no extra feeding rows; ends at 15 on hand).
+    // v2Fed was 21 at 17c. Tim's cleanup card t1190s4597 (Nov 22, 2026) deleted the synthetic
+    // Jul 6 D (7) and Jul 27 E-5 (7) Alfalfa Small Squares carry deliveries, so live v2 fed is 7
+    // (the three Corral entries May 13-14: 3 + 2 + 2). Fed total 24.5 backfill + 7 = 31.5, so the
+    // true-up is 15 - 100 + 31.5 = -53.5 and the end state stays 15. v2Fed stays a hard guard:
+    // the emitted SQL aborts again if live fed ever differs from 7 (deliberately not self-adjusting).
+    { name: 'Alfalfa Small Squares', quantity: 100, remaining: 15, reconcile: { prev: 93, next: 15 }, v2Fed: 7, trueUp: -53.5, end: 15, adjustmentDate: '2026-11-03',
       relabel: null, keep: { source: 'purchase', purchaseDate: '2026-03-24' } },
   ],
 });

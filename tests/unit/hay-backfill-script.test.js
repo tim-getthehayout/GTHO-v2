@@ -52,9 +52,17 @@ describe("Tim's decision table", () => {
         ['Oak Field Barn', 37, 8.86, '2026-05-03', 0, 'opening', '2026-03-15'],
         ['Tarped', 40, -5, '2026-05-03', 0, 'opening', '2026-03-15'],
         ['Peanut Hay', 17, -15, '2026-05-03', 0, 'opening', '2026-03-15'],
-        ['Alfalfa Small Squares', 78, -39.5, '2026-11-03', 15, null, null],
+        ['Alfalfa Small Squares', 78, -53.5, '2026-11-03', 15, null, null],
       ]);
     expect(DECISIONS.batches.filter(b => b.relabel && b.relabel.fromPurchaseDate !== b.relabel.purchaseDate).map(b => b.key ?? b.name)).toEqual(['Peanut Hay (opening)']);
+  });
+  it('guards Alfalfa at live fed 7 after the Nov 22 cleanup (t1190s4597) and still ends at 15 (answer S)', () => {
+    const alfalfa = DECISIONS.batches.find(b => b.name === 'Alfalfa Small Squares');
+    expect(alfalfa).toMatchObject({ quantity: 100, remaining: 15, v2Fed: 7, trueUp: -53.5, end: 15, relabel: null, keep: { source: 'purchase', purchaseDate: '2026-03-24' } });
+    // Backfill fed on this batch: v1 18.5 + notes 6 (17c, unchanged) = 24.5.
+    const fedTotal = 24.5 + alfalfa.v2Fed;
+    expect(alfalfa.quantity - fedTotal + alfalfa.trueUp).toBe(alfalfa.end);
+    expect(alfalfa.end).toBe(15);
   });
   it("finds last season's Peanut Hay by name plus quantity 17 and its before/after purchase date; '(opening)' is only a label", () => {
     const peanut = DECISIONS.batches.find(b => b.key === 'Peanut Hay (opening)');

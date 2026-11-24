@@ -570,25 +570,27 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     if (connectorLayer) connectorLayer.layout(body);
   });
   // OI-0266 (b): re-measure connectors when layout resizes (window, metrics
-  // width / collapse). Guarded — jsdom has no ResizeObserver.
-  const RO = typeof globalThis !== 'undefined' ? globalThis.ResizeObserver : undefined;
-  if (connectorLayer && typeof RO === 'function') {
+  // width / collapse). OI-0284: the same observer watches the sticky head and
+  // keeps --loc-mgmt-head-h current. Guarded — jsdom has no ResizeObserver.
+  let onResize = null;
+  const resizeTargets = [];
+  if (connectorLayer) {
     let pending = false;
-    const ro = new RO(() => {
+    onResize = () => {
       if (pending) return;
       pending = true;
       requestAnimationFrame(() => {
         pending = false;
         if (body.isConnected) connectorLayer.layout(body);
       });
-    });
-    ro.observe(body);
+    };
+    resizeTargets.push(body);
     const firstRow = body.querySelector(`.loc-mgmt__row`);
-    if (firstRow) ro.observe(firstRow);
+    if (firstRow) resizeTargets.push(firstRow);
     const firstMetrics = body.querySelector('[data-testid="loc-mgmt-metrics"]');
-    if (firstMetrics) ro.observe(firstMetrics);
-    container._locMgmtResizeObserver = ro;
+    if (firstMetrics) resizeTargets.push(firstMetrics);
   }
+  container._locMgmtResizeObserver = observeHeadHeight(body, { targets: resizeTargets, onResize });
 
   const surface = el('div', {
     className: [
@@ -633,8 +635,6 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
   // OI-0252 Wu: measure after attach so widest row (incl. partial markers) sets shared width.
   applyUniformMetricsWidth(surface);
   requestAnimationFrame(() => applyUniformMetricsWidth(surface));
-  // OI-0284: publish the sticky head's rendered height for main.css scroll-padding-top.
-  requestAnimationFrame(() => body.style.setProperty('--loc-mgmt-head-h', `${body.querySelector('.loc-mgmt__head')?.offsetHeight || 0}px`));
   container.setAttribute('tabindex', '0');
   container.addEventListener('keydown', onKeyDown);
   container._locMgmtKeyDown = onKeyDown;
@@ -652,6 +652,36 @@ export function teardownScrollSurface(container) {
     container._locMgmtResizeObserver.disconnect();
     container._locMgmtResizeObserver = null;
   }
+}
+
+/** OI-0284: CSS var the scroller's scroll-padding-top reads (main.css). */
+export const HEAD_HEIGHT_VAR = '--loc-mgmt-head-h';
+
+/**
+ * OI-0284: set --loc-mgmt-head-h on the single scroller from the sticky head's
+ * rendered height (main.css scroll-padding-top reads it), and keep it current
+ * with a ResizeObserver on the head (rotate / narrow-width wrap). Falls back to
+ * 0px when the head is missing. The same observer also watches `targets` and
+ * calls `onResize` (OI-0266 connector re-measure), so each render owns ONE
+ * observer, disconnected by teardownScrollSurface on re-render / unmount.
+ * Returns null when there is nothing to observe or no ResizeObserver.
+ */
+export function observeHeadHeight(body, { targets = [], onResize = null } = {}) {
+  if (!body) return null;
+  const head = body.querySelector('.loc-mgmt__head');
+  const apply = () => {
+    body.style.setProperty(HEAD_HEIGHT_VAR, `${head ? head.offsetHeight || 0 : 0}px`);
+  };
+  apply();
+  const RO = typeof globalThis !== 'undefined' ? globalThis.ResizeObserver : undefined;
+  if (typeof RO !== 'function' || (!head && !targets.length)) return null;
+  const ro = new RO(() => {
+    apply();
+    if (onResize) onResize();
+  });
+  if (head) ro.observe(head);
+  targets.forEach(t => ro.observe(t));
+  return ro;
 }
 
 /**

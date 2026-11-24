@@ -2708,18 +2708,21 @@ body:has(.auth-overlay) .pwa-update-banner {
   font-weight: 600;
   box-sizing: border-box;
 }
-/* OI-0266: name + metrics heads stay pinned left inside the sticky head. */
+/* OI-0266: name + metrics heads stay pinned left inside the sticky head.
+   OI-0284: z-index 3 (inside the head's z-index 10 stacking context) so the
+   pinned corner cells paint over the sticky date axis (z-index 2), which no
+   longer covers the ▾ Metrics toggle / column labels. Opaque background. */
 .loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__name-head {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 3;
   background: var(--bg2);
 }
 .loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__metrics-head-wrap,
 .loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__metrics-head {
   position: sticky;
   left: 160px; /* NAME_WIDTH */
-  z-index: 2;
+  z-index: 3;
   background: var(--bg2);
 }
 .loc-mgmt__metrics-head {
@@ -3070,7 +3073,7 @@ body:has(.auth-overlay) .pwa-update-banner {
   max-width: 100vw;
   box-sizing: border-box;
   background: var(--bg2);
-  z-index: 2;
+  z-index: 3; /* OI-0284: pinned head cells above the sticky date axis (z 2) */
 }
 /* Axis origin lines up with the row strips (row padding + strip border). */
 .loc-mgmt--phone .loc-mgmt__head-timeline {

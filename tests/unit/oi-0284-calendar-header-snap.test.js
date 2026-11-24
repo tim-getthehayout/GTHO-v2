@@ -1,4 +1,5 @@
-/** @file OI-0284 — rows come to rest below the sticky calendar head (Case S: scroll-padding + proximity snap). */
+/** @file OI-0284 — rows come to rest below the sticky calendar head (Case S: scroll-padding + proximity snap),
+ * the head height var is kept current by a ResizeObserver, and the pinned head cells paint above the date axis. */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -14,7 +15,9 @@ import * as FarmSettingEntity from '../../src/entities/farm-setting.js';
 import * as LocationEntity from '../../src/entities/location.js';
 import { setLocale } from '../../src/i18n/i18n.js';
 import enLocale from '../../src/i18n/locales/en.json';
-import { renderCalendarGrid } from '../../src/features/events/rotation-calendar/calendar-grid.js';
+import {
+  renderCalendarGrid, teardownScrollSurface, observeHeadHeight, HEAD_HEIGHT_VAR,
+} from '../../src/features/events/rotation-calendar/calendar-grid.js';
 import { resetCalendarState } from '../../src/features/events/calendar-state.js';
 
 beforeAll(() => setLocale('en', enLocale));
@@ -78,15 +81,108 @@ describe('OI-0284 sticky head never rests over a row', () => {
     expect(phonePinned).toMatch(/z-index:\s*5/);
   });
 
-  it('the grid publishes the rendered head height on the scroller as --loc-mgmt-head-h', () => {
-    vi.stubGlobal('requestAnimationFrame', (cb) => { cb(0); return 0; });
+  it('pinned head corner cells sit above the sticky date axis (3 > 2) and stay opaque, inside the head (10)', () => {
+    const z = (sel) => Number((rule(sel) || '').match(/z-index:\s*(\d+)/)?.[1]);
+    const nameHead = '.loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__name-head';
+    const metricsHead = '.loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__metrics-head-wrap,\n.loc-mgmt--desktop .loc-mgmt__head--desktop > .loc-mgmt__metrics-head';
+    const phoneHead = '.loc-mgmt--phone:not(.loc-mgmt--list) .loc-mgmt__head-metrics';
+    const axis = z('.timeline-axis');
+    expect(axis).toBe(2); // axis not moved / restacked
+    for (const sel of [nameHead, metricsHead, phoneHead]) {
+      expect(z(sel)).toBe(3);
+      expect(z(sel)).toBeGreaterThan(axis);
+      expect(z(sel)).toBeLessThan(10);
+      expect(rule(sel)).toMatch(/position:\s*sticky/);
+      expect(rule(sel)).toMatch(/background:\s*var\(--bg2\)/);
+    }
+  });
+
+  it('the body and head keep their overflow / ownership (no overflow changes)', () => {
+    expect(rule('.loc-mgmt__head')).not.toMatch(/overflow/);
+    expect(rule('.loc-mgmt__body')).toMatch(/overflow:\s*auto;/);
+    expect(rule('.loc-mgmt__body')).not.toMatch(/overflow-y|overflow-x:/);
+  });
+});
+
+describe('OI-0284 head height var (ResizeObserver)', () => {
+  class FakeRO {
+    static instances = [];
+    constructor(cb) { this.cb = cb; this.targets = []; this.disconnected = false; FakeRO.instances.push(this); }
+    observe(t) { this.targets.push(t); }
+    disconnect() { this.disconnected = true; }
+    fire() { this.cb([]); }
+  }
+  beforeEach(() => { FakeRO.instances = []; });
+
+  function mount() {
     const c = document.createElement('div');
     document.body.appendChild(c);
     renderCalendarGrid(c);
+    return c;
+  }
+
+  it('observes the head and re-publishes --loc-mgmt-head-h when it resizes', () => {
+    vi.stubGlobal('ResizeObserver', FakeRO);
+    const c = mount();
     const body = c.querySelector('[data-testid="loc-mgmt-body"]');
     const head = body.querySelector('.loc-mgmt__head');
-    expect(head).toBeTruthy();
-    // jsdom has no layout, so offsetHeight is 0; the var is still a px length from the head.
-    expect(body.style.getPropertyValue('--loc-mgmt-head-h')).toBe(`${head.offsetHeight}px`);
+    const ro = c._locMgmtResizeObserver;
+    expect(ro).toBeInstanceOf(FakeRO);
+    expect(ro.targets[0]).toBe(head); // head first; OI-0266 connector targets follow
+    expect(body.style.getPropertyValue(HEAD_HEIGHT_VAR)).toBe('0px'); // jsdom: no layout yet
+    Object.defineProperty(head, 'offsetHeight', { configurable: true, get: () => 86 });
+    ro.fire();
+    expect(body.style.getPropertyValue(HEAD_HEIGHT_VAR)).toBe('86px');
+    Object.defineProperty(head, 'offsetHeight', { configurable: true, get: () => 135 });
+    ro.fire();
+    expect(body.style.getPropertyValue(HEAD_HEIGHT_VAR)).toBe('135px');
+  });
+
+  it('disconnects the head observer on re-render and on teardown (no leaks)', () => {
+    vi.stubGlobal('ResizeObserver', FakeRO);
+    const c = mount();
+    const first = c._locMgmtResizeObserver;
+    renderCalendarGrid(c);
+    expect(first.disconnected).toBe(true);
+    const second = c._locMgmtResizeObserver;
+    expect(second).not.toBe(first);
+    expect(second.disconnected).toBe(false);
+    teardownScrollSurface(c);
+    expect(second.disconnected).toBe(true);
+    expect(c._locMgmtResizeObserver).toBeNull();
+  });
+
+  it('falls back to 0px when the head is missing (and observes nothing)', () => {
+    vi.stubGlobal('ResizeObserver', FakeRO);
+    const body = document.createElement('div');
+    body.style.setProperty(HEAD_HEIGHT_VAR, '86px');
+    expect(observeHeadHeight(body)).toBeNull();
+    expect(body.style.getPropertyValue(HEAD_HEIGHT_VAR)).toBe('0px');
+    expect(FakeRO.instances).toHaveLength(0);
+    expect(observeHeadHeight(null)).toBeNull();
+  });
+
+  it('one observer per render: head + OI-0266 targets share it, and onResize still runs', () => {
+    vi.stubGlobal('ResizeObserver', FakeRO);
+    const body = document.createElement('div');
+    const head = document.createElement('div');
+    head.className = 'loc-mgmt__head';
+    body.appendChild(head);
+    const onResize = vi.fn();
+    const ro = observeHeadHeight(body, { targets: [body], onResize });
+    expect(FakeRO.instances).toHaveLength(1);
+    expect(ro.targets).toEqual([head, body]);
+    Object.defineProperty(head, 'offsetHeight', { configurable: true, get: () => 40 });
+    ro.fire();
+    expect(body.style.getPropertyValue(HEAD_HEIGHT_VAR)).toBe('40px');
+    expect(onResize).toHaveBeenCalledTimes(1);
+  });
+
+  it('without ResizeObserver (jsdom default) it still sets the var once from the head', () => {
+    vi.stubGlobal('ResizeObserver', undefined);
+    const c = mount();
+    const body = c.querySelector('[data-testid="loc-mgmt-body"]');
+    expect(c._locMgmtResizeObserver).toBeNull();
+    expect(body.style.getPropertyValue(HEAD_HEIGHT_VAR)).toBe('0px');
   });
 });

@@ -524,6 +524,7 @@
     "detailAudsPerArea": "AUDs / area",
     "detailDays": "Days",
     "detailDmiPartial": "~ Partial: some groups have no weight, so their DMI is not counted.",
+    "dmiHayNotCounted": "Hay on an open or unchecked event isn't counted until a feed check or close reading.",
     "pastEventFields": "Event",
     "location": "Location"
   },

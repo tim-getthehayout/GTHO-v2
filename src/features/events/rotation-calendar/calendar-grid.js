@@ -184,8 +184,10 @@ function renderMetricCol(col, metrics, { includePerAcre = true, compact = false,
     : '';
   const isPartial = (col.key === 'dmiKg' && metrics?.dmiPartial)
     || ((col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg') && metrics?.npkPartial);
+  // OI-0285: partial reason names weights only when weights caused it.
+  const dmiWeightReason = col.key !== 'dmiKg' || metrics?.dmiWeightUnknown !== false;
   const baseTitle = isPartial
-    ? `${col.title} (partial — some groups missing weights)`
+    ? `${col.title} (partial${dmiWeightReason ? ' — some groups missing weights' : ''})`
     : col.title;
   // OI-0276: leftover hay without NPK % / weight / DM adds 0 — subtle hover note only.
   const isNpk = col.key === 'nKg' || col.key === 'pKg' || col.key === 'kKg';
@@ -193,7 +195,9 @@ function renderMetricCol(col, metrics, { includePerAcre = true, compact = false,
   // OI-0279: name any per-class DMI % fallback on the DMI cells.
   const isDmi = col.key === 'dmiKg' || col.key === 'dmiPerAcre';
   const basisNote = isDmi ? metrics?.dmiBasisNote || null : null;
-  const title = [baseTitle, hayNote, basisNote].filter(Boolean).join('. ');
+  // OI-0285: hay on an open / unchecked event is not counted (Zp) — say why.
+  const dmiHayNote = isDmi && metrics?.dmiHayUnknown ? t('event.dmiHayNotCounted') : null;
+  const title = [baseTitle, hayNote, dmiHayNote, basisNote].filter(Boolean).join('. ');
   return el('div', {
     className: `loc-mgmt__metric${isPartial ? ' loc-mgmt__metric--partial' : ''}`,
     title,
@@ -202,6 +206,7 @@ function renderMetricCol(col, metrics, { includePerAcre = true, compact = false,
       partial: isPartial ? 'true' : undefined,
       ...(hayNote ? { residualNote: 'true' } : {}),
       ...(basisNote ? { dmiBasisNote: 'true' } : {}),
+      ...(dmiHayNote ? { dmiHayNote: 'true' } : {}),
     },
   }, [
     el('span', {

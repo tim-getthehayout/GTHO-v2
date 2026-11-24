@@ -98,6 +98,9 @@ export function buildPwDmiStats(pw, loc, event, { today = getLocalTodayStr() } =
     hasArea: !!raw.hasArea,
     storedFeedOnly: !!wm.storedFeedOnly,
     dmiPartial: !!raw.dmiPartial,
+    // OI-0285: which unknowns made it partial / — (weights OI-0249, hay F1).
+    dmiWeightUnknown: !!raw.dmiWeightUnknown,
+    dmiHayUnknown: !wm.storedFeedOnly && !!raw.dmiHayUnknown,
     dmiBasisNote: raw.dmiBasisNote || null,
   };
 }
@@ -427,7 +430,11 @@ function renderDmiSection(contentEl, model) {
     ));
   }
   contentEl.appendChild(row(t('event.detailDays'), s.days == null ? '—' : String(s.days), 'past-event-detail-dmi-days'));
-  if (s.dmiPartial) contentEl.appendChild(noteLine(t('event.detailDmiPartial'), 'past-event-detail-dmi-partial'));
+  // OI-0285: weight note only when weights caused it; hay note when hay was not counted.
+  if (s.dmiPartial && s.dmiWeightUnknown) {
+    contentEl.appendChild(noteLine(t('event.detailDmiPartial'), 'past-event-detail-dmi-partial'));
+  }
+  if (s.dmiHayUnknown) contentEl.appendChild(noteLine(t('event.dmiHayNotCounted'), 'past-event-detail-dmi-hay'));
   if (s.dmiBasisNote) contentEl.appendChild(noteLine(s.dmiBasisNote, 'past-event-detail-dmi-basis'));
 }
 

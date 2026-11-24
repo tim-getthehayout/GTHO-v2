@@ -152,7 +152,8 @@ describe('computeLocationMetrics', () => {
   it('does not subtract raw deliveries from DMI (F1 requires measured eaten)', () => {
     const none = computeLocationMetrics(loc, baseCtx);
     expect(none.dmiKg).toBeGreaterThan(0);
-    // Deliveries alone (no bracketing checks) → hay present but unmeasured → DMI unknown
+    // Deliveries alone (no bracketing checks) → hay present but unmeasured → those days
+    // unknown. OI-0285: they add nothing (Zp); Oct 1–4 stay known → partial known sum.
     const deliveriesOnly = computeLocationMetrics(loc, {
       ...baseCtx,
       feedEntries: [{
@@ -162,8 +163,10 @@ describe('computeLocationMetrics', () => {
       }],
       feedTypes: [{ id: 'hay', unit: 'bale', nPct: 1.5, pPct: 0.2, kPct: 1.0, dmPct: 80 }],
     });
-    expect(deliveriesOnly.dmiKg).toBeNull();
-    expect(formatMetricValue(deliveriesOnly.dmiKg)).toBe('—');
+    expect(deliveriesOnly.dmiKg).toBeCloseTo(4 * 10 * 453.6 * 0.025, 6);
+    expect(deliveriesOnly.dmiKg).toBeLessThan(none.dmiKg);
+    expect(deliveriesOnly.dmiPartial).toBe(true);
+    expect(deliveriesOnly.storedFeedDmiKg).toBe(0); // raw deliveries never counted as eaten
   });
 
   it('subtracts measured hay eaten from pasture DMI (F1) and floors at 0 (L1)', () => {
@@ -766,12 +769,13 @@ describe('OI-0250 period totals (Sb+En+Nk+Sz+Pp)', () => {
     batchNutritionalProfiles: [],
   };
 
-  it('Sz: missing-DM feed counts as 0 stored and does not sticky-null strip pasture (column F1 still unknown)', () => {
+  it('Sz: missing-DM feed counts as 0 stored and does not sticky-null strip pasture (column OI-0285 partial)', () => {
     const none = computeLocationMetrics(loc, baseCtx);
     expect(none.stripPastureDmiKg).toBeGreaterThan(0);
     expect(none.storedFeedDmiKg).toBe(0);
 
-    // Deliveries alone (no DM bracketing checks) → column F1 unknown; Sz strip treats stored as 0.
+    // Deliveries alone (no DM bracketing checks) → column F1 unknown on those days (OI-0285:
+    // known-sum partial, no longer season-null); Sz strip treats stored as 0.
     const missingDm = computeLocationMetrics(loc, {
       ...baseCtx,
       feedEntries: [{
@@ -781,7 +785,8 @@ describe('OI-0250 period totals (Sb+En+Nk+Sz+Pp)', () => {
       }],
       feedTypes: [{ id: 'hay', unit: 'bale', nPct: 1.5, pPct: 0.2, kPct: 1.0, dmPct: 80 }],
     });
-    expect(missingDm.dmiKg).toBeNull(); // column F1 unchanged
+    expect(missingDm.dmiPartial).toBe(true); // OI-0285: column = known days only
+    expect(missingDm.dmiKg).toBeLessThan(missingDm.stripPastureDmiKg);
     expect(missingDm.storedFeedDmiKg).toBe(0); // Sz
     expect(missingDm.stripPastureDmiKg).toBeGreaterThan(0);
     expect(missingDm.stripDmiPartial).toBe(false);

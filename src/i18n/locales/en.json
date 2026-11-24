@@ -1376,7 +1376,9 @@
     "pregCheckSettings": "Preg check settings",
     "pregCheckMinDaysPostPartum": "Min days post-partum",
     "returnToCycleDays": "Return-to-cycle days",
-    "returnToCycleSection": "Return to cycle (due band)"
+    "returnToCycleSection": "Return to cycle (due band)",
+    "seasonStart": "Season start (farm default)",
+    "seasonEnd": "Season end (farm default)"
   },
   "fieldMode": {
     "title": "Field Mode",

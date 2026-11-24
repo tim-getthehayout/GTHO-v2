@@ -38,6 +38,11 @@ import {
   renderAmendmentRefSheetMarkups,
 } from '../amendments/reference-tables.js';
 import { renderV1ImportButton } from './v1-import.js';
+import { areFarmSeasonSettingsReleased } from './farm-season-settings.js';
+import {
+  resolveFarmSeason, validateFarmSeason, formatFarmSeason, MONTH_SHORT,
+} from '../../calcs/farm-season.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { renderToolsSection } from './tools-section.js';
 import { openMemberManagementSheet, getCurrentUserRole, getMemberCount, renderMemberSheetMarkup } from './member-management.js';
 
@@ -196,12 +201,17 @@ function renderFarmSection(fs, _rootContainer) {
     ]),
   ]);
 
+  // #402: farm season default (start/end month-day). Same columns as the
+  // Rotation calendar "Farm default…" editor. Hidden until schema 49 is released.
+  const season = renderFarmSeasonFields(fs);
+
   const statusEl = el('div', { className: 'auth-info', 'data-testid': 'settings-farm-status' });
 
   return el('div', { className: 'card settings-card' }, [
     el('h3', { className: 'settings-section-title' }, [t('settings.farmSettings')]),
     recoveryToggle,
     ...fieldEls,
+    ...(season ? [season.el] : []),
     el('button', {
       className: 'btn btn-green btn-sm',
       'data-testid': 'settings-farm-save',
@@ -218,6 +228,16 @@ function renderFarmSection(fs, _rootContainer) {
           changes[f.key] = toStoredValue(parsed, f, unitSystem);
         }
         changes.recoveryRequired = recoveryCheckbox.checked;
+        if (season) {
+          const check = validateFarmSeason(season.values(), getLocalTodayStr());
+          if (!check.valid) {
+            clear(statusEl);
+            statusEl.className = 'auth-error';
+            statusEl.appendChild(el('span', {}, [check.errors.join('; ')]));
+            return;
+          }
+          Object.assign(changes, check.normalized);
+        }
         try {
           update('farmSettings', fs.id, changes, validateFarmSetting, fsToSb, 'farm_settings');
           clear(statusEl);
@@ -232,6 +252,63 @@ function renderFarmSection(fs, _rootContainer) {
     }, [t('action.save')]),
     statusEl,
   ]);
+}
+
+/** #402: season start/end month + day inputs for the Farm Settings card (null until 049 released). */
+function renderFarmSeasonFields(fs) {
+  if (!areFarmSeasonSettingsReleased() || !fs?.id) return null;
+  const current = resolveFarmSeason(fs);
+  const monthSelect = (value, key) => el('select', {
+    className: 'auth-input settings-input',
+    'data-testid': `settings-farm-${key}`,
+  }, MONTH_SHORT.map((m, i) => el('option', { value: String(i + 1), selected: i + 1 === value }, [m])));
+  const dayInput = (value, key) => el('input', {
+    type: 'number', min: '1', max: '31', step: '1',
+    className: 'auth-input settings-input',
+    value: String(value),
+    'data-testid': `settings-farm-${key}`,
+  });
+  const inputs = {
+    seasonStartMonth: monthSelect(current.startMonth, 'seasonStartMonth'),
+    seasonStartDay: dayInput(current.startDay, 'seasonStartDay'),
+    seasonEndMonth: monthSelect(current.endMonth, 'seasonEndMonth'),
+    seasonEndDay: dayInput(current.endDay, 'seasonEndDay'),
+  };
+  const values = () => Object.fromEntries(Object.entries(inputs).map(([k, input]) => [k, input.value]));
+  const label = el('div', {
+    style: { fontSize: '12px', color: 'var(--text2)' },
+    'data-testid': 'settings-farm-season-label',
+  });
+  const refresh = () => {
+    clear(label);
+    const today = getLocalTodayStr();
+    const check = validateFarmSeason(values(), today);
+    if (!check.valid) {
+      label.appendChild(document.createTextNode(check.errors.join('; ')));
+      return;
+    }
+    const n = check.normalized;
+    label.appendChild(document.createTextNode(`This farm's season: ${formatFarmSeason({
+      startMonth: n.seasonStartMonth, startDay: n.seasonStartDay, endMonth: n.seasonEndMonth, endDay: n.seasonEndDay,
+    }, today)}`));
+  };
+  Object.values(inputs).forEach(input => {
+    input.addEventListener('change', refresh);
+    input.addEventListener('input', refresh);
+  });
+  refresh();
+  const row = (labelText, month, day) => el('div', { className: 'settings-field' }, [
+    el('label', { className: 'form-label' }, [labelText]),
+    el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [month, day]),
+  ]);
+  return {
+    el: el('div', { 'data-testid': 'settings-farm-season' }, [
+      row(t('settings.seasonStart') || 'Season start', inputs.seasonStartMonth, inputs.seasonStartDay),
+      row(t('settings.seasonEnd') || 'Season end', inputs.seasonEndMonth, inputs.seasonEndDay),
+      label,
+    ]),
+    values,
+  };
 }
 
 /** Ps-farm0: Farm Settings editors for per-species preg-check thresholds (same helper as Animals). Pg0: hidden until schema 47. */

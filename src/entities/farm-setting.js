@@ -36,6 +36,10 @@ export const FIELDS = {
   returnToCycleDaysCattle: { type: 'integer', required: false, sbColumn: 'return_to_cycle_days_cattle' },
   returnToCycleDaysSheep: { type: 'integer', required: false, sbColumn: 'return_to_cycle_days_sheep' },
   returnToCycleDaysGoat: { type: 'integer', required: false, sbColumn: 'return_to_cycle_days_goat' },
+  seasonStartMonth: { type: 'integer', required: false, sbColumn: 'season_start_month' },
+  seasonStartDay: { type: 'integer', required: false, sbColumn: 'season_start_day' },
+  seasonEndMonth: { type: 'integer', required: false, sbColumn: 'season_end_month' },
+  seasonEndDay: { type: 'integer', required: false, sbColumn: 'season_end_day' },
   createdAt:                   { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:                   { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -77,6 +81,11 @@ export function create(data = {}) {
     returnToCycleDaysCattle: data.returnToCycleDaysCattle ?? null,
     returnToCycleDaysSheep: data.returnToCycleDaysSheep ?? null,
     returnToCycleDaysGoat: data.returnToCycleDaysGoat ?? null,
+    // Schema 49 (#402): null if unset; the season resolves to Jan 1 – Dec 31 via resolveFarmSeason.
+    seasonStartMonth: data.seasonStartMonth ?? null,
+    seasonStartDay: data.seasonStartDay ?? null,
+    seasonEndMonth: data.seasonEndMonth ?? null,
+    seasonEndDay: data.seasonEndDay ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
   };
@@ -128,6 +137,12 @@ export function toSupabaseShape(record) {
       return_to_cycle_days_sheep: record.returnToCycleDaysSheep ?? null,
       return_to_cycle_days_goat: record.returnToCycleDaysGoat ?? null,
     }),
+    ...releasedColumns(49, {
+      season_start_month: record.seasonStartMonth ?? null,
+      season_start_day: record.seasonStartDay ?? null,
+      season_end_month: record.seasonEndMonth ?? null,
+      season_end_day: record.seasonEndDay ?? null,
+    }),
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -172,6 +187,11 @@ export function fromSupabaseShape(row) {
     returnToCycleDaysCattle: n(row.return_to_cycle_days_cattle),
     returnToCycleDaysSheep: n(row.return_to_cycle_days_sheep),
     returnToCycleDaysGoat: n(row.return_to_cycle_days_goat),
+    // Absent before 049 is applied → null → Jan 1 – Dec 31 fallback.
+    seasonStartMonth: n(row.season_start_month),
+    seasonStartDay: n(row.season_start_day),
+    seasonEndMonth: n(row.season_end_month),
+    seasonEndDay: n(row.season_end_day),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

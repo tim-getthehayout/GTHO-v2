@@ -311,4 +311,17 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 48;
     return b;
   },
+  // 048 → 049: farm_settings season default month-days (#402). Absent-only
+  // defaults Jan 1 – Dec 31 (the 049 column defaults); preserve supplied.
+  48: (b) => {
+    const defaults = { season_start_month: 1, season_start_day: 1, season_end_month: 12, season_end_day: 31 };
+    for (const row of b.tables.farm_settings || []) {
+      for (const [col, value] of Object.entries(defaults)) {
+        if (!Object.hasOwn(row, col)) row[col] = value;
+      }
+    }
+    b.schema_version = 49;
+    for (const op of b.tables.operations || []) op.schema_version = 49;
+    return b;
+  },
 };

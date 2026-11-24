@@ -3,13 +3,23 @@
  * Schema 46 (animals.confirmed_bred_date), schema 47 (farm_settings
  * per-species preg-check thresholds), and schema 48 (farm_settings
  * return-to-cycle days) are released after verified apply.
+ * Schema 49 (farm_settings season default month-days, #402) is held until
+ * Tim yes + verified backup apply + separate RELEASED bump.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
 export const RELEASED_SCHEMA_VERSION = 48;
-export const HELD_SCHEMA_VERSIONS = [];
+export const HELD_SCHEMA_VERSIONS = [49];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.
 export const STAGED_COLUMNS = {
+  49: {
+    farm_settings: [
+      'season_start_month',
+      'season_start_day',
+      'season_end_month',
+      'season_end_day',
+    ],
+  },
   48: {
     farm_settings: [
       'return_to_cycle_days_cattle',

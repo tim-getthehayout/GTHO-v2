@@ -41,7 +41,8 @@ import {
   grazingPaddockWindowsOnDate,
   acreShareAmong,
 } from '../../../calcs/f1-close-allocation.js';
-import { periodContaining, DEFAULT_BUDGET_PERIOD } from '../../../calcs/budget-period.js';
+import { periodContaining } from '../../../calcs/budget-period.js';
+import { resolveFarmSeason } from '../../../calcs/farm-season.js';
 
 const DEFAULT_EXC = { n: 0.145, p: 0.041, k: 0.136 };
 
@@ -94,9 +95,13 @@ export function filterManagementLocations(locations = []) {
   return (locations || []).filter(isManagementLocation);
 }
 
-/** Default W1 window containing today (Oct 1 – Sep 30). */
-export function defaultMetricWindow(today = getLocalTodayStr()) {
-  return periodContaining(today, DEFAULT_BUDGET_PERIOD);
+/**
+ * Default W1 window containing today: the farm season default (#402), or the
+ * calendar year Jan 1 – Dec 31 when the farm has none (columns absent before
+ * migration 049, or unset). Pass the farm_settings record.
+ */
+export function defaultMetricWindow(today = getLocalTodayStr(), farmSettings = null) {
+  return periodContaining(today, resolveFarmSeason(farmSettings));
 }
 
 /** Inclusive YYYY-MM-DD day list from start to end. */

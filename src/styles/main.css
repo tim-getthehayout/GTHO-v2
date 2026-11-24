@@ -2632,6 +2632,24 @@ body:has(.auth-overlay) .pwa-update-banner {
   font-size: 0.8125rem;
 }
 .loc-mgmt__period-label { font-weight: 600; color: var(--text2); }
+/* #402: device-only hint + farm season default editor (full-width lines in the bar). */
+.loc-mgmt__period-hint { flex-basis: 100%; font-size: 0.75rem; color: var(--text2); }
+.loc-mgmt__period-note { color: var(--text2); font-weight: 600; }
+.loc-mgmt__season-editor {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 6px);
+  background: var(--bg);
+}
+.loc-mgmt__season-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.loc-mgmt__season-day { width: 4rem; }
+.loc-mgmt__season-label { color: var(--text); font-weight: 600; }
+.loc-mgmt__season-label:empty,
+.loc-mgmt__season-editor .auth-error:empty { display: none; }
 .loc-mgmt__period-input {
   font: inherit;
   padding: 2px 6px;

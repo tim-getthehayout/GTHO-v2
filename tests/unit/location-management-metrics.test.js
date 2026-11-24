@@ -48,8 +48,15 @@ describe('X1 location filter', () => {
 });
 
 describe('W1 default window', () => {
-  it('returns Oct 1 – Sep 30 containing the date', () => {
+  it('#402: falls back to the calendar year Jan 1 – Dec 31 containing the date', () => {
     const w = defaultMetricWindow('2026-11-21');
+    expect(w.start).toBe('2026-01-01');
+    expect(w.end).toBe('2026-12-31');
+  });
+
+  it('#402: uses the farm season default when set (Oct 1 – Sep 30 wraps the year)', () => {
+    const fs = { seasonStartMonth: 10, seasonStartDay: 1, seasonEndMonth: 9, seasonEndDay: 30 };
+    const w = defaultMetricWindow('2026-11-21', fs);
     expect(w.start).toBe('2026-10-01');
     expect(w.end).toBe('2027-09-30');
   });

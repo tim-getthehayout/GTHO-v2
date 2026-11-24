@@ -63,6 +63,12 @@ import {
   describeScrollArchitecture,
 } from './scroll-owner.js';
 import { createScrollRail } from './scroll-rail.js';
+import {
+  resolveFarmSeason, formatFarmSeason, validateFarmSeason, MONTH_SHORT,
+} from '../../../calcs/farm-season.js';
+import {
+  areFarmSeasonSettingsReleased, updateFarmSeasonSettings,
+} from '../../settings/farm-season-settings.js';
 
 const ROW_HEIGHT = 72;
 /** #443: id of the single scroller (the rail's aria-controls target). */
@@ -73,6 +79,9 @@ let listSearchQuery = '';
 // OI-0265 Lg1: legacy six — all | pasture | mixed-use | crop | confinement | storage
 let listLandUseFilter = 'all';
 let listFarmFilter = 'all'; // OI-0265 Lg1: multi-farm only (legacy farm pills)
+/** #402: "Farm default…" inline editor open (session memory) + one-shot saved note. */
+let farmSeasonEditorOpen = false;
+let farmSeasonSavedNote = false;
 
 /**
  * OI-0278 S1: metric columns in the farm's unit system. `label` is the short
@@ -322,7 +331,8 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
     return;
   }
 
-  const defaultWin = defaultMetricWindow(today);
+  // #402: farm season default (Jan 1 – Dec 31 fallback until 049 is applied).
+  const defaultWin = defaultMetricWindow(today, farmSettings);
   const windowStart = state.metricStart || defaultWin.start;
   const windowEnd = state.metricEnd || defaultWin.end;
 
@@ -458,7 +468,7 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
     selectedGroups, period: state.period, onUpdate, onViewChange,
   });
 
-  const periodBar = renderPeriodBar({ windowStart, windowEnd, onUpdate });
+  const periodBar = renderPeriodBar({ windowStart, windowEnd, onUpdate, farmSettings, today });
   // List = Locations tools + season metrics (La); Calendar keeps rotation toolbar.
   const toolbar = isList
     ? renderListTools({ onUpdate, operationId, farmId, farms: isMultiFarm ? allFarms : [] })
@@ -975,7 +985,8 @@ function renderListTools({ onUpdate, operationId, farmId, farms = [] }) {
   ].filter(Boolean));
 }
 
-function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
+function renderPeriodBar({ windowStart, windowEnd, onUpdate, farmSettings = {}, today = getLocalTodayStr() }) {
+  // Pb: the date fields are this device's custom view (never the farm default).
   const startInput = el('input', {
     type: 'date',
     className: 'loc-mgmt__period-input',
@@ -1008,6 +1019,35 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
     },
   }, ['Season default']);
 
+  // #402: "Farm default…" only once migration 049 is applied and released
+  // (columns absent → hidden, no write attempt) and the farm has a settings row.
+  const canEditFarm = areFarmSeasonSettingsReleased() && !!farmSettings?.id;
+  const farmBtn = canEditFarm ? el('button', {
+    type: 'button',
+    className: ['toolbar__pill', farmSeasonEditorOpen ? 'toolbar__pill--active' : ''].filter(Boolean).join(' '),
+    dataset: { testid: 'metric-window-farm-default' },
+    'aria-expanded': farmSeasonEditorOpen ? 'true' : 'false',
+    onClick: () => {
+      farmSeasonEditorOpen = !farmSeasonEditorOpen;
+      farmSeasonSavedNote = false;
+      onUpdate();
+    },
+  }, ['Farm default…']) : null;
+
+  const savedNote = farmSeasonSavedNote
+    ? el('span', { className: 'loc-mgmt__period-note', dataset: { testid: 'farm-season-saved' }, role: 'status' }, ['Farm season saved'])
+    : null;
+  farmSeasonSavedNote = false; // shown once
+
+  const hint = el('div', {
+    className: 'loc-mgmt__period-hint',
+    dataset: { testid: 'metric-window-device-hint' },
+  }, ['Custom dates apply to this device only.']);
+
+  const editor = canEditFarm && farmSeasonEditorOpen
+    ? renderFarmSeasonEditor({ farmSettings, today, onUpdate })
+    : null;
+
   return el('div', {
     className: 'loc-mgmt__period',
     dataset: { testid: 'metric-window-bar' },
@@ -1017,8 +1057,121 @@ function renderPeriodBar({ windowStart, windowEnd, onUpdate }) {
     el('span', {}, ['–']),
     endInput,
     resetBtn,
+    farmBtn,
+    savedNote,
     // OI-0265 Lk1: "Locations · Surveys · Map" link retired (Surveys + Map live in List tools / View).
+    hint,
+    editor,
+  ].filter(Boolean));
+}
+
+/**
+ * #402: inline farm season editor (start/end month + day). Writes farm_settings
+ * only on Save, through the normal store/sync path; Cancel discards.
+ */
+function renderFarmSeasonEditor({ farmSettings, today, onUpdate }) {
+  const current = resolveFarmSeason(farmSettings);
+  const monthSelect = (value, testid, label) => el('select', {
+    className: 'loc-mgmt__season-month',
+    dataset: { testid },
+    'aria-label': label,
+  }, MONTH_SHORT.map((m, i) => el('option', {
+    value: String(i + 1),
+    selected: i + 1 === value,
+  }, [m])));
+  const dayInput = (value, testid, label) => el('input', {
+    type: 'number',
+    min: '1',
+    max: '31',
+    step: '1',
+    inputmode: 'numeric',
+    className: 'loc-mgmt__season-day',
+    value: String(value),
+    dataset: { testid },
+    'aria-label': label,
+  });
+  const startMonth = monthSelect(current.startMonth, 'farm-season-start-month', 'Farm season start month');
+  const startDay = dayInput(current.startDay, 'farm-season-start-day', 'Farm season start day');
+  const endMonth = monthSelect(current.endMonth, 'farm-season-end-month', 'Farm season end month');
+  const endDay = dayInput(current.endDay, 'farm-season-end-day', 'Farm season end day');
+
+  const values = () => ({
+    startMonth: startMonth.value, startDay: startDay.value,
+    endMonth: endMonth.value, endDay: endDay.value,
+  });
+  const label = el('div', { className: 'loc-mgmt__season-label', dataset: { testid: 'farm-season-label' } });
+  const errorEl = el('div', { className: 'auth-error', dataset: { testid: 'farm-season-error' }, role: 'alert' });
+  const refresh = () => {
+    clear(label);
+    clear(errorEl);
+    const check = validateFarmSeason(values(), today);
+    if (check.valid) {
+      const def = {
+        startMonth: check.normalized.seasonStartMonth, startDay: check.normalized.seasonStartDay,
+        endMonth: check.normalized.seasonEndMonth, endDay: check.normalized.seasonEndDay,
+      };
+      label.appendChild(document.createTextNode(`This farm's season: ${formatFarmSeason(def, today)}`));
+    } else {
+      errorEl.appendChild(document.createTextNode(check.errors.join('; ')));
+    }
+    return check;
+  };
+  for (const input of [startMonth, startDay, endMonth, endDay]) {
+    input.addEventListener('change', refresh);
+    input.addEventListener('input', refresh);
+  }
+
+  const save = el('button', {
+    type: 'button',
+    className: 'btn btn-green btn-sm',
+    dataset: { testid: 'farm-season-save' },
+    onClick: () => {
+      const check = refresh();
+      if (!check.valid) return;
+      try {
+        updateFarmSeasonSettings(farmSettings.id, check.normalized);
+      } catch (err) {
+        clear(errorEl);
+        errorEl.appendChild(document.createTextNode(err.message));
+        return;
+      }
+      farmSeasonEditorOpen = false;
+      farmSeasonSavedNote = true;
+      onUpdate();
+    },
+  }, ['Save']);
+  const cancel = el('button', {
+    type: 'button',
+    className: 'btn btn-outline btn-sm',
+    dataset: { testid: 'farm-season-cancel' },
+    onClick: () => {
+      farmSeasonEditorOpen = false;
+      onUpdate();
+    },
+  }, ['Cancel']);
+
+  const editor = el('div', {
+    className: 'loc-mgmt__season-editor',
+    dataset: { testid: 'farm-season-editor' },
+  }, [
+    el('div', { className: 'loc-mgmt__season-row' }, [
+      el('span', { className: 'loc-mgmt__period-label' }, ['Farm default season: start']),
+      startMonth, startDay,
+      el('span', { className: 'loc-mgmt__period-label' }, ['end']),
+      endMonth, endDay,
+    ]),
+    label,
+    errorEl,
+    el('div', { className: 'loc-mgmt__season-row' }, [save, cancel]),
   ]);
+  refresh();
+  return editor;
+}
+
+/** Test hook: reset the #402 editor session state. */
+export function _resetFarmSeasonEditor() {
+  farmSeasonEditorOpen = false;
+  farmSeasonSavedNote = false;
 }
 
 

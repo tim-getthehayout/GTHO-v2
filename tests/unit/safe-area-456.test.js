@@ -147,7 +147,18 @@ describe('#456 Map canvas and overlay controls', () => {
     expect(block).toMatch(/\.loc-mgmt-map,[^{]*\.farm-map-screen\s*\{[^}]*display:\s*contents/);
     expect(block).toMatch(/\.header-strip\s*\{[^}]*grid-row:\s*1/);
     expect(block).toMatch(/\.farm-map-header\s*\{[^}]*grid-row:\s*1/);
-    expect(block).toMatch(/\.farm-map-toolbar\s*\{[^}]*grid-row:\s*2/);
     expect(block).toMatch(/\.farm-map-actions\s*\{[^}]*flex-wrap:\s*nowrap/);
+  });
+
+  it('phone landscape Map amendment 2: nav-height padding, 4px top, toolbar merged into the chrome row', () => {
+    const block = landscapeMapBlock();
+    const content = block.match(/\.app-content:has\(\.loc-mgmt-map\)\s*\{([^}]*)\}/);
+    expect(content, 'missing landscape .app-content:has(.loc-mgmt-map) rule').toBeTruthy();
+    expect(content[1]).toMatch(/padding-top:\s*4px/);
+    expect(content[1]).toMatch(/padding-bottom:\s*calc\(43px \+ var\(--safe-bottom\)\)/);
+    expect(block).toMatch(/\.farm-map-toolbar\s*\{[^}]*grid-row:\s*1/);
+    expect(block).toMatch(/\.farm-map-toolbar\s*\{[^}]*overflow-x:\s*auto/);
+    expect(block).toMatch(/\.farm-map-canvas\s*\{[^}]*grid-row:\s*2/);
+    expect(block).not.toMatch(/header-sub-row/);
   });
 });

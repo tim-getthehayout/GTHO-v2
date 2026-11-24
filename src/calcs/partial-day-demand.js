@@ -8,17 +8,22 @@
  */
 
 import { localInstantMs } from './feed-pools.js';
+import { passMemo, metricsPassActive } from './metrics-memo.js';
 
 /** Local midnight of YYYY-MM-DD, in ms. */
 export function localDayStartMs(date) {
-  const [y, m, d] = String(date).split('-').map(Number);
-  return new Date(y, m - 1, d).getTime();
+  return passMemo('localDayStartMs', metricsPassActive() ? String(date) : null, () => {
+    const [y, m, d] = String(date).split('-').map(Number);
+    return new Date(y, m - 1, d).getTime();
+  });
 }
 
 /** Local midnight of the following calendar day, in ms. */
 export function localDayEndMs(date) {
-  const [y, m, d] = String(date).split('-').map(Number);
-  return new Date(y, m - 1, d + 1).getTime();
+  return passMemo('localDayEndMs', metricsPassActive() ? String(date) : null, () => {
+    const [y, m, d] = String(date).split('-').map(Number);
+    return new Date(y, m - 1, d + 1).getTime();
+  });
 }
 
 /** Real hours in the local calendar day (24, or 23 / 25 across DST). */

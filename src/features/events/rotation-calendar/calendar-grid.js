@@ -9,6 +9,7 @@
 
 import { el, clear } from '../../../ui/dom.js';
 import { getAll } from '../../../data/store.js';
+import { inMetricsPass, memoByStoreVersion } from '../../../calcs/metrics-memo.js';
 import {
   getCalendarState, getViewMode, setJump, setMetricWindow, setSort,
   toggleMetricsCollapsed,
@@ -264,7 +265,13 @@ function renderMetricsHead(metricBtnsByKey, { grow = false } = {}) {
  * Render the locations + rotation management surface.
  * @param {HTMLElement} container
  */
-export function renderCalendarGrid(container, { onViewChange } = {}) {
+export function renderCalendarGrid(container, opts = {}) {
+  // L1: one metrics render pass per Calendar/List paint (season rows, past-block
+  // labels and the totals strip share group-day demand and hay spans).
+  return inMetricsPass(() => renderCalendarGridNow(container, opts));
+}
+
+function renderCalendarGridNow(container, { onViewChange } = {}) {
   teardownScrollSurface(container);
   clear(container);
 
@@ -371,7 +378,12 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     batchNutritionalProfiles: allBatchProfiles,
   };
 
-  let metricRows = locations.map(loc => computeLocationMetrics(loc, metricCtx));
+  // L1: metricCtx is the store at this version; a row is reused until the next
+  // store notify (or a new day / metric window). Copies, so sort/reads are safe.
+  let metricRows = locations.map(loc => ({
+    ...memoByStoreVersion(`cal-row|${loc.id}|${windowStart}|${windowEnd}|${today}`,
+      () => computeLocationMetrics(loc, metricCtx)),
+  }));
   metricRows = sortMetricRows(metricRows, { key: state.sortKey || 'name', dir: state.sortDir || 'asc' });
   // Reorder locations to match sort
   const byId = new Map(locations.map(l => [l.id, l]));
@@ -575,25 +587,27 @@ export function renderCalendarGrid(container, { onViewChange } = {}) {
     if (connectorLayer) connectorLayer.layout(body);
   });
   // OI-0266 (b): re-measure connectors when layout resizes (window, metrics
-  // width / collapse). Guarded — jsdom has no ResizeObserver.
-  const RO = typeof globalThis !== 'undefined' ? globalThis.ResizeObserver : undefined;
-  if (connectorLayer && typeof RO === 'function') {
+  // width / collapse). OI-0284: the same observer watches the sticky head and
+  // keeps --loc-mgmt-head-h current. Guarded — jsdom has no ResizeObserver.
+  let onResize = null;
+  const resizeTargets = [];
+  if (connectorLayer) {
     let pending = false;
-    const ro = new RO(() => {
+    onResize = () => {
       if (pending) return;
       pending = true;
       requestAnimationFrame(() => {
         pending = false;
         if (body.isConnected) connectorLayer.layout(body);
       });
-    });
-    ro.observe(body);
+    };
+    resizeTargets.push(body);
     const firstRow = body.querySelector(`.loc-mgmt__row`);
-    if (firstRow) ro.observe(firstRow);
+    if (firstRow) resizeTargets.push(firstRow);
     const firstMetrics = body.querySelector('[data-testid="loc-mgmt-metrics"]');
-    if (firstMetrics) ro.observe(firstMetrics);
-    container._locMgmtResizeObserver = ro;
+    if (firstMetrics) resizeTargets.push(firstMetrics);
   }
+  container._locMgmtResizeObserver = observeHeadHeight(body, { targets: resizeTargets, onResize });
 
   const surface = el('div', {
     className: [
@@ -655,6 +669,36 @@ export function teardownScrollSurface(container) {
     container._locMgmtResizeObserver.disconnect();
     container._locMgmtResizeObserver = null;
   }
+}
+
+/** OI-0284: CSS var the scroller's scroll-padding-top reads (main.css). */
+export const HEAD_HEIGHT_VAR = '--loc-mgmt-head-h';
+
+/**
+ * OI-0284: set --loc-mgmt-head-h on the single scroller from the sticky head's
+ * rendered height (main.css scroll-padding-top reads it), and keep it current
+ * with a ResizeObserver on the head (rotate / narrow-width wrap). Falls back to
+ * 0px when the head is missing. The same observer also watches `targets` and
+ * calls `onResize` (OI-0266 connector re-measure), so each render owns ONE
+ * observer, disconnected by teardownScrollSurface on re-render / unmount.
+ * Returns null when there is nothing to observe or no ResizeObserver.
+ */
+export function observeHeadHeight(body, { targets = [], onResize = null } = {}) {
+  if (!body) return null;
+  const head = body.querySelector('.loc-mgmt__head');
+  const apply = () => {
+    body.style.setProperty(HEAD_HEIGHT_VAR, `${head ? head.offsetHeight || 0 : 0}px`);
+  };
+  apply();
+  const RO = typeof globalThis !== 'undefined' ? globalThis.ResizeObserver : undefined;
+  if (typeof RO !== 'function' || (!head && !targets.length)) return null;
+  const ro = new RO(() => {
+    apply();
+    if (onResize) onResize();
+  });
+  if (head) ro.observe(head);
+  targets.forEach(t => ro.observe(t));
+  return ro;
 }
 
 /**
@@ -743,17 +787,24 @@ function buildConnectorLayer({ paddockWindows, rowByLoc, range, totalWidth }) {
     overlay,
     layout(body) {
       if (!body) return;
+      // L1: read every position first, then write — one layout instead of one
+      // forced layout per connector (the overlay never moves the rows).
       const bodyRect = body.getBoundingClientRect();
-      overlay.style.left = `${timelineOriginX(body)}px`;
+      const originX = timelineOriginX(body);
+      const scrollHeight = body.scrollHeight;
+      const ys = nodes.map(({ c }) => [
+        rowCenterY(rowByLoc.get(c.fromLocationId), bodyRect, body),
+        rowCenterY(rowByLoc.get(c.toLocationId), bodyRect, body),
+      ]);
+      overlay.style.left = `${originX}px`;
       overlay.style.width = `${totalWidth}px`;
-      overlay.style.height = `${body.scrollHeight}px`;
-      for (const { c, node } of nodes) {
-        const yFrom = rowCenterY(rowByLoc.get(c.fromLocationId), bodyRect, body);
-        const yTo = rowCenterY(rowByLoc.get(c.toLocationId), bodyRect, body);
+      overlay.style.height = `${scrollHeight}px`;
+      nodes.forEach(({ node }, i) => {
+        const [yFrom, yTo] = ys[i];
         node.style.top = `${Math.min(yFrom, yTo)}px`;
         node.style.height = `${Math.abs(yTo - yFrom)}px`;
         node.dataset.dir = yTo >= yFrom ? 'down' : 'up';
-      }
+      });
     },
   };
 }
@@ -1349,7 +1400,8 @@ function renderManagementRow(opts) {
       // Mw1: List-metrics calc over this window only (OI-0256 stored-feed first,
       // OI-0253 unknown → null → "—").
       const wm = metricCtx
-        ? computePaddockWindowMetrics(pw, loc, event, span, metricCtx)
+        ? memoByStoreVersion(`cal-win|${pw.id}|${loc.id}|${event.id}|${span.start}|${span.end}|${todayStr}`,
+          () => computePaddockWindowMetrics(pw, loc, event, span, metricCtx))
         : { auds: null, dmi: null, pasturePct: null, feedPct: null, storedFeedOnly: !!pw.noPasture };
       const storedFeedOnly = wm.storedFeedOnly;
       blockArea.appendChild(renderPastBlock({

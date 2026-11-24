@@ -14,6 +14,7 @@ import * as PaddockWindowEntity from '../entities/event-paddock-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../calcs/window-helpers.js';
 import { resolveCurrentPlacement } from './current-placement.js';
 import { logger } from '../utils/logger.js';
+import { bumpMetricsStoreVersion, inMetricsPass } from '../calcs/metrics-memo.js';
 
 /**
  * All entity type keys used in the store.
@@ -89,6 +90,7 @@ export function runDurableWrite(key, write) {
     return receipt;
   } catch (error) {
     Object.assign(state,before);
+    bumpMetricsStoreVersion();
     throw error;
   } finally { durableWrite = null; }
 }
@@ -146,6 +148,7 @@ initState();
  * Load all entity types from localStorage into state.
  */
 export function init() {
+  bumpMetricsStoreVersion();
   recoverDurableWrite();
   for (const type of ENTITY_TYPES) {
     const cached = loadFromStorage(type);
@@ -556,6 +559,8 @@ export function endBatch() {
  * @param {string} entityType
  */
 function notify(entityType) {
+  // L1: any change drops the metric memo before a subscriber can read it.
+  bumpMetricsStoreVersion();
   dirtyEntities.add(entityType);
   if (batchDepth > 0) return;
   if (drainQueued) return;
@@ -576,6 +581,11 @@ function notify(entityType) {
  * @param {string[]} dirtyTypes
  */
 function drainNotifications(dirtyTypes) {
+  // L1: subscribers repainting on one drain share one metrics render pass.
+  inMetricsPass(() => drainNotificationsNow(dirtyTypes));
+}
+
+function drainNotificationsNow(dirtyTypes) {
   const fired = new Set();
   for (const e of dirtyTypes) {
     const subs = subscribers[e];
@@ -613,6 +623,38 @@ function drainNotifications(dirtyTypes) {
  * @param {Array<object>} remoteRecords - Already converted via fromSupabaseShape
  * @returns {{ added: number, updated: number }}
  */
+/**
+ * L2: structural equality of a stored record and a pulled one. Plain objects,
+ * arrays, dates and primitives; a key whose value is undefined counts as absent
+ * (localStorage JSON drops it). Anything else compares by identity, so an
+ * unknown shape is "different" and merges exactly as before.
+ */
+export function sameRecordContent(a, b) {
+  if (a === b) return true;
+  if (typeof a === 'number' && typeof b === 'number') return Number.isNaN(a) && Number.isNaN(b);
+  if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+  }
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!sameRecordContent(a[i], b[i])) return false;
+    return true;
+  }
+  const protoA = Object.getPrototypeOf(a);
+  const protoB = Object.getPrototypeOf(b);
+  if ((protoA !== Object.prototype && protoA !== null) || (protoB !== Object.prototype && protoB !== null)) return false;
+  const keysA = Object.keys(a).filter(k => a[k] !== undefined);
+  const keysB = Object.keys(b).filter(k => b[k] !== undefined);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(b, k) || b[k] === undefined) return false;
+    if (!sameRecordContent(a[k], b[k])) return false;
+  }
+  return true;
+}
+
 export function mergeRemote(entityType, remoteRecords) {
   recoverBeforeMutation();
   let added = 0;
@@ -629,6 +671,10 @@ export function mergeRemote(entityType, remoteRecords) {
       const local = state[entityType][localIdx];
       const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
       const remoteTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
+      // L2: an equal-time row whose content matches local is a no-op (no write,
+      // no notify). Equal time with different content still applies, so a
+      // same-millisecond write is never lost; a newer remote row applies as before.
+      if (remoteTime === localTime && sameRecordContent(local, remote)) continue;
       if (remoteTime >= localTime) {
         state[entityType][localIdx] = remote;
         updated++;
@@ -648,6 +694,7 @@ export function mergeRemote(entityType, remoteRecords) {
  * Reset the store (for testing).
  */
 export function _reset() {
+  bumpMetricsStoreVersion();
   initState();
   syncAdapter = null;
 }

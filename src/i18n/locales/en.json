@@ -67,6 +67,7 @@
   "pwa": {
     "updateReady": "A new version of GTHO is ready.",
     "updateNow": "Update now",
+    "updating": "Updating…",
     "updateLater": "Later"
   },
   "header": {

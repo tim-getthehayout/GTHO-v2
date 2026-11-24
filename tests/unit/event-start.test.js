@@ -253,3 +253,37 @@ describe('setEventStart — write path', () => {
     expect(r.updated).toBe(0);
   });
 });
+
+describe('getEventStart — L1 render-pass reuse', () => {
+  it('a pass returns the same start as no pass, survives caller mutation, and sees a new window after notify', async () => {
+    const { inMetricsPass } = await import('../../src/calcs/metrics-memo.js');
+    add('eventPaddockWindows', PaddockWindowEntity.create({
+      id: PW_A, operationId: OP, eventId: EVT, locationId: LOC_A,
+      dateOpened: '2026-04-15', timeOpened: '08:00',
+    }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    const plain = getEventStart(EVT);
+    inMetricsPass(() => {
+      const first = getEventStart(EVT);
+      expect(first).toEqual(plain);
+      first.date = 'corrupt';
+      expect(getEventStart(EVT)).toEqual(plain);
+      expect(getEventStartDate(EVT)).toBe('2026-04-15');
+      // A store write notifies, which drops the pass cache.
+      add('eventPaddockWindows', PaddockWindowEntity.create({
+        id: PW_B, operationId: OP, eventId: EVT, locationId: LOC_B,
+        dateOpened: '2026-04-10', timeOpened: null,
+      }), PaddockWindowEntity.validate, PaddockWindowEntity.toSupabaseShape, 'event_paddock_windows');
+    });
+    inMetricsPass(() => {
+      expect(getEventStartDate(EVT)).toBe('2026-04-10');
+    });
+  });
+
+  it('no child windows still returns null inside a pass', async () => {
+    const { inMetricsPass } = await import('../../src/calcs/metrics-memo.js');
+    inMetricsPass(() => {
+      expect(getEventStart(EVT)).toBeNull();
+      expect(getEventStart(EVT)).toBeNull();
+    });
+  });
+});

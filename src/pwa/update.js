@@ -5,6 +5,8 @@ import { logger } from '../utils/logger.js';
 import { hideUpdateBanner, showUpdateBanner } from './banner.js';
 
 const ACCEPT_KEY = 'gtho_pwa_update_accepted';
+/** U1: reload anyway when the new worker has not taken control by then. */
+export const UPDATE_FALLBACK_MS = 3000;
 
 /**
  * Decide whether to show the update bar, and which apply path it uses.
@@ -29,6 +31,37 @@ export function decideUpdateAction({
 
 function readLocalStamp() {
   return typeof __BUILD_STAMP__ === 'undefined' ? 'dev' : __BUILD_STAMP__;
+}
+
+/**
+ * U1 fallback. After Update now posts SKIP_WAITING, reload once if
+ * controllerchange has not reloaded within `delayMs`. Clears the session flag
+ * first, so a controllerchange on the reloaded page cannot reload it again.
+ * @param {{ setTimer?: Function, delayMs?: number, hasReloaded: () => boolean, markReloaded: () => void, clearAccepted: () => void, reload: () => void }} deps
+ * @returns {*} the timer handle
+ */
+export function scheduleUpdateFallback({
+  setTimer = (fn, ms) => setTimeout(fn, ms),
+  delayMs = UPDATE_FALLBACK_MS,
+  hasReloaded,
+  markReloaded,
+  clearAccepted,
+  reload,
+}) {
+  return setTimer(() => {
+    if (hasReloaded()) return;
+    markReloaded();
+    clearAccepted();
+    reload();
+  }, delayMs);
+}
+
+function clearAcceptedFlag() {
+  try {
+    sessionStorage.removeItem(ACCEPT_KEY);
+  } catch {
+    // Clearing the flag is what stops the next page from reloading again.
+  }
 }
 
 let started = false;
@@ -96,6 +129,12 @@ function applyUpdate(action, stampForReload) {
   if (action === 'apply-worker') {
     const worker = registration && registration.waiting;
     if (worker) worker.postMessage('SKIP_WAITING');
+    scheduleUpdateFallback({
+      hasReloaded: () => reloadedForUpdate,
+      markReloaded: () => { reloadedForUpdate = true; },
+      clearAccepted: clearAcceptedFlag,
+      reload: () => window.location.reload(),
+    });
     return;
   }
   if (action === 'reload-document' && stampForReload) {
@@ -129,11 +168,7 @@ export function initPwa() {
     }
     if (!accepted) return;
     reloadedForUpdate = true;
-    try {
-      sessionStorage.removeItem(ACCEPT_KEY);
-    } catch {
-      // Clearing the flag is what stops the next page from reloading again.
-    }
+    clearAcceptedFlag();
     window.location.reload();
   });
 

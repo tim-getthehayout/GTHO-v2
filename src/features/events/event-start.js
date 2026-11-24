@@ -25,6 +25,7 @@ import { getAll, getById, update } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import { logger } from '../../utils/logger.js';
+import { passMemo, metricsPassActive } from '../../calcs/metrics-memo.js';
 
 /**
  * Shape of a "child window opening" for the derivation sort.
@@ -87,6 +88,24 @@ function windowLabel(op) {
  * @returns {{ date: string, time: string|null, sourceWindowId: string, sourceWindowType: 'paddock'|'group' } | null}
  */
 export function getEventStart(eventId) {
+  // L1: inside a metrics render pass the store cannot change (any notify ends
+  // the pass cache), so a found start is reused; "no child windows" still
+  // recomputes and warns every time, as before.
+  if (metricsPassActive()) {
+    const hit = passStarts().get(eventId);
+    if (hit) return { ...hit };
+    const start = computeEventStart(eventId);
+    if (start) passStarts().set(eventId, start);
+    return start ? { ...start } : start;
+  }
+  return computeEventStart(eventId);
+}
+
+function passStarts() {
+  return passMemo('eventStartById', 'all', () => new Map());
+}
+
+function computeEventStart(eventId) {
   const openings = collectOpenings(eventId);
   if (!openings.length) {
     logger.warn('event-start', 'no child windows for event', { eventId });

@@ -30,6 +30,7 @@ import '../../../src/calcs/feed-forage.js'; // ensure calcs are registered
 import '../../../src/calcs/core.js'; // OI-0157-B2: NPK-1 + NPK-3 + ANI-AU/AUD/ADA
 import '../../../src/calcs/advanced.js'; // OI-0157-B2: NPK-2 + NPK-4 + CST-3 + REC-1
 import { resolveCalcForCalcCard, getResolverNames } from '../../../src/features/dev-mode/audit-resolvers.js';
+import { DEFAULT_EXCRETION_RATES } from '../../../src/features/onboarding/seed-data.js';
 
 const OP = '00000000-0000-0000-0000-0000000000aa';
 const FARM = '00000000-0000-0000-0000-0000000000bb';
@@ -266,7 +267,7 @@ describe('audit-resolvers (OI-0157-B2 — NPK / fertility / stocking)', () => {
       const out = resolveCalcForCalcCard('NPK-1', { eventId: EVT });
       const inst = out.instances[0];
       const nRate = inst.inputs.find(i => i.name === 'excretionNRate');
-      expect(nRate.value).toBe(0.145); // NRC default
+      expect(nRate.value).toBe(DEFAULT_EXCRETION_RATES.n); // #459 beef-cow fallback
       expect(nRate.source).toMatch(/member class mix/);
     });
   });

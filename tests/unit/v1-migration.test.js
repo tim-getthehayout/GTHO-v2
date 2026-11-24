@@ -17,6 +17,7 @@ import {
   LBS_PER_ACRE_TO_KG_PER_HA,
   CURRENT_SCHEMA_VERSION,
 } from '../../src/data/v1-migration.js';
+import { ANIMAL_CLASSES_BY_SPECIES } from '../../src/features/onboarding/seed-data.js';
 
 // Minimal v1 fixture
 function makeV1(overrides = {}) {
@@ -631,9 +632,11 @@ describe('v1-migration (CP-57)', () => {
       const { envelope } = transformV1ToV2(v1, baseOpts);
       const classes = envelope.tables.animal_classes;
       for (const ac of classes) {
-        expect(ac.excretion_n_rate, `${ac.name} excretion N must be seeded`).toBeCloseTo(0.145, 3);
-        expect(ac.excretion_p_rate, `${ac.name} excretion P must be seeded`).toBeCloseTo(0.041, 3);
-        expect(ac.excretion_k_rate, `${ac.name} excretion K must be seeded`).toBeCloseTo(0.136, 3);
+        const seed = ANIMAL_CLASSES_BY_SPECIES.beef_cattle.find(c => c.role === ac.role);
+        expect(seed, `${ac.name} should match a beef_cattle seed role`).toBeTruthy();
+        expect(ac.excretion_n_rate, `${ac.name} excretion N must be seeded`).toBeCloseTo(seed.excretionNRate, 3);
+        expect(ac.excretion_p_rate, `${ac.name} excretion P must be seeded`).toBeCloseTo(seed.excretionPRate, 3);
+        expect(ac.excretion_k_rate, `${ac.name} excretion K must be seeded`).toBeCloseTo(seed.excretionKRate, 3);
       }
       const cow = classes.find(c => c.role === 'cow');
       expect(cow.dmi_pct_lactating).toBe(3.0);
@@ -670,7 +673,8 @@ describe('v1-migration (CP-57)', () => {
       // inferRole returns 'yearling'; no beef_cattle seed row exists for that role
       // → fall back to cow (conservative for NPK, null weaning).
       expect(ac.role).toBe('yearling');
-      expect(ac.excretion_n_rate).toBeCloseTo(0.145, 3);
+      const cow = ANIMAL_CLASSES_BY_SPECIES.beef_cattle.find(c => c.role === 'cow');
+      expect(ac.excretion_n_rate).toBeCloseTo(cow.excretionNRate, 3);
       expect(ac.dmi_pct_lactating).toBe(3.0); // cow-row fallback
       expect(ac.weaning_age_days).toBeNull(); // cow has null per OI-0127
     });

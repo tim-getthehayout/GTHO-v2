@@ -53,6 +53,9 @@ import {
   aggregatePeriodTotals,
   formatMetricValue,
   residualNpkNote,
+  earliestGroupWindowDate,
+  periodStartsBeforeFirstGroupWindow,
+  formatPreWindowDate,
 } from './location-metrics.js';
 import { computeReadiness, lastGrazeDate, readinessBandRange, readyChipKind, READY_CHIP_TEXT } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
@@ -486,7 +489,11 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
     : renderToolbar(onUpdate);
   // OI-0250 Sb: period totals under season metrics bar, above color key (Calendar only).
   const periodTotals = isList ? null : aggregatePeriodTotals(metricRows);
-  const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals, { unitSystem, isPhone }) : null;
+  const earliestGw = earliestGroupWindowDate(allGroupWindows);
+  const preWindowNote = periodStartsBeforeFirstGroupWindow(windowStart, earliestGw)
+    ? t('event.periodTotalsPreWindow', { date: formatPreWindowDate(earliestGw) })
+    : null;
+  const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals, { unitSystem, isPhone, preWindowNote }) : null;
   const legend = isList ? null : renderLegend(viewMode);
 
   // OI-0254 Sc1: canvas = all past event starts → latest ready-by (close-event recovery).
@@ -1190,21 +1197,24 @@ export function _resetFarmSeasonEditor() {
  * OI-0250 Sb: period totals strip — Pasture / Stored-feed / Total DMI + Total N/P/K.
  * Calendar only; sits under season metrics bar and above the color key.
  */
-function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone = false } = {}) {
+function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone = false, preWindowNote = null } = {}) {
   // OI-0278 S1: unit in the label ("Total DMI (lb)"); values via the helper.
   const w = unitSuffix('weight', unitSystem);
   // OI-0276: same hover note on Total N/P/K when leftover hay was not counted.
   const hayNote = residualNpkNote(totals);
   // OI-0279: per-class DMI % fallback note on the DMI totals.
   const dmiNote = totals.dmiBasisNote ? `. ${totals.dmiBasisNote}` : '';
-  const cell = (key, label, value, partial, title, note = null, family = 'weight') => el('div', {
+  const cell = (key, label, value, partial, title, note = null, family = 'weight') => {
+    const notes = [note, preWindowNote].filter(Boolean);
+    return el('div', {
     className: `loc-mgmt__period-total${partial ? ' loc-mgmt__period-total--partial' : ''}`,
-    title: note ? `${title}. ${note}` : title,
+    title: notes.length ? `${title}. ${notes.join('. ')}` : title,
     dataset: {
       key,
       testid: `loc-mgmt-period-total-${key}`,
       partial: partial ? 'true' : undefined,
       ...(note ? { residualNote: 'true' } : {}),
+      ...(preWindowNote ? { preWindowNote: 'true' } : {}),
     },
   }, [
     el('span', { className: 'loc-mgmt__period-total-label' }, [label]),
@@ -1218,6 +1228,7 @@ function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone
         : null,
     ].filter(Boolean)),
   ]);
+  };
 
   return el('div', {
     className: 'loc-mgmt__period-totals',

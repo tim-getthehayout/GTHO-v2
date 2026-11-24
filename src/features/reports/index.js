@@ -11,6 +11,7 @@ import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { renderReferenceConsole } from './reference-console.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight, groupDayDmi, groupDayExcretionRates } from '../../calcs/window-helpers.js';
 import { getEventStartDate } from '../events/event-start.js';
+import { DEFAULT_EXCRETION_RATES } from '../onboarding/seed-data.js';
 
 /** Active tab state */
 let activeTab = 'feed';
@@ -279,7 +280,7 @@ function renderNpkTab() {
         throughDate: todayStr,
       });
       // OI-0279: class rates from the group's member mix (defaults as before).
-      const exc = groupDayExcretionRates(gw, now, { memberships, animals, animalClasses, animalWeightRecords }, { n: 0.145, p: 0.041, k: 0.136 });
+      const exc = groupDayExcretionRates(gw, now, { memberships, animals, animalClasses, animalWeightRecords }, DEFAULT_EXCRETION_RATES);
       const npkResult = npk1.fn({
         headCount: liveHead,
         avgWeightKg: liveAvg,

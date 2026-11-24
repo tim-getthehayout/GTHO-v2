@@ -18,7 +18,7 @@
 
 import { logger } from '../utils/logger.js';
 import { passMemo, ref, metricsPassActive } from './metrics-memo.js';
-import { ANIMAL_CLASSES_BY_SPECIES } from '../features/onboarding/seed-data.js';
+import { ANIMAL_CLASSES_BY_SPECIES, DEFAULT_EXCRETION_RATES } from '../features/onboarding/seed-data.js';
 
 function isMembershipLive(m, groupId, now) {
   if (m.groupId !== groupId) return false;
@@ -502,14 +502,14 @@ function computeGroupDayDmi(gw, dt, ctx = {}) {
  * mix (weight-weighted class rates; a member without a class rate uses
  * `defaults`). No live member → `defaults`.
  */
-export function groupDayExcretionRates(gw, dt, ctx = {}, defaults = { n: 0.145, p: 0.041, k: 0.136 }) {
+export function groupDayExcretionRates(gw, dt, ctx = {}, defaults = DEFAULT_EXCRETION_RATES) {
   const rates = passMemo('groupDayExcretion', gw && metricsPassActive()
     ? `${ref(gw)}|${dt}|${ref(ctx.memberships)}|${ref(ctx.animals)}|${classesKey(ctx.animalClasses)}|${ref(ctx.animalWeightRecords)}|${defaults.n}|${defaults.p}|${defaults.k}`
     : null, () => computeGroupDayExcretionRates(gw, dt, ctx, defaults));
   return { ...rates };
 }
 
-function computeGroupDayExcretionRates(gw, dt, ctx = {}, defaults = { n: 0.145, p: 0.041, k: 0.136 }) {
+function computeGroupDayExcretionRates(gw, dt, ctx = {}, defaults = DEFAULT_EXCRETION_RATES) {
   const members = groupDayMembers(gw, dt, ctx);
   const rate = (m, key, d) => {
     const v = m.cls?.[key];

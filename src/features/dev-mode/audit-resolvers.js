@@ -27,10 +27,11 @@ import { getEventStartDate } from '../events/event-start.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays, paddockWindowPresenceHours } from '../../calcs/partial-day-demand.js';
 
-// OI-0157-B2 helper: NRC beef-cattle excretion-rate defaults. Used by NPK-1
-// resolver when an animal class doesn't carry its own per-class rates.
-// Values match NPK-1's example block in `src/calcs/core.js`.
-const NRC_DEFAULT_EXCRETION = { n: 0.145, p: 0.041, k: 0.136 };
+import { DEFAULT_EXCRETION_RATES } from '../onboarding/seed-data.js';
+
+// #459: unknown-class fallback is the NRCS AWMFH T4-8(b) beef cow row
+// (kg / 1000 kg BW / day, elemental P and K).
+const NRC_DEFAULT_EXCRETION = DEFAULT_EXCRETION_RATES;
 
 // OI-0157-B2 helper: pick the NPK price row applicable to an event start.
 // Lookup rule (locked NPK-2 spec, advanced.js:12): latest

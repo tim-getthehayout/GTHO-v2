@@ -47,8 +47,9 @@ import {
 } from '../../../calcs/f1-close-allocation.js';
 import { periodContaining } from '../../../calcs/budget-period.js';
 import { resolveFarmSeason } from '../../../calcs/farm-season.js';
+import { DEFAULT_EXCRETION_RATES } from '../../onboarding/seed-data.js';
 
-const DEFAULT_EXC = { n: 0.145, p: 0.041, k: 0.136 };
+const DEFAULT_EXC = DEFAULT_EXCRETION_RATES;
 
 /** Derive event start from passed-in windows (store-free for unit tests). */
 export function deriveEventStartDate(eventId, opts = {}) {
@@ -326,6 +327,36 @@ export function measuredHayOnEventDay({
 /** OI-0276: subtle hover notes when leftover hay is not counted in NPK (no "partial"). */
 export const RESIDUAL_NPK_NOTE_NO_PCT = 'Leftover hay not counted — feed type has no NPK %';
 export const RESIDUAL_NPK_NOTE_NO_WEIGHT_DM = 'Leftover hay not counted — feed has no weight or DM %';
+
+/**
+ * #459: earliest recorded group-window start (YYYY-MM-DD), or null if none.
+ */
+export function earliestGroupWindowDate(groupWindows = []) {
+  let min = null;
+  for (const gw of groupWindows || []) {
+    const raw = gw?.dateJoined || gw?.date_joined;
+    if (!raw) continue;
+    const iso = String(raw).slice(0, 10);
+    if (!min || iso < min) min = iso;
+  }
+  return min;
+}
+
+/** True when the selected period starts before the first recorded group window. */
+export function periodStartsBeforeFirstGroupWindow(periodStart, earliestWindowDate) {
+  if (!periodStart || !earliestWindowDate) return false;
+  return String(periodStart).slice(0, 10) < String(earliestWindowDate).slice(0, 10);
+}
+
+/** Display date for the #459 pre-window hover note ("Mar 4, 2026"). */
+export function formatPreWindowDate(isoDate) {
+  if (!isoDate) return '';
+  const iso = String(isoDate).slice(0, 10);
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(d);
+}
+
 
 /** OI-0276: hover note for a metrics row / totals with skipped residual hay, else null. */
 export function residualNpkNote(metrics) {

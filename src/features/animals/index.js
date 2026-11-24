@@ -53,7 +53,7 @@ import {
   splitWindowsForGroups,
   clearSplitUndo,
 } from './split-heads.js';
-import { ANIMAL_CLASSES_BY_SPECIES } from '../onboarding/seed-data.js';
+import { ANIMAL_CLASSES_BY_SPECIES, DEFAULT_EXCRETION_RATES } from '../onboarding/seed-data.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { localFormTimestamp, optionalFormNumber } from '../../utils/form-values.js';
 
@@ -1625,9 +1625,9 @@ export function openClassesManager(operationId) {
   inputs.defaultWeightKg = el('input', { type: 'number', placeholder: '1200', step: '1', 'data-testid': 'class-form-weight' });
   inputs.dmiPct = el('input', { type: 'number', placeholder: '2.5', step: '0.1', min: '0.5', max: '6', 'data-testid': 'class-form-dmi-pct' });
   inputs.dmiPctLactating = el('input', { type: 'number', placeholder: '3.0', step: '0.1', min: '0.5', max: '6', 'data-testid': 'class-form-dmi-lactating' });
-  inputs.excretionNRate = el('input', { type: 'number', placeholder: '0.145', step: '0.001', 'data-testid': 'class-form-excretion-n' });
-  inputs.excretionPRate = el('input', { type: 'number', placeholder: '0.041', step: '0.001', 'data-testid': 'class-form-excretion-p' });
-  inputs.excretionKRate = el('input', { type: 'number', placeholder: '0.136', step: '0.001', 'data-testid': 'class-form-excretion-k' });
+  inputs.excretionNRate = el('input', { type: 'number', placeholder: String(DEFAULT_EXCRETION_RATES.n), step: '0.001', 'data-testid': 'class-form-excretion-n' });
+  inputs.excretionPRate = el('input', { type: 'number', placeholder: String(DEFAULT_EXCRETION_RATES.p), step: '0.001', 'data-testid': 'class-form-excretion-p' });
+  inputs.excretionKRate = el('input', { type: 'number', placeholder: String(DEFAULT_EXCRETION_RATES.k), step: '0.001', 'data-testid': 'class-form-excretion-k' });
   inputs.weaningAgeDays = el('input', { type: 'number', placeholder: '205', step: '1', min: '0', 'data-testid': 'class-form-weaning' });
   inputs.archived = el('input', { type: 'checkbox', 'data-testid': 'class-form-archived' });
 

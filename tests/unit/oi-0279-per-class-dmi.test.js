@@ -14,6 +14,7 @@ import '../../src/calcs/feed-forage.js';
 import { computeFeedRunRate } from '../../src/calcs/feed-run-rate.js';
 import { buildDmi8ChartContext } from '../../src/features/events/dmi-chart-context.js';
 import { computeLocationMetrics, aggregatePeriodTotals } from '../../src/features/events/rotation-calendar/location-metrics.js';
+import { DEFAULT_EXCRETION_RATES } from '../../src/features/onboarding/seed-data.js';
 import { renderDmiChart } from '../../src/ui/dmi-chart.js';
 import { computeDmi8Days } from '../../src/features/events/dmi-chart-context.js';
 import { getCalcByName } from '../../src/utils/calc-registry.js';
@@ -294,9 +295,11 @@ describe('OI-0279 one fixture, identical per-day demand on every surface', () =>
       memberships: getAll('animalGroupMemberships'), animals: getAll('animals'),
       animalClasses: getAll('animalClasses'), animalWeightRecords: getAll('animalWeightRecords'),
     };
-    const rates = groupDayExcretionRates(gw, today, ctx, { n: 0.145, p: 0.041, k: 0.136 });
-    // a1 cow 500 kg @ cow rates, a2 calf 150 kg @ calf rates, a3 unclassed 400 kg @ defaults.
-    expect(rates.n).toBeCloseTo((500 * 0.145 + 150 * 0.2 + 400 * 0.145) / 1050);
+    const rates = groupDayExcretionRates(gw, today, ctx, DEFAULT_EXCRETION_RATES);
+    // a1 cow 500 kg @ cow fixture rates, a2 calf 150 kg @ calf fixture rates,
+    // a3 unclassed 400 kg @ #459 unknown-class fallback (beef cow).
+    const d = DEFAULT_EXCRETION_RATES;
+    expect(rates.n).toBeCloseTo((500 * 0.145 + 150 * 0.2 + 400 * d.n) / 1050);
     const days = groupWindowPresenceDays(gw, { eventStartDate: getEventStartDate('e'), eventDateOut: null, eventTimeOut: null, throughDate: today });
     const npk = getCalcByName('NPK-1');
     const kg = (r) => npk.fn({ headCount: 3, avgWeightKg: 350, days, excretionNRate: r.n, excretionPRate: r.p, excretionKRate: r.k });

@@ -42,7 +42,9 @@ import {
 // OI-0279 Q1: Event detail NPK uses the group's member-mix class excretion
 // rates (as the calendar, Reports and the dev audit); a member without class
 // rates takes these defaults (was 0.34 / 0.092 / 0.24 for every group).
-const NPK_DEFAULT_EXC = { n: 0.145, p: 0.041, k: 0.136 };
+import { DEFAULT_EXCRETION_RATES } from '../onboarding/seed-data.js';
+
+const NPK_DEFAULT_EXC = DEFAULT_EXCRETION_RATES;
 
 /** Active subscriptions for this view */
 let unsubs = [];

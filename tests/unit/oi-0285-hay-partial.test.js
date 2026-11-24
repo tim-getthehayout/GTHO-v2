@@ -41,7 +41,7 @@ import {
   buildPwDmiStats, openPastEventDetailSheet, resetPastEventDetailSheet,
 } from '../../src/features/events/rotation-calendar/past-event-detail-sheet.js';
 
-const HAY_NOTE = "Hay on an open or unchecked event isn't counted until a feed check or close reading.";
+const HAY_NOTE = "Hay not counted yet: do a feed check.";
 const DAY_KG = 10 * 453.6 * 0.025; // 113.4 kg DM / day for the 10-head herd
 
 const loc = { id: 'loc1', name: 'J2', type: 'land', landUse: 'pasture', areaHectares: 4.047 };

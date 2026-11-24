@@ -132,7 +132,9 @@ export function buildPastEventDetailModel({ eventId, paddockWindowId, today = ge
   // OI-0283 A2: an open window has no post-graze yet — don't resolve one.
   const closeObs = isOpen ? null : findPwObservation(pw.locationId, pw.id, 'close');
   const startDate = getEventStartDate(eventId);
-  const eventPaddockWindowCount = getAll('eventPaddockWindows').filter(w => w.eventId === eventId).length;
+  // OI-0283 scope note: distinct paddocks on the event (a reopened paddock counts once).
+  const eventPaddockCount = new Set(getAll('eventPaddockWindows')
+    .filter(w => w.eventId === eventId).map(w => w.locationId).filter(Boolean)).size;
 
   return {
     eventId,
@@ -147,7 +149,7 @@ export function buildPastEventDetailModel({ eventId, paddockWindowId, today = ge
     timeClosed: pw.timeClosed || event.timeOut || null,
     isOpen,
     unitSys,
-    eventPaddockWindowCount,
+    eventPaddockCount,
     dmiStats: buildPwDmiStats(pw, loc, event, { today }),
     opening: openObs ? {
       forageHeightCm: openObs.forageHeightCm ?? null,
@@ -382,9 +384,9 @@ function renderDmiSection(contentEl, model) {
   ].filter(Boolean));
   contentEl.appendChild(title);
 
-  if (model.eventPaddockWindowCount > 1) {
+  if (model.eventPaddockCount > 1) {
     contentEl.appendChild(noteLine(
-      t('event.thisPaddockOnly', { n: model.eventPaddockWindowCount }),
+      t('event.thisPaddockOnly', { n: model.eventPaddockCount }),
       'past-event-detail-dmi-scope-note',
     ));
   }

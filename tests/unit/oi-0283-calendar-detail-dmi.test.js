@@ -317,6 +317,29 @@ describe('OI-0283 B — DMI & Grazing (this paddock window only)', () => {
     expect(q('past-event-detail-dmi-scope-note')).toBeNull();
   });
 
+  it('counts distinct paddocks: two windows on the same paddock → no note; distinct paddocks → "1 of 2"', () => {
+    // Same paddock reopened within the event (two windows, one locationId).
+    seed({ close: '2026-06-11' });
+    put('eventPaddockWindows', PwEntity, 'event_paddock_windows', {
+      id: PW_2, operationId: OP, eventId: EVT, locationId: LOC, dateOpened: '2026-06-12', dateClosed: '2026-06-14', areaPct: 100,
+    });
+    expect(getAll('eventPaddockWindows').filter(w => w.eventId === EVT)).toHaveLength(2);
+    expect(buildPastEventDetailModel({ eventId: EVT, paddockWindowId: PW }).eventPaddockCount).toBe(1);
+    openPastEventDetailSheet({ eventId: EVT, paddockWindowId: PW });
+    expect(q('past-event-detail-dmi-scope-note')).toBeNull();
+    resetPastEventDetailSheet();
+
+    // Two distinct paddocks + a reopened one: N counts paddocks, not windows.
+    seed({ secondPw: true });
+    put('eventPaddockWindows', PwEntity, 'event_paddock_windows', {
+      id: '00000000-0000-0000-0000-0000000003f3', operationId: OP, eventId: EVT, locationId: LOC,
+      dateOpened: '2026-06-12', dateClosed: '2026-06-14', areaPct: 100,
+    });
+    expect(buildPastEventDetailModel({ eventId: EVT, paddockWindowId: PW }).eventPaddockCount).toBe(2);
+    openPastEventDetailSheet({ eventId: EVT, paddockWindowId: PW });
+    expect(q('past-event-detail-dmi-scope-note').textContent).toBe('This paddock only (1 of 2 paddocks)');
+  });
+
   it('multi-paddock: this window gets its acre share only (not the whole event)', () => {
     seed({ secondPw: true });
     const both = buildPwDmiStats(getById('eventPaddockWindows', PW), getById('locations', LOC), getById('events', EVT), { today: '2026-07-01' });

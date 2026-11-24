@@ -494,8 +494,17 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
   const toolbar = isList
     ? renderListTools({ onUpdate, operationId, farmId, farms: isMultiFarm ? allFarms : [] })
     : renderToolbar(onUpdate);
-  // OI-0250 Sb: period totals under season metrics bar, above color key (Calendar only).
-  const periodTotals = isList ? null : aggregatePeriodTotals(metricRows);
+  // OI-0250 Sb: period totals under season metrics bar, above color key.
+  // #465 Ls1: List shows the same strip (season bar → strip → List table). It
+  // aggregates the same management-location rows and window as Calendar (not
+  // the List search / type / farm pills), so List and Calendar totals match.
+  const totalsRows = isList
+    ? filterManagementLocations(allLocations).map(loc => ({
+      ...memoByStoreVersion(`cal-row|${loc.id}|${windowStart}|${windowEnd}|${today}`,
+        () => computeLocationMetrics(loc, metricCtx)),
+    }))
+    : metricRows;
+  const periodTotals = aggregatePeriodTotals(totalsRows);
   const earliestGw = earliestGroupWindowDate(allGroupWindows);
   const preWindowNote = periodStartsBeforeFirstGroupWindow(windowStart, earliestGw)
     ? t('event.periodTotalsPreWindow', { date: formatShortDate(earliestGw) })

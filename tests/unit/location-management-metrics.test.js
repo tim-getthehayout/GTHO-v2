@@ -893,7 +893,7 @@ describe('OI-0250 period totals (Sb+En+Nk+Sz+Pp)', () => {
     expect(totSz.pastureDmiKg).toBeGreaterThan(0);
   });
 
-  it('Sb: Calendar wires periodBar → totals strip → legend; List omits strip', () => {
+  it('Sb: Calendar wires periodBar → totals strip → legend; #465 Ls1: List shows the strip too', () => {
     const src = readFileSync('src/features/events/rotation-calendar/calendar-grid.js', 'utf8');
     const bar = src.indexOf('container.appendChild(periodBar)');
     const totals = src.indexOf('if (totalsStrip) container.appendChild(totalsStrip)');
@@ -901,7 +901,9 @@ describe('OI-0250 period totals (Sb+En+Nk+Sz+Pp)', () => {
     expect(bar).toBeGreaterThan(-1);
     expect(totals).toBeGreaterThan(bar);
     expect(legend).toBeGreaterThan(totals);
-    expect(src).toContain('const periodTotals = isList ? null : aggregatePeriodTotals(metricRows)');
+    // #465 Ls1 supersedes "Not under List": List aggregates the Calendar row set.
+    expect(src).not.toContain('const periodTotals = isList ? null');
+    expect(src).toContain('const periodTotals = aggregatePeriodTotals(totalsRows)');
     expect(src).toContain("testid: 'loc-mgmt-period-totals'");
     expect(src).toContain('Pasture DMI');
     expect(src).toContain('Stored-feed DMI');

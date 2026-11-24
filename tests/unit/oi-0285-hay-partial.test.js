@@ -420,7 +420,7 @@ describe('OI-0285 — 6b. OI-0283 sheet shows the partial cue + hay note', () =>
     }
     expect(cell.querySelector('.loc-mgmt__metric[data-key="dmiKg"]').dataset.partial).not.toBe('true');
     const strip = container.querySelector(`[data-testid="timeline-strip"][data-location-id="${LOC}"]`);
-    expect(strip.textContent).toMatch(/Pasture 100% · Feed 0% · ~[\d,]+ lb DMI/);
+    expect(strip.textContent).toMatch(/Pasture 100% · Feed 0% · ~[\d,]+ lb pasture DMI/);
   });
 
   it('no hay: no hay note', () => {

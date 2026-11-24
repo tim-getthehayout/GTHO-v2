@@ -33,11 +33,12 @@ import { openAmendmentSheet } from '../../amendments/entry.js';
 import { getEventStartDate } from '../event-start.js';
 import {
   pastWindowSpan, headCountAtWindowEnd, computePaddockWindowMetrics, eventConnectors,
+  headRangeInWindow, formatHeadRange,
 } from './past-window.js';
 import {
   resolveCanvasRange, dateToPx, enumerateTicks, defaultSpanDays, parseTimelineDay,
 } from './timeline.js';
-import { renderPastBlock } from './past-block.js';
+import { renderPastBlock, pastBlockHoverLines } from './past-block.js';
 import { openPastEventDetailSheet } from './past-event-detail-sheet.js';
 import { renderEstimatedFutureBlock, renderForecastFutureBlock } from './future-block.js';
 import { shouldPaintCap1ForecastStub, CAP1_FORECAST_STUB } from './forecaster-helpers.js';
@@ -1624,8 +1625,9 @@ function renderManagementRow(opts) {
       const strips = pw.isStripGraze && isActive
         ? allPaddockWindows.filter(w => w.stripGroupId === pw.stripGroupId).map(w => ({ areaPct: w.areaPct || 100 }))
         : [];
+      const eventGws = allGroupWindows.filter(gw => gw.eventId === event.id);
       const hc = headCountAtWindowEnd(pw, {
-        eventGroupWindows: allGroupWindows.filter(gw => gw.eventId === event.id),
+        eventGroupWindows: eventGws,
         groups: allGroups,
         memberships: allMemberships,
         animals: allAnimals,
@@ -1639,6 +1641,17 @@ function renderManagementRow(opts) {
           () => computePaddockWindowMetrics(pw, loc, event, span, metricCtx))
         : { auds: null, dmi: null, pasturePct: null, feedPct: null, storedFeedOnly: !!pw.noPasture };
       const storedFeedOnly = wm.storedFeedOnly;
+      // #466 Hd1 (display only): head range over the block + per-group hover lines.
+      // An unknown head keeps the existing count (headCountAtWindowEnd, still the calc input).
+      const hr = headRangeInWindow(span, {
+        eventGroupWindows: eventGws, groups: allGroups, memberships: allMemberships, animals: allAnimals,
+      });
+      const hoverLines = pastBlockHoverLines({
+        storedFeedEventKg: wm.raw ? (wm.raw.eventStoredFeedDmiKg ?? null) : null,
+        hayOverNeedKg: wm.raw ? (wm.raw.eventHayOverNeedKg ?? null) : null,
+        storedFeedUnknown: !!wm.raw?.dmiHayUnknown,
+        groupLines: hr.lines,
+      });
       blockArea.appendChild(renderPastBlock({
         leftPx,
         widthPx: pastWidthPx,
@@ -1652,6 +1665,8 @@ function renderManagementRow(opts) {
         // OI-0285 B: hay-0 estimate on an open event with no check since → "~".
         dmiEstimate: !storedFeedOnly && !!wm.raw?.dmiFeedCheckNeeded,
         headCount: hc.headCount,
+        headLabel: hr.unknown ? null : formatHeadRange(hr),
+        hoverLines,
         isActive,
         isStripGraze: pw.isStripGraze || false,
         strips,

@@ -479,6 +479,9 @@ export function computeLocationMetrics(location, ctx) {
     npkPartial: false,
     // OI-0250 strip fields (Sz): stored missing-DM → 0; strip pasture ignores F1 sticky
     storedFeedDmiKg: 0,
+    // #466 Dl1: display-only extras (event's stored feed eaten in the window, hay over need).
+    eventStoredFeedDmiKg: 0,
+    eventHayOverNeedKg: 0,
     stripPastureDmiKg: null,
     stripDmiPartial: false,
     dmiBasisNote: null,
@@ -533,6 +536,10 @@ export function computeLocationMetrics(location, ctx) {
   let dmiFeedCheckNeededDays = 0;
   const knownSlicesByEventDate = new Map(); // eventId → date → known slice count
   let storedFeedDmiKg = 0; // OI-0250 Sz strip
+  // #466 Dl1 (display only, no calc input): the events' stored feed eaten across all
+  // their grazing windows in these dates, and hay beyond need (11-18 rule floor; not netted).
+  let eventStoredFeedDmiKg = 0;
+  let eventHayOverNeedKg = 0;
   let stripPastureDmiKg = 0;
   let anyDemandDay = false;
   const eventDemandByDate = new Map();
@@ -786,6 +793,10 @@ export function computeLocationMetrics(location, ctx) {
         demandByDate,
         locationsById,
       });
+      let spanHay = 0;
+      for (const hay of alloc.hayByPw.values()) spanHay += hay;
+      eventStoredFeedDmiKg += spanHay;
+      eventHayOverNeedKg += Math.max(0, spanHay - (alloc.totalDemand || 0));
       for (const [pwId, pasture] of alloc.pastureByPw) {
         const pw = alloc.pwById.get(pwId);
         if (!pw || !isMine(pw)) continue;
@@ -882,6 +893,8 @@ export function computeLocationMetrics(location, ctx) {
     avgScore,
     scoreKnown: avgScore != null,
     storedFeedDmiKg,
+    eventStoredFeedDmiKg,
+    eventHayOverNeedKg,
     stripPastureDmiKg: finalStripPasture,
     stripDmiPartial,
     dmiBasisNote: dmiBasisNote(demandRowsUsed),

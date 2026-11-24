@@ -107,6 +107,139 @@ export function headCountAtWindowEnd(pw, {
   return { endDate, picks, groups: groupList, headCount };
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function addDays(date, n) {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+/** #466 Hd1: "Nov 19–23", "Oct 30–Nov 2", "Nov 19" (en dash). */
+export function formatDayRange(start, end) {
+  const [, sm, sd] = start.split('-').map(Number);
+  const [, em, ed] = end.split('-').map(Number);
+  const s = `${MONTHS[sm - 1]} ${sd}`;
+  if (start === end) return s;
+  if (sm === em && start.slice(0, 4) === end.slice(0, 4)) return `${s}–${ed}`;
+  return `${s}–${MONTHS[em - 1]} ${ed}`;
+}
+
+/** #466 Hd1: "48 hd" or "105–159 hd" (en dash); null/unknown → null. */
+export function formatHeadRange(hr) {
+  if (!hr || hr.min == null || hr.max == null) return null;
+  return hr.min === hr.max ? `${hr.min} hd` : `${hr.min}–${hr.max} hd`;
+}
+
+/**
+ * #466 Hd1 (LOCKED, Tim t1602s6295; Design comment 1649) — display only.
+ * Total head per day across the block, from the event's group windows that
+ * overlap it (`head_count`; an open window counts live, as Hc1 does). Group
+ * windows are date-granular: a window counts from its join day up to, not
+ * including, its leave day (the group is elsewhere that day), so a re-split
+ * on day D is counted once. A closed block counts its days before the close
+ * day; a one-day or still-open block also counts its last day.
+ * Any overlapping window with an unknown head count → { unknown: true } and
+ * no range (the caller keeps the existing count). Calcs keep headCountAtWindowEnd.
+ * @param {{ start: string, end: string, isActive?: boolean }} span - the block's dates
+ * @returns {{ min: number|null, max: number|null, unknown: boolean, lines: Array<{ groupId: string, name: string, headCount: number|null, start: string, end: string, text: string }> }}
+ */
+export function headRangeInWindow(span, {
+  eventGroupWindows = [],
+  groups = [],
+  memberships = [],
+  animals = [],
+} = {}) {
+  const out = { min: null, max: null, unknown: false, lines: [] };
+  if (!span?.start || !span?.end) return out;
+  const { start, end } = span;
+  const includeEnd = start === end || !!span.isActive;
+  const days = [];
+  for (let d = start; d < end || (d === end && includeEnd); d = addDays(d, 1)) days.push(d);
+  if (!days.length) days.push(start);
+
+  const valid = (eventGroupWindows || []).filter((gw) => {
+    const joined = day(gw?.dateJoined);
+    if (!joined) return false;
+    const left = day(gw.dateLeft);
+    if (left && left < joined) return false; // bad data (Hc1)
+    return joined <= end && (!left || left >= start);
+  });
+  const activeOn = (gw, d) => {
+    const joined = day(gw.dateJoined);
+    const left = day(gw.dateLeft);
+    if (joined > d) return false;
+    if (!left) return true;
+    if (d < left) return true;
+    // Leave day counts only when the window is that single day.
+    return d === left && joined === left;
+  };
+  const headOf = (gw, d) => {
+    if (gw.dateLeft != null) return gw.headCount == null ? null : Number(gw.headCount);
+    if (!memberships?.length) return gw.headCount == null ? null : Number(gw.headCount);
+    return getLiveWindowHeadCount(gw, { memberships, animals, now: d });
+  };
+
+  const totals = [];
+  for (const d of days) {
+    let sum = 0;
+    let any = false;
+    for (const gw of valid) {
+      if (!activeOn(gw, d)) continue;
+      const hd = headOf(gw, d);
+      if (hd == null || !Number.isFinite(hd)) out.unknown = true;
+      else sum += hd;
+      any = true;
+    }
+    if (any) totals.push(sum);
+  }
+  if (!out.unknown && totals.length) {
+    out.min = Math.min(...totals);
+    out.max = Math.max(...totals);
+  }
+
+  // Hover lines: one per group window clipped to the block; contiguous windows
+  // of one group with the same head merge (Goats Nov 19–20 + Nov 20–23 → Nov 19–23).
+  const lastDay = days[days.length - 1];
+  const segs = valid.map((gw) => {
+    const joined = day(gw.dateJoined);
+    const left = day(gw.dateLeft);
+    return {
+      groupId: gw.groupId,
+      headCount: headOf(gw, left || lastDay),
+      start: joined < start ? start : joined,
+      end: !left || left > end ? end : left,
+    };
+  }).sort((a, b) => String(a.groupId).localeCompare(String(b.groupId))
+    || a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+  const merged = [];
+  for (const sg of segs) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.groupId === sg.groupId && prev.headCount === sg.headCount
+      && sg.start <= prev.end) {
+      if (sg.end > prev.end) prev.end = sg.end;
+      continue;
+    }
+    merged.push({ ...sg });
+  }
+  const order = new Map((groups || []).map((g, i) => [g.id, i]));
+  out.lines = merged
+    .map((sg) => {
+      const name = (groups || []).find(g => g.id === sg.groupId)?.name || '—';
+      const hd = sg.headCount == null || !Number.isFinite(sg.headCount) ? '—' : sg.headCount;
+      return { ...sg, name, text: `${name}: ${hd} hd · ${formatDayRange(sg.start, sg.end)}` };
+    })
+    // Stayed latest first, then joined earliest, then the groups list order — stable hover.
+    .sort((a, b) => b.end.localeCompare(a.end)
+      || a.start.localeCompare(b.start)
+      || ((order.get(a.groupId) ?? 0) - (order.get(b.groupId) ?? 0))
+      || a.name.localeCompare(b.name));
+  return out;
+}
+
 /**
  * Mw1 — label metrics for one paddock window: the List metrics calc
  * (`computeLocationMetrics`) scoped to the window's dates, its event and the

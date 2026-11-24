@@ -46,7 +46,7 @@ describe('rotation-calendar components', () => {
       const line = formatPastureFeedDmiLine({
         pasturePct: null, feedPct: 0, dmi: null, headCount: 12,
       });
-      expect(line).toBe('Pasture —% · Feed 0% · — DMI · 12 hd');
+      expect(line).toBe('Pasture —% · Feed 0% · — pasture DMI · 12 hd');
       expect(line).not.toContain('Pasture 0%');
       expect(line).not.toMatch(/(^|[^—])0 DMI/);
     });
@@ -55,7 +55,7 @@ describe('rotation-calendar components', () => {
       const line = formatPastureFeedDmiLine({
         pasturePct: 0, feedPct: 0, dmi: 0, headCount: 5,
       });
-      expect(line).toBe('Pasture 0% · Feed 0% · 0 lb DMI · 5 hd');
+      expect(line).toBe('Pasture 0% · Feed 0% · 0 lb pasture DMI · 5 hd');
     });
 
     it('shows known positive pasture as 100% with rounded DMI', () => {
@@ -63,10 +63,10 @@ describe('rotation-calendar components', () => {
       const line = formatPastureFeedDmiLine({
         pasturePct: 100, feedPct: 0, dmi: 98266.4, headCount: 40, unitSystem: 'metric',
       });
-      expect(line).toBe('Pasture 100% · Feed 0% · 98,266 kg DMI · 40 hd');
+      expect(line).toBe('Pasture 100% · Feed 0% · 98,266 kg pasture DMI · 40 hd');
       expect(formatPastureFeedDmiLine({
         pasturePct: 100, feedPct: 0, dmi: 123.4, headCount: 40, unitSystem: 'imperial',
-      })).toBe('Pasture 100% · Feed 0% · 272 lb DMI · 40 hd');
+      })).toBe('Pasture 100% · Feed 0% · 272 lb pasture DMI · 40 hd');
     });
   });
 
@@ -106,7 +106,7 @@ describe('rotation-calendar components', () => {
         isLinkedSecondary: false, eventId: 'e1', onClickBlock: () => {}, ...args,
       });
       expect(node.className).toContain('past-block--stored-feed');
-      expect(formatPastureFeedDmiLine({ ...args, headCount: 10 })).toBe('Pasture 0% · Feed 100% · 0 lb DMI · 10 hd');
+      expect(formatPastureFeedDmiLine({ ...args, headCount: 10 })).toBe('Pasture 0% · Feed 100% · 0 lb pasture DMI · 10 hd');
     });
 
     it('without storedFeedOnly, unknown DMI still paints — not 0', () => {
@@ -118,7 +118,7 @@ describe('rotation-calendar components', () => {
         isLinkedSecondary: false, eventId: 'e1', onClickBlock: () => {}, ...args,
       });
       expect(node.className).not.toContain('past-block--stored-feed');
-      expect(formatPastureFeedDmiLine({ ...args, headCount: 12 })).toBe('Pasture —% · Feed 0% · — DMI · 12 hd');
+      expect(formatPastureFeedDmiLine({ ...args, headCount: 12 })).toBe('Pasture —% · Feed 0% · — pasture DMI · 12 hd');
     });
   });
 

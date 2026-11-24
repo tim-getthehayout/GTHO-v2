@@ -58,19 +58,48 @@ function renderStripBands(strips, { storedFeedOnly = false } = {}) {
  *   `dmi` is canonical kg (unrounded); the helper converts and rounds.
  * @returns {string}
  */
-export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, unitSystem, estimate = false }) {
+export function formatPastureFeedDmiLine({
+  pasturePct, feedPct, dmi, headCount, headLabel = null, unitSystem, estimate = false,
+}) {
   const pastureSeg = pasturePct == null || !Number.isFinite(Number(pasturePct))
     ? 'Pasture —%'
     : `Pasture ${Math.round(pasturePct)}%`;
-  // OI-0278 S1: DMI (canonical kg) in the farm unit via the shared helper → "272 lb DMI".
+  // OI-0278 S1: DMI (canonical kg) in the farm unit via the shared helper.
+  // #466 Dl1: the block's DMI is the implied pasture DMI → "272 lb pasture DMI".
   const dmiSeg = dmi == null || !Number.isFinite(Number(dmi))
-    ? '— DMI'
-    : `${estimate ? '~' : ''}${formatMeasure(dmi, 'weight', { unitSystem })} DMI`;
+    ? '— pasture DMI'
+    : `${estimate ? '~' : ''}${formatMeasure(dmi, 'weight', { unitSystem })} pasture DMI`;
   // OI-0264 Mw1: feedPct may be unknown too ("Feed —%").
   const feedSeg = feedPct == null || !Number.isFinite(Number(feedPct))
     ? 'Feed —%'
     : `Feed ${Math.round(feedPct)}%`;
-  return `${pastureSeg} · ${feedSeg} · ${dmiSeg} · ${headCount} hd`;
+  return `${pastureSeg} · ${feedSeg} · ${dmiSeg} · ${headLabel || `${headCount} hd`}`;
+}
+
+/**
+ * #466 Dl1 + Hd1: block hover lines. Stored feed eaten for the event (farm unit,
+ * DM), hay over need when > 0 (11-18 rule floor, not netted), then one line per
+ * group (Hd1). Canonical kg in; returns the lines (empty → no hover).
+ * @returns {string[]}
+ */
+export function pastBlockHoverLines({
+  storedFeedEventKg = null, storedFeedUnknown = false, hayOverNeedKg = null, groupLines = [], unitSystem,
+} = {}) {
+  const lines = [];
+  if (storedFeedUnknown && !(Number(storedFeedEventKg) > 0)) {
+    // OI-0253: unmeasured hay is unknown, never a fake 0.
+    lines.push('Stored feed eaten (event): — DM');
+  } else if (storedFeedEventKg != null && Number.isFinite(Number(storedFeedEventKg))) {
+    lines.push(`Stored feed eaten (event): ${formatMeasure(storedFeedEventKg, 'weight', { unitSystem })} DM`);
+  }
+  if (hayOverNeedKg != null && Number(hayOverNeedKg) > 0) {
+    lines.push(`Hay over need: ${formatMeasure(hayOverNeedKg, 'weight', { unitSystem })} (not netted)`);
+  }
+  for (const g of groupLines || []) {
+    const text = typeof g === 'string' ? g : g?.text;
+    if (text) lines.push(text);
+  }
+  return lines;
 }
 
 /**
@@ -85,6 +114,8 @@ export function formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, 
  * @param {number|null} opts.feedPct - Feed percentage; null → "—" (OI-0264 Mw1)
  * @param {number|null} opts.dmi - DMI in canonical kg (unrounded); null/unknown → "—" (OI-0253 B1)
  * @param {number} opts.headCount - Head count
+ * @param {string|null} [opts.headLabel] - #466 Hd1: "105–159 hd" (wins over headCount)
+ * @param {string[]} [opts.hoverLines] - #466 Dl1 + Hd1: block hover lines
  * @param {boolean} opts.isActive - Whether this is the currently-open event
  * @param {boolean} opts.isStripGraze - Whether strip-grazed
  * @param {Array<{areaPct: number}>} [opts.strips] - Strip data (when isStripGraze + active)
@@ -102,6 +133,7 @@ export function renderPastBlock({
   leftPx, widthPx, groups, auds, days, pasturePct, feedPct, dmi, headCount,
   isActive, isStripGraze, strips, stripNote, isLinkedSecondary, linkedPrimaryName,
   storedFeedOnly = false, eventId, paddockWindowId = null, onClickBlock, dmiEstimate = false,
+  headLabel = null, hoverLines = [],
 }) {
   const groupLabel = buildGroupLabel(groups);
 
@@ -122,12 +154,13 @@ export function renderPastBlock({
   if (isLinkedSecondary) {
     line2Parts.push(el('span', {}, [`↳ linked to ${linkedPrimaryName || '—'}`]));
   } else if (storedFeedOnly) {
+    // #466 Dl1: same wording as formatPastureFeedDmiLine.
     line2Parts.push(el('span', {}, [
-      `Pasture 0% · Feed 100% · ${formatMeasure(dmi || 0, 'weight')} DMI · ${headCount} hd`,
+      `Pasture 0% · Feed 100% · ${formatMeasure(dmi || 0, 'weight')} pasture DMI · ${headLabel || `${headCount} hd`}`,
     ]));
   } else {
     line2Parts.push(el('span', {}, [
-      formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, estimate: dmiEstimate }),
+      formatPastureFeedDmiLine({ pasturePct, feedPct, dmi, headCount, headLabel, estimate: dmiEstimate }),
     ]));
     if (isStripGraze && stripNote) {
       line2Parts.push(el('span', { className: 'strip-note' }, [` · ${stripNote}`]));
@@ -153,7 +186,7 @@ export function renderPastBlock({
     ])
   );
 
-  return el('div', {
+  const block = el('div', {
     className: blockClasses.join(' '),
     style: { left: `${leftPx}px`, width: `${widthPx}px` },
     dataset: paddockWindowId
@@ -164,4 +197,7 @@ export function renderPastBlock({
     role: 'button',
     'aria-label': `${groupLabel.ariaLabel || groupLabel.text}, ${days} days`,
   }, children);
+  // #466 Dl1 + Hd1: block hover (stored feed eaten, hay over need, per-group head).
+  if (hoverLines && hoverLines.length) block.title = hoverLines.join('\n');
+  return block;
 }

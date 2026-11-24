@@ -19,7 +19,9 @@ import { getAll, getById } from '../../../data/store.js';
 import { display, formatMeasure, formatPerArea } from '../../../utils/units.js';
 import { getLocalTodayStr } from '../../../utils/date-utils.js';
 import { getEventStartDate } from '../event-start.js';
-import { pastWindowSpan, computePaddockWindowMetrics } from './past-window.js';
+import {
+  pastWindowSpan, computePaddockWindowMetrics, headRangeInWindow, formatHeadRange, headCountAtWindowEnd,
+} from './past-window.js';
 
 const SHEET_WRAP_ID = 'past-event-detail-sheet-wrap';
 const CONTENT_ID = 'past-event-detail-sheet-content';
@@ -132,6 +134,27 @@ export function buildPastEventDetailModel({ eventId, paddockWindowId, today = ge
     if (g) groups.push({ id: g.id, name: g.name });
   }
 
+  // #466 Hd1: same head wording as the block (range when head changed, per-group lines).
+  const headSpan = pastWindowSpan(pw, event, { today, fallbackStart: getEventStartDate(eventId) });
+  const hr = headRangeInWindow(headSpan, {
+    eventGroupWindows: groupWindows,
+    groups: getAll('groups'),
+    memberships: getAll('animalGroupMemberships'),
+    animals: getAll('animals'),
+  });
+  const headAtEnd = headCountAtWindowEnd(pw, {
+    eventGroupWindows: groupWindows,
+    groups: getAll('groups'),
+    memberships: getAll('animalGroupMemberships'),
+    animals: getAll('animals'),
+    today,
+    event,
+  }).headCount;
+  const head = {
+    label: (hr.unknown ? null : formatHeadRange(hr)) || `${headAtEnd} hd`,
+    lines: hr.lines.map(l => l.text),
+  };
+
   const isOpen = !(pw.dateClosed || event.dateOut);
   const openObs = findPwObservation(pw.locationId, pw.id, 'open');
   // OI-0283 A2: an open window has no post-graze yet — don't resolve one.
@@ -148,6 +171,7 @@ export function buildPastEventDetailModel({ eventId, paddockWindowId, today = ge
     locationName: loc?.name || '—',
     groups,
     groupNames: groups.map(g => g.name).join(', ') || '—',
+    head,
     dateOpened: pw.dateOpened || startDate || '—',
     timeOpened: pw.timeOpened || null,
     dateClosed: pw.dateClosed || event.dateOut || null,
@@ -264,6 +288,12 @@ function renderContent(model) {
   contentEl.appendChild(sectionTitle(t('event.pastEventFields'), 'past-event-detail-fields-heading'));
   contentEl.appendChild(row(t('event.location'), model.locationName, 'past-event-detail-location'));
   contentEl.appendChild(row(t('event.groups'), model.groupNames, 'past-event-detail-groups'));
+  if (model.head) {
+    contentEl.appendChild(row(t('event.headCount'), model.head.label, 'past-event-detail-head'));
+    model.head.lines.forEach((line, i) => {
+      contentEl.appendChild(noteLine(line, `past-event-detail-head-group-${i}`));
+    });
+  }
   contentEl.appendChild(row(
     t('event.dateOpened'),
     formatDateTime(model.dateOpened, model.timeOpened),

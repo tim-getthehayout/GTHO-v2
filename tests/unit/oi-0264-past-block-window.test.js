@@ -144,7 +144,7 @@ describe('OI-0264 Mw1 — window-scoped label metrics', () => {
     const pw = { id: 'np', eventId: 'n', locationId: 'L1', dateOpened: '2026-10-01', dateClosed: '2026-10-05', noPasture: true };
     const m = computePaddockWindowMetrics(pw, LOCS[0], ev, spanOf(pw, ev), mctx({ paddockWindows: [pw] }));
     expect(m).toMatchObject({ pasturePct: 0, feedPct: 100, dmi: 0, storedFeedOnly: true });
-    expect(formatPastureFeedDmiLine({ pasturePct: 0, feedPct: 100, dmi: 0, headCount: 10 })).toContain('Pasture 0% · Feed 100% · 0 lb DMI');
+    expect(formatPastureFeedDmiLine({ pasturePct: 0, feedPct: 100, dmi: 0, headCount: 10 })).toContain('Pasture 0% · Feed 100% · 0 lb pasture DMI');
   });
 
   it('11. unknown DMI → "Pasture —% · Feed —% · — DMI" while the sibling window stays known', () => {
@@ -168,7 +168,7 @@ describe('OI-0264 Mw1 — window-scoped label metrics', () => {
     const mb = computePaddockWindowMetrics(bad, LOCS[0], ev, spanOf(bad, ev), ctx);
     const mg = computePaddockWindowMetrics(good, LOCS[1], ev, spanOf(good, ev), ctx);
     expect(mb.dmi).toBeNull();
-    expect(formatPastureFeedDmiLine({ ...mb, headCount: 1 })).toContain('Pasture —% · Feed —% · — DMI');
+    expect(formatPastureFeedDmiLine({ ...mb, headCount: 1 })).toContain('Pasture —% · Feed —% · — pasture DMI');
     expect(mg.dmi).toBeGreaterThan(0);
     expect(mg.pasturePct).toBe(100);
     expect(mg.feedPct).toBe(0);

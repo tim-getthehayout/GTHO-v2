@@ -306,18 +306,18 @@ describe('rows 1–6 — Calendar + List render in both unit systems', () => {
 describe('rows 7–9 — past block, future block / CAP-1, dead sidebar', () => {
   it('row 7: past-block DMI in the farm unit ("272 lb DMI")', () => {
     expect(formatPastureFeedDmiLine({ pasturePct: 80, feedPct: 20, dmi: 123.4, headCount: 9, unitSystem: 'imperial' }))
-      .toBe('Pasture 80% · Feed 20% · 272 lb DMI · 9 hd');
+      .toBe('Pasture 80% · Feed 20% · 272 lb pasture DMI · 9 hd');
     expect(formatPastureFeedDmiLine({ pasturePct: 80, feedPct: 20, dmi: 123.4, headCount: 9, unitSystem: 'metric' }))
-      .toBe('Pasture 80% · Feed 20% · 123 kg DMI · 9 hd');
+      .toBe('Pasture 80% · Feed 20% · 123 kg pasture DMI · 9 hd');
     expect(formatPastureFeedDmiLine({ pasturePct: null, feedPct: null, dmi: null, headCount: 9 }))
-      .toBe('Pasture —% · Feed —% · — DMI · 9 hd');
+      .toBe('Pasture —% · Feed —% · — pasture DMI · 9 hd');
     _reset();
     const node = renderPastBlock({
       leftPx: 0, widthPx: 200, groups: [{ id: 'g1', name: 'Cows' }], auds: 3, days: 4,
       pasturePct: 100, feedPct: 0, dmi: 5597.4, headCount: 10, isActive: false, isStripGraze: false,
       isLinkedSecondary: false, eventId: 'e1', onClickBlock: () => {},
     });
-    expect(node.textContent).toContain('12,340 lb DMI');
+    expect(node.textContent).toContain('12,340 lb pasture DMI');
   });
 
   it('row 8: CAP-1 returns kg; future blocks show hay via the helper', () => {

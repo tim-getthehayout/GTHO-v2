@@ -96,7 +96,7 @@ export function renderProductsSection(operationId) {
           return el('div', { className: 'ft-row' }, [
             el('div', {}, [
               el('div', { className: 'ft-row-name' }, [p.name]),
-              el('div', { className: 'ft-row-detail' }, [`${cat ? cat.name : '—'}${p.unitId ? ` · ${unitMap.get(p.unitId) || '?'}` : ''} · NPK: ${npk}`]),
+              el('div', { className: 'ft-row-detail' }, [`${cat ? cat.name : '—'}${p.unitId ? ` · ${unitMap.get(p.unitId) || '?'}` : ''} · ${t('amendment.productNpkListRow', { npk })}`]),
             ]),
             el('div', { style: { display: 'flex', gap: 'var(--space-2)' } }, [
               el('button', { className: 'btn btn-outline btn-xs', onClick: () => openProductSheet(p, operationId, categories) }, [t('action.edit')]),
@@ -128,13 +128,15 @@ function openProductSheet(existing, operationId, categories) {
 
   panel.appendChild(el('label', { className: 'form-label' }, [t('amendment.productNpk')]));
   const npkRow = el('div', { style: { display: 'flex', gap: 'var(--space-3)' } });
-  inputs.nPct = el('input', { type: 'number', className: 'auth-input settings-input', placeholder: 'N', value: existing?.nPct ?? '' });
-  inputs.pPct = el('input', { type: 'number', className: 'auth-input settings-input', placeholder: 'P', value: existing?.pPct ?? '' });
-  inputs.kPct = el('input', { type: 'number', className: 'auth-input settings-input', placeholder: 'K', value: existing?.kPct ?? '' });
+  // #462 item 8: entry stays elemental (no calc / storage change), relabelled with a bag-grade hint.
+  inputs.nPct = el('input', { type: 'number', className: 'auth-input settings-input', placeholder: t('amendment.productNpkPlaceholderN'), 'data-testid': 'product-npk-n', value: existing?.nPct ?? '' });
+  inputs.pPct = el('input', { type: 'number', className: 'auth-input settings-input', placeholder: t('amendment.productNpkPlaceholderP'), 'data-testid': 'product-npk-p', value: existing?.pPct ?? '' });
+  inputs.kPct = el('input', { type: 'number', className: 'auth-input settings-input', placeholder: t('amendment.productNpkPlaceholderK'), 'data-testid': 'product-npk-k', value: existing?.kPct ?? '' });
   npkRow.appendChild(inputs.nPct);
   npkRow.appendChild(inputs.pPct);
   npkRow.appendChild(inputs.kPct);
   panel.appendChild(npkRow);
+  panel.appendChild(el('p', { className: 'form-hint', 'data-testid': 'product-npk-hint' }, [t('amendment.productNpkHint')]));
 
   // Unit selection from input_product_units
   const productUnits = unitsFor('inputProductUnits', operationId, { selectedId: existing?.unitId });

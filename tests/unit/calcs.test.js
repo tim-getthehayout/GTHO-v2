@@ -40,12 +40,21 @@ describe('calculation engine', () => {
       const calc = getCalcByName('NPK-1');
       const result = calc.fn({
         headCount: 50, avgWeightKg: 545, days: 14,
-        excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136,
+        excretionNRate: 0.35, excretionPRate: 0.08, excretionKRate: 0.25,
       });
-      // 50 × 0.545 × 14 × rates
-      expect(result.nKg).toBeCloseTo(55.3175, 2);
-      expect(result.pKg).toBeCloseTo(15.6415, 2);
-      expect(result.kKg).toBeCloseTo(51.884, 2);
+      // 50 × 0.545 × 14 = 381.5 × NRCS beef-cow rates (#459)
+      expect(result.nKg).toBeCloseTo(133.525, 6);
+      expect(result.pKg).toBeCloseTo(30.52, 6);
+      expect(result.kKg).toBeCloseTo(95.375, 6);
+    });
+
+    it('registry example uses the NRCS default and its output matches fn (#462 design note)', () => {
+      const calc = getCalcByName('NPK-1');
+      expect(calc.example.inputs).toMatchObject({ excretionNRate: 0.35, excretionPRate: 0.08, excretionKRate: 0.25 });
+      const r = calc.fn(calc.example.inputs);
+      expect(r.nKg).toBeCloseTo(calc.example.output.nKg, 6);
+      expect(r.pKg).toBeCloseTo(calc.example.output.pKg, 6);
+      expect(r.kKg).toBeCloseTo(calc.example.output.kKg, 6);
     });
   });
 

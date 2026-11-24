@@ -6,7 +6,8 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, subscribe, update, remove, isCurrentUserDev } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert, display, unitLabel } from '../../utils/units.js';
+import { convert, display, unitLabel, formatMeasure, shortUnit } from '../../utils/units.js';
+import { fertilizerHover, ELEMENTAL_SUFFIX } from '../../calcs/fertilizer-equivalents.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
 import { formatShortDate } from '../../utils/date-format.js';
@@ -980,13 +981,14 @@ function renderDmiNpk(ctx) {
       totalK += result.kKg || result.k || 0;
     }
 
-    const toDisplay = (kg) => convert(kg, 'weight', unitSys === 'imperial' ? 'toImperial' : 'toMetric');
-    const nDisp = toDisplay(totalN).toFixed(1);
-    const pDisp = toDisplay(totalP).toFixed(1);
-    const kDisp = toDisplay(totalK).toFixed(1);
-    const unit = unitLabel('weight', unitSys);
+    // OI-0278 S3 row 34 (pulled forward by #462): farm unit via the shared
+    // helper. The old metric path ran toMetric on kg (value ÷ 2.2 labelled kg).
+    const nv = (kg) => formatMeasure(kg, 'npk', { unitSystem: unitSys, unitInHeader: true });
+    const unit = shortUnit('npk', unitSys);
 
-    let valueLine = `NPK: N ${nDisp} / P ${pDisp} / K ${kDisp} ${unit}`;
+    // #462: elemental label + P₂O₅ / K₂O hover.
+    let valueLine = `NPK ${ELEMENTAL_SUFFIX}: N ${nv(totalN)} / P ${nv(totalP)} / K ${nv(totalK)} ${unit}`;
+    const fertNote = fertilizerHover(totalP, totalK, { unitSystem: unitSys });
 
     if (npk2) {
       const prices = getAll('npkPriceHistory');
@@ -1002,7 +1004,11 @@ function renderDmiNpk(ctx) {
       }
     }
 
-    card.appendChild(el('div', { style: { fontSize: '13px', padding: '4px 0' }, 'data-testid': 'detail-npk-line' }, [valueLine]));
+    card.appendChild(el('div', {
+      style: { fontSize: '13px', padding: '4px 0' },
+      'data-testid': 'detail-npk-line',
+      ...(fertNote ? { title: fertNote } : {}),
+    }, [valueLine]));
   }
 
   el2.appendChild(card);

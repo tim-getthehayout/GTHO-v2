@@ -4,7 +4,8 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, getById } from '../../data/store.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
-import { display } from '../../utils/units.js';
+import { display, formatMeasure } from '../../utils/units.js';
+import { fertilizerHover, ELEMENTAL_SUFFIX } from '../../calcs/fertilizer-equivalents.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
@@ -306,6 +307,8 @@ function renderNpkTab() {
   }
 
   wrap.appendChild(sectionHeading(t('reports.npkByPaddock')));
+  const unitSys = getUnitSystem();
+  const npkText = (kg) => formatMeasure(kg, 'npk', { unitSystem: unitSys });
 
   if (npkByLocation.size === 0) {
     wrap.appendChild(emptyState('reports.noNpkData'));
@@ -326,8 +329,14 @@ function renderNpkTab() {
         style: { padding: '12px 16px', marginBottom: 'var(--space-3)' },
       }, [
         el('div', { style: { fontWeight: '600', marginBottom: '4px' } }, [info.name]),
-        el('div', { className: 'ft-row-detail' }, [
-          `N: ${info.nKg.toFixed(1)} kg · P: ${info.pKg.toFixed(1)} kg · K: ${info.kKg.toFixed(1)} kg`,
+        // OI-0278 S4 row 43 (pulled forward by #462): farm unit via the helper.
+        // #462: elemental label + P₂O₅ / K₂O hover.
+        el('div', {
+          className: 'ft-row-detail',
+          'data-testid': `reports-npk-line-${locId}`,
+          title: fertilizerHover(info.pKg, info.kKg, { unitSystem: unitSys }) || undefined,
+        }, [
+          `N: ${npkText(info.nKg)} · P: ${npkText(info.pKg)} · K: ${npkText(info.kKg)} ${ELEMENTAL_SUFFIX}`,
         ]),
         el('div', { className: 'ft-row-detail' }, [
           `${t('reports.fertilizerValue')}: $${totalValue.toFixed(2)}`,

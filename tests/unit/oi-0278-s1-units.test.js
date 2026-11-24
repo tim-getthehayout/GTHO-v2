@@ -137,7 +137,8 @@ describe('rows 1/3/4 — metric columns, per-ha metrics, sort keys', () => {
     expect(imp.dmiPerAcre.label).toBe('DMI/ac');
     expect(imp.dmiPerAcre.title).toContain('(lb/ac)');
     expect(met.dmiKg.head).toBe('DMI (kg)');
-    expect(met.kKg.title).toBe('Potassium deposited (kg)');
+    // #462: elemental wording in the narrow column title.
+    expect(met.kKg.title).toBe('Potassium deposited, elemental (kg)');
     expect(met.dmiPerAcre.head).toBe('DMI/ha (kg)');
     expect(met.dmiPerAcre.title).toContain('(kg/ha)');
     expect(imp.auds.head).toBe('AUDs');

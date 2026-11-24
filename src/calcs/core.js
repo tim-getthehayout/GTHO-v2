@@ -1,6 +1,7 @@
 /** @file Core calculation registrations — CP-45. 9 immediately-available formulas. */
 
 import { registerCalc } from '../utils/calc-registry.js';
+import { DEFAULT_EXCRETION_RATES } from './excretion-defaults.js';
 
 // NPK-1: Excretion
 registerCalc({
@@ -19,8 +20,15 @@ registerCalc({
   ],
   output: { type: 'object', shape: '{ nKg, pKg, kKg }', unit: 'kg' },
   example: {
-    inputs: { headCount: 50, avgWeightKg: 545, days: 14, excretionNRate: 0.145, excretionPRate: 0.041, excretionKRate: 0.136 },
-    output: { nKg: 55.405, pKg: 15.673, kKg: 52.024 },
+    // #459/#462: NRCS beef-cow default (DEFAULT_EXCRETION_RATES), elemental P and K.
+    // Rates come from the shared constant (0.35/0.08/0.25) so the literals stay in one module.
+    inputs: {
+      headCount: 50, avgWeightKg: 545, days: 14,
+      excretionNRate: DEFAULT_EXCRETION_RATES.n,
+      excretionPRate: DEFAULT_EXCRETION_RATES.p,
+      excretionKRate: DEFAULT_EXCRETION_RATES.k,
+    },
+    output: { nKg: 133.525, pKg: 30.52, kKg: 95.375 },
   },
   fn({ headCount, avgWeightKg, days, excretionNRate, excretionPRate, excretionKRate }) {
     const bwFactor = headCount * (avgWeightKg / 1000) * days;

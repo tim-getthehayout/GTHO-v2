@@ -345,7 +345,8 @@ describe('OI-0278 S2 — location card units (no doubled units)', () => {
     const dmi = c.querySelector(`[data-testid="dashboard-loc-dmi-${EVT_B}"]`);
     expect(dmi.textContent).toMatch(/lb\/day/);
     const npk = c.querySelector(`[data-testid="dashboard-loc-npk-${EVT_B}"]`);
-    expect(npk.textContent).toMatch(/^NPK: N[\d.,]+ \/ P[\d.,]+ \/ K[\d.,]+ lb$/);
+    // #462: label reads elemental.
+    expect(npk.textContent).toMatch(/^NPK \(elemental\): N[\d.,]+ \/ P[\d.,]+ \/ K[\d.,]+ lb$/);
   });
 
   it('metric: area "2.00 ha", cm, ADA "/ha", kg (no lb anywhere)', () => {

@@ -66,6 +66,7 @@ import {
   describeScrollArchitecture,
 } from './scroll-owner.js';
 import { createScrollRail } from './scroll-rail.js';
+import { fertilizerHover, NPK_ELEMENTAL_HEADING } from '../../../calcs/fertilizer-equivalents.js';
 import {
   resolveFarmSeason, formatFarmSeason, validateFarmSeason, MONTH_SHORT,
 } from '../../../calcs/farm-season.js';
@@ -111,9 +112,10 @@ export function metricCols(unitSystem = getUnitSystem()) {
       family: 'weight',
     },
     { key: 'auds', label: 'AUDs', head: 'AUDs', title: 'Animal Unit Days', family: null },
-    { key: 'nKg', label: 'N', head: `N ${w}`, title: `Nitrogen deposited ${w}`, family: 'npk' },
-    { key: 'pKg', label: 'P', head: `P ${w}`, title: `Phosphorus deposited ${w}`, family: 'npk' },
-    { key: 'kKg', label: 'K', head: `K ${w}`, title: `Potassium deposited ${w}`, family: 'npk' },
+    // #462: narrow heads keep N/P/K; the elemental wording goes in the title.
+    { key: 'nKg', label: 'N', head: `N ${w}`, title: `Nitrogen deposited, elemental ${w}`, family: 'npk' },
+    { key: 'pKg', label: 'P', head: `P ${w}`, title: `Phosphorus deposited, elemental ${w}`, family: 'npk' },
+    { key: 'kKg', label: 'K', head: `K ${w}`, title: `Potassium deposited, elemental ${w}`, family: 'npk' },
     { key: 'avgScore', label: 'Score', head: 'Score', title: 'Average pasture score', family: null },
   ];
 }
@@ -218,7 +220,11 @@ function renderMetricCol(col, metrics, { includePerAcre = true, compact = false,
   const feedCheckNeeded = isDmi && !!metrics?.dmiFeedCheckNeeded && text !== '—';
   const checkNote = feedCheckNeeded ? t('event.dmiFeedCheckNeeded') : null;
   const shownText = feedCheckNeeded ? `~${text}` : text;
-  const title = [baseTitle, hayNote, checkNote, dmiHayNote, basisNote].filter(Boolean).join('. ');
+  // #462: deposited N/P/K cells add the P₂O₅ / K₂O hover (same unit + rounding).
+  const fertNote = isNpk
+    ? fertilizerHover(metrics?.pKg, metrics?.kKg, { unitSystem })
+    : null;
+  const title = [baseTitle, hayNote, checkNote, dmiHayNote, basisNote, fertNote].filter(Boolean).join('. ');
   return el('div', {
     className: `loc-mgmt__metric${isPartial ? ' loc-mgmt__metric--partial' : ''}`,
     title,
@@ -229,6 +235,7 @@ function renderMetricCol(col, metrics, { includePerAcre = true, compact = false,
       ...(basisNote ? { dmiBasisNote: 'true' } : {}),
       ...(dmiHayNote ? { dmiHayNote: 'true' } : {}),
       ...(feedCheckNeeded ? { feedCheckNeeded: 'true' } : {}),
+      ...(fertNote ? { fertilizerHover: 'true' } : {}),
     },
   }, [
     el('span', {
@@ -1204,8 +1211,11 @@ function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone
   const hayNote = residualNpkNote(totals);
   // OI-0279: per-class DMI % fallback note on the DMI totals.
   const dmiNote = totals.dmiBasisNote ? `. ${totals.dmiBasisNote}` : '';
+  // #462: Total N/P/K add the P₂O₅ / K₂O hover after any other notes.
+  const fertNote = fertilizerHover(totals.pKg, totals.kKg, { unitSystem, compact: isPhone });
   const cell = (key, label, value, partial, title, note = null, family = 'weight') => {
-    const notes = [note, preWindowNote].filter(Boolean);
+    const isNpk = family === 'npk';
+    const notes = [note, preWindowNote, isNpk ? fertNote : null].filter(Boolean);
     return el('div', {
     className: `loc-mgmt__period-total${partial ? ' loc-mgmt__period-total--partial' : ''}`,
     title: notes.length ? `${title}. ${notes.join('. ')}` : title,
@@ -1215,6 +1225,7 @@ function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone
       partial: partial ? 'true' : undefined,
       ...(note ? { residualNote: 'true' } : {}),
       ...(preWindowNote ? { preWindowNote: 'true' } : {}),
+      ...(isNpk && fertNote ? { fertilizerHover: 'true' } : {}),
     },
   }, [
     el('span', { className: 'loc-mgmt__period-total-label' }, [label]),
@@ -1243,10 +1254,16 @@ function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone
       `Measured stored-feed DMI eaten ${w}; missing-DM counts as 0`),
     cell('totalDmi', `Total DMI ${w}`, totals.totalDmiKg, !!totals.dmiPartial,
       `Pasture DMI + stored-feed DMI for the period ${w}${dmiNote}`),
-    cell('n', `Total N ${w}`, totals.nKg, !!totals.npkPartial, `Total nitrogen for the period ${w}`, hayNote, 'npk'),
-    cell('p', `Total P ${w}`, totals.pKg, !!totals.npkPartial, `Total phosphorus for the period ${w}`, hayNote, 'npk'),
-    cell('k', `Total K ${w}`, totals.kKg, !!totals.npkPartial, `Total potassium for the period ${w}`, hayNote, 'npk'),
-  ]);
+    // #462: strip heading reads elemental where there's room (desktop);
+    // on phone the elemental wording stays in the cell titles.
+    isPhone ? null : el('span', {
+      className: 'loc-mgmt__period-totals-label loc-mgmt__period-totals-label--npk',
+      dataset: { testid: 'loc-mgmt-period-totals-npk-heading' },
+    }, [NPK_ELEMENTAL_HEADING]),
+    cell('n', `Total N ${w}`, totals.nKg, !!totals.npkPartial, `Total nitrogen for the period, elemental ${w}`, hayNote, 'npk'),
+    cell('p', `Total P ${w}`, totals.pKg, !!totals.npkPartial, `Total phosphorus for the period, elemental ${w}`, hayNote, 'npk'),
+    cell('k', `Total K ${w}`, totals.kKg, !!totals.npkPartial, `Total potassium for the period, elemental ${w}`, hayNote, 'npk'),
+  ].filter(Boolean));
 }
 
 function renderMetricsCollapseToggle({ collapsed, onUpdate }) {

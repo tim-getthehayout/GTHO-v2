@@ -309,12 +309,15 @@ describe('OI-0279 one fixture, identical per-day demand on every surface', () =>
     expect(lbs(now.nKg)).not.toBe(lbs(old.nKg));
 
     const home = buildLocationCard({ id: 'e' }, 'op', 'farm', 'imperial').querySelector('[data-testid="dashboard-loc-npk-e"]');
-    expect(home.textContent).toContain(`NPK: N${lbs(now.nKg)} / P${lbs(now.pKg)} / K${lbs(now.kKg)} lb`);
+    // #462: label reads elemental.
+    expect(home.textContent).toContain(`NPK (elemental): N${lbs(now.nKg)} / P${lbs(now.pKg)} / K${lbs(now.kKg)} lb`);
 
     openEventDetailSheet({ id: 'e' }, 'op', 'farm');
-    const md = (v) => convert(v, 'weight', 'toMetric').toFixed(1);
+    // #462 + OI-0278 S3 row 34: metric shows the kg value itself (the old path ran
+    // toMetric on kg, i.e. ÷ 2.2), labelled elemental.
+    const md = (v) => v.toFixed(1);
     expect(document.querySelector('[data-testid="detail-npk-line"]').textContent)
-      .toContain(`NPK: N ${md(now.nKg)} / P ${md(now.pKg)} / K ${md(now.kKg)}`);
+      .toContain(`NPK (elemental): N ${md(now.nKg)} / P ${md(now.pKg)} / K ${md(now.kKg)} kg`);
   });
 });
 

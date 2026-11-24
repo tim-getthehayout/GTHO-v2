@@ -86,7 +86,8 @@ describe('#459 seed and fallback excretion rates', () => {
 
   it('pins the shared fallback 0.35/0.08/0.25 and keeps those literals only in excretion-defaults.js', () => {
     expect(DEFAULT_EXCRETION_RATES).toEqual({ n: 0.35, p: 0.08, k: 0.25 });
-    const skipOld = new Set(['src/calcs/core.js']);
+    // #462 design note: the NPK-1 registry example no longer carries 0.145, so no file is exempt.
+    const skipOld = new Set();
     const oldHits = [];
     const fallbackHits = [];
     const fallbackRe = /\{\s*n:\s*0\.35\s*,\s*p:\s*0\.08\s*,\s*k:\s*0\.25\s*\}/;
@@ -109,7 +110,8 @@ describe('#459 seed and fallback excretion rates', () => {
     expect(oldHits).toEqual([]);
     expect(fallbackHits).toEqual([]);
     const core = readFileSync('src/calcs/core.js', 'utf8');
-    expect(core).toMatch(/excretionNRate: 0\.145/);
+    expect(core).not.toMatch(/0\.145/);
+    expect(core).toMatch(/excretionNRate: DEFAULT_EXCRETION_RATES\.n/);
     const defaultsSrc = readFileSync('src/calcs/excretion-defaults.js', 'utf8');
     expect(defaultsSrc).toMatch(fallbackRe);
   });

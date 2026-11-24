@@ -39,6 +39,7 @@ import { FEED_REMAINING_ESTIMATE_CAPTION } from '../../calcs/event-feed-days.js'
 // same as the calendar, Reports and the dev audit; a member without class rates
 // takes these defaults (was 0.34 / 0.092 / 0.24 for every group).
 import { DEFAULT_EXCRETION_RATES } from '../../calcs/excretion-defaults.js';
+import { fertilizerHover, ELEMENTAL_SUFFIX } from '../../calcs/fertilizer-equivalents.js';
 
 const NPK_DEFAULT_EXC = DEFAULT_EXCRETION_RATES;
 
@@ -515,7 +516,9 @@ function computeDesktopMetrics(events, unitSys, period) {
     },
     {
       value: npkKgPerHa > 0 ? formatPerArea(npkKgPerHa, 'npk', { unitSystem: unitSys }) : '\u2014',
-      label: totalHa > 0 ? `N${npkSub(totalNPK.n)}/P${npkSub(totalNPK.p)}/K${npkSub(totalNPK.k)} ${npkUnit} \u00B7 ${areaText}` : '\u00A0',
+      // #462: elemental label + P₂O₅ / K₂O hover (same unit + rounding as the label).
+      label: totalHa > 0 ? `N${npkSub(totalNPK.n)}/P${npkSub(totalNPK.p)}/K${npkSub(totalNPK.k)} ${npkUnit} ${ELEMENTAL_SUFFIX} \u00B7 ${areaText}` : '\u00A0',
+      title: totalHa > 0 ? fertilizerHover(totalNPK.p, totalNPK.k, { unitSystem: unitSys, compact: true }) || undefined : undefined,
       color: 'var(--color-purple-dark)',
       testId: 'dashboard-npk-per-area',
     },
@@ -546,6 +549,8 @@ function computeMobileMetrics(events, unitSys, period) {
 
   // NPK / Acre
   let totalNPK = 0;
+  let totalP = 0;
+  let totalK = 0;
   let totalHa = 0;
   if (npk1) {
     for (const event of events) {
@@ -571,6 +576,8 @@ function computeMobileMetrics(events, unitSys, period) {
         const pKg = (result.pKg ?? result.p ?? 0);
         const kKg = (result.kKg ?? result.k ?? 0);
         totalNPK += nKg + pKg + kKg;
+        totalP += pKg;
+        totalK += kKg;
       }
       for (const pw of pws) {
         const loc = getById('locations', pw.locationId);
@@ -617,7 +624,11 @@ function computeMobileMetrics(events, unitSys, period) {
     },
     {
       value: npkKgPerHa > 0 ? formatPerArea(npkKgPerHa, 'npk', { unitSystem: unitSys, compact: true }) : '\u2014',
-      label: unitSys === 'metric' ? 'NPK / Hectare' : 'NPK / Acre',
+      // #462: elemental label + per-area P₂O₅ / K₂O hover (same unit as the value).
+      label: `${unitSys === 'metric' ? 'NPK / Hectare' : 'NPK / Acre'} ${ELEMENTAL_SUFFIX}`,
+      title: npkKgPerHa > 0
+        ? fertilizerHover(totalP / totalHa, totalK / totalHa, { unitSystem: unitSys, compact: true, perArea: true }) || undefined
+        : undefined,
       testId: 'dashboard-npk-per-area',
       color: 'var(--color-purple-dark)',
     },
@@ -842,8 +853,11 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
       // OI-0073 Part C: NPK-1 returns {nKg,pKg,kKg}; legacy fallback to {n,p,k}. Prevents NaN.
       // OI-0278 S2 row 17: farm unit via the helper, one unit after the triple.
       const nv = (v) => formatMeasure(v ?? 0, 'npk', { unitSystem: unitSys, unitInHeader: true });
-      npkEl = el('div', { style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-3)' } }, [
-        `NPK deposited: N${nv(result.nKg ?? result.n)} P${nv(result.pKg ?? result.p)} K${nv(result.kKg ?? result.k)} ${shortUnit('npk', unitSys)}`,
+      npkEl = el('div', {
+        style: { fontSize: '12px', color: 'var(--text2)', marginBottom: 'var(--space-3)' },
+        title: fertilizerHover(result.pKg ?? result.p, result.kKg ?? result.k, { unitSystem: unitSys }) || undefined,
+      }, [
+        `NPK deposited ${ELEMENTAL_SUFFIX}: N${nv(result.nKg ?? result.n)} P${nv(result.pKg ?? result.p)} K${nv(result.kKg ?? result.k)} ${shortUnit('npk', unitSys)}`,
       ]);
     }
   }
@@ -981,8 +995,13 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
       const r2 = npk1b.fn({ headCount: activeLiveHead, avgWeightKg: activeLiveAvg, days: days4, ...npkRateArgs(activeGW, todayStr) });
       // OI-0278 S2 row 19: farm unit via the helper.
       const nv = (v) => formatMeasure(v ?? 0, 'npk', { unitSystem: unitSys, unitInHeader: true });
-      dmiBlock.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--purple-d)', marginTop: '3px' } }, [
-        `NPK deposited: N${nv(r2.nKg ?? r2.n)} / P${nv(r2.pKg ?? r2.p)} / K${nv(r2.kKg ?? r2.k)} ${shortUnit('npk', unitSys)}${npkValueStr}`,
+      // #462: elemental label + P₂O₅ / K₂O hover.
+      dmiBlock.appendChild(el('div', {
+        style: { fontSize: '11px', color: 'var(--purple-d)', marginTop: '3px' },
+        'data-testid': `dashboard-group-npk-${group.id}`,
+        title: fertilizerHover(r2.pKg ?? r2.p, r2.kKg ?? r2.k, { unitSystem: unitSys }) || undefined,
+      }, [
+        `NPK deposited ${ELEMENTAL_SUFFIX}: N${nv(r2.nKg ?? r2.n)} / P${nv(r2.pKg ?? r2.p)} / K${nv(r2.kKg ?? r2.k)} ${shortUnit('npk', unitSys)}${npkValueStr}`,
       ]));
     }
     body.appendChild(dmiBlock);
@@ -1374,6 +1393,7 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
 
   // NPK
   let npkLine = null;
+  let npkTitle = null;
   if (npk1 && gws.length) {
     let totalN = 0, totalP = 0, totalK = 0;
     for (const gw of gws) {
@@ -1394,7 +1414,9 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     }
     // OI-0278 S2 row 22: farm unit via the helper.
     const nv = (v) => formatMeasure(v, 'npk', { unitSystem: unitSys, unitInHeader: true });
-    let npkText = `NPK: N${nv(totalN)} / P${nv(totalP)} / K${nv(totalK)} ${shortUnit('npk', unitSys)}`;
+    // #462: elemental label + P₂O₅ / K₂O hover.
+    let npkText = `NPK ${ELEMENTAL_SUFFIX}: N${nv(totalN)} / P${nv(totalP)} / K${nv(totalK)} ${shortUnit('npk', unitSys)}`;
+    npkTitle = fertilizerHover(totalP, totalK, { unitSystem: unitSys });
     if (npk2) {
       const prices = getAll('npkPriceHistory').sort((a, b) => (b.effectiveDate || '').localeCompare(a.effectiveDate || ''))[0];
       if (prices) {
@@ -1681,7 +1703,11 @@ export function buildLocationCard(event, operationId, farmId, unitSys) {
     summaryParts.push(el('div', { style: { fontSize: '12px', marginBottom: '2px' }, 'data-testid': `dashboard-loc-dmi-${event.id}`, ...(dmiNote ? { title: dmiNote } : {}) }, [dmiLine]));
   }
   if (npkLine) {
-    summaryParts.push(el('div', { style: { fontSize: '12px', color: 'var(--color-purple-dark, #5B21B6)' }, 'data-testid': `dashboard-loc-npk-${event.id}` }, [npkLine]));
+    summaryParts.push(el('div', {
+      style: { fontSize: '12px', color: 'var(--color-purple-dark, #5B21B6)' },
+      'data-testid': `dashboard-loc-npk-${event.id}`,
+      ...(npkTitle ? { title: npkTitle } : {}),
+    }, [npkLine]));
   }
   if (summaryParts.length) {
     children.push(el('div', { style: { borderTop: '1px solid var(--border)', paddingTop: 'var(--space-2)', marginTop: 'var(--space-3)' } }, summaryParts));

@@ -324,36 +324,16 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 49;
     return b;
   },
-};
-
-/**
- * OI-0251 Ap (schema 54, held): CP-56 default for
- * farm_settings.include_archived_locations_in_metrics — absent-only true (the
- * 054 column default); preserves supplied values. NOT registered in
- * BACKUP_MIGRATIONS yet: the chain must stay contiguous and 050–053 are not
- * written. Register as the 53 → 54 step (stamp 54) when 053 lands, or as the
- * 49 → 50 step if Design renumbers this migration to 050.
- */
-export function applyArchivedMetricsBackupDefault(b) {
-  for (const row of b.tables?.farm_settings || []) {
-    if (!Object.hasOwn(row, 'include_archived_locations_in_metrics')) {
-      row.include_archived_locations_in_metrics = true;
+  // 049 → 050: farm_settings include_archived_locations_in_metrics (OI-0251 Ap).
+  // Absent-only default true (the 050 column default); preserve supplied.
+  49: (b) => {
+    for (const row of b.tables.farm_settings || []) {
+      if (!Object.hasOwn(row, 'include_archived_locations_in_metrics')) {
+        row.include_archived_locations_in_metrics = true;
+      }
     }
-  }
-  return b;
-}
-
-/**
- * Held steps that cannot join BACKUP_MIGRATIONS yet because earlier numbers
- * (050–053) are reserved but unwritten. Keyed like BACKUP_MIGRATIONS (from
- * version). Move each entry into BACKUP_MIGRATIONS when its predecessor lands.
- */
-export const PENDING_BACKUP_MIGRATIONS = {
-  // 053 → 054 (OI-0251 Ap)
-  53: (b) => {
-    applyArchivedMetricsBackupDefault(b);
-    b.schema_version = 54;
-    for (const op of b.tables.operations || []) op.schema_version = 54;
+    b.schema_version = 50;
+    for (const op of b.tables.operations || []) op.schema_version = 50;
     return b;
   },
 };

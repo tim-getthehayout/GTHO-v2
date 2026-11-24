@@ -103,7 +103,7 @@ export function filterManagementLocations(locations = [], opts = {}) {
 
 /**
  * OI-0251 Ap: farm setting `include_archived_locations_in_metrics` (default
- * true). Absent column / unset / pre-054 → true. Only an explicit false
+ * true). Absent column / unset / pre-050 → true. Only an explicit false
  * excludes archived X1 locations from metrics (rows and lists never show them).
  */
 export function includeArchivedInMetrics(farmSettings) {

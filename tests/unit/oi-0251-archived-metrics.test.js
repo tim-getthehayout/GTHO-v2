@@ -1,9 +1,9 @@
 /**
  * @file OI-0251 Ap/Ud — farm setting include_archived_locations_in_metrics
- * (schema 54, held). Archived land pasture/mixed-use locations (e.g. the Sheep
+ * (schema 50, held). Archived land pasture/mixed-use locations (e.g. the Sheep
  * history backfill) count in the Period totals strip (Calendar + List) and the
  * Home pasture DMI unless the setting is explicitly false; an absent column
- * (pre-054) means true. Rows, lists and pickers stay !archived. The Report
+ * (pre-050) means true. Rows, lists and pickers stay !archived. The Report
  * preferences dialog opens from the shared season bar on Calendar and List.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
@@ -15,16 +15,17 @@ import { _reset, add } from '../../src/data/store.js';
 import { setLocale } from '../../src/i18n/i18n.js';
 import enLocale from '../../src/i18n/locales/en.json';
 import { resetCalendarState, setMetricWindow, setView } from '../../src/features/events/calendar-state.js';
-import { renderCalendarGrid, _resetFarmSeasonEditor } from '../../src/features/events/rotation-calendar/calendar-grid.js';
+import { renderCalendarGrid, _resetFarmSeasonEditor, formatDmiPerAcre } from '../../src/features/events/rotation-calendar/calendar-grid.js';
 import {
   isManagementLocation, filterManagementLocations, filterMetricLocations, includeArchivedInMetrics,
-  buildLocationMetricRows, aggregatePeriodTotals,
+  buildLocationMetricRows, aggregatePeriodTotals, computeLocationMetrics, formatMetricValue,
 } from '../../src/features/events/rotation-calendar/location-metrics.js';
 import * as FarmSetting from '../../src/entities/farm-setting.js';
 import {
   RELEASED_SCHEMA_VERSION, HELD_SCHEMA_VERSIONS, STAGED_COLUMNS, ARCHIVED_METRICS_SCHEMA_VERSION,
 } from '../../src/data/schema-release.js';
-import { BACKUP_MIGRATIONS, PENDING_BACKUP_MIGRATIONS, applyArchivedMetricsBackupDefault } from '../../src/data/backup-migrations.js';
+import { BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';
+import { formatPerArea } from '../../src/utils/units.js';
 import { validateBackup } from '../../src/data/backup-import.js';
 import {
   isArchivedMetricsSettingReleased, updateIncludeArchivedInMetrics,
@@ -112,7 +113,7 @@ describe('OI-0251 Ap: Period totals strip + Home pasture DMI', () => {
     return out;
   }
 
-  it('column absent (pre-054): Sheep history counts in the strip on Calendar and List; its row stays hidden', () => {
+  it('column absent (pre-050): Sheep history counts in the strip on Calendar and List; its row stays hidden', () => {
     const on = totals(undefined);
     const off = totals(false);
     expect(on.calendar.pasture).toBe(on.list.pasture);
@@ -145,6 +146,23 @@ describe('OI-0251 Ap: Period totals strip + Home pasture DMI', () => {
     expect(offRows.map(r => r.locationId)).toEqual(['L1']);
     expect(aggregatePeriodTotals(onRows).pastureDmiKg).toBeCloseTo(70 * 45.36 * 0.025, 3);
   });
+
+  it('(e) no-area Sheep history: per-area figures are — (null), not 0', () => {
+    seed(undefined);
+    const ctx = {
+      events: [{ id: 'evS', operationId: 'op', farmId: 'farm', dateOut: '2026-11-06' }],
+      paddockWindows: [{ id: 'pwS', eventId: 'evS', locationId: 'SH', dateOpened: '2026-03-04', dateClosed: '2026-11-06', areaPct: 100 }],
+      groupWindows: [{ id: 'gwS', eventId: 'evS', groupId: 'gs', dateJoined: '2026-03-04', dateLeft: '2026-11-06', headCount: 70, avgWeightKg: 45.36 }],
+      locations: [live, hist], windowStart: '2026-03-04', windowEnd: '2026-03-10', today: '2026-11-24',
+    };
+    const m = computeLocationMetrics(hist, ctx);
+    expect(m.dmiKg).toBeGreaterThan(0);
+    for (const k of ['dmiPerHa', 'audsPerHa', 'nPerHa', 'pPerHa', 'kPerHa']) expect(m[k], k).toBeNull();
+    expect(m.hasArea).toBeFalsy();
+    expect(formatDmiPerAcre(m, { unitSystem: 'imperial' })).toBe('—');
+    expect(formatPerArea(m.nPerHa, 'npk', { unitSystem: 'imperial' })).toBe('—');
+    expect(formatMetricValue(m.dmiPerHa)).toBe('—');
+  });
 });
 
 describe('OI-0251 Ud: Report preferences dialog', () => {
@@ -170,15 +188,15 @@ describe('OI-0251 Ud: Report preferences dialog', () => {
   }
 });
 
-describe('OI-0251 Ap: schema 54 held plumbing', () => {
-  it('054 is held above the ceiling; the column is staged; writes refuse until released', () => {
-    expect(ARCHIVED_METRICS_SCHEMA_VERSION).toBe(54);
-    expect(RELEASED_SCHEMA_VERSION).toBeLessThan(54);
-    expect(HELD_SCHEMA_VERSIONS).toContain(54);
-    expect(STAGED_COLUMNS[54]).toEqual({ farm_settings: ['include_archived_locations_in_metrics'] });
+describe('OI-0251 Ap: schema 50 held plumbing', () => {
+  it('050 is held above the ceiling (049 pattern); the column is staged; writes refuse until released', () => {
+    expect(ARCHIVED_METRICS_SCHEMA_VERSION).toBe(50);
+    expect(RELEASED_SCHEMA_VERSION).toBe(49);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([50]);
+    expect(STAGED_COLUMNS[50]).toEqual({ farm_settings: ['include_archived_locations_in_metrics'] });
     expect(isArchivedMetricsSettingReleased()).toBe(false);
-    expect(isArchivedMetricsSettingReleased(54)).toBe(true);
-    expect(() => updateIncludeArchivedInMetrics('fs', false)).toThrow(/schema 54/);
+    expect(isArchivedMetricsSettingReleased(50)).toBe(true);
+    expect(() => updateIncludeArchivedInMetrics('fs', false)).toThrow(/schema 50/);
   });
 
   it('entity: default null omits the column; a pre-release pull with the column reads null (→ include)', () => {
@@ -189,26 +207,25 @@ describe('OI-0251 Ap: schema 54 held plumbing', () => {
     expect(() => FarmSetting.toSupabaseShape(pulled)).not.toThrow();
   });
 
-  it('backup: pending 054 default is absent-only true (not in the chain yet); unreleased column is rejected on import', () => {
-    expect(BACKUP_MIGRATIONS[53]).toBeUndefined();
-    const b = { schema_version: 53, tables: { farm_settings: [{ id: 'a' }, { id: 'b', include_archived_locations_in_metrics: false }] } };
-    const out = applyArchivedMetricsBackupDefault(b);
+  it('backup: CP-56 49 → 50 adds the default true (absent-only); unreleased column is rejected on import', () => {
+    const b = { schema_version: 49, tables: { operations: [{ schema_version: 49 }], farm_settings: [{ id: 'a' }, { id: 'b', include_archived_locations_in_metrics: false }] } };
+    const out = BACKUP_MIGRATIONS[49](b);
+    expect(out.schema_version).toBe(50);
+    expect(out.tables.operations[0].schema_version).toBe(50);
     expect(out.tables.farm_settings.map(r => r.include_archived_locations_in_metrics)).toEqual([true, false]);
-    const stepped = PENDING_BACKUP_MIGRATIONS[53]({ schema_version: 53, tables: { operations: [{ schema_version: 53 }], farm_settings: [{ id: 'c' }] } });
-    expect(stepped.schema_version).toBe(54);
-    expect(stepped.tables.operations[0].schema_version).toBe(54);
-    expect(stepped.tables.farm_settings[0].include_archived_locations_in_metrics).toBe(true);
     const res = validateBackup({
       format: 'gtho-v2-backup', format_version: 1, schema_version: RELEASED_SCHEMA_VERSION, operation_id: 'op',
       tables: { operations: [{ schema_version: RELEASED_SCHEMA_VERSION }], farm_settings: [{ id: 'x', include_archived_locations_in_metrics: true }] },
     });
     expect(res.valid).toBe(false);
-    expect(res.error).toMatch(/unreleased schema 54/);
+    expect(res.error).toMatch(/unreleased schema 50/);
   });
 
-  it('migration file: additive boolean NOT NULL DEFAULT true; stamps 54 only on top of 53', () => {
-    const sql = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/054_farm_settings_include_archived_locations_in_metrics.sql'), 'utf8');
+  it('migration file 050: additive boolean NOT NULL DEFAULT true; unconditional 49 → 50 stamp', () => {
+    const dir = path.resolve(__dirname, '../../supabase/migrations');
+    expect(fs.readdirSync(dir).filter(f => /^05\d_/.test(f))).toEqual(['050_farm_settings_include_archived_locations_in_metrics.sql']);
+    const sql = fs.readFileSync(path.join(dir, '050_farm_settings_include_archived_locations_in_metrics.sql'), 'utf8');
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS include_archived_locations_in_metrics boolean NOT NULL DEFAULT true/);
-    expect(sql).toMatch(/SET schema_version = 54\s+WHERE schema_version = 53;/);
+    expect(sql).toMatch(/SET schema_version = 50\s+WHERE schema_version < 50;/);
   });
 });

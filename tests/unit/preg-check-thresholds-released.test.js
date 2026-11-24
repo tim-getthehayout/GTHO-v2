@@ -28,7 +28,7 @@ describe('preg-check thresholds released at schema 47', () => {
   it('keeps ceiling 49 with held cleared and staged 47 proof kept', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(49);
     expect(CURRENT_SCHEMA_VERSION).toBe(49);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([54]); // OI-0251 054 held
+    expect(HELD_SCHEMA_VERSIONS).toEqual([50]);
     expect(STAGED_COLUMNS[47]).toEqual({ farm_settings: COLS47 });
   });
 

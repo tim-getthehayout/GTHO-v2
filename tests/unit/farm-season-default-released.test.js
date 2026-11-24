@@ -81,7 +81,7 @@ describe('#402 released at schema 49', () => {
   it('editors are released at the real ceiling 49', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(49);
     expect(CURRENT_SCHEMA_VERSION).toBe(49);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([54]); // OI-0251 054 held
+    expect(HELD_SCHEMA_VERSIONS).toEqual([50]);
     expect(STAGED_COLUMNS[49]).toEqual({
       farm_settings: ['season_start_month', 'season_start_day', 'season_end_month', 'season_end_day'],
     });

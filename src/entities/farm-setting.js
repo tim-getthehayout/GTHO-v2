@@ -88,7 +88,7 @@ export function create(data = {}) {
     seasonStartDay: data.seasonStartDay ?? null,
     seasonEndMonth: data.seasonEndMonth ?? null,
     seasonEndDay: data.seasonEndDay ?? null,
-    // Schema 54 (OI-0251 Ap): null if unset → include archived (default true).
+    // Schema 50 (OI-0251 Ap): null if unset → include archived (default true).
     includeArchivedLocationsInMetrics: data.includeArchivedLocationsInMetrics ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
@@ -199,8 +199,8 @@ export function fromSupabaseShape(row) {
     seasonStartDay: n(row.season_start_day),
     seasonEndMonth: n(row.season_end_month),
     seasonEndDay: n(row.season_end_day),
-    // Schema 54: read only once released, so a pre-release pull (column applied,
-    // ceiling still below 54) never feeds an unreleased write. Absent → null → true.
+    // Schema 50: read only once released, so a pre-release pull (column applied,
+    // ceiling still below 50) never feeds an unreleased write. Absent → null → true.
     includeArchivedLocationsInMetrics: RELEASED_SCHEMA_VERSION >= ARCHIVED_METRICS_SCHEMA_VERSION
       && row.include_archived_locations_in_metrics != null
       ? row.include_archived_locations_in_metrics === true || row.include_archived_locations_in_metrics === 'true'

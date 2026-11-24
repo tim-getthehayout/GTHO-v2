@@ -21,7 +21,12 @@ export function showUpdateBanner({ onNow, onLater }) {
         type: 'button',
         className: 'btn btn-green btn-sm',
         'data-testid': 'pwa-update-now',
-        onClick: () => { if (bar && bar._onNow) bar._onNow(); },
+        onClick: (e) => {
+          if (!bar || bar._updating) return;
+          // U1: show the tap took before any slow work (worker swap, reload).
+          markUpdating(e.currentTarget);
+          if (bar._onNow) bar._onNow();
+        },
       }, [t('pwa.updateNow')]),
       el('button', {
         type: 'button',
@@ -34,6 +39,14 @@ export function showUpdateBanner({ onNow, onLater }) {
   bar._onNow = onNow;
   bar._onLater = onLater;
   document.body.appendChild(bar);
+}
+
+function markUpdating(button) {
+  bar._updating = true;
+  bar.classList.add('pwa-update-banner--updating');
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.textContent = t('pwa.updating');
 }
 
 export function hideUpdateBanner() {

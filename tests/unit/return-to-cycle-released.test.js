@@ -1,6 +1,6 @@
 /**
  * @file Released schema 48 — farm_settings return-to-cycle days are in shapes
- * and restore proofs at the real compiled ceiling 48.
+ * and restore proofs at the real compiled ceiling 49.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setLocale } from '../../src/i18n/i18n.js';
@@ -30,11 +30,11 @@ const COLS48 = [
   'return_to_cycle_days_goat',
 ];
 
-describe('return-to-cycle released at schema 48', () => {
-  it('raises the ceiling to 48, clears the held set, and keeps the staged proof', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(48);
-    expect(CURRENT_SCHEMA_VERSION).toBe(48);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([49]);
+describe('return-to-cycle released at schema 49', () => {
+  it('keeps ceiling 49 with held cleared and staged 48 proof kept', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(49);
+    expect(CURRENT_SCHEMA_VERSION).toBe(49);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
     expect(STAGED_COLUMNS[48]).toEqual({ farm_settings: COLS48 });
     expect(areReturnToCycleSettingsReleased()).toBe(true);
     expect(areReturnToCycleSettingsReleased(47)).toBe(false);

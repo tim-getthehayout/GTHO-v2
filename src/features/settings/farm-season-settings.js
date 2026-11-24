@@ -1,6 +1,6 @@
 /** @file #402 — farm season default write path (shared by Farm Settings and
  * the Rotation calendar "Farm default…" editor). Same store/sync path as the
- * other farm_settings editors. Hidden / refused until schema 49 is released. */
+ * other farm_settings editors. Visible once schema 49 is released. */
 import { update } from '../../data/store.js';
 import { RELEASED_SCHEMA_VERSION } from '../../data/schema-release.js';
 import {

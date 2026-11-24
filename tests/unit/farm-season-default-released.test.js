@@ -1,11 +1,11 @@
 /**
- * @file #402 — farm season default once 049 is applied and released (mocked
- * ceiling 49): the Rotation calendar "Farm default…" editor and the Farm
- * Settings fields round-trip month-days through the normal store path;
- * date-field edits never write the farm default; Season default resets to it.
+ * @file #402 — farm season default at the real compiled ceiling 49 (049
+ * applied and released): the Rotation calendar "Farm default…" editor and
+ * the Farm Settings fields round-trip month-days through the normal store
+ * path; date-field edits never write the farm default; Season default resets
+ * to it.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 49, HELD_SCHEMA_VERSIONS: [] }));
 import '../../src/calcs/core.js';
 import '../../src/calcs/advanced.js';
 import '../../src/calcs/feed-pools.js';
@@ -13,6 +13,8 @@ import '../../src/calcs/feed-forage.js';
 import '../../src/calcs/window-helpers.js';
 import { setLocale } from '../../src/i18n/i18n.js';
 import en from '../../src/i18n/locales/en.json';
+import { RELEASED_SCHEMA_VERSION, HELD_SCHEMA_VERSIONS, STAGED_COLUMNS } from '../../src/data/schema-release.js';
+import { CURRENT_SCHEMA_VERSION } from '../../src/data/backup-import.js';
 import { _reset, add, getAll } from '../../src/data/store.js';
 import * as store from '../../src/data/store.js';
 import * as OperationEntity from '../../src/entities/operation.js';
@@ -75,9 +77,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('#402 released (ceiling 49)', () => {
-  it('editors are released', () => {
+describe('#402 released at schema 49', () => {
+  it('editors are released at the real ceiling 49', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(49);
+    expect(CURRENT_SCHEMA_VERSION).toBe(49);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+    expect(STAGED_COLUMNS[49]).toEqual({
+      farm_settings: ['season_start_month', 'season_start_day', 'season_end_month', 'season_end_day'],
+    });
     expect(areFarmSeasonSettingsReleased()).toBe(true);
+    expect(areFarmSeasonSettingsReleased(48)).toBe(false);
+    expect(areFarmSeasonSettingsReleased(49)).toBe(true);
   });
 
   it('unset columns still open on Jan 1 – Dec 31; the editor is prefilled from the saved farm default', () => {

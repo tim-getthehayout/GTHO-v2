@@ -22,7 +22,7 @@ describe('entity: farm-setting', () => {
     expect(keys).toContain('returnToCycleDaysCattle');
     expect(keys).toContain('returnToCycleDaysSheep');
     expect(keys).toContain('returnToCycleDaysGoat');
-    // #402 schema 49 (held): farm season default month-days
+    // #402 schema 49 (released): farm season default month-days
     for (const k of ['seasonStartMonth', 'seasonStartDay', 'seasonEndMonth', 'seasonEndDay']) expect(keys).toContain(k);
     expect(keys).toHaveLength(39);
   });

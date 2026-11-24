@@ -1,13 +1,12 @@
 /** Compiled compatibility ceiling, NOT the highest written migration.
  * Release/publish is gated on Tim's approval, backup, and verified applies.
  * Schema 46 (animals.confirmed_bred_date), schema 47 (farm_settings
- * per-species preg-check thresholds), and schema 48 (farm_settings
- * return-to-cycle days) are released after verified apply.
- * Schema 49 (farm_settings season default month-days, #402) is held until
- * Tim yes + verified backup apply + separate RELEASED bump.
+ * per-species preg-check thresholds), schema 48 (farm_settings
+ * return-to-cycle days), and schema 49 (farm_settings season default
+ * month-days, #402) are released after verified apply.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
-export const RELEASED_SCHEMA_VERSION = 48;
-export const HELD_SCHEMA_VERSIONS = [49];
+export const RELEASED_SCHEMA_VERSION = 49;
+export const HELD_SCHEMA_VERSIONS = [];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.

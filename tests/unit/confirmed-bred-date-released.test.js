@@ -1,6 +1,6 @@
 /**
  * @file Released schema 46 — animals.confirmed_bred_date is in shapes and restore proofs
- * at the real compiled ceiling 48.
+ * at the real compiled ceiling 49.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setLocale } from '../../src/i18n/i18n.js';
@@ -15,11 +15,11 @@ import { releasedColumns } from '../../src/data/schema-columns.js';
 
 beforeEach(() => setLocale('en', en));
 
-describe('confirmed_bred_date released at schema 48', () => {
-  it('keeps ceiling 48 with held cleared and staged 46 proof kept', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(48);
-    expect(CURRENT_SCHEMA_VERSION).toBe(48);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([49]);
+describe('confirmed_bred_date released at schema 49', () => {
+  it('keeps ceiling 49 with held cleared and staged 46 proof kept', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(49);
+    expect(CURRENT_SCHEMA_VERSION).toBe(49);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
     expect(STAGED_COLUMNS[46]).toEqual({ animals: ['confirmed_bred_date'] });
   });
 

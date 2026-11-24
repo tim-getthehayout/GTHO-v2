@@ -1,10 +1,12 @@
 /**
- * @file #402 — farm season default at the real compiled ceiling 48 (migration
- * 049 written, held). The app must keep working before 049 is applied: the
- * season columns are absent, "Farm default…" is hidden, nothing writes them,
- * and the season falls back to the calendar year Jan 1 – Dec 31.
+ * @file Held-gate for #402 — farm season default, replayed at a mocked
+ * ceiling 48 (the state before 049 was released). The real ceiling is 49 now;
+ * see farm-season-default-released.test.js. Under the mock, season columns
+ * stay absent, "Farm default…" is hidden, nothing writes them, and the
+ * season falls back to the calendar year Jan 1 – Dec 31.
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 48, HELD_SCHEMA_VERSIONS: [49] }));
 import fs from 'node:fs';
 import path from 'node:path';
 import '../../src/calcs/core.js';
@@ -103,8 +105,8 @@ describe('#402 season calcs', () => {
   });
 });
 
-describe('#402 held at ceiling 48 (049 written, not applied)', () => {
-  it('49 is held with its staged farm_settings columns; editors are gated off', () => {
+describe('#402 held at mocked ceiling 48', () => {
+  it('at ceiling 48, 49 is held and staged farm_settings columns are kept; editors are gated off', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(48);
     expect(HELD_SCHEMA_VERSIONS).toEqual([49]);
     expect(STAGED_COLUMNS[49]).toEqual({ farm_settings: COLS49 });

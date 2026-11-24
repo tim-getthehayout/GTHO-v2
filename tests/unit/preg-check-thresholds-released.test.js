@@ -1,6 +1,6 @@
 /**
  * @file Released schema 47 — farm_settings per-species preg-check thresholds are in shapes
- * and restore proofs at the real compiled ceiling 48.
+ * and restore proofs at the real compiled ceiling 49.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setLocale } from '../../src/i18n/i18n.js';
@@ -25,10 +25,10 @@ const COLS47 = [
 ];
 
 describe('preg-check thresholds released at schema 47', () => {
-  it('keeps ceiling 48 with held cleared and staged 47 proof kept', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(48);
-    expect(CURRENT_SCHEMA_VERSION).toBe(48);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([49]);
+  it('keeps ceiling 49 with held cleared and staged 47 proof kept', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(49);
+    expect(CURRENT_SCHEMA_VERSION).toBe(49);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
     expect(STAGED_COLUMNS[47]).toEqual({ farm_settings: COLS47 });
   });
 

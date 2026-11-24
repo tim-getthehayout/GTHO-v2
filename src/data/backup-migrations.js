@@ -342,3 +342,18 @@ export function applyArchivedMetricsBackupDefault(b) {
   }
   return b;
 }
+
+/**
+ * Held steps that cannot join BACKUP_MIGRATIONS yet because earlier numbers
+ * (050–053) are reserved but unwritten. Keyed like BACKUP_MIGRATIONS (from
+ * version). Move each entry into BACKUP_MIGRATIONS when its predecessor lands.
+ */
+export const PENDING_BACKUP_MIGRATIONS = {
+  // 053 → 054 (OI-0251 Ap)
+  53: (b) => {
+    applyArchivedMetricsBackupDefault(b);
+    b.schema_version = 54;
+    for (const op of b.tables.operations || []) op.schema_version = 54;
+    return b;
+  },
+};

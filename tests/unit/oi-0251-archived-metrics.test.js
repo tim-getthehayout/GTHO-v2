@@ -24,7 +24,7 @@ import * as FarmSetting from '../../src/entities/farm-setting.js';
 import {
   RELEASED_SCHEMA_VERSION, HELD_SCHEMA_VERSIONS, STAGED_COLUMNS, ARCHIVED_METRICS_SCHEMA_VERSION,
 } from '../../src/data/schema-release.js';
-import { BACKUP_MIGRATIONS, applyArchivedMetricsBackupDefault } from '../../src/data/backup-migrations.js';
+import { BACKUP_MIGRATIONS, PENDING_BACKUP_MIGRATIONS, applyArchivedMetricsBackupDefault } from '../../src/data/backup-migrations.js';
 import { validateBackup } from '../../src/data/backup-import.js';
 import {
   isArchivedMetricsSettingReleased, updateIncludeArchivedInMetrics,
@@ -194,6 +194,10 @@ describe('OI-0251 Ap: schema 54 held plumbing', () => {
     const b = { schema_version: 53, tables: { farm_settings: [{ id: 'a' }, { id: 'b', include_archived_locations_in_metrics: false }] } };
     const out = applyArchivedMetricsBackupDefault(b);
     expect(out.tables.farm_settings.map(r => r.include_archived_locations_in_metrics)).toEqual([true, false]);
+    const stepped = PENDING_BACKUP_MIGRATIONS[53]({ schema_version: 53, tables: { operations: [{ schema_version: 53 }], farm_settings: [{ id: 'c' }] } });
+    expect(stepped.schema_version).toBe(54);
+    expect(stepped.tables.operations[0].schema_version).toBe(54);
+    expect(stepped.tables.farm_settings[0].include_archived_locations_in_metrics).toBe(true);
     const res = validateBackup({
       format: 'gtho-v2-backup', format_version: 1, schema_version: RELEASED_SCHEMA_VERSION, operation_id: 'op',
       tables: { operations: [{ schema_version: RELEASED_SCHEMA_VERSION }], farm_settings: [{ id: 'x', include_archived_locations_in_metrics: true }] },

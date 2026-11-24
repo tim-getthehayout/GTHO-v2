@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { HELD_SCHEMA_VERSIONS } from '../../src/data/schema-release.js';
-import { BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';
+import { BACKUP_MIGRATIONS, PENDING_BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';
 import { BACKUP_TABLES } from '../../src/data/backup-export.js';
 import { BROWSER_FK_ORDER, CURRENT_SCHEMA_VERSION } from '../../src/data/backup-import.js';
 
@@ -28,6 +28,8 @@ describe('backup-sync invariants', () => {
       .filter(n => !Number.isNaN(n));
     expect(CURRENT_SCHEMA_VERSION).toBe(49);
     expect(nums.filter(n => n > CURRENT_SCHEMA_VERSION).sort()).toEqual(HELD_SCHEMA_VERSIONS);
-    for (const n of HELD_SCHEMA_VERSIONS) expect(BACKUP_MIGRATIONS[n - 1]).toBeTypeOf('function');
+    // OI-0251: a held version above a reserved-but-unwritten gap (054 over
+    // 050–053) carries its step in PENDING_BACKUP_MIGRATIONS until the gap fills.
+    for (const n of HELD_SCHEMA_VERSIONS) expect(BACKUP_MIGRATIONS[n - 1] ?? PENDING_BACKUP_MIGRATIONS[n - 1]).toBeTypeOf('function');
   });
 });

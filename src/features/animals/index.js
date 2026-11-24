@@ -2542,8 +2542,9 @@ export function openAnimalSheet(existingAnimal, operationId, farmId) {
         'data-testid': 'edit-animal-confirmed-bred-date',
       });
       if (existingAnimal.birthDate) bredDateInput.min = existingAnimal.birthDate;
+      // Gets the auth-error look only while it holds an error, so the sheet's
+      // first .auth-error stays the save status line.
       const bredDateError = el('div', {
-        className: 'auth-error',
         'data-testid': 'edit-animal-confirmed-bred-date-error',
       });
       const bredDateField = el('div', {
@@ -2913,17 +2914,21 @@ async function saveAnimal(existingAnimal, sexState, inputs, operationId, farmId,
 
   // OI-0232 (#387): no future date, none before a known birth date. Inline
   // error under the field; nothing is written.
+  const bredErrEl = inputs.confirmedBredDateError;
+  if (bredErrEl) {
+    clear(bredErrEl);
+    bredErrEl.className = '';
+  }
   if (data.confirmedBredDate) {
-    const errEl = inputs.confirmedBredDateError;
+    const errEl = bredErrEl;
     const fail = (key) => {
       if (errEl) {
-        clear(errEl);
+        errEl.className = 'auth-error';
         errEl.appendChild(el('span', {}, [t(key)]));
       } else {
         statusEl.appendChild(el('span', {}, [t(key)]));
       }
     };
-    if (errEl) clear(errEl);
     if (data.confirmedBredDate > getLocalTodayStr()) {
       fail('animal.confirmedBredDateFuture');
       return;

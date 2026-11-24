@@ -4243,10 +4243,68 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 /* #456: phone landscape — drop the 260px min so flex can shrink the canvas
    above the tab bar. Don't hide the nav and don't make the Map view scroll.
-   Portrait keeps 260px. */
+   Portrait keeps 260px.
+   Amendment (comment 1570): compact chrome on the Map view only — hide the
+   hint, lift .app-content to full width (side insets on the content padding),
+   and put the View toggle, Back and title on one row. */
 @media (orientation: landscape) and (max-height: 500px) {
-  .app-content:has(.loc-mgmt-map) .farm-map-canvas {
+  .app-content:has(.loc-mgmt-map) {
+    max-width: none;
+    padding-left: calc(var(--space-5) + var(--safe-left));
+    padding-right: calc(var(--space-5) + var(--safe-right));
+  }
+  /* Content padding already carries the side insets; don't add them again. */
+  .app-content:has(.loc-mgmt-map) .farm-map-screen .farm-map-header,
+  .app-content:has(.loc-mgmt-map) .farm-map-screen .farm-map-toolbar,
+  .app-content:has(.loc-mgmt-map) .farm-map-screen .farm-map-hint,
+  .app-content:has(.loc-mgmt-map) .farm-map-screen .farm-map-actions {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .app-content:has(.loc-mgmt-map) .farm-map-screen .farm-map-canvas .leaflet-left { left: 0; }
+  .app-content:has(.loc-mgmt-map) .farm-map-screen .farm-map-canvas .leaflet-right { right: 0; }
+  .app-content:has(.loc-mgmt-map) .farm-map-hint {
+    display: none;
+  }
+  /* Hoist Map chrome so the toggle, Back and title share the first row. */
+  .app-content:has(.loc-mgmt-map) .loc-mgmt-map,
+  .app-content:has(.loc-mgmt-map) .farm-map-screen {
+    display: contents;
+  }
+  .app-content:has(.loc-mgmt-map) .calendar-container {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    grid-template-rows: auto auto 1fr;
+    align-items: center;
     min-height: 0;
+  }
+  .app-content:has(.loc-mgmt-map) .header-strip {
+    grid-column: 1;
+    grid-row: 1;
+    border-bottom: none;
+    min-width: 0;
+  }
+  .app-content:has(.loc-mgmt-map) .farm-map-header {
+    grid-column: 2 / -1;
+    grid-row: 1;
+    margin-bottom: 0;
+    min-width: 0;
+  }
+  .app-content:has(.loc-mgmt-map) .farm-map-toolbar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .app-content:has(.loc-mgmt-map) .farm-map-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .app-content:has(.loc-mgmt-map) .farm-map-canvas {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    min-height: 0;
+    align-self: stretch;
+    height: auto;
   }
 }
 .farm-map-toolbar, .farm-map-hint { margin-bottom: 8px; }

@@ -1,4 +1,4 @@
-/** @file #456 iPhone safe-area insets + landscape Map (Design lock, comment 1559). */
+/** @file #456 iPhone safe-area insets + landscape Map (Design lock, comments 1559 and 1570). */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
@@ -12,6 +12,21 @@ function ruleBody(selector) {
   const m = css.match(re);
   expect(m, `missing rule ${selector}`).toBeTruthy();
   return m[1];
+}
+
+function landscapeMapBlock() {
+  const start = css.search(/@media \(orientation: landscape\) and \(max-height: 500px\)\s*\{/);
+  expect(start, 'missing landscape Map media query').toBeGreaterThan(-1);
+  const open = css.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < css.length; i += 1) {
+    if (css[i] === '{') depth += 1;
+    else if (css[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return css.slice(start, i + 1);
+    }
+  }
+  throw new Error('unclosed landscape Map media query');
 }
 
 describe('#456 viewport and safe-area tokens', () => {
@@ -116,12 +131,23 @@ describe('#456 Map canvas and overlay controls', () => {
   });
 
   it('phone landscape drops the canvas min-height to 0 so flex can shrink it above the tab bar', () => {
-    const re = /@media \(orientation: landscape\) and \(max-height: 500px\)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/;
-    const m = css.match(re);
-    expect(m, 'missing landscape min-height media query').toBeTruthy();
-    expect(m[0]).toMatch(/\.app-content:has\(\.loc-mgmt-map\) \.farm-map-canvas/);
-    expect(m[0]).toMatch(/min-height:\s*0/);
+    const block = landscapeMapBlock();
+    expect(block).toMatch(/\.app-content:has\(\.loc-mgmt-map\) \.farm-map-canvas/);
+    expect(block).toMatch(/min-height:\s*0/);
     const phoneCanvas = css.match(/\.app-content:has\(\.loc-mgmt-map\) \.farm-map-canvas\s*\{([^}]*)\}/);
     expect(phoneCanvas[1]).toMatch(/min-height:\s*260px/);
+  });
+
+  it('phone landscape Map chrome is compact: hint hidden, full-width content, toggle+Back+title on one row, toolbar nowrap', () => {
+    const block = landscapeMapBlock();
+    expect(block).toMatch(/\.app-content:has\(\.loc-mgmt-map\)\s*\{[^}]*max-width:\s*none/);
+    expect(block).toMatch(/padding-left:\s*calc\(var\(--space-5\) \+ var\(--safe-left\)\)/);
+    expect(block).toMatch(/padding-right:\s*calc\(var\(--space-5\) \+ var\(--safe-right\)\)/);
+    expect(block).toMatch(/\.farm-map-hint\s*\{[^}]*display:\s*none/);
+    expect(block).toMatch(/\.loc-mgmt-map,[^{]*\.farm-map-screen\s*\{[^}]*display:\s*contents/);
+    expect(block).toMatch(/\.header-strip\s*\{[^}]*grid-row:\s*1/);
+    expect(block).toMatch(/\.farm-map-header\s*\{[^}]*grid-row:\s*1/);
+    expect(block).toMatch(/\.farm-map-toolbar\s*\{[^}]*grid-row:\s*2/);
+    expect(block).toMatch(/\.farm-map-actions\s*\{[^}]*flex-wrap:\s*nowrap/);
   });
 });

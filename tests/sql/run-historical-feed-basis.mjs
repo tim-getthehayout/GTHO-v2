@@ -259,4 +259,44 @@ for (const [name, mutation, pattern] of tampers) {
     });
   } finally { await db.close(); }
 }
+{ // A batch that keeps stock (like Alfalfa after t1190s4597): hard fed guard, ends at 15, re-run adds 0.
+  const d = decisions();
+  // Live fed 1 + backfill 5 = 6; true-up 15 - 30 + 6 = -9; end 15. Source and purchase date are kept.
+  d.batches = [{ ...d.batches[0], quantity: 30, remaining: 15, reconcile: { prev: 20, next: 15 }, v2Fed: 1, trueUp: -9, end: 15, adjustmentDate: '2026-11-03',
+    relabel: null, keep: { source: 'purchase', purchaseDate: '2026-01-01' } }];
+  const keepPlan = buildPlan({ notesText: NOTES, extracts: extracts(), decisions: d });
+  const keepSql = emitSql(keepPlan, { operationId: IDS.op });
+  const keepCount = async db => {
+    let n = 0;
+    for (const table of [...TABLES, 'event_feed_entries', 'event_feed_check_items', 'batch_adjustments']) n += await count(db, table, `id IN (${keepPlan.ids.filter(r => r.table === table).map(r => `'${r.id}'`).join(',') || 'NULL'})`);
+    return n;
+  };
+  const stock = `UPDATE batches SET quantity=30, remaining=15 WHERE id='${IDS.lot}'; UPDATE batch_adjustments SET previous_qty=20, new_qty=15, delta=-5 WHERE id='${IDS.reconcile}';`;
+  const db = await fixture();
+  try {
+    await db.exec(migration);
+    await db.exec(stock);
+    await check('a kept-stock batch aborts when live fed differs from its guard (not self-adjusting)', async () => {
+      await db.exec(`INSERT INTO event_feed_entries (id, operation_id, event_id, batch_id, location_id, date, quantity) VALUES ('${uid(80)}','${IDS.op}','${IDS.ev2}','${IDS.lot}','${IDS.south}','2026-04-10',2)`);
+      const before = await snapshot(db);
+      await assert.rejects(db.exec(keepSql), /existing fed quantity differs/);
+      await db.exec('ROLLBACK');
+      assert.equal(await snapshot(db), before);
+      await db.exec(`DELETE FROM event_feed_entries WHERE id='${uid(80)}'`);
+    });
+    await check('a kept-stock batch commits, keeps source and date, and ends at 15', async () => {
+      await db.exec(keepSql);
+      assert.equal(await keepCount(db), keepPlan.ids.length);
+      assert.deepEqual(await one(db, 'SELECT remaining::float8 AS r, source, purchase_date::text AS d FROM batches WHERE id=$1', [IDS.lot]), { r: 15, source: 'purchase', d: '2026-01-01' });
+      const adj = (await db.query(`SELECT previous_qty::float8 AS p, new_qty::float8 AS n, delta::float8 AS d FROM batch_adjustments WHERE batch_id='${IDS.lot}' AND id <> '${IDS.reconcile}' ORDER BY created_at`)).rows;
+      assert.deepEqual(adj, [{ p: 15, n: 20, d: 5 }, { p: 24, n: 15, d: -9 }]);
+    });
+    await check('re-running the kept-stock transaction adds 0 rows and changes nothing', async () => {
+      const before = await snapshot(db);
+      await db.exec(keepSql);
+      assert.equal(await keepCount(db), keepPlan.ids.length);
+      assert.equal(await snapshot(db), before);
+    });
+  } finally { await db.close(); }
+}
 console.log(`Migration 045 + backfill transaction: ${passed} PostgreSQL/WASM checks passed. No live database accessed.`);

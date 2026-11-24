@@ -16,6 +16,7 @@ import {
   NPK_ELEMENTAL_HEADING,
   fertilizerEquivalents,
   fertilizerHover,
+  fertilizerCellHover,
   appendFertilizerHover,
 } from '../../src/calcs/fertilizer-equivalents.js';
 import { resetCalendarState, setMetricWindow } from '../../src/features/events/calendar-state.js';
@@ -54,6 +55,15 @@ describe('#462 conversion constants (shared module)', () => {
       .toBe('As fertilizer: 22.9 kg/ha P₂O₅ · 12.1 kg/ha K₂O');
   });
 
+  it('single-cell hover (Design 1610): P → P₂O₅ only, K → K₂O only, N none; unit follows the system', () => {
+    expect(fertilizerCellHover('p', 935.7 / LB_PER_KG, { unitSystem: 'imperial' })).toBe('As fertilizer: 2,143.7 lb P₂O₅');
+    expect(fertilizerCellHover('k', 1000 / LB_PER_KG, { unitSystem: 'imperial' })).toBe('As fertilizer: 1,205.0 lb K₂O');
+    expect(fertilizerCellHover('p', 935.7, { unitSystem: 'metric' })).toBe('As fertilizer: 2,143.7 kg P₂O₅');
+    expect(fertilizerCellHover('k', 1000, { unitSystem: 'metric' })).toBe('As fertilizer: 1,205.0 kg K₂O');
+    expect(fertilizerCellHover('n', 100, { unitSystem: 'metric' })).toBeNull();
+    expect(fertilizerCellHover('p', null, { unitSystem: 'metric' })).toBeNull();
+  });
+
   it('unknown P or K gives no hover; append keeps the existing title first', () => {
     expect(fertilizerHover(null, 1, { unitSystem: 'metric' })).toBeNull();
     expect(fertilizerHover(1, undefined, { unitSystem: 'metric' })).toBeNull();
@@ -72,7 +82,7 @@ describe('#462 conversion constants (shared module)', () => {
     for (const f of files) {
       const src = readFileSync(f, 'utf8');
       expect(src, f).toMatch(/calcs\/fertilizer-equivalents\.js/);
-      expect(src, f).toMatch(/fertilizerHover\(/);
+      expect(src, f).toMatch(/fertilizer(Cell)?Hover\(/);
       expect(src, f).not.toMatch(/2\.291|1\.205/);
     }
   });
@@ -152,12 +162,16 @@ describe('#462 calendar strip and schedule / list N, P, K columns', () => {
       expect(heading?.textContent).toBe(NPK_ELEMENTAL_HEADING);
       expect(NPK_ELEMENTAL_HEADING).toBe('N · P · K (elemental)');
       const unit = unitSystem === 'metric' ? 'kg' : 'lb';
-      for (const key of ['n', 'p', 'k']) {
-        const cell = c.querySelector(`[data-testid="loc-mgmt-period-total-${key}"]`);
-        expect(cell, key).toBeTruthy();
-        expect(cell.dataset.fertilizerHover, key).toBe('true');
-        expect(cell.title, key).toMatch(new RegExp(`elemental \\(${unit}\\)\\. As fertilizer: [\\d,.]+ ${unit} P₂O₅ · [\\d,.]+ ${unit} K₂O$`));
-      }
+      const nCell = c.querySelector('[data-testid="loc-mgmt-period-total-n"]');
+      expect(nCell.title).toMatch(new RegExp(`^Total nitrogen for the period, elemental \\(${unit}\\)`));
+      expect(nCell.title).not.toContain('As fertilizer');
+      expect(nCell.dataset.fertilizerHover).not.toBe('true');
+      const pCell = c.querySelector('[data-testid="loc-mgmt-period-total-p"]');
+      expect(pCell.dataset.fertilizerHover).toBe('true');
+      expect(pCell.title).toMatch(new RegExp(`elemental \\(${unit}\\)\\. As fertilizer: [\\d,.]+ ${unit} P₂O₅$`));
+      const kCell = c.querySelector('[data-testid="loc-mgmt-period-total-k"]');
+      expect(kCell.dataset.fertilizerHover).toBe('true');
+      expect(kCell.title).toMatch(new RegExp(`elemental \\(${unit}\\)\\. As fertilizer: [\\d,.]+ ${unit} K₂O$`));
       for (const key of ['pastureDmi', 'storedDmi', 'totalDmi']) {
         const cell = c.querySelector(`[data-testid="loc-mgmt-period-total-${key}"]`);
         expect(cell.title, key).not.toContain('As fertilizer');
@@ -174,10 +188,12 @@ describe('#462 calendar strip and schedule / list N, P, K columns', () => {
     const kCell = c.querySelector('[data-testid="loc-mgmt-period-total-k"]');
     const pShown = num(pCell.querySelector('.loc-mgmt__period-total-value').firstChild.textContent);
     const kShown = num(kCell.querySelector('.loc-mgmt__period-total-value').firstChild.textContent);
-    const m = pCell.title.match(/As fertilizer: ([\d,.]+) lb P₂O₅ · ([\d,.]+) lb K₂O/);
-    expect(m).toBeTruthy();
-    expect(Math.abs(num(m[1]) - pShown * 2.291)).toBeLessThan(0.3);
-    expect(Math.abs(num(m[2]) - kShown * 1.205)).toBeLessThan(0.3);
+    const mp = pCell.title.match(/As fertilizer: ([\d,.]+) lb P₂O₅$/);
+    const mk = kCell.title.match(/As fertilizer: ([\d,.]+) lb K₂O$/);
+    expect(mp).toBeTruthy();
+    expect(mk).toBeTruthy();
+    expect(Math.abs(num(mp[1]) - pShown * 2.291)).toBeLessThan(0.3);
+    expect(Math.abs(num(mk[1]) - kShown * 1.205)).toBeLessThan(0.3);
   });
 
   it('phone strip keeps N/P/K labels (no heading); the elemental wording stays in the titles', () => {
@@ -188,7 +204,10 @@ describe('#462 calendar strip and schedule / list N, P, K columns', () => {
     expect(c.querySelector('[data-testid="loc-mgmt-period-totals-npk-heading"]')).toBeNull();
     const cell = c.querySelector('[data-testid="loc-mgmt-period-total-n"]');
     expect(cell.title).toContain('elemental');
-    expect(cell.title).toContain('As fertilizer:');
+    expect(cell.title).not.toContain('As fertilizer:');
+    const pCell = c.querySelector('[data-testid="loc-mgmt-period-total-p"]');
+    expect(pCell.title).toContain('elemental');
+    expect(pCell.title).toMatch(/As fertilizer: [\d,.k]+ lb P₂O₅$/);
   });
 
   it('narrow N/P/K column heads keep N/P/K; elemental wording is in their titles', () => {
@@ -205,18 +224,32 @@ describe('#462 calendar strip and schedule / list N, P, K columns', () => {
     }
   });
 
-  it('per-paddock N, P, K cells carry the fertilizer hover; DMI / AUDs / Score do not', () => {
+  for (const unitSystem of ['imperial', 'metric']) {
+    it(`per-paddock P and K cells carry their own fertilizer hover; N / DMI / AUDs / Score do not (${unitSystem})`, () => {
+      seed(unitSystem);
+      setMetricWindow('2026-03-04', '2026-11-24');
+      const c = mount();
+      const unit = unitSystem === 'metric' ? 'kg' : 'lb';
+      const row = c.querySelector('[data-testid="loc-mgmt-metrics"][data-location-id="L1"]');
+      expect(row).toBeTruthy();
+      const p = row.querySelector('.loc-mgmt__metric[data-key="pKg"]');
+      const k = row.querySelector('.loc-mgmt__metric[data-key="kKg"]');
+      expect(p.dataset.fertilizerHover).toBe('true');
+      expect(k.dataset.fertilizerHover).toBe('true');
+      expect(p.title).toMatch(new RegExp(`elemental \\(${unit}\\)\\. As fertilizer: [\\d,.]+ ${unit} P₂O₅$`));
+      expect(k.title).toMatch(new RegExp(`elemental \\(${unit}\\)\\. As fertilizer: [\\d,.]+ ${unit} K₂O$`));
+      const n = row.querySelector('.loc-mgmt__metric[data-key="nKg"]');
+      expect(n.title).toBe(`Nitrogen deposited, elemental (${unit})`);
+      expect(n.dataset.fertilizerHover).not.toBe('true');
+    });
+  }
+
+  it('DMI / AUDs / Score cells carry no fertilizer hover', () => {
     seed('imperial');
     setMetricWindow('2026-03-04', '2026-11-24');
     const c = mount();
     const row = c.querySelector('[data-testid="loc-mgmt-metrics"][data-location-id="L1"]');
     expect(row).toBeTruthy();
-    for (const key of ['nKg', 'pKg', 'kKg']) {
-      const cell = row.querySelector(`.loc-mgmt__metric[data-key="${key}"]`);
-      expect(cell, key).toBeTruthy();
-      expect(cell.dataset.fertilizerHover, key).toBe('true');
-      expect(cell.title, key).toMatch(/elemental \(lb\)\. As fertilizer: [\d,.]+ lb P₂O₅ · [\d,.]+ lb K₂O$/);
-    }
     for (const key of ['dmiKg', 'auds', 'avgScore']) {
       const cell = row.querySelector(`.loc-mgmt__metric[data-key="${key}"]`);
       expect(cell?.title || '', key).not.toContain('As fertilizer');
@@ -231,16 +264,18 @@ describe('#462 item 8: amendment product N/P/K entry (elemental, bag-grade hint)
     expect(enLocale.amendment.productNpkPlaceholderP).toBe('P % (elemental)');
     expect(enLocale.amendment.productNpkPlaceholderK).toBe('K % (elemental)');
     expect(enLocale.amendment.productNpkHint).toBe(
-      'Bag grades list P₂O₅ and K₂O. For a bag grade, divide P by 2.29 and K by 1.2 (e.g. 10-10-10 → 10 / 4.37 / 8.30).',
+      'Bag grades list P₂O₅ and K₂O. For a bag grade, divide P by 2.29 and K by 1.2 (e.g. 10-10-10 → 10 / 4.37 / 8.33).',
     );
   });
 
-  it('bag-grade example values in the hint: 10 → 4.37 (÷ 2.29, the hint divisor) and 10 → 8.30 (÷ 1.205)', () => {
-    // The locked copy's example: 4.37 is 10 ÷ 2.29 (10 ÷ 2.291 = 4.365 → 4.36 at 2 dp);
-    // 8.30 is 10 ÷ 1.205 (10 ÷ 1.2 = 8.33). Copy is used verbatim; flagged to Design.
+  it('bag-grade hint example uses the hint divisors: 10 ÷ 2.29 = 4.37, 10 ÷ 1.2 = 8.33 (Design 1610)', () => {
     expect((10 / 2.29).toFixed(2)).toBe('4.37');
-    expect((10 / K_TO_K2O).toFixed(2)).toBe('8.30');
-    expect((10 / P_TO_P2O5).toFixed(3)).toBe('4.365');
+    expect((10 / 1.2).toFixed(2)).toBe('8.33');
+    expect(enLocale.amendment.productNpkHint).toContain('divide P by 2.29 and K by 1.2');
+    expect(enLocale.amendment.productNpkHint).toContain('10 / 4.37 / 8.33');
+    // The display hover keeps the precise shared constants.
+    expect(P_TO_P2O5).toBe(2.291);
+    expect(K_TO_K2O).toBe(1.205);
   });
 
   it('the product form renders the label, placeholders and hint; the list row reads elemental', async () => {

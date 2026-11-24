@@ -35,7 +35,8 @@ export function fertilizerEquivalents({ p, k } = {}) {
 }
 
 /**
- * #462 hover line: `As fertilizer: {p} P₂O₅ · {k} K₂O`, with the same unit and
+ * #462 combined inline-line hover (Dashboard, Reports row, Event detail):
+ * `As fertilizer: {p} P₂O₅ · {k} K₂O`, with the same unit and
  * rounding as the cell (canonical-metric kg in, farm unit out via OI-0278).
  * Returns null when either value is unknown.
  * @param {number|null|undefined} pKg elemental P (kg, or kg/ha when `perArea`)
@@ -50,6 +51,26 @@ export function fertilizerHover(pKg, kKg, { unitSystem, compact = false, decimal
     ? formatPerArea(v, 'npk', { unitSystem, compact, decimals })
     : formatMeasure(v, 'npk', { unitSystem, compact, decimals }));
   return `As fertilizer: ${fmt(p2o5)} P₂O₅ · ${fmt(k2o)} K₂O`;
+}
+
+/**
+ * #462 (Design 1610) single-nutrient cell hover: a P cell reads
+ * `As fertilizer: {p} P₂O₅`, a K cell `As fertilizer: {k} K₂O`, an N cell none.
+ * Same unit and rounding as the cell (canonical-metric kg in, farm unit out).
+ * @param {'n'|'p'|'k'} nutrient
+ * @param {number|null|undefined} valueKg elemental value (kg, or kg/ha when `perArea`)
+ * @param {{ unitSystem?: 'metric'|'imperial', compact?: boolean, decimals?: number, perArea?: boolean }} [opts]
+ * @returns {string|null}
+ */
+export function fertilizerCellHover(nutrient, valueKg, { unitSystem, compact = false, decimals, perArea = false } = {}) {
+  if (nutrient !== 'p' && nutrient !== 'k') return null;
+  const eq = fertilizerEquivalents(nutrient === 'p' ? { p: valueKg } : { k: valueKg });
+  const v = nutrient === 'p' ? eq.p2o5 : eq.k2o;
+  if (v == null) return null;
+  const text = perArea
+    ? formatPerArea(v, 'npk', { unitSystem, compact, decimals })
+    : formatMeasure(v, 'npk', { unitSystem, compact, decimals });
+  return `As fertilizer: ${text} ${nutrient === 'p' ? 'P₂O₅' : 'K₂O'}`;
 }
 
 /**

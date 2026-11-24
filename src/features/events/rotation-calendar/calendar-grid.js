@@ -66,7 +66,7 @@ import {
   describeScrollArchitecture,
 } from './scroll-owner.js';
 import { createScrollRail } from './scroll-rail.js';
-import { fertilizerHover, NPK_ELEMENTAL_HEADING } from '../../../calcs/fertilizer-equivalents.js';
+import { fertilizerCellHover, NPK_ELEMENTAL_HEADING } from '../../../calcs/fertilizer-equivalents.js';
 import {
   resolveFarmSeason, formatFarmSeason, validateFarmSeason, MONTH_SHORT,
 } from '../../../calcs/farm-season.js';
@@ -220,9 +220,9 @@ function renderMetricCol(col, metrics, { includePerAcre = true, compact = false,
   const feedCheckNeeded = isDmi && !!metrics?.dmiFeedCheckNeeded && text !== '—';
   const checkNote = feedCheckNeeded ? t('event.dmiFeedCheckNeeded') : null;
   const shownText = feedCheckNeeded ? `~${text}` : text;
-  // #462: deposited N/P/K cells add the P₂O₅ / K₂O hover (same unit + rounding).
-  const fertNote = isNpk
-    ? fertilizerHover(metrics?.pKg, metrics?.kKg, { unitSystem })
+  // #462 (Design 1610): P cell → P₂O₅, K cell → K₂O hover (same unit + rounding); N none.
+  const fertNote = col.key === 'pKg' || col.key === 'kKg'
+    ? fertilizerCellHover(col.key === 'pKg' ? 'p' : 'k', raw, { unitSystem })
     : null;
   const title = [baseTitle, hayNote, checkNote, dmiHayNote, basisNote, fertNote].filter(Boolean).join('. ');
   return el('div', {
@@ -1211,11 +1211,12 @@ function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone
   const hayNote = residualNpkNote(totals);
   // OI-0279: per-class DMI % fallback note on the DMI totals.
   const dmiNote = totals.dmiBasisNote ? `. ${totals.dmiBasisNote}` : '';
-  // #462: Total N/P/K add the P₂O₅ / K₂O hover after any other notes.
-  const fertNote = fertilizerHover(totals.pKg, totals.kKg, { unitSystem, compact: isPhone });
   const cell = (key, label, value, partial, title, note = null, family = 'weight') => {
-    const isNpk = family === 'npk';
-    const notes = [note, preWindowNote, isNpk ? fertNote : null].filter(Boolean);
+    // #462 (Design 1610): Total P → P₂O₅, Total K → K₂O hover after any other notes; N none.
+    const fertNote = key === 'p' || key === 'k'
+      ? fertilizerCellHover(key, value, { unitSystem, compact: isPhone })
+      : null;
+    const notes = [note, preWindowNote, fertNote].filter(Boolean);
     return el('div', {
     className: `loc-mgmt__period-total${partial ? ' loc-mgmt__period-total--partial' : ''}`,
     title: notes.length ? `${title}. ${notes.join('. ')}` : title,
@@ -1225,7 +1226,7 @@ function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone
       partial: partial ? 'true' : undefined,
       ...(note ? { residualNote: 'true' } : {}),
       ...(preWindowNote ? { preWindowNote: 'true' } : {}),
-      ...(isNpk && fertNote ? { fertilizerHover: 'true' } : {}),
+      ...(fertNote ? { fertilizerHover: 'true' } : {}),
     },
   }, [
     el('span', { className: 'loc-mgmt__period-total-label' }, [label]),

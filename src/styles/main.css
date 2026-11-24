@@ -2808,8 +2808,23 @@ body:has(.auth-overlay) .pwa-update-banner {
   border-right: 1px solid var(--border);
   flex: 0 0 auto;
 }
+/* #464: collapsed metrics = an empty sticky placeholder per row, sized by
+   applyUniformMetricsWidth to the head tab, so the axis lines up with the rows
+   (was display:none → 0 px against the ~70–200 px head tab). Phone stacks the
+   metrics above the strip, so it keeps the cell hidden. */
 .loc-mgmt__metrics--collapsed {
+  padding: 0;
+}
+.loc-mgmt--desktop:not(.loc-mgmt--list) .loc-mgmt__row--desktop > .loc-mgmt__metrics--collapsed {
+  background: var(--bg2);
+}
+.loc-mgmt--phone .loc-mgmt__metrics--collapsed,
+.loc-mgmt--list .loc-mgmt__metrics--collapsed {
   display: none !important;
+}
+/* #464: the wrap carries the border; the inner head stretches inside it. */
+.loc-mgmt__metrics-head-wrap > .loc-mgmt__metrics-head {
+  border-right: none;
 }
 .loc-mgmt--metrics-collapsed .loc-mgmt__metrics:not(.loc-mgmt__metrics--collapsed) {
   display: none !important;

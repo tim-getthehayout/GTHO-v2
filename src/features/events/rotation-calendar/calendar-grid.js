@@ -128,32 +128,46 @@ const metricLine2 = (cols) => cols.filter(c => !METRIC_LINE1_KEYS.includes(c.key
 /**
  * OI-0252 Wu: one uniform content width from the widest rendered metrics block
  * on this surface (after format + partial markers + per-acre text).
+ * #464: the head and the rows must build the SAME metrics-column width so the
+ * date axis starts where the row timelines start.
+ * - Expanded: the head's `.loc-mgmt__metrics-head-wrap` (toggle + inner head,
+ *   with its own border) is sized, not just the inner head; the inner head
+ *   stretches inside it (its border is dropped in CSS).
+ * - Collapsed: the head tab (toggle + OI-0274 sort note) sets the width and each
+ *   row's empty sticky placeholder takes the same width (was display:none → 0).
  * @param {ParentNode} root
  */
 export function applyUniformMetricsWidth(root) {
   if (!root) return 0;
-  if (root.classList?.contains('loc-mgmt--metrics-collapsed')) return 0;
+  const measure = (node) => Math.ceil(Math.max(node.offsetWidth || 0, node.scrollWidth || 0));
+  const reset = (node) => { node.style.width = 'auto'; node.style.minWidth = ''; };
+  const setWidth = (node, w) => { node.style.width = `${w}px`; node.style.minWidth = `${w}px`; };
+  const collapsed = !!(root.classList?.contains('loc-mgmt--metrics-collapsed')
+    || root.closest?.('.loc-mgmt--metrics-collapsed'));
+  if (collapsed) {
+    const tabs = [...root.querySelectorAll('.loc-mgmt__metrics-head--collapsed')];
+    const placeholders = [...root.querySelectorAll('[data-testid="loc-mgmt-metrics-collapsed"]')];
+    if (!tabs.length) return 0;
+    for (const node of [...tabs, ...placeholders]) reset(node);
+    let tabMax = 0;
+    for (const node of tabs) tabMax = Math.max(tabMax, measure(node));
+    if (tabMax <= 0) return 0;
+    for (const node of [...tabs, ...placeholders]) setWidth(node, tabMax);
+    return tabMax;
+  }
   const cells = [...root.querySelectorAll('[data-testid="loc-mgmt-metrics"]')];
-  const heads = [...root.querySelectorAll('.loc-mgmt__metrics-head')];
-  const targets = [...cells, ...heads];
-  for (const node of targets) {
-    node.style.width = 'auto';
-    node.style.minWidth = '';
-  }
+  const wraps = [...root.querySelectorAll('.loc-mgmt__metrics-head-wrap')];
+  const allHeads = [...root.querySelectorAll('.loc-mgmt__metrics-head')]
+    .filter(h => !h.classList.contains('loc-mgmt__metrics-head--collapsed'));
+  const innerHeads = allHeads.filter(h => h.parentElement?.classList?.contains('loc-mgmt__metrics-head-wrap'));
+  const soloHeads = allHeads.filter(h => !innerHeads.includes(h));
+  for (const node of [...cells, ...wraps, ...allHeads]) reset(node);
   let max = 0;
-  for (const node of cells) {
-    const w = Math.ceil(node.scrollWidth || node.offsetWidth || 0);
-    if (w > max) max = w;
-  }
-  for (const node of heads) {
-    const w = Math.ceil(node.scrollWidth || node.offsetWidth || 0);
-    if (w > max) max = w;
-  }
+  for (const node of [...cells, ...wraps, ...allHeads]) max = Math.max(max, measure(node));
+  // Inner heads stretch inside their wrap (no inline width of their own).
+  for (const node of innerHeads) { node.style.width = ''; node.style.minWidth = ''; }
   if (max <= 0) return 0;
-  for (const node of targets) {
-    node.style.width = `${max}px`;
-    node.style.minWidth = `${max}px`;
-  }
+  for (const node of [...cells, ...wraps, ...soloHeads]) setWidth(node, max);
   return max;
 }
 
@@ -654,6 +668,8 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
       requestAnimationFrame(() => {
         pending = false;
         if (!body.isConnected) return;
+        // #464: keep head and row metrics widths matched after a resize.
+        applyUniformMetricsWidth(body);
         if (connectorLayer) connectorLayer.layout(body);
         if (rail) rail.sync();
       });

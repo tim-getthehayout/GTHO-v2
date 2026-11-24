@@ -4,6 +4,10 @@
  * outside it, and spans only the timeline portion (after the pinned name +
  * metrics columns on desktop, after the row padding on phone).
  *
+ * Design Q1: the rail is `position: sticky` (bottom 0, or just above the
+ * phone tab bar) so it stays pinned to the viewport bottom whenever the
+ * calendar is on screen, without shrinking the calendar.
+ *
  * The rail never owns a scroll position: it READS `body.scrollLeft` to paint
  * the thumb (from one passive scroll listener, rAF-coalesced) and only WRITES
  * `body.scrollLeft` from its own pointer / button / key input. Nothing here
@@ -13,6 +17,22 @@
  */
 
 import { el } from '../../../ui/dom.js';
+
+/**
+ * Height of the fixed phone tab bar (`.bottom-nav`) covering the viewport
+ * bottom, so the sticky rail can sit just above it. 0 when the bar is absent
+ * or not displayed (desktop, field mode).
+ * @param {Document} [doc]
+ * @returns {number}
+ */
+export function bottomNavOffset(doc = globalThis.document) {
+  const nav = doc?.querySelector?.('.bottom-nav');
+  if (!nav) return 0;
+  const view = doc.defaultView;
+  const cs = view?.getComputedStyle ? view.getComputedStyle(nav) : null;
+  if (cs && (cs.display === 'none' || cs.position !== 'fixed')) return 0;
+  return Math.max(0, Math.round(nav.offsetHeight || 0));
+}
 
 /** Smallest thumb so it stays grabbable on a very wide timeline (px). */
 export const RAIL_MIN_THUMB_PX = 24;
@@ -90,9 +110,15 @@ export function createScrollRail(body, {
   });
 
   /** Read the scroller and paint (never writes scrollLeft). */
+  let navOffset = -1;
   function sync() {
     const origin = Math.max(0, Math.round(getOrigin()));
     rail.style.marginLeft = `${origin}px`;
+    const nav = bottomNavOffset(rail.ownerDocument);
+    if (nav !== navOffset) {
+      navOffset = nav;
+      rail.style.setProperty('--loc-mgmt-rail-bottom', `${nav}px`);
+    }
     geo = measure();
     if (rail.hidden !== !geo.overflow) {
       rail.hidden = !geo.overflow;

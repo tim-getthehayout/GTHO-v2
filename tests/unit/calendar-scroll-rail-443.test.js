@@ -17,7 +17,7 @@ import enLocale from '../../src/i18n/locales/en.json';
 import {
   renderCalendarGrid, teardownScrollSurface, SCROLL_BODY_ID,
 } from '../../src/features/events/rotation-calendar/calendar-grid.js';
-import { createScrollRail, railGeometry, RAIL_MIN_THUMB_PX } from '../../src/features/events/rotation-calendar/scroll-rail.js';
+import { createScrollRail, railGeometry, bottomNavOffset, RAIL_MIN_THUMB_PX } from '../../src/features/events/rotation-calendar/scroll-rail.js';
 import { resetCalendarState, setView } from '../../src/features/events/calendar-state.js';
 import { hasSingleScrollOwner } from '../../src/features/events/rotation-calendar/scroll-owner.js';
 
@@ -302,5 +302,57 @@ describe('#443 rail on the calendar surface', () => {
     // the rail is not a scroller and the body's overflow is untouched
     expect(rule('.loc-mgmt__rail')).not.toMatch(/overflow/);
     expect(rule('.loc-mgmt__body')).toMatch(/overflow:\s*auto;/);
+  });
+});
+
+describe('#443 Design Q1: rail pinned to the viewport bottom (sticky)', () => {
+  const lastOverflow = (body) => [...(body || '').matchAll(/overflow:\s*([a-z]+)/g)].map(m => m[1]).pop();
+
+  it('the rail is position: sticky at the bottom (offset var, 0 by default)', () => {
+    const r = rule('.loc-mgmt__rail');
+    expect(r).toMatch(/position:\s*sticky;/);
+    expect(r).toMatch(/bottom:\s*var\(--loc-mgmt-rail-bottom,\s*0px\);/);
+    // paints over the row cells it overlays while pinned (pinned columns are z 5, head z 10)
+    expect(Number(r.match(/z-index:\s*(\d+)/)[1])).toBeGreaterThan(10);
+  });
+
+  it('no ancestor scroll container captures the sticky: .loc-mgmt clips, calendar app-content is visible on desktop', () => {
+    // the calendar keeps its height; overflow clip is not a scroll container
+    const surface = rule('.loc-mgmt');
+    expect(surface).toMatch(/height:\s*calc\(100vh - 320px\);/);
+    expect(lastOverflow(surface)).toBe('clip');
+    expect(css).toMatch(/@media \(min-width: 900px\)\s*\{\s*\.app-content:has\(\.loc-mgmt__rail\)\s*\{\s*overflow:\s*visible;\s*\}/);
+  });
+
+  it('phone: the offset is the fixed tab bar height; 0 when absent, hidden, or not fixed', () => {
+    expect(bottomNavOffset(document)).toBe(0);
+    const nav = document.createElement('nav');
+    nav.className = 'bottom-nav';
+    nav.style.position = 'fixed';
+    Object.defineProperty(nav, 'offsetHeight', { configurable: true, get: () => 43 });
+    document.body.appendChild(nav);
+    expect(bottomNavOffset(document)).toBe(43);
+    nav.style.display = 'none'; // desktop / field mode
+    expect(bottomNavOffset(document)).toBe(0);
+    nav.style.display = '';
+    nav.style.position = 'static';
+    expect(bottomNavOffset(document)).toBe(0);
+  });
+
+  it('sync() writes the tab bar height to the rail so it sits just above it', () => {
+    const nav = document.createElement('nav');
+    nav.className = 'bottom-nav';
+    nav.style.position = 'fixed';
+    let h = 43;
+    Object.defineProperty(nav, 'offsetHeight', { configurable: true, get: () => h });
+    document.body.appendChild(nav);
+    const { body } = fakeBody();
+    const { rail } = railFor(body, { isPhone: true });
+    expect(rail.el.style.getPropertyValue('--loc-mgmt-rail-bottom')).toBe('43px');
+    h = 0;
+    rail.sync();
+    expect(rail.el.style.getPropertyValue('--loc-mgmt-rail-bottom')).toBe('0px');
+    expect(body.scrollLeft).toBe(0); // still display-only
+    rail.destroy();
   });
 });

@@ -2617,6 +2617,9 @@ body:has(.auth-overlay) .pwa-update-banner {
   height: calc(100vh - 320px);
   min-height: 360px;
   overflow: hidden;
+  /* #443: clip (not hidden) so this box is not a scroll container and the rail's
+     position: sticky resolves against the page; hidden stays as the fallback. */
+  overflow: clip;
   border: 1px solid var(--border);
   border-radius: var(--radius, 6px);
   background: var(--bg);
@@ -2843,6 +2846,13 @@ body:has(.auth-overlay) .pwa-update-banner {
    it drives .loc-mgmt__body scrollLeft; native scrolling is unchanged. */
 .loc-mgmt__rail {
   flex: none;
+  /* Design Q1: pinned to the viewport bottom whenever the calendar is on screen
+     (sticky inside .loc-mgmt; the calendar keeps its height). */
+  position: sticky;
+  /* 0 on desktop / field mode; on a phone, the fixed .bottom-nav height
+     (measured by scroll-rail.js) so the rail sits just above the tab bar. */
+  bottom: var(--loc-mgmt-rail-bottom, 0px);
+  z-index: 11; /* over the rows' pinned cells (z 5) and sticky head (z 10) it overlays; under sheets/nav (100) */
   display: flex;
   align-items: center;
   gap: 4px;
@@ -2897,6 +2907,12 @@ body:has(.auth-overlay) .pwa-update-banner {
 .loc-mgmt__rail--phone .loc-mgmt__rail-track { height: 24px; border-radius: 12px; }
 .loc-mgmt__rail--phone .loc-mgmt__rail-thumb { border-radius: 12px; }
 .loc-mgmt__rail--phone .loc-mgmt__rail-btn { width: 36px; height: 32px; font-size: 20px; }
+/* Desktop: .app-content's overflow-y:auto (it never scrolls itself; the window
+   does) would make it the sticky reference and keep the rail below the fold.
+   Only on the calendar view, let the window be the sticky reference. */
+@media (min-width: 900px) {
+  .app-content:has(.loc-mgmt__rail) { overflow: visible; }
+}
 
 /* OI-0264 Cn1: sub-move connectors — 2px dark-green line above row backgrounds,
    below block labels; never intercepts clicks. */

@@ -4,6 +4,7 @@
 
 import { getSyncAdapter, mergeRemote, beginBatch, endBatch } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
+import { isTableReleased, RELEASED_SCHEMA_VERSION } from './schema-release.js';
 import { logger } from '../utils/logger.js';
 import { flushLoggerBuffer } from './log-flush.js';
 import { supabase } from './supabase-client.js';
@@ -106,6 +107,9 @@ async function _doPullAllRemote() {
   beginBatch();
   try {
     for (const [entityType, reg] of Object.entries(SYNC_REGISTRY)) {
+      // #451: a table staged above the released ceiling (e.g. 045 before it
+      // applied) is never read.
+      if (!isTableReleased(reg.table, RELEASED_SCHEMA_VERSION)) continue;
       try {
         const rows = await adapter.pullAll(reg.table);
         if (rows.length > 0) {

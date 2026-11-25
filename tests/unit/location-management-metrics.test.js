@@ -903,7 +903,7 @@ describe('OI-0250 period totals (Sb+En+Nk+Sz+Pp)', () => {
     expect(legend).toBeGreaterThan(totals);
     // #465 Ls1 supersedes "Not under List": List aggregates the Calendar row set.
     expect(src).not.toContain('const periodTotals = isList ? null');
-    expect(src).toContain('const periodTotals = aggregatePeriodTotals(totalsRows)');
+    expect(src).toContain('const periodTotals = aggregatePeriodTotals(totalsRows, { history: historySlice })');
     expect(src).toContain("testid: 'loc-mgmt-period-totals'");
     expect(src).toContain('Pasture DMI');
     expect(src).toContain('Stored-feed DMI');

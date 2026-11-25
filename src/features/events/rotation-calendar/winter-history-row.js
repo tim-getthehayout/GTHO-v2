@@ -112,7 +112,7 @@ export function renderWinterHistoryRow({
     dataset: { testid: 'winter-history-name' },
   }, [
     el('div', { className: 'loc-mgmt__name-text' }, [el('span', { className: 'loc-mgmt__name-label' }, [WINTER_HISTORY_LABEL])]),
-    el('div', { className: 'loc-mgmt__area' }, [el('span', { className: 'loc-mgmt__no-acres' }, ['no paddocks'])]),
+    el('div', { className: 'loc-mgmt__area' }, [el('span', { className: 'loc-mgmt__area-note' }, ['no paddocks'])]),
   ]);
   const metricCell = metricsCollapsed
     ? el('div', { className: 'loc-mgmt__metrics loc-mgmt__metrics--collapsed', 'aria-hidden': 'true' })

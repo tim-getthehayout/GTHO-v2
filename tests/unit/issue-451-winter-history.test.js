@@ -19,13 +19,13 @@ import { renderCalendarGrid, _resetFarmSeasonEditor } from '../../src/features/e
 import { aggregatePeriodTotals } from '../../src/features/events/rotation-calendar/location-metrics.js';
 import {
   basisNeedKgPerDay, historyFeedingDmKg, computeWinterHistory, sliceWinterHistory,
-  spreadWinterHistoryHay, historyDatesInclusive, winterHistoryBlocks, dateRuns,
+  spreadWinterHistoryHay, spreadHistoryHayEvenly, spreadHistoryHayByNeed, historyDatesInclusive, winterHistoryBlocks, dateRuns,
 } from '../../src/calcs/winter-history.js';
 import {
   winterHistoryTotals, winterHistoryClipFn, groupSpeciesEver,
 } from '../../src/features/events/rotation-calendar/winter-history-metrics.js';
 import { WINTER_HISTORY_STRIP_NOTE } from '../../src/features/events/rotation-calendar/winter-history-row.js';
-import { homeTotalDmiKg, homePastureDmiKg, homeDmiCtxFromStore } from '../../src/features/dashboard/home-dmi.js';
+import { homeTotalDmiKg, homePastureDmiKg, homeDmiCtxFromStore, homePeriodRange, computeHomeDmi } from '../../src/features/dashboard/home-dmi.js';
 import { SYNC_REGISTRY } from '../../src/data/sync-registry.js';
 import { ENTITY_TYPES } from '../../src/data/store.js';
 import { localSupabaseRow } from '../../src/data/push-all.js';
@@ -90,6 +90,22 @@ describe('#451 calc: need, hay, pasture (fixture)', () => {
     const none = spreadWinterHistoryHay(F, new Map());
     expect(none.get('2026-01-03')).toBeCloseTo(680, 9);
     expect(none.get('2026-01-08')).toBeCloseTo(340, 9);
+  });
+
+  it('spread choice is one function: even is live; demand-weighted is a tested sibling, not wired', () => {
+    const need = new Map([['2026-01-01', 300], ['2026-01-02', 100]]);
+    const hay = [feeding({ id: 'h', date: '2026-01-01', quantity: 1, weightPerUnitKgSnapshot: 200, dmPctSnapshot: 100 })]; // 200 kg
+    expect([...spreadWinterHistoryHay(hay, need)]).toEqual([...spreadHistoryHayEvenly(hay, need)]);
+    const byNeed = spreadHistoryHayByNeed(hay, need);
+    expect(byNeed.get('2026-01-01')).toBeCloseTo(150, 9);  // 200 × 300/400
+    expect(byNeed.get('2026-01-02')).toBeCloseTo(50, 9);
+    // No counted days → delivery dates; no hay → nothing.
+    expect(spreadHistoryHayByNeed(hay, new Map()).get('2026-01-01')).toBeCloseTo(200, 9);
+    expect(spreadHistoryHayByNeed([], need).size).toBe(0);
+    // Live wiring stays even (fixture: 1020 kg over 10 equal-need days).
+    const B2 = [basis({ species: 'beef_cattle', periodStart: '2026-01-01', periodEnd: '2026-01-10' })];
+    const t = sliceWinterHistory(computeWinterHistory({ basisRows: B2, feedingRows: F }), '2026-01-01', '2026-01-31');
+    expect(t.pastureKg).toBeCloseTo(230, 9);
   });
 
   it('blocks: one per basis row spanning its counted dates, with species hay + pasture', () => {
@@ -245,6 +261,29 @@ describe('#451 store, strip and Home', () => {
     const ctx = homeDmiCtxFromStore();
     expect(winterHistoryTotals(ctx, '2026-03-01', '2026-12-31', '2026-12-31').needKg).toBe(0);
     expect(aggregatePeriodTotals([], { history: winterHistoryTotals(ctx, '2026-03-01', '2026-12-31', '2026-12-31') }).winterHistory).toBeNull();
+  });
+
+  it("Home 'All' starts at the earliest data date including winter history; unchanged without it", () => {
+    expect(homePeriodRange('All', {
+      today: '2026-11-24', events: [{ dateIn: '2026-03-04' }], groupWindows: [{ dateJoined: '2026-03-04' }],
+      historicalAnimalBasis: [{ periodStart: '2025-10-01' }], historicalFeedings: [{ date: '2025-10-03' }],
+    })).toEqual({ start: '2025-10-01', end: '2026-11-24' });
+    // A feeding before any basis start also counts as data.
+    expect(homePeriodRange('All', {
+      today: '2026-11-24', events: [{ dateIn: '2026-03-04' }], historicalAnimalBasis: [{ periodStart: '2025-10-01' }], historicalFeedings: [{ date: '2025-09-28' }],
+    }).start).toBe('2025-09-28');
+    // No history → as before (earliest event / group-window start).
+    expect(homePeriodRange('All', {
+      today: '2026-11-24', events: [{ dateIn: '2026-03-04' }], groupWindows: [{ dateJoined: '2026-03-02' }],
+    })).toEqual({ start: '2026-03-02', end: '2026-11-24' });
+    // Store path: with history, 'All' reaches Jan 1 and counts its need.
+    seed();
+    const withH = computeHomeDmi('All', { today: '2026-11-24', ctx: homeDmiCtxFromStore() });
+    expect(withH.start).toBe('2026-01-01');
+    seed({ history: false });
+    const without = computeHomeDmi('All', { today: '2026-11-24', ctx: homeDmiCtxFromStore() });
+    expect(without.start).toBe('2026-03-04');
+    expect(withH.totalDmiKg - without.totalDmiKg).toBeCloseTo(1250, 6);
   });
 
   it('Home Total adds the history need; Home Pasture matches the strip figure', () => {

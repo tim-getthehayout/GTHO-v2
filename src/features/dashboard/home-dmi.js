@@ -37,12 +37,15 @@ function shiftDate(ymd, days) {
 /**
  * Date range (inclusive YYYY-MM-DD) for a Home period pill.
  * '24h' / '3d' / '7d' / '30d' = the last 1 / 3 / 7 / 30 calendar days ending
- * today; 'All' = earliest event or group-window start → today.
+ * today; 'All' = earliest data date → today: event / group-window starts and
+ * (#451) the winter history (basis period starts, feeding dates).
  * @param {string} period
- * @param {{ today?: string, events?: object[], groupWindows?: object[] }} [opts]
+ * @param {{ today?: string, events?: object[], groupWindows?: object[], historicalAnimalBasis?: object[], historicalFeedings?: object[] }} [opts]
  * @returns {{ start: string|null, end: string }}
  */
-export function homePeriodRange(period, { today = getLocalTodayStr(), events = [], groupWindows = [] } = {}) {
+export function homePeriodRange(period, {
+  today = getLocalTodayStr(), events = [], groupWindows = [], historicalAnimalBasis = [], historicalFeedings = [],
+} = {}) {
   if (period !== 'All') {
     const n = HOME_PERIOD_DAYS[period] ?? HOME_PERIOD_DAYS['7d'];
     return { start: shiftDate(today, -(n - 1)), end: today };
@@ -53,6 +56,12 @@ export function homePeriodRange(period, { today = getLocalTodayStr(), events = [
   }
   for (const gw of groupWindows || []) {
     if (gw?.dateJoined && (!start || gw.dateJoined < start)) start = gw.dateJoined;
+  }
+  for (const b of historicalAnimalBasis || []) {
+    if (b?.periodStart && (!start || b.periodStart < start)) start = b.periodStart;
+  }
+  for (const f of historicalFeedings || []) {
+    if (f?.date && (!start || f.date < start)) start = f.date;
   }
   if (start && start > today) start = today;
   return { start, end: today };
@@ -162,7 +171,13 @@ export function computeHomeDmi(period, opts = {}) {
 }
 
 function computeHomeDmiFor(period, today, ctx) {
-  const { start, end } = homePeriodRange(period, { today, events: eventsWithDates(ctx.events, ctx), groupWindows: ctx.groupWindows });
+  const { start, end } = homePeriodRange(period, {
+    today,
+    events: eventsWithDates(ctx.events, ctx),
+    groupWindows: ctx.groupWindows,
+    historicalAnimalBasis: ctx.historicalAnimalBasis,
+    historicalFeedings: ctx.historicalFeedings,
+  });
   if (!start) {
     return {
       start: null, end, totalDmiKg: 0, pastureDmiKg: null, pasturePercent: null,

@@ -65,21 +65,51 @@ function hayOnDeliveryDates(feedings) {
   return out;
 }
 
-/**
- * N1: spread a species' history hay evenly across its counted basis days
- * (equal kg per day). With no counted basis days, hay stays on its delivery
- * dates (it is all "hay over need").
- */
-export function spreadWinterHistoryHay(feedings, needByDate) {
-  const days = [...(needByDate?.keys() || [])];
-  if (!days.length) return hayOnDeliveryDates(feedings);
+function historyHayTotalKg(feedings) {
   let total = 0;
   for (const f of feedings || []) total += historyFeedingDmKg(f);
+  return total;
+}
+
+/**
+ * N1 (live): a species' history hay spread evenly across its counted basis
+ * days (equal kg per day). With no counted basis days, hay stays on its
+ * delivery dates (it is all "hay over need").
+ */
+export function spreadHistoryHayEvenly(feedings, needByDate) {
+  const days = [...(needByDate?.keys() || [])];
+  if (!days.length) return hayOnDeliveryDates(feedings);
+  const total = historyHayTotalKg(feedings);
   const out = new Map();
   if (!(total > 0)) return out;
   const perDay = total / days.length;
   for (const date of days) out.set(date, perDay);
   return out;
+}
+
+/**
+ * Demand-weighted alternative (not wired; Tim deciding): a species' history hay
+ * spread in proportion to its counted need per day (hay_d = total × need_d ÷
+ * Σ need). Same no-basis-days fallback as N1.
+ */
+export function spreadHistoryHayByNeed(feedings, needByDate) {
+  const days = [...(needByDate?.keys() || [])];
+  if (!days.length) return hayOnDeliveryDates(feedings);
+  const total = historyHayTotalKg(feedings);
+  let needSum = 0;
+  for (const d of days) needSum += needByDate.get(d) || 0;
+  const out = new Map();
+  if (!(total > 0) || !(needSum > 0)) return out;
+  for (const d of days) out.set(d, total * (needByDate.get(d) || 0) / needSum);
+  return out;
+}
+
+/**
+ * The one spread choice computeWinterHistory uses. Swap point (one line):
+ * even → `return spreadHistoryHayByNeed(feedings, needByDate);`
+ */
+export function spreadWinterHistoryHay(feedings, needByDate) {
+  return spreadHistoryHayEvenly(feedings, needByDate);
 }
 
 /**

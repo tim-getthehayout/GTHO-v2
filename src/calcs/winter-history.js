@@ -11,9 +11,9 @@
  *   need for it that day (the caller's `isClipped(row, date)`).
  * - Pasture: the 11-18 rule per species and day: max(0, need − hay); hay over
  *   need is reported separately (not netted).
- * - N1 (locked, Tim t1634s6441): each species' history hay total is spread
- *   evenly over that species' counted basis days (after the clip):
- *   `spreadWinterHistoryHay`.
+ * - Spread by each day's need (Tim t1637s6455, replaces even N1): each
+ *   species' history hay total over its counted basis days (after the clip),
+ *   in proportion to each day's counted need: `spreadWinterHistoryHay`.
  * Pure: no store access.
  */
 // Same buckets as FED-6's pastureSpeciesGroup (feed-run-rate.js), kept local so
@@ -72,27 +72,12 @@ function historyHayTotalKg(feedings) {
 }
 
 /**
- * N1 (live): a species' history hay spread evenly across its counted basis
- * days (equal kg per day). With no counted basis days, hay stays on its
- * delivery dates (it is all "hay over need").
+ * Spread by each day's need (Tim t1637s6455): a species' history hay over its
+ * counted basis days in proportion to that day's counted need
+ * (hay_d = total × need_d ÷ Σ need), then the daily 11-18 rule. With no
+ * counted basis days, hay stays on its delivery dates (all "hay over need").
  */
-export function spreadHistoryHayEvenly(feedings, needByDate) {
-  const days = [...(needByDate?.keys() || [])];
-  if (!days.length) return hayOnDeliveryDates(feedings);
-  const total = historyHayTotalKg(feedings);
-  const out = new Map();
-  if (!(total > 0)) return out;
-  const perDay = total / days.length;
-  for (const date of days) out.set(date, perDay);
-  return out;
-}
-
-/**
- * Demand-weighted alternative (not wired; Tim deciding): a species' history hay
- * spread in proportion to its counted need per day (hay_d = total × need_d ÷
- * Σ need). Same no-basis-days fallback as N1.
- */
-export function spreadHistoryHayByNeed(feedings, needByDate) {
+export function spreadWinterHistoryHay(feedings, needByDate) {
   const days = [...(needByDate?.keys() || [])];
   if (!days.length) return hayOnDeliveryDates(feedings);
   const total = historyHayTotalKg(feedings);
@@ -102,14 +87,6 @@ export function spreadHistoryHayByNeed(feedings, needByDate) {
   if (!(total > 0) || !(needSum > 0)) return out;
   for (const d of days) out.set(d, total * (needByDate.get(d) || 0) / needSum);
   return out;
-}
-
-/**
- * The one spread choice computeWinterHistory uses. Swap point (one line):
- * even → `return spreadHistoryHayByNeed(feedings, needByDate);`
- */
-export function spreadWinterHistoryHay(feedings, needByDate) {
-  return spreadHistoryHayEvenly(feedings, needByDate);
 }
 
 /**

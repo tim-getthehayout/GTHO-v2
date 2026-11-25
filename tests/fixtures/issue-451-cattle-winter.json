@@ -1,0 +1,636 @@
+{
+ "_note": "#451 prod read-only check (SELECT 2026-11-24 7:21 PM ET), cattle only, de-identified (no ids/labels). Cattle basis had 0 clipped days.",
+ "basis": [
+  {
+   "period_start": "2025-10-01",
+   "period_end": "2026-03-03",
+   "species": "beef_cattle",
+   "head_count": 31,
+   "avg_weight_kg": 421.3873,
+   "dmi_pct_snapshot": 2.5741
+  },
+  {
+   "period_start": "2025-10-01",
+   "period_end": "2026-03-18",
+   "species": "beef_cattle",
+   "head_count": 28,
+   "avg_weight_kg": 226.7962,
+   "dmi_pct_snapshot": 2.5
+  },
+  {
+   "period_start": "2025-10-01",
+   "period_end": "2026-03-18",
+   "species": "beef_cattle",
+   "head_count": 10,
+   "avg_weight_kg": 342.4622,
+   "dmi_pct_snapshot": 2.5
+  },
+  {
+   "period_start": "2025-10-01",
+   "period_end": "2026-03-18",
+   "species": "beef_cattle",
+   "head_count": 4,
+   "avg_weight_kg": 430.9128,
+   "dmi_pct_snapshot": 2.5
+  },
+  {
+   "period_start": "2025-10-01",
+   "period_end": "2026-03-18",
+   "species": "beef_cattle",
+   "head_count": 3,
+   "avg_weight_kg": 430.9128,
+   "dmi_pct_snapshot": 2.5
+  },
+  {
+   "period_start": "2025-10-01",
+   "period_end": "2026-03-18",
+   "species": "beef_cattle",
+   "head_count": 3,
+   "avg_weight_kg": 566.9905,
+   "dmi_pct_snapshot": 2.3333
+  }
+ ],
+ "feedings": [
+  {
+   "date": "2025-10-01",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-03",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-04",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-06",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-16",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-17",
+   "quantity": 1,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-18",
+   "quantity": 5,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-20",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-22",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-24",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-25",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-27",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-29",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-10-31",
+   "quantity": 10,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-03",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-05",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-07",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-10",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-11",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-12",
+   "quantity": 8,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-16",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-17",
+   "quantity": 12,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-21",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-24",
+   "quantity": 18,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-11-25",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-01",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-03",
+   "quantity": 16,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-07",
+   "quantity": 8,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-09",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-10",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-11",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-12",
+   "quantity": 18,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-05",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-06",
+   "quantity": 3,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-09",
+   "quantity": 9,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-12",
+   "quantity": 6,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-14",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-15",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-15",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-16",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-16",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-20",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-20",
+   "quantity": 20,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-22",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-24",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-26",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-28",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-28",
+   "quantity": 14,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-30",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-02",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-02",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-03",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-05",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-05",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-07",
+   "quantity": 10,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-07",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-09",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-09",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-12",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-13",
+   "quantity": 2,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-13",
+   "quantity": 12,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-18",
+   "quantity": 28,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-02-27",
+   "quantity": 8,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-16",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-17",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-18",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-19",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-20",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-21",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-22",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-23",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-24",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-25",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-26",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-27",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-28",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-29",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-30",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2025-12-31",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-01",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-02",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-03",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  },
+  {
+   "date": "2026-01-04",
+   "quantity": 4,
+   "weight_per_unit_kg_snapshot": 293.4743,
+   "dm_pct_snapshot": 85,
+   "species": "beef_cattle"
+  }
+ ]
+}

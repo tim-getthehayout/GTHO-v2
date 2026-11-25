@@ -3,11 +3,12 @@
  * in date-range need, stored feed eaten and pasture: the calendar season/Period
  * totals strip (Calendar and List identical) and the Home Total/Pasture DMI.
  * Snapshots only, inclusive period_end, event windows win (sheep clipped at the
- * first event day), 11-18 rule per species, N1 even spread (locked), no
+ * first event day), 11-18 rule per species, hay spread by each day's need (Tim t1637s6455), no
  * inventory / batch effect, and the D2 display (comment 1710): strip note, a
  * read-only Winter history row on Calendar and List, one block per basis row.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import cattleFixture from '../fixtures/issue-451-cattle-winter.json';
 import '../../src/calcs/core.js';
 import '../../src/calcs/advanced.js';
 import { _reset, add, getAll } from '../../src/data/store.js';
@@ -19,7 +20,7 @@ import { renderCalendarGrid, _resetFarmSeasonEditor } from '../../src/features/e
 import { aggregatePeriodTotals } from '../../src/features/events/rotation-calendar/location-metrics.js';
 import {
   basisNeedKgPerDay, historyFeedingDmKg, computeWinterHistory, sliceWinterHistory,
-  spreadWinterHistoryHay, spreadHistoryHayEvenly, spreadHistoryHayByNeed, historyDatesInclusive, winterHistoryBlocks, dateRuns,
+  spreadWinterHistoryHay, historyDatesInclusive, winterHistoryBlocks, dateRuns,
 } from '../../src/calcs/winter-history.js';
 import {
   winterHistoryTotals, winterHistoryClipFn, groupSpeciesEver,
@@ -47,7 +48,7 @@ describe('#451 calc: need, hay, pasture (fixture)', () => {
     expect(historyFeedingDmKg({ quantity: 3, weightPerUnitKgSnapshot: 293.4743, dmPctSnapshot: 85 })).toBeCloseTo(748.359465, 6);
   });
 
-  it('N1: hay spread evenly over the counted basis days, then the 11-18 rule per day', () => {
+  it('equal daily need: hay spreads equally over the counted basis days, then the 11-18 rule per day', () => {
     const t = sliceWinterHistory(computeWinterHistory({ basisRows: B, feedingRows: F }), '2025-12-01', '2026-02-28');
     expect(t.needKg).toBeCloseTo(1250, 9);          // 10 days × 125
     expect(t.hayKg).toBeCloseTo(1020, 9);            // 680 + 340
@@ -80,32 +81,41 @@ describe('#451 calc: need, hay, pasture (fixture)', () => {
     expect(sliceWinterHistory(computeWinterHistory({ basisRows: B }), '2026-01-10', '2026-01-10').needKg).toBeCloseTo(125, 9);
   });
 
-  it('N1 (locked): equal hay per counted basis day, not on delivery dates', () => {
-    const need = new Map(historyDatesInclusive('2026-01-01', '2026-01-10').map(d => [d, 125]));
-    const hay = spreadWinterHistoryHay(F, need);
-    expect([...hay.keys()]).toEqual([...need.keys()]);
-    for (const v of hay.values()) expect(v).toBeCloseTo(102, 9);  // 1020 / 10
-    expect(hay.get('2026-01-03')).toBeCloseTo(hay.get('2026-01-04'), 9);
-    // No counted basis day: hay stays on its delivery dates (all over need).
+  it("spread by each day's need (Tim t1637s6455): hay_d = total × need_d ÷ Σ need", () => {
+    const need = new Map([['2026-01-01', 300], ['2026-01-02', 100]]);
+    const hay = [feeding({ id: 'h', date: '2026-01-02', quantity: 1, weightPerUnitKgSnapshot: 200, dmPctSnapshot: 100 })]; // 200 kg
+    const out = spreadWinterHistoryHay(hay, need);
+    expect([...out.keys()]).toEqual([...need.keys()]);       // counted days, not the delivery date
+    expect(out.get('2026-01-01')).toBeCloseTo(150, 9);       // 200 × 300/400
+    expect(out.get('2026-01-02')).toBeCloseTo(50, 9);        // 200 × 100/400
+    // Then the daily 11-18 rule: pasture = Σ max(0, need − hay) = 150 + 50; no hay over need.
+    const rows = [
+      basis({ id: 'a', species: 'beef_cattle', headCount: 12, avgWeightKg: 1000, dmiPctSnapshot: 2.5, periodStart: '2026-01-01', periodEnd: '2026-01-01' }),
+      basis({ id: 'b', species: 'beef_cattle', headCount: 4, avgWeightKg: 1000, dmiPctSnapshot: 2.5, periodStart: '2026-01-01', periodEnd: '2026-01-02' }),
+    ]; // need 400 on Jan 1, 100 on Jan 2
+    const t = sliceWinterHistory(computeWinterHistory({ basisRows: rows, feedingRows: hay }), '2026-01-01', '2026-01-31');
+    expect(t.needKg).toBeCloseTo(500, 9);
+    expect(t.hayKg).toBeCloseTo(200, 9);
+    expect(t.pastureKg).toBeCloseTo(300, 9);
+    expect(t.hayOverNeedKg).toBeCloseTo(0, 9);
+    // No counted basis day: hay stays on its delivery dates (all over need); no hay → nothing.
     const none = spreadWinterHistoryHay(F, new Map());
     expect(none.get('2026-01-03')).toBeCloseTo(680, 9);
     expect(none.get('2026-01-08')).toBeCloseTo(340, 9);
+    expect(spreadWinterHistoryHay([], need).size).toBe(0);
   });
 
-  it('spread choice is one function: even is live; demand-weighted is a tested sibling, not wired', () => {
-    const need = new Map([['2026-01-01', 300], ['2026-01-02', 100]]);
-    const hay = [feeding({ id: 'h', date: '2026-01-01', quantity: 1, weightPerUnitKgSnapshot: 200, dmPctSnapshot: 100 })]; // 200 kg
-    expect([...spreadWinterHistoryHay(hay, need)]).toEqual([...spreadHistoryHayEvenly(hay, need)]);
-    const byNeed = spreadHistoryHayByNeed(hay, need);
-    expect(byNeed.get('2026-01-01')).toBeCloseTo(150, 9);  // 200 × 300/400
-    expect(byNeed.get('2026-01-02')).toBeCloseTo(50, 9);
-    // No counted days → delivery dates; no hay → nothing.
-    expect(spreadHistoryHayByNeed(hay, new Map()).get('2026-01-01')).toBeCloseTo(200, 9);
-    expect(spreadHistoryHayByNeed([], need).size).toBe(0);
-    // Live wiring stays even (fixture: 1020 kg over 10 equal-need days).
-    const B2 = [basis({ species: 'beef_cattle', periodStart: '2026-01-01', periodEnd: '2026-01-10' })];
-    const t = sliceWinterHistory(computeWinterHistory({ basisRows: B2, feedingRows: F }), '2026-01-01', '2026-01-31');
-    expect(t.pastureKg).toBeCloseTo(230, 9);
+  it('prod check (de-identified cattle rows): winter pasture ≈ 2,817 lb DM, hay over need 0', () => {
+    const fx = cattleFixture;
+    const basisRows = fx.basis.map((r, i) => HB.fromSupabaseShape({ id: `b${i}`, operation_id: 'op', source_key: `b${i}`, dmi_source: 'x', ...r }));
+    const feedingRows = fx.feedings.map((r, i) => HF.fromSupabaseShape({ id: `f${i}`, operation_id: 'op', source_key: `f${i}`, unit_snapshot: 'bale', ...r }));
+    const t = sliceWinterHistory(computeWinterHistory({ basisRows, feedingRows }), '2025-10-01', '2026-03-18');
+    const LB = 2.20462262;
+    expect(Math.round(t.needKg * LB)).toBe(248095);
+    expect(Math.round(t.hayKg * LB)).toBe(245278);
+    expect(Math.round(t.pastureKg * LB)).toBe(2817);
+    expect(t.hayOverNeedKg).toBeCloseTo(0, 6);
+    expect(t.bySpecies.cattle.days).toBe(169);
   });
 
   it('blocks: one per basis row spanning its counted dates, with species hay + pasture', () => {

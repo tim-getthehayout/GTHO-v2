@@ -10,7 +10,7 @@
  */
 
 import { UNIT_ENTITIES } from '../utils/unit-standards.js';
-import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
+import { RELEASED_SCHEMA_VERSION, isTableReleased } from './schema-release.js';
 import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
 import { getById, getSyncAdapter, getOperation } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
@@ -53,6 +53,8 @@ import { toSupabaseShape as amendLocToSb } from '../entities/amendment-location.
 import { toSupabaseShape as manureBToSb } from '../entities/manure-batch.js';
 import { toSupabaseShape as manureTxToSb } from '../entities/manure-batch-transaction.js';
 import { toSupabaseShape as npkPriceToSb } from '../entities/npk-price-history.js';
+import { toSupabaseShape as milkPickupToSb } from '../entities/milk-pickup.js';
+import { toSupabaseShape as calfMilkToSb } from '../entities/calf-milk-feeding.js';
 import { toSupabaseShape as aiBullToSb } from '../entities/ai-bull.js';
 import { toSupabaseShape as treatCatToSb } from '../entities/treatment-category.js';
 import { toSupabaseShape as treatTypeToSb } from '../entities/treatment-type.js';
@@ -86,6 +88,7 @@ const TO_SB_MAP = {
   amendments: amendToSb, amendmentLocations: amendLocToSb,
   manureBatches: manureBToSb, manureBatchTransactions: manureTxToSb,
   npkPriceHistory: npkPriceToSb, aiBulls: aiBullToSb,
+  milkPickups: milkPickupToSb, calfMilkFeedings: calfMilkToSb,
   treatmentCategories: treatCatToSb, treatmentTypes: treatTypeToSb,
   doseUnits: doseUnitToSb, animalBcsScores: bcsToSb,
   animalTreatments: treatmentToSb, animalBreedingRecords: breedingToSb,
@@ -109,6 +112,8 @@ export function localSupabaseRow(table, id) {
   const entityType = TABLE_TO_ENTITY[table];
   const toSb = entityType ? TO_SB_MAP[entityType] : null;
   if (!toSb) return null;
+  // #449: a table staged above the ceiling is never sent.
+  if (!isTableReleased(table, RELEASED_SCHEMA_VERSION)) return null;
   const record = getById(entityType, id);
   if (!record) return null;
   // Unit tables: only the selected operation's own custom rows, as before.

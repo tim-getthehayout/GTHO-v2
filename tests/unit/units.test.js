@@ -5,7 +5,7 @@ import { convert, display, unitLabel, MEASURE_TYPES } from '../../src/utils/unit
 describe('units', () => {
   describe('MEASURE_TYPES', () => {
     it('has all 9 measurement types (OI-0278 adds pricePerWeight + nutrientPerDm)', () => {
-      expect(MEASURE_TYPES).toEqual(['weight', 'area', 'length', 'temperature', 'volume', 'yieldRate', 'dmYieldDensity', 'pricePerWeight', 'nutrientPerDm']);
+      expect(MEASURE_TYPES).toEqual(['weight', 'area', 'length', 'temperature', 'volume', 'yieldRate', 'dmYieldDensity', 'pricePerWeight', 'nutrientPerDm', 'milkDensity']);
     });
   });
 

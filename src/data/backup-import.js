@@ -45,6 +45,9 @@ const FK_ORDER = [
   'batch_moves',
   'historical_feedings',
   'historical_animal_basis',
+  // #449 (051): after operations, farms and groups.
+  'milk_pickups',
+  'calf_milk_feedings',
   'batch_nutritional_profiles',
   'soil_tests',
   'surveys',

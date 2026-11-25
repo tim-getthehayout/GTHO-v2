@@ -15,6 +15,7 @@ import { getFeedbackBadgeCount } from '../features/feedback/index.js';
 import { pullAllRemote, getLastPulledAt } from '../data/pull-remote.js';
 import { buildStampLabel } from './build-stamp.js';
 import { MAP_VIEW_HASH, isMapViewHash } from '../features/events/calendar-state.js';
+import { isDairyVisibleNow } from '../features/milk/visibility.js';
 
 const STALE_THRESHOLD_MS = 15 * 60 * 1000;
 
@@ -60,6 +61,7 @@ export function renderHeader(container) {
       sidebarNavItem('#/events', 'Locations & Rotation', currentHash, 'nav-events'),
       sidebarNavItem(MAP_VIEW_HASH, 'Map', currentHash, 'nav-map'), // OI-0263
       sidebarNavItem('#/feed', 'Feed', currentHash, 'nav-feed'),
+      milkNavItem(currentHash), // #449: shown only when dairy is visible
       sidebarNavItemBadge('#/todos', 'Tasks', todoCount, currentHash, 'nav-todos'),
       sidebarNavItem('#/reports', 'Reports', currentHash, 'nav-reports'),
       sidebarNavItem('#/settings', 'Settings', currentHash, 'nav-settings'),
@@ -159,6 +161,10 @@ export function renderHeader(container) {
   // updateDevChip mutates only the chip in place; the rest of the header,
   // including the live <main> sibling under app, stays untouched.
   unsubs.push(subscribe('operationMembers', () => updateDevChip(container)));
+  // #449: the Milk item follows dairy visibility (settings, animals, active farm).
+  for (const type of ['farmSettings', 'animals', 'animalClasses', 'userPreferences', 'farms']) {
+    unsubs.push(subscribe(type, () => updateMilkNavItem(sidebar)));
+  }
 
   // Update field mode pill on route changes
   const pillContainer = header.querySelector('[data-testid="header-field-mode-toggle"]')?.parentElement;
@@ -621,6 +627,18 @@ function sidebarNavItem(href, label, currentHash, testId) {
     'data-href': href,
     onClick: () => navigate(href),
   }, [label]);
+}
+
+/** #449: sidebar "Milk" item after Feed; hidden unless dairy is visible. */
+function milkNavItem(currentHash) {
+  const item = sidebarNavItem('#/milk', 'Milk', currentHash, 'nav-milk');
+  item.hidden = !isDairyVisibleNow();
+  return item;
+}
+
+function updateMilkNavItem(sidebar) {
+  const item = sidebar?.querySelector('[data-testid="nav-milk"]');
+  if (item) item.hidden = !isDairyVisibleNow();
 }
 
 function sidebarNavItemBadge(href, label, count, currentHash, testId) {

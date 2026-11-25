@@ -760,6 +760,8 @@ Supabase enforces foreign-key integrity at write time. A wholesale replace that 
 21. `batch_adjustments`
 22. `batch_location_balances` — migration 037. Quantity of one batch at one location. Depends on `batches` and `locations`.
 23. `batch_moves` — migration 037. Append-only transfers. `from_location_id` is nullable (first placement). Depends on `batches` and `locations`.
+23a. `milk_pickups` — migration 051 (#449, held until the ceiling reaches 51). Depends on `operations` and `farms`.
+23b. `calf_milk_feedings` — migration 051 (#449, held). Depends on `operations`, `farms` and (nullable, ON DELETE SET NULL) `groups`.
 24. `batch_nutritional_profiles`
 25. `soil_tests`
 26. `surveys`

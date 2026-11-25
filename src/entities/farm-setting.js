@@ -1,5 +1,15 @@
 import { releasedColumns } from '../data/schema-columns.js';
-import { RELEASED_SCHEMA_VERSION, ARCHIVED_METRICS_SCHEMA_VERSION } from '../data/schema-release.js';
+import { RELEASED_SCHEMA_VERSION, ARCHIVED_METRICS_SCHEMA_VERSION, DAIRY_SCHEMA_VERSION } from '../data/schema-release.js';
+
+/** #449 (051) defaults: the column defaults; reads below 51 resolve to these. */
+export const DAIRY_DEFAULTS = Object.freeze({
+  dairyMode: 'auto',
+  milkKgPerL: 1.0305073,
+  milkGrazingOffsetDays: 1,
+  milkTotalsMode: 'per_pickup',
+});
+const DAIRY_MODES = ['auto', 'on', 'off'];
+const MILK_TOTALS_MODES = ['per_pickup', 'spread_daily'];
 
 /** @file Entity: farm_settings — V2_SCHEMA_DESIGN.md §1.3 */
 
@@ -42,6 +52,10 @@ export const FIELDS = {
   seasonEndMonth: { type: 'integer', required: false, sbColumn: 'season_end_month' },
   seasonEndDay: { type: 'integer', required: false, sbColumn: 'season_end_day' },
   includeArchivedLocationsInMetrics: { type: 'boolean', required: false, sbColumn: 'include_archived_locations_in_metrics' },
+  dairyMode: { type: 'text', required: false, sbColumn: 'dairy_mode' },
+  milkKgPerL: { type: 'numeric', required: false, sbColumn: 'milk_kg_per_l' },
+  milkGrazingOffsetDays: { type: 'integer', required: false, sbColumn: 'milk_grazing_offset_days' },
+  milkTotalsMode: { type: 'text', required: false, sbColumn: 'milk_totals_mode' },
   createdAt:                   { type: 'timestamptz', required: false, sbColumn: 'created_at' },
   updatedAt:                   { type: 'timestamptz', required: false, sbColumn: 'updated_at' },
 };
@@ -90,6 +104,11 @@ export function create(data = {}) {
     seasonEndDay: data.seasonEndDay ?? null,
     // Schema 50 (OI-0251 Ap): null if unset → include archived (default true).
     includeArchivedLocationsInMetrics: data.includeArchivedLocationsInMetrics ?? null,
+    // Schema 51 (#449): null if unset → DAIRY_DEFAULTS (auto / 8.6 lb/gal / 1 / per_pickup).
+    dairyMode: data.dairyMode ?? null,
+    milkKgPerL: data.milkKgPerL ?? null,
+    milkGrazingOffsetDays: data.milkGrazingOffsetDays ?? null,
+    milkTotalsMode: data.milkTotalsMode ?? null,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt ?? new Date().toISOString(),
   };
@@ -99,6 +118,13 @@ export function validate(record) {
   const errors = [];
   if (!record.farmId) errors.push('farmId is required');
   if (!record.operationId) errors.push('operationId is required');
+  if (record.dairyMode != null && !DAIRY_MODES.includes(record.dairyMode)) errors.push('dairyMode must be auto, on or off');
+  if (record.milkKgPerL != null && !(Number.isFinite(Number(record.milkKgPerL)) && Number(record.milkKgPerL) > 0)) errors.push('milkKgPerL must be greater than 0');
+  if (record.milkGrazingOffsetDays != null) {
+    const d = Number(record.milkGrazingOffsetDays);
+    if (!Number.isInteger(d) || d < 0 || d > 14) errors.push('milkGrazingOffsetDays must be a whole number from 0 to 14');
+  }
+  if (record.milkTotalsMode != null && !MILK_TOTALS_MODES.includes(record.milkTotalsMode)) errors.push('milkTotalsMode must be per_pickup or spread_daily');
   return { valid: errors.length === 0, errors };
 }
 
@@ -154,6 +180,21 @@ export function toSupabaseShape(record) {
         ? (record.includeArchivedLocationsInMetrics ?? true)
         : (record.includeArchivedLocationsInMetrics ?? null),
     }),
+    // #449 (051): NOT NULL with defaults — once released, unset pushes the column
+    // default, never null. Below 51 the values stay null → omitted.
+    ...releasedColumns(DAIRY_SCHEMA_VERSION, RELEASED_SCHEMA_VERSION >= DAIRY_SCHEMA_VERSION
+      ? {
+        dairy_mode: record.dairyMode ?? DAIRY_DEFAULTS.dairyMode,
+        milk_kg_per_l: record.milkKgPerL ?? DAIRY_DEFAULTS.milkKgPerL,
+        milk_grazing_offset_days: record.milkGrazingOffsetDays ?? DAIRY_DEFAULTS.milkGrazingOffsetDays,
+        milk_totals_mode: record.milkTotalsMode ?? DAIRY_DEFAULTS.milkTotalsMode,
+      }
+      : {
+        dairy_mode: record.dairyMode ?? null,
+        milk_kg_per_l: record.milkKgPerL ?? null,
+        milk_grazing_offset_days: record.milkGrazingOffsetDays ?? null,
+        milk_totals_mode: record.milkTotalsMode ?? null,
+      }),
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };
@@ -209,7 +250,28 @@ export function fromSupabaseShape(row) {
       && row.include_archived_locations_in_metrics != null
       ? row.include_archived_locations_in_metrics === true || row.include_archived_locations_in_metrics === 'true'
       : null,
+    // Schema 51 (#449): read only once released; absent/below 51 → null → DAIRY_DEFAULTS.
+    ...(RELEASED_SCHEMA_VERSION >= DAIRY_SCHEMA_VERSION
+      ? {
+        dairyMode: row.dairy_mode ?? null,
+        milkKgPerL: n(row.milk_kg_per_l),
+        milkGrazingOffsetDays: n(row.milk_grazing_offset_days),
+        milkTotalsMode: row.milk_totals_mode ?? null,
+      }
+      : { dairyMode: null, milkKgPerL: null, milkGrazingOffsetDays: null, milkTotalsMode: null }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+/** #449: resolved dairy settings for a farm_settings record (null-safe defaults). */
+export function resolveDairySettings(fs) {
+  const kg = Number(fs?.milkKgPerL);
+  const off = Number(fs?.milkGrazingOffsetDays);
+  return {
+    dairyMode: DAIRY_MODES.includes(fs?.dairyMode) ? fs.dairyMode : DAIRY_DEFAULTS.dairyMode,
+    milkKgPerL: Number.isFinite(kg) && kg > 0 ? kg : DAIRY_DEFAULTS.milkKgPerL,
+    milkGrazingOffsetDays: fs?.milkGrazingOffsetDays != null && Number.isInteger(off) && off >= 0 && off <= 14 ? off : DAIRY_DEFAULTS.milkGrazingOffsetDays,
+    milkTotalsMode: MILK_TOTALS_MODES.includes(fs?.milkTotalsMode) ? fs.milkTotalsMode : DAIRY_DEFAULTS.milkTotalsMode,
   };
 }

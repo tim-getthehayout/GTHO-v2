@@ -1440,6 +1440,8 @@
     "feedCheck": "Feed Check",
     "surveySingle": "Pasture Survey",
     "recordHeat": "Record Heat",
+    "milkPickup": "Record Milk Pickup",
+    "feedCalves": "Feed Calves",
     "noModules": "No modules active — go to Settings to add tiles.",
     "modulesTitle": "Field Mode Modules",
     "modulesHint": "Choose which tiles appear on your field mode home screen.",

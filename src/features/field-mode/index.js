@@ -21,6 +21,7 @@ import { openTodoSheet } from '../todos/todo-sheet.js';
 import { buildLocationCard } from '../dashboard/index.js';
 import * as TodoEntity from '../../entities/todo.js';
 import * as HeatRecordEntity from '../../entities/animal-heat-record.js';
+import { isDairyVisibleNow, openMilkPickupSheet, openCalfFeedingSheet } from '../milk/index.js';
 
 let unsubs = [];
 let expandedEventId = null;
@@ -38,14 +39,34 @@ export const FIELD_MODULES = [
   { key: 'surveysingle', icon: '\uD83D\uDCCB', labelKey: 'fieldMode.surveySingle' },
   { key: 'animals',      icon: '\uD83D\uDC04', labelKey: 'fieldMode.animals' },
   { key: 'heat',         icon: '\uD83C\uDF21\uFE0F', labelKey: 'fieldMode.recordHeat' },
+  // #449: offered only while dairy is visible.
+  { key: 'milkpickup',   icon: '\uD83E\uDD5B', labelKey: 'fieldMode.milkPickup', dairy: true },
+  { key: 'feedcalves',   icon: '\uD83C\uDF7C', labelKey: 'fieldMode.feedCalves', dairy: true },
 ];
 
 export const FIELD_MODULES_DEFAULT = ['feed', 'harvest', 'surveybulk', 'animals'];
+/** #449: added to the default list (never-customised users) while dairy is visible. */
+export const FIELD_MODULES_DAIRY_DEFAULT = ['milkpickup', 'feedcalves'];
+
+/** Modules offered now (dairy modules only while dairy is visible). */
+export function availableFieldModules(dairyVisible = isDairyVisibleNow()) {
+  return FIELD_MODULES.filter(m => !m.dairy || dairyVisible);
+}
+
+/**
+ * Active quick-action keys: the user's saved list, or (never customised) the
+ * default list plus the dairy modules while dairy is visible.
+ */
+export function resolveFieldModuleKeys(savedKeys, dairyVisible = isDairyVisibleNow()) {
+  const keys = savedKeys || [...FIELD_MODULES_DEFAULT, ...(dairyVisible ? FIELD_MODULES_DAIRY_DEFAULT : [])];
+  const offered = new Set(availableFieldModules(dairyVisible).map(m => m.key));
+  return keys.filter(k => offered.has(k));
+}
 
 function getActiveModuleKeys() {
   const user = getUser();
   const prefs = getAll('userPreferences').find(p => p.userId === user?.id);
-  return prefs?.fieldModeQuickActions || FIELD_MODULES_DEFAULT;
+  return resolveFieldModuleKeys(prefs?.fieldModeQuickActions || null);
 }
 
 function getOperationId() {
@@ -97,6 +118,8 @@ export function renderFieldModeHome(container) {
   unsubs.push(subscribe('eventGroupWindows', () => renderActiveEvents(eventsEl)));
   unsubs.push(subscribe('todos', () => renderTasks(tasksEl)));
   unsubs.push(subscribe('userPreferences', () => renderTileGrid(tileGridEl)));
+  // #449: dairy tiles follow visibility.
+  for (const type of ['farmSettings', 'animals', 'animalClasses']) unsubs.push(subscribe(type, () => renderTileGrid(tileGridEl)));
 }
 
 // ─── Tile Grid (Part 3) ────────────────────────────────────────────────
@@ -140,6 +163,8 @@ function handleModuleTap(key) {
     case 'surveysingle': return handleSurveySingle(opId);
     case 'animals': return navigate('#/animals');
     case 'heat': return handleHeat(opId);
+    case 'milkpickup': return openMilkPickupSheet();
+    case 'feedcalves': return openCalfFeedingSheet();
   }
 }
 

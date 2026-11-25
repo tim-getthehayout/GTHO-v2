@@ -336,4 +336,21 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 50;
     return b;
   },
+  // 050 → 051 (#449 dairy milk): both new tables empty; farm_settings dairy
+  // defaults (auto / 1.0305073 / 1 / per_pickup) and groups.is_milking false.
+  // Absent-only; supplied values are kept.
+  50: (b) => {
+    b.tables.milk_pickups ??= [];
+    b.tables.calf_milk_feedings ??= [];
+    const fsDefaults = { dairy_mode: 'auto', milk_kg_per_l: 1.0305073, milk_grazing_offset_days: 1, milk_totals_mode: 'per_pickup' };
+    for (const row of b.tables.farm_settings || []) {
+      for (const [col, value] of Object.entries(fsDefaults)) if (!Object.hasOwn(row, col)) row[col] = value;
+    }
+    for (const row of b.tables.groups || []) {
+      if (!Object.hasOwn(row, 'is_milking')) row.is_milking = false;
+    }
+    b.schema_version = 51;
+    for (const op of b.tables.operations || []) op.schema_version = 51;
+    return b;
+  },
 };

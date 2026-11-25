@@ -96,7 +96,7 @@ describe('formatMeasure', () => {
 
   it('unknown family throws', () => {
     expect(() => formatMeasure(1, 'speed', I)).toThrow('Unknown display family');
-    expect(DISPLAY_FAMILIES).toEqual(['weight', 'npk', 'area', 'length', 'pricePerWeight', 'nutrientPerDm', 'count']);
+    expect(DISPLAY_FAMILIES).toEqual(['weight', 'npk', 'area', 'length', 'pricePerWeight', 'nutrientPerDm', 'count', 'milkDensity', 'volume']);
   });
 });
 

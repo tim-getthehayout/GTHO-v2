@@ -11,11 +11,21 @@ export const RELEASED_SCHEMA_VERSION = 50;
 // OI-0251 Ap: farm_settings.include_archived_locations_in_metrics (050),
 // released after verified apply. Reads still treat absent/null as true.
 export const ARCHIVED_METRICS_SCHEMA_VERSION = 50;
-export const HELD_SCHEMA_VERSIONS = [];
+// #449 dairy milk (051): milk_pickups, calf_milk_feedings, farm_settings dairy
+// columns and groups.is_milking. Held (file only) until a verified backup +
+// Tim's yes + verified apply, then a separate release PR raises the ceiling.
+export const DAIRY_SCHEMA_VERSION = 51;
+export const HELD_SCHEMA_VERSIONS = [51];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.
 export const STAGED_COLUMNS = {
+  51: {
+    farm_settings: ['dairy_mode', 'milk_kg_per_l', 'milk_grazing_offset_days', 'milk_totals_mode'],
+    groups: ['is_milking'],
+    milk_pickups: ['operation_id', 'farm_id', 'picked_up_at', 'weight_kg'],
+    calf_milk_feedings: ['operation_id', 'farm_id', 'fed_at', 'volume_l', 'kg_per_l_snapshot'],
+  },
   50: { farm_settings: ['include_archived_locations_in_metrics'] },
   49: {
     farm_settings: [
@@ -60,7 +70,13 @@ export const STAGED_COLUMNS = {
 // Kept after release, like STAGED_COLUMNS; entries <= the ceiling are released.
 export const STAGED_TABLES = {
   45: ['historical_feedings', 'historical_animal_basis'],
+  51: ['milk_pickups', 'calf_milk_feedings'],
 };
+
+/** #449: true once the dairy schema (051) is released in this build. */
+export function isDairySchemaReleased(ceiling = RELEASED_SCHEMA_VERSION) {
+  return ceiling >= DAIRY_SCHEMA_VERSION;
+}
 
 /** True when `table` is not created by a schema above the compiled ceiling. */
 export function isTableReleased(table, ceiling = RELEASED_SCHEMA_VERSION) {

@@ -106,8 +106,8 @@ describe('backup-import (CP-56)', () => {
   });
 
   describe('FK_ORDER — §5.3a ordering', () => {
-    it('has exactly 74 tables', () => {
-      expect(FK_ORDER.length).toBe(74);
+    it('has exactly 76 tables (#449 adds milk_pickups + calf_milk_feedings)', () => {
+      expect(FK_ORDER.length).toBe(76);
     });
 
     it('matches the export table list', () => {

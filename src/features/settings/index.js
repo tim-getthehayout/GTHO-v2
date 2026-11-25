@@ -24,7 +24,8 @@ import {
   RETURN_TO_CYCLE_SPECIES_SECTIONS,
 } from './preg-check-settings.js';
 import { validate as validateUserPref, toSupabaseShape as prefToSb } from '../../entities/user-preference.js';
-import { FIELD_MODULES, FIELD_MODULES_DEFAULT } from '../field-mode/index.js';
+import { availableFieldModules, resolveFieldModuleKeys } from '../field-mode/index.js';
+import { renderDairySettingsCard } from './dairy-settings.js';
 import { getUser } from '../auth/session.js';
 import { logout } from '../auth/session.js';
 import {
@@ -69,6 +70,7 @@ export function renderSettingsScreen(container) {
     el('h1', { className: 'screen-heading' }, [t('settings.title')]),
     renderUnitSection(container),
     renderFarmSection(farmSettings, container),
+    renderDairySettingsCard(farmSettings), // #449: null until schema 51 is released
     renderPregCheckSettingsSection(farmSettings, container),
     renderReturnToCycleSettingsSection(farmSettings, container),
     renderPrefSection(userPrefs, container),
@@ -521,13 +523,14 @@ function renderFieldModulesCard(rootContainer) {
   const prefs = getAll('userPreferences').find(p => p.userId === user?.id);
   if (!prefs) return el('div');
 
-  const activeKeys = prefs.fieldModeQuickActions || [...FIELD_MODULES_DEFAULT];
+  // #449: dairy modules only while dairy is visible; never-customised users get them by default.
+  const activeKeys = resolveFieldModuleKeys(prefs.fieldModeQuickActions || null);
 
   const card = el('div', { className: 'card settings-card', style: { marginBottom: '10px' } });
   card.appendChild(el('h3', { className: 'settings-section-title' }, [t('fieldMode.modulesTitle')]));
   card.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '10px' } }, [t('fieldMode.modulesHint')]));
 
-  for (const mod of FIELD_MODULES) {
+  for (const mod of availableFieldModules()) {
     const isOn = activeKeys.includes(mod.key);
     const row = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '0.5px solid var(--border)' } }, [
       el('div', { style: { fontSize: '13px' } }, [`${mod.icon} ${t(mod.labelKey)}`]),
@@ -535,7 +538,9 @@ function renderFieldModulesCard(rootContainer) {
         type: 'button',
         style: { padding: '4px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isOn ? 'var(--green)' : 'var(--border)'}`, background: isOn ? 'var(--green)' : 'transparent', color: isOn ? 'white' : 'var(--text2)' },
         onClick: () => {
-          const newKeys = isOn ? activeKeys.filter(k => k !== mod.key) : [...activeKeys, mod.key];
+          // Toggle against the saved list so hidden dairy tiles a user chose are kept.
+          const baseKeys = prefs.fieldModeQuickActions || activeKeys;
+          const newKeys = isOn ? baseKeys.filter(k => k !== mod.key) : [...baseKeys.filter(k => k !== mod.key), mod.key];
           update('userPreferences', prefs.id, { fieldModeQuickActions: newKeys }, validateUserPref, prefToSb, 'user_preferences');
           // Re-render the card
           const parent = card.parentElement;

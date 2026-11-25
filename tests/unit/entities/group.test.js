@@ -7,7 +7,8 @@ const OP_ID = '550e8400-e29b-41d4-a716-446655440000';
 describe('entity: group', () => {
   it('exports FIELDS with sbColumn for every field', () => {
     // OI-0133: farmId dropped — 8 fields → 7.
-    expect(Object.keys(FIELDS)).toHaveLength(7);
+    // #449: isMilking added (held at schema 51) → 8.
+    expect(Object.keys(FIELDS)).toHaveLength(8);
     for (const [key, field] of Object.entries(FIELDS)) {
       expect(field.sbColumn, `${key} missing sbColumn`).toBeDefined();
     }

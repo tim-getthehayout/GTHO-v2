@@ -3180,6 +3180,49 @@ CREATE TABLE release_notes (
 
 ---
 
+## Domain 12: Dairy milk (#449, migration 051 — written, held)
+
+Brief: `session_briefs/DAIRY_MILK_2026-11-24.md` (LOCKED Tim t1519s5955 + t1645s6488). Migration `051_dairy_milk.sql` is file-only until a verified backup plus Tim's separate yes; the client ceiling moves to 51 in a separate release PR after the verified apply. Metric storage; hard delete (no soft delete). Both tables are farm-scoped and carry the four standard operation-member RLS policies (045 pattern). No effect on DMI, feed, NPK or reports.
+
+### 12.1 milk_pickups
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| id | uuid | PK, DEFAULT gen_random_uuid() | |
+| operation_id | uuid | NOT NULL, FK → operations | |
+| farm_id | uuid | NOT NULL, FK → farms ON DELETE CASCADE | |
+| picked_up_at | timestamptz | NOT NULL | Real date and time of the processor pickup |
+| weight_kg | numeric | NOT NULL, CHECK > 0 and finite | Displayed in lb on imperial |
+| driver | text | | Free text; the form suggests the 5 most recent distinct drivers |
+| notes | text | | |
+| created_at / updated_at | timestamptz | NOT NULL DEFAULT now() | |
+
+### 12.2 calf_milk_feedings
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| id | uuid | PK, DEFAULT gen_random_uuid() | |
+| operation_id | uuid | NOT NULL, FK → operations | |
+| farm_id | uuid | NOT NULL, FK → farms ON DELETE CASCADE | |
+| fed_at | timestamptz | NOT NULL | |
+| volume_l | numeric | NOT NULL, CHECK > 0 and finite | Entered in gallons on imperial |
+| kg_per_l_snapshot | numeric | NOT NULL, CHECK > 0 and finite | The farm's `milk_kg_per_l` at entry; weight = volume_l × snapshot (derived on read, never stored) |
+| group_id | uuid | FK → groups ON DELETE SET NULL | Optional calf group |
+| notes | text | | |
+| created_at / updated_at | timestamptz | NOT NULL DEFAULT now() | |
+
+### 12.3 Column additions
+
+- `farm_settings.dairy_mode text NOT NULL DEFAULT 'auto'` (auto|on|off). Auto = shown when the operation has an active animal whose class species is `dairy_cattle`.
+- `farm_settings.milk_kg_per_l numeric NOT NULL DEFAULT 1.0305073` (= 8.6 lb/gal; editable).
+- `farm_settings.milk_grazing_offset_days integer NOT NULL DEFAULT 1` (0–14): grazing on day D sits beside milk on D + offset.
+- `farm_settings.milk_totals_mode text NOT NULL DEFAULT 'per_pickup'` (per_pickup|spread_daily) — D-T.
+- `groups.is_milking boolean NOT NULL DEFAULT false` — D-G active milking group flag (one or more groups). No backfill; existing groups RLS covers it.
+
+CP-55/CP-56: both tables exported (paginate true) and restored after `farms` / `groups`; `BACKUP_MIGRATIONS[50]` (50 → 51) adds both tables empty, fills the farm_settings defaults and sets `groups.is_milking = false` (absent-only).
+
+---
+
 ## Appendix A: Tables Eliminated in v2
 
 | v1 Table | Why Eliminated | Replaced By |
@@ -3209,6 +3252,7 @@ CREATE TABLE release_notes (
 
 | Date | Session | Changes |
 |------|---------|---------|
+| 2026-11-25 | GTHO Build — #449 dairy milk | New Domain 12: `milk_pickups`, `calf_milk_feedings`, farm_settings dairy columns and `groups.is_milking` (migration 051, written and held). |
 | 2026-11-18 | GTHO Design — OI-0230 PR 1 as-built; OI-0232/0233/PR C locks (docs only) | §3.2 OI-0232 Q1–Q3 locks (proposed column, not built); §11.1 dead-letter log context as-built PR #82 `d22e004`. |
 | 2026-11-10 | GTHO Design — docs only | Document server-owned pendingClarification shape, UTF-8 byte cap, restore sanitization, clearing and CP-55/CP-56 exclusion; distinguish pending entry-kind clearing from shipped behavior; verify migration 040 voice_entry_attempts FKs against the existing DDL. |
 | 2026-11-09 | OI-0195 — ready-for-build gate locks | §11.2b notes migration 040 (on Forgejo main via PR #38, not applied). `voice_entry_attempts` lifecycle and retry-chain ruling (a); consent asked once per tester per operation with exact copy and decline behavior; testing audio in the private `assistant-testing-audio` bucket; offline notes in IndexedDB with a 3-minute cap. New §11.2c: seven server-authoritative tables, testing-scope CP-55/CP-56 exception, restore fence and billing locks. Calving dam clear marked implemented. |

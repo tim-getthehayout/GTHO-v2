@@ -42,6 +42,8 @@ import { fromSupabaseShape as fromManureBatchTransaction } from '../entities/man
 import { fromSupabaseShape as fromNpkPriceHistory } from '../entities/npk-price-history.js';
 import { fromSupabaseShape as fromHistoricalFeeding } from '../entities/historical-feeding.js';
 import { fromSupabaseShape as fromHistoricalAnimalBasis } from '../entities/historical-animal-basis.js';
+import { fromSupabaseShape as fromMilkPickup } from '../entities/milk-pickup.js';
+import { fromSupabaseShape as fromCalfMilkFeeding } from '../entities/calf-milk-feeding.js';
 import { fromSupabaseShape as fromAiBull } from '../entities/ai-bull.js';
 import { fromSupabaseShape as fromTreatmentCategory } from '../entities/treatment-category.js';
 import { fromSupabaseShape as fromTreatmentType } from '../entities/treatment-type.js';
@@ -105,6 +107,9 @@ export const SYNC_REGISTRY = {
   // #451: 045 winter history, pull-only (read-only in the app; no push shape).
   historicalFeedings:       { table: 'historical_feedings',       from: fromHistoricalFeeding },
   historicalAnimalBasis:    { table: 'historical_animal_basis',   from: fromHistoricalAnimalBasis },
+  // #449: 051 dairy milk. STAGED_TABLES[51]: the pull skips both until the ceiling is 51.
+  milkPickups:              { table: 'milk_pickups',              from: fromMilkPickup },
+  calfMilkFeedings:         { table: 'calf_milk_feedings',        from: fromCalfMilkFeeding },
   aiBulls:                  { table: 'ai_bulls',                  from: fromAiBull },
   treatmentCategories:      { table: 'treatment_categories',      from: fromTreatmentCategory },
   treatmentTypes:           { table: 'treatment_types',           from: fromTreatmentType },

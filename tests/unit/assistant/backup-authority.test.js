@@ -6,7 +6,7 @@ import { SERVER_ASSISTANT_TABLES } from '../../../src/features/assistant/schema.
 const client = result => ({ rpc: vi.fn(async () => result),from: vi.fn() });
 describe('testing-slice browser backup authority boundary', () => {
   it('excludes exactly the eight server-only tables, including the restore fence from export and destructive/insert traversal', () => {
-    expect(getBackupTableNames()).toHaveLength(66);expect(BROWSER_FK_ORDER).toHaveLength(66);expect(SERVER_ASSISTANT_TABLES.size).toBe(8);expect(SERVER_ASSISTANT_TABLES.has('assistant_restore_fences')).toBe(true);
+    expect(getBackupTableNames()).toHaveLength(68);expect(BROWSER_FK_ORDER).toHaveLength(68);expect(SERVER_ASSISTANT_TABLES.size).toBe(8);expect(SERVER_ASSISTANT_TABLES.has('assistant_restore_fences')).toBe(true);
     for (const table of SERVER_ASSISTANT_TABLES) { expect(getBackupTableNames()).not.toContain(table);expect(BROWSER_FK_ORDER).not.toContain(table); }
   });
   it('does not synthesize missing authoritative tables or a billing policy on an old backup upgrade', () => {

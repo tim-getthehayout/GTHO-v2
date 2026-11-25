@@ -41,6 +41,9 @@ const CONVERSIONS = {
   // OI-0278 Fa: forage NPK removal — stored kg/t DM, displayed lb/ton DM on imperial
   // (kg/t × 2.0: 2.20462 lb/kg ÷ 1.10231 short ton/tonne).
   nutrientPerDm: { metric: 'kg/t', imperial: 'lb/ton', factor: 2.0 },
+  // #449: milk density — stored kg/L, displayed lb/gal on imperial
+  // (2.20462262185 lb/kg × 3.785411784 L/gal = 8.345404; 1.0305073 kg/L = 8.60 lb/gal).
+  milkDensity: { metric: 'kg/L', imperial: 'lb/gal', factor: 8.345404 },
 };
 
 /**
@@ -125,6 +128,8 @@ const FAMILIES = {
   pricePerWeight: { conv: 'pricePerWeight', short: { metric: '$/kg', imperial: '$/lb' }, dp: 2 },
   nutrientPerDm: { conv: 'nutrientPerDm', short: { metric: 'kg/t', imperial: 'lb/ton' }, dp: 1 },
   count: { conv: null, short: { metric: '', imperial: '' }, dp: 1 },
+  milkDensity: { conv: 'milkDensity', short: { metric: 'kg/L', imperial: 'lb/gal' }, dp: 2 },
+  volume: { conv: 'volume', short: { metric: 'L', imperial: 'gal' }, dp: 1 },
 };
 
 /** Ua short per-area suffix. */

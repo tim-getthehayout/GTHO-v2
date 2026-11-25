@@ -26,7 +26,9 @@ describe('entity: farm-setting', () => {
     for (const k of ['seasonStartMonth', 'seasonStartDay', 'seasonEndMonth', 'seasonEndDay']) expect(keys).toContain(k);
     // OI-0251 schema 50 (held): include archived locations in metrics
     expect(keys).toContain('includeArchivedLocationsInMetrics');
-    expect(keys).toHaveLength(40);
+    // #449 schema 51 (held): dairy settings
+    for (const k of ['dairyMode', 'milkKgPerL', 'milkGrazingOffsetDays', 'milkTotalsMode']) expect(keys).toContain(k);
+    expect(keys).toHaveLength(44);
   });
 
   it('every FIELDS entry has sbColumn', () => {

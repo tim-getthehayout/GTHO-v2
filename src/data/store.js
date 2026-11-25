@@ -42,6 +42,8 @@ export const ENTITY_TYPES = [
   'manureBatchTransactions', 'npkPriceHistory',
   // #451: 045 winter history (pull-only, read-only).
   'historicalFeedings', 'historicalAnimalBasis',
+  // #449: 051 dairy milk (held until the ceiling reaches 51).
+  'milkPickups', 'calfMilkFeedings',
   // D9: Livestock Health
   'aiBulls', 'treatmentCategories', 'treatmentTypes', 'doseUnits',
   'animalBcsScores', 'animalTreatments', 'animalBreedingRecords',

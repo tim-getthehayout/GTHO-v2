@@ -194,7 +194,7 @@ describe('OI-0251 Ap: schema 50 released', () => {
   it('050 is released at the real ceiling; held empty; staged 50 proof kept; the toggle writes', () => {
     expect(ARCHIVED_METRICS_SCHEMA_VERSION).toBe(50);
     expect(RELEASED_SCHEMA_VERSION).toBe(50);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([51]); // #449 dairy 051 held
     expect(STAGED_COLUMNS[50]).toEqual({ farm_settings: ['include_archived_locations_in_metrics'] });
     expect(isArchivedMetricsSettingReleased()).toBe(true);
     expect(isArchivedMetricsSettingReleased(49)).toBe(false);
@@ -244,7 +244,7 @@ describe('OI-0251 Ap: schema 50 released', () => {
 
   it('migration file 050: additive boolean NOT NULL DEFAULT true; unconditional 49 → 50 stamp', () => {
     const dir = path.resolve(__dirname, '../../supabase/migrations');
-    expect(fs.readdirSync(dir).filter(f => /^05\d_/.test(f))).toEqual(['050_farm_settings_include_archived_locations_in_metrics.sql']);
+    expect(fs.readdirSync(dir).filter(f => /^05\d_/.test(f))).toEqual(['050_farm_settings_include_archived_locations_in_metrics.sql', '051_dairy_milk.sql']);
     const sql = fs.readFileSync(path.join(dir, '050_farm_settings_include_archived_locations_in_metrics.sql'), 'utf8');
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS include_archived_locations_in_metrics boolean NOT NULL DEFAULT true/);
     expect(sql).toMatch(/SET schema_version = 50\s+WHERE schema_version < 50;/);

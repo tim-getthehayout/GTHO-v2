@@ -3,6 +3,8 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
+import { isDairyVisibleNow } from '../milk/index.js';
+import { isDairySchemaReleased, RELEASED_SCHEMA_VERSION } from '../../data/schema-release.js';
 import { getAll, getById, add, update, remove, subscribe, getActiveFarmId, maybeSplitForGroup, archiveGroup, reactivateGroup, resolveGroupCurrentPlacement, runDurableWrite } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, unitLabel, formatMeasure, shortUnit } from '../../utils/units.js';
@@ -943,6 +945,21 @@ export function openGroupSheet(existingGroup, operationId) {
     el('div', { className: 'field' }, [el('label', {}, ['Color']), colorPicker]),
   ]));
 
+  // #449 D-G (Tim t1645s6488 Q1): "Active milking group" switch, only when dairy
+  // is visible for the active farm and schema 51 is released.
+  const showMilking = isDairySchemaReleased(RELEASED_SCHEMA_VERSION) && isDairyVisibleNow();
+  const milkingCheckbox = showMilking ? el('input', {
+    type: 'checkbox',
+    checked: existingGroup?.isMilking ? 'checked' : undefined,
+    'data-testid': 'group-sheet-milking',
+  }) : null;
+  if (milkingCheckbox) {
+    panel.appendChild(el('div', { className: 'field', 'data-testid': 'group-sheet-milking-field' }, [
+      el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [milkingCheckbox, 'Active milking group']),
+      el('div', { className: 'form-hint' }, ['Milk records show this group\'s grazing.']),
+    ]));
+  }
+
   panel.appendChild(el('div', { className: 'div' }));
 
   // Animal picker section
@@ -1014,10 +1031,10 @@ export function openGroupSheet(existingGroup, operationId) {
       try {
         let groupId;
         if (isEdit) {
-          update('groups', existingGroup.id, { name, color: selectedColor }, GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
+          update('groups', existingGroup.id, { name, color: selectedColor, ...(milkingCheckbox ? { isMilking: milkingCheckbox.checked } : {}) }, GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
           groupId = existingGroup.id;
         } else {
-          const record = GroupEntity.create({ operationId, name, color: selectedColor });
+          const record = GroupEntity.create({ operationId, name, color: selectedColor, isMilking: milkingCheckbox ? milkingCheckbox.checked : false });
           add('groups', record, GroupEntity.validate, GroupEntity.toSupabaseShape, 'groups');
           groupId = record.id;
         }

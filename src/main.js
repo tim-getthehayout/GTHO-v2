@@ -29,6 +29,7 @@ import { t } from './i18n/i18n.js';
 import { renderDashboard } from './features/dashboard/index.js';
 import { renderEventsScreen } from './features/events/index.js';
 import { renderFeedScreen } from './features/feed/index.js';
+import { renderMilkScreen } from './features/milk/index.js';
 import { renderAnimalsScreen } from './features/animals/index.js';
 import { renderReportsScreen } from './features/reports/index.js';
 import { renderSettingsScreen } from './features/settings/index.js';
@@ -382,6 +383,7 @@ function paintApp(app, syncAdapter) {
   // OI-0263: old #/map links (bookmarks, Home Screen, intents) land on the Map view.
   route('#/map', (c) => redirectLegacyMapRoute(c, renderEventsScreen));
   route('#/feed', renderFeedScreen);
+  route('#/milk', renderMilkScreen); // #449: the page shows its own off-state when dairy is hidden
   route('#/animals', renderAnimalsScreen);
   route('#/reports', renderReportsScreen);
   route('#/settings', renderSettingsScreen);

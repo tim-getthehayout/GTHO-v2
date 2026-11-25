@@ -39,6 +39,9 @@ export const BACKUP_TABLES = {
   batch_moves:               { paginate: false },
   historical_feedings:       { paginate: false },
   historical_animal_basis:   { paginate: false },
+  // #449 (051, held): skipped by export until the ceiling reaches 51.
+  milk_pickups:              { paginate: true },
+  calf_milk_feedings:        { paginate: true },
   // D5
   events:                    { paginate: true },
   event_paddock_windows:     { paginate: true },

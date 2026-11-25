@@ -40,6 +40,8 @@ import { fromSupabaseShape as fromAmendmentLocation } from '../entities/amendmen
 import { fromSupabaseShape as fromManureBatch } from '../entities/manure-batch.js';
 import { fromSupabaseShape as fromManureBatchTransaction } from '../entities/manure-batch-transaction.js';
 import { fromSupabaseShape as fromNpkPriceHistory } from '../entities/npk-price-history.js';
+import { fromSupabaseShape as fromHistoricalFeeding } from '../entities/historical-feeding.js';
+import { fromSupabaseShape as fromHistoricalAnimalBasis } from '../entities/historical-animal-basis.js';
 import { fromSupabaseShape as fromAiBull } from '../entities/ai-bull.js';
 import { fromSupabaseShape as fromTreatmentCategory } from '../entities/treatment-category.js';
 import { fromSupabaseShape as fromTreatmentType } from '../entities/treatment-type.js';
@@ -100,6 +102,9 @@ export const SYNC_REGISTRY = {
   manureBatches:            { table: 'manure_batches',            from: fromManureBatch },
   manureBatchTransactions:  { table: 'manure_batch_transactions', from: fromManureBatchTransaction },
   npkPriceHistory:          { table: 'npk_price_history',         from: fromNpkPriceHistory },
+  // #451: 045 winter history, pull-only (read-only in the app; no push shape).
+  historicalFeedings:       { table: 'historical_feedings',       from: fromHistoricalFeeding },
+  historicalAnimalBasis:    { table: 'historical_animal_basis',   from: fromHistoricalAnimalBasis },
   aiBulls:                  { table: 'ai_bulls',                  from: fromAiBull },
   treatmentCategories:      { table: 'treatment_categories',      from: fromTreatmentCategory },
   treatmentTypes:           { table: 'treatment_types',           from: fromTreatmentType },

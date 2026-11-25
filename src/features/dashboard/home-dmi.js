@@ -10,6 +10,8 @@
  *   same date range (`buildLocationMetricRows` → `aggregatePeriodTotals`):
  *   Σ max(0, need − hay eaten) on pasture / mixed-use land; archived
  *   locations follow the farm setting (OI-0251 Ap, default included). One formula, reused — not a second implementation.
+ * - #451: both add the winter hay history (045) for days in the range: Total adds
+ *   its counted need, Pasture its 11-18 pasture (same figure as the strip).
  * - Pasture % = Pasture DMI ÷ Total DMI over the period.
  * Class DMI % is per class through OI-0279's `groupDayDmi` (inside the demand rows).
  */
@@ -21,6 +23,7 @@ import { groupWindowsDailyDemand, dmiBasisNote } from '../../calcs/window-helper
 import {
   buildLocationMetricRows, aggregatePeriodTotals, eachDateInclusive, deriveEventStartDate,
 } from '../events/rotation-calendar/location-metrics.js';
+import { winterHistoryTotals } from '../events/rotation-calendar/winter-history-metrics.js';
 
 /** Calendar days per period pill, ending today (24h = today only). */
 export const HOME_PERIOD_DAYS = Object.freeze({ '24h': 1, '3d': 3, '7d': 7, '30d': 30 });
@@ -87,6 +90,8 @@ export function homeDmiCtxFromStore() {
     feedTypes: getAll('feedTypes'),
     batchNutritionalProfiles: getAll('batchNutritionalProfiles'),
     farmSettings: getAll('farmSettings')[0] || null,
+    historicalFeedings: getAll('historicalFeedings'),
+    historicalAnimalBasis: getAll('historicalAnimalBasis'),
   };
 }
 
@@ -112,6 +117,8 @@ export function homeTotalDmiKg(start, end, ctx) {
       rows.push(row);
     }
   }
+  // #451: winter history need (basis days not covered by an event window).
+  totalDmiKg += winterHistoryTotals(ctx, start, end, end).needKg;
   return { totalDmiKg, rows };
 }
 
@@ -126,7 +133,7 @@ export function homePastureDmiKg(start, end, ctx, today = getLocalTodayStr()) {
     windowEnd: end,
     today,
   });
-  const totals = aggregatePeriodTotals(rows);
+  const totals = aggregatePeriodTotals(rows, { history: winterHistoryTotals(ctx, start, end, today) });
   return { pastureDmiKg: totals.pastureDmiKg, dmiPartial: !!totals.dmiPartial, basisNote: totals.dmiBasisNote };
 }
 

@@ -60,6 +60,7 @@ import {
   filterMetricLocations,
   includeArchivedInMetrics,
 } from './location-metrics.js';
+import { winterHistoryTotals } from './winter-history-metrics.js';
 import { computeReadiness, lastGrazeDate, readinessBandRange, readyChipKind, READY_CHIP_TEXT } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
 import {
@@ -356,6 +357,9 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
   const allBatches = getAll('batches');
   const allFeedTypes = getAll('feedTypes');
   const allBatchProfiles = getAll('batchNutritionalProfiles');
+  // #451: winter hay history (045), read-only; strip totals only.
+  const allHistoricalFeedings = getAll('historicalFeedings');
+  const allHistoricalBasis = getAll('historicalAnimalBasis');
   const farmSettings = getAll('farmSettings')[0] || {};
   const operationId = allLocations[0]?.operationId
     || getAll('operations')[0]?.id
@@ -428,6 +432,8 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
     batches: allBatches,
     feedTypes: allFeedTypes,
     batchNutritionalProfiles: allBatchProfiles,
+    historicalFeedings: allHistoricalFeedings,
+    historicalAnimalBasis: allHistoricalBasis,
   };
 
   // L1: metricCtx is the store at this version; a row is reused until the next
@@ -528,7 +534,10 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
     ...memoByStoreVersion(`cal-row|${loc.id}|${windowStart}|${windowEnd}|${today}`,
       () => computeLocationMetrics(loc, metricCtx)),
   }));
-  const periodTotals = aggregatePeriodTotals(totalsRows);
+  // #451: winter history (no location) is added once to the strip, Calendar and List alike.
+  const periodTotals = aggregatePeriodTotals(totalsRows, {
+    history: winterHistoryTotals(metricCtx, windowStart, windowEnd, today),
+  });
   const earliestGw = earliestGroupWindowDate(allGroupWindows);
   const preWindowNote = periodStartsBeforeFirstGroupWindow(windowStart, earliestGw)
     ? t('event.periodTotalsPreWindow', { date: formatShortDate(earliestGw) })

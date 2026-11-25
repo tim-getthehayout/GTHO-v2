@@ -40,6 +40,8 @@ export const ENTITY_TYPES = [
   'inputProductCategories', 'inputProductUnits', 'inputProducts', 'spreaders',
   'soilTests', 'amendments', 'amendmentLocations', 'manureBatches',
   'manureBatchTransactions', 'npkPriceHistory',
+  // #451: 045 winter history (pull-only, read-only).
+  'historicalFeedings', 'historicalAnimalBasis',
   // D9: Livestock Health
   'aiBulls', 'treatmentCategories', 'treatmentTypes', 'doseUnits',
   'animalBcsScores', 'animalTreatments', 'animalBreedingRecords',

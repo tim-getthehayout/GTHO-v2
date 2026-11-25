@@ -938,8 +938,10 @@ export function buildLocationMetricRows(locations, ctx) {
  * OI-0250 period-totals strip: sum Af visible location rows.
  * En pasture/stored/total; Nk separate N/P/K; Sz stored always numeric;
  * Pp partial only from unknown-weight (non-DM) slices.
+ * #451: `history` (winterHistoryTotals) adds the winter hay history's pasture
+ * (11-18 rule) and hay eaten; it has no location, so it is added once here.
  */
-export function aggregatePeriodTotals(rows = []) {
+export function aggregatePeriodTotals(rows = [], { history = null } = {}) {
   let pastureSum = 0;
   let storedSum = 0;
   let nSum = 0;
@@ -981,6 +983,14 @@ export function aggregatePeriodTotals(rows = []) {
     if (r?.npkPartial) npkPartial = true;
   }
 
+  // #451: winter history (no paddocks) counts in the strip totals.
+  const historyCounts = !!history && (history.needKg > 0 || history.hayKg > 0);
+  if (historyCounts) {
+    pastureSum += Number(history.pastureKg) || 0;
+    storedSum += Number(history.hayKg) || 0;
+    pastureKnown = true;
+  }
+
   // Idle never-present locs contribute stripPastureDmiKg/NPK 0 (Z1), which must not
   // poison farm Period totals when every grazed loc is unknown (F1-null): show — not 0.
   const pastureIdlePoison = pastureSum === 0 && pastureNullLoc;
@@ -1006,6 +1016,8 @@ export function aggregatePeriodTotals(rows = []) {
     residualNpkSkippedNoWeightDm,
     // OI-0279: per-location fallback notes (a group may appear at several locations).
     dmiBasisNote: basisNotes.size ? [...basisNotes].join('; ') : null,
+    // #451: the history share of the totals (display held for Q-D; not rendered).
+    winterHistory: historyCounts ? history : null,
   };
 }
 

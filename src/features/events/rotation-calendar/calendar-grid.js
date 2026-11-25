@@ -60,7 +60,8 @@ import {
   filterMetricLocations,
   includeArchivedInMetrics,
 } from './location-metrics.js';
-import { winterHistoryTotals } from './winter-history-metrics.js';
+import { winterHistoryTotals, winterHistoryBlocksFor } from './winter-history-metrics.js';
+import { renderWinterHistoryRow, renderWinterHistoryStripNote, historyOverlaps } from './winter-history-row.js';
 import { computeReadiness, lastGrazeDate, readinessBandRange, readyChipKind, READY_CHIP_TEXT } from './readiness.js';
 import { sortMetricRows, nextSortState } from './sort-rows.js';
 import {
@@ -535,14 +536,16 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
       () => computeLocationMetrics(loc, metricCtx)),
   }));
   // #451: winter history (no location) is added once to the strip, Calendar and List alike.
-  const periodTotals = aggregatePeriodTotals(totalsRows, {
-    history: winterHistoryTotals(metricCtx, windowStart, windowEnd, today),
-  });
+  const historySlice = winterHistoryTotals(metricCtx, windowStart, windowEnd, today);
+  const periodTotals = aggregatePeriodTotals(totalsRows, { history: historySlice });
+  // #451 D2: the Winter history row shows only when the period overlaps history.
+  const showHistoryRow = historyOverlaps(historySlice);
+  const historyBlocks = showHistoryRow && !isList ? winterHistoryBlocksFor(metricCtx) : [];
   const earliestGw = earliestGroupWindowDate(allGroupWindows);
   const preWindowNote = periodStartsBeforeFirstGroupWindow(windowStart, earliestGw)
     ? t('event.periodTotalsPreWindow', { date: formatShortDate(earliestGw) })
     : null;
-  const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals, { unitSystem, isPhone, preWindowNote }) : null;
+  const totalsStrip = periodTotals ? renderPeriodTotalsStrip(periodTotals, { unitSystem, isPhone, preWindowNote, historySlice }) : null;
   const legend = isList ? null : renderLegend(viewMode);
 
   // OI-0254 Sc1: canvas = all past event starts → latest ready-by (close-event recovery).
@@ -558,6 +561,8 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
       if (startIso) eventStarts.push(startIso);
     }
   }
+  // #451 D2: the canvas also covers the Winter history blocks (past starts).
+  for (const b of historyBlocks) eventStarts.push(b.start);
   const readyByDates = [];
   for (const loc of locations) {
     const band = readinessBandRange(readinessById.get(loc.id));
@@ -598,6 +603,23 @@ function renderCalendarGridNow(container, { onViewChange } = {}) {
   }, [head]);
 
   const rowByLoc = new Map();
+
+  // #451 D2: read-only Winter history row at the top (not a location; filters
+  // and the archive toggle do not hide it).
+  const historyRow = showHistoryRow ? renderWinterHistoryRow({
+    slice: historySlice,
+    blocks: historyBlocks,
+    isList,
+    isPhone,
+    range,
+    totalWidth,
+    todayPx,
+    unitSystem,
+    rowHeight: ROW_HEIGHT,
+    nameWidth: NAME_WIDTH,
+    metricsCollapsed,
+  }) : null;
+  if (historyRow) body.appendChild(historyRow);
 
   locations.forEach((loc) => {
     const metrics = metricsById.get(loc.id);
@@ -1326,7 +1348,7 @@ export function _resetFarmSeasonEditor() {
  * OI-0250 Sb: period totals strip — Pasture / Stored-feed / Total DMI + Total N/P/K.
  * Calendar only; sits under season metrics bar and above the color key.
  */
-function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone = false, preWindowNote = null } = {}) {
+function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone = false, preWindowNote = null, historySlice = null } = {}) {
   // OI-0278 S1: unit in the label ("Total DMI (lb)"); values via the helper.
   const w = unitSuffix('weight', unitSystem);
   // OI-0276: same hover note on Total N/P/K when leftover hay was not counted.
@@ -1386,6 +1408,8 @@ function renderPeriodTotalsStrip(totals, { unitSystem = getUnitSystem(), isPhone
     cell('n', `Total N ${w}`, totals.nKg, !!totals.npkPartial, `Total nitrogen for the period, elemental ${w}`, hayNote, 'npk'),
     cell('p', `Total P ${w}`, totals.pKg, !!totals.npkPartial, `Total phosphorus for the period, elemental ${w}`, hayNote, 'npk'),
     cell('k', `Total K ${w}`, totals.kKg, !!totals.npkPartial, `Total potassium for the period, elemental ${w}`, hayNote, 'npk'),
+    // #451 D2: only when the period overlaps winter history.
+    totals.winterHistory ? renderWinterHistoryStripNote(historySlice || totals.winterHistory, { unitSystem }) : null,
   ].filter(Boolean));
 }
 

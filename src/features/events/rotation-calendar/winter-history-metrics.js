@@ -13,7 +13,7 @@
  */
 import { groupWindowsDailyDemand } from '../../../calcs/window-helpers.js';
 import {
-  computeWinterHistory, sliceWinterHistory, historySpeciesKey,
+  computeWinterHistory, sliceWinterHistory, historySpeciesKey, winterHistoryBlocks,
 } from '../../../calcs/winter-history.js';
 import { deriveEventStartDate } from './location-metrics.js';
 
@@ -98,4 +98,9 @@ export function winterHistoryFor(ctx = {}) {
 export function winterHistoryTotals(ctx = {}, windowStart, windowEnd, today) {
   const through = today && windowEnd > today ? today : windowEnd;
   return sliceWinterHistory(winterHistoryFor(ctx), windowStart, through);
+}
+
+/** Calendar blocks for the Winter history row (one per basis row, clipped dates). */
+export function winterHistoryBlocksFor(ctx = {}) {
+  return winterHistoryBlocks(winterHistoryFor(ctx));
 }

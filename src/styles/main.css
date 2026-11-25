@@ -4395,3 +4395,28 @@ body:has(.auth-overlay) .pwa-update-banner {
   font-size: 11px;
   color: var(--text3, var(--text2));
 }
+
+/* #451 D2: read-only Winter history row (not a location) + strip note. */
+.loc-mgmt__row--winter-history { background: var(--bg-2, var(--bg)); }
+.loc-mgmt__period-totals-note {
+  font-size: 0.75rem;
+  color: var(--text-2, inherit);
+  font-style: italic;
+  cursor: help;
+}
+.winter-history-block {
+  background: var(--color-amber-base, #b7791f);
+  cursor: default;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+.winter-history-block__label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.winter-history-block__head { white-space: nowrap; }
+.winter-history-block__tip {
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  white-space: normal;
+}
+.winter-history-block:has(.winter-history-block__tip:not([hidden])) { overflow: visible; height: auto; z-index: 5; }
+.loc-mgmt__metrics--winter-history { display: flex; gap: var(--space-2); align-items: center; }

@@ -11,8 +11,9 @@
  *   need for it that day (the caller's `isClipped(row, date)`).
  * - Pasture: the 11-18 rule per species and day: max(0, need − hay); hay over
  *   need is reported separately (not netted).
- * - Q-N (Tim, open): how a species' history hay is spread over its days lives
- *   behind `spreadWinterHistoryHay` (one line to swap N1 ↔ N2).
+ * - N1 (locked, Tim t1634s6441): each species' history hay total is spread
+ *   evenly over that species' counted basis days (after the clip):
+ *   `spreadWinterHistoryHay`.
  * Pure: no store access.
  */
 // Same buckets as FED-6's pastureSpeciesGroup (feed-run-rate.js), kept local so
@@ -53,8 +54,8 @@ export function historyDatesInclusive(start, end) {
   return out;
 }
 
-/** Hay on its delivery dates, as recorded (N2, and the no-basis-days fallback). */
-export function historyHayOnDeliveryDates(feedings /* , needByDate */) {
+/** Hay on its delivery dates (only when a species has no counted basis day). */
+function hayOnDeliveryDates(feedings) {
   const out = new Map();
   for (const f of feedings || []) {
     const kg = historyFeedingDmKg(f);
@@ -65,13 +66,13 @@ export function historyHayOnDeliveryDates(feedings /* , needByDate */) {
 }
 
 /**
- * N1 (Design rec): spread a species' history hay evenly across its counted
- * basis days (equal kg per day). With no counted basis days, hay stays on its
- * delivery dates (it is all "hay over need").
+ * N1: spread a species' history hay evenly across its counted basis days
+ * (equal kg per day). With no counted basis days, hay stays on its delivery
+ * dates (it is all "hay over need").
  */
-export function spreadHistoryHayEvenly(feedings, needByDate) {
+export function spreadWinterHistoryHay(feedings, needByDate) {
   const days = [...(needByDate?.keys() || [])];
-  if (!days.length) return historyHayOnDeliveryDates(feedings);
+  if (!days.length) return hayOnDeliveryDates(feedings);
   let total = 0;
   for (const f of feedings || []) total += historyFeedingDmKg(f);
   const out = new Map();
@@ -81,44 +82,45 @@ export function spreadHistoryHayEvenly(feedings, needByDate) {
   return out;
 }
 
-// Q-N swap point. N1 (current): spreadHistoryHayEvenly.
-// N2 (delivery dates as-is): replace with historyHayOnDeliveryDates.
-export const spreadWinterHistoryHay = spreadHistoryHayEvenly;
-
 /**
  * Window-independent history: per species, counted need by date and hay by date.
- * @param {{ basisRows?: object[], feedingRows?: object[], isClipped?: (row: object, date: string) => boolean, spread?: Function }} input
- * @returns {Map<string, { needByDate: Map<string, number>, hayByDate: Map<string, number>, clippedDays: number }>}
+ * `rows` keeps each basis row with its counted dates (for the Calendar blocks).
+ * @param {{ basisRows?: object[], feedingRows?: object[], isClipped?: (row: object, date: string) => boolean }} input
+ * @returns {Map<string, { needByDate: Map<string, number>, hayByDate: Map<string, number>, clippedDays: number, rows: Array<{ row: object, needKgPerDay: number, countedDates: string[] }> }>}
  */
-export function computeWinterHistory({ basisRows = [], feedingRows = [], isClipped = () => false, spread = spreadWinterHistoryHay } = {}) {
+export function computeWinterHistory({ basisRows = [], feedingRows = [], isClipped = () => false } = {}) {
   const bySpecies = new Map();
   const bucket = key => {
-    if (!bySpecies.has(key)) bySpecies.set(key, { needByDate: new Map(), hayByDate: new Map(), clippedDays: 0, feedings: [] });
+    if (!bySpecies.has(key)) bySpecies.set(key, { needByDate: new Map(), hayByDate: new Map(), clippedDays: 0, rows: [], feedings: [] });
     return bySpecies.get(key);
   };
   for (const row of basisRows || []) {
     const kg = basisNeedKgPerDay(row);
     if (!(kg > 0)) continue;
     const b = bucket(historySpeciesKey(row.species));
+    const countedDates = [];
     for (const date of historyDatesInclusive(row.periodStart, row.periodEnd)) {
       if (isClipped(row, date)) { b.clippedDays += 1; continue; }
       b.needByDate.set(date, (b.needByDate.get(date) || 0) + kg);
+      countedDates.push(date);
     }
+    b.rows.push({ row, needKgPerDay: kg, countedDates });
   }
   for (const f of feedingRows || []) bucket(historySpeciesKey(f.species)).feedings.push(f);
   for (const b of bySpecies.values()) {
-    b.hayByDate = spread(b.feedings, b.needByDate);
+    b.hayByDate = spreadWinterHistoryHay(b.feedings, b.needByDate);
     delete b.feedings;
   }
   return bySpecies;
 }
 
-const emptyFigures = () => ({ needKg: 0, hayKg: 0, pastureKg: 0, hayOverNeedKg: 0, days: 0 });
+const emptyFigures = () => ({ needKg: 0, hayKg: 0, pastureKg: 0, hayOverNeedKg: 0, days: 0, firstDate: null, lastDate: null });
 
 /**
  * Sum the history over [start, through] inclusive. Per species and day:
  * pasture = max(0, need − hay), hay over need = max(0, hay − need).
- * @returns {{ needKg: number, hayKg: number, pastureKg: number, hayOverNeedKg: number, days: number, bySpecies: Object<string, object> }}
+ * `firstDate` / `lastDate`: the history dates inside the range (null = no overlap).
+ * @returns {{ needKg: number, hayKg: number, pastureKg: number, hayOverNeedKg: number, days: number, firstDate: string|null, lastDate: string|null, bySpecies: Object<string, object> }}
  */
 export function sliceWinterHistory(history, start, through) {
   const total = { ...emptyFigures(), bySpecies: {} };
@@ -136,6 +138,8 @@ export function sliceWinterHistory(history, start, through) {
       fig.pastureKg += Math.max(0, need - hay);
       fig.hayOverNeedKg += Math.max(0, hay - need);
       if (need > 0) fig.days += 1;
+      if (!fig.firstDate || d < fig.firstDate) fig.firstDate = d;
+      if (!fig.lastDate || d > fig.lastDate) fig.lastDate = d;
     }
     if (!dates.size) continue;
     total.bySpecies[key] = fig;
@@ -144,6 +148,58 @@ export function sliceWinterHistory(history, start, through) {
     total.pastureKg += fig.pastureKg;
     total.hayOverNeedKg += fig.hayOverNeedKg;
     total.days = Math.max(total.days, fig.days);
+    if (!total.firstDate || fig.firstDate < total.firstDate) total.firstDate = fig.firstDate;
+    if (!total.lastDate || fig.lastDate > total.lastDate) total.lastDate = fig.lastDate;
   }
   return total;
+}
+
+/** Contiguous runs of YYYY-MM-DD dates (sorted) → [{ start, end, days }]. */
+export function dateRuns(dates = []) {
+  const sorted = [...dates].sort();
+  const runs = [];
+  const next = d => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
+  for (const d of sorted) {
+    const last = runs.at(-1);
+    if (last && next(last.end) === d) { last.end = d; last.days += 1; } else runs.push({ start: d, end: d, days: 1 });
+  }
+  return runs;
+}
+
+/**
+ * Calendar blocks: one per basis row and run of counted dates (normally one),
+ * with the species' spread hay and pasture over the block's dates.
+ */
+export function winterHistoryBlocks(history) {
+  const blocks = [];
+  for (const [key, b] of history || []) {
+    for (const { row, needKgPerDay, countedDates } of b.rows || []) {
+      for (const run of dateRuns(countedDates)) {
+        let speciesHayKg = 0;
+        let speciesPastureKg = 0;
+        for (const d of historyDatesInclusive(run.start, run.end)) {
+          const need = b.needByDate.get(d) || 0;
+          const hay = b.hayByDate.get(d) || 0;
+          speciesHayKg += hay;
+          speciesPastureKg += Math.max(0, need - hay);
+        }
+        blocks.push({
+          id: `${row.id}|${run.start}`,
+          basisId: row.id,
+          species: key,
+          label: row.groupLabel || row.classLabel || key,
+          headCount: row.headCount,
+          avgWeightKg: row.avgWeightKg,
+          dmiPct: row.dmiPctSnapshot,
+          needKgPerDay,
+          start: run.start,
+          end: run.end,
+          days: run.days,
+          speciesHayKg,
+          speciesPastureKg,
+        });
+      }
+    }
+  }
+  return blocks.sort((a, c) => (a.start < c.start ? -1 : a.start > c.start ? 1 : String(a.label).localeCompare(String(c.label))));
 }

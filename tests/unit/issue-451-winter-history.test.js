@@ -3,8 +3,9 @@
  * in date-range need, stored feed eaten and pasture: the calendar season/Period
  * totals strip (Calendar and List identical) and the Home Total/Pasture DMI.
  * Snapshots only, inclusive period_end, event windows win (sheep clipped at the
- * first event day), 11-18 rule per species, N1 spread behind one function, and
- * no inventory / batch effect.
+ * first event day), 11-18 rule per species, N1 even spread (locked), no
+ * inventory / batch effect, and the D2 display (comment 1710): strip note, a
+ * read-only Winter history row on Calendar and List, one block per basis row.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import '../../src/calcs/core.js';
@@ -18,11 +19,12 @@ import { renderCalendarGrid, _resetFarmSeasonEditor } from '../../src/features/e
 import { aggregatePeriodTotals } from '../../src/features/events/rotation-calendar/location-metrics.js';
 import {
   basisNeedKgPerDay, historyFeedingDmKg, computeWinterHistory, sliceWinterHistory,
-  spreadWinterHistoryHay, spreadHistoryHayEvenly, historyHayOnDeliveryDates, historyDatesInclusive,
+  spreadWinterHistoryHay, historyDatesInclusive, winterHistoryBlocks, dateRuns,
 } from '../../src/calcs/winter-history.js';
 import {
   winterHistoryTotals, winterHistoryClipFn, groupSpeciesEver,
 } from '../../src/features/events/rotation-calendar/winter-history-metrics.js';
+import { WINTER_HISTORY_STRIP_NOTE } from '../../src/features/events/rotation-calendar/winter-history-row.js';
 import { homeTotalDmiKg, homePastureDmiKg, homeDmiCtxFromStore } from '../../src/features/dashboard/home-dmi.js';
 import { SYNC_REGISTRY } from '../../src/data/sync-registry.js';
 import { ENTITY_TYPES } from '../../src/data/store.js';
@@ -78,13 +80,29 @@ describe('#451 calc: need, hay, pasture (fixture)', () => {
     expect(sliceWinterHistory(computeWinterHistory({ basisRows: B }), '2026-01-10', '2026-01-10').needKg).toBeCloseTo(125, 9);
   });
 
-  it('Q-N: N1 is the live spreader; N2 (delivery dates) is a drop-in swap', () => {
-    expect(spreadWinterHistoryHay).toBe(spreadHistoryHayEvenly);
-    const n2 = sliceWinterHistory(computeWinterHistory({ basisRows: B, feedingRows: F, spread: historyHayOnDeliveryDates }), '2026-01-01', '2026-01-31');
-    expect(n2.hayKg).toBeCloseTo(1020, 9);
-    // Jan 3: 680 vs 125 → 555 over; Jan 8: 340 vs 125 → 215 over; other 8 days full pasture.
-    expect(n2.hayOverNeedKg).toBeCloseTo(555 + 215, 9);
-    expect(n2.pastureKg).toBeCloseTo(125 * 8, 9);
+  it('N1 (locked): equal hay per counted basis day, not on delivery dates', () => {
+    const need = new Map(historyDatesInclusive('2026-01-01', '2026-01-10').map(d => [d, 125]));
+    const hay = spreadWinterHistoryHay(F, need);
+    expect([...hay.keys()]).toEqual([...need.keys()]);
+    for (const v of hay.values()) expect(v).toBeCloseTo(102, 9);  // 1020 / 10
+    expect(hay.get('2026-01-03')).toBeCloseTo(hay.get('2026-01-04'), 9);
+    // No counted basis day: hay stays on its delivery dates (all over need).
+    const none = spreadWinterHistoryHay(F, new Map());
+    expect(none.get('2026-01-03')).toBeCloseTo(680, 9);
+    expect(none.get('2026-01-08')).toBeCloseTo(340, 9);
+  });
+
+  it('blocks: one per basis row spanning its counted dates, with species hay + pasture', () => {
+    const rows = [basis({ id: 'b1', groupLabel: 'Cows', species: 'beef_cattle', periodStart: '2026-01-01', periodEnd: '2026-01-10' })];
+    const bl = winterHistoryBlocks(computeWinterHistory({ basisRows: rows, feedingRows: F }));
+    expect(bl).toHaveLength(1);
+    expect(bl[0]).toMatchObject({ basisId: 'b1', label: 'Cows', headCount: 10, start: '2026-01-01', end: '2026-01-10', days: 10 });
+    expect(bl[0].needKgPerDay).toBeCloseTo(125, 9);
+    expect(bl[0].speciesHayKg).toBeCloseTo(1020, 9);
+    expect(bl[0].speciesPastureKg).toBeCloseTo(230, 9);
+    expect(dateRuns(['2026-01-03', '2026-01-01', '2026-01-02', '2026-01-05'])).toEqual([
+      { start: '2026-01-01', end: '2026-01-03', days: 3 }, { start: '2026-01-05', end: '2026-01-05', days: 1 },
+    ]);
   });
 });
 
@@ -123,6 +141,19 @@ describe('#451 event windows win (clip)', () => {
     expect(days.filter(d => d >= '2026-01-21' && d <= '2026-01-31')).toEqual([]);
   });
 
+  it('sheep block spans Oct 1 – Mar 3 after the clip (sheep windows from Mar 4)', () => {
+    const c2 = {
+      ...ctx,
+      events: [{ id: 'eS2', dateOut: null }],
+      paddockWindows: [{ id: 'pS2', eventId: 'eS2', locationId: 'L', dateOpened: '2026-03-04', dateClosed: null, areaPct: 100 }],
+      groupWindows: [{ id: 'wS2', eventId: 'eS2', groupId: 'gS', dateJoined: '2026-03-04', dateLeft: null, headCount: 70, avgWeightKg: 45.36 }],
+      memberships: [{ id: 'm1', animalId: 'ewe', groupId: 'gS', dateJoined: '2025-09-01', dateLeft: null }],
+    };
+    const sheep = basis({ id: 'bs', species: 'sheep', groupLabel: 'Sheep', headCount: 80, avgWeightKg: 50, dmiPctSnapshot: 3, periodStart: '2025-10-01', periodEnd: '2026-03-18' });
+    const bl = winterHistoryBlocks(computeWinterHistory({ basisRows: [sheep], isClipped: winterHistoryClipFn(c2) }));
+    expect(bl.map(b => [b.label, b.start, b.end, b.days])).toEqual([['Sheep', '2025-10-01', '2026-03-03', 154]]);
+  });
+
   it('a basis row with a group is clipped by that group only, not by another group of its species', () => {
     const cowsG = basis({ id: 'bg', species: 'beef_cattle', groupId: 'gC', periodStart: '2026-01-01', periodEnd: '2026-01-31' });
     const otherG = basis({ id: 'bo', species: 'beef_cattle', groupId: 'gOther', periodStart: '2026-01-01', periodEnd: '2026-01-31' });
@@ -158,21 +189,26 @@ describe('#451 store, strip and Home', () => {
     put('eventGroupWindows', { id: 'gw1', operationId: 'op', eventId: 'ev1', groupId: 'g1', dateJoined: '2026-03-04', dateLeft: '2026-06-01', headCount: 1, avgWeightKg: 500 });
     put('batches', { id: 'bat', operationId: 'op', feedTypeId: 'ft', quantity: 7, remaining: 7 });
     if (history) {
-      put('historicalAnimalBasis', basis({ id: 'hb', species: 'beef_cattle', periodStart: '2026-01-01', periodEnd: '2026-01-10' }));
+      put('historicalAnimalBasis', basis({ id: 'hb', species: 'beef_cattle', groupLabel: 'Cow-Calf', periodStart: '2026-01-01', periodEnd: '2026-01-10' }));
       put('historicalFeedings', feeding({ id: 'hf1', date: '2026-01-03', quantity: 2 }));
       put('historicalFeedings', feeding({ id: 'hf2', date: '2026-01-08' }));
     }
   }
   const strip = (c, key) => c.querySelector(`[data-testid="loc-mgmt-period-total-${key}"]`)?.textContent ?? null;
   const lb = (text) => Number(String(text).replace(/[^0-9.]/g, ''));
-  function stripFor(view) {
+  function render(view) {
     document.body.innerHTML = '';
     setView(view);
     const c = document.createElement('div');
     document.body.appendChild(c);
     renderCalendarGrid(c);
+    return c;
+  }
+  function stripFor(view) {
+    const c = render(view);
     return { pasture: strip(c, 'pastureDmi'), stored: strip(c, 'storedDmi'), total: strip(c, 'totalDmi') };
   }
+
 
   it('the two 045 tables are pull-only entity types (registry yes, push shape no)', () => {
     expect(ENTITY_TYPES).toContain('historicalFeedings');
@@ -232,5 +268,145 @@ describe('#451 store, strip and Home', () => {
     expect(JSON.stringify(getAll('batches'))).toBe(before);
     expect(getAll('batchLocationBalances')).toEqual([]);
     expect(getAll('batchAdjustments')).toEqual([]);
+  });
+});
+
+describe('#451 D2 display: Winter history row, blocks, strip note', () => {
+  const ok = () => ({ valid: true, errors: [] });
+  const put = (type, rec) => add(type, rec, ok, r => r, type);
+  const origWidth = window.innerWidth;
+  beforeEach(() => { vi.stubGlobal('requestAnimationFrame', () => 0); window.innerWidth = 1280; });
+  afterEach(() => { window.innerWidth = origWidth; _reset(); document.body.innerHTML = ''; vi.restoreAllMocks(); });
+
+  function seed({ archived = false } = {}) {
+    _reset();
+    localStorage.clear();
+    resetCalendarState();
+    _resetFarmSeasonEditor();
+    window.history.replaceState(null, '', '#/events');
+    document.body.innerHTML = '';
+    put('operations', { id: 'op', name: 'Op', unitSystem: 'imperial' });
+    put('farms', { id: 'farm', operationId: 'op', name: 'Farm' });
+    put('farmSettings', { id: 'fs', farmId: 'farm', operationId: 'op', seasonStartMonth: 1, seasonStartDay: 1, seasonEndMonth: 12, seasonEndDay: 31 });
+    put('locations', { id: 'L1', operationId: 'op', farmId: 'farm', name: 'North', type: 'land', landUse: 'pasture', areaHectares: 4, archived });
+    put('groups', { id: 'g1', operationId: 'op', name: 'Cows' });
+    put('events', { id: 'ev1', operationId: 'op', farmId: 'farm', dateOut: '2026-06-01' });
+    put('eventPaddockWindows', { id: 'pw1', operationId: 'op', eventId: 'ev1', locationId: 'L1', dateOpened: '2026-03-04', dateClosed: '2026-06-01', areaPct: 100 });
+    put('eventGroupWindows', { id: 'gw1', operationId: 'op', eventId: 'ev1', groupId: 'g1', dateJoined: '2026-03-04', dateLeft: '2026-06-01', headCount: 1, avgWeightKg: 500 });
+    put('historicalAnimalBasis', basis({ id: 'hb', species: 'beef_cattle', groupLabel: 'Cow-Calf', periodStart: '2026-01-01', periodEnd: '2026-01-10' }));
+    put('historicalFeedings', feeding({ id: 'hf1', date: '2026-01-03', quantity: 2 }));
+    put('historicalFeedings', feeding({ id: 'hf2', date: '2026-01-08' }));
+  }
+  function render(view) {
+    document.body.innerHTML = '';
+    setView(view);
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    renderCalendarGrid(c);
+    return c;
+  }
+  const q = (c, id) => c.querySelector(`[data-testid="${id}"]`);
+  const qa = (c, id) => [...c.querySelectorAll(`[data-testid="${id}"]`)];
+  const val = (c, key) => q(c, `winter-history-${key}`)?.querySelector('.loc-mgmt__metric-value')?.textContent ?? null;
+  const stripVal = (c, key) => q(c, `loc-mgmt-period-total-${key}`)?.textContent ?? null;
+  const lb = (text) => Number(String(text).replace(/[^0-9.]/g, ''));
+
+  it('row + blocks + strip note appear only when the period overlaps history', () => {
+    seed();
+    setMetricWindow('2026-03-01', '2026-12-31');
+    for (const view of ['calendar', 'list']) {
+      const c = render(view);
+      expect(q(c, 'winter-history-row')).toBeNull();
+      expect(qa(c, 'winter-history-block')).toHaveLength(0);
+      expect(q(c, 'loc-mgmt-period-totals-winter-note')).toBeNull();
+    }
+    setMetricWindow('2026-01-01', '2026-12-31');
+    for (const view of ['calendar', 'list']) {
+      const c = render(view);
+      const row = q(c, 'winter-history-row');
+      expect(row).not.toBeNull();
+      // At the top: the first row in the body, before any location row.
+      const rows = [...c.querySelectorAll('.loc-mgmt__row')];
+      expect(rows[0]).toBe(row);
+      expect(row.textContent).toContain('Winter history');
+      const note = q(c, 'loc-mgmt-period-totals-winter-note');
+      expect(note.textContent).toBe(WINTER_HISTORY_STRIP_NOTE);
+      expect(note.title).toMatch(/Jan 1.*Jan 10/);
+      expect(note.title).toMatch(/need .*stored feed .*pasture /);
+    }
+  });
+
+  it('Calendar: one read-only block per basis row (label, {head} hd, hover); List has no blocks', () => {
+    seed();
+    setMetricWindow('2026-01-01', '2026-12-31');
+    const cal = render('calendar');
+    const blocks = qa(cal, 'winter-history-block');
+    expect(blocks).toHaveLength(1);
+    const b = blocks[0];
+    expect(b.dataset.start).toBe('2026-01-01');
+    expect(b.dataset.end).toBe('2026-01-10');
+    expect(b.querySelector('.winter-history-block__label').textContent).toBe('Cow-Calf');
+    expect(b.querySelector('.winter-history-block__head').textContent).toBe('10 hd');
+    expect(b.title).toMatch(/10 hd · avg 1,102 lb · DMI 2.5%/);
+    expect(b.title).toMatch(/Need 276 lb DM\/day/);
+    expect(b.title).toMatch(/winter hay \(spread\): 2,249 lb DM · pasture 507 lb DM/);
+    expect(qa(render('list'), 'winter-history-block')).toHaveLength(0);
+  });
+
+  it('tap shows the hover only: no navigation, no sheet, no store write', () => {
+    seed();
+    setMetricWindow('2026-01-01', '2026-12-31');
+    const c = render('calendar');
+    const hash = window.location.hash;
+    const spies = ['add', 'update', 'remove'].map(fn => vi.spyOn(store, fn));
+    const b = q(c, 'winter-history-block');
+    const tip = b.querySelector('[data-testid="winter-history-block-tip"]');
+    expect(tip.hidden).toBe(true);
+    b.click();
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toContain('Cow-Calf');
+    expect(window.location.hash).toBe(hash);
+    expect(document.querySelector('.sheet-wrap.open, .sheet.open, [data-testid="past-event-detail-sheet"]')).toBeNull();
+    for (const s of spies) expect(s).not.toHaveBeenCalled();
+    const row = q(c, 'winter-history-row');
+    expect(row.querySelector('button, a, input')).toBeNull();
+  });
+
+  it('List and Calendar show the same history share; strip = location rows + history row', () => {
+    seed();
+    setMetricWindow('2026-01-01', '2026-12-31');
+    const cal = render('calendar');
+    const calVals = { need: val(cal, 'need'), stored: val(cal, 'stored'), pasture: val(cal, 'pasture') };
+    const calStrip = { pasture: stripVal(cal, 'pastureDmi'), stored: stripVal(cal, 'storedDmi') };
+    const list = render('list');
+    expect({ need: val(list, 'need'), stored: val(list, 'stored'), pasture: val(list, 'pasture') }).toEqual(calVals);
+    expect(calVals).toEqual({ need: '2,756 lb', stored: '2,249 lb', pasture: '507 lb' });
+    // Location rows alone (history removed) + the history row = the strip.
+    const withH = { pasture: lb(calStrip.pasture), stored: lb(calStrip.stored) };
+    seedNoHistory();
+    setMetricWindow('2026-01-01', '2026-12-31');
+    const bare = render('calendar');
+    expect(withH.pasture - lb(stripVal(bare, 'pastureDmi'))).toBeCloseTo(lb(calVals.pasture), 0);
+    expect(withH.stored - lb(stripVal(bare, 'storedDmi'))).toBeCloseTo(lb(calVals.stored), 0);
+    expect(q(bare, 'winter-history-row')).toBeNull();
+  });
+
+  function seedNoHistory() {
+    seed();
+    for (const t of ['historicalAnimalBasis', 'historicalFeedings']) {
+      for (const r of [...store.getAll(t)]) store.remove(t, r.id, t);
+    }
+  }
+
+  it('not a location: the archive toggle and location filters do not hide it', () => {
+    seed({ archived: true });
+    put('locations', { id: 'L2', operationId: 'op', farmId: 'farm', name: 'South', type: 'land', landUse: 'pasture', areaHectares: 4, archived: false });
+    setMetricWindow('2026-01-01', '2026-12-31');
+    for (const view of ['calendar', 'list']) {
+      const c = render(view);
+      expect(c.querySelector('[data-testid="loc-mgmt-row"][data-location-id="L1"]')).toBeNull();
+      expect(q(c, 'winter-history-row')).not.toBeNull();
+      expect(q(c, 'winter-history-row').dataset.locationId).toBeUndefined();
+    }
   });
 });

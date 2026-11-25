@@ -47,8 +47,20 @@ function timeText(iso) {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 const whenText = iso => `${formatShortDate(localDateOf(iso))} ${timeText(iso)}`;
-// Brief D-T span format: "Nov 9 6:10 AM → Nov 11 6:05 AM, 2 days" (no year).
-const spanText = iso => `${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${timeText(iso)}`;
+/**
+ * Brief D-T span: "Nov 9 6:10 AM → Nov 11 6:05 AM, 2 days". The year is shown
+ * (on both ends) only when the span crosses a year boundary or falls outside
+ * the current year (Design ruling 5).
+ * @param {string} fromIso @param {string} toIso @param {number} spanDays
+ * @param {Date} [now]
+ */
+export function formatPickupSpan(fromIso, toIso, spanDays, now = new Date()) {
+  const a = new Date(fromIso), b = new Date(toIso);
+  const withYear = a.getFullYear() !== b.getFullYear() || b.getFullYear() !== now.getFullYear();
+  const opts = withYear ? { month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric' };
+  const end = d => `${d.toLocaleDateString('en-US', opts)} ${timeText(d.toISOString())}`;
+  return `${end(a)} → ${end(b)}, ${spanDays} ${spanDays === 1 ? 'day' : 'days'}`;
+}
 
 function defaultFarmId(existing) {
   return existing?.farmId || getActiveFarmId() || getAll('farms')[0]?.id || null;
@@ -215,7 +227,8 @@ function inRange(iso, from, to) {
 
 function paddockCell(milkDate, farmId, ctx) {
   const offsetDays = dairySettingsFor(farmId).milkGrazingOffsetDays;
-  const { grazingDate, blocks } = milkingGrazingOn(milkDate, { ...ctx, offsetDays });
+  // Per-farm offset (R1) and only this farm's paddocks (R3).
+  const { grazingDate, blocks } = milkingGrazingOn(milkDate, { ...ctx, offsetDays, farmId });
   return el('div', { className: 'milk-paddock', 'data-testid': 'milk-paddock', 'data-grazing-date': grazingDate }, blocks.length
     ? blocks.map(b => el('span', { className: 'milk-paddock__block', 'data-testid': 'milk-paddock-block', 'data-group-id': b.groupId }, [
       el('strong', {}, [b.locationName]), ` · ${b.groupName} · ${formatShortDate(grazingDate)}`,
@@ -267,9 +280,32 @@ export function buildMilkRows({ view, from, to, farmId, groupIds, unitSystem }) 
   const feedings = allFeedings.filter(f => inRange(f.fedAt, from, to)).sort((a, b) => (a.fedAt < b.fedAt ? 1 : -1));
   if (view === 'pickups') return pickups.map(p => pickupRow(p, ctx, us));
   if (view === 'calves') return feedings.map(f => calfRow(f, ctx, us));
-  const farmForTotals = farmId || getAll('farms')[0]?.id || null;
+  // Design ruling 2: each farm's records are totalled with that farm's own
+  // milk_totals_mode. All farms = one section per farm (farm order).
+  if (farmId) return totalsRowsForFarm(farmId, { allPickups, allFeedings, pickups, feedings, from, to, ctx, us });
+  const farmIds = [...new Set([
+    ...getAll('farms').map(f => f.id),
+    ...allPickups.map(p => p.farmId), ...allFeedings.map(f => f.farmId),
+  ])].filter(id => allPickups.some(p => p.farmId === id) || allFeedings.some(f => f.farmId === id));
+  const farmName = id => getAll('farms').find(f => f.id === id)?.name || 'Farm';
+  const out = [];
+  for (const id of farmIds) {
+    const mine = r => r.farmId === id;
+    const section = totalsRowsForFarm(id, {
+      allPickups: allPickups.filter(mine), allFeedings: allFeedings.filter(mine),
+      pickups: pickups.filter(mine), feedings: feedings.filter(mine), from, to, ctx, us,
+      farmLabel: farmIds.length > 1 ? farmName(id) : null, // R1: label totals when > 1 farm shown
+    });
+    out.push(...section);
+  }
+  return out;
+}
+
+/** Totals rows for one farm, using that farm's milk_totals_mode. */
+function totalsRowsForFarm(farmForTotals, { allPickups, allFeedings, pickups, feedings, from, to, ctx, us, farmLabel = null }) {
   const mode = dairySettingsFor(farmForTotals).milkTotalsMode;
   const out = [];
+  const label = () => (farmLabel ? el('span', { className: 'milk-row__farm', 'data-testid': 'milk-row-farm', 'data-farm-id': farmForTotals }, [`${farmLabel} · `]) : null);
   if (mode === 'spread_daily') {
     const days = [...spreadDailyTotals(allPickups, allFeedings).values()]
       .filter(d => d.date >= from && d.date <= to)
@@ -278,6 +314,7 @@ export function buildMilkRows({ view, from, to, farmId, groupIds, unitSystem }) 
       out.push(row('total', [
         el('div', { className: 'milk-row__when' }, [formatShortDate(d.date)]),
         el('div', { className: 'milk-row__what' }, [
+          label(),
           `Day total ${w(d.totalKg, us)} · pickup ${w(d.pickupKg, us)}${d.estimated ? ' est.' : ''} · calves ${w(d.calfKg, us)}`,
         ]),
         paddockCell(d.date, farmForTotals, ctx),
@@ -293,7 +330,7 @@ export function buildMilkRows({ view, from, to, farmId, groupIds, unitSystem }) 
     if (!mine.length) continue;
     out.push(row('total', [
       el('div', { className: 'milk-row__when' }, ['Now']),
-      el('div', { className: 'milk-row__what' }, [`Since last pickup · calves ${w(s.calfKg, us)}`]),
+      el('div', { className: 'milk-row__what' }, [label(), `Since last pickup · calves ${w(s.calfKg, us)}`]),
       el('div', { className: 'milk-paddock' }),
     ], { testid: 'milk-row-since-last' }));
     for (const f of [...mine].reverse()) out.push(calfRow(f, ctx, us));
@@ -301,12 +338,13 @@ export function buildMilkRows({ view, from, to, farmId, groupIds, unitSystem }) 
   for (const r of rows) {
     if (!inRange(r.pickup.pickedUpAt, from, to)) continue;
     const span = r.prevPickedUpAt
-      ? `${spanText(r.prevPickedUpAt)} → ${spanText(r.pickup.pickedUpAt)}, ${r.spanDays} ${r.spanDays === 1 ? 'day' : 'days'}`
+      ? formatPickupSpan(r.prevPickedUpAt, r.pickup.pickedUpAt, r.spanDays)
       : `First pickup · ${whenText(r.pickup.pickedUpAt)}`;
     const perDay = r.kgPerDay != null ? ` · ${w(r.kgPerDay, us)}/day` : '';
     out.push(row('total', [
       el('div', { className: 'milk-row__when' }, [formatShortDate(localDateOf(r.pickup.pickedUpAt))]),
       el('div', { className: 'milk-row__what' }, [
+        label(),
         `Total ${w(r.totalKg, us)} · pickup ${w(r.pickupKg, us)} + calves ${w(r.calfKg, us)}${perDay}`,
         el('div', { className: 'form-hint', 'data-testid': 'milk-total-span' }, [span]),
       ]),

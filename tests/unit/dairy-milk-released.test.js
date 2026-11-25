@@ -23,7 +23,7 @@ import * as FarmSetting from '../../src/entities/farm-setting.js';
 import * as Group from '../../src/entities/group.js';
 import { toStoredValue } from '../../src/features/settings/unit-descriptor.js';
 import { isDairyVisible, perPickupTotals, spreadDailyTotals, milkingGrazingOn, milkingGroupIds, recentDrivers } from '../../src/features/milk/milk-calcs.js';
-import { openMilkPickupSheet, calfMilkPreview, buildMilkRows, renderMilkScreen, _resetMilkPage, NO_MILKING_GROUP_HINT, isDairyVisibleNow } from '../../src/features/milk/index.js';
+import { openMilkPickupSheet, formatPickupSpan, calfMilkPreview, buildMilkRows, renderMilkScreen, _resetMilkPage, NO_MILKING_GROUP_HINT, isDairyVisibleNow } from '../../src/features/milk/index.js';
 import { openGroupSheet } from '../../src/features/animals/index.js';
 import { resolveFieldModuleKeys, availableFieldModules, FIELD_MODULES_DEFAULT } from '../../src/features/field-mode/index.js';
 import { renderDairySettingsCard, milkDensityLabel } from '../../src/features/settings/dairy-settings.js';
@@ -204,6 +204,29 @@ describe('5 · grazing offset', () => {
   });
 });
 
+describe('5b · paddock column limited to the pickup\'s own farm (R3)', () => {
+  it('a milking group grazing another farm is not drawn beside this farm\'s milk', () => {
+    const groups = [{ id: 'gm', name: 'Milkers', isMilking: true, archivedAt: null }];
+    const groupWindows = [{ groupId: 'gm', eventId: 'e1', dateJoined: '2026-11-01', dateLeft: null }, { groupId: 'gm', eventId: 'e2', dateJoined: '2026-11-01', dateLeft: null }];
+    const paddockWindows = [{ eventId: 'e1', locationId: 'LH', dateOpened: '2026-11-01', dateClosed: null }, { eventId: 'e2', locationId: 'LN', dateOpened: '2026-11-01', dateClosed: null }];
+    const locations = [{ id: 'LH', name: 'Home field', farmId: FARM }, { id: 'LN', name: 'North field', farmId: FARM2 }];
+    const ctx = { groups, groupWindows, paddockWindows, locations, today: '2026-11-24', offsetDays: 1 };
+    expect(milkingGrazingOn('2026-11-11', { ...ctx, farmId: FARM }).blocks.map(b => b.locationName)).toEqual(['Home field']);
+    expect(milkingGrazingOn('2026-11-11', { ...ctx, farmId: FARM2 }).blocks.map(b => b.locationName)).toEqual(['North field']);
+    seedBase();
+    mergeRemote('farms', [{ id: FARM2, operationId: OP, name: 'North' }]);
+    mergeRemote('groups', groups.map(g => ({ ...g, operationId: OP })));
+    mergeRemote('eventGroupWindows', groupWindows.map((w, i) => ({ id: `gw${i}`, operationId: OP, headCount: 1, avgWeightKg: 500, ...w })));
+    mergeRemote('eventPaddockWindows', paddockWindows.map((w, i) => ({ id: `pw${i}`, operationId: OP, ...w })));
+    mergeRemote('locations', locations.map(l => ({ ...l, operationId: OP, type: 'land' })));
+    mergeRemote('milkPickups', [pickup('p1', at(11, 11, 6), 400)]);
+    const rows = buildMilkRows({ view: 'pickups', from: '2026-11-01', to: '2026-11-30', farmId: FARM, groupIds: ['gm'], unitSystem: 'imperial' });
+    const cell = rows[0].querySelector('[data-testid="milk-paddock"]');
+    expect(cell.textContent).toContain('Home field');
+    expect(cell.textContent).not.toContain('North field');
+  });
+});
+
 describe('6 · active milking group switch, hint and page filter', () => {
   it('shows the switch when dairy is visible and saves the flag', () => {
     seedBase();
@@ -277,7 +300,62 @@ describe('7 · per_pickup totals', () => {
   });
 });
 
+describe('7b · span year (Design ruling 5)', () => {
+  const now = new Date(2026, 10, 25, 9, 0);
+  it('no year inside the current year', () => {
+    expect(formatPickupSpan(at(11, 9, 6, 10), at(11, 11, 6, 5), 2, now)).toMatch(/^Nov 9 6:10\s?AM → Nov 11 6:05\s?AM, 2 days$/);
+  });
+  it('year on both ends when the span crosses a year boundary', () => {
+    const a = new Date(2026, 11, 30, 6).toISOString(), b = new Date(2027, 0, 1, 6).toISOString();
+    expect(formatPickupSpan(a, b, 2, new Date(2027, 0, 2))).toMatch(/^Dec 30, 2026 6:00\s?AM → Jan 1, 2027 6:00\s?AM, 2 days$/);
+  });
+  it('year when the span falls outside the current year', () => {
+    const a = new Date(2025, 10, 9, 6).toISOString(), b = new Date(2025, 10, 10, 6).toISOString();
+    expect(formatPickupSpan(a, b, 1, now)).toMatch(/^Nov 9, 2025 6:00\s?AM → Nov 10, 2025 6:00\s?AM, 1 day$/);
+  });
+});
+
 describe('8 · spread_daily totals', () => {
+  it('All farms (R1): each farm uses its own milk_totals_mode and grazing offset; total rows carry the farm name', () => {
+    seedBase({ totals: 'spread_daily', offset: 1 });
+    mergeRemote('farms', [{ id: FARM2, operationId: OP, name: 'North' }]);
+    mergeRemote('farmSettings', [FarmSetting.create({ id: 'fs2', farmId: FARM2, operationId: OP, dairyMode: 'auto', milkTotalsMode: 'per_pickup', milkGrazingOffsetDays: 3 })]);
+    mergeRemote('userPreferences', [{ id: 'p1', userId: 'user', activeFarmId: null, fieldModeQuickActions: null }]);
+    mergeRemote('milkPickups', [
+      pickup('p1', at(11, 9, 6), 300), pickup('p2', at(11, 11, 6), 400),
+      pickup('q1', at(11, 9, 7), 100, FARM2), pickup('q2', at(11, 11, 7), 200, FARM2),
+    ]);
+    const build = () => buildMilkRows({ view: 'all', from: '2026-11-01', to: '2026-11-30', farmId: null, groupIds: [], unitSystem: 'imperial' });
+    const rows = build();
+    const totalIds = new Set(['milk-row-day', 'milk-row-pickup-total', 'milk-row-since-last']);
+    const totals = rows.filter(r => totalIds.has(r.dataset.testid));
+    const farmOf = r => r.querySelector('[data-testid="milk-row-farm"]')?.dataset.farmId;
+    // Every total row is labelled with its farm.
+    expect(totals.every(r => r.querySelector('[data-testid="milk-row-farm"]'))).toBe(true);
+    const home = totals.filter(r => farmOf(r) === FARM), north = totals.filter(r => farmOf(r) === FARM2);
+    expect(home[0].textContent).toContain('Home · ');
+    expect(north[0].textContent).toContain('North · ');
+    // Home (spread_daily): 3 day rows (2 est.), no pickup totals.
+    expect(home.map(r => r.dataset.testid)).toEqual(['milk-row-day', 'milk-row-day', 'milk-row-day']);
+    expect(home.filter(r => r.textContent.includes('est.'))).toHaveLength(2);
+    // North (per_pickup): two pickup totals over its own pickups only.
+    expect(north.map(r => r.dataset.testid)).toEqual(['milk-row-pickup-total', 'milk-row-pickup-total']);
+    expect(north[0].querySelector('[data-testid="milk-total-span"]').textContent).toMatch(/Nov 9 7:00\s?AM → Nov 11 7:00\s?AM, 2 days/);
+    // Each farm's own grazing offset: Home 1 day, North 3 days.
+    expect(home[0].querySelector('[data-testid="milk-paddock"]').dataset.grazingDate).toBe('2026-11-10');
+    expect(north[0].querySelector('[data-testid="milk-paddock"]').dataset.grazingDate).toBe('2026-11-08');
+    // Switching one farm's mode leaves the other's rows alone.
+    update('farmSettings', 'fs2', { milkTotalsMode: 'spread_daily' }, FarmSetting.validate, FarmSetting.toSupabaseShape, 'farm_settings');
+    const again = build();
+    expect(again.filter(r => r.dataset.testid === 'milk-row-pickup-total')).toHaveLength(0);
+    expect(again.filter(r => r.dataset.testid === 'milk-row-day')).toHaveLength(6);
+  });
+  it('one farm shown: no farm label on total rows', () => {
+    seedBase();
+    mergeRemote('milkPickups', [pickup('p1', at(11, 9, 6), 300), pickup('p2', at(11, 11, 6), 400)]);
+    const rows = buildMilkRows({ view: 'all', from: '2026-11-01', to: '2026-11-30', farmId: null, groupIds: [], unitSystem: 'imperial' });
+    expect(rows.some(r => r.querySelector('[data-testid="milk-row-farm"]'))).toBe(false);
+  });
   it('first pickup on its date; the 400 lb pickup splits 200 est. over Nov 10 and Nov 11 (+ calf)', () => {
     const pickups = [pickup('p1', at(11, 9, 6), 300), pickup('p2', at(11, 11, 6), 400)];
     const feedings = [feeding('f1', at(11, 11, 7), 10)];

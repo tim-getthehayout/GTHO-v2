@@ -146,11 +146,13 @@ export function spreadDailyTotals(pickups = [], feedings = []) {
 /**
  * D-G: grazing beside a milk date. Grazing on day D sits beside milk on
  * D + offset, so for milk date M this returns the flagged, non-archived
- * groups' paddocks on M − offset (labelled with that real date).
+ * groups' paddocks on M − offset (labelled with that real date). With
+ * `farmId`, only paddocks on that farm count (Design R3: a milking group
+ * grazing another farm is not drawn beside this farm's milk).
  * @returns {{ grazingDate: string, blocks: Array<{ groupId, groupName, locationId, locationName }> }}
  */
 export function milkingGrazingOn(milkDate, {
-  offsetDays = 1, groupIds = null, groups = [], groupWindows = [], paddockWindows = [], locations = [], today = null,
+  offsetDays = 1, groupIds = null, groups = [], groupWindows = [], paddockWindows = [], locations = [], today = null, farmId = null,
 } = {}) {
   const grazingDate = shiftDate(milkDate, -offsetDays);
   const ids = groupIds ? new Set(groupIds) : new Set(groups.filter(g => g.isMilking && !g.archivedAt).map(g => g.id));
@@ -165,6 +167,7 @@ export function milkingGrazingOn(milkDate, {
         if (pw.eventId !== gw.eventId || !inRange(pw.dateOpened, pw.dateClosed, grazingDate)) continue;
         if (blocks.some(b => b.groupId === g.id && b.locationId === pw.locationId)) continue;
         const loc = locations.find(l => l.id === pw.locationId);
+        if (farmId && loc?.farmId !== farmId) continue;
         blocks.push({ groupId: g.id, groupName: g.name, locationId: pw.locationId, locationName: loc?.name || '?' });
       }
     }

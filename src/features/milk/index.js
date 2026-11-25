@@ -17,14 +17,14 @@ import * as MilkPickupEntity from '../../entities/milk-pickup.js';
 import * as CalfMilkEntity from '../../entities/calf-milk-feeding.js';
 import { resolveDairySettings, validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
 import {
-  perPickupTotals, spreadDailyTotals, milkingGrazingOn, milkingGroupIds,
+  NO_MILKING_GROUP_HINT, perPickupTotals, spreadDailyTotals, milkingGrazingOn, milkingGroupIds,
   recentDrivers, localDateOf, shiftDate,
 } from './milk-calcs.js';
 import { dairyCtxFromStore, isDairyVisibleNow } from './visibility.js';
 
 const WEIGHT_FIELD = { measureType: 'weight' };
 const VOLUME_FIELD = { measureType: 'volume' };
-export const NO_MILKING_GROUP_HINT = 'No milking group set. Mark a group as Active milking in its group settings.';
+export { NO_MILKING_GROUP_HINT };
 
 export { dairyCtxFromStore, isDairyVisibleNow };
 

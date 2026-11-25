@@ -1,9 +1,12 @@
 /**
- * #449 dairy milk at the real ceiling 50: 051 is held. Nothing is written,
+ * #449 dairy milk at a mocked ceiling 50 (051 held; the pre-release state and
+ * any client still below 51). Released at the real ceiling 51 — see
+ * dairy-milk-released.test.js. Nothing is written,
  * pulled, exported or restored for the dairy tables/columns and every dairy
  * surface is hidden (acceptance 3, 4, 6, 10, 11 — ceiling < 51 side).
  */
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 50, HELD_SCHEMA_VERSIONS: [51] }));
 const db = vi.hoisted(() => ({ rows: {}, calls: [], proofs: [], missingTables: [] }));
 vi.mock('../../src/data/supabase-client.js', async () => {
   const { makeBackupClient } = await import('./historical-backup-double.js');
@@ -50,7 +53,7 @@ beforeEach(() => {
 });
 afterEach(() => { setSyncAdapter(null); vi.restoreAllMocks(); });
 
-it('ceiling stays 50; 051 is held with the locked staged columns and tables', () => {
+it('mocked ceiling 50; 051 is held with the locked staged columns and tables', () => {
   expect(RELEASED_SCHEMA_VERSION).toBe(50);
   expect(CURRENT_SCHEMA_VERSION).toBe(50);
   expect(DAIRY_SCHEMA_VERSION).toBe(51);

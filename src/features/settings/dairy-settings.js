@@ -5,7 +5,8 @@
  * released (nothing is written before then).
  */
 import { el, clear } from '../../ui/dom.js';
-import { update, getOperation } from '../../data/store.js';
+import { update, getOperation, getAll } from '../../data/store.js';
+import { milkingGroupIds, NO_MILKING_GROUP_HINT } from '../milk/milk-calcs.js';
 import { isDairySchemaReleased, RELEASED_SCHEMA_VERSION } from '../../data/schema-release.js';
 import { resolveDairySettings, validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
 import { toDisplayValue, toStoredValue } from './unit-descriptor.js';
@@ -48,6 +49,8 @@ export function renderDairySettingsCard(fs) {
     row('Dairy features', modeSel),
     row(milkDensityLabel(unitSystem), densityInput),
     row('Milk totals', totalsSel),
+    // Same empty-state hint as the #/milk page while no group is flagged.
+    milkingGroupIds(getAll('groups')).length ? null : el('div', { className: 'form-hint', 'data-testid': 'settings-dairy-no-group-hint' }, [NO_MILKING_GROUP_HINT]),
     el('button', {
       className: 'btn btn-green btn-sm',
       'data-testid': 'settings-dairy-save',

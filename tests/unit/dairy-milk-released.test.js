@@ -1,11 +1,10 @@
 /**
- * #449 dairy milk — acceptance tests 1–11 replayed at a mocked ceiling 51
- * (the state after 051 is applied and released). The real ceiling stays 50;
- * see dairy-milk-held.test.js. Brief: session_briefs/DAIRY_MILK_2026-11-24.md.
+ * #449 dairy milk — acceptance tests 1–11 at the real released ceiling 51
+ * (051 applied and verified on v2 prod 2026-11-25). The held side (ceiling 50)
+ * stays covered in dairy-milk-held.test.js. Brief: session_briefs/DAIRY_MILK_2026-11-24.md.
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({ rows: {}, calls: [], proofs: [], missingTables: [] }));
-vi.mock('../../src/data/schema-release.js', async original => ({ ...await original(), RELEASED_SCHEMA_VERSION: 51, HELD_SCHEMA_VERSIONS: [] }));
 vi.mock('../../src/data/supabase-client.js', async () => {
   const { makeBackupClient } = await import('./historical-backup-double.js');
   return { supabase: makeBackupClient(db) };
@@ -13,7 +12,10 @@ vi.mock('../../src/data/supabase-client.js', async () => {
 vi.mock('../../src/features/auth/session.js', () => ({ getUser: () => ({ id: 'user', email: 'test@example.test' }) }));
 import { CustomSync } from '../../src/data/custom-sync.js';
 import { _reset, setSyncAdapter, mergeRemote, getAll, getById, update } from '../../src/data/store.js';
-import { RELEASED_SCHEMA_VERSION, isTableReleased } from '../../src/data/schema-release.js';
+import { RELEASED_SCHEMA_VERSION, HELD_SCHEMA_VERSIONS, isTableReleased } from '../../src/data/schema-release.js';
+import { BACKUP_TABLES } from '../../src/data/backup-export.js';
+import { FK_ORDER } from '../../src/data/backup-import.js';
+import { localSupabaseRow } from '../../src/data/push-all.js';
 import { exportOperationBackup } from '../../src/data/backup-export.js';
 import { importOperationBackup, CURRENT_SCHEMA_VERSION } from '../../src/data/backup-import.js';
 import { BACKUP_MIGRATIONS } from '../../src/data/backup-migrations.js';
@@ -54,8 +56,10 @@ beforeEach(() => {
 });
 afterEach(() => { setSyncAdapter(null); vi.restoreAllMocks(); });
 
-it('runs at the mocked ceiling 51', () => {
+it('runs at the real released ceiling 51 with nothing held', () => {
   expect(RELEASED_SCHEMA_VERSION).toBe(51);
+  expect(CURRENT_SCHEMA_VERSION).toBe(51);
+  expect(HELD_SCHEMA_VERSIONS).toEqual([]);
   expect(isTableReleased('milk_pickups', RELEASED_SCHEMA_VERSION)).toBe(true);
   expect(isTableReleased('calf_milk_feedings', RELEASED_SCHEMA_VERSION)).toBe(true);
 });
@@ -252,6 +256,9 @@ describe('6 · active milking group switch, hint and page filter', () => {
     renderMilkScreen(c);
     expect(c.querySelector('[data-testid="milk-no-group-hint"]').textContent).toContain(NO_MILKING_GROUP_HINT);
     expect(c.querySelector('[data-testid="milk-no-group-hint"] a').getAttribute('href')).toBe('#/animals');
+    // Release copy: the hint names where the switch lives (group sheet).
+    expect(NO_MILKING_GROUP_HINT).toBe("No milking group set. Open a group, turn on 'Active milking group'.");
+    expect(renderDairySettingsCard(getById('farmSettings', 'fs1')).querySelector('[data-testid="settings-dairy-no-group-hint"]').textContent).toBe(NO_MILKING_GROUP_HINT);
     // Saving a pickup still works with no milking group set.
     openMilkPickupSheet();
     document.querySelector('[data-testid="milk-pickup-weight"]').value = '100';
@@ -266,6 +273,7 @@ describe('6 · active milking group switch, hint and page filter', () => {
     const c2 = document.createElement('div'); document.body.appendChild(c2);
     renderMilkScreen(c2);
     expect(c2.querySelector('[data-testid="milk-no-group-hint"]')).toBeNull();
+    expect(renderDairySettingsCard(getById('farmSettings', 'fs1')).querySelector('[data-testid="settings-dairy-no-group-hint"]')).toBeNull();
     const chips = [...c2.querySelectorAll('[data-testid="milk-group-chip"]')];
     expect(chips.filter(ch => ch.className.includes('btn-green')).map(ch => ch.dataset.groupId)).toEqual(['g2']);
   });
@@ -454,7 +462,22 @@ describe('9 · backup at 51', () => {
   });
 });
 
-describe('10 · pull at 51 reads both tables', () => {
+describe('10 · sync, backup and export include both tables at 51', () => {
+  it('both tables are released, in the backup table list after their parents, and push from the store', () => {
+    seedBase();
+    for (const table of ['milk_pickups', 'calf_milk_feedings']) {
+      expect(isTableReleased(table, RELEASED_SCHEMA_VERSION)).toBe(true);
+      expect(BACKUP_TABLES[table]).toEqual({ paginate: true });
+      for (const parent of ['operations', 'farms', 'groups']) expect(FK_ORDER.indexOf(table)).toBeGreaterThan(FK_ORDER.indexOf(parent));
+    }
+    const p = pickup('22222222-0000-4000-8000-000000000001', at(11, 9, 6), 300);
+    const f = feeding('22222222-0000-4000-8000-000000000002', at(11, 9, 17), 10);
+    mergeRemote('milkPickups', [p]);
+    mergeRemote('calfMilkFeedings', [f]);
+    expect(localSupabaseRow('milk_pickups', p.id)).toEqual(MilkPickup.toSupabaseShape(p));
+    expect(localSupabaseRow('calf_milk_feedings', f.id)).toEqual(CalfMilk.toSupabaseShape(f));
+  });
+
   it('pulls milk_pickups and calf_milk_feedings once released', async () => {
     const { pullAllRemote } = await import('../../src/data/pull-remote.js');
     const pulled = [];

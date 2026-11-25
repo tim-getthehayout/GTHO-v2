@@ -79,9 +79,9 @@ afterEach(() => {
 
 describe('#402 released at schema 49', () => {
   it('editors are released at the real ceiling 49', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(50);
-    expect(CURRENT_SCHEMA_VERSION).toBe(50);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([51]); // #449 dairy 051 held
+    expect(RELEASED_SCHEMA_VERSION).toBe(51);
+    expect(CURRENT_SCHEMA_VERSION).toBe(51);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
     expect(STAGED_COLUMNS[49]).toEqual({
       farm_settings: ['season_start_month', 'season_start_day', 'season_end_month', 'season_end_day'],
     });

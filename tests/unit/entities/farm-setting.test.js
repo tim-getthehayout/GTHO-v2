@@ -1,6 +1,6 @@
 /** @file Entity tests: farm-setting */
 import { describe, it, expect } from 'vitest';
-import { FIELDS, create, validate, toSupabaseShape, fromSupabaseShape } from '../../../src/entities/farm-setting.js';
+import { FIELDS, create, validate, toSupabaseShape, fromSupabaseShape, DAIRY_DEFAULTS } from '../../../src/entities/farm-setting.js';
 
 describe('entity: farm-setting', () => {
   const FARM_ID = '550e8400-e29b-41d4-a716-446655440000';
@@ -77,9 +77,10 @@ describe('entity: farm-setting', () => {
       });
       const roundTripped = fromSupabaseShape(toSupabaseShape(record));
       // OI-0251 null-push: unset include_archived pushes the locked default true.
-      expect(roundTripped).toEqual({ ...record, includeArchivedLocationsInMetrics: true });
+      // #449 (schema 51 released): unset dairy values push DAIRY_DEFAULTS.
+      expect(roundTripped).toEqual({ ...record, includeArchivedLocationsInMetrics: true, ...DAIRY_DEFAULTS });
       const explicit = { ...record, includeArchivedLocationsInMetrics: false };
-      expect(fromSupabaseShape(toSupabaseShape(explicit))).toEqual(explicit);
+      expect(fromSupabaseShape(toSupabaseShape(explicit))).toEqual({ ...explicit, ...DAIRY_DEFAULTS });
     });
   });
 

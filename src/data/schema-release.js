@@ -3,19 +3,19 @@
  * Schema 46 (animals.confirmed_bred_date), schema 47 (farm_settings
  * per-species preg-check thresholds), schema 48 (farm_settings
  * return-to-cycle days), schema 49 (farm_settings season default
- * month-days, #402) and schema 50 (farm_settings
- * include_archived_locations_in_metrics, OI-0251) are released after
- * verified apply.
+ * month-days, #402), schema 50 (farm_settings
+ * include_archived_locations_in_metrics, OI-0251) and schema 51 (#449 dairy
+ * milk) are released after verified apply.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
-export const RELEASED_SCHEMA_VERSION = 50;
+export const RELEASED_SCHEMA_VERSION = 51;
 // OI-0251 Ap: farm_settings.include_archived_locations_in_metrics (050),
 // released after verified apply. Reads still treat absent/null as true.
 export const ARCHIVED_METRICS_SCHEMA_VERSION = 50;
 // #449 dairy milk (051): milk_pickups, calf_milk_feedings, farm_settings dairy
-// columns and groups.is_milking. Held (file only) until a verified backup +
-// Tim's yes + verified apply, then a separate release PR raises the ceiling.
+// columns and groups.is_milking. Released after verified apply on v2 prod
+// (2026-11-25 11:56:53 ET, ledger 20261125165653 dairy_milk; Tim card t1652s6519).
 export const DAIRY_SCHEMA_VERSION = 51;
-export const HELD_SCHEMA_VERSIONS = [51];
+export const HELD_SCHEMA_VERSIONS = [];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.

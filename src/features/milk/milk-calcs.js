@@ -175,6 +175,9 @@ export function milkingGrazingOn(milkDate, {
   return { grazingDate, blocks };
 }
 
+/** Empty-state hint (#/milk page and Settings Dairy card) naming where the switch lives. */
+export const NO_MILKING_GROUP_HINT = "No milking group set. Open a group, turn on 'Active milking group'.";
+
 /** Flagged, non-archived milking group ids (the page filter default). */
 export function milkingGroupIds(groups = []) {
   return groups.filter(g => g.isMilking && !g.archivedAt).map(g => g.id);

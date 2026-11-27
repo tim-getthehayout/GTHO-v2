@@ -7,7 +7,7 @@
  * Pure helpers are exported for unit testing.
  */
 
-import { el } from '../../ui/dom.js';
+import { showToast } from '../../ui/toast.js';
 import { t } from '../../i18n/i18n.js';
 import {
   getAll, getById, add, update, remove, splitGroupWindow,
@@ -64,31 +64,18 @@ export function clearSplitUndo() {
  * @param {() => void} onUndo
  */
 export function showSplitUndoToast(message, onUndo) {
-  if (typeof document === 'undefined') return;
-  const existing = document.querySelector('[data-testid="split-toast"]');
-  if (existing) existing.remove();
-  const toast = el('div', {
-    'data-testid': 'split-toast',
-    style: {
-      position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-      background: 'var(--text)', color: 'var(--bg)', padding: '10px 14px', borderRadius: '8px',
-      fontSize: '13px', zIndex: '400', maxWidth: '90%',
-      display: 'flex', alignItems: 'center', gap: '10px',
-    },
-  }, [
-    el('span', {}, [message]),
-    el('button', {
+  showToast(message, 'split-toast', {
+    duration: 8000,
+    action: {
+      label: t('animal.splitUndo'),
       className: 'btn btn-outline btn-xs',
-      'data-testid': 'split-undo-btn',
+      testid: 'split-undo-btn',
       style: { color: 'var(--bg)', borderColor: 'var(--bg)', flexShrink: '0' },
       onClick: () => {
-        toast.remove();
         try { onUndo(); } catch (err) { logger.warn('split', 'Undo failed', { err: err?.message }); }
       },
-    }, [t('animal.splitUndo')]),
-  ]);
-  document.body.appendChild(toast);
-  setTimeout(() => { if (toast.isConnected) toast.remove(); }, 8000);
+    },
+  });
 }
 
 /**

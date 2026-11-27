@@ -600,7 +600,7 @@ export function createAssistantSession({ deps, config, intent, say = () => {}, o
         return 'listening';
       } catch (error) {
         buffer.discard();
-        try { stream?.getTracks().forEach(track => track.stop()); } catch { /* ignore */ }
+        try { stream?.getTracks().forEach(track => track.stop()); } catch { /* tracks already stopped / stream gone */ }
         if (typedTakeover) {
           await abandonAttempt();
           return 'aborted';

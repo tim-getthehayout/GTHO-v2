@@ -132,10 +132,10 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       const cleanup = () => { clearTimer(timer); signal?.removeEventListener('abort', abort); };
       const abort = () => {
         cleanup(); socket.onmessage = socket.onclose = null;
-        try { socket.close(); } catch { /* ignore */ }
+        try { socket.close(); } catch { /* socket already closed / never opened */ }
         reject(abortError());
       };
-      const timer = setTimer(() => { cleanup(); try { socket.close(); } catch { /* ignore */ } logVoice('teardown', { reason: 'session-created-timeout', attempt }, now, tapAt); reject(new Error('session-created-timeout')); }, SESSION_CREATED_TIMEOUT_MS);
+      const timer = setTimer(() => { cleanup(); try { socket.close(); } catch { /* socket already closed / never opened */ } logVoice('teardown', { reason: 'session-created-timeout', attempt }, now, tapAt); reject(new Error('session-created-timeout')); }, SESSION_CREATED_TIMEOUT_MS);
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) { abort(); return; }
       socket.onmessage = event => {
@@ -188,7 +188,7 @@ export function createXaiRealtimeDriver({ config, WebSocketImpl = globalThis.Web
       closed = true; clearTimer(cap); clearTimer(finalizeTimer); finalizeTimer = null;
       resolveFinalized();
       socket.onmessage = socket.onclose = null;
-      try { socket.close(); } catch { /* ignore */ }
+      try { socket.close(); } catch { /* socket already closed / never opened */ }
       if (active?.socket === socket) active = null;
     };
     // P4: hang up at the session cap; a new session needs a new token.

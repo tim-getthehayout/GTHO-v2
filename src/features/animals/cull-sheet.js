@@ -13,7 +13,8 @@
  */
 
 import { el, clear } from '../../ui/dom.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
+import { showToast } from '../../ui/toast.js';
 import { t } from '../../i18n/i18n.js';
 import {
   getAll, getById, add, update, remove, splitGroupWindow, reactivateGroup, maybeSplitForGroup,
@@ -51,13 +52,12 @@ export const CULL_REASONS = [
   'Other',
 ];
 
-function ensureSheetDOM() {
-  if (document.getElementById('cull-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'cull-sheet-wrap', style: { zIndex: '230' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => cullSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'cull-sheet-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'cull-sheet-wrap',
+  panelId: 'cull-sheet-panel',
+  zIndex: '230',
+  onBackdropClick: () => cullSheet?.close(),
+};
 
 function ensurePickerDOM() {
   if (document.getElementById('composite-cull-picker-wrap')) return;
@@ -71,16 +71,8 @@ function ensurePickerDOM() {
   ]));
 }
 
-function showCullToast(message) {
-  const existing = document.querySelector('[data-testid="cull-toast"]');
-  if (existing) existing.remove();
-  const toast = el('div', {
-    'data-testid': 'cull-toast',
-    style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'var(--text)', color: 'var(--bg)', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', zIndex: '400', maxWidth: '90%' },
-  }, [message]);
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 5000);
-}
+/** Plain cull toasts stay up 5 s (undo toasts 8 s). */
+const CULL_TOAST = { duration: 5000 };
 
 /**
  * Toast with a one-tap Undo button (device-local reverse of the last partial cull).
@@ -88,31 +80,18 @@ function showCullToast(message) {
  * @param {() => void} onUndo
  */
 export function showCullUndoToast(message, onUndo) {
-  if (typeof document === 'undefined') return;
-  const existing = document.querySelector('[data-testid="cull-toast"]');
-  if (existing) existing.remove();
-  const toast = el('div', {
-    'data-testid': 'cull-toast',
-    style: {
-      position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-      background: 'var(--text)', color: 'var(--bg)', padding: '10px 14px', borderRadius: '8px',
-      fontSize: '13px', zIndex: '400', maxWidth: '90%',
-      display: 'flex', alignItems: 'center', gap: '10px',
-    },
-  }, [
-    el('span', {}, [message]),
-    el('button', {
+  showToast(message, 'cull-toast', {
+    duration: 8000,
+    action: {
+      label: t('animal.cullUndo'),
       className: 'btn btn-outline btn-xs',
-      'data-testid': 'cull-undo-btn',
+      testid: 'cull-undo-btn',
       style: { color: 'var(--bg)', borderColor: 'var(--bg)', flexShrink: '0' },
       onClick: () => {
-        toast.remove();
         try { onUndo(); } catch (err) { logger.warn('cull', 'Undo failed', { err: err?.message }); }
       },
-    }, [t('animal.cullUndo')]),
-  ]);
-  document.body.appendChild(toast);
-  setTimeout(() => { if (toast.isConnected) toast.remove(); }, 8000);
+    },
+  });
 }
 
 /**
@@ -515,7 +494,7 @@ export function reactivateAnimal({ animal }) {
  */
 export function openCullSheet(animal, operationId, onCommitted) {
   if (!animal) return;
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!cullSheet) cullSheet = new Sheet('cull-sheet-wrap');
   const panel = document.getElementById('cull-sheet-panel');
   if (!panel) return;
@@ -617,12 +596,12 @@ export function openCullSheet(animal, operationId, onCommitted) {
                 t('animal.cullPartialToast', { label: idLabel, count: Number(headsRaw) }),
                 () => {
                   undoPartialBulkCull(result.undo);
-                  showCullToast(t('animal.cullUndoDone'));
+                  showToast(t('animal.cullUndoDone'), 'cull-toast', CULL_TOAST);
                   if (onCommitted) onCommitted();
                 },
               );
             } else {
-              showCullToast(t('animal.cullFullToast', { label: idLabel, reason: cullReason }));
+              showToast(t('animal.cullFullToast', { label: idLabel, reason: cullReason }), 'cull-toast', CULL_TOAST);
             }
             if (onCommitted) onCommitted();
           } else {
@@ -630,7 +609,7 @@ export function openCullSheet(animal, operationId, onCommitted) {
             cullSheet.close();
             const idLabel = animal.name || animal.eid || animal.id?.slice(0, 8);
             const tagPart = animal.tagNum ? ` (${animal.tagNum})` : '';
-            showCullToast(`${idLabel}${tagPart} marked as culled (${cullReason}). Removed from group — DMI targets updated.`);
+            showToast(`${idLabel}${tagPart} marked as culled (${cullReason}). Removed from group — DMI targets updated.`, 'cull-toast', CULL_TOAST);
             if (onCommitted) onCommitted();
           }
         } catch (err) {

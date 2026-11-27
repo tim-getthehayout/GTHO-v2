@@ -167,7 +167,7 @@ export async function openLocationMapPicker(opts = {}) {
 
   if (drawn.length) {
     const group = L.featureGroup(drawn.map((loc) => L.geoJSON(loc.geojson)));
-    try { map.fitBounds(group.getBounds().pad(0.15)); } catch { /* empty */ }
+    try { map.fitBounds(group.getBounds().pad(0.15)); } catch { /* no valid bounds (degenerate geometry): keep the default view */ }
   }
 
   let marker = null;

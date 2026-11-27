@@ -1,6 +1,16 @@
 /** @file Advanced calculation registrations — CP-47. 6 formulas (NPK-2, NPK-4, CST-3, REC-1, SUR-1, UNT-2). */
 
 import { registerCalc } from '../utils/calc-registry.js';
+import { addDays } from '../utils/date-utils.js';
+
+/** `YYYY-MM-DD` as-is; any other date/timestamp → its local calendar Y-M-D. */
+function localCalendarDate(value) {
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const d = new Date(str);
+  const pad = (v) => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 // NPK-2: Fertilizer Value
 registerCalc({
@@ -101,20 +111,12 @@ registerCalc({
     output: { earliestReturn: '2024-06-22', windowCloses: '2024-07-06' },
   },
   fn({ observedAt, recoveryMinDays, recoveryMaxDays }) {
-    // OI-0262 Dz1 — DST-safe local calendar math: parse YYYY-MM-DD at local
-    // midnight, add calendar days, format local Y-M-D (no toISOString / UTC).
-    const addDays = (iso, days) => {
-      const str = String(iso);
-      const d = /^\d{4}-\d{2}-\d{2}$/.test(str) ? new Date(`${str}T00:00:00`) : new Date(str);
-      d.setDate(d.getDate() + days);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    };
+    // OI-0262 Dz1 — DST-safe local calendar math via the shared addDays
+    // (#481). A full timestamp first becomes its local calendar date.
+    const start = localCalendarDate(observedAt);
     return {
-      earliestReturn: addDays(observedAt, recoveryMinDays),
-      windowCloses: addDays(observedAt, recoveryMaxDays),
+      earliestReturn: addDays(start, recoveryMinDays),
+      windowCloses: addDays(start, recoveryMaxDays),
     };
   },
 });

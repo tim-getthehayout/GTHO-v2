@@ -23,7 +23,7 @@ function setFlag(name) {
   try {
     if (typeof localStorage !== 'undefined') localStorage.setItem(name, 'true');
   } catch {
-    /* no-op */
+    // Storage unavailable: the fix is idempotent and simply re-scans next boot.
   }
 }
 
@@ -76,6 +76,6 @@ export function _resetOneTimeFixFlags() {
   try {
     if (typeof localStorage !== 'undefined') localStorage.removeItem(FLAG_PADDOCK_ORPHAN_CLEANUP);
   } catch {
-    /* no-op */
+    // Test helper: storage unavailable, nothing to reset.
   }
 }

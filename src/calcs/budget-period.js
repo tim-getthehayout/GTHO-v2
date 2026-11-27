@@ -4,6 +4,8 @@
  * See session_briefs/IMPLIED_PASTURE_DMI_2026-11-17.md §2.
  */
 
+import { addDays } from '../utils/date-utils.js';
+
 /** Default period for new farms (Q4): Oct 1 – Sep 30. */
 export const DEFAULT_BUDGET_PERIOD = Object.freeze({ startMonth: 10, startDay: 1, endMonth: 9, endDay: 30 });
 export const MAX_BUDGET_DAYS = 366;
@@ -13,12 +15,6 @@ const isLeap = y => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 const daysInMonth = (y, m) => [31, isLeap(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
 const ymd = (y, m, d) => `${y}-${pad(m)}-${pad(Math.min(d, daysInMonth(y, m)))}`;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function addDays(date, days) {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 /** Inclusive day count from start to end (end ≥ start). */
 export function periodDays({ start, end }) {

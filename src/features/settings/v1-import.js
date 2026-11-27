@@ -4,6 +4,7 @@
  * File upload, transform preview, progress, audit report, unparseable dose CSV.
  */
 import { el, clear } from '../../ui/dom.js';
+import { showExportToast } from '../../ui/toast.js';
 import { t } from '../../i18n/i18n.js';
 import { canExport } from '../../data/backup-export.js';
 import { importOperationBackup } from '../../data/backup-import.js';
@@ -33,7 +34,7 @@ export function renderV1ImportButton(mount, operation) {
     onClick: () => {
       const check = canExport();
       if (!check.ok) {
-        showToast(t('settings.importV1SyncPending'));
+        showExportToast(t('settings.importV1SyncPending'));
         return;
       }
       fileInput.click();
@@ -59,12 +60,12 @@ async function handleV1FileSelect(e, mount, operation) {
     const text = await file.text();
     v1Data = JSON.parse(text);
   } catch {
-    showToast(t('settings.importInvalidJson'));
+    showExportToast(t('settings.importInvalidJson'));
     return;
   }
 
   if (!isV1Export(v1Data)) {
-    showToast(t('settings.importV1NotV1'));
+    showExportToast(t('settings.importV1NotV1'));
     return;
   }
 
@@ -338,19 +339,6 @@ function downloadDoseAuditCsv(doses) {
   URL.revokeObjectURL(url);
 }
 
-function showToast(message) {
-  const existing = document.querySelector('[data-testid="export-toast"]');
-  if (existing) existing.remove();
-
-  const toast = el('div', {
-    className: 'export-toast',
-    'data-testid': 'export-toast',
-  }, [message]);
-
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
-}
-
 /**
  * Render a "Copy error log" button (OI-0051).
  * Collects logger buffer (warn/error), audit data, and result summary.
@@ -412,9 +400,9 @@ function renderCopyErrorLogBtn(audit, result) {
 
       try {
         await navigator.clipboard.writeText(lines.join('\n'));
-        showToast(t('settings.importV1ErrorLogCopied'));
+        showExportToast(t('settings.importV1ErrorLogCopied'));
       } catch {
-        showToast(t('settings.importV1ErrorLogCopied'));
+        showExportToast(t('settings.importV1ErrorLogCopied'));
       }
     },
   }, [t('settings.importV1CopyErrorLog')]);

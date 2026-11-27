@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById, add, update, remove, splitPaddockWindow, getSyncAdapter } from '../../data/store.js';
 import { convert } from '../../utils/units.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
@@ -18,13 +18,12 @@ import { listUnacked } from '../../data/unacked.js';
 
 let editPwSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('edit-pw-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'edit-pw-wrap', style: { zIndex: '220' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => editPwSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'edit-pw-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'edit-pw-wrap',
+  panelId: 'edit-pw-panel',
+  zIndex: '220',
+  onBackdropClick: () => editPwSheet?.close(),
+};
 
 
 /**
@@ -84,7 +83,7 @@ function persistObservationCard({ card, existingObs, operationId, locationId, pw
  * @param {string} operationId
  */
 export function openEditPaddockWindowDialog(pw, event, operationId) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!editPwSheet) editPwSheet = new Sheet('edit-pw-wrap');
   const panel = document.getElementById('edit-pw-panel');
   if (!panel) return;

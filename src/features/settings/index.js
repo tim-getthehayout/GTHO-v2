@@ -1,6 +1,7 @@
 /** @file Settings screen — farm settings, user prefs, account, sync status, backup */
 
 import { el, clear } from '../../ui/dom.js';
+import { showExportToast } from '../../ui/toast.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, update, getSyncAdapter, getOperation, setUnitSystem } from '../../data/store.js';
 import {
@@ -918,23 +919,6 @@ async function runExport(mount, operation) {
       'data-testid': 'export-error',
     }, [err?.message || t('settings.exportError')]));
   }
-}
-
-/**
- * Show a temporary toast message.
- * @param {string} message
- */
-function showExportToast(message) {
-  const existing = document.querySelector('[data-testid="export-toast"]');
-  if (existing) existing.remove();
-
-  const toast = el('div', {
-    className: 'export-toast',
-    'data-testid': 'export-toast',
-  }, [message]);
-
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
 }
 
 // ---------------------------------------------------------------------------

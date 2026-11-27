@@ -2,7 +2,7 @@ import { unitsFor } from '../../data/unit-references.js';
 /** @file Treatment recording sheet — v1 parity. */
 
 import { el, clear } from '../../ui/dom.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, add } from '../../data/store.js';
 import * as TreatmentEntity from '../../entities/animal-treatment.js';
 import { reviewSave, inputField } from '../assistant/entry-review.js';
@@ -12,17 +12,17 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let treatmentSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('treatment-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'treatment-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => treatmentSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'treatment-sheet-panel', style: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' } }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'treatment-sheet-wrap',
+  panelId: 'treatment-sheet-panel',
+  zIndex: '210',
+  panelStyle: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' },
+  onBackdropClick: () => treatmentSheet?.close(),
+};
 
 export function openTreatmentSheet(animal, operationId, options = {}) {
   if (animal?.isBulk) return;
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!treatmentSheet) treatmentSheet = new Sheet('treatment-sheet-wrap');
   const panel = document.getElementById('treatment-sheet-panel');
   if (!panel) return;

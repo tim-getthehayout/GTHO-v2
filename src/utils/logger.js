@@ -30,7 +30,8 @@ function bufferEntry(entry) {
     }
     localStorage.setItem(LOG_BUFFER_KEY, JSON.stringify(buffer));
   } catch {
-    // If localStorage is full or unavailable, drop silently
+    // Storage full or unavailable: drop the buffered copy (console already has
+    // it); the logger cannot log its own failure.
   }
 }
 
@@ -112,7 +113,7 @@ export const logger = {
     try {
       localStorage.removeItem(LOG_BUFFER_KEY);
     } catch {
-      // Ignore
+      // Storage unavailable: nothing buffered to clear (logger cannot log itself).
     }
   },
 };

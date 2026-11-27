@@ -16,7 +16,7 @@ import { PLACE_ENTRY_FIELDS } from './place-wizard-entry-fields.js';
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { logger } from '../../utils/logger.js';
@@ -37,13 +37,12 @@ import {
 
 let placeWizardSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('place-wizard-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'place-wizard-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => placeWizardSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'place-wizard-sheet-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'place-wizard-sheet-wrap',
+  panelId: 'place-wizard-sheet-panel',
+  zIndex: '210',
+  onBackdropClick: () => placeWizardSheet?.close(),
+};
 
 /**
  * Open the place wizard for an unplaced group.
@@ -66,7 +65,7 @@ export function openPlaceWizard(groupId, operationId, farmId, options = {}) {
     return;
   }
 
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!placeWizardSheet) {
     placeWizardSheet = new Sheet('place-wizard-sheet-wrap');
   }

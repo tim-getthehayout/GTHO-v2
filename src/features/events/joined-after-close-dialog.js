@@ -3,23 +3,18 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getById } from '../../data/store.js';
 import { formatWindowInstant } from './window-integrity.js';
 
 let reviewSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('joined-after-close-dialog-wrap')) return;
-  document.body.appendChild(el('div', {
-    className: 'sheet-wrap',
-    id: 'joined-after-close-dialog-wrap',
-    style: { zIndex: '230' },
-  }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => reviewSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'joined-after-close-dialog-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'joined-after-close-dialog-wrap',
+  panelId: 'joined-after-close-dialog-panel',
+  zIndex: '230',
+  onBackdropClick: () => reviewSheet?.close(),
+};
 
 /**
  * @param {Object} params
@@ -32,7 +27,7 @@ function ensureSheetDOM() {
 export function openJoinedAfterCloseDialog({ windows, closeDate, closeTime = null, onConfirm, onCancel }) {
   if (!windows || windows.length === 0) return;
 
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!reviewSheet) reviewSheet = new Sheet('joined-after-close-dialog-wrap');
   const panel = document.getElementById('joined-after-close-dialog-panel');
   if (!panel) return;

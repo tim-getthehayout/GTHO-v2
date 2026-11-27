@@ -14,34 +14,25 @@
  */
 
 import { el, clear } from '../../ui/dom.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import {
   getAll, getById, archiveGroup, remove,
 } from '../../data/store.js';
 import { logger } from '../../utils/logger.js';
+import { showToast } from '../../ui/toast.js';
 
 let emptyGroupSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('empty-group-prompt-wrap')) return;
-  document.body.appendChild(el('div', {
-    className: 'sheet-wrap',
-    id: 'empty-group-prompt-wrap',
-    style: { zIndex: '235' },
-  }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => emptyGroupSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'empty-group-prompt-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'empty-group-prompt-wrap',
+  panelId: 'empty-group-prompt-panel',
+  zIndex: '235',
+  onBackdropClick: () => emptyGroupSheet?.close(),
+};
 
-// OI-0162-B: showToast extracted to `src/ui/toast.js` so the move wizard
-// (and any future consumer) shares the same DOM shape. Local wrapper keeps
-// the long-standing default `data-testid="empty-group-prompt-toast"` so
-// existing tests continue to find the empty-group-flow toasts.
-import { showToast as showToastShared } from '../../ui/toast.js';
-function showToast(message, testid = 'empty-group-prompt-toast') {
-  return showToastShared(message, testid);
-}
+// OI-0162-B / #481: the shared toast keeps the long-standing
+// `data-testid="empty-group-prompt-toast"` for the empty-group-flow toasts.
+const TOAST_TESTID = 'empty-group-prompt-toast';
 
 /**
  * Pure helper — does this group currently have zero open memberships?
@@ -82,7 +73,7 @@ export function openEmptyGroupPrompt(groupId) {
     return;
   }
 
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!emptyGroupSheet) emptyGroupSheet = new Sheet('empty-group-prompt-wrap');
   const panel = document.getElementById('empty-group-prompt-panel');
   if (!panel) return;
@@ -140,7 +131,7 @@ export function openEmptyGroupPrompt(groupId) {
       if (!window.confirm(`Delete ${group.name}? This cannot be undone.`)) return;
       remove('groups', groupId, 'groups');
       emptyGroupSheet.close();
-      showToast(`${group.name} deleted`);
+      showToast(`${group.name} deleted`, TOAST_TESTID);
     },
   }, ['Delete']);
 
@@ -151,7 +142,7 @@ export function openEmptyGroupPrompt(groupId) {
       onClick: () => {
         archiveGroup(groupId);
         emptyGroupSheet.close();
-        showToast(`${group.name} archived`);
+        showToast(`${group.name} archived`, TOAST_TESTID);
       },
     }, ['Archive']),
     el('button', {

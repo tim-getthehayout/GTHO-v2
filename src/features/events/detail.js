@@ -3,7 +3,7 @@ import { feedSnapshot } from '../../calcs/feed-pools.js';
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById, subscribe, update, remove, isCurrentUserDev } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, formatMeasure, shortUnit } from '../../utils/units.js';
@@ -54,21 +54,13 @@ let detailSheet = null;
 // Sheet DOM + lifecycle
 // ---------------------------------------------------------------------------
 
-function ensureSheetDOM() {
-  if (document.getElementById('event-detail-sheet-wrap')) return;
-  document.body.appendChild(el('div', {
-    className: 'sheet-wrap',
-    id: 'event-detail-sheet-wrap',
-    style: { zIndex: '200' },
-  }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => closeEventDetailSheet() }),
-    el('div', {
-      className: 'sheet-panel',
-      id: 'event-detail-sheet-panel',
-      style: { maxWidth: '720px', margin: '0 auto', overflowY: 'auto', maxHeight: 'min(100dvh, 100vh)' },
-    }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'event-detail-sheet-wrap',
+  panelId: 'event-detail-sheet-panel',
+  zIndex: '200',
+  panelStyle: { maxWidth: '720px', margin: '0 auto', overflowY: 'auto', maxHeight: 'min(100dvh, 100vh)' },
+  onBackdropClick: () => closeEventDetailSheet(),
+};
 
 /**
  * Open the event detail sheet.
@@ -77,7 +69,7 @@ function ensureSheetDOM() {
  * @param {string} farmId
  */
 export function openEventDetailSheet(event, operationId, farmId) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!detailSheet) {
     detailSheet = new Sheet('event-detail-sheet-wrap');
   }

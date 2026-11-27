@@ -14,6 +14,7 @@ import * as PaddockWindowEntity from '../entities/event-paddock-window.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../calcs/window-helpers.js';
 import { resolveCurrentPlacement } from './current-placement.js';
 import { logger } from '../utils/logger.js';
+import { showToast } from '../ui/toast.js';
 import { bumpMetricsStoreVersion, inMetricsPass } from '../calcs/metrics-memo.js';
 
 /**
@@ -813,18 +814,6 @@ function findOpenGroupWindow(groupId, eventId) {
   return state.eventGroupWindows.find(w => w.groupId === groupId && w.eventId === eventId && !w.dateLeft);
 }
 
-function showWindowClosedToast(message) {
-  if (typeof document === 'undefined') return;
-  const existing = document.querySelector('[data-testid="window-closed-toast"]');
-  if (existing) existing.remove();
-  const toast = document.createElement('div');
-  toast.setAttribute('data-testid', 'window-closed-toast');
-  toast.textContent = message;
-  toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;z-index:400;max-width:90%;';
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
-}
-
 /**
  * Close the current open event_group_window for (groupId, eventId) by
  * stamping live head_count + avg_weight_kg at closeDate and setting
@@ -869,7 +858,7 @@ export function closeGroupWindow(groupId, eventId, closeDate, closeTime) {
   const event = state.events.find(e => e.id === eventId);
   const groupName = group?.name || 'Group';
   const eventLabel = event ? event.id.slice(0, 8) : 'event';
-  showWindowClosedToast(`${groupName} ended on ${eventLabel} as of ${closeDate}`);
+  showToast(`${groupName} ended on ${eventLabel} as of ${closeDate}`, 'window-closed-toast');
 
   return { closedId: openGW.id };
 }

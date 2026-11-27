@@ -1,7 +1,7 @@
 /** @file BCS (Body Condition Score) sheet — v1 parity with chip selector. */
 
 import { el, clear } from '../../ui/dom.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getById, add } from '../../data/store.js';
 import * as BcsScoreEntity from '../../entities/animal-bcs-score.js';
 import { localFormTimestamp } from '../../utils/form-values.js';
@@ -9,17 +9,17 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let bcsSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('bcs-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'bcs-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => bcsSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'bcs-sheet-panel', style: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' } }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'bcs-sheet-wrap',
+  panelId: 'bcs-sheet-panel',
+  zIndex: '210',
+  panelStyle: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' },
+  onBackdropClick: () => bcsSheet?.close(),
+};
 
 export function openBcsSheet(animal, operationId) {
   if (animal?.isBulk) return;
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!bcsSheet) bcsSheet = new Sheet('bcs-sheet-wrap');
   const panel = document.getElementById('bcs-sheet-panel');
   if (!panel) return;

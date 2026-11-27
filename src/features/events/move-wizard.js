@@ -9,7 +9,7 @@ import { MOVE_ENTRY_FIELDS } from './move-wizard-entry-fields.js';
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById, add, update, closePaddockWindow, runDurableWrite, beginBatch, endBatch } from '../../data/store.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { logger } from '../../utils/logger.js';
@@ -51,16 +51,15 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let moveWizardSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('move-wizard-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'move-wizard-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => moveWizardSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'move-wizard-sheet-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'move-wizard-sheet-wrap',
+  panelId: 'move-wizard-sheet-panel',
+  zIndex: '210',
+  onBackdropClick: () => moveWizardSheet?.close(),
+};
 
 export function openMoveWizard(sourceEvent, operationId, farmId, opts = {}) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!moveWizardSheet) {
     moveWizardSheet = new Sheet('move-wizard-sheet-wrap');
   }

@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { mapPickButton } from '../map/picker.js';
 import * as store from '../../data/store.js';
 import * as todoEntity from '../../entities/todo.js';
@@ -24,7 +24,7 @@ let editingTodo = null;
  */
 export function openTodoSheet(todo, prefill) {
   editingTodo = todo || null;
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   renderSheetContent(prefill);
   sheet.open();
 }
@@ -33,18 +33,12 @@ export function openTodoSheet(todo, prefill) {
 // DOM scaffold (created once)
 // ---------------------------------------------------------------------------
 
-function ensureSheetDOM() {
-  if (document.getElementById('todo-sheet-wrap')) return;
-
-  const wrap = el('div', { className: 'sheet-wrap', id: 'todo-sheet-wrap', 'data-testid': 'todo-sheet' }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => sheet.close() }),
-    el('div', { className: 'sheet-panel' }, [
-      el('div', { id: 'todo-sheet-content' }),
-    ]),
-  ]);
-
-  document.body.appendChild(wrap);
-}
+const SHEET_SHELL = {
+  wrapId: 'todo-sheet-wrap',
+  wrapTestId: 'todo-sheet',
+  onBackdropClick: () => sheet.close(),
+  panelChildren: () => [el('div', { id: 'todo-sheet-content' })],
+};
 
 // ---------------------------------------------------------------------------
 // Sheet content

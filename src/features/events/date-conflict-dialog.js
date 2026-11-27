@@ -21,7 +21,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getById, update } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
@@ -29,17 +29,12 @@ import { openEditPaddockWindowDialog } from './edit-paddock-window.js';
 
 let dateConflictSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('date-conflict-dialog-wrap')) return;
-  document.body.appendChild(el('div', {
-    className: 'sheet-wrap',
-    id: 'date-conflict-dialog-wrap',
-    style: { zIndex: '230' },
-  }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => dateConflictSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'date-conflict-dialog-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'date-conflict-dialog-wrap',
+  panelId: 'date-conflict-dialog-panel',
+  zIndex: '230',
+  onBackdropClick: () => dateConflictSheet?.close(),
+};
 
 /**
  * Apply the one-tap "Set open date" correction: clamp the conflicting window's
@@ -76,7 +71,7 @@ function applyOneTapFix(conflict) {
 export function openDateConflictDialog({ conflicts, operationId, onResume, event }) {
   if (!conflicts || conflicts.length === 0) return;
 
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!dateConflictSheet) dateConflictSheet = new Sheet('date-conflict-dialog-wrap');
   const panel = document.getElementById('date-conflict-dialog-panel');
   if (!panel) return;

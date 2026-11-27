@@ -13,7 +13,7 @@
  */
 
 import { el, clear } from '../../../ui/dom.js';
-import { Sheet, resetSheetScrollLock } from '../../../ui/sheet.js';
+import { Sheet, resetSheetScrollLock, ensureSheetDOM } from '../../../ui/sheet.js';
 import { t } from '../../../i18n/i18n.js';
 import { getAll, getById } from '../../../data/store.js';
 import { display, formatMeasure, formatPerArea } from '../../../utils/units.js';
@@ -251,28 +251,17 @@ function sectionTitle(text, testid) {
   }, [text]);
 }
 
-function ensureSheetDOM() {
-  if (document.getElementById(SHEET_WRAP_ID)) return;
-  const wrap = el('div', {
-    className: 'sheet-wrap',
-    id: SHEET_WRAP_ID,
-    'data-testid': 'past-event-detail-sheet',
-  }, [
-    el('div', {
-      className: 'sheet-backdrop',
-      'data-testid': 'past-event-detail-backdrop',
-      onClick: () => closePastEventDetailSheet(),
-    }),
-    el('div', {
-      className: 'sheet-panel',
-      'data-testid': 'past-event-detail-panel',
-    }, [
-      el('div', { className: 'sheet-handle' }),
-      el('div', { id: CONTENT_ID }),
-    ]),
-  ]);
-  document.body.appendChild(wrap);
-}
+const SHEET_SHELL = {
+  wrapId: SHEET_WRAP_ID,
+  wrapTestId: 'past-event-detail-sheet',
+  backdropTestId: 'past-event-detail-backdrop',
+  panelTestId: 'past-event-detail-panel',
+  onBackdropClick: () => closePastEventDetailSheet(),
+  panelChildren: () => [
+    el('div', { className: 'sheet-handle' }),
+    el('div', { id: CONTENT_ID }),
+  ],
+};
 
 function renderContent(model) {
   const contentEl = document.getElementById(CONTENT_ID);
@@ -480,7 +469,7 @@ function renderDmiSection(contentEl, model) {
 export function openPastEventDetailSheet({ eventId, paddockWindowId }) {
   const model = buildPastEventDetailModel({ eventId, paddockWindowId });
   if (!model) return;
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!sheet) sheet = new Sheet(SHEET_WRAP_ID);
   renderContent(model);
   sheet.open(model);

@@ -5,6 +5,7 @@
  */
 
 import { el, clear } from '../../ui/dom.js';
+import { showExportToast } from '../../ui/toast.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { supabase } from '../../data/supabase-client.js';
@@ -12,6 +13,9 @@ import { getUser } from '../auth/session.js';
 import { logger } from '../../utils/logger.js';
 import { getAll, update } from '../../data/store.js';
 import * as MemberEntity from '../../entities/operation-member.js';
+
+/** Member-sheet toasts use the `.export-toast` look with their own testid. */
+const showMemberToast = (message) => showExportToast(message, 'member-toast');
 
 let memberSheet = null;
 
@@ -142,7 +146,7 @@ async function renderMemberList(panel, operationId) {
                 if (error) throw error;
               }
               member.is_dev = next;
-              showToast(t(next ? 'members.devGranted' : 'members.devRevoked'));
+              showMemberToast(t(next ? 'members.devGranted' : 'members.devRevoked'));
               await renderMemberList(panel, operationId);
             } catch (err) {
               logger.error('members', 'Failed to update dev access', { error: err.message });
@@ -340,7 +344,7 @@ async function createInvite(inputs, operationId, panel, statusEl) {
   const link = generateInviteUrl(inviteToken);
   await copyToClipboard(link);
 
-  showToast(t('members.inviteCreated'));
+  showMemberToast(t('members.inviteCreated'));
   logger.info('members', 'invite created', { operationId, email, role });
 
   // Re-render member list
@@ -502,7 +506,7 @@ async function editMember(member, operationId, panel, inputs, statusEl, opts) {
     return;
   }
 
-  showToast(t('members.changesSaved'));
+  showMemberToast(t('members.changesSaved'));
   logger.info('members', 'member edited', { operationId, memberId: member.id });
   await renderMemberList(panel, operationId);
 }
@@ -524,7 +528,7 @@ function renderRoleSelect(member, operationId, panel) {
         logger.error('members', 'Failed to change role', { error: error.message });
         return;
       }
-      showToast(t('members.roleChanged'));
+      showMemberToast(t('members.roleChanged'));
       await renderMemberList(panel, operationId);
     },
   }, [
@@ -543,7 +547,7 @@ async function removeMember(member, operationId, panel) {
     logger.error('members', 'Failed to remove member', { error: error.message });
     return;
   }
-  showToast(t('members.removed'));
+  showMemberToast(t('members.removed'));
   await renderMemberList(panel, operationId);
 }
 
@@ -556,7 +560,7 @@ async function cancelInvite(member, operationId, panel) {
     logger.error('members', 'Failed to cancel invite', { error: error.message });
     return;
   }
-  showToast(t('members.inviteCancelled'));
+  showMemberToast(t('members.inviteCancelled'));
   await renderMemberList(panel, operationId);
 }
 
@@ -576,14 +580,14 @@ async function regenerateLink(member, operationId, panel) {
   }
 
   await copyToClipboard(generateInviteUrl(newToken));
-  showToast(t('members.linkRegenerated'));
+  showMemberToast(t('members.linkRegenerated'));
   await renderMemberList(panel, operationId);
 }
 
 function copyInviteLink(token) {
   if (!token) return;
   copyToClipboard(generateInviteUrl(token));
-  showToast(t('members.linkCopied'));
+  showMemberToast(t('members.linkCopied'));
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -601,8 +605,9 @@ export function generateInviteUrl(token) {
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
-  } catch {
-    // fallback: no-op, toast still shows
+  } catch (err) {
+    // Unchanged UI (the toast still shows); logged so a failed copy is visible.
+    logger.warn('members', 'Clipboard write failed', { error: err?.message });
   }
 }
 
@@ -621,14 +626,6 @@ function timeSince(dateStr) {
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
   return `${days}d`;
-}
-
-function showToast(message) {
-  const existing = document.querySelector('[data-testid="member-toast"]');
-  if (existing) existing.remove();
-  const toast = el('div', { className: 'export-toast', 'data-testid': 'member-toast' }, [message]);
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
 }
 
 /**

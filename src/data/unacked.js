@@ -12,6 +12,8 @@
  * The marker starts empty: nothing is back-filled from older saves.
  */
 
+import { logger } from '../utils/logger.js';
+
 export const UNACKED_KEY = '_sync_unacked';
 
 function markKey(table, id) {
@@ -92,8 +94,10 @@ export function markEntries(entries) {
 function writeMarks(marks) {
   try {
     localStorage.setItem(UNACKED_KEY, JSON.stringify(marks));
-  } catch {
-    // A mark that can't be cleared only makes Resync look at the row again.
+  } catch (err) {
+    // Not fatal: a mark that can't be cleared only makes Resync look at the
+    // row again. Logged so a full/unavailable store is visible.
+    logger.warn('sync', 'Unacked marks write to localStorage failed', { error: err?.message });
   }
 }
 

@@ -1,7 +1,7 @@
 /** @file Heat observation recording sheet — v1 parity. */
 
 import { el, clear } from '../../ui/dom.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { add } from '../../data/store.js';
 import * as HeatRecordEntity from '../../entities/animal-heat-record.js';
 import { localFormTimestamp } from '../../utils/form-values.js';
@@ -9,17 +9,16 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let heatSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('heat-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'heat-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => heatSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'heat-sheet-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'heat-sheet-wrap',
+  panelId: 'heat-sheet-panel',
+  zIndex: '210',
+  onBackdropClick: () => heatSheet?.close(),
+};
 
 export function openHeatSheet(animal, operationId) {
   if (animal?.isBulk) return;
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!heatSheet) heatSheet = new Sheet('heat-sheet-wrap');
   const panel = document.getElementById('heat-sheet-panel');
   if (!panel) return;

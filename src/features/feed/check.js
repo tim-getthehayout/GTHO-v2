@@ -5,7 +5,7 @@ import { renderPoolCheckForm } from './pool-forms.js';
 import { el, clear } from '../../ui/dom.js';
 import { formatMeasure } from '../../utils/units.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById, add, runDurableWrite } from '../../data/store.js';
 import { getFieldMode } from '../../utils/preferences.js';
 import { navigate } from '../../ui/router.js';
@@ -18,13 +18,12 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let feedCheckSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('feed-check-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'feed-check-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => feedCheckSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'feed-check-sheet-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'feed-check-sheet-wrap',
+  panelId: 'feed-check-sheet-panel',
+  zIndex: '210',
+  onBackdropClick: () => feedCheckSheet?.close(),
+};
 
 
 function unitLabel(unit) {
@@ -33,7 +32,7 @@ function unitLabel(unit) {
 }
 
 export function openFeedCheckSheet(evt, operationId) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!feedCheckSheet) feedCheckSheet = new Sheet('feed-check-sheet-wrap');
 
   const panel = document.getElementById('feed-check-sheet-panel');

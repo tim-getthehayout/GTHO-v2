@@ -20,18 +20,11 @@ import { f1HaySpans, f1MeasuredHayOnEventDay, prorateSpanHayByDemand, NO_PASTURE
 import { groupWindowsDailyDmiKg } from './window-helpers.js';
 import { isConfinementLocation, openPaddockWindowsOnDate } from './location-type.js';
 import { localDayStartMs, localDayEndMs } from './partial-day-demand.js';
-import { rowInstant } from '../utils/date-utils.js';
+import { rowInstant, addDays } from '../utils/date-utils.js';
 import { deriveEventStartDate, deriveEventStartTime } from '../features/events/rotation-calendar/location-metrics.js';
 
 /** Dp3: amber when |hay − target| / target is MORE than 10 % (10 % exactly is not). */
 export const DMI_ACTUAL_AMBER_RATIO = 0.10;
-
-function addDays(ymd, n) {
-  const d = new Date(`${ymd}T00:00:00`);
-  d.setDate(d.getDate() + n);
-  const p = (v) => String(v).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 function locOf(locations, id) {
   if (!locations) return null;

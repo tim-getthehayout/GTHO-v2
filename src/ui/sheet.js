@@ -1,5 +1,46 @@
 /** @file Sheet lifecycle class — always-in-DOM, .open toggle. See V2_APP_ARCHITECTURE.md §6.2 */
 
+import { el } from './dom.js';
+
+/**
+ * Build a bottom sheet's always-in-DOM shell once (#481: replaces the
+ * per-feature `ensureSheetDOM()` copies). Appends to `document.body`:
+ *
+ *   div.sheet-wrap#wrapId [data-testid] [style.zIndex]
+ *     div.sheet-backdrop [data-testid]  (click → onBackdropClick)
+ *     div.sheet-panel [#panelId] [data-testid] [style]  (children)
+ *
+ * No-op when `#wrapId` already exists. Attributes left undefined are not set.
+ *
+ * @param {object} spec
+ * @param {string} spec.wrapId
+ * @param {string} [spec.panelId]
+ * @param {string|number} [spec.zIndex]
+ * @param {object} [spec.panelStyle]
+ * @param {() => void} [spec.onBackdropClick]
+ * @param {string} [spec.wrapTestId]
+ * @param {string} [spec.backdropTestId]
+ * @param {string} [spec.panelTestId]
+ * @param {() => Array<Node>} [spec.panelChildren] — built only when the shell is created.
+ * @returns {boolean} true when the shell was created on this call.
+ */
+export function ensureSheetDOM({
+  wrapId, panelId, zIndex, panelStyle, onBackdropClick,
+  wrapTestId, backdropTestId, panelTestId, panelChildren,
+}) {
+  if (document.getElementById(wrapId)) return false;
+  document.body.appendChild(el('div', {
+    className: 'sheet-wrap',
+    id: wrapId,
+    'data-testid': wrapTestId,
+    style: zIndex != null ? { zIndex: String(zIndex) } : undefined,
+  }, [
+    el('div', { className: 'sheet-backdrop', 'data-testid': backdropTestId, onClick: onBackdropClick }),
+    el('div', { className: 'sheet-panel', id: panelId, 'data-testid': panelTestId, style: panelStyle }, panelChildren ? panelChildren() : []),
+  ]));
+  return true;
+}
+
 /**
  * Sheet class — manages open/close/save lifecycle for bottom sheets.
  * Sheets are always in the DOM; visibility is toggled via the `.open` CSS class.

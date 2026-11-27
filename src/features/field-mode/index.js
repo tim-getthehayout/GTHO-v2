@@ -1,6 +1,7 @@
 /** @file Field mode home — SP-8 v1 parity. 8 configurable modules, dynamic tile grid, event picker, interactive tasks. */
 
 import { el, clear } from '../../ui/dom.js';
+import { showToast } from '../../ui/toast.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, update, add, subscribe } from '../../data/store.js';
@@ -433,7 +434,7 @@ function renderHeatStep2(opId, animal, eventFilter, groupFilter, query) {
         const record = HeatRecordEntity.create({ operationId: opId, animalId: animal.id, observedAt, notes: notesInput.value.trim() || null });
         add('animalHeatRecords', record, HeatRecordEntity.validate, HeatRecordEntity.toSupabaseShape, 'animal_heat_records');
         // Toast
-        showToast(`Heat recorded \u2014 ${tag}`);
+        showToast(`Heat recorded \u2014 ${tag}`, null, { style: FIELD_TOAST_STYLE, duration: 2500, fadeAfter: 2000 });
         // Return to Step 1 (stays open for multi-record)
         renderHeatStep1(opId, eventFilter, groupFilter, query);
       } catch (err) { statusEl.appendChild(el('span', {}, [err.message])); }
@@ -441,14 +442,8 @@ function renderHeatStep2(opId, animal, eventFilter, groupFilter, query) {
   ]));
 }
 
-function showToast(msg) {
-  const toast = el('div', {
-    style: { position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: 'var(--green)', color: 'white', padding: '10px 20px', borderRadius: '8px', fontSize: '14px', fontWeight: '500', zIndex: '500', opacity: '1', transition: 'opacity 0.5s', pointerEvents: 'none', fontFamily: 'inherit' },
-  }, [msg]);
-  document.body.appendChild(toast);
-  setTimeout(() => { toast.style.opacity = '0'; }, 2000);
-  setTimeout(() => { toast.remove(); }, 2500);
-}
+// Field-mode toast: green, higher, no testid; fades at 2 s, removed at 2.5 s.
+const FIELD_TOAST_STYLE = { position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: 'var(--green)', color: 'white', padding: '10px 20px', borderRadius: '8px', fontSize: '14px', fontWeight: '500', zIndex: '500', opacity: '1', transition: 'opacity 0.5s', pointerEvents: 'none', fontFamily: 'inherit' };
 
 // ─── Event Picker Sheet (Part 5) ───────────────────────────────────────
 

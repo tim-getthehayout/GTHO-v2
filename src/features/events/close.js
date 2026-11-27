@@ -5,7 +5,7 @@ import { poolKey } from '../../calcs/feed-pools.js';
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById, add, update, closePaddockWindow, runDurableWrite, beginBatch, endBatch } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
@@ -27,16 +27,15 @@ import { isNoPasturePw } from './no-pasture.js';
 
 let closeEventSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('close-event-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'close-event-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => closeEventSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'close-event-sheet-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'close-event-sheet-wrap',
+  panelId: 'close-event-sheet-panel',
+  zIndex: '210',
+  onBackdropClick: () => closeEventSheet?.close(),
+};
 
 export function openCloseEventSheet(evt, operationId) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!closeEventSheet) {
     closeEventSheet = new Sheet('close-event-sheet-wrap');
   }

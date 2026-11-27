@@ -93,7 +93,7 @@ export async function renderFarmMapScreen(container) {
   }
   locLayers.addTo(map);
   if (drawn.length) {
-    try { map.fitBounds(locLayers.getBounds().pad(0.12)); } catch { /* empty */ }
+    try { map.fitBounds(locLayers.getBounds().pad(0.12)); } catch { /* no valid bounds (degenerate geometry): keep the default view */ }
   }
 
   const draft = { ring: [], polyline: null, preview: null, marker: null, pin: null };

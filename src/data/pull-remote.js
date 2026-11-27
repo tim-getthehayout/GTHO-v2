@@ -163,7 +163,7 @@ async function _doPullAllRemote() {
     // pull. Piggybacks on the sync-event path so we don't need a separate
     // flush timer; if the buffer is empty this is a no-op. Failures here
     // never throw — the flush logs internally and leaves the buffer intact.
-    try { await flushLoggerBuffer(); } catch { /* defensive */ }
+    try { await flushLoggerBuffer(); } catch { /* log flush is best-effort; the buffer is kept for the next flush */ }
   }
 
   return { pulled, errors };

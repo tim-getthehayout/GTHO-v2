@@ -14,7 +14,8 @@ import { renderPoolCheckForm } from '../feed/pool-forms.js';
 
 import { explicitObservationTime, validateObservationTime } from '../../ui/explicit-observation-time.js';
 import { el, clear } from '../../ui/dom.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
+import { showToast } from '../../ui/toast.js';
 import { getAll, getById, update, remove } from '../../data/store.js';
 import { formatDate, getLocalTodayStr, rowInstant } from '../../utils/date-utils.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
@@ -24,31 +25,12 @@ import { getEventStartDate } from './event-start.js';
 
 let editFcSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('edit-fc-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'edit-fc-wrap', style: { zIndex: '230' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => editFcSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'edit-fc-panel' }),
-  ]));
-}
-
-function showToast(message, action) {
-  const existing = document.querySelector('[data-testid="edit-fc-toast"]');
-  if (existing) existing.remove();
-  const children = [el('span', { style: { flex: '1' } }, [message])];
-  if (action) {
-    children.push(el('button', {
-      style: { background: 'transparent', color: 'var(--bg)', border: '0.5px solid var(--bg)', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' },
-      onClick: () => { document.querySelector('[data-testid="edit-fc-toast"]')?.remove(); action.handler(); },
-    }, [action.label]));
-  }
-  const toast = el('div', {
-    'data-testid': 'edit-fc-toast',
-    style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'var(--text)', color: 'var(--bg)', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', zIndex: '400', maxWidth: '90%', display: 'flex', alignItems: 'center', gap: '10px' },
-  }, children);
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 6000);
-}
+const SHEET_SHELL = {
+  wrapId: 'edit-fc-wrap',
+  panelId: 'edit-fc-panel',
+  zIndex: '230',
+  onBackdropClick: () => editFcSheet?.close(),
+};
 
 /**
  * Resolve the effective date stored on a check, tolerating the legacy
@@ -336,7 +318,7 @@ export function commitFeedCheckEdit({
  * @param {string} operationId
  */
 export function openEditFeedCheckDialog(check, item, event, operationId) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!editFcSheet) editFcSheet = new Sheet('edit-fc-wrap');
   const panel = document.getElementById('edit-fc-panel');
   if (!panel) return;
@@ -446,9 +428,14 @@ export function openEditFeedCheckDialog(check, item, event, operationId) {
             allChecks, allItems,
           });
           editFcSheet.close();
-          showToast('Enter a new feed check to re-snap the line \u2192', {
-            label: 'Feed check',
-            handler: () => openFeedCheckSheet(event, operationId),
+          showToast('Enter a new feed check to re-snap the line \u2192', 'edit-fc-toast', {
+            duration: 6000,
+            messageStyle: { flex: '1' },
+            action: {
+              label: 'Feed check',
+              style: { background: 'transparent', color: 'var(--bg)', border: '0.5px solid var(--bg)', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' },
+              onClick: () => openFeedCheckSheet(event, operationId),
+            },
           });
         } catch (err) {
           statusEl.appendChild(el('span', {}, [err.message]));

@@ -288,7 +288,7 @@ function writeStoredMetricWindow(start, end) {
 
 /** Test helper: clear Pb storage. */
 export function clearStoredMetricWindow() {
-  try { globalThis.localStorage?.removeItem(METRIC_WINDOW_KEY); } catch { /* ignore */ }
+  try { globalThis.localStorage?.removeItem(METRIC_WINDOW_KEY); } catch { /* test helper: storage unavailable */ }
 }
 
 // OI-0267 Pd1 — Metrics collapse per device.
@@ -337,7 +337,7 @@ export function clearStoredLocationsPrefs() {
   try {
     globalThis.localStorage?.removeItem(METRICS_COLLAPSED_KEY);
     globalThis.localStorage?.removeItem(SORT_STORAGE_KEY);
-  } catch { /* ignore */ }
+  } catch { /* test helper: storage unavailable */ }
 }
 
 /** Reset to defaults (for testing). */

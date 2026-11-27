@@ -260,7 +260,7 @@ function toggleUserMenu(e, email) {
 
   const adapter = getSyncAdapter();
   let hasUnsyncedWrites = false;
-  try { hasUnsyncedWrites = adapter && adapter.getQueueLength && adapter.getQueueLength() > 0; } catch { /* ignore */ }
+  try { hasUnsyncedWrites = adapter && adapter.getQueueLength && adapter.getQueueLength() > 0; } catch { /* adapter missing or threw: show as no unsynced writes */ }
 
   const popover = el('div', {
     className: 'user-menu-popover',

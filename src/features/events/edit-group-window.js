@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById, update, remove } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
@@ -18,13 +18,12 @@ import {
 
 let editGwSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('edit-gw-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'edit-gw-wrap', style: { zIndex: '220' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => editGwSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'edit-gw-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'edit-gw-wrap',
+  panelId: 'edit-gw-panel',
+  zIndex: '220',
+  onBackdropClick: () => editGwSheet?.close(),
+};
 
 /**
  * Open the group window edit dialog.
@@ -33,7 +32,7 @@ function ensureSheetDOM() {
  * @param {string} operationId
  */
 export function openEditGroupWindowDialog(gw, event, _operationId) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!editGwSheet) editGwSheet = new Sheet('edit-gw-wrap');
   const panel = document.getElementById('edit-gw-panel');
   if (!panel) return;

@@ -639,7 +639,7 @@ function resolveNPK4(ctx) {
       totalN += r.nKg; totalP += r.pKg; totalK += r.kKg;
       totalQty += qtyKg;
       resolvableCount += 1;
-    } catch { /* skip malformed row */ }
+    } catch { /* malformed row: left out of the totals and resolvableCount by design (dev audit) */ }
   }
   if (resolvableCount === 0) {
     return {

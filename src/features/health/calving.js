@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById, add, update, maybeSplitForGroup, runDurableWrite } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel } from '../../utils/units.js';
@@ -18,17 +18,17 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let calvingSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('calving-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'calving-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => calvingSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'calving-sheet-panel', style: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' } }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'calving-sheet-wrap',
+  panelId: 'calving-sheet-panel',
+  zIndex: '210',
+  panelStyle: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' },
+  onBackdropClick: () => calvingSheet?.close(),
+};
 
 export function openCalvingSheet(dam, operationId, options = {}) {
   if (dam?.isBulk) return;
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!calvingSheet) calvingSheet = new Sheet('calving-sheet-wrap');
   const panel = document.getElementById('calving-sheet-panel');
   if (!panel) return;

@@ -40,20 +40,67 @@ describe('date-utils', () => {
     });
   });
 
+  // #481: addDays is the one shared YYYY-MM-DD helper (was 3 local copies).
   describe('addDays', () => {
     it('adds positive days', () => {
-      const result = addDays('2024-01-01T00:00:00Z', 5);
-      expect(result.toISOString()).toContain('2024-01-06');
+      expect(addDays('2024-01-01', 5)).toBe('2024-01-06');
+    });
+
+    it('zero days returns the same date', () => {
+      expect(addDays('2024-07-15', 0)).toBe('2024-07-15');
     });
 
     it('subtracts with negative days', () => {
-      const result = addDays('2024-01-10T00:00:00Z', -3);
-      expect(result.toISOString()).toContain('2024-01-07');
+      expect(addDays('2024-01-10', -3)).toBe('2024-01-07');
+      expect(addDays('2024-03-01', -1)).toBe('2024-02-29');
     });
 
-    it('crosses month boundary', () => {
-      const result = addDays('2024-01-30T00:00:00Z', 3);
-      expect(result.toISOString()).toContain('2024-02-02');
+    it('crosses month ends', () => {
+      expect(addDays('2024-01-30', 3)).toBe('2024-02-02');
+      expect(addDays('2025-04-30', 1)).toBe('2025-05-01');
+      expect(addDays('2025-01-31', 30)).toBe('2025-03-02');
+    });
+
+    it('handles leap years (incl. century rules)', () => {
+      expect(addDays('2024-02-28', 1)).toBe('2024-02-29');
+      expect(addDays('2024-02-29', 1)).toBe('2024-03-01');
+      expect(addDays('2023-02-28', 1)).toBe('2023-03-01');
+      expect(addDays('1900-02-28', 1)).toBe('1900-03-01');
+      expect(addDays('2000-02-28', 1)).toBe('2000-02-29');
+      expect(addDays('2024-02-29', 365)).toBe('2025-02-28');
+      expect(addDays('2024-02-29', 366)).toBe('2025-03-01');
+    });
+
+    it('crosses year boundaries both ways', () => {
+      expect(addDays('2025-12-31', 1)).toBe('2026-01-01');
+      expect(addDays('2026-01-01', -1)).toBe('2025-12-31');
+      expect(addDays('2025-12-20', 20)).toBe('2026-01-09');
+    });
+
+    it('is DST-safe (US spring-forward / fall-back dates)', () => {
+      expect(addDays('2026-03-07', 1)).toBe('2026-03-08');
+      expect(addDays('2026-03-08', 1)).toBe('2026-03-09');
+      expect(addDays('2026-03-01', 30)).toBe('2026-03-31');
+      expect(addDays('2026-10-31', 1)).toBe('2026-11-01');
+      expect(addDays('2026-11-01', 1)).toBe('2026-11-02');
+      expect(addDays('2026-11-02', -2)).toBe('2026-10-31');
+    });
+
+    it('matches UTC calendar math for every day across 4 years (budget-period parity)', () => {
+      const utc = (date, n) => {
+        const d = new Date(`${date}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const base = Date.UTC(2023, 0, 1);
+      for (let i = 0; i < 4 * 366; i += 1) {
+        const day = new Date(base + i * 86_400_000).toISOString().slice(0, 10);
+        for (const n of [-366, -1, 1, 31, 366]) expect(addDays(day, n)).toBe(utc(day, n));
+      }
+    });
+
+    it('malformed input yields NaN-NaN-NaN instead of throwing', () => {
+      expect(addDays('not-a-date', 1)).toBe('NaN-NaN-NaN');
     });
   });
 

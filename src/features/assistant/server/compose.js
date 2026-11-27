@@ -149,7 +149,11 @@ export function createAssistantFunction(deps) {
               if (snap?.transcript) {
                 await persistTranscriptTurns({ client: deps.client, scope: context.scope, conversationRef: session.ref, turns: snap.transcript });
               }
-            } catch { /* response still carries the question; persistence failure is retried on the next turn */ }
+            } catch {
+              // Response still carries the question; persistence is retried on
+              // the next turn. Content-free log so the failure is visible.
+              contentFreeLog(deps.log)({ type: 'clarification-persist-failed', conversationRef: session.ref });
+            }
             return json({ ...body, question: session.unresolvedQuestion }, 400);
           }
           return json(body, response.status);

@@ -56,8 +56,10 @@ function readQueue() {
 function writeQueue(queue) {
   try {
     localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue));
-  } catch {
-    // Storage full — logged but not fatal
+  } catch (err) {
+    // Storage full or unavailable — not fatal (the in-memory queue still
+    // pushes), but queued writes may not survive a reload, so log it.
+    logger.error('sync', 'Sync queue write to localStorage failed', { error: err?.message, length: queue?.length });
   }
 }
 
@@ -97,8 +99,9 @@ function writeQueueStrict(queue) {
 function writeDeadLetters(letters) {
   try {
     localStorage.setItem(DEAD_LETTER_KEY, JSON.stringify(letters));
-  } catch {
-    // Storage full
+  } catch (err) {
+    // Storage full or unavailable — failed rows may not survive a reload, so log it.
+    logger.error('sync', 'Dead-letter queue write to localStorage failed', { error: err?.message, length: letters?.length });
   }
 }
 

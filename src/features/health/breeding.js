@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, add } from '../../data/store.js';
 import * as HeatRecordEntity from '../../entities/animal-heat-record.js';
 import { localFormTimestamp, isCalendarDate } from '../../utils/form-values.js';
@@ -11,17 +11,17 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let breedingSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('breeding-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'breeding-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => breedingSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'breeding-sheet-panel', style: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' } }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'breeding-sheet-wrap',
+  panelId: 'breeding-sheet-panel',
+  zIndex: '210',
+  panelStyle: { maxHeight: 'min(92dvh, 92vh)', overflowY: 'auto' },
+  onBackdropClick: () => breedingSheet?.close(),
+};
 
 export function openBreedingSheet(animal, operationId) {
   if (animal?.isBulk) return;
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!breedingSheet) breedingSheet = new Sheet('breeding-sheet-wrap');
   const panel = document.getElementById('breeding-sheet-panel');
   if (!panel) return;

@@ -7,7 +7,7 @@ import { renderPlausibilityWarnings, clearPlausibilityWarnings } from './plausib
 import { el, clear } from '../../ui/dom.js';
 import { formatMeasure } from '../../utils/units.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { runDurableWrite, getAll, getById, add } from '../../data/store.js';
 import { reviewSave, inputField } from '../assistant/entry-review.js';
 import { bindEntryFields } from '../assistant/entry-fields.js';
@@ -25,13 +25,12 @@ import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 
 let deliverFeedSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('deliver-feed-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'deliver-feed-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => deliverFeedSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'deliver-feed-sheet-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'deliver-feed-sheet-wrap',
+  panelId: 'deliver-feed-sheet-panel',
+  zIndex: '210',
+  onBackdropClick: () => deliverFeedSheet?.close(),
+};
 
 
 function unitLabel(unit) {
@@ -40,7 +39,7 @@ function unitLabel(unit) {
 }
 
 export function openDeliverFeedSheet(evt, operationId, options = {}) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!deliverFeedSheet) deliverFeedSheet = new Sheet('deliver-feed-sheet-wrap');
 
   const panel = document.getElementById('deliver-feed-sheet-panel');

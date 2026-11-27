@@ -4,7 +4,7 @@ import { renderPoolTransferForm } from '../feed/pool-forms.js';
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { getAll, getById, add, runDurableWrite } from '../../data/store.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
@@ -15,13 +15,13 @@ import { openLocationNames } from './open-cohort.js';
 
 let moveFeedSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('move-feed-out-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'move-feed-out-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => moveFeedSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'move-feed-out-panel', style: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' } }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'move-feed-out-wrap',
+  panelId: 'move-feed-out-panel',
+  zIndex: '210',
+  panelStyle: { maxHeight: 'min(90dvh, 90vh)', overflowY: 'auto' },
+  onBackdropClick: () => moveFeedSheet?.close(),
+};
 
 /**
  * Open the Move Feed Out sheet.
@@ -31,7 +31,7 @@ function ensureSheetDOM() {
  * @param {object} [opts] — { preselectBatchId, preselectLocationId }
  */
 export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!moveFeedSheet) moveFeedSheet = new Sheet('move-feed-out-wrap');
   const panel = document.getElementById('move-feed-out-panel');
   if (!panel) return;

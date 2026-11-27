@@ -10,6 +10,7 @@ import { loadLocale } from './i18n/i18n.js';
 import { route, initRouter, requireDev } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
 import { el, clear } from './ui/dom.js';
+import { showExportToast } from './ui/toast.js';
 import { initSession, onAuthChange, getUser, logout, verifyRecoveryOtp } from './features/auth/session.js';
 import { renderAuthOverlay, renderChangePassword } from './features/auth/index.js';
 import {
@@ -203,22 +204,10 @@ async function handleInviteClaim(app, token, user) {
 
   if (result.success) {
     showApp(app);
-    setTimeout(() => {
-      const toast = el('div', { className: 'export-toast', 'data-testid': 'invite-success-toast' }, [
-        t('members.welcomeToast'),
-      ]);
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 4000);
-    }, 500);
+    setTimeout(() => showExportToast(t('members.welcomeToast'), 'invite-success-toast'), 500);
   } else if (alreadyMember) {
     showApp(app);
-    setTimeout(() => {
-      const toast = el('div', { className: 'export-toast', 'data-testid': 'invite-already-member-toast' }, [
-        t('members.alreadyMember'),
-      ]);
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 4000);
-    }, 500);
+    setTimeout(() => showExportToast(t('members.alreadyMember'), 'invite-already-member-toast'), 500);
   } else {
     clear(app);
     app.appendChild(el('div', {

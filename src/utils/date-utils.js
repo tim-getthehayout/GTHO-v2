@@ -49,15 +49,27 @@ export function formatDateTime(date, timezone = 'UTC') {
 }
 
 /**
- * Add days to a date. Returns a new Date.
- * @param {Date|string} date
+ * Add calendar days to a `YYYY-MM-DD` date string; returns `YYYY-MM-DD`.
+ *
+ * Local-calendar math (parse at local midnight, `setDate`, format local
+ * Y-M-D) so DST shifts never move the date. Handles negative days, month
+ * ends, leap years and year boundaries. A malformed input yields
+ * `'NaN-NaN-NaN'` (never throws), which callers' `<`/`<=` loop guards treat
+ * as past the end.
+ *
+ * #481: the one `addDays` for src/ (was duplicated in calcs/budget-period,
+ * calcs/event-dmi-actual and rotation-calendar/past-window). The old
+ * Date-returning version had no runtime callers.
+ *
+ * @param {string} ymd - `YYYY-MM-DD`
  * @param {number} days - Can be negative
- * @returns {Date}
+ * @returns {string}
  */
-export function addDays(date, days) {
-  const d = date instanceof Date ? new Date(date) : new Date(date);
+export function addDays(ymd, days) {
+  const d = new Date(`${ymd}T00:00:00`);
   d.setDate(d.getDate() + days);
-  return d;
+  const pad = (v) => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /**

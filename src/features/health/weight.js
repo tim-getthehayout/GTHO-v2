@@ -2,7 +2,7 @@
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
-import { Sheet } from '../../ui/sheet.js';
+import { Sheet, ensureSheetDOM } from '../../ui/sheet.js';
 import { add, getAll, maybeSplitForGroup } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, unitLabel, display, formatMeasure } from '../../utils/units.js';
@@ -12,16 +12,15 @@ import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let weightSheet = null;
 
-function ensureSheetDOM() {
-  if (document.getElementById('weight-sheet-wrap')) return;
-  document.body.appendChild(el('div', { className: 'sheet-wrap', id: 'weight-sheet-wrap', style: { zIndex: '210' } }, [
-    el('div', { className: 'sheet-backdrop', onClick: () => weightSheet?.close() }),
-    el('div', { className: 'sheet-panel', id: 'weight-sheet-panel' }),
-  ]));
-}
+const SHEET_SHELL = {
+  wrapId: 'weight-sheet-wrap',
+  panelId: 'weight-sheet-panel',
+  zIndex: '210',
+  onBackdropClick: () => weightSheet?.close(),
+};
 
 export function openWeightSheet(animal, operationId) {
-  ensureSheetDOM();
+  ensureSheetDOM(SHEET_SHELL);
   if (!weightSheet) weightSheet = new Sheet('weight-sheet-wrap');
   const panel = document.getElementById('weight-sheet-panel');
   if (!panel) return;

@@ -5,7 +5,7 @@
  * one event. Rendering lives in calendar-grid.js / past-block.js.
  */
 
-import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
+import { daysBetweenInclusive, getLocalTodayStr, addDays } from '../../../utils/date-utils.js';
 import { getLiveWindowHeadCount } from '../../../calcs/window-helpers.js';
 import { computeLocationMetrics } from './location-metrics.js';
 
@@ -108,15 +108,6 @@ export function headCountAtWindowEnd(pw, {
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function addDays(date, n) {
-  const d = new Date(`${date}T00:00:00`);
-  d.setDate(d.getDate() + n);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
-}
 
 /** #466 Hd1: "Nov 19–23", "Oct 30–Nov 2", "Nov 19" (en dash). */
 export function formatDayRange(start, end) {

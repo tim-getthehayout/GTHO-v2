@@ -53,7 +53,8 @@ describe('return-to-cycle released at schema 49', () => {
   it('farm-setting toSupabaseShape includes return-to-cycle cols', () => {
     const base = FarmSetting.create({ farmId: 'f', operationId: 'op' });
     const sb = FarmSetting.toSupabaseShape(base);
-    for (const c of COLS48) expect(sb).toHaveProperty(c, null);
+    // #488: NOT NULL DEFAULT — unset pushes the 048 column defaults, never null.
+    expect(COLS48.map(c => sb[c])).toEqual([45, 25, 25]);
     expect(FarmSetting.toSupabaseShape({
       ...base, returnToCycleDaysCattle: 45, returnToCycleDaysSheep: 25, returnToCycleDaysGoat: 25,
     })).toMatchObject({

@@ -44,7 +44,8 @@ describe('preg-check thresholds released at schema 47', () => {
   it('farm-setting toSupabaseShape includes preg-check cols', () => {
     const base = FarmSetting.create({ farmId: 'f', operationId: 'op' });
     const sb = FarmSetting.toSupabaseShape(base);
-    for (const c of COLS47) expect(sb).toHaveProperty(c, null);
+    // #488: NOT NULL DEFAULT — unset pushes the 047 column defaults, never null.
+    expect(COLS47.map(c => sb[c])).toEqual([35, 45, 25, 30, 25, 30]);
     expect(FarmSetting.toSupabaseShape({
       ...base, pregCheckMinDaysSinceExposureCattle: 35, pregCheckMinDaysPostCalvingCattle: 45,
     })).toMatchObject({

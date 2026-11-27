@@ -60,6 +60,9 @@ export function renderSettingsScreen(container) {
   const userPrefs = getAll('userPreferences')[0];
 
   if (!farmSettings || !userPrefs) {
+    // #488: say which row is missing (the generic message hid a lost farm_settings insert).
+    if (!farmSettings) logger.warn('settings', 'farm_settings row missing for farm', { farms: getAll('farms').length, farmSettings: 0 });
+    if (!userPrefs) logger.warn('settings', 'user_preferences row missing', { operations: getAll('operations').length, userPreferences: 0 });
     container.appendChild(el('h1', { className: 'screen-heading' }, [t('settings.title')]));
     container.appendChild(el('p', {}, [t('error.generic')]));
     return;

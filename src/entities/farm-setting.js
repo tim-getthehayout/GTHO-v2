@@ -8,6 +8,62 @@ export const DAIRY_DEFAULTS = Object.freeze({
   milkGrazingOffsetDays: 1,
   milkTotalsMode: 'per_pickup',
 });
+/**
+ * #488: the DB DEFAULT of every NOT NULL farm_settings column the app pushes
+ * (migrations 001/027/047–051; id/created_at/updated_at are set by create()).
+ * Postgres applies DEFAULT only to an omitted key — an explicit null fails
+ * NOT NULL (23502) and the whole onboarding farm_settings row is lost — so
+ * toSupabaseShape pushes these instead of null (the 050/051 pattern). They equal
+ * create()'s defaults and the compute-on-read fallbacks (resolvePregCheckProtocol,
+ * resolveReturnToCycleDays, resolveFarmSeason, DAIRY_DEFAULTS), so a pushed
+ * default reads back exactly as the unset local value resolved.
+ */
+export const FARM_SETTINGS_COLUMN_DEFAULTS = Object.freeze({
+  defaultAuWeightKg: 454,
+  defaultResidualHeightCm: 10,
+  defaultUtilizationPct: 65,
+  recoveryRequired: false,
+  defaultRecoveryMinDays: 21,
+  defaultRecoveryMaxDays: 60,
+  nPricePerKg: 1.21,
+  pPricePerKg: 1.43,
+  kPricePerKg: 0.93,
+  defaultManureRateKgPerDay: 27,
+  feedDayGoal: 90,
+  forageQualityScaleMin: 1,
+  forageQualityScaleMax: 100,
+  thresholdAudTargetPct: 80,
+  thresholdAudWarnPct: 60,
+  thresholdRotationTargetPct: 80,
+  thresholdRotationWarnPct: 60,
+  // 047 (Gd)
+  pregCheckMinDaysSinceExposureCattle: 35,
+  pregCheckMinDaysPostCalvingCattle: 45,
+  pregCheckMinDaysSinceExposureSheep: 25,
+  pregCheckMinDaysPostCalvingSheep: 30,
+  pregCheckMinDaysSinceExposureGoat: 25,
+  pregCheckMinDaysPostCalvingGoat: 30,
+  // 048 (P-a)
+  returnToCycleDaysCattle: 45,
+  returnToCycleDaysSheep: 25,
+  returnToCycleDaysGoat: 25,
+  // 049 (#402): calendar year
+  seasonStartMonth: 1,
+  seasonStartDay: 1,
+  seasonEndMonth: 12,
+  seasonEndDay: 31,
+  // 050 (OI-0251)
+  includeArchivedLocationsInMetrics: true,
+  // 051 (#449)
+  dairyMode: DAIRY_DEFAULTS.dairyMode,
+  milkKgPerL: DAIRY_DEFAULTS.milkKgPerL,
+  milkGrazingOffsetDays: DAIRY_DEFAULTS.milkGrazingOffsetDays,
+  milkTotalsMode: DAIRY_DEFAULTS.milkTotalsMode,
+});
+const D = FARM_SETTINGS_COLUMN_DEFAULTS;
+/** Released → the record value or the column default (never null); held → value or null (omitted by releasedColumns). */
+const sinceRelease = (version, value, fallback) => value ?? (RELEASED_SCHEMA_VERSION >= version ? fallback : null);
+
 const DAIRY_MODES = ['auto', 'on', 'off'];
 const MILK_TOTALS_MODES = ['per_pickup', 'spread_daily'];
 
@@ -133,68 +189,64 @@ export function toSupabaseShape(record) {
     id: record.id,
     farm_id: record.farmId,
     operation_id: record.operationId,
-    default_au_weight_kg: record.defaultAuWeightKg,
-    default_residual_height_cm: record.defaultResidualHeightCm,
-    default_utilization_pct: record.defaultUtilizationPct,
-    recovery_required: record.recoveryRequired,
-    default_recovery_min_days: record.defaultRecoveryMinDays,
-    default_recovery_max_days: record.defaultRecoveryMaxDays,
-    n_price_per_kg: record.nPricePerKg,
-    p_price_per_kg: record.pPricePerKg,
-    k_price_per_kg: record.kPricePerKg,
-    default_manure_rate_kg_per_day: record.defaultManureRateKgPerDay,
-    feed_day_goal: record.feedDayGoal,
-    forage_quality_scale_min: record.forageQualityScaleMin,
-    forage_quality_scale_max: record.forageQualityScaleMax,
+    default_au_weight_kg: record.defaultAuWeightKg ?? D.defaultAuWeightKg,
+    default_residual_height_cm: record.defaultResidualHeightCm ?? D.defaultResidualHeightCm,
+    default_utilization_pct: record.defaultUtilizationPct ?? D.defaultUtilizationPct,
+    recovery_required: record.recoveryRequired ?? D.recoveryRequired,
+    default_recovery_min_days: record.defaultRecoveryMinDays ?? D.defaultRecoveryMinDays,
+    default_recovery_max_days: record.defaultRecoveryMaxDays ?? D.defaultRecoveryMaxDays,
+    n_price_per_kg: record.nPricePerKg ?? D.nPricePerKg,
+    p_price_per_kg: record.pPricePerKg ?? D.pPricePerKg,
+    k_price_per_kg: record.kPricePerKg ?? D.kPricePerKg,
+    default_manure_rate_kg_per_day: record.defaultManureRateKgPerDay ?? D.defaultManureRateKgPerDay,
+    feed_day_goal: record.feedDayGoal ?? D.feedDayGoal,
+    forage_quality_scale_min: record.forageQualityScaleMin ?? D.forageQualityScaleMin,
+    forage_quality_scale_max: record.forageQualityScaleMax ?? D.forageQualityScaleMax,
     bale_ring_residue_diameter_cm: record.baleRingResidueDiameterCm,
-    threshold_aud_target_pct: record.thresholdAudTargetPct,
-    threshold_aud_warn_pct: record.thresholdAudWarnPct,
-    threshold_rotation_target_pct: record.thresholdRotationTargetPct,
-    threshold_rotation_warn_pct: record.thresholdRotationWarnPct,
+    threshold_aud_target_pct: record.thresholdAudTargetPct ?? D.thresholdAudTargetPct,
+    threshold_aud_warn_pct: record.thresholdAudWarnPct ?? D.thresholdAudWarnPct,
+    threshold_rotation_target_pct: record.thresholdRotationTargetPct ?? D.thresholdRotationTargetPct,
+    threshold_rotation_warn_pct: record.thresholdRotationWarnPct ?? D.thresholdRotationWarnPct,
+    // Nullable columns: null is a valid "unset".
     threshold_npk_warn_per_ha: record.thresholdNpkWarnPerHa,
     threshold_cost_per_day_target: record.thresholdCostPerDayTarget,
     threshold_cost_per_day_warn: record.thresholdCostPerDayWarn,
+    // #488: 047–049 are NOT NULL DEFAULT — once released, unset pushes the column
+    // default, never null (a null here failed every onboarding farm_settings insert).
+    // Below each version the values stay null → omitted.
     ...releasedColumns(47, {
-      preg_check_min_days_since_exposure_cattle: record.pregCheckMinDaysSinceExposureCattle ?? null,
-      preg_check_min_days_post_calving_cattle: record.pregCheckMinDaysPostCalvingCattle ?? null,
-      preg_check_min_days_since_exposure_sheep: record.pregCheckMinDaysSinceExposureSheep ?? null,
-      preg_check_min_days_post_calving_sheep: record.pregCheckMinDaysPostCalvingSheep ?? null,
-      preg_check_min_days_since_exposure_goat: record.pregCheckMinDaysSinceExposureGoat ?? null,
-      preg_check_min_days_post_calving_goat: record.pregCheckMinDaysPostCalvingGoat ?? null,
+      preg_check_min_days_since_exposure_cattle: sinceRelease(47, record.pregCheckMinDaysSinceExposureCattle, D.pregCheckMinDaysSinceExposureCattle),
+      preg_check_min_days_post_calving_cattle: sinceRelease(47, record.pregCheckMinDaysPostCalvingCattle, D.pregCheckMinDaysPostCalvingCattle),
+      preg_check_min_days_since_exposure_sheep: sinceRelease(47, record.pregCheckMinDaysSinceExposureSheep, D.pregCheckMinDaysSinceExposureSheep),
+      preg_check_min_days_post_calving_sheep: sinceRelease(47, record.pregCheckMinDaysPostCalvingSheep, D.pregCheckMinDaysPostCalvingSheep),
+      preg_check_min_days_since_exposure_goat: sinceRelease(47, record.pregCheckMinDaysSinceExposureGoat, D.pregCheckMinDaysSinceExposureGoat),
+      preg_check_min_days_post_calving_goat: sinceRelease(47, record.pregCheckMinDaysPostCalvingGoat, D.pregCheckMinDaysPostCalvingGoat),
     }),
     ...releasedColumns(48, {
-      return_to_cycle_days_cattle: record.returnToCycleDaysCattle ?? null,
-      return_to_cycle_days_sheep: record.returnToCycleDaysSheep ?? null,
-      return_to_cycle_days_goat: record.returnToCycleDaysGoat ?? null,
+      return_to_cycle_days_cattle: sinceRelease(48, record.returnToCycleDaysCattle, D.returnToCycleDaysCattle),
+      return_to_cycle_days_sheep: sinceRelease(48, record.returnToCycleDaysSheep, D.returnToCycleDaysSheep),
+      return_to_cycle_days_goat: sinceRelease(48, record.returnToCycleDaysGoat, D.returnToCycleDaysGoat),
     }),
     ...releasedColumns(49, {
-      season_start_month: record.seasonStartMonth ?? null,
-      season_start_day: record.seasonStartDay ?? null,
-      season_end_month: record.seasonEndMonth ?? null,
-      season_end_day: record.seasonEndDay ?? null,
+      season_start_month: sinceRelease(49, record.seasonStartMonth, D.seasonStartMonth),
+      season_start_day: sinceRelease(49, record.seasonStartDay, D.seasonStartDay),
+      season_end_month: sinceRelease(49, record.seasonEndMonth, D.seasonEndMonth),
+      season_end_day: sinceRelease(49, record.seasonEndDay, D.seasonEndDay),
     }),
     ...releasedColumns(ARCHIVED_METRICS_SCHEMA_VERSION, {
       // NOT NULL DEFAULT true: once released, unset pushes the locked default
       // (include), never null (Design null-push ruling). Below 50 it stays null → omitted.
-      include_archived_locations_in_metrics: RELEASED_SCHEMA_VERSION >= ARCHIVED_METRICS_SCHEMA_VERSION
-        ? (record.includeArchivedLocationsInMetrics ?? true)
-        : (record.includeArchivedLocationsInMetrics ?? null),
+      include_archived_locations_in_metrics: sinceRelease(ARCHIVED_METRICS_SCHEMA_VERSION,
+        record.includeArchivedLocationsInMetrics, D.includeArchivedLocationsInMetrics),
     }),
     // #449 (051): NOT NULL with defaults — once released, unset pushes the column
     // default, never null. Below 51 the values stay null → omitted.
-    ...releasedColumns(DAIRY_SCHEMA_VERSION, RELEASED_SCHEMA_VERSION >= DAIRY_SCHEMA_VERSION
-      ? {
-        dairy_mode: record.dairyMode ?? DAIRY_DEFAULTS.dairyMode,
-        milk_kg_per_l: record.milkKgPerL ?? DAIRY_DEFAULTS.milkKgPerL,
-        milk_grazing_offset_days: record.milkGrazingOffsetDays ?? DAIRY_DEFAULTS.milkGrazingOffsetDays,
-        milk_totals_mode: record.milkTotalsMode ?? DAIRY_DEFAULTS.milkTotalsMode,
-      }
-      : {
-        dairy_mode: record.dairyMode ?? null,
-        milk_kg_per_l: record.milkKgPerL ?? null,
-        milk_grazing_offset_days: record.milkGrazingOffsetDays ?? null,
-        milk_totals_mode: record.milkTotalsMode ?? null,
-      }),
+    ...releasedColumns(DAIRY_SCHEMA_VERSION, {
+      dairy_mode: sinceRelease(DAIRY_SCHEMA_VERSION, record.dairyMode, D.dairyMode),
+      milk_kg_per_l: sinceRelease(DAIRY_SCHEMA_VERSION, record.milkKgPerL, D.milkKgPerL),
+      milk_grazing_offset_days: sinceRelease(DAIRY_SCHEMA_VERSION, record.milkGrazingOffsetDays, D.milkGrazingOffsetDays),
+      milk_totals_mode: sinceRelease(DAIRY_SCHEMA_VERSION, record.milkTotalsMode, D.milkTotalsMode),
+    }),
     created_at: record.createdAt,
     updated_at: record.updatedAt,
   };

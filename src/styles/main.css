@@ -4420,3 +4420,108 @@ body:has(.auth-overlay) .pwa-update-banner {
 }
 .winter-history-block:has(.winter-history-block__tip:not([hidden])) { overflow: visible; height: auto; z-index: 5; }
 .loc-mgmt__metrics--winter-history { display: flex; gap: var(--space-2); align-items: center; }
+
+/* ── #494 Milk page (#/milk) ─────────────────────────────────────────────
+   Responsive layout for the #449 milk list. Theme tokens only, so light and
+   dark both follow :root / prefers-color-scheme. Mobile (<768px): stacked
+   card rows. Desktop (≥768px): two columns — milk record (when + what) left,
+   grazing / paddocks right. Total rows read as summary headers; nested
+   pickup / calves rows under a total are indented and lighter. */
+.milk-screen { max-width: 1100px; margin: 0 auto; }
+.milk-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.milk-toolbar input[type="date"] { min-width: 0; }
+.milk-groups { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.milk-offset { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text2); }
+.milk-offset strong { color: var(--text); }
+
+.milk-list { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.milk-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "when" "what" "grazing";
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  line-height: 1.4;
+}
+.milk-row__when { grid-area: when; font-weight: 600; color: var(--text2); font-size: 0.85rem; }
+.milk-row__what { grid-area: what; min-width: 0; overflow-wrap: anywhere; }
+.milk-row__what .form-hint { margin-top: var(--space-1); }
+.milk-row__farm { font-weight: 600; }
+.milk-row > .milk-paddock { grid-area: grazing; }
+
+.milk-row--total {
+  background: var(--tint-green);
+  color: var(--on-tint-green);
+  border-color: var(--border2);
+  border-left: 4px solid var(--green);
+  font-weight: 600;
+}
+.milk-row--total .milk-row__when { color: inherit; }
+.milk-row--est { border-left-style: dashed; }
+.milk-row--pickup, .milk-row--calves { background: var(--bg2); }
+.milk-row--child {
+  margin-left: var(--space-4);
+  font-size: 0.92rem;
+  color: var(--text2);
+  border-color: transparent;
+}
+.milk-row--clickable { cursor: pointer; transition: background-color 0.12s ease, border-color 0.12s ease; }
+.milk-row--clickable:hover { background: var(--bg3); border-color: var(--border2); }
+.milk-row--clickable:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+.milk-paddock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  font-weight: 400;
+  color: var(--text);
+}
+.milk-row--total .milk-paddock { color: inherit; }
+.milk-paddock__header { font-size: 0.8rem; font-weight: 600; color: var(--text2); text-transform: none; }
+.milk-row--total .milk-paddock__header { color: inherit; opacity: 0.85; }
+.milk-paddock__group { display: flex; flex-direction: column; gap: var(--space-1); }
+.milk-paddock__groups { font-size: 0.8rem; color: var(--text2); }
+.milk-row--total .milk-paddock__groups { color: inherit; opacity: 0.85; }
+.milk-paddock__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; }
+.milk-paddock__block {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.milk-paddock__block[hidden] { display: none; }
+.milk-paddock__more {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  border: 1px dashed var(--border2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.milk-paddock__more:hover { background: var(--bg3); }
+.milk-paddock__more:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+@media (min-width: 768px) {
+  .milk-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "when grazing" "what grazing";
+    column-gap: var(--space-4);
+    align-items: start;
+  }
+  .milk-row--child { margin-left: var(--space-6); padding-top: var(--space-2); padding-bottom: var(--space-2); }
+  .milk-list { gap: var(--space-1); }
+  .milk-row--total:not(:first-child) { margin-top: var(--space-3); }
+}

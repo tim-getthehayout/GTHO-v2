@@ -193,3 +193,30 @@ export function recentDrivers(pickups = [], n = 5) {
   }
   return out;
 }
+
+/**
+ * #494: collapse milkingGrazingOn() blocks into one entry per distinct paddock
+ * set. Milking groups sharing the exact same paddocks on the grazing date (e.g.
+ * 3 groups on one 11-paddock event) become ONE entry — group names once, each
+ * paddock once — instead of groups × paddocks blocks. Distinct sets stay
+ * separate. Order follows first appearance. Pure.
+ * @param {Array<{groupId: string, groupName: string, locationId: string, locationName: string}>} blocks
+ * @returns {Array<{ groupIds: string[], groupNames: string[], paddocks: Array<{locationId: string, locationName: string}> }>}
+ */
+export function summarizeGrazingBlocks(blocks = []) {
+  const byGroup = new Map();
+  for (const b of blocks) {
+    if (!byGroup.has(b.groupId)) byGroup.set(b.groupId, { groupId: b.groupId, groupName: b.groupName, paddocks: [] });
+    const g = byGroup.get(b.groupId);
+    if (!g.paddocks.some(p => p.locationId === b.locationId)) g.paddocks.push({ locationId: b.locationId, locationName: b.locationName });
+  }
+  const entries = new Map();
+  for (const g of byGroup.values()) {
+    const key = g.paddocks.map(p => p.locationId).sort().join('\u0000');
+    if (!entries.has(key)) entries.set(key, { groupIds: [], groupNames: [], paddocks: g.paddocks });
+    const e = entries.get(key);
+    e.groupIds.push(g.groupId);
+    e.groupNames.push(g.groupName);
+  }
+  return [...entries.values()];
+}

@@ -18,7 +18,7 @@ import * as CalfMilkEntity from '../../entities/calf-milk-feeding.js';
 import { resolveDairySettings, validate as validateFarmSetting, toSupabaseShape as fsToSb } from '../../entities/farm-setting.js';
 import {
   NO_MILKING_GROUP_HINT, perPickupTotals, spreadDailyTotals, milkingGrazingOn, milkingGroupIds,
-  recentDrivers, localDateOf, shiftDate,
+  recentDrivers, localDateOf, shiftDate, summarizeGrazingBlocks,
 } from './milk-calcs.js';
 import { dairyCtxFromStore, isDairyVisibleNow } from './visibility.js';
 
@@ -225,20 +225,62 @@ function inRange(iso, from, to) {
   return d && d >= from && d <= to;
 }
 
+/** #494: an entry shows this many paddock chips before "+N more". */
+export const MILK_PADDOCK_CHIP_LIMIT = 6;
+
+/** Chips for one paddock-set entry, capped with a "+N more" / "Show less" toggle (#494). */
+function paddockChips(entry) {
+  const groupAttr = entry.groupIds.join(',');
+  const chips = entry.paddocks.map((p, i) => el('span', {
+    className: `milk-paddock__block${i >= MILK_PADDOCK_CHIP_LIMIT ? ' milk-paddock__block--overflow' : ''}`,
+    'data-testid': 'milk-paddock-block', 'data-group-id': groupAttr, 'data-location-id': p.locationId,
+    hidden: i >= MILK_PADDOCK_CHIP_LIMIT ? '' : undefined, // el() would set hidden="false" (still hidden)
+  }, [p.locationName]));
+  const hiddenCount = entry.paddocks.length - MILK_PADDOCK_CHIP_LIMIT;
+  const items = [...chips];
+  if (hiddenCount > 0) {
+    const more = `+${hiddenCount} more`;
+    const toggle = el('button', {
+      type: 'button', className: 'milk-paddock__more', 'data-testid': 'milk-paddock-more', 'aria-expanded': 'false',
+      onClick: (e) => {
+        e.stopPropagation(); // never opens the row's edit sheet
+        const open = toggle.getAttribute('aria-expanded') !== 'true';
+        toggle.setAttribute('aria-expanded', String(open));
+        toggle.textContent = open ? 'Show less' : more;
+        chips.slice(MILK_PADDOCK_CHIP_LIMIT).forEach(c => { c.hidden = !open; });
+      },
+    }, [more]);
+    items.push(toggle);
+  }
+  return el('div', { className: 'milk-paddock__chips' }, items);
+}
+
+/**
+ * Grazing cell: the grazing date once, then one entry per distinct paddock set
+ * (#494; groups sharing the same paddocks are listed together).
+ * Hooks: milk-paddock (data-grazing-date), milk-paddock-group (data-group-ids),
+ * milk-paddock-block (data-group-id = the entry's group ids, comma-joined;
+ * data-location-id), milk-paddock-more.
+ */
 function paddockCell(milkDate, farmId, ctx) {
   const offsetDays = dairySettingsFor(farmId).milkGrazingOffsetDays;
   // Per-farm offset (R1) and only this farm's paddocks (R3).
   const { grazingDate, blocks } = milkingGrazingOn(milkDate, { ...ctx, offsetDays, farmId });
-  return el('div', { className: 'milk-paddock', 'data-testid': 'milk-paddock', 'data-grazing-date': grazingDate }, blocks.length
-    ? blocks.map(b => el('span', { className: 'milk-paddock__block', 'data-testid': 'milk-paddock-block', 'data-group-id': b.groupId }, [
-      el('strong', {}, [b.locationName]), ` · ${b.groupName} · ${formatShortDate(grazingDate)}`,
-    ]))
+  const entries = summarizeGrazingBlocks(blocks);
+  return el('div', { className: 'milk-paddock', 'data-testid': 'milk-paddock', 'data-grazing-date': grazingDate }, entries.length
+    ? [
+      el('div', { className: 'milk-paddock__header', 'data-testid': 'milk-paddock-date' }, [`Grazed ${formatShortDate(grazingDate)}`]),
+      ...entries.map(entry => el('div', { className: 'milk-paddock__group', 'data-testid': 'milk-paddock-group', 'data-group-ids': entry.groupIds.join(',') }, [
+        el('div', { className: 'milk-paddock__groups' }, [entry.groupNames.join(', ')]),
+        paddockChips(entry),
+      ])),
+    ]
     : ['—']);
 }
 
 function row(kind, cells, { testid, onClick, extraClass = '' } = {}) {
   return el('div', {
-    className: `milk-row milk-row--${kind} ${extraClass}`.trim(),
+    className: `milk-row milk-row--${kind} ${extraClass}${onClick ? ' milk-row--clickable' : ''}`.trim(),
     'data-testid': testid || `milk-row-${kind}`,
     onClick: onClick || undefined,
     style: onClick ? { cursor: 'pointer' } : undefined,
@@ -247,23 +289,24 @@ function row(kind, cells, { testid, onClick, extraClass = '' } = {}) {
 
 const w = (kg, us) => formatMeasure(kg, 'weight', { unitSystem: us });
 
-function pickupRow(p, ctx, us) {
+/** #494: nested under a total row (All view) the child row omits the grazing cell. */
+function pickupRow(p, ctx, us, { showPaddock = true } = {}) {
   return row('pickup', [
     el('div', { className: 'milk-row__when' }, [whenText(p.pickedUpAt)]),
     el('div', { className: 'milk-row__what' }, [`Pickup ${w(p.weightKg, us)}${p.driver ? ` · ${p.driver}` : ''}`]),
-    paddockCell(localDateOf(p.pickedUpAt), p.farmId, ctx),
-  ], { onClick: () => openMilkPickupSheet(p) });
+    showPaddock ? paddockCell(localDateOf(p.pickedUpAt), p.farmId, ctx) : null,
+  ], { onClick: () => openMilkPickupSheet(p), extraClass: showPaddock ? '' : 'milk-row--child' });
 }
 
-function calfRow(f, ctx, us) {
+function calfRow(f, ctx, us, { showPaddock = true } = {}) {
   const g = f.groupId ? getAll('groups').find(x => x.id === f.groupId) : null;
   return row('calves', [
     el('div', { className: 'milk-row__when' }, [whenText(f.fedAt)]),
     el('div', { className: 'milk-row__what' }, [
       `Calves ${formatMeasure(f.volumeL, 'volume', { unitSystem: us })} (${w(CalfMilkEntity.calfMilkKg(f), us)})${g ? ` · ${g.name}` : ''}`,
     ]),
-    paddockCell(localDateOf(f.fedAt), f.farmId, ctx),
-  ], { onClick: () => openCalfFeedingSheet(f) });
+    showPaddock ? paddockCell(localDateOf(f.fedAt), f.farmId, ctx) : null,
+  ], { onClick: () => openCalfFeedingSheet(f), extraClass: showPaddock ? '' : 'milk-row--child' });
 }
 
 /** Rows for the current view (exported for tests). */
@@ -301,6 +344,8 @@ export function buildMilkRows({ view, from, to, farmId, groupIds, unitSystem }) 
   return out;
 }
 
+const CHILD = Object.freeze({ showPaddock: false });
+
 /** Totals rows for one farm, using that farm's milk_totals_mode. */
 function totalsRowsForFarm(farmForTotals, { allPickups, allFeedings, pickups, feedings, from, to, ctx, us, farmLabel = null }) {
   const mode = dairySettingsFor(farmForTotals).milkTotalsMode;
@@ -319,8 +364,9 @@ function totalsRowsForFarm(farmForTotals, { allPickups, allFeedings, pickups, fe
         ]),
         paddockCell(d.date, farmForTotals, ctx),
       ], { testid: 'milk-row-day', extraClass: d.estimated ? 'milk-row--est' : '' }));
-      for (const p of pickups.filter(x => localDateOf(x.pickedUpAt) === d.date)) out.push(pickupRow(p, ctx, us));
-      for (const f of feedings.filter(x => localDateOf(x.fedAt) === d.date)) out.push(calfRow(f, ctx, us));
+      // #494: the day total carries the grazing cell; its child rows don't repeat it.
+      for (const p of pickups.filter(x => localDateOf(x.pickedUpAt) === d.date)) out.push(pickupRow(p, ctx, us, CHILD));
+      for (const f of feedings.filter(x => localDateOf(x.fedAt) === d.date)) out.push(calfRow(f, ctx, us, CHILD));
     }
     return out;
   }
@@ -333,7 +379,7 @@ function totalsRowsForFarm(farmForTotals, { allPickups, allFeedings, pickups, fe
       el('div', { className: 'milk-row__what' }, [label(), `Since last pickup · calves ${w(s.calfKg, us)}`]),
       el('div', { className: 'milk-paddock' }),
     ], { testid: 'milk-row-since-last' }));
-    for (const f of [...mine].reverse()) out.push(calfRow(f, ctx, us));
+    for (const f of [...mine].reverse()) out.push(calfRow(f, ctx, us, CHILD));
   }
   for (const r of rows) {
     if (!inRange(r.pickup.pickedUpAt, from, to)) continue;
@@ -350,8 +396,8 @@ function totalsRowsForFarm(farmForTotals, { allPickups, allFeedings, pickups, fe
       ]),
       paddockCell(localDateOf(r.pickup.pickedUpAt), r.farmId, ctx),
     ], { testid: 'milk-row-pickup-total' }));
-    out.push(pickupRow(r.pickup, ctx, us));
-    for (const f of [...r.feedings].reverse()) out.push(calfRow(f, ctx, us));
+    out.push(pickupRow(r.pickup, ctx, us, CHILD));
+    for (const f of [...r.feedings].reverse()) out.push(calfRow(f, ctx, us, CHILD));
   }
   return out;
 }

@@ -103,5 +103,8 @@ test.describe('CP-56: Backup Import', () => {
     await page.click('[data-testid="import-replace-btn"]');
     await expect(page.locator('[data-testid="import-second-confirm"]')).toBeVisible();
     await expect(page.locator('[data-testid="import-final-confirm-btn"]')).toBeVisible();
+    // #489: the fenced restore waits for the separate safety-backup step.
+    await expect(page.locator('[data-testid="import-safety-backup-btn"]')).toBeVisible();
+    await expect(page.locator('[data-testid="import-final-confirm-btn"]')).toBeDisabled();
   });
 });

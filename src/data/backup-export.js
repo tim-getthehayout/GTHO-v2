@@ -273,7 +273,20 @@ export async function exportOperationBackup(operationId, onProgress) {
 }
 
 /**
- * Trigger a file download in the browser.
+ * #489: how long a download's Blob URL stays alive. Revoking on the same tick
+ * as link.click() races iOS Safari's "Do you want to download…?" sheet, which
+ * reads the URL only after the user taps Download.
+ */
+export const BLOB_URL_REVOKE_DELAY_MS = 60_000;
+
+/** Revoke a download's Blob URL once the browser has had time to read it (#489). */
+export function revokeObjectUrlLater(url) {
+  setTimeout(() => URL.revokeObjectURL(url), BLOB_URL_REVOKE_DELAY_MS);
+}
+
+/**
+ * Trigger a file download in the browser. The Blob URL is revoked after
+ * BLOB_URL_REVOKE_DELAY_MS, not on the click tick (#489).
  * @param {string} json
  * @param {string} fileName
  */
@@ -287,7 +300,7 @@ export function downloadBackup(json, fileName) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  revokeObjectUrlLater(url);
 }
 
 /**

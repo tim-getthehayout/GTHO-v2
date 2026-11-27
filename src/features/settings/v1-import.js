@@ -6,7 +6,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { showExportToast } from '../../ui/toast.js';
 import { t } from '../../i18n/i18n.js';
-import { canExport } from '../../data/backup-export.js';
+import { canExport, revokeObjectUrlLater } from '../../data/backup-export.js';
 import { importOperationBackup } from '../../data/backup-import.js';
 import { isV1Export, transformV1ToV2, generateDoseAuditCsv, isOperationEmpty } from '../../data/v1-migration.js';
 import { getAll } from '../../data/store.js';
@@ -336,7 +336,7 @@ function downloadDoseAuditCsv(doses) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  revokeObjectUrlLater(url); // #489: same Safari download race as downloadBackup
 }
 
 /**

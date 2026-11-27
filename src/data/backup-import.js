@@ -409,6 +409,29 @@ async function releaseRestoreFence(operationId,token,action) {
 }
 function checkRestoreCancelled(options) { if (options.signal?.aborted) throw new Error('Restore cancelled.'); }
 
+/**
+ * #489: export this operation and download it as the pre-restore safety backup.
+ * Never called while a restore fence is held: iOS Safari's "Do you want to
+ * download…?" sheet aborts in-flight fetches (TypeError: Load failed), which
+ * left a fenced restore half-done. Settings runs it as its own user step before
+ * the fenced restore; direct callers get it before assistant_restore_prepare.
+ * @param {string} operationId
+ * @returns {Promise<string>} the downloaded file name
+ */
+export async function saveSafetyBackup(operationId) {
+  const { json, fileName } = await exportOperationBackup(operationId);
+  const autoBackupFileName = fileName.replace('gtho-v2-backup__', 'gtho-v2-auto-backup-before-restore__');
+  downloadBackup(json, autoBackupFileName);
+  return autoBackupFileName;
+}
+
+/**
+ * Wholesale restore of one operation (CP-56), fenced by assistant_restore_prepare.
+ * Options: `skipAutoBackup` (empty operation — no safety backup),
+ * `safetyBackupFileName` (#489: the caller already saved the safety backup as a
+ * separate user step; nothing is downloaded here), `signal` (cancel).
+ * Otherwise the safety backup is downloaded here, before the fence (#489).
+ */
 export async function importOperationBackup(backup, operationId, onProgress, options = {}) {
   const progress = (phase, detail, pct) => {
     if (onProgress) onProgress(phase, detail, pct);
@@ -443,17 +466,32 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
   }
 
   if (options.signal?.aborted) return { success: false,error: 'Restore cancelled.' };
+  // #489: the safety backup (an <a download>) completes before the fence exists,
+  // so a browser download prompt can never interrupt fenced restore writes.
+  let autoBackupFileName = options.safetyBackupFileName || undefined;
+  if (options.skipAutoBackup) {
+    logger.info('backup', 'auto-backup skipped (empty operation)', { operation_id: operationId });
+  } else if (!autoBackupFileName) {
+    try {
+      progress('Saving current data (auto-backup)', '', 10);
+      autoBackupFileName = await saveSafetyBackup(operationId);
+    } catch (err) {
+      logger.error('backup', 'auto-backup failed, halting import', { error: err.message });
+      return { success: false, error: `Failed to save auto-backup: ${err.message}. Import halted.` };
+    }
+  }
+  if (options.signal?.aborted) return { success: false,error: 'Restore cancelled.',autoBackupFileName };
   const authority = await preflightAssistantRestore(backup,operationId);
-  if (!authority.success) return authority;
+  if (!authority.success) return { ...authority,autoBackupFileName };
 
   let result,finished = false;
   try {
-    result = await restoreBrowserTables(backup,operationId,progress,options,validation);
+    result = await restoreBrowserTables(backup,operationId,progress,options,validation,autoBackupFileName);
     if (result.success) {
       finished = await releaseRestoreFence(operationId,authority.fenceToken,'finish');
       if (!finished) result = { ...result,success: false,error: 'Restore completed but fence finish could not be verified.' };
     }
-  } catch (error) { result = { success: false,error: error.message || 'Restore halted.' }; }
+  } catch (error) { result = { success: false,error: error.message || 'Restore halted.',autoBackupFileName }; }
   finally {
     if (!finished && !await releaseRestoreFence(operationId,authority.fenceToken,'abort')) {
       // A network/auth failure cannot be treated as proof of release. Keep the
@@ -469,25 +507,10 @@ export function restoredEntityTypes() {
   return Object.entries(SYNC_REGISTRY).filter(([, reg]) => BROWSER_FK_ORDER.includes(reg.table)).map(([type]) => type);
 }
 
-async function restoreBrowserTables(backup,operationId,progress,options,validation) {
-  let autoBackupFileName;
+async function restoreBrowserTables(backup,operationId,progress,options,validation,autoBackupFileName) {
+  // #489: no download in here — the safety backup was saved before the fence.
   checkRestoreCancelled(options);
-  if (options.skipAutoBackup) {
-    logger.info('backup', 'auto-backup skipped (empty operation)', { operation_id: operationId });
-  } else {
-    progress('Saving current data (auto-backup)', '', 10);
-    try {
-      checkRestoreCancelled(options);
-      const { json, fileName } = await exportOperationBackup(operationId);
-      autoBackupFileName = fileName.replace('gtho-v2-backup__', 'gtho-v2-auto-backup-before-restore__');
-      downloadBackup(json, autoBackupFileName);
-    } catch (err) {
-      logger.error('backup', 'auto-backup failed, halting import', { error: err.message });
-      return { success: false, error: `Failed to save auto-backup: ${err.message}. Import halted.` };
-    }
-  }
-
-  checkRestoreCancelled(options);
+  progress('Replacing data', 'Detaching self-links', 20);
   // Break only nullable self-links; retained values come from the backup on restore.
   // This is wholesale restore, NOT finished-at retention cleanup.
   for (const [table, columns] of Object.entries(TWO_PASS_TABLES)) {

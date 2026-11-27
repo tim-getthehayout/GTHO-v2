@@ -9,7 +9,7 @@ import {
 } from './unit-descriptor.js';
 import { renderForageTypesSection, renderForageTypeSheetMarkup } from './forage-types-section.js';
 import { canExport, exportOperationBackup, downloadBackup } from '../../data/backup-export.js';
-import { validateBackup, getBackupPreview, importOperationBackup } from '../../data/backup-import.js';
+import { validateBackup, getBackupPreview, importOperationBackup, saveSafetyBackup } from '../../data/backup-import.js';
 import { withResyncLock, planResync, applyResync, resyncSkippedExport } from '../../data/push-all.js';
 import { pullAllRemote } from '../../data/pull-remote.js';
 import { logger } from '../../utils/logger.js';
@@ -172,6 +172,7 @@ const FARM_FIELD_DESCRIPTORS = [
 export const __backupUiInternals = {
   handleImportFileSelect: (...args) => handleImportFileSelect(...args),
   runExport: (...args) => runExport(...args),
+  showSecondConfirm: (...args) => showSecondConfirm(...args),
 };
 
 export const __settingsUnitInternals = {
@@ -1015,9 +1016,48 @@ function previewRow(label, value) {
 
 /**
  * Show the second-step destructive confirmation (§5.7.3).
+ * #489: two explicit user steps. Step 1 downloads the safety backup with no
+ * restore fence held; "Yes, Replace" stays disabled until it has been saved, and
+ * only that second click starts the fenced restore. iOS Safari's "Do you want to
+ * download…?" sheet aborted fenced fetches (TypeError: Load failed) when the
+ * download ran inside the restore.
  */
 function showSecondConfirm(mount, backup, operation) {
   clear(mount);
+  let safetyBackupFileName = null;
+  const status = el('p', {
+    style: { fontSize: '0.8125rem', color: 'var(--text2)', marginTop: 'var(--space-2)' },
+    'data-testid': 'import-safety-backup-status',
+  }, [t('settings.importSafetyBackupStep')]);
+  const confirmBtn = el('button', {
+    className: 'btn btn-red btn-sm',
+    'data-testid': 'import-final-confirm-btn',
+    disabled: true,
+    onClick: () => { if (safetyBackupFileName) runImport(mount, backup, operation, safetyBackupFileName); },
+  }, [t('settings.importYesReplace')]);
+  const safetyBtn = el('button', {
+    className: 'btn btn-outline btn-sm',
+    'data-testid': 'import-safety-backup-btn',
+    onClick: async () => {
+      if (!canExport().ok) {
+        status.textContent = t('settings.importSafetyBackupSyncPending');
+        return;
+      }
+      safetyBtn.disabled = true;
+      status.textContent = t('settings.importSafetyBackupSaving');
+      try {
+        safetyBackupFileName = await saveSafetyBackup(operation.id);
+        status.textContent = t('settings.importSafetyBackupSaved').replace('{filename}', safetyBackupFileName);
+        safetyBtn.textContent = t('settings.importSafetyBackupAgain');
+        confirmBtn.disabled = false;
+      } catch (err) {
+        logger.error('backup', 'safety backup failed', { error: err?.message || String(err) });
+        status.textContent = `${t('settings.importSafetyBackupFailed')} ${err?.message || ''}`.trim();
+      } finally {
+        safetyBtn.disabled = false;
+      }
+    },
+  }, [t('settings.importSafetyBackupBtn')]);
   mount.appendChild(el('div', {
     className: 'card',
     style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)', borderColor: 'var(--color-red-base)' },
@@ -1026,12 +1066,10 @@ function showSecondConfirm(mount, backup, operation) {
     el('p', { style: { fontWeight: '600', color: 'var(--color-red-base)' } }, [
       t('settings.importSecondConfirm'),
     ]),
+    status,
     el('div', { className: 'btn-row', style: { marginTop: 'var(--space-4)' } }, [
-      el('button', {
-        className: 'btn btn-red btn-sm',
-        'data-testid': 'import-final-confirm-btn',
-        onClick: () => runImport(mount, backup, operation),
-      }, [t('settings.importYesReplace')]),
+      safetyBtn,
+      confirmBtn,
       el('button', {
         className: 'btn btn-outline btn-sm',
         onClick: () => clear(mount),
@@ -1042,8 +1080,9 @@ function showSecondConfirm(mount, backup, operation) {
 
 /**
  * Run the actual import with progress UI (§5.7 step 10).
+ * @param {string} safetyBackupFileName saved in step 1 (#489); the fenced restore downloads nothing.
  */
-async function runImport(mount, backup, operation) {
+async function runImport(mount, backup, operation, safetyBackupFileName) {
   clear(mount);
 
   const phaseLabel = el('span', {}, ['Validating']);
@@ -1075,7 +1114,8 @@ async function runImport(mount, backup, operation) {
       detailLabel.textContent = detail;
       progressLabel.textContent = `${pct}%`;
       progressFill.style.width = `${pct}%`;
-    }
+    },
+    { safetyBackupFileName },
   );
 
   clear(mount);

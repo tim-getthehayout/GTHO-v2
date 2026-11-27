@@ -59,7 +59,12 @@ vi.mock('../../src/data/supabase-client.js', () => {
             if (srv.readFail === table) return { data: null, error: { message: 'Internal server error (500)' } };
             return { data: ids.filter(id => srv.rows.has(key(table, id))).map(id => pick(srv.rows.get(key(table, id)), cols)), error: null };
           }),
-          gt: async (_c, since) => ({ data: [...srv.rows.entries()].filter(([k, row]) => k.startsWith(`${table}/`) && row.updated_at > since).map(([, row]) => ({ ...row })), error: null }),
+          // #485: pull pages by id — order('id').range(from, to) like PostgREST.
+          gt: (_c, since) => ({
+            order: () => ({
+              range: async (from, to) => ({ data: [...srv.rows.entries()].filter(([k, row]) => k.startsWith(`${table}/`) && row.updated_at > since).map(([, row]) => ({ ...row })).sort((a, b) => String(a.id).localeCompare(String(b.id))).slice(from, to + 1), error: null }),
+            }),
+          }),
         }),
       };
     },

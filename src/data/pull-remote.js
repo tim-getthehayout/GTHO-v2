@@ -8,6 +8,7 @@ import { isTableReleased, RELEASED_SCHEMA_VERSION } from './schema-release.js';
 import { logger } from '../utils/logger.js';
 import { flushLoggerBuffer } from './log-flush.js';
 import { supabase } from './supabase-client.js';
+import { fetchAllPages } from './supabase-pagination.js';
 
 const LAST_PULLED_KEY = 'gtho_last_pulled_at';
 
@@ -72,6 +73,10 @@ export async function pullAllRemoteReplacing(entityTypes) {
  * Unlike pullAll(), a Supabase error is not reported as an empty table.
  * Does not take the full-pull inFlight lock — the later fire-and-forget
  * pullAllRemote() still owns that.
+ * #485: each table is read in ordered 1,000-row pages (past the PostgREST cap),
+ * checking the #478 pull generation between pages. Every table is fetched
+ * first and merged only when all succeeded: an error on any page, a superseded
+ * session or the page cap merges nothing (no partial table, no partial set).
  * @param {string[]} entityTypes
  * @returns {Promise<{ ok: boolean, error: string|null, byType: Record<string, { pulled: number, error: string|null }> }>}
  */
@@ -86,7 +91,7 @@ export async function pullEntitiesStrict(entityTypes) {
     if (!online) return { ok: false, error: 'offline', byType };
   }
 
-  beginBatch();
+  const fetched = [];
   try {
     for (const entityType of entityTypes) {
       const reg = SYNC_REGISTRY[entityType];
@@ -94,14 +99,27 @@ export async function pullEntitiesStrict(entityTypes) {
         byType[entityType] = { pulled: 0, error: 'unknown entity' };
         return { ok: false, error: `unknown entity ${entityType}`, byType };
       }
-      const { data, error } = await supabase.from(reg.table).select('*');
-      if (gen !== pullGeneration) return { ok: false, error: 'superseded', byType };
+      const { data, error, offset, superseded } = await fetchAllPages(
+        () => supabase.from(reg.table).select('*'),
+        { isCurrent: () => gen === pullGeneration },
+      );
+      if (superseded || gen !== pullGeneration) return { ok: false, error: 'superseded', byType };
       if (error) {
-        logger.error('sync', `strict pull failed for ${reg.table}`, { error: error.message });
+        logger.error('sync', `strict pull failed for ${reg.table}`, { error: error.message, offset });
         byType[entityType] = { pulled: 0, error: error.message };
         return { ok: false, error: error.message, byType };
       }
-      const records = (data || []).map(row => reg.from(row));
+      fetched.push({ entityType, records: data.map(row => reg.from(row)) });
+      byType[entityType] = { pulled: 0, error: null };
+    }
+  } catch (err) {
+    logger.error('sync', 'strict pull exception', { error: err.message });
+    return { ok: false, error: err.message, byType };
+  }
+
+  beginBatch();
+  try {
+    for (const { entityType, records } of fetched) {
       if (records.length > 0) mergeRemote(entityType, records);
       byType[entityType] = { pulled: records.length, error: null };
     }
@@ -141,7 +159,8 @@ async function _doPullAllRemote() {
       // applied) is never read.
       if (!isTableReleased(reg.table, RELEASED_SCHEMA_VERSION)) continue;
       try {
-        const rows = await adapter.pullAll(reg.table);
+        // #485: the adapter pages past the 1,000-row cap and stops between pages once superseded.
+        const rows = await adapter.pullAll(reg.table, { isCurrent: () => gen === pullGeneration });
         if (gen !== pullGeneration) return { pulled, errors, discarded: true };
         if (rows.length > 0) {
           const records = rows.map(row => reg.from(row));

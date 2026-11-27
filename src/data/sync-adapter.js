@@ -36,11 +36,12 @@ export class SyncAdapter {
   }
 
   /**
-   * Pull all records for a table.
+   * Pull all records for a table (every page; never a partial table).
    * @param {string} table
+   * @param {{ isCurrent?: () => boolean }} [options] stop between pages once false (#485/#478)
    * @returns {Promise<Array<object>>}
    */
-  async pullAll(_table) {
+  async pullAll(_table, _options) {
     throw new Error('SyncAdapter.pullAll() not implemented');
   }
 

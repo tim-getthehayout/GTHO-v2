@@ -5,7 +5,8 @@ const sb = vi.hoisted(() => ({ signOut: null, select: null }));
 vi.mock('../../src/data/supabase-client.js', () => ({
   supabase: {
     auth: { signOut: (...a) => sb.signOut(...a), onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }), getSession: async () => ({ data: { session: null } }) },
-    from: () => ({ select: (...a) => sb.select(...a) }),
+    // #485: strict pulls page with order('id').range(); sb.select answers each page.
+    from: () => ({ select: (...a) => ({ order: () => ({ range: () => sb.select(...a) }) }) }),
   },
 }));
 

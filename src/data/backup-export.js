@@ -7,6 +7,7 @@ import { UNIT_TABLES } from '../utils/unit-standards.js';
  */
 
 import { supabase } from './supabase-client.js';
+import { fetchAllPages } from './supabase-pagination.js';
 import { getSyncAdapter } from './store.js';
 import { REFERENCE_TABLES } from './backup-import.js';
 import { ASSISTANT_TABLES, SERVER_ASSISTANT_TABLES } from '../features/assistant/schema.js';
@@ -88,7 +89,6 @@ export const BACKUP_TABLES = {
   todo_assignments:          { paginate: false },
 };
 
-const PAGE_SIZE = 1000;
 
 /**
  * Check if the app is ready to export (online + no pending sync).
@@ -145,23 +145,14 @@ async function fetchTable(table, operationId, paginate) {
     return UNIT_TABLES.includes(table) ? (data || []).filter(row => row.operation_id === operationId) : data || [];
   }
 
-  // Paginated fetch
-  const allRows = [];
-  let offset = 0;
-  let hasMore = true;
-
-  while (hasMore) {
+  // Paginated fetch. #476: every page orders by id so OFFSET/LIMIT pages never
+  // skip or repeat rows; #485 shares the loop (and its page cap) with live sync.
+  const { data: allRows, error, offset } = await fetchAllPages(() => {
     let query = supabase.from(table).select('*');
     if (!isGlobal && (!UNIT_TABLES.includes(table) || RELEASED_SCHEMA_VERSION >= 44)) query = query.eq(filterCol, operationId);
-    // #476: every paginated table orders by id so OFFSET/LIMIT pages never skip or repeat rows.
-    query = query.order('id', { ascending: true });
-    query = query.range(offset, offset + PAGE_SIZE - 1);
-    const { data, error } = await query;
-    if (error) throw new Error(`Failed to fetch ${table} (offset ${offset}): ${error.message}`);
-    allRows.push(...(data || []));
-    hasMore = (data || []).length === PAGE_SIZE;
-    offset += PAGE_SIZE;
-  }
+    return query;
+  });
+  if (error) throw new Error(`Failed to fetch ${table} (offset ${offset}): ${error.message}`);
 
   return UNIT_TABLES.includes(table) ? allRows.filter(row => row.operation_id === operationId) : allRows;
 }

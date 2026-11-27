@@ -6,6 +6,7 @@ import { RELEASED_SCHEMA_VERSION } from './schema-release.js';
 
 import { SyncAdapter } from './sync-adapter.js';
 import { supabase } from './supabase-client.js';
+import { fetchAllPages } from './supabase-pagination.js';
 import { logger } from '../utils/logger.js';
 import { nextWriteOrder } from './write-order.js';
 import { markEntries, ackMark, clearMark, listUnacked, readUnacked, UNACKED_KEY } from './unacked.js';
@@ -370,24 +371,29 @@ export class CustomSync extends SyncAdapter {
     return this.enqueueWrites(table, records, 'push').result;
   }
 
+  /** #485: paginated (order by id, 1,000-row pages); a failed page returns [] — never a partial table. */
   async pull(table, since) {
     if (!supabase) return [];
-    const { data, error } = await supabase
-      .from(table)
-      .select('*')
-      .gt('updated_at', since);
+    const { data, error, offset } = await fetchAllPages(() => supabase.from(table).select('*').gt('updated_at', since));
     if (error) {
-      logger.error('sync', `pull failed for ${table}`, { error: error.message });
+      logger.error('sync', `pull failed for ${table}`, { error: error.message, offset });
       return [];
     }
     return data || [];
   }
 
-  async pullAll(table) {
+  /**
+   * #485: every row of a table, paginated past the PostgREST 1,000-row cap.
+   * A failed or capped page returns [] (mergeRemote never deletes, so nothing is lost locally).
+   * @param {string} table
+   * @param {{ isCurrent?: () => boolean }} [options] #478: stop between pages once superseded (returns [])
+   */
+  async pullAll(table, options = {}) {
     if (!supabase) return [];
-    const { data, error } = await supabase.from(table).select('*');
+    const { data, error, offset, superseded } = await fetchAllPages(() => supabase.from(table).select('*'), { isCurrent: options.isCurrent });
+    if (superseded) return [];
     if (error) {
-      logger.error('sync', `pullAll failed for ${table}`, { error: error.message });
+      logger.error('sync', `pullAll failed for ${table}`, { error: error.message, offset });
       return [];
     }
     return data || [];

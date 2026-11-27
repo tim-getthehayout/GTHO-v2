@@ -17,6 +17,7 @@
  *   --today YYYY-MM-DD            last day of the sample milk data (default: today, operation tz)
  *   --days <n>                    sample milk days (default 14)
  *   --summary <path>              also write the summary JSON there
+ *   --farm-name <name>            demo operation + farm name (default "Demo Dairy")
  *   --scrub-names "A,B"           people's names to strip (whole word) from every text value,
  *                                 e.g. a seller's surname used in group names; never commit them
  *
@@ -40,6 +41,7 @@ export const TARGET_SCHEMA_VERSION = 51;
 /** Fixed project namespace for demo ids; per demo operation a child namespace is derived. */
 export const DEMO_NAMESPACE = '6f1c2d4e-450d-5a1e-9d3c-7b2a1e0f4c50';
 export const DEFAULT_DAYS = 14;
+export const DEFAULT_FARM_NAME = 'Demo Dairy';
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const UUID_ONLY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -151,6 +153,7 @@ const isLive = animal => animal.active !== false && !animal.cull_date;
  */
 export function cloneOperation(source, opts) {
   const { demoOperationId, demoUserId = null, sourceOperationId = null, days = DEFAULT_DAYS, scrubNames = [] } = opts;
+  const farmName = String(opts.farmName ?? '').trim() || DEFAULT_FARM_NAME;
   if (!UUID_ONLY.test(demoOperationId || '')) throw new Error('--demo-operation-id must be a uuid.');
   if (demoUserId != null && !UUID_ONLY.test(demoUserId)) throw new Error('--demo-user-id must be a uuid.');
   const demoOp = demoOperationId.toLowerCase();
@@ -189,8 +192,8 @@ export function cloneOperation(source, opts) {
   }
   (t.todos || []).forEach((row, i) => { row.title = `Demo task ${i + 1}`; });
   const farms = (t.farms || []).slice().sort(byId);
-  farms.forEach((row, i) => { row.name = i === 0 ? 'Demo Dairy' : `Demo Dairy farm ${i + 1}`; });
-  for (const row of t.operations) row.name = 'Demo Dairy';
+  farms.forEach((row, i) => { row.name = i === 0 ? farmName : `${farmName} farm ${i + 1}`; });
+  for (const row of t.operations) row.name = farmName;
 
   // 3 · beef_cattle → dairy_cattle (sheep and goats unchanged)
   const renamed = new Map();
@@ -360,7 +363,7 @@ export function main(argv = process.argv.slice(2)) {
   const { backup, summary } = cloneOperation(source, {
     demoOperationId: args.demoOperationId, demoUserId: args.demoUserId ?? null,
     sourceOperationId: args.sourceOperationId ?? null, today: args.today, days: args.days ? Number(args.days) : DEFAULT_DAYS,
-    scrubNames: args.scrubNames ? args.scrubNames.split(',') : [],
+    scrubNames: args.scrubNames ? args.scrubNames.split(',') : [], farmName: args.farmName,
   });
   fs.writeFileSync(args.out, JSON.stringify(backup, null, 2));
   if (args.summary) fs.writeFileSync(args.summary, JSON.stringify(summary, null, 2));

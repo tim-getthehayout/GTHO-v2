@@ -130,6 +130,15 @@ describe('beef → dairy and scrubbing', () => {
     const text = JSON.stringify(t);
     for (const s of ['Jane', 'Bob', 'Tom', 'Sam', 'Pat', 'Mike', 'Joe', 'Smith', 'Real Road']) expect(text).not.toContain(s);
   });
+  it('--farm-name overrides the demo operation and farm name; default stays "Demo Dairy"', () => {
+    const src = syntheticSource();
+    src.tables.farms.push({ ...src.tables.farms[0], id: fid('farms:b'), name: 'Second Place' });
+    const t = clone({ farmName: 'Down East Dairy' }, src).backup.tables;
+    expect(t.operations[0].name).toBe('Down East Dairy');
+    expect(t.farms.map(f => f.name).sort()).toEqual(['Down East Dairy', 'Down East Dairy farm 2']);
+    expect(clone({ farmName: '  ' }).backup.tables.operations[0].name).toBe('Demo Dairy');
+    expect(parseArgs(['--farm-name', 'Down East Dairy'])).toEqual({ farmName: 'Down East Dairy' });
+  });
   it('--scrub-names strips listed people\'s names from any text (whole word)', () => {
     const src = syntheticSource();
     src.tables.groups[0].name = 'Zed Cows';

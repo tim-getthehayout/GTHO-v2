@@ -1,7 +1,6 @@
 /** @file Heat observation recording sheet — v1 parity. */
 
 import { el, clear } from '../../ui/dom.js';
-import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { add } from '../../data/store.js';
 import * as HeatRecordEntity from '../../entities/animal-heat-record.js';

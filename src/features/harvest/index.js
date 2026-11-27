@@ -6,7 +6,7 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
-import { convert, display, unitLabel } from '../../utils/units.js';
+import { convert } from '../../utils/units.js';
 import { openFeedTypesSheet } from '../locations/index.js';
 import { landUseLabel } from '../locations/land-use-label.js';
 import * as HarvestEventEntity from '../../entities/harvest-event.js';

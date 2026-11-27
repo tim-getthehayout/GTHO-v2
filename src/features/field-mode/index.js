@@ -4,7 +4,6 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, update, add, subscribe } from '../../data/store.js';
-import { getFieldMode } from '../../utils/preferences.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { convert } from '../../utils/units.js';

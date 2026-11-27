@@ -1,8 +1,7 @@
 /** @file Gap / Overlap Resolution Dialog — SP-10 shared routine.
  * Surfaces three-option picker when a structural edit creates a gap or overlap. */
 
-import { el, clear } from '../../ui/dom.js';
-import { t } from '../../i18n/i18n.js';
+import { el } from '../../ui/dom.js';
 
 /**
  * Open the gap/overlap resolution dialog.

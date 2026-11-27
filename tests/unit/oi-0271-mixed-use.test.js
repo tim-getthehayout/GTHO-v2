@@ -20,7 +20,7 @@ vi.mock('../../src/features/auth/session.js', () => ({
   getUser: vi.fn(() => ({ id: '00000000-0000-0000-0000-00000000u271' })),
 }));
 
-import { openLocationSheet, renderLocationsScreen } from '../../src/features/locations/index.js';
+import { openLocationSheet, buildLocationCard } from '../../src/features/locations/index.js';
 import { openHarvestSheet } from '../../src/features/harvest/index.js';
 import { isManagementLocation, filterManagementLocations } from '../../src/features/events/rotation-calendar/location-metrics.js';
 import { matchesLegacyTypeFilter } from '../../src/features/events/rotation-calendar/calendar-grid.js';
@@ -95,17 +95,6 @@ describe('OI-0271 canonical mixed_use', () => {
     expect(LocationEntity.toSupabaseShape(created).land_use).toBe('mixed_use');
   });
 
-  it('legacy Locations screen Mixed-Use pill shows the mixed_use location', () => {
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    renderLocationsScreen(container);
-    const pill = [...container.querySelectorAll('button')].find(b => b.textContent === 'Mixed-Use');
-    expect(pill).toBeTruthy();
-    pill.click();
-    expect(container.textContent).toContain('Creek');
-    expect(container.textContent).not.toContain('North');
-  });
-
   it('Harvest field picker lists mixed_use land with crop land', () => {
     openHarvestSheet(OP, { fieldMode: true });
     const panel = document.getElementById('harvest-sheet-panel');
@@ -152,11 +141,9 @@ describe('OI-0271 visible land-use label (never the raw stored value)', () => {
   });
 
   it('Locations card badge shows Mixed-use / Pasture / Crop, not mixed_use', () => {
+    // #480: the card the List view renders (the standalone screen is retired).
     const container = document.createElement('div');
-    document.body.appendChild(container);
-    renderLocationsScreen(container);
-    // The legacy screen keeps its filter in module state; reset to All.
-    [...container.querySelectorAll('button')].find(b => b.textContent === 'All').click();
+    for (const id of [LOC_PAST, LOC_MIX, LOC_CROP]) container.appendChild(buildLocationCard(getById('locations', id), OP, FARM, 'imperial'));
     const badges = [...container.querySelectorAll('.badge')].map(b => b.textContent);
     expect(badges).toContain('Mixed-use');
     expect(badges).toContain('Pasture');

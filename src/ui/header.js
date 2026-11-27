@@ -99,7 +99,7 @@ export function renderHeader(container) {
           ? el('button', {
               className: `header-farm-picker ${!activeFarm ? 'header-farm-all' : ''}`,
               'data-testid': 'header-farm-picker',
-              onClick: () => openFarmPicker(farms, container),
+              onClick: () => openFarmPicker(farms),
             }, [farmLabel, ' \u25BE'])
           : el('div', { className: 'header-farm-label', 'data-testid': 'header-farm-label' }, [farmLabel]),
       ]),
@@ -198,7 +198,7 @@ export function renderHeader(container) {
 // Farm picker
 // ---------------------------------------------------------------------------
 
-function openFarmPicker(farms, rootContainer) {
+function openFarmPicker(farms) {
   // Remove existing picker if open
   closeFarmPicker();
 
@@ -211,7 +211,7 @@ function openFarmPicker(farms, rootContainer) {
     el('button', {
       className: `farm-picker-row ${!activeFarmId ? 'farm-picker-active' : ''}`,
       'data-testid': 'farm-picker-all',
-      onClick: () => { setActiveFarm(null); closeFarmPicker(); rerenderApp(rootContainer); },
+      onClick: () => { setActiveFarm(null); closeFarmPicker(); rerenderApp(); },
     }, [
       t('header.allFarms'),
       !activeFarmId ? ' \u2713' : '',
@@ -221,7 +221,7 @@ function openFarmPicker(farms, rootContainer) {
       el('button', {
         className: `farm-picker-row ${farm.id === activeFarmId ? 'farm-picker-active' : ''}`,
         'data-testid': `farm-picker-${farm.id}`,
-        onClick: () => { setActiveFarm(farm.id); closeFarmPicker(); rerenderApp(rootContainer); },
+        onClick: () => { setActiveFarm(farm.id); closeFarmPicker(); rerenderApp(); },
       }, [
         farm.name,
         farm.id === activeFarmId ? ' \u2713' : '',
@@ -238,7 +238,7 @@ function closeFarmPicker() {
   document.querySelector('.farm-picker-menu')?.remove();
 }
 
-function rerenderApp(rootContainer) {
+function rerenderApp() {
   // Trigger a hash change to force re-render of the current route
   const hash = window.location.hash || '#/';
   window.location.hash = '';

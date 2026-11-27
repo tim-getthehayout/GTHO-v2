@@ -5,7 +5,6 @@
  */
 
 import { el } from '../../../ui/dom.js';
-import { t } from '../../../i18n/i18n.js';
 
 /**
  * Render the Today line element positioned at a given left offset.

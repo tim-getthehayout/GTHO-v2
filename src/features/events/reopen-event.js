@@ -1,7 +1,6 @@
 /** @file Event Reopen action — SP-10 event-level dates. Clears date_out, re-opens matching child windows. */
 
-import { el, clear } from '../../ui/dom.js';
-import { t } from '../../i18n/i18n.js';
+import { el } from '../../ui/dom.js';
 import { getAll, getById, update } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';

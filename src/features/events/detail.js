@@ -37,7 +37,6 @@ import {
   openAddMode as openFeedFormAdd,
   openEditMode as openFeedFormEdit,
   isFormOpen as isFeedFormOpen,
-  closeForm as closeFeedForm,
 } from './feed-entry-inline-form.js';
 
 // OI-0279 Q1: Event detail NPK uses the group's member-mix class excretion
@@ -327,7 +326,6 @@ function renderSummary(ctx) {
   heroTokens.push(`${auValue.toFixed(1)} AU`);
 
   // Sub-line
-  const dateInStr = eventDateIn ? formatShortDate(eventDateIn) : '\u2014';
   const dateOutStr = event.dateOut ? formatShortDate(event.dateOut) : '\u2014';
 
   el2.appendChild(el('div', { className: 'card', style: { marginBottom: 'var(--space-5)' } }, [

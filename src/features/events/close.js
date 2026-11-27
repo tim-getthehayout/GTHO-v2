@@ -8,8 +8,6 @@ import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, update, closePaddockWindow, runDurableWrite, beginBatch, endBatch } from '../../data/store.js';
 import * as EventEntity from '../../entities/event.js';
-import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
-import * as GroupWindowEntity from '../../entities/event-group-window.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import * as ManureTxEntity from '../../entities/manure-batch-transaction.js';

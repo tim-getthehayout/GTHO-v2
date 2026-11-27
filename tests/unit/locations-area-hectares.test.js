@@ -16,7 +16,7 @@ import { setLocale } from '../../src/i18n/i18n.js';
 import enLocale from '../../src/i18n/locales/en.json';
 import '../../src/calcs/core.js';
 import '../../src/calcs/feed-forage.js';
-import { openLocationSheet, renderLocationsScreen } from '../../src/features/locations/index.js';
+import { openLocationSheet, buildLocationCard } from '../../src/features/locations/index.js';
 
 const OP = '00000000-0000-0000-0000-00000000a0a1';
 const FARM = '00000000-0000-0000-0000-00000000b0b1';
@@ -43,12 +43,11 @@ const areaInput = () => document.querySelector('#loc-edit-panel input[placeholde
 const nameInput = () => document.querySelector('#loc-edit-panel input[placeholder="North paddock"]');
 const button = (label) => [...document.querySelectorAll('#loc-edit-panel button')].find(b => b.textContent === label);
 
-describe('Locations screen area uses areaHectares', () => {
+describe('Location card and sheet area use areaHectares', () => {
   it('shows the stored area in acres on the location card', () => {
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    renderLocationsScreen(container);
-    expect(container.textContent).toContain('2.47 ac');
+    // #480: the standalone screen is gone; the same card renders on the List view.
+    const card = buildLocationCard(getById('locations', LOC), OP, FARM, 'imperial');
+    expect(card.textContent).toContain('2.47 ac');
   });
 
   it('prefills the edit sheet and saves a changed area as areaHectares', () => {

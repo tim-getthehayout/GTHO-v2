@@ -1,14 +1,14 @@
 import { beforeEach, it, expect } from 'vitest';
 import { resetForms, seed, fill, button, queueSpy, OP, FARM } from './manual-entry-helpers.js';
-import { getAll } from '../../src/data/store.js';
+import { getAll, getById } from '../../src/data/store.js';
 import { loadFromStorage } from '../../src/data/local-storage.js';
 import * as Location from '../../src/entities/location.js';
 import * as Soil from '../../src/entities/soil-test.js';
-import { renderLocationsScreen } from '../../src/features/locations/index.js';
+import { buildLocationCard } from '../../src/features/locations/index.js';
 import { renderSoilTestsScreen } from '../../src/features/amendments/soil-tests.js';
 let queued;
 beforeEach(()=>{resetForms();seed('locations',Location,{id:'field',farmId:FARM,name:'Field',type:'land'});queued=queueSpy();});
-function open(path){const root=document.createElement('main');document.body.append(root);if(path==='shortcut'){renderLocationsScreen(root);button(root,'✎ Soil').click();return document.querySelector('#soil-sheet-panel');}renderSoilTestsScreen(root);root.querySelector('[data-testid="soil-tests-add-btn"]').click();return document.querySelector('#soil-test-sheet-panel');}
+function open(path){const root=document.createElement('main');document.body.append(root);if(path==='shortcut'){root.append(buildLocationCard(getById('locations','field'),OP,FARM,'imperial'));button(root,'✎ Soil').click();return document.querySelector('#soil-sheet-panel');}renderSoilTestsScreen(root);root.querySelector('[data-testid="soil-tests-add-btn"]').click();return document.querySelector('#soil-test-sheet-panel');}
 function control(panel,path,key){const names={date:'date',unit:'unit',n:'n',p:'p',k:'k',ph:'ph',om:'organicMatter'};return panel.querySelector(`[data-testid="${path==='shortcut'?'location-soil-'+key:'soil-test-'+names[key]}"]`);}
 function save(panel,path){(path==='shortcut'?button(panel,'Save test'):panel.querySelector('[data-testid="soil-test-save"]')).click();}
 it.each(['shortcut','full'])('real %s Save preserves organic matter, entered zero values, units and canonical timestamp in local and queued records',path=>{

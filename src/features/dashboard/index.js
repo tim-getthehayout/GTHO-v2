@@ -17,7 +17,6 @@ import { computeHomeDmi, totalDmiTitle, pastureDmiTitle } from './home-dmi.js';
 import { inMetricsPass } from '../../calcs/metrics-memo.js';
 import { openMoveWizard } from '../events/move-wizard.js';
 import { openPlaceWizard } from '../events/place-wizard.js';
-import { openCloseEventSheet } from '../events/close.js';
 import { openSubmoveOpenSheet, openSubmoveCloseSheet } from '../events/submove.js';
 import { openDeliverFeedSheet } from '../feed/delivery.js';
 import { openFeedCheckSheet } from '../feed/check.js';
@@ -802,37 +801,6 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
     }
   }
 
-  // DMI target + progress
-  let dmiEl = null;
-  if (isOnPasture && activeGW) {
-    const dmi2 = getCalcByName('DMI-2');
-    if (dmi2 && group.dmiTarget > 0) {
-      const dmiRes = groupDayDmi(activeGW, todayStr, {
-        ...groupDmiCtx(), head: activeLiveHead, avgWeightKg: activeLiveAvg,
-      });
-      const dmiKgPerDay = dmiRes.kg;
-      // OI-0278 S2 row 16: farm unit via the helper (ratio is unit-free).
-      const pct = group.dmiTarget > 0 ? Math.min(100, (dmiKgPerDay / group.dmiTarget) * 100) : 0;
-      const consumedTxt = formatMeasure(dmiKgPerDay, 'weight', { unitSystem: unitSys, unitInHeader: true });
-      const targetTxt = formatMeasure(group.dmiTarget, 'weight', { unitSystem: unitSys });
-      const dmiNote = dmiBasisNote([{ ...dmiRes, groupWindow: activeGW }]);
-      dmiEl = el('div', { style: { marginBottom: 'var(--space-3)' } }, [
-        el('div', {
-          style: { fontSize: '12px', color: 'var(--text2)' },
-          ...(dmiNote ? { title: dmiNote } : {}),
-        }, [
-          `DMI: ${consumedTxt} / ${targetTxt}`,
-        ]),
-        el('div', { className: 'progress-bar' }, [
-          el('div', {
-            className: `progress-fill ${pct >= 90 ? 'progress-green' : 'progress-amber'}`,
-            style: { width: `${pct}%` },
-          }),
-        ]),
-      ]);
-    }
-  }
-
   // NPK deposited
   let npkEl = null;
   if (isOnPasture && activeGW && activeLiveAvg > 0) {
@@ -949,7 +917,6 @@ function renderGroupCard(group, unitSys, operationId, farmId) {
 
   // Location bar
   if (isOnPasture) {
-    const todayStr3 = getLocalTodayStr();
     const locBarParts = [`Day ${dayCount}`];
     if (feedCount > 0) locBarParts.push(`${feedCount} feedings`);
     if (feedCost > 0) locBarParts.push(`$${feedCost.toFixed(2)}`);

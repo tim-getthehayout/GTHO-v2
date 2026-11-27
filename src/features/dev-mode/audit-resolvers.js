@@ -76,7 +76,6 @@ function computeNpk1PerWindow(ctx) {
     const headCount = rawHead || (gw.headCount ?? 0);
     const rawAvg = getLiveWindowAvgWeight(gw, { memberships, animals, animalClasses, animalWeightRecords, now: today });
     const avgWeightKg = rawAvg || (gw.avgWeightKg ?? 0);
-    const startDate = gw.dateJoined || eventStart;
     const days = Math.max(groupWindowPresenceDays(gw, {
       eventStartDate: eventStart,
       eventDateOut: event?.dateOut,

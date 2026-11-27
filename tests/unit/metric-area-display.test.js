@@ -5,7 +5,7 @@
  * Detail: convert only when imperial; otherwise show hectares; label ac/ha.
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { _reset, add } from '../../src/data/store.js';
+import { _reset, add, getAll } from '../../src/data/store.js';
 import { setUnitSystem } from '../../src/utils/preferences.js';
 import * as OperationEntity from '../../src/entities/operation.js';
 import * as FarmEntity from '../../src/entities/farm.js';
@@ -24,7 +24,8 @@ vi.mock('../../src/features/auth/session.js', () => ({
   getUser: vi.fn(() => ({ id: '00000000-0000-0000-0000-00000000u001' })),
 }));
 
-import { renderLocationsScreen, openSurveySheet } from '../../src/features/locations/index.js';
+import { buildLocationCard, openSurveySheet } from '../../src/features/locations/index.js';
+import { openAmendmentSheet } from '../../src/features/amendments/entry.js';
 import { openHarvestSheet } from '../../src/features/harvest/index.js';
 import { renderFieldModeHome } from '../../src/features/field-mode/index.js';
 
@@ -83,13 +84,6 @@ function seed(unitSystem) {
   }), UserPrefEntity.validate, UserPrefEntity.toSupabaseShape, 'user_preferences');
 }
 
-function clickButton(root, label) {
-  const btn = [...(root || document).querySelectorAll('button')].find(b => b.textContent === label);
-  expect(btn, `button "${label}"`).toBeTruthy();
-  btn.click();
-  return btn;
-}
-
 function freshContainer() {
   document.body.innerHTML = '';
   const container = document.createElement('div');
@@ -101,14 +95,14 @@ describe('metric area display — six screens match Event Detail ac/ha', () => {
   beforeEach(() => seed('imperial'));
 
   it('1. Locations card: imperial acres / metric hectares', () => {
-    let container = freshContainer();
-    renderLocationsScreen(container);
+    // #480: the same card the List view renders (the standalone screen is retired).
+    const cards = (sys) => { const c = freshContainer(); for (const loc of getAll('locations').filter(l => l.type === 'land')) c.appendChild(buildLocationCard(loc, OP, FARM, sys)); return c; };
+    let container = cards('imperial');
     expect(container.textContent).toContain('2.47 ac');
     expect(container.textContent).not.toContain('2.47 ha');
 
     setUnitSystem('metric');
-    container = freshContainer();
-    renderLocationsScreen(container);
+    container = cards('metric');
     expect(container.textContent).toContain('1.00 ha');
     expect(container.textContent).not.toContain('2.47 ha');
     expect(container.textContent).not.toContain('2.47 ac');
@@ -129,17 +123,14 @@ describe('metric area display — six screens match Event Detail ac/ha', () => {
   });
 
   it('3. Apply-input location picker: imperial acres / metric hectares', () => {
-    let container = freshContainer();
-    renderLocationsScreen(container);
-    clickButton(container, 'Apply input');
+    // #480: the retired screen's "Apply input" button opened this sheet.
+    openAmendmentSheet(null, OP);
     const panel = document.getElementById('amendment-sheet-panel');
     expect(panel.textContent).toContain('2.47 ac');
     expect(panel.textContent).not.toContain('2.47 ha');
 
     setUnitSystem('metric');
-    container = freshContainer();
-    renderLocationsScreen(container);
-    clickButton(container, 'Apply input');
+    openAmendmentSheet(null, OP);
     const panel2 = document.getElementById('amendment-sheet-panel');
     expect(panel2.textContent).toContain('1.00 ha');
     expect(panel2.textContent).not.toContain('2.47 ha');

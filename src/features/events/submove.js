@@ -6,7 +6,7 @@ import { poolKey } from '../../calcs/feed-pools.js';
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, closePaddockWindow, runDurableWrite } from '../../data/store.js';
+import { getAll, getById, add, closePaddockWindow, runDurableWrite } from '../../data/store.js';
 import * as PaddockWindowEntity from '../../entities/event-paddock-window.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';

@@ -4,7 +4,7 @@
  * See V2_DESIGN_SYSTEM.md §4.3 and V2_UX_FLOWS.md §19.4.
  */
 
-import { el, clear } from '../../../ui/dom.js';
+import { el } from '../../../ui/dom.js';
 import { t } from '../../../i18n/i18n.js';
 import {
   getCalendarState, setZoom, setJump, addForecasterGroup,

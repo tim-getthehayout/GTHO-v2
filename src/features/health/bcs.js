@@ -1,7 +1,6 @@
 /** @file BCS (Body Condition Score) sheet — v1 parity with chip selector. */
 
 import { el, clear } from '../../ui/dom.js';
-import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getById, add } from '../../data/store.js';
 import * as BcsScoreEntity from '../../entities/animal-bcs-score.js';

@@ -7,9 +7,7 @@
 
 import { el, clear } from '../../../ui/dom.js';
 import { t } from '../../../i18n/i18n.js';
-import { getAll, getByField, getVisibleEvents } from '../../../data/store.js';
-import { getUnitSystem } from '../../../utils/preferences.js';
-import { display } from '../../../utils/units.js';
+import { getAll, getVisibleEvents } from '../../../data/store.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../../utils/date-utils.js';
 import { navigate } from '../../../ui/router.js';
 import { buildGroupLabel } from '../rotation-calendar/past-block.js';
@@ -22,7 +20,6 @@ import { getEventStartDate } from '../event-start.js';
 export function renderEventsLog(container) {
   clear(container);
 
-  const unitSystem = getUnitSystem();
   const allEvents = getVisibleEvents ? getVisibleEvents() : getAll('events');
   const allPaddockWindows = getAll('eventPaddockWindows');
   const allGroupWindows = getAll('eventGroupWindows');
@@ -126,7 +123,6 @@ export function renderEventsLog(container) {
       ]);
 
       // Sub-moves
-      const primaryWindow = windows.find(w => !w.parentWindowId) || windows[0];
       const subMoveWindows = windows.filter(w => w.parentWindowId);
       let submovesEl = null;
 

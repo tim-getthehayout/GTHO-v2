@@ -2,7 +2,6 @@ import { unitsFor } from '../../data/unit-references.js';
 /** @file Treatment recording sheet — v1 parity. */
 
 import { el, clear } from '../../ui/dom.js';
-import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, add } from '../../data/store.js';
 import * as TreatmentEntity from '../../entities/animal-treatment.js';

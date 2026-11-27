@@ -5,7 +5,6 @@
  */
 
 import { el } from '../../../ui/dom.js';
-import { t } from '../../../i18n/i18n.js';
 import { getCalendarState, setView, getViewMode, calendarHashFor } from '../calendar-state.js';
 import { navigate } from '../../../ui/router.js';
 import { buildGroupLabel } from './past-block.js';

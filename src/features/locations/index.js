@@ -1,37 +1,27 @@
-/** @file Locations screen — v1 parity rebuild. List + 7 connected sheets. */
+/** @file Location, soil-test, survey and feed-type sheets, plus the location card
+ * reused by the Locations & Rotation List view. The standalone Locations screen
+ * (#/locations) was retired by OI-0265 and its renderer removed in #480. */
 
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe, getVisibleLocations, getActiveFarmId } from '../../data/store.js';
+import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { display, convert, formatMeasure } from '../../utils/units.js';
 import { getCalcByName } from '../../utils/calc-registry.js';
 import { formatShortDate } from '../../utils/date-format.js';
-import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 import * as LocationEntity from '../../entities/location.js';
-import * as ForageTypeEntity from '../../entities/forage-type.js'; // eslint-disable-line no-unused-vars
 import * as PaddockObsEntity from '../../entities/paddock-observation.js';
 import { soilTestFormValues } from '../amendments/soil-test-values.js';
 import * as SoilTestEntity from '../../entities/soil-test.js';
-import * as HarvestEventEntity from '../../entities/harvest-event.js';
-import { openAmendmentSheet } from '../amendments/entry.js';
 import * as SurveyEntity from '../../entities/survey.js';
 import * as SurveyDraftEntryEntity from '../../entities/survey-draft-entry.js';
-import { openHarvestSheet } from '../harvest/index.js';
 import { renderSurveyCard } from '../observations/survey-card.js';
 import { openFeedTypeSheet, buildFeedTypeRow } from '../feed/index.js';
 import { LAND_USE_LABELS, landUseLabel } from './land-use-label.js';
 
 // ─── State ──────────────────────────────────────────────────────────────
-let unsubs = [];
-let activeTab = 'locations';
-let landUseFilter = 'all';
-let farmFilter = 'all';
-let sortColumn = 'name';
-let sortAsc = true;
-let searchQuery = '';
-
 let locationSheet = null;
 let soilTestSheet = null;
 let surveySheet = null;
@@ -53,239 +43,6 @@ function ratingColor(rating) {
  * legacy fallback for records written before this fix. */
 function locationAreaHa(loc) {
   return loc?.areaHectares ?? loc?.areaHa ?? null;
-}
-
-export function renderLocationsScreen(container) {
-  unsubs.forEach(fn => fn());
-  unsubs = [];
-
-  const operations = getAll('operations');
-  const farms = getAll('farms');
-  if (!operations.length) { container.appendChild(el('div', { className: 'empty' }, ['No operation found'])); return; }
-  const operationId = operations[0].id;
-  const farmId = getActiveFarmId() || farms[0]?.id;
-  const unitSys = getUnitSystem();
-  const isMultiFarm = farms.length > 1;
-
-  // Tab header
-  const tabRow = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '14px' } });
-  function renderTabs() {
-    clear(tabRow);
-    tabRow.appendChild(el('button', { className: `btn ${activeTab === 'locations' ? 'btn-green' : 'btn-outline'} btn-sm`, style: { fontWeight: '600' }, onClick: () => { activeTab = 'locations'; renderAll(); } }, ['Locations']));
-    tabRow.appendChild(el('button', { className: `btn ${activeTab === 'surveys' ? 'btn-green' : 'btn-outline'} btn-sm`, onClick: () => { activeTab = 'surveys'; renderAll(); } }, ['Surveys']));
-  }
-  container.appendChild(tabRow);
-
-  const contentEl = el('div');
-  container.appendChild(contentEl);
-
-  function renderAll() {
-    renderTabs();
-    clear(contentEl);
-    if (activeTab === 'surveys') {
-      renderSurveysTab(contentEl, operationId);
-      return;
-    }
-    renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMultiFarm);
-  }
-
-  renderAll();
-
-  const reRender = () => renderAll();
-  unsubs.push(subscribe('locations', reRender));
-  unsubs.push(subscribe('paddockObservations', reRender));
-  unsubs.push(subscribe('soilTests', reRender));
-  unsubs.push(subscribe('forageTypes', reRender));
-  unsubs.push(subscribe('feedTypes', reRender));
-}
-
-function renderSurveysTab(contentEl, operationId) {
-  // Draft resume banner
-  const draft = getAll('surveys').find(s => s.operationId === operationId && s.status === 'draft');
-  if (draft) {
-    const draftEntries = getAll('surveyDraftEntries').filter(d => d.surveyId === draft.id);
-    const ratedCount = draftEntries.filter(d => d.forageQuality != null).length;
-    contentEl.appendChild(el('div', { style: { background: 'var(--amber-l)', border: '1px solid var(--amber)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
-      el('div', {}, [
-        el('div', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--amber-d)' } }, [`\uD83D\uDCCB Survey in progress \u00B7 ${ratedCount} paddocks rated`]),
-        el('div', { style: { fontSize: '11px', color: 'var(--amber-d)' } }, [`Started ${formatShortDate(draft.createdAt)}`]),
-      ]),
-      el('div', { style: { display: 'flex', gap: '6px' } }, [
-        el('button', { className: 'btn btn-green btn-sm', onClick: () => openSurveySheet(null, operationId) }, ['Resume']),
-        el('button', { className: 'btn btn-outline btn-sm', style: { color: 'var(--red)', borderColor: 'var(--red)' }, onClick: () => {
-          if (!window.confirm('Discard this survey draft?')) return;
-          const entries = getAll('surveyDraftEntries').filter(d => d.surveyId === draft.id);
-          for (const d of entries) remove('surveyDraftEntries', d.id, 'survey_draft_entries');
-          remove('surveys', draft.id, 'surveys');
-        } }, ['Discard']),
-      ]),
-    ]));
-  }
-
-  // + New Survey button
-  contentEl.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } }, [
-    el('div', { className: 'sec', style: { margin: '0' } }, ['Surveys']),
-    el('button', { className: 'btn btn-green btn-sm', onClick: () => openSurveySheet(null, operationId) }, ['+ New Survey']),
-  ]));
-
-  // Committed surveys list
-  const committed = getAll('surveys').filter(s => s.operationId === operationId && s.status === 'committed').sort((a, b) => (b.surveyDate || '').localeCompare(a.surveyDate || ''));
-  if (!committed.length) {
-    contentEl.appendChild(el('div', { className: 'empty' }, ['No committed surveys yet']));
-    return;
-  }
-
-  for (const sv of committed) {
-    const obs = getAll('paddockObservations').filter(o => o.sourceId === sv.id);
-    const locNames = obs.map(o => { const l = getById('locations', o.locationId); return l?.name || '?'; });
-    const uniqueLocs = [...new Set(locNames)];
-    contentEl.appendChild(el('div', { className: 'card', style: { padding: '10px 14px', marginBottom: '6px' } }, [
-      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
-        el('div', {}, [
-          el('div', { style: { fontSize: '14px', fontWeight: '600' } }, [formatShortDate(sv.surveyDate)]),
-          el('div', { style: { fontSize: '12px', color: 'var(--text2)' } }, [`${obs.length} paddocks \u00B7 ${uniqueLocs.slice(0, 3).join(', ')}${uniqueLocs.length > 3 ? '...' : ''}`]),
-        ]),
-        el('button', { className: 'btn btn-outline btn-xs', onClick: () => openSurveySheet(null, operationId, { editSurveyId: sv.id }) }, ['Edit']),
-      ]),
-    ]));
-  }
-}
-
-function renderLocationsTab(contentEl, operationId, farmId, unitSys, farms, isMultiFarm) {
-  // Inputs & Amendments summary
-  contentEl.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' } }, [
-    el('div', { style: { fontSize: '15px', fontWeight: '600' } }, ['Inputs & amendments']),
-    el('button', { className: 'btn btn-green btn-sm', onClick: () => openApplyInputSheet(operationId) }, ['Apply input']),
-  ]));
-  const amendments = getAll('amendments').sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8);
-  if (!amendments.length) {
-    contentEl.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text2)', marginBottom: '12px' } }, ['No inputs applied yet']));
-  } else {
-    const amList = el('div', { style: { marginBottom: '12px' } });
-    for (const am of amendments) {
-      const locNames = getAll('amendmentLocations').filter(al => al.amendmentId === am.id).map(al => { const l = getById('locations', al.locationId); return l?.name || ''; }).filter(Boolean).join(', ');
-      amList.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '0.5px solid var(--border)', fontSize: '13px' } }, [
-        el('div', {}, [
-          el('span', { style: { fontWeight: '500' } }, [am.productName || 'Amendment']),
-          el('span', { style: { color: 'var(--text2)' } }, [` \u00B7 ${formatShortDate(am.date)} \u00B7 ${locNames}`]),
-        ]),
-      ]));
-    }
-    contentEl.appendChild(amList);
-  }
-
-  // Locations header
-  const searchInput = el('input', { type: 'search', placeholder: 'Filter locations\u2026', value: searchQuery, style: { flex: '1', minWidth: '140px', padding: '7px 12px', border: '0.5px solid var(--border2)', borderRadius: 'var(--radius)', fontSize: '13px', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' } });
-  searchInput.addEventListener('input', () => { searchQuery = searchInput.value; renderLocationList(); });
-
-  contentEl.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' } }, [
-    el('div', { style: { fontSize: '17px', fontWeight: '600' } }, ['Locations']),
-    el('button', { className: 'btn btn-green btn-sm', onClick: () => openLocationSheet(null, operationId, farmId) }, ['+ Add']),
-    // OI-0263 Tb1: Map launcher removed — Map is a View on Locations & Rotation.
-    el('button', { className: 'btn btn-outline btn-sm', onClick: () => openSurveySheet(null, operationId) }, ['\uD83D\uDCCB Survey']),
-    el('button', { className: 'btn btn-outline btn-sm', onClick: () => openHarvestSheet(operationId) }, ['\uD83C\uDF3E Harvest']),
-    el('button', { className: 'btn btn-outline btn-sm', onClick: () => openFeedTypesSheet(operationId) }, ['\u2699 Feed types']),
-    searchInput,
-  ]));
-
-  // Filter pills
-  const filterRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' } });
-  function renderFilterPills() {
-    clear(filterRow);
-    for (const [val, label] of [['all', 'All'], ['pasture', 'Pasture'], ['mixed_use', 'Mixed-Use'], ['crop', 'Crop'], ['confinement', 'Confinement'], ['storage', t('location.filter.storage')]]) {
-      const isActive = landUseFilter === val;
-      filterRow.appendChild(el('button', {
-        style: { padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isActive ? 'var(--green)' : 'var(--border2)'}`, background: isActive ? 'var(--green)' : 'transparent', color: isActive ? 'white' : 'var(--text2)' },
-        onClick: () => { landUseFilter = val; renderFilterPills(); renderLocationList(); },
-      }, [label]));
-    }
-  }
-  renderFilterPills();
-  contentEl.appendChild(filterRow);
-
-  // Farm filter (multi-farm only)
-  if (isMultiFarm) {
-    const farmRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' } });
-    const isAllFarms = farmFilter === 'all';
-    farmRow.appendChild(el('button', {
-      style: { padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isAllFarms ? 'var(--amber-d)' : 'var(--border2)'}`, background: isAllFarms ? 'var(--amber-d)' : 'transparent', color: isAllFarms ? 'white' : 'var(--text2)' },
-      onClick: () => { farmFilter = 'all'; renderLocationList(); },
-    }, ['All farms']));
-    for (const f of farms) {
-      const isActive = farmFilter === f.id;
-      farmRow.appendChild(el('button', {
-        style: { padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', border: `1.5px solid ${isActive ? 'var(--amber-d)' : 'var(--border2)'}`, background: isActive ? 'var(--amber-d)' : 'transparent', color: isActive ? 'white' : 'var(--text2)' },
-        onClick: () => { farmFilter = f.id; renderLocationList(); },
-      }, [f.name]));
-    }
-    contentEl.appendChild(farmRow);
-  }
-
-  // Sort header
-  function sortEl(label, col) {
-    const isActive = sortColumn === col;
-    return el('span', {
-      style: { cursor: 'pointer', color: isActive ? 'var(--green)' : 'var(--text2)', fontWeight: isActive ? '600' : '400' },
-      onClick: () => { if (sortColumn === col) sortAsc = !sortAsc; else { sortColumn = col; sortAsc = true; } renderLocationList(); },
-    }, [label + (isActive ? (sortAsc ? ' \u2191' : ' \u2193') : '')]);
-  }
-
-  contentEl.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0 6px', borderBottom: '0.5px solid var(--border)', fontSize: '11px', marginBottom: '6px' } }, [
-    el('div', { style: { color: 'var(--text2)' } }, [sortEl('Name', 'name'), ' \u00B7 ', sortEl('Area', 'acres')]),
-    el('div', { style: { color: 'var(--text2)' } }, [sortEl('Survey', 'survey')]),
-  ]));
-
-  // Location list container
-  const listEl = el('div', { 'data-testid': 'locations-list' });
-  contentEl.appendChild(listEl);
-
-  function renderLocationList() {
-    clear(listEl);
-    let locs = getAll('locations').filter(l => !l.archived);
-
-    // Filter by land use
-    if (landUseFilter !== 'all') {
-      if (landUseFilter === 'confinement') locs = locs.filter(l => l.type === 'confinement');
-      else if (landUseFilter === 'storage') locs = locs.filter(l => l.type === 'storage');
-      else locs = locs.filter(l => l.type === 'land' && l.landUse === landUseFilter);
-    }
-
-    // Filter by farm
-    if (farmFilter !== 'all') locs = locs.filter(l => l.farmId === farmFilter);
-
-    // Search
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      locs = locs.filter(l => (l.name || '').toLowerCase().includes(q) || (l.fieldCode || '').toLowerCase().includes(q));
-    }
-
-    // Sort
-    const observations = getAll('paddockObservations');
-    locs.sort((a, b) => {
-      let va, vb;
-      if (sortColumn === 'name') { va = a.name || ''; vb = b.name || ''; }
-      else if (sortColumn === 'acres') { va = locationAreaHa(a) || 0; vb = locationAreaHa(b) || 0; return sortAsc ? va - vb : vb - va; }
-      else if (sortColumn === 'survey') {
-        const oa = observations.filter(o => o.locationId === a.id).sort((x, y) => (y.observedAt || '').localeCompare(x.observedAt || ''))[0];
-        const ob = observations.filter(o => o.locationId === b.id).sort((x, y) => (y.observedAt || '').localeCompare(x.observedAt || ''))[0];
-        va = oa?.forageQuality ?? -1; vb = ob?.forageQuality ?? -1;
-        return sortAsc ? va - vb : vb - va;
-      }
-      va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
-      return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
-    });
-
-    if (!locs.length) {
-      listEl.appendChild(el('div', { className: 'empty' }, ['No locations match this filter']));
-      return;
-    }
-
-    for (const loc of locs) {
-      listEl.appendChild(buildLocationCard(loc, operationId, farmId, unitSys));
-    }
-  }
-
-  renderLocationList();
 }
 
 // ─── Location Card ──────────────────────────────────────────────────────
@@ -675,10 +432,8 @@ export function openSurveySheet(locationId, operationId, opts = {}) {
   const allLocs = getAll('locations').filter(l => !l.archived && l.type === 'land' && l.landUse !== 'crop');
   const locs = isSingle ? allLocs.filter(l => l.id === locationId) : allLocs;
 
-  // Farm settings for bale ring (OI-0111: stored in cm, BRC-1 is imperial-native)
+  // Farm settings (bale-ring diameter etc.) for the survey card.
   const farmSettings = getAll('farmSettings')[0];
-  const baleRingDiameterCm = farmSettings?.baleRingResidueDiameterCm ?? 365.76;
-  const baleRingDiameterFt = convert(baleRingDiameterCm, 'length', 'toImperial') / 12;
 
   // Draft management (bulk mode only)
   let surveyId = null;
@@ -1120,7 +875,3 @@ export function openFeedTypesSheet(operationId) {
 
   feedTypesSheet.open();
 }
-
-// ─── Apply Input / Amendment Sheet ──────────────────────────────────────
-
-function openApplyInputSheet(operationId) { openAmendmentSheet(null, operationId); }

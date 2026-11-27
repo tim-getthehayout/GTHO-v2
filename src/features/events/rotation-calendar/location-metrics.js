@@ -31,7 +31,6 @@ import {
   eventOpenOn,
 } from '../../../calcs/window-helpers.js';
 import {
-  groupWindowPresenceDays,
   localDayStartMs,
   localDayEndMs,
   localHoursInDay,

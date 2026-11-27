@@ -7,7 +7,6 @@ import { getAll, getById, update, remove } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
 import { convert, display, unitLabel } from '../../utils/units.js';
 import * as GroupWindowEntity from '../../entities/event-group-window.js';
-import { openResolveDialog } from './resolve-window-change.js';
 import { getLiveWindowHeadCount, getLiveWindowAvgWeight } from '../../calcs/window-helpers.js';
 import { getEventStartFloorExcluding } from './event-start.js';
 import { getLocalTodayStr } from '../../utils/date-utils.js';
@@ -33,7 +32,7 @@ function ensureSheetDOM() {
  * @param {object} event — the parent event
  * @param {string} operationId
  */
-export function openEditGroupWindowDialog(gw, event, operationId) {
+export function openEditGroupWindowDialog(gw, event, _operationId) {
   ensureSheetDOM();
   if (!editGwSheet) editGwSheet = new Sheet('edit-gw-wrap');
   const panel = document.getElementById('edit-gw-panel');

@@ -266,7 +266,6 @@ function renderNpkTab() {
     const paddockWindows = getAll('eventPaddockWindows').filter(pw => pw.eventId === event.id);
 
     const dateIn = getEventStartDate(event.id);
-    const dateOut = event.dateOut;
 
     for (const gw of gws) {
       if (!npk1) continue;

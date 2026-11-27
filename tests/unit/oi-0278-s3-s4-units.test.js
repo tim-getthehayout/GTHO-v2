@@ -48,7 +48,7 @@ describe('S3 — Events / feed / animals / Locations', () => {
     expect(src).toContain("formatMeasure(dmAvail, 'weight', { unitSystem: unitSys })");
     expect(src).toContain('Est. available: ${dmText} DM');
     expect(src).not.toMatch(/lbs DM/);
-    expect(src).toContain("sortEl('Area', 'acres')");
+    // row 31 (sort label) lived on the standalone Locations screen, retired in #480.
     // Same value both systems: 1,000 kg DM.
     expect(`${formatMeasure(1000, 'weight', { unitSystem: 'imperial' })} DM`).toBe('2,205 lb DM');
     expect(`${formatMeasure(1000, 'weight', { unitSystem: 'metric' })} DM`).toBe('1,000 kg DM');

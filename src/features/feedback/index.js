@@ -4,7 +4,7 @@
 import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
-import { getAll, getById, add, update, remove, subscribe } from '../../data/store.js';
+import { getAll, add, update, remove, subscribe } from '../../data/store.js';
 import { getUser } from '../auth/session.js';
 import * as SubmissionEntity from '../../entities/submission.js';
 import { formatShortDate } from '../../utils/date-format.js';

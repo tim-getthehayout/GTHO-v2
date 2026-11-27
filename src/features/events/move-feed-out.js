@@ -6,15 +6,12 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { Sheet } from '../../ui/sheet.js';
 import { getAll, getById, add, runDurableWrite } from '../../data/store.js';
-import { getUnitSystem } from '../../utils/preferences.js';
-import { convert, display } from '../../utils/units.js';
 import * as FeedEntryEntity from '../../entities/event-feed-entry.js';
 import * as FeedCheckEntity from '../../entities/event-feed-check.js';
 import * as FeedCheckItemEntity from '../../entities/event-feed-check-item.js';
 import { getLiveRemainingForMove } from '../../calcs/feed-state.js';
 import { validateDeliveryRestore, restoreDelivery } from '../feed/batch-balances.js';
 import { openLocationNames } from './open-cohort.js';
-import { getLocalTodayStr } from '../../utils/date-utils.js';
 
 let moveFeedSheet = null;
 
@@ -41,8 +38,6 @@ export function openMoveFeedOutSheet(event, operationId, _farmId, opts = {}) {
 
   if (poolWritesEnabled()) { renderPoolTransferForm(panel, event, operationId, { ...opts, close: () => moveFeedSheet.close() }); moveFeedSheet.open(); return; }
 
-  const unitSys = getUnitSystem();
-  const todayStr = getLocalTodayStr();
 
   // Aggregate feed lines: batch × location
   const entries = getAll('eventFeedEntries').filter(fe => fe.eventId === event.id);

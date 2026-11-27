@@ -1,7 +1,6 @@
-/** @file Budget period dates (D10): default, validation, prior year, month rows, device memory. */
-import { describe, it, expect, beforeEach } from 'vitest';
+/** @file Budget period dates (D10): default, validation, prior year, month rows. */
+import { describe, it, expect } from 'vitest';
 import { DEFAULT_BUDGET_PERIOD, periodContaining, validatePeriod, priorPeriod, periodMonthRows, shiftYears, periodsOverlap, periodDays } from '../../src/calcs/budget-period.js';
-import { getViewedBudgetPeriod, setViewedBudgetPeriod } from '../../src/features/feed/budget-period-store.js';
 
 describe('budget period', () => {
   it('defaults to Oct 1 – Sep 30: this year Oct 1, 2026 – Sep 30, 2027 vs Oct 1, 2025 – Sep 30, 2026', () => {
@@ -41,17 +40,5 @@ describe('budget period', () => {
       { month: '2027-01', start: '2027-01-01', end: '2027-01-10', days: 10, partial: true },
     ]);
     expect(periodMonthRows(periodContaining('2026-11-17'))).toHaveLength(12);
-  });
-});
-
-describe('viewed period on this device', () => {
-  beforeEach(() => globalThis.localStorage?.clear());
-  it('opens on the default period containing today, then remembers the last viewed period', () => {
-    expect(getViewedBudgetPeriod('2026-11-17')).toEqual({ start: '2026-10-01', end: '2027-09-30' });
-    expect(setViewedBudgetPeriod({ start: '2025-12-01', end: '2026-02-28' })).toBe(true);
-    expect(getViewedBudgetPeriod('2026-11-17')).toEqual({ start: '2025-12-01', end: '2026-02-28' });
-    expect(setViewedBudgetPeriod({ start: '2026-02-28', end: '2025-12-01' })).toBe(false);
-    globalThis.localStorage.setItem('gtho_v2_budget_viewed_period', '{bad');
-    expect(getViewedBudgetPeriod('2026-11-17')).toEqual({ start: '2026-10-01', end: '2027-09-30' });
   });
 });

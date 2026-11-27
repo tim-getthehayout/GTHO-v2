@@ -1,22 +1,23 @@
 import { UNIT_STANDARDS } from '../../src/utils/unit-standards.js';
 import { beforeEach, it, expect, vi } from 'vitest';
-import { resetForms, seed, fill, button, queueSpy, OP, FARM } from './manual-entry-helpers.js';
+import { resetForms, seed, fill, queueSpy, OP, FARM } from './manual-entry-helpers.js';
 import { getAll, remove } from '../../src/data/store.js';
 import * as Location from '../../src/entities/location.js';
 import * as Product from '../../src/entities/input-product.js';
 import * as Unit from '../../src/entities/input-product-unit.js';
 import * as Manure from '../../src/entities/manure-batch.js';
-import { renderLocationsScreen } from '../../src/features/locations/index.js';
+// #480: the retired Locations screen's "Apply input" button opened openAmendmentSheet(null, operationId); test that sheet directly.
+import { openAmendmentSheet } from '../../src/features/amendments/entry.js';
 const KG=UNIT_STANDARDS.find(row=>row.table==='input_product_units'&&row.name==='kg').id;
 const BAG=UNIT_STANDARDS.find(row=>row.table==='input_product_units'&&row.name==='bag').id;
 let panel, queued;
 beforeEach(()=>{
   resetForms(); seed('locations',Location,{id:'field',farmId:FARM,name:'Field',type:'land',areaHectares:2});
   seed('inputProducts',Product,{id:'product',name:'Fertiliser',categoryId:'fertiliser',nPct:10}); seed('inputProductUnits',Unit,{id:KG,name:'kg'}); seed('inputProductUnits',Unit,{id:BAG,name:'bag'});
-  seed('manureBatches',Manure,{id:'manure',label:'Stored manure'}); queued=queueSpy(); const root=document.createElement('div');document.body.append(root);renderLocationsScreen(root);button(root,'Apply input').click();panel=document.querySelector('#amendment-sheet-panel');
+  seed('manureBatches',Manure,{id:'manure',label:'Stored manure'}); queued=queueSpy(); openAmendmentSheet(null,OP);panel=document.querySelector('#amendment-sheet-panel');
 });
 const prepare=()=>{fill(panel,'[data-testid="amendment-date"]','2026-11-05');fill(panel,'[data-testid="amendment-product"]','product','change');fill(panel,'[data-testid="amendment-qty"]','20');fill(panel,'[data-testid="amendment-unit"]',KG,'change');panel.querySelector('[data-testid="amendment-loc-field"]').click();};
-it('Locations actual Save persists canonical source, date, explicit quantity/unit and location allocation atomically',()=>{
+it('Apply-input sheet Save persists canonical source, date, explicit quantity/unit and location allocation atomically',()=>{
   prepare();const save=panel.querySelector('[data-testid="amendment-save"]');save.click();expect(panel.querySelector('.auth-error').textContent).toBe('');
   const parent=getAll('amendments')[0];expect(parent).toMatchObject({operationId:OP,appliedAt:'2026-11-05T12:00:00.000Z',inputProductId:'product',manureBatchId:null,totalQty:20,qtyUnitId:KG});
   expect(getAll('amendmentLocations')[0]).toMatchObject({amendmentId:parent.id,locationId:'field',qty:20,nKg:2});expect(queued('amendments')[0]).toMatchObject({input_product_id:'product',total_qty:20,qty_unit_id:KG});save.click();expect(getAll('amendments')).toHaveLength(1);

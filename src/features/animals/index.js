@@ -1772,7 +1772,9 @@ export function openClassesManager(operationId) {
         add('animalClasses', record, AnimalClassEntity.validate, AnimalClassEntity.toSupabaseShape, 'animal_classes');
       } else {
         // Species + role locked on edit — drop them from the patch.
-        const { species: _s, role: _r, ...patch } = data;
+        const patch = { ...data };
+        delete patch.species;
+        delete patch.role;
         update('animalClasses', editingClassId, patch, AnimalClassEntity.validate, AnimalClassEntity.toSupabaseShape, 'animal_classes');
       }
       resetForm();

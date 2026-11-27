@@ -283,6 +283,14 @@ export class CustomSync extends SyncAdapter {
     // Letters written during the running flush pass (by letterSig): the
     // drain leaves them for the next flush, as before queue-first.
     this._passLetters = new Set();
+    // #478: retired on sign-out / account switch; never flushes again.
+    this._disposed = false;
+  }
+
+  /** #478: stop this adapter for good (the next session gets a new one). */
+  dispose() {
+    this._disposed = true;
+    this._statusListeners.clear();
   }
 
   _setStatus(status) {
@@ -525,7 +533,7 @@ export class CustomSync extends SyncAdapter {
    * without waiting for an online, tab-visible or tap event.
    */
   scheduleFlush() {
-    if (this._flushScheduled) return;
+    if (this._disposed || this._flushScheduled) return;
     this._flushScheduled = true;
     Promise.resolve().then(() => {
       this._flushScheduled = false;
@@ -841,6 +849,7 @@ export class CustomSync extends SyncAdapter {
    * meanwhile waits for the next trigger. Returns the running flush.
    */
   flush() {
+    if (this._disposed) return Promise.resolve();
     if (this._exclusive) {
       this._flushAgain = true;
       return this._exclusive.then(noop, noop);

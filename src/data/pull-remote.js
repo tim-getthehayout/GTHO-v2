@@ -27,6 +27,15 @@ export function getLastPulledAt() {
 // same in-flight promise instead of starting a parallel full-table pull.
 // Mirrors the `_flushing` guard in CustomSync.flush() (custom-sync.js:259).
 let inFlight = null;
+// #478: bumped on sign-out / account or operation switch. A pull started under
+// an older generation drops its results instead of merging them.
+let pullGeneration = 0;
+
+/** #478: discard every pull already in flight (their rows are never merged). */
+export function invalidateRemotePulls() {
+  pullGeneration++;
+  inFlight = null;
+}
 
 /**
  * Pull all tables from Supabase and merge into the local store.
@@ -36,8 +45,9 @@ let inFlight = null;
  */
 export function pullAllRemote() {
   if (inFlight) return inFlight;
-  inFlight = _doPullAllRemote().finally(() => { inFlight = null; });
-  return inFlight;
+  const pull = _doPullAllRemote().finally(() => { if (inFlight === pull) inFlight = null; });
+  inFlight = pull;
+  return pull;
 }
 
 /**
@@ -68,6 +78,7 @@ export async function pullAllRemoteReplacing(entityTypes) {
 export async function pullEntitiesStrict(entityTypes) {
   const byType = {};
   if (!supabase) return { ok: false, error: 'Supabase not configured', byType };
+  const gen = pullGeneration;
 
   const adapter = getSyncAdapter();
   if (adapter) {
@@ -84,6 +95,7 @@ export async function pullEntitiesStrict(entityTypes) {
         return { ok: false, error: `unknown entity ${entityType}`, byType };
       }
       const { data, error } = await supabase.from(reg.table).select('*');
+      if (gen !== pullGeneration) return { ok: false, error: 'superseded', byType };
       if (error) {
         logger.error('sync', `strict pull failed for ${reg.table}`, { error: error.message });
         byType[entityType] = { pulled: 0, error: error.message };
@@ -104,11 +116,13 @@ export async function pullEntitiesStrict(entityTypes) {
 }
 
 async function _doPullAllRemote() {
+  const gen = pullGeneration;
   const adapter = getSyncAdapter();
   if (!adapter) return { pulled: 0, errors: 0 };
 
   const online = await adapter.isOnline();
   if (!online) return { pulled: 0, errors: 0 };
+  if (gen !== pullGeneration) return { pulled: 0, errors: 0, discarded: true };
 
   let pulled = 0;
   let errors = 0;
@@ -128,6 +142,7 @@ async function _doPullAllRemote() {
       if (!isTableReleased(reg.table, RELEASED_SCHEMA_VERSION)) continue;
       try {
         const rows = await adapter.pullAll(reg.table);
+        if (gen !== pullGeneration) return { pulled, errors, discarded: true };
         if (rows.length > 0) {
           const records = rows.map(row => reg.from(row));
           mergeRemote(entityType, records);

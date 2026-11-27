@@ -72,6 +72,12 @@ function setupMocks() {
     subscribe: () => () => {},
   }));
 
+  // #478 cache-scope guard — record the order it runs in.
+  vi.doMock('../../src/data/cache-scope.js', () => ({
+    enforceCacheScope: (userId, operationId = null) => { record('enforceCacheScope', { userId, operationId }); return 'kept'; },
+    noteHydratedOperation: () => {},
+  }));
+
   vi.doMock('../../src/data/one-time-fixes.js', () => ({
     closePaddockWindowOrphans: () => {},
   }));
@@ -221,6 +227,33 @@ describe('main.js boot ordering — OI-0149', () => {
     expect(first.flush).toHaveBeenCalledTimes(1);
     authListener(null, 'SIGNED_OUT');
     expect(second.flush).toHaveBeenCalledTimes(1);
+    currentAdapter = null;
+    resolvePull({ pulled: 0, errors: 0 });
+  });
+
+  it('#478: the cache-scope guard runs before the store hydrates, with the confirmed operation', async () => {
+    await import('../../src/main.js');
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    const idxGuard = events.findIndex(e => e.name === 'enforceCacheScope');
+    expect(events[idxGuard].payload).toEqual({ userId: 'user-1', operationId: 'op-1' });
+    expect(events.findIndex(e => e.name === 'initStore')).toBeGreaterThan(idxGuard);
+    resolvePull({ pulled: 0, errors: 0 });
+  });
+
+  it('#478: on SIGNED_IN the guard runs before the queue flushes, and the new account\'s paint pulls again', async () => {
+    authListener = null; currentAdapter = null;
+    await import('../../src/main.js');
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    const adapter = { flush: vi.fn(() => { record('currentAdapter.flush'); return Promise.resolve(); }) };
+    currentAdapter = adapter;
+    events.length = 0;
+    await authListener({ id: 'user-2', email: 'b@example.com' }, 'SIGNED_IN');
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    const idxGuard = events.findIndex(e => e.name === 'enforceCacheScope' && e.payload.userId === 'user-2');
+    const idxFlush = events.findIndex(e => e.name === 'currentAdapter.flush');
+    expect(idxGuard).toBeGreaterThanOrEqual(0);
+    expect(idxFlush).toBeGreaterThan(idxGuard);
+    expect(events.filter(e => e.name === 'pullAllRemote.invoked').length).toBeGreaterThanOrEqual(1);
     currentAdapter = null;
     resolvePull({ pulled: 0, errors: 0 });
   });

@@ -5,6 +5,7 @@ import { closePaddockWindowOrphans } from './data/one-time-fixes.js';
 import { CustomSync } from './data/custom-sync.js';
 import { pullAllRemote, pullEntitiesStrict } from './data/pull-remote.js';
 import { flushLoggerBuffer } from './data/log-flush.js';
+import { enforceCacheScope, noteHydratedOperation } from './data/cache-scope.js';
 import { loadLocale } from './i18n/i18n.js';
 import { route, initRouter, requireDev } from './ui/router.js';
 import { renderHeader } from './ui/header.js';
@@ -99,8 +100,8 @@ async function boot() {
     if (inviteToken) {
       await handleInviteClaim(app, inviteToken, sessionUser);
     } else {
-      await claimIfNoMembership(sessionUser);
-      showApp(app);
+      const membership = await claimIfNoMembership(sessionUser);
+      showApp(app, memberOperationId(membership));
     }
   } else if (inviteToken) {
     showAuth(app, inviteToken, recovery.type === 'recovery' ? t('auth.recoveryLinkInvalid') : undefined);
@@ -112,6 +113,9 @@ async function boot() {
     // Writes held while signed out go out as soon as the session is back.
     // Uses the current adapter, never one captured at boot.
     if (changedUser && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+      // #478: another account's cache (and its queued writes) is wiped before
+      // anything flushes under this session.
+      enforceCacheScope(changedUser.id);
       getSyncAdapter()?.flush?.();
     }
     if (event === 'PASSWORD_RECOVERY' && changedUser) {
@@ -132,8 +136,8 @@ async function boot() {
         sessionStorage.removeItem('gtho_invite_token');
         await handleInviteClaim(app, storedToken, changedUser);
       } else {
-        await claimIfNoMembership(changedUser);
-        showApp(app);
+        const membership = await claimIfNoMembership(changedUser);
+        showApp(app, memberOperationId(membership));
       }
     } else {
       showAuth(app);
@@ -235,9 +239,23 @@ async function handleInviteClaim(app, token, user) {
   }
 }
 
-function showApp(app) {
+/** Operation the server confirmed for this user, or null when not known (offline, error, none). */
+function memberOperationId(membership) {
+  return membership?.status === 'member' ? membership.operationId ?? null : null;
+}
+
+/**
+ * @param {HTMLElement} app
+ * @param {string|null} [activeOperationId] operation confirmed for the user, when known
+ */
+function showApp(app, activeOperationId = null) {
   const gen = ++showAppGen;
+  // #478: the cache must belong to this user (and operation, when known)
+  // before the store hydrates from it or onboarding is decided.
+  const user = getUser();
+  if (user) enforceCacheScope(user.id, activeOperationId);
   initStore();
+  if (user) noteHydratedOperation(user.id, getAll('operations')[0]?.id);
   try {
     if (!sessionStorage.getItem('gtho_session_id')) {
       sessionStorage.setItem('gtho_session_id', crypto.randomUUID());
@@ -288,6 +306,7 @@ async function resolveEmptyStore(app, syncAdapter, gen) {
   if (membership.status === 'member') {
     await pullEntitiesStrict(['operations', 'operationMembers']);
     if (gen !== showAppGen) return;
+    noteHydratedOperation(user.id, getAll('operations')[0]?.id);
   }
 
   const decision = decideBootGate({
@@ -405,8 +424,10 @@ function paintApp(app, syncAdapter) {
 
   if (typeof window !== 'undefined' && !appListenersBound) {
     appListenersBound = true;
+    // #478: listeners are bound once, so they use the current adapter, not the
+    // first session's (a sign-out retires that one).
     window.addEventListener('online', () => {
-      syncAdapter.flush().then(() => pullAllRemote());
+      flushThenPull();
     });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
@@ -415,14 +436,21 @@ function paintApp(app, syncAdapter) {
       }
       if (document.visibilityState !== 'visible') return;
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-      syncAdapter.flush().then(() => pullAllRemote());
+      flushThenPull();
     });
     window.addEventListener('pagehide', () => {
       flushLoggerBuffer({ unloading: true }).catch(() => {});
     });
-    syncAdapter.flush().then(() => pullAllRemote());
   }
+  // #478: every paint (also after an account switch) hydrates the full store,
+  // not only the first one.
+  syncAdapter.flush().then(() => pullAllRemote());
   initPwa();
+}
+
+function flushThenPull() {
+  const adapter = getSyncAdapter();
+  (adapter ? adapter.flush() : Promise.resolve()).then(() => pullAllRemote());
 }
 
 boot();

@@ -3,6 +3,7 @@
 import { supabase } from '../../data/supabase-client.js';
 import { logger } from '../../utils/logger.js';
 import { markPasswordRecovery, passwordResetRedirectTo } from './recovery.js';
+import { clearLocalUserData } from '../../data/cache-scope.js';
 
 /** @type {import('@supabase/supabase-js').User|null} */
 let currentUser = null;
@@ -167,6 +168,11 @@ export async function updatePassword(password) {
  * @returns {Promise<void>}
  */
 export async function logout() {
+  // #478: wipe this account's local data first (store, gtho_v2_*, sync queue,
+  // drafts, session keys; never sb-* auth keys) and drop in-flight pulls, so
+  // nothing from it can show or flush under the next sign-in. The unsynced-
+  // writes confirm (OI-0230) happens in the caller before this runs.
+  clearLocalUserData();
   if (supabase) {
     await supabase.auth.signOut();
   }

@@ -5,7 +5,7 @@ import { describe,it,expect,vi,beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ from: vi.fn(),rpc: vi.fn(),pull: vi.fn(),autoBackup: vi.fn(),download: vi.fn() }));
 vi.mock('../../../src/data/supabase-client.js',() => ({ supabase: { from: mocks.from,rpc: mocks.rpc } }));
 vi.mock('../../../src/data/backup-export.js',() => ({ canExport: () => ({ ok: true }),exportOperationBackup: mocks.autoBackup,downloadBackup: mocks.download }));
-vi.mock('../../../src/data/pull-remote.js',() => ({ pullAllRemote: mocks.pull }));
+vi.mock('../../../src/data/pull-remote.js',() => ({ pullAllRemote: mocks.pull,pullAllRemoteReplacing: mocks.pull }));
 import { importOperationBackup } from '../../../src/data/backup-import.js';
 import { SERVER_ASSISTANT_TABLES } from '../../../src/features/assistant/schema.js';
 const op = '00000000-0000-4000-8000-000000000001',token = '00000000-0000-4000-8000-000000000002';

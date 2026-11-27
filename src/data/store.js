@@ -4,7 +4,7 @@ import { t } from '../i18n/i18n.js';
 import { ASSISTANT_ENTITIES } from '../features/assistant/entities.js';
 /** @file Store — single data access point. See V2_APP_ARCHITECTURE.md §4. */
 
-import { saveToStorage, loadFromStorage, recoverDurableWrite, getDurableWriteReceipt, commitDurableWrite, hasPendingDurableWrite } from './local-storage.js';
+import { saveToStorage, loadFromStorage, removeFromStorage, recoverDurableWrite, getDurableWriteReceipt, commitDurableWrite, hasPendingDurableWrite } from './local-storage.js';
 import { getUser } from '../features/auth/session.js';
 import { validate as validateOperation, toSupabaseShape as operationToSb } from '../entities/operation.js';
 import { validate as validateUserPref, toSupabaseShape as userPrefToSb } from '../entities/user-preference.js';
@@ -692,6 +692,23 @@ export function mergeRemote(entityType, remoteRecords) {
   }
 
   return { added, updated };
+}
+
+/**
+ * #476: drop the local copy (memory + persisted entity key) of the given
+ * entity types before a post-restore re-hydrate. Auth, session, sync queue,
+ * dead letters and other app keys are untouched; only these entity keys go.
+ * @param {string[]} entityTypes
+ */
+export function clearEntities(entityTypes) {
+  recoverBeforeMutation();
+  for (const type of entityTypes) {
+    if (!Object.hasOwn(state, type)) continue;
+    const had = state[type].length > 0;
+    state[type] = [];
+    removeFromStorage(type);
+    if (had) notify(type);
+  }
 }
 
 /**

@@ -29,6 +29,14 @@ export function loadFromStorage(entityType) {
 }
 
 /**
+ * Remove one entity type's persisted key.
+ * @param {string} entityType
+ */
+export function removeFromStorage(entityType) {
+  localStorage.removeItem(PREFIX + entityType);
+}
+
+/**
  * Clear all GTHO v2 data from localStorage.
  */
 export function clearStorage() {

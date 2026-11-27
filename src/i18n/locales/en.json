@@ -1375,6 +1375,7 @@
     "exportError": "Export failed. Please try again.",
     "importBackup": "Import backup",
     "importInvalidJson": "File is not valid JSON.",
+    "importWrongOperation": "This backup belongs to a different operation. Nothing was changed.",
     "importPreviewTitle": "Restore from backup",
     "importTargetOp": "Replacing data in",
     "importExportDate": "Export date",

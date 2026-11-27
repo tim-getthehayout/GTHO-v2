@@ -164,6 +164,12 @@ const FARM_FIELD_DESCRIPTORS = [
 
 // Exported for unit tests (OI-0111 round-trip suite). Helpers now live in
 // `./unit-descriptor.js` (extracted for OI-0125 / SP-13 reuse).
+// Exported for unit tests (#476 backup UI fixes).
+export const __backupUiInternals = {
+  handleImportFileSelect: (...args) => handleImportFileSelect(...args),
+  runExport: (...args) => runExport(...args),
+};
+
 export const __settingsUnitInternals = {
   FARM_FIELD_DESCRIPTORS,
   composeFieldLabel,
@@ -903,12 +909,14 @@ async function runExport(mount, operation) {
       'data-testid': 'export-success',
     }, [t('settings.exportSuccess')]));
   } catch (err) {
+    // #476: log and surface the cause instead of swallowing it.
+    logger.error('backup', 'export failed', { error: err?.message || String(err) });
     clear(mount);
     mount.appendChild(el('div', {
       className: 'card',
       style: { marginTop: 'var(--space-4)', padding: 'var(--space-4)', color: 'var(--color-red-base)' },
       'data-testid': 'export-error',
-    }, [t('settings.exportError')]));
+    }, [err?.message || t('settings.exportError')]));
   }
 }
 
@@ -940,6 +948,8 @@ function showExportToast(message) {
  */
 async function handleImportFileSelect(e, operation) {
   const file = e.target.files?.[0];
+  // #476: reset so picking the same file again (after cancel/error) fires onChange.
+  e.target.value = '';
   if (!file) return;
 
   const mount = document.getElementById('export-sheet-mount');
@@ -959,6 +969,12 @@ async function handleImportFileSelect(e, operation) {
   const validation = validateBackup(backup);
   if (!validation.valid) {
     showExportToast(validation.error);
+    return;
+  }
+
+  // #476: refuse another operation's file before the preview and both confirms.
+  if (!operation?.id || backup.operation_id !== operation.id) {
+    showExportToast(t('settings.importWrongOperation'));
     return;
   }
 

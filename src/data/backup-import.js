@@ -12,7 +12,8 @@ import { SERVER_ASSISTANT_TABLES } from '../features/assistant/schema.js';
 import { supabase } from './supabase-client.js';
 import { canExport, exportOperationBackup, downloadBackup } from './backup-export.js';
 import { BACKUP_MIGRATIONS } from './backup-migrations.js';
-import { pullAllRemote } from './pull-remote.js';
+import { pullAllRemoteReplacing } from './pull-remote.js';
+import { SYNC_REGISTRY } from './sync-registry.js';
 import { RELEASED_SCHEMA_VERSION, STAGED_COLUMNS, isTableReleased } from './schema-release.js';
 import { logger } from '../utils/logger.js';
 
@@ -280,6 +281,8 @@ async function insertTableRows(table, rows, operationId) {
           currency: op.currency,
           unit_system: op.unit_system,
           schema_version: schemaVersion,
+          // #476: keep the backup's archived flag when the file carries it.
+          ...(Object.hasOwn(op, 'archived') && op.archived != null ? { archived: op.archived } : {}),
           updated_at: op.updated_at,
         })
         .eq('id', operationId);
@@ -383,6 +386,9 @@ export async function preflightAssistantRestore(backup,operationId,client = supa
     if (REFERENCE_TABLES.has(table)) continue;
     const rows = backup.tables?.[table];
     if (rows != null && (!Array.isArray(rows) || rows.some(row => !row || (table === 'operations' ? row.id !== operationId : row.operation_id != null && row.operation_id !== operationId)))) return { success: false,error: 'Restore refused: client rows do not match the fenced operation.' };
+    // #476: operation-scoped rows must name their operation. Unit tables keep
+    // shared standard rows (operation_id null), so they are exempt.
+    if (table !== 'operations' && !UNIT_TABLES.includes(table) && Array.isArray(rows) && rows.some(row => row.operation_id == null)) return { success: false,error: `Restore refused: ${table} rows are missing operation_id.` };
   }
   if ((backup.tables?.offline_voice_notes || []).some(row => row.confirmed_execution_result_id != null)) return { success: false,error: 'Restore refused: offline voice notes reference retained server execution results.' };
   try {
@@ -458,6 +464,11 @@ export async function importOperationBackup(backup, operationId, onProgress, opt
   return result;
 }
 
+/** Store entity types whose tables a wholesale restore replaces. */
+export function restoredEntityTypes() {
+  return Object.entries(SYNC_REGISTRY).filter(([, reg]) => BROWSER_FK_ORDER.includes(reg.table)).map(([type]) => type);
+}
+
 async function restoreBrowserTables(backup,operationId,progress,options,validation) {
   let autoBackupFileName;
   checkRestoreCancelled(options);
@@ -526,7 +537,9 @@ async function restoreBrowserTables(backup,operationId,progress,options,validati
   checkRestoreCancelled(options);
   progress('Refreshing', '', 85);
   try {
-    await pullAllRemote();
+    // #476: drop the pre-restore local copy of every restored table first, so
+    // rows the backup removed (or newer local edits) cannot linger or reload.
+    await pullAllRemoteReplacing(restoredEntityTypes());
   } catch (err) {
     logger.error('backup', 'store re-hydrate failed after import', { error: err.message });
     return { success: false,error: 'Store refresh failed after import.',autoBackupFileName };

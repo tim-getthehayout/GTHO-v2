@@ -98,16 +98,25 @@ export function canExport() {
   const adapter = getSyncAdapter();
   if (!adapter) return { ok: false, reason: 'no_adapter' };
 
-  let status;
+  // #476: prefer the combined health snapshot (OI-0184). getStatus() alone
+  // misses dead letters ('failed'), 'signedOut' and a pending queue during a
+  // momentary 'idle'. Mock adapters without getSyncHealth fall back.
+  let health;
   try {
-    status = adapter.getStatus();
+    health = typeof adapter.getSyncHealth === 'function'
+      ? adapter.getSyncHealth()
+      : { status: adapter.getStatus(), queueLength: 0, deadLetterCount: 0 };
   } catch {
-    status = 'offline';
+    health = { status: 'offline', queueLength: 0, deadLetterCount: 0 };
   }
+  const { status, queueLength = 0, deadLetterCount = 0 } = health || {};
 
   if (status === 'offline') return { ok: false, reason: 'offline' };
-  if (status === 'syncing') return { ok: false, reason: 'syncing' };
+  if (deadLetterCount > 0 || status === 'failed') return { ok: false, reason: 'dead_letters' };
+  if (status === 'signedOut') return { ok: false, reason: 'signed_out' };
   if (status === 'error') return { ok: false, reason: 'sync_error' };
+  if (queueLength > 0 || status === 'syncing') return { ok: false, reason: 'syncing' };
+  if (status !== 'idle') return { ok: false, reason: 'not_idle' };
 
   return { ok: true };
 }
@@ -144,7 +153,8 @@ async function fetchTable(table, operationId, paginate) {
   while (hasMore) {
     let query = supabase.from(table).select('*');
     if (!isGlobal && (!UNIT_TABLES.includes(table) || RELEASED_SCHEMA_VERSION >= 44)) query = query.eq(filterCol, operationId);
-    if (UNIT_TABLES.includes(table)) query = query.order('id', { ascending: true });
+    // #476: every paginated table orders by id so OFFSET/LIMIT pages never skip or repeat rows.
+    query = query.order('id', { ascending: true });
     query = query.range(offset, offset + PAGE_SIZE - 1);
     const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch ${table} (offset ${offset}): ${error.message}`);

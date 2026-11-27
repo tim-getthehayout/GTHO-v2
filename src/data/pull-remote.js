@@ -2,7 +2,7 @@
  *  Called on boot (after store init) and on reconnect (after queue flush).
  */
 
-import { getSyncAdapter, mergeRemote, beginBatch, endBatch } from './store.js';
+import { getSyncAdapter, mergeRemote, beginBatch, endBatch, clearEntities } from './store.js';
 import { SYNC_REGISTRY } from './sync-registry.js';
 import { isTableReleased, RELEASED_SCHEMA_VERSION } from './schema-release.js';
 import { logger } from '../utils/logger.js';
@@ -38,6 +38,22 @@ export function pullAllRemote() {
   if (inFlight) return inFlight;
   inFlight = _doPullAllRemote().finally(() => { inFlight = null; });
   return inFlight;
+}
+
+/**
+ * #476: after a wholesale restore, clear the local copy of the given entity
+ * types (memory + persisted keys) and re-hydrate them from Supabase. Waits for
+ * any pull already in flight so it cannot merge stale rows back afterwards.
+ * mergeRemote() never deletes and empty remote tables are skipped, so without
+ * the clear, removed rows would survive as ghosts.
+ * @param {string[]} entityTypes
+ * @returns {Promise<{ pulled: number, errors: number }>}
+ */
+export async function pullAllRemoteReplacing(entityTypes) {
+  if (inFlight) { try { await inFlight; } catch { /* the replacing pull below is authoritative */ } }
+  beginBatch();
+  try { clearEntities(entityTypes); } finally { endBatch(); }
+  return pullAllRemote();
 }
 
 /**

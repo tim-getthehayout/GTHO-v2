@@ -26,6 +26,7 @@ const SHEET_SHELL = {
 };
 
 
+// #486: kept on purpose — pluralizes a feed package unit ('bale' → 'bales'); units-core unitLabel(measureType, unitSystem) is a different API that throws for these.
 function unitLabel(unit) {
   const map = { 'round-bale': 'bales', 'square-bale': 'bales', bale: 'bales', tub: 'tubs', bag: 'bags', ton: 'tons', lb: 'lbs', kg: 'kg' };
   return map[unit] || (unit ? unit + 's' : 'units');

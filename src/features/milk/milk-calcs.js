@@ -11,6 +11,7 @@
  * Calf milk always stays on its feeding date. No effect on DMI, feed or NPK.
  */
 import { resolveDairySettings } from '../../entities/farm-setting.js';
+import { addDays } from '../../utils/date-utils.js';
 import { calfMilkKg } from '../../entities/calf-milk-feeding.js';
 import { isDairySchemaReleased, RELEASED_SCHEMA_VERSION } from '../../data/schema-release.js';
 
@@ -22,11 +23,8 @@ export function localDateOf(ts) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-export function shiftDate(ymd, days) {
-  const d = new Date(`${ymd}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
+/** #486: was a local UTC copy; same output as the shared `addDays` for every YYYY-MM-DD. Kept as an alias. */
+export { addDays as shiftDate };
 
 /** Whole calendar days between two YYYY-MM-DD dates (b − a). */
 export function dayDiff(a, b) {
@@ -127,7 +125,7 @@ export function spreadDailyTotals(pickups = [], feedings = []) {
         day(own).pickupKg += kg;
       } else {
         for (let i = span - 1; i >= 0; i--) {
-          const d = day(shiftDate(own, -i));
+          const d = day(addDays(own, -i));
           d.pickupKg += kg / span;
           d.estimated = true;
         }
@@ -154,7 +152,7 @@ export function spreadDailyTotals(pickups = [], feedings = []) {
 export function milkingGrazingOn(milkDate, {
   offsetDays = 1, groupIds = null, groups = [], groupWindows = [], paddockWindows = [], locations = [], today = null, farmId = null,
 } = {}) {
-  const grazingDate = shiftDate(milkDate, -offsetDays);
+  const grazingDate = addDays(milkDate, -offsetDays);
   const ids = groupIds ? new Set(groupIds) : new Set(groups.filter(g => g.isMilking && !g.archivedAt).map(g => g.id));
   const blocks = [];
   const end = today || '9999-12-31';

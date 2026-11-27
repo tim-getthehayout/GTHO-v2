@@ -17,6 +17,7 @@ export const FALLBACK_COST_PER_BALE = 56;
 
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 const mapOf = rows => Array.isArray(rows) ? Object.fromEntries(rows.map(row => [row.id, row])) : rows || {};
+// #486: kept (not addDays): a bad date throws here, which stops the `date <= today` loop below; addDays returns 'NaN-NaN-NaN' and could loop forever.
 export function shiftDate(date, days) {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);

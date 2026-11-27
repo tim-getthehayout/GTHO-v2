@@ -31,7 +31,9 @@ const PRE_EXISTING = {
   'src/features/events/open-cohort.js': 1, // BRC acres (calc input)
   'src/features/events/rotation-calendar/calendar-grid.js': 1, // CSS class 'loc-mgmt__no-acres'
   'src/features/events/wizard-shared.js': 3, // strip area inputs
-  'src/features/feed/index.js': 2, // feed default / batch weight inputs
+  // #486 split feed/index.js; its 2 sites moved unchanged (total still 2).
+  'src/features/feed/batch-sheets.js': 1, // batch weight input
+  'src/features/feed/feed-types-sheet.js': 1, // feed default weight input
   'src/features/feed/plausibility-warning.js': 1, // feed-check warning (input side)
   'src/features/field-mode/index.js': 2, // area inputs
   'src/features/harvest/index.js': 3, // harvest area / weight inputs

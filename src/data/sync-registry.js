@@ -44,6 +44,8 @@ import { fromSupabaseShape as fromHistoricalFeeding } from '../entities/historic
 import { fromSupabaseShape as fromHistoricalAnimalBasis } from '../entities/historical-animal-basis.js';
 import { fromSupabaseShape as fromMilkPickup } from '../entities/milk-pickup.js';
 import { fromSupabaseShape as fromCalfMilkFeeding } from '../entities/calf-milk-feeding.js';
+import { fromSupabaseShape as fromStoredFeedPlan } from '../entities/stored-feed-plan.js';
+import { fromSupabaseShape as fromStoredFeedPlanRow } from '../entities/stored-feed-plan-row.js';
 import { fromSupabaseShape as fromAiBull } from '../entities/ai-bull.js';
 import { fromSupabaseShape as fromTreatmentCategory } from '../entities/treatment-category.js';
 import { fromSupabaseShape as fromTreatmentType } from '../entities/treatment-type.js';
@@ -110,6 +112,9 @@ export const SYNC_REGISTRY = {
   // #449: 051 dairy milk. STAGED_TABLES[51]: the pull skips both until the ceiling is 51.
   milkPickups:              { table: 'milk_pickups',              from: fromMilkPickup },
   calfMilkFeedings:         { table: 'calf_milk_feedings',        from: fromCalfMilkFeeding },
+  // #436: 052 stored-feed plan. STAGED_TABLES[52]: the pull skips both until the ceiling is 52.
+  storedFeedPlans:          { table: 'stored_feed_plans',         from: fromStoredFeedPlan },
+  storedFeedPlanRows:       { table: 'stored_feed_plan_rows',     from: fromStoredFeedPlanRow },
   aiBulls:                  { table: 'ai_bulls',                  from: fromAiBull },
   treatmentCategories:      { table: 'treatment_categories',      from: fromTreatmentCategory },
   treatmentTypes:           { table: 'treatment_types',           from: fromTreatmentType },

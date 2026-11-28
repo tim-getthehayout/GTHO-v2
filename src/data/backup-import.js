@@ -49,6 +49,9 @@ const FK_ORDER = [
   // #449 (051): after operations, farms and groups.
   'milk_pickups',
   'calf_milk_feedings',
+  // #436 (052): after operations and farms; rows after the plan header.
+  'stored_feed_plans',
+  'stored_feed_plan_rows',
   'batch_nutritional_profiles',
   'soil_tests',
   'surveys',

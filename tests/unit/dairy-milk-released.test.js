@@ -56,10 +56,10 @@ beforeEach(() => {
 });
 afterEach(() => { setSyncAdapter(null); vi.restoreAllMocks(); });
 
-it('runs at the real released ceiling 51 with nothing held', () => {
+it('runs at the real released ceiling 51 with 052 held', () => {
   expect(RELEASED_SCHEMA_VERSION).toBe(51);
   expect(CURRENT_SCHEMA_VERSION).toBe(51);
-  expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+  expect(HELD_SCHEMA_VERSIONS).toEqual([52]);
   expect(isTableReleased('milk_pickups', RELEASED_SCHEMA_VERSION)).toBe(true);
   expect(isTableReleased('calf_milk_feedings', RELEASED_SCHEMA_VERSION)).toBe(true);
 });

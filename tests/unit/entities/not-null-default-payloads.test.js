@@ -19,6 +19,7 @@ import * as FarmSetting from '../../../src/entities/farm-setting.js';
 import * as Operation from '../../../src/entities/operation.js';
 import { DEFAULT_PREG_CHECK_BY_FAMILY, DEFAULT_RETURN_TO_CYCLE_BY_FAMILY } from '../../../src/calcs/bull-exposure.js';
 import { FARM_SEASON_FALLBACK } from '../../../src/calcs/farm-season.js';
+import { isTableReleased } from '../../../src/data/schema-release.js';
 
 const root = resolve(import.meta.dirname, '../../..');
 const { files, tables } = loadMigrationNotNull(root);
@@ -57,9 +58,9 @@ const nullNotNull = (payload, table) => Object.keys(tables[table]).filter(c => c
 const omittedWithoutDefault = (payload, table) => Object.entries(tables[table]).filter(([c, i]) => !(c in payload) && !i.hasDefault).map(([c]) => c);
 
 describe('#488 migration NOT NULL parse', () => {
-  it('replays 001 through 051 and sees the 047–049 farm_settings columns as NOT NULL DEFAULT', () => {
+  it('replays 001 through 052 and sees the 047–049 farm_settings columns as NOT NULL DEFAULT', () => {
     expect(files[0]).toMatch(/^001_/);
-    expect(files.at(-1)).toMatch(/^051_/);
+    expect(files.at(-1)).toMatch(/^052_/);
     for (const c of FARM_SETTINGS_047_049) expect(tables.farm_settings[c]).toMatchObject({ hasDefault: true });
     expect(Object.keys(tables.farm_settings).filter(c => !tables.farm_settings[c].hasDefault).sort()).toEqual(['farm_id', 'operation_id']);
   });
@@ -75,6 +76,11 @@ describe('#488 migration NOT NULL parse', () => {
 describe('#488 toSupabaseShape(create(...)) never sends null for a NOT NULL column', () => {
   for (const { entityType, table, mod } of PUSHED) {
     it(`${entityType} (${table})`, () => {
+      // #436: 052 is written and held; toSupabaseShape must refuse until the ceiling is 52.
+      if (!isTableReleased(table)) {
+        expect(() => mod.toSupabaseShape(mod.create(requiredInput(mod, table)))).toThrow();
+        return;
+      }
       // Default-constructed (onboarding/seed shape): no NOT NULL DEFAULT column may be null.
       const bare = mod.toSupabaseShape(mod.create({}));
       const defaulted = Object.keys(tables[table]).filter(c => tables[table][c].hasDefault && c in bare && bare[c] == null);

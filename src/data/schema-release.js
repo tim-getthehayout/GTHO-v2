@@ -5,7 +5,8 @@
  * return-to-cycle days), schema 49 (farm_settings season default
  * month-days, #402), schema 50 (farm_settings
  * include_archived_locations_in_metrics, OI-0251) and schema 51 (#449 dairy
- * milk) are released after verified apply.
+ * milk) are released after verified apply. Schema 52 (#436 / OI-0281 stored
+ * feed plan) is written and held until a verified apply.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
 export const RELEASED_SCHEMA_VERSION = 51;
 // OI-0251 Ap: farm_settings.include_archived_locations_in_metrics (050),
@@ -15,11 +16,19 @@ export const ARCHIVED_METRICS_SCHEMA_VERSION = 50;
 // columns and groups.is_milking. Released after verified apply on v2 prod
 // (2026-11-25 11:56:53 ET, ledger 20261125165653 dairy_milk; Tim card t1652s6519).
 export const DAIRY_SCHEMA_VERSION = 51;
-export const HELD_SCHEMA_VERSIONS = [];
+export const STORED_FEED_PLAN_SCHEMA_VERSION = 52;
+// #436 / OI-0281 stored-feed plan (052): stored_feed_plans + stored_feed_plan_rows.
+// Held (file only) until a verified backup + Tim's yes + verified apply, then a
+// separate release PR raises the ceiling to 52.
+export const HELD_SCHEMA_VERSIONS = [52];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.
 export const STAGED_COLUMNS = {
+  52: {
+    stored_feed_plans: ['operation_id', 'farm_id', 'period_start', 'period_end'],
+    stored_feed_plan_rows: ['operation_id', 'plan_id', 'start_date', 'end_date'],
+  },
   51: {
     farm_settings: ['dairy_mode', 'milk_kg_per_l', 'milk_grazing_offset_days', 'milk_totals_mode'],
     groups: ['is_milking'],
@@ -71,11 +80,17 @@ export const STAGED_COLUMNS = {
 export const STAGED_TABLES = {
   45: ['historical_feedings', 'historical_animal_basis'],
   51: ['milk_pickups', 'calf_milk_feedings'],
+  52: ['stored_feed_plans', 'stored_feed_plan_rows'],
 };
 
 /** #449: true once the dairy schema (051) is released in this build. */
 export function isDairySchemaReleased(ceiling = RELEASED_SCHEMA_VERSION) {
   return ceiling >= DAIRY_SCHEMA_VERSION;
+}
+
+/** #436: true once the stored-feed plan schema (052) is released in this build. */
+export function isStoredFeedPlanReleased(ceiling = RELEASED_SCHEMA_VERSION) {
+  return ceiling >= STORED_FEED_PLAN_SCHEMA_VERSION;
 }
 
 /** True when `table` is not created by a schema above the compiled ceiling. */

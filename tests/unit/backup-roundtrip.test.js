@@ -16,7 +16,7 @@ import fixture from '../fixtures/backup-v14.json';
 const EXPECTED_FIXTURE_TABLE_COUNT = 52;
 // Current export lists 51 tables: 54 entity types minus 3 excluded
 // (operation_members, app_logs, release_notes).
-const EXPECTED_EXPORT_TABLE_COUNT = 68; // #449 adds milk_pickups + calf_milk_feedings
+const EXPECTED_EXPORT_TABLE_COUNT = 70; // #449 dairy + #436 stored-feed plan (held; export skips until released)
 
 describe('backup round-trip (CP-55)', () => {
   describe('fixture structure', () => {

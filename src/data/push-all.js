@@ -55,6 +55,8 @@ import { toSupabaseShape as manureTxToSb } from '../entities/manure-batch-transa
 import { toSupabaseShape as npkPriceToSb } from '../entities/npk-price-history.js';
 import { toSupabaseShape as milkPickupToSb } from '../entities/milk-pickup.js';
 import { toSupabaseShape as calfMilkToSb } from '../entities/calf-milk-feeding.js';
+import { toSupabaseShape as storedFeedPlanToSb } from '../entities/stored-feed-plan.js';
+import { toSupabaseShape as storedFeedPlanRowToSb } from '../entities/stored-feed-plan-row.js';
 import { toSupabaseShape as aiBullToSb } from '../entities/ai-bull.js';
 import { toSupabaseShape as treatCatToSb } from '../entities/treatment-category.js';
 import { toSupabaseShape as treatTypeToSb } from '../entities/treatment-type.js';
@@ -89,6 +91,7 @@ const TO_SB_MAP = {
   manureBatches: manureBToSb, manureBatchTransactions: manureTxToSb,
   npkPriceHistory: npkPriceToSb, aiBulls: aiBullToSb,
   milkPickups: milkPickupToSb, calfMilkFeedings: calfMilkToSb,
+  storedFeedPlans: storedFeedPlanToSb, storedFeedPlanRows: storedFeedPlanRowToSb,
   treatmentCategories: treatCatToSb, treatmentTypes: treatTypeToSb,
   doseUnits: doseUnitToSb, animalBcsScores: bcsToSb,
   animalTreatments: treatmentToSb, animalBreedingRecords: breedingToSb,

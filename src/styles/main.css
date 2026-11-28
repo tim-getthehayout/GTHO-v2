@@ -2130,6 +2130,11 @@ body:has(.auth-overlay) .pwa-update-banner {
   gap: 10px;
 }
 
+/* #436: seventh Home tile (hay savings) when schema 052 is released. */
+.dash-stats-grid--plan {
+  grid-template-columns: repeat(7, 1fr);
+}
+
 .dash-stats-grid-mobile {
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
@@ -4524,4 +4529,50 @@ body:has(.auth-overlay) .pwa-update-banner {
   .milk-row--child { margin-left: var(--space-6); padding-top: var(--space-2); padding-bottom: var(--space-2); }
   .milk-list { gap: var(--space-1); }
   .milk-row--total:not(:first-child) { margin-top: var(--space-3); }
+}
+
+/* ------------------------------------------------------------------ */
+/* #436 / OI-0281 stored-feed plan card                               */
+/* ------------------------------------------------------------------ */
+.feed-plan-card {
+  margin: 0 0 var(--space-4);
+}
+.feed-plan-stat {
+  margin-top: var(--space-3);
+}
+.feed-plan-stat-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.feed-plan-stat-values {
+  font-size: 13px;
+  color: var(--text2);
+}
+.feed-plan-savings {
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.feed-plan-months {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-4);
+  font-size: 13px;
+}
+.feed-plan-months th,
+.feed-plan-months td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.feed-plan-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+@media (max-width: 767px) {
+  /* Month table is a desktop surface. */
+  .feed-plan-months { display: none; }
 }

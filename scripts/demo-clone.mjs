@@ -33,7 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BACKUP_MIGRATIONS } from '../src/data/backup-migrations.js';
-import { RELEASED_SCHEMA_VERSION } from '../src/data/schema-release.js';
+import { RELEASED_SCHEMA_VERSION, isTableReleased } from '../src/data/schema-release.js';
 import { UNIT_STANDARDS } from '../src/utils/unit-standards.js';
 import { ASSISTANT_TABLES, SERVER_ASSISTANT_TABLES } from '../src/features/assistant/schema.js';
 
@@ -163,6 +163,9 @@ export function cloneOperation(source, opts) {
   if (sel.schemaVersion > RELEASED_SCHEMA_VERSION) throw new Error(`Source schema ${sel.schemaVersion} is newer than this build (${RELEASED_SCHEMA_VERSION}).`);
   let b = migrateForward({ format: 'gtho-v2-backup', format_version: 1, schema_version: sel.schemaVersion, operation_id: sel.realOp, tables: sel.tables });
   const t = b.tables;
+  for (const table of Object.keys(t)) {
+    if (!isTableReleased(table, TARGET_SCHEMA_VERSION)) delete t[table];
+  }
   const ns = uuidv5(DEMO_NAMESPACE, demoOp);
   const realOpLc = sel.realOp.toLowerCase();
 

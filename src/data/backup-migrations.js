@@ -353,4 +353,12 @@ export const BACKUP_MIGRATIONS = {
     for (const op of b.tables.operations || []) op.schema_version = 51;
     return b;
   },
+  // 051 → 052 (#436 / OI-0281 stored-feed plan): both new tables empty.
+  51: (b) => {
+    b.tables.stored_feed_plans ??= [];
+    b.tables.stored_feed_plan_rows ??= [];
+    b.schema_version = 52;
+    for (const op of b.tables.operations || []) op.schema_version = 52;
+    return b;
+  },
 };

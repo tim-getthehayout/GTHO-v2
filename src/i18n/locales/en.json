@@ -107,7 +107,8 @@
     "dayLabel": "Day {count}",
     "subMovesLabel": "{count} sub-moves",
     "feedingsLabel": "{count} feedings",
-    "partialPreGraze": "partial pre-graze"
+    "partialPreGraze": "partial pre-graze",
+    "planSavings": "Hay savings"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -1007,7 +1008,38 @@
     "feedCheckRemainingPct": "Remaining %",
     "feedCheckConsumed": "Consumed since last check",
     "feedCheckNoPrior": "No prior check",
-    "feedCheckSaveBtn": "Save feed check"
+    "feedCheckSaveBtn": "Save feed check",
+    "planTitle": "Stored feed plan",
+    "planEdit": "Edit plan",
+    "planAdd": "Add plan",
+    "planEmpty": "No stored-feed plan for this farm and period yet.",
+    "planPickFarm": "Pick a farm to see the stored-feed plan.",
+    "planPlanned": "Planned",
+    "planEaten": "Eaten",
+    "planSavings": "Savings",
+    "planWaste": "Waste at close",
+    "planSeasonToDate": "Season to date",
+    "planThisMonth": "This month",
+    "planMonthCol": "Month",
+    "planNoCountedDays": "No measured hay days yet",
+    "planPeriodStart": "Period start",
+    "planPeriodEnd": "Period end",
+    "planNotes": "Notes",
+    "planLinesHint": "Each line is a date range that is either a percent of the herd’s daily need or a fixed amount of dry matter per day — not both.",
+    "planKindPct": "% of need",
+    "planKindAmount": "Fixed amount / day",
+    "planAddLine": "Add line",
+    "planError": {
+      "invalid_date": "Enter real dates.",
+      "end_not_after_start": "The period end must be after the start.",
+      "too_long": "The period cannot be longer than 366 days.",
+      "end_before_start": "A line’s end cannot be before its start.",
+      "pct_out_of_range": "Percent must be between 0 and 100.",
+      "amount_negative": "Amount must be 0 or more.",
+      "both_or_neither": "Each line must be either a percent or a fixed amount, not both or neither.",
+      "outside_period": "Lines must sit inside the budget period.",
+      "overlapping": "Lines cannot overlap."
+    }
   },
   "survey": {
     "title": "Surveys",

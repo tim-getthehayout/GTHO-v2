@@ -45,6 +45,8 @@ export const ENTITY_TYPES = [
   'historicalFeedings', 'historicalAnimalBasis',
   // #449: 051 dairy milk (held until the ceiling reaches 51).
   'milkPickups', 'calfMilkFeedings',
+  // #436: 052 stored-feed plan (held until the ceiling reaches 52).
+  'storedFeedPlans', 'storedFeedPlanRows',
   // D9: Livestock Health
   'aiBulls', 'treatmentCategories', 'treatmentTypes', 'doseUnits',
   'animalBcsScores', 'animalTreatments', 'animalBreedingRecords',

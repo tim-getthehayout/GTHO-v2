@@ -16,10 +16,10 @@ import { releasedColumns } from '../../src/data/schema-columns.js';
 beforeEach(() => setLocale('en', en));
 
 describe('confirmed_bred_date released at schema 49', () => {
-  it('keeps ceiling 49 with held cleared and staged 46 proof kept', () => {
+  it('keeps ceiling 49 with 052 held and staged 46 proof kept', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(51);
     expect(CURRENT_SCHEMA_VERSION).toBe(51);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([52]);
     expect(STAGED_COLUMNS[46]).toEqual({ animals: ['confirmed_bred_date'] });
   });
 

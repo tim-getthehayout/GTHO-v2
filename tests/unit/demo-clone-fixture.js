@@ -22,7 +22,7 @@ export function syntheticSource({ format = 'backup', extraOperation = false } = 
   const fks = migrationForeignKeys();
   const tables = {};
   const row = (table, label, extra = {}) => ({ id: fid(`${table}:${label}`), operation_id: REAL_OP, created_at: TS, updated_at: TS, ...extra });
-  const order = BROWSER_FK_ORDER.filter(t => !['milk_pickups', 'calf_milk_feedings'].includes(t)); // schema 50 source
+  const order = BROWSER_FK_ORDER.filter(t => !['milk_pickups', 'calf_milk_feedings', 'stored_feed_plans', 'stored_feed_plan_rows'].includes(t)); // schema 50 source
   for (const table of order) {
     if (table === 'operations') { tables.operations = [{ id: REAL_OP, name: 'Real Farm Op', timezone: 'America/New_York', currency: 'USD', unit_system: 'imperial', archived: false, schema_version: 50, created_at: TS, updated_at: TS }]; continue; }
     const r = row(table, 'a');

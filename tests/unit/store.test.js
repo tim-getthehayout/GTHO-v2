@@ -18,8 +18,8 @@ describe('store', () => {
   });
 
   describe('ENTITY_TYPES', () => {
-    it('has 71 entity types (13 client-safe assistant artifacts; #451 adds 2 read-only history types; #449 adds 2 dairy types)', () => {
-      expect(ENTITY_TYPES).toHaveLength(71);
+    it('has 73 entity types (13 client-safe assistant artifacts; #451 adds 2 read-only history types; #449 adds 2 dairy types; #436 adds 2 held plan types)', () => {
+      expect(ENTITY_TYPES).toHaveLength(73);
     });
   });
 

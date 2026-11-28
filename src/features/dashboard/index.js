@@ -4,6 +4,7 @@ import { el, clear } from '../../ui/dom.js';
 import { t } from '../../i18n/i18n.js';
 import { getAll, getById, subscribe, getVisibleEvents, getVisibleGroups, getActiveFarmId, isCurrentUserDev, resolveGroupCurrentPlacement } from '../../data/store.js';
 import { getUnitSystem } from '../../utils/preferences.js';
+import { homeStoredFeedPlanTile } from '../feed/stored-feed-plan-card.js';
 import { formatMeasure, formatPerArea, shortUnit } from '../../utils/units.js';
 import { daysBetweenInclusive, getLocalTodayStr } from '../../utils/date-utils.js';
 import { groupWindowPresenceDays } from '../../calcs/partial-day-demand.js';
@@ -208,7 +209,9 @@ function renderDesktopStats(period, rootContainer) {
 
   // 5 metric cells
   const metrics = computeDesktopMetrics(events, unitSys, period);
-  const grid = el('div', { className: 'dash-stats-grid' });
+  const planTile = homeStoredFeedPlanTile(unitSys);
+  if (planTile) metrics.push(planTile);
+  const grid = el('div', { className: planTile ? 'dash-stats-grid dash-stats-grid--plan' : 'dash-stats-grid' });
   for (const m of metrics) {
     grid.appendChild(el('div', { className: 'm-cell', ...(m.title ? { title: m.title } : {}), ...(m.testId ? { 'data-testid': m.testId } : {}) }, [
       el('div', { className: 'mc-value', style: { color: m.color } }, [m.value]),
@@ -234,6 +237,8 @@ function renderMobileStats(period, rootContainer) {
 
   // 3 metric cells
   const metrics = computeMobileMetrics(events, unitSys, period);
+  const planTile = homeStoredFeedPlanTile(unitSys);
+  if (planTile) metrics.push(planTile);
   const grid = el('div', { className: 'dash-stats-grid dash-stats-grid-mobile' });
   for (const m of metrics) {
     grid.appendChild(el('div', { className: 'm-cell', ...(m.title ? { title: m.title } : {}), ...(m.testId ? { 'data-testid': m.testId } : {}) }, [

@@ -3253,6 +3253,7 @@ CP-55/CP-56: both tables exported (paginate true) and restored after `farms` / `
 | Date | Session | Changes |
 |------|---------|---------|
 | 2026-11-25 | GTHO Build — #449 dairy milk | New Domain 12: `milk_pickups`, `calf_milk_feedings`, farm_settings dairy columns and `groups.is_milking` (migration 051, written and held). |
+| 2026-11-27 | GTHO Build — #436 stored-feed plan | New Domain 13: `stored_feed_plans`, `stored_feed_plan_rows` (migration 052, written and held). |
 | 2026-11-18 | GTHO Design — OI-0230 PR 1 as-built; OI-0232/0233/PR C locks (docs only) | §3.2 OI-0232 Q1–Q3 locks (proposed column, not built); §11.1 dead-letter log context as-built PR #82 `d22e004`. |
 | 2026-11-10 | GTHO Design — docs only | Document server-owned pendingClarification shape, UTF-8 byte cap, restore sanitization, clearing and CP-55/CP-56 exclusion; distinguish pending entry-kind clearing from shipped behavior; verify migration 040 voice_entry_attempts FKs against the existing DDL. |
 | 2026-11-09 | OI-0195 — ready-for-build gate locks | §11.2b notes migration 040 (on Forgejo main via PR #38, not applied). `voice_entry_attempts` lifecycle and retry-chain ruling (a); consent asked once per tester per operation with exact copy and decline behavior; testing audio in the private `assistant-testing-audio` bucket; offline notes in IndexedDB with a 3-minute cap. New §11.2c: seven server-authoritative tables, testing-scope CP-55/CP-56 exception, restore fence and billing locks. Calving dam clear marked implemented. |
@@ -3266,6 +3267,42 @@ CP-55/CP-56: both tables exported (paginate true) and restored after `farms` / `
 | 2026-04-17 | Local-only fields audit — OI-0089 | Retroactive documentation of two tables that existed in live Supabase, entity code, and §5.3a but were missing from this design doc. Added §5.8 `event_observations` (migration 021 + `bale_ring_residue_count` from migration 022, SP-2 event-time pasture observations) and §9.11 `animal_notes` (migration 012 "Domain 9 amendment", OI-0003). Both sections match existing style (column table, design decisions, CREATE TABLE). No schema change — doc catch-up only. Live ground truth: `SCHEMA_DUMP_2026-04-17.md`. |
 | 2026-04-18 | OI-0111 Settings UI unit conversion — farm_settings bale-ring column renamed | Migration 027 renames `farm_settings.bale_ring_residue_diameter_ft` → `bale_ring_residue_diameter_cm`, converts stored values (× 30.48), sets default 365.76, drops the old column. Bumps `schema_version` 26 → 27. The BRC-1 calc in `src/calcs/survey-bale-ring.js` stays imperial-native; callers (paddock-card, surveys) convert cm → ft inline before invoking. This closes the last farm-settings column that stored imperial natively — the whole table now follows the metric-internal / display-converted rule. §1.3 column table + CREATE TABLE SQL updated. |
 | 2026-05-03 | Reconciliation Session A — schema doc catch-up (RECONCILIATION_PLAN_2026-05-03 SCH-1, SCH-2, SCH-3) | **§3.3 groups (SCH-1):** column table + CREATE TABLE updated to show `archived_at timestamptz` (replaces earlier `archived boolean` per migration 024 / SP-11 Part 3 / OI-0090). Added design-decision paragraph on the soft-delete-via-timestamp pattern. Updated index comment to reflect that migration 032's `farm_id` drop auto-dropped the `idx_groups_active` partial index without a replacement. **§5.1 events (SCH-2):** removed `date_in` and `time_in` from column table and CREATE TABLE (dropped in migration 028 / OI-0117). Added design-decision paragraph documenting the derive-on-read pattern via `getEventStart()` / `setEventStart()`, the OI-0115 drift class it closed, and the general rule "if derivable from child rows, derive on read." **§5.4 event_feed_entries (SCH-3):** added `entry_type`, `destination_type`, `destination_event_id` columns and four check constraints (chk_entry_type_enum, chk_destination_type_enum, chk_removal_has_destination, chk_dest_event_consistency) per migration 023 / SP-10 §8a Move Feed Out. Rewrote the design-decision section to cover the new direction-via-entry_type model (no negative quantities), the batch-vs-event destination model, and why pre-SP-10 `source_event_id` is retained for compatibility. Flagged CP-55/CP-56 export-spec impact for the three new columns. **SCH-4 (farm_settings) confirmed already reconciled** — `bale_ring_residue_diameter_cm` was documented in the 2026-04-18 entry above; no edit needed in this session. No code changed in this session — documentation catch-up only. Owner: Cowork. |
+
+## Domain 13: Stored-feed plan (#436 / OI-0281, migration 052 — written, held)
+
+Brief: `session_briefs/STORED_FEED_BUDGET_2026-11-23.md` (LOCKED Tim t1387s5445). Migration `052_stored_feed_plan.sql` is file-only until a verified backup plus Tim's separate yes; the client ceiling stays 51 (`HELD_SCHEMA_VERSIONS = [52]`) and a separate release PR raises it to 52 after the verified apply. Metric storage (kg DM/day); hard delete (header cascades to rows). Both tables are farm/operation-scoped and carry the four standard operation-member RLS policies (OI-0233 / 045 / 051 pattern). Planned stored DM is computed on read from the plan lines × OI-0279 need (or a fixed daily amount). Used reuses the OI-0280 Al1 `storedDmiKg` figure; it is not a second hay-eaten calc.
+
+### `stored_feed_plans`
+
+One plan per farm per budget period.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | default `gen_random_uuid()` |
+| operation_id | uuid NOT NULL | FK `operations` |
+| farm_id | uuid NOT NULL | FK `farms` ON DELETE CASCADE |
+| period_start | date NOT NULL | inclusive |
+| period_end | date NOT NULL | inclusive; CHECK `period_end > period_start` |
+| notes | text | nullable change note |
+| created_at, updated_at | timestamptz | default `now()` |
+
+UNIQUE `(farm_id, period_start, period_end)`.
+
+### `stored_feed_plan_rows`
+
+Date-range lines. Exactly one of `planned_pct` or `planned_kg_dm_per_day` is set.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | default `gen_random_uuid()` |
+| operation_id | uuid NOT NULL | FK `operations` |
+| plan_id | uuid NOT NULL | FK `stored_feed_plans` ON DELETE CASCADE |
+| start_date, end_date | date NOT NULL | inclusive; CHECK `end_date >= start_date` |
+| planned_pct | numeric | nullable; 0–100 when set |
+| planned_kg_dm_per_day | numeric | nullable; ≥ 0 when set; stored kg DM/day |
+| created_at, updated_at | timestamptz | default `now()` |
+
+XOR CHECK on the two planned columns. Line overlap is rejected in the client (`validatePlanLines`); there is no gist exclusion (none exists elsewhere in this schema).
 
 ---
 

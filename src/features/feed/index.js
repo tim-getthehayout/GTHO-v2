@@ -10,6 +10,7 @@ import '../../calcs/feed-forage.js';
 import * as BatchEntity from '../../entities/batch.js';
 import { locationSummaryText, deleteBatchWithLocations } from './batch-balances.js';
 import { renderFeedDayGoalBanner, refreshFeedDayGoalBanner } from './feed-day-goal.js';
+import { renderStoredFeedPlanCard, refreshStoredFeedPlanCard, closeStoredFeedPlanSheet } from './stored-feed-plan-card.js';
 import { renderFeedTypeList, openFeedTypeSheet, closeFeedTypeSheet, FEED_TYPE_SHEET_ONDEMAND_ATTR } from './feed-types-sheet.js';
 import {
   openBatchDetails,
@@ -44,6 +45,7 @@ export function renderFeedScreen(container) {
   unsubs = [];
   // OI-0265 Ft1: drop an on-demand dialog wrapper so the screen's own is the only one.
   document.querySelectorAll(`#feed-type-sheet-wrap[${FEED_TYPE_SHEET_ONDEMAND_ATTR}]`).forEach(n => n.remove());
+  closeStoredFeedPlanSheet();
 
   const operations = getAll('operations');
   if (!operations.length) {
@@ -56,6 +58,9 @@ export function renderFeedScreen(container) {
 
   const screenEl = el('div', { 'data-testid': 'feed-screen' }, [
     el('h1', { className: 'screen-heading' }, [t('feed.title')]),
+
+    // #436 / OI-0281 stored-feed plan card (hidden while schema 052 is held)
+    renderStoredFeedPlanCard(),
 
     // Feed day goal banner (CP-26)
     renderFeedDayGoalBanner(),
@@ -158,6 +163,14 @@ export function renderFeedScreen(container) {
   unsubs.push(subscribe('animalClasses', () => refreshFeedDayGoalBanner(container)));
   for (const key of ['events', 'eventFeedChecks', 'eventFeedCheckItems', 'eventGroupWindows', 'animalGroupMemberships']) {
     unsubs.push(subscribe(key, () => refreshFeedDayGoalBanner(container)));
+  }
+  const refreshPlan = () => refreshStoredFeedPlanCard(container);
+  for (const key of [
+    'storedFeedPlans', 'storedFeedPlanRows', 'farmSettings', 'animals', 'animalWeightRecords',
+    'animalClasses', 'events', 'eventFeedChecks', 'eventFeedCheckItems', 'eventGroupWindows',
+    'animalGroupMemberships', 'eventFeedEntries', 'eventPaddockWindows', 'batches', 'feedTypes', 'locations',
+  ]) {
+    unsubs.push(subscribe(key, refreshPlan));
   }
 }
 

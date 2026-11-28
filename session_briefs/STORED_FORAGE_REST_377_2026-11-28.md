@@ -69,3 +69,10 @@
 - Last count 75 days ago, or a live batch with no DM%: the forecast is hidden and "Count your hay" is shown.
 - "Covers through" lands on the right day for a plan that steps from 100% to 50% in April. Metric and imperial both work (OI-0278).
 - The read-only, no-migration release gate stays at 52.
+
+## Slice 1 build rulings (Design, 2026-11-28, PR #500)
+- **Empty stock:** live batches with `remaining` ≤ 0 are ignored for unknown weight or DM, for location mismatch, and for the purchase-date "count". Adjustments on any live batch still count.
+- No live stock hides the forecast with a "no hay on hand" note and no button. A period that has ended shows no forecast block.
+- "Count your hay" opens the batch Adjust sheet with reason Reconcile, targeting the mismatched batch, then the unknown batch, then the main batch. A batch with no location-balance rows is not a mismatch.
+- **Carry-over days** = floor(leftover ÷ planned DM on the period's last day when a line covers it and it's > 0, else today's need). A divisor of 0 shows nothing.
+- The calc is registered as **FED-8** (`V2_CALCULATION_SPEC.md` §4.6).

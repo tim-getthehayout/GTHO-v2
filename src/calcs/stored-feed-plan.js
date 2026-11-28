@@ -164,10 +164,6 @@ export function farmStoredDmiByDate({
       byDate.set(date, cur);
     }
   }
-  for (const d of dates) {
-    if (byDate.has(d)) continue;
-    // Uncounted days are left out; still record need for callers that want it.
-  }
   return byDate;
 }
 

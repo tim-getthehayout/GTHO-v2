@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @file #450 Demo Dairy clone — builds a gtho-v2-backup (schema 51) file of
+ * @file #450 Demo Dairy clone — builds a gtho-v2-backup (schema 52) file of
  * Tim's real farm for a separate "Demo Dairy" login. READ-ONLY: this script
  * never connects to Supabase and never writes anywhere except --out.
  *
@@ -37,7 +37,7 @@ import { RELEASED_SCHEMA_VERSION, isTableReleased } from '../src/data/schema-rel
 import { UNIT_STANDARDS } from '../src/utils/unit-standards.js';
 import { ASSISTANT_TABLES, SERVER_ASSISTANT_TABLES } from '../src/features/assistant/schema.js';
 
-export const TARGET_SCHEMA_VERSION = 51;
+export const TARGET_SCHEMA_VERSION = 52;
 /** Fixed project namespace for demo ids; per demo operation a child namespace is derived. */
 export const DEMO_NAMESPACE = '6f1c2d4e-450d-5a1e-9d3c-7b2a1e0f4c50';
 export const DEFAULT_DAYS = 14;

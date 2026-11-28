@@ -50,7 +50,7 @@ describe('validatePregCheckThresholds (Pv)', () => {
 
 describe('Pg0 release gate', () => {
   it('is visible at current RELEASED ceiling 49', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(51);
+    expect(RELEASED_SCHEMA_VERSION).toBe(52);
     expect(arePregCheckSettingsReleased()).toBe(true);
     expect(arePregCheckSettingsReleased(45)).toBe(false);
     expect(arePregCheckSettingsReleased(47)).toBe(true);
@@ -78,7 +78,7 @@ describe('Pg0 release gate', () => {
 
 describe('return-to-cycle settings gate (schema 48 released)', () => {
   it('visible at current RELEASED ceiling 49', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(51);
+    expect(RELEASED_SCHEMA_VERSION).toBe(52);
     expect(areReturnToCycleSettingsReleased()).toBe(true);
     expect(areReturnToCycleSettingsReleased(47)).toBe(false);
     expect(areReturnToCycleSettingsReleased(48)).toBe(true);

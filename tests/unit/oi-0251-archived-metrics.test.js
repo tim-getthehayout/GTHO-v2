@@ -193,8 +193,8 @@ describe('OI-0251 Ap: schema 50 released', () => {
 
   it('050 is released at the real ceiling; 052 held; staged 50 proof kept; the toggle writes', () => {
     expect(ARCHIVED_METRICS_SCHEMA_VERSION).toBe(50);
-    expect(RELEASED_SCHEMA_VERSION).toBe(51);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([52]);
+    expect(RELEASED_SCHEMA_VERSION).toBe(52);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
     expect(STAGED_COLUMNS[50]).toEqual({ farm_settings: ['include_archived_locations_in_metrics'] });
     expect(isArchivedMetricsSettingReleased()).toBe(true);
     expect(isArchivedMetricsSettingReleased(49)).toBe(false);
@@ -239,7 +239,8 @@ describe('OI-0251 Ap: schema 50 released', () => {
       tables: { operations: [{ schema_version: 50 }], farm_settings: [{ id: 'x', include_archived_locations_in_metrics: true }] },
     });
     expect(res.valid).toBe(true);
-    expect(validateBackup({ format: 'gtho-v2-backup', format_version: 1, schema_version: 52, operation_id: 'op', tables: {} }).valid).toBe(false);
+    expect(validateBackup({ format: 'gtho-v2-backup', format_version: 1, schema_version: 52, operation_id: 'op', tables: {} }).valid).toBe(true);
+    expect(validateBackup({ format: 'gtho-v2-backup', format_version: 1, schema_version: 53, operation_id: 'op', tables: {} }).valid).toBe(false);
   });
 
   it('migration file 050: additive boolean NOT NULL DEFAULT true; unconditional 49 → 50 stamp', () => {

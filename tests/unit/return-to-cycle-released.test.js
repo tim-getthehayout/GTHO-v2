@@ -31,10 +31,10 @@ const COLS48 = [
 ];
 
 describe('return-to-cycle released at schema 49', () => {
-  it('keeps ceiling 49 with 052 held and staged 48 proof kept', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(51);
-    expect(CURRENT_SCHEMA_VERSION).toBe(51);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([52]);
+  it('keeps ceiling 52 with nothing held and staged 48 proof kept', () => {
+    expect(RELEASED_SCHEMA_VERSION).toBe(52);
+    expect(CURRENT_SCHEMA_VERSION).toBe(52);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
     expect(STAGED_COLUMNS[48]).toEqual({ farm_settings: COLS48 });
     expect(areReturnToCycleSettingsReleased()).toBe(true);
     expect(areReturnToCycleSettingsReleased(47)).toBe(false);

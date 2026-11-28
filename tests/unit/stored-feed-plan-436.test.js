@@ -1,20 +1,9 @@
 /**
- * #436 / OI-0281 expected stored-feed plan — released ceiling (mocked 52).
- * Held-ceiling behaviour lives in stored-feed-plan-held-436.test.js.
+ * #436 / OI-0281 expected stored-feed plan — real released ceiling 52
+ * (052 applied and released). Held-ceiling behaviour lives in
+ * stored-feed-plan-held-436.test.js.
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('../../src/data/schema-release.js', async original => {
-  const actual = await original();
-  const RELEASED_SCHEMA_VERSION = 52;
-  return {
-    ...actual,
-    RELEASED_SCHEMA_VERSION,
-    HELD_SCHEMA_VERSIONS: [],
-    isStoredFeedPlanReleased: (ceiling = RELEASED_SCHEMA_VERSION) => ceiling >= actual.STORED_FEED_PLAN_SCHEMA_VERSION,
-    isTableReleased: (table, ceiling = RELEASED_SCHEMA_VERSION) => actual.isTableReleased(table, ceiling),
-  };
-});
 
 import { _reset, mergeRemote, setSyncAdapter, getAll } from '../../src/data/store.js';
 import { setLocale } from '../../src/i18n/i18n.js';
@@ -222,7 +211,7 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
-describe('#436 held-release bookkeeping at the mocked ceiling 52', () => {
+describe('#436 held-release bookkeeping at the real released ceiling 52', () => {
   it('treats 052 as released and keeps the backup 51→52 step', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(52);
     expect(HELD_SCHEMA_VERSIONS).toEqual([]);

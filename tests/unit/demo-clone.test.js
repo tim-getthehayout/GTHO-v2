@@ -29,21 +29,21 @@ describe('uuid v5 and time helpers', () => {
 });
 
 describe('table set', () => {
-  it('outputs the released 68-table browser restore set at schema 51 (052 tables are held)', () => {
+  it('outputs the released 70-table browser restore set at schema 52', () => {
     const { backup } = clone();
-    expect(backup.schema_version).toBe(51);
-    expect(backup.tables.operations[0].schema_version).toBe(51);
-    const released = BROWSER_FK_ORDER.filter(t => isTableReleased(t, 51));
-    expect(released).toHaveLength(68);
+    expect(backup.schema_version).toBe(52);
+    expect(backup.tables.operations[0].schema_version).toBe(52);
+    const released = BROWSER_FK_ORDER.filter(t => isTableReleased(t, 52));
+    expect(released).toHaveLength(70);
     expect(BROWSER_FK_ORDER).toHaveLength(70);
     expect(Object.keys(backup.tables).sort()).toEqual([...released].sort());
-    expect(backup.tables.stored_feed_plans).toBeUndefined();
-    expect(backup.tables.stored_feed_plan_rows).toBeUndefined();
+    expect(backup.tables.stored_feed_plans).toEqual([]);
+    expect(backup.tables.stored_feed_plan_rows).toEqual([]);
   });
   it('drops members, logs, release notes and server assistant tables from a CP-55 snapshot', () => {
     const { backup } = clone({}, syntheticSource({ format: 'dir' }));
     for (const table of EXCLUDED_TABLES) expect(backup.tables).not.toHaveProperty(table);
-    expect(Object.keys(backup.tables).sort()).toEqual(BROWSER_FK_ORDER.filter(t => isTableReleased(t, 51)).sort());
+    expect(Object.keys(backup.tables).sort()).toEqual(BROWSER_FK_ORDER.filter(t => isTableReleased(t, 52)).sort());
   });
   it('a snapshot with two operations needs --source-operation-id', () => {
     const src = syntheticSource({ format: 'dir', extraOperation: true });

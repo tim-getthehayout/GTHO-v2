@@ -4,11 +4,11 @@
  * per-species preg-check thresholds), schema 48 (farm_settings
  * return-to-cycle days), schema 49 (farm_settings season default
  * month-days, #402), schema 50 (farm_settings
- * include_archived_locations_in_metrics, OI-0251) and schema 51 (#449 dairy
- * milk) are released after verified apply. Schema 52 (#436 / OI-0281 stored
- * feed plan) is written and held until a verified apply.
+ * include_archived_locations_in_metrics, OI-0251), schema 51 (#449 dairy
+ * milk) and schema 52 (#436 / OI-0281 stored feed plan) are released after
+ * verified apply.
  * No runtime/localStorage flag may opt an unapplied schema into writes. */
-export const RELEASED_SCHEMA_VERSION = 51;
+export const RELEASED_SCHEMA_VERSION = 52;
 // OI-0251 Ap: farm_settings.include_archived_locations_in_metrics (050),
 // released after verified apply. Reads still treat absent/null as true.
 export const ARCHIVED_METRICS_SCHEMA_VERSION = 50;
@@ -18,9 +18,9 @@ export const ARCHIVED_METRICS_SCHEMA_VERSION = 50;
 export const DAIRY_SCHEMA_VERSION = 51;
 export const STORED_FEED_PLAN_SCHEMA_VERSION = 52;
 // #436 / OI-0281 stored-feed plan (052): stored_feed_plans + stored_feed_plan_rows.
-// Held (file only) until a verified backup + Tim's yes + verified apply, then a
-// separate release PR raises the ceiling to 52.
-export const HELD_SCHEMA_VERSIONS = [52];
+// Released after verified apply of 052. This release PR raises the ceiling;
+// open it only after that apply. STAGED_COLUMNS[52] / STAGED_TABLES[52] stay as proofs.
+export const HELD_SCHEMA_VERSIONS = [];
 // Retain this proof manifest after promotion: restore must still prove every
 // prerequisite column. Entries <= the compiled ceiling are released, not held.
 // The legacy export name is shared by the independent column-proof API.

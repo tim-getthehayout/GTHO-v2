@@ -1,7 +1,8 @@
 /**
- * #449 dairy milk — acceptance tests 1–11 at the real released ceiling 51
- * (051 applied and verified on v2 prod 2026-11-25). The held side (ceiling 50)
- * stays covered in dairy-milk-held.test.js. Brief: session_briefs/DAIRY_MILK_2026-11-24.md.
+ * #449 dairy milk — acceptance tests 1–11 at the real released ceiling 52
+ * (051 applied and verified on v2 prod 2026-11-25; 052 now also released).
+ * The held side (ceiling 50) stays covered in dairy-milk-held.test.js.
+ * Brief: session_briefs/DAIRY_MILK_2026-11-24.md.
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({ rows: {}, calls: [], proofs: [], missingTables: [] }));
@@ -56,10 +57,10 @@ beforeEach(() => {
 });
 afterEach(() => { setSyncAdapter(null); vi.restoreAllMocks(); });
 
-it('runs at the real released ceiling 51 with 052 held', () => {
-  expect(RELEASED_SCHEMA_VERSION).toBe(51);
-  expect(CURRENT_SCHEMA_VERSION).toBe(51);
-  expect(HELD_SCHEMA_VERSIONS).toEqual([52]);
+it('runs at the real released ceiling 52 with nothing held', () => {
+  expect(RELEASED_SCHEMA_VERSION).toBe(52);
+  expect(CURRENT_SCHEMA_VERSION).toBe(52);
+  expect(HELD_SCHEMA_VERSIONS).toEqual([]);
   expect(isTableReleased('milk_pickups', RELEASED_SCHEMA_VERSION)).toBe(true);
   expect(isTableReleased('calf_milk_feedings', RELEASED_SCHEMA_VERSION)).toBe(true);
 });
@@ -428,22 +429,22 @@ describe('9 · backup at 51', () => {
     expect(keep.tables.farm_settings[0].dairy_mode).toBe('on');
     expect(keep.tables.groups[0].is_milking).toBe(true);
   });
-  it('a 50 backup restores at 51 with both tables empty', async () => {
+  it('a 50 backup restores at 52 with both tables empty', async () => {
     setSyncAdapter(new CustomSync());
-    expect(CURRENT_SCHEMA_VERSION).toBe(51);
-    db.rows.operations = [{ id: OP, name: 'Farm', schema_version: 51 }];
+    expect(CURRENT_SCHEMA_VERSION).toBe(52);
+    db.rows.operations = [{ id: OP, name: 'Farm', schema_version: 52 }];
     const backup = { format: 'gtho-v2-backup', format_version: 1, schema_version: 50, operation_id: OP, tables: { operations: [{ id: OP, name: 'Farm', schema_version: 50 }] } };
     const result = await importOperationBackup(backup, OP, null, { skipAutoBackup: true });
     expect(result, result.error).toMatchObject({ success: true });
     expect(db.rows.milk_pickups || []).toEqual([]);
     expect(db.rows.calf_milk_feedings || []).toEqual([]);
   });
-  it('export → import at 51 keeps the rows and the flags', async () => {
+  it('export → import at 52 keeps the rows and the flags', async () => {
     setSyncAdapter(new CustomSync());
     const p = MilkPickup.toSupabaseShape(pickup('11111111-0000-4000-8000-000000000001', at(11, 9, 6), 300));
     const f = CalfMilk.toSupabaseShape(feeding('11111111-0000-4000-8000-000000000002', at(11, 9, 17), 10));
     const g = { ...Group.toSupabaseShape(Group.create({ id: '11111111-0000-4000-8000-000000000003', operationId: OP, name: 'Milkers', isMilking: true })) };
-    db.rows.operations = [{ id: OP, name: 'Farm', schema_version: 51 }];
+    db.rows.operations = [{ id: OP, name: 'Farm', schema_version: 52 }];
     db.rows.milk_pickups = [p, { ...p, id: 'other', operation_id: 'someone-else' }];
     db.rows.calf_milk_feedings = [f];
     db.rows.groups = [g];

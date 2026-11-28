@@ -1,9 +1,21 @@
 /**
- * #436 / OI-0281 at the real compiled ceiling 51 (052 written and held).
- * Nothing is written, pulled, exported or restored for the new tables, and
- * the Feed card / Home tile stay hidden until a verified apply + release PR.
+ * #436 / OI-0281 at a mocked ceiling 51 (052 held; the pre-release state and
+ * any client still below 52). Released at the real ceiling 52 — see
+ * stored-feed-plan-436.test.js. Nothing is written, pulled, exported or
+ * restored for the new tables, and the Feed card / Home tile stay hidden.
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../../src/data/schema-release.js', async original => {
+  const actual = await original();
+  const RELEASED_SCHEMA_VERSION = 51;
+  return {
+    ...actual,
+    RELEASED_SCHEMA_VERSION,
+    HELD_SCHEMA_VERSIONS: [52],
+    isStoredFeedPlanReleased: (ceiling = RELEASED_SCHEMA_VERSION) => ceiling >= actual.STORED_FEED_PLAN_SCHEMA_VERSION,
+    isTableReleased: (table, ceiling = RELEASED_SCHEMA_VERSION) => actual.isTableReleased(table, ceiling),
+  };
+});
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { _reset, mergeRemote, setSyncAdapter } from '../../src/data/store.js';
@@ -37,8 +49,8 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
-describe('#436 schema 052 is written and held', () => {
-  it('keeps the compiled ceiling at 51 and lists 052 as held', () => {
+describe('#436 schema 052 is held at a mocked ceiling 51', () => {
+  it('mocked ceiling 51; 052 is held with the locked staged columns and tables', () => {
     expect(RELEASED_SCHEMA_VERSION).toBe(51);
     expect(STORED_FEED_PLAN_SCHEMA_VERSION).toBe(52);
     expect(HELD_SCHEMA_VERSIONS).toEqual([52]);

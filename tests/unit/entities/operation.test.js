@@ -100,9 +100,9 @@ describe('entity: operation', () => {
   });
 
   describe('schemaVersion (CP-55)', () => {
-    it('defaults to the compiled ceiling 51', () => {
+    it('defaults to the compiled ceiling 52', () => {
       const record = create({ name: 'Test' });
-      expect(record.schemaVersion).toBe(51);
+      expect(record.schemaVersion).toBe(52);
     });
 
     it('keeps the server stamp read-only and the onboarding stamp compiled', () => {
@@ -110,7 +110,7 @@ describe('entity: operation', () => {
       const sb = toSupabaseShape(record);
       expect(sb).not.toHaveProperty('schema_version');
       expect(fromSupabaseShape({ ...sb, schema_version: 43 }).schemaVersion).toBe(43);
-      expect(toOnboardingSupabaseShape(record).schema_version).toBe(51);
+      expect(toOnboardingSupabaseShape(record).schema_version).toBe(52);
       expect(record.schemaVersion).toBe(15);
     });
     it.each(['update','upsert','push'])('filters stale already-serialized %s payloads without mutating them', operation => {

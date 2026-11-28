@@ -17,9 +17,9 @@ beforeEach(() => setLocale('en', en));
 
 describe('confirmed_bred_date released at schema 49', () => {
   it('keeps ceiling 49 with 052 held and staged 46 proof kept', () => {
-    expect(RELEASED_SCHEMA_VERSION).toBe(51);
-    expect(CURRENT_SCHEMA_VERSION).toBe(51);
-    expect(HELD_SCHEMA_VERSIONS).toEqual([52]);
+    expect(RELEASED_SCHEMA_VERSION).toBe(52);
+    expect(CURRENT_SCHEMA_VERSION).toBe(52);
+    expect(HELD_SCHEMA_VERSIONS).toEqual([]);
     expect(STAGED_COLUMNS[46]).toEqual({ animals: ['confirmed_bred_date'] });
   });
 

@@ -169,6 +169,8 @@ export function renderFeedScreen(container) {
     'storedFeedPlans', 'storedFeedPlanRows', 'farmSettings', 'animals', 'animalWeightRecords',
     'animalClasses', 'events', 'eventFeedChecks', 'eventFeedCheckItems', 'eventGroupWindows',
     'animalGroupMemberships', 'eventFeedEntries', 'eventPaddockWindows', 'batches', 'feedTypes', 'locations',
+    // #377 forecast: a recount (adjustment) or relocated stock changes staleness / the location check.
+    'batchAdjustments', 'batchLocationBalances',
   ]) {
     unsubs.push(subscribe(key, refreshPlan));
   }

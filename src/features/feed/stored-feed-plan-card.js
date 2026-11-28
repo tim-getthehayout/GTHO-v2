@@ -16,6 +16,7 @@ import { deriveEventStartDate } from '../events/rotation-calendar/location-metri
 import { isStoredFeedPlanReleased } from '../../data/schema-release.js';
 import * as Plan from '../../entities/stored-feed-plan.js';
 import * as PlanRow from '../../entities/stored-feed-plan-row.js';
+import { computeFarmForecast, renderForecastBlock } from './stored-forage-forecast-block.js';
 import {
   planForFarm, farmStoredDmiByDate, summarizeStoredFeedPlan, validatePlanLines, lineKind, eachDateInclusive,
 } from '../../calcs/stored-feed-plan.js';
@@ -104,7 +105,9 @@ export function computeFarmPlanSummary(farmId, today = getLocalTodayStr()) {
     needForDate: { today, demandOpts },
     wasteKg: wasteKgFor(ctx, plan.periodStart, plan.periodEnd),
   });
-  return { plan, rows, summary };
+  // #377 slice 1: season forecast (FED-8) from the same plan, rows and need(d) inputs.
+  const forecast = computeFarmForecast({ plan, rows, today, demandOpts });
+  return { plan, rows, summary, forecast };
 }
 
 function toneColor(tone) {
@@ -166,12 +169,15 @@ export function renderStoredFeedPlanCard() {
   ]));
   if (!data.plan) {
     card.appendChild(el('p', { className: 'form-hint', 'data-testid': 'feed-plan-empty' }, [t('feed.planEmpty')]));
+    card.appendChild(el('p', { className: 'form-hint', 'data-testid': 'feed-forecast-no-plan' }, [t('feed.forecastNoPlan')]));
     return card;
   }
   const s = data.summary;
   card.appendChild(el('div', { className: 'form-hint', 'data-testid': 'feed-plan-period' }, [
     `${s.period.start} – ${s.period.end}`,
   ]));
+  const forecastBlock = renderForecastBlock(data.forecast, unitSys, operationId);
+  if (forecastBlock) card.appendChild(forecastBlock);
   card.appendChild(bucketLine(t('feed.planSeasonToDate'), s.seasonToDate, unitSys, { wasteKg: s.wasteKg, testid: 'feed-plan-season' }));
   card.appendChild(bucketLine(t('feed.planThisMonth'), s.thisMonth, unitSys, { testid: 'feed-plan-month' }));
   const table = el('table', { className: 'feed-plan-months', 'data-testid': 'feed-plan-month-table' }, [

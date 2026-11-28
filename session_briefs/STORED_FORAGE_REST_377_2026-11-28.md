@@ -1,6 +1,6 @@
 # #377 — Stored forage budgeting: the rest of OI-0221 after OI-0281
 
-**Status:** PROPOSED. This needs Tim's lock before Build starts. Design · 2026-11-28 · base `origin/main` `89e4d0e` (schema 52 released).
+**Status:** **LOCKED** by Tim, 2026-11-28 7:43 AM ET, on Orchestrator card **t1752s6901**: **Sl1 + Bu3 + Fh1 + Hc1 + J1 + Pf1 + Lk1**. Bu3 was Tim's choice over Design's recommendation of Bu1. Build order is slice 1 (forecast), then slice 2 (cost and scorecard), then slice 3 (lock, migration **055**). Writing or applying 055 needs a verified backup plus Tim's separate yes. Design · base `origin/main` `89e4d0e` (schema 52 released).
 
 **Sources:** OI-0221 in the frozen [OPEN_ITEMS.md @ ba4470b](https://git.sarnford.com/Homelab/GTHO-v2/src/commit/ba4470b6bd0954ea5e5e8c0b4527fc5acf605500/OPEN_ITEMS.md) · [proposal 2026-11-16](STORED_FORAGE_BUDGET_PROPOSAL_2026-11-16.md) · [OI-0281 brief](STORED_FEED_BUDGET_2026-11-23.md) (shipped as #436, migration 052).
 
@@ -16,7 +16,20 @@
 2. **Cost and scorecard:** $ beside DM, prior-year comparison, the run-rate panel inside the scorecard, the pace badge, months-under-plan and $ saved, and a "Stored feed by month" report.
 3. **Lock and budgeted on-hand:** lock or re-lock the plan, the opening on-hand figure, and on-hand vs budget with its variance explained. This is the only part that needs a migration.
 
-## Questions for Tim (recommendation first)
+## Locked answers (t1752s6901)
+- **Sl1:** three PRs, in order: forecast (no migration), then cost plus scorecard (no migration), then lock plus opening on-hand (migration 055).
+- **Bu3, both shown:** wherever "used" appears for this season, show **eaten** (Σ Al1 `storedDmiKg` from feed checks, measured days) and **fed** (hay that left the stack: deliveries minus returns, carries ignored) side by side, with labels.
+  - The OI-0281 savings number stays on **eaten**, as locked in #436. Fed is shown beside it and does not replace it.
+  - Last winter has feedings only, so its eaten column shows "no feed checks" rather than 0.
+  - Design default, not asked of Tim: the pace badge (O) compares **eaten**/day against planned/day, the same basis as savings. The fed rate is shown beside it with no colour.
+  - Slice 1 needs no used-basis number. Bu3 applies from slice 2.
+- **Fh1:** forecast = on-hand DM today − remaining planned stored DM from tomorrow through the period end. It's green when that's a surplus and red when it's a deficit, shown in lb DM and ≈ bales, with $ added in slice 2.
+- **Hc1:** "Hay covers through <date>" by walking on-hand through the plan. The days-on-hand goal stays, and carry-over days past the period end are shown.
+- **J1:** up to 30 days since a count is normal, 31–60 days is amber. Over 60 days, unknown weight or DM, or a location mismatch hides the forecast and shows "Count your hay".
+- **Pf1:** a "Fill from last season" button. Nothing is saved until Tim saves (slice 2).
+- **Lk1:** lock and re-lock with a note. Opening on-hand is reconstructed and Tim confirms or overrides it. Receipts count on both sides (slice 3, migration 055).
+
+## Questions as offered (recommendation first; locked picks above)
 
 **Sl — slicing.**
 - **Sl1 (rec):** three PRs in the order above. Slices 1–2 need no migration. Slice 3 takes migration **055** (053 is #388, 054 is #437), which needs a backup plus Tim's yes.

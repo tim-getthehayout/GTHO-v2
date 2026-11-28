@@ -363,6 +363,30 @@ describe('#377 J1 staleness', () => {
     expect(forecastFor().status).toBe('ok');
   });
 
+  it("an empty batch's later purchase date does not reset the last count", () => {
+    seedBatches([
+      batch('b1', { quantity: 120, remaining: 120 }),
+      batch('empty', { quantity: 10, remaining: 0, purchaseDate: countedDaysAgo(2) }),
+    ], [adjustment('a', 'b1', countedDaysAgo(75))]);
+    const info = lastCountInfo({ batches: getAll('batches'), adjustments: getAll('batchAdjustments'), today: TODAY });
+    expect(info.lastCountDate).toBe(countedDaysAgo(75));
+    expect(info.level).toBe('hide');
+    const f = forecastFor();
+    expect(f.status).toBe('hidden');
+    expect(f.blockers).toEqual(['stale']);
+  });
+
+  it('an adjustment on an empty live batch still counts toward the last count', () => {
+    seedBatches([
+      batch('b1', { quantity: 120, remaining: 120 }),
+      batch('empty', { quantity: 10, remaining: 0 }),
+    ], [adjustment('a', 'b1', countedDaysAgo(90)), adjustment('a2', 'empty', countedDaysAgo(2))]);
+    const info = lastCountInfo({ batches: getAll('batches'), adjustments: getAll('batchAdjustments'), today: TODAY });
+    expect(info.lastCountDate).toBe(countedDaysAgo(2));
+    expect(info.level).toBe('ok');
+    expect(forecastFor().status).toBe('ok');
+  });
+
   it('archived batches do not count towards the last count', () => {
     seedBatches([
       batch('b1', { quantity: 120, remaining: 120 }),
@@ -422,6 +446,21 @@ describe('#377 unknown weight / DM is unknown, never 1 kg', () => {
     expect(facts.unknownWeight).toBe(true);
   });
 
+  it('an empty non-archived batch with no DM% leaves the forecast showing', () => {
+    seedBatches([
+      batch('b1', { quantity: 120, remaining: 120 }),
+      batch('empty', { quantity: 10, remaining: 0, dmPct: null, name: 'Spent' }),
+    ]);
+    const f = forecastFor();
+    expect(f.status).toBe('ok');
+    expect(f.blockers).toBeUndefined();
+    const onHand = computeOnHandDm({ batches: getAll('batches'), feedTypes: getAll('feedTypes') });
+    expect(onHand.unknown).toEqual([]);
+    const card = renderCard();
+    expect(q(card, 'feed-forecast-headline')).toBeTruthy();
+    expect(q(card, 'feed-forecast-count-hay')).toBeNull();
+  });
+
   it('falls back to the feed type default weight and DM% when the batch has none', () => {
     mergeRemote('feedTypes', [{ id: FT, operationId: OP, name: 'Hay', category: 'forage', unit: 'bale', dmPct: 80, defaultWeightKg: 500 }]);
     seedBatches([batch('b1', { weightPerUnitKg: null, dmPct: null, remaining: 10, quantity: 10 })]);
@@ -446,6 +485,19 @@ describe('#377 remaining vs located balances', () => {
     expect(forecastFor().status).toBe('ok');
   });
 
+  it('an empty batch whose balances do not add up is not a mismatch', () => {
+    seedBatches([
+      batch('b1', { quantity: 120, remaining: 120 }),
+      batch('empty', { quantity: 10, remaining: 0 }),
+    ]);
+    mergeRemote('batchLocationBalances', [
+      { id: 'bal1', operationId: OP, batchId: 'b1', locationId: LOC, quantity: 120 },
+      { id: 'bal2', operationId: OP, batchId: 'empty', locationId: LOC, quantity: 3 },
+    ]);
+    expect(locationMismatches({ batches: getAll('batches'), balances: getAll('batchLocationBalances') })).toEqual([]);
+    expect(forecastFor().status).toBe('ok');
+  });
+
   it('remaining ≠ Σ located balances hides the forecast', () => {
     mergeRemote('batchLocationBalances', [
       { id: 'bal1', operationId: OP, batchId: 'b1', locationId: LOC, quantity: 100 },
@@ -455,6 +507,30 @@ describe('#377 remaining vs located balances', () => {
     expect(f.blockers).toEqual(['location_mismatch']);
     expect(f.countBatchId).toBe('b1');
     expect(q(renderCard(), 'feed-forecast-count-hay')).toBeTruthy();
+  });
+});
+
+describe('#377 only-empty live batches (ruling 2)', () => {
+  beforeEach(() => {
+    seedBase(); seedHerd(HERD_100K_LB);
+    seedPlan([pct('r-winter', '2026-10-01', '2027-03-31', 100)]);
+  });
+
+  it('hides the forecast as no hay on hand, with no Count your hay button', () => {
+    seedBatches([
+      batch('empty', { quantity: 10, remaining: 0, dmPct: null, purchaseDate: '2026-12-28' }),
+    ], [adjustment('a', 'empty', '2026-12-28')]);
+    mergeRemote('batchLocationBalances', [
+      { id: 'bal-empty', operationId: OP, batchId: 'empty', locationId: LOC, quantity: 3 },
+    ]);
+    const f = forecastFor();
+    expect(f.status).toBe('hidden');
+    expect(f.blockers).toEqual(['no_batches']);
+    expect(f.countBatchId).toBeNull();
+    const card = renderCard();
+    expect(q(card, 'feed-forecast-headline')).toBeNull();
+    expect(q(card, 'feed-forecast-count-hay')).toBeNull();
+    expect(q(card, 'feed-forecast-reason-no_batches').textContent).toMatch(/No hay on hand/);
   });
 });
 

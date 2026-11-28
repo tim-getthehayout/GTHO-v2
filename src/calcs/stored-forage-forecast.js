@@ -10,8 +10,11 @@
  *
  * On-hand DM is the Feed screen's Σ live batches `remaining` × kg/unit × DM%,
  * with one deliberate difference: a missing weight or DM% is UNKNOWN, never
- * the Feed screen's "1 kg" / "100%" stand-ins. Any unknown batch hides the
- * forecast (J1) instead of printing a wrong number.
+ * the Feed screen's "1 kg" / "100%" stand-ins. A live batch with remaining > 0
+ * and unknown weight or DM hides the forecast (J1) instead of printing a wrong
+ * number. A live batch with remaining ≤ 0 is empty stock: it does not hide the
+ * forecast for a missing weight or DM, is not a location mismatch, and its
+ * purchase date is not a "count". Adjustments on any live batch still count.
  *
  * Covers through (Hc1): walk on-hand forward day by day from tomorrow,
  * subtracting that day's planned stored DM. The date is the last day that was
@@ -24,11 +27,14 @@
  * A divisor of 0 (no animals, nothing planned) leaves carry-over unknown (null).
  *
  * Staleness (J1): last count = the latest `batch_adjustments.adjustment_date`
- * across live batches, or the latest live batch `purchase_date` when that is
- * later (a batch that arrived after the last count was counted on arrival).
- * Up to 30 days is normal, 31–60 is amber, over 60 / never counted hides the
- * forecast. Unknown weight or DM and `remaining` ≠ located balances also hide
- * it. "Live" = not archived.
+ * across any live batch (including empty ones), or the latest `purchase_date`
+ * of a live batch that still has remaining > 0 when that is later (a batch
+ * that arrived after the last count was counted on arrival). Empty batches'
+ * purchase dates do not count. Up to 30 days is normal, 31–60 is amber, over
+ * 60 / never counted hides the forecast. Unknown weight or DM on a stocked
+ * batch, or a stocked batch whose `remaining` ≠ located balances, also hide
+ * it. "Live" = not archived. No live stock (none, or only empty) hides the
+ * forecast with "no hay on hand" and no Count button.
  */
 import { registerCalc } from '../utils/calc-registry.js';
 import { addDays } from '../utils/date-utils.js';
@@ -57,6 +63,17 @@ export function liveBatches(batches) {
   return asList(batches).filter(b => b && !b.archived);
 }
 
+/** Remaining quantity, treating a missing or non-numeric value as 0. */
+export function batchRemaining(batch) {
+  return finite(batch?.remaining) ? Number(batch.remaining) : 0;
+}
+
+/** Live batches that still have stock. Empty stock (remaining ≤ 0) is ignored
+ *  for unknown-weight/DM, location mismatch, and purchase-date-as-count. */
+export function stockedBatches(batches) {
+  return liveBatches(batches).filter(b => batchRemaining(b) > 0);
+}
+
 /**
  * Per-batch DM facts. Weight = batch kg/unit, else the feed type default;
  * DM% = batch, else the feed type. Either missing → that part is unknown and
@@ -82,10 +99,11 @@ export function batchDmFacts(batch, feedTypes) {
   };
 }
 
-/** On-hand DM today (kg) over live batches, plus the batches with an unknown weight or DM. */
+/** On-hand DM today (kg) over live batches, plus stocked batches with an unknown weight or DM. */
 export function computeOnHandDm({ batches = [], feedTypes = [] } = {}) {
   const facts = liveBatches(batches).map(b => batchDmFacts(b, feedTypes));
-  const unknown = facts.filter(f => f.dmKg == null);
+  // Empty stock is not "unknown": a spent batch with no DM% must not hide the forecast.
+  const unknown = facts.filter(f => f.remaining > 0 && f.dmKg == null);
   const known = facts.filter(f => f.dmKg != null);
   return {
     dmKg: known.reduce((sum, f) => sum + f.dmKg, 0),
@@ -94,11 +112,11 @@ export function computeOnHandDm({ batches = [], feedTypes = [] } = {}) {
   };
 }
 
-/** Live batches whose located balance rows do not add up to `remaining`. */
+/** Stocked live batches whose located balance rows do not add up to `remaining`. */
 export function locationMismatches({ batches = [], balances = [] } = {}) {
   const rows = asList(balances);
   const out = [];
-  for (const b of liveBatches(batches)) {
+  for (const b of stockedBatches(batches)) {
     const mine = rows.filter(r => r.batchId === b.id);
     if (!mine.length) continue;
     const located = mine.reduce((sum, r) => sum + (finite(r.quantity) ? Number(r.quantity) : 0), 0);
@@ -113,11 +131,13 @@ export function lastCountInfo({ batches = [], adjustments = [], today } = {}) {
   const liveIds = new Set(live.map(b => b.id));
   let last = null;
   const take = d => { if (DATE_RE.test(d ?? '') && (last == null || d > last)) last = d; };
+  // Adjustments on any live batch still count, including empty ones.
   for (const adj of asList(adjustments)) {
     if (!liveIds.has(adj.batchId)) continue;
     take(adj.adjustmentDate || String(adj.createdAt || '').slice(0, 10));
   }
-  for (const b of live) take(b.purchaseDate);
+  // A purchase date is a "count" only for a live batch that still has stock.
+  for (const b of stockedBatches(batches)) take(b.purchaseDate);
   if (last == null) return { lastCountDate: null, daysAgo: null, level: 'never' };
   const daysAgo = Math.max(0, dayDiff(last, today));
   let level = 'ok';
@@ -170,20 +190,24 @@ export function computeStoredForageForecast({
   const onHand = computeOnHandDm({ batches, feedTypes });
   const count = lastCountInfo({ batches, adjustments, today });
   const mismatched = locationMismatches({ batches, balances });
-  const live = onHand.facts;
+  const stocked = onHand.facts.filter(f => f.remaining > 0);
 
   const blockers = [];
-  if (!live.length) blockers.push('no_batches');
-  if (count.level === 'never' && live.length) blockers.push('never_counted');
-  if (count.level === 'hide') blockers.push('stale');
-  if (onHand.unknown.length) blockers.push('unknown_weight_dm');
-  if (mismatched.length) blockers.push('location_mismatch');
+  // No live stock (none, or only empty) hides the forecast with no Count button.
+  if (!stocked.length) {
+    blockers.push('no_batches');
+  } else {
+    if (count.level === 'never') blockers.push('never_counted');
+    if (count.level === 'hide') blockers.push('stale');
+    if (onHand.unknown.length) blockers.push('unknown_weight_dm');
+    if (mismatched.length) blockers.push('location_mismatch');
+  }
 
   if (blockers.length) {
     // The batch "Count your hay" opens: a location mismatch first, then an
-    // unknown weight/DM batch, else the main (largest) live batch.
-    const main = [...onHand.facts].filter(f => f.dmKg != null && f.remaining > 0).sort((a, b) => b.dmKg - a.dmKg)[0];
-    const countBatchId = mismatched[0] ?? onHand.unknown[0]?.batchId ?? main?.batchId ?? live[0]?.batchId ?? null;
+    // unknown weight/DM batch, else the main (largest) stocked live batch.
+    const main = [...stocked].filter(f => f.dmKg != null).sort((a, b) => b.dmKg - a.dmKg)[0];
+    const countBatchId = mismatched[0] ?? onHand.unknown[0]?.batchId ?? main?.batchId ?? null;
     return {
       status: 'hidden', period, blockers, count, countBatchId,
       unknownBatchIds: onHand.unknown.map(u => u.batchId), mismatchedBatchIds: mismatched,
@@ -243,7 +267,7 @@ registerCalc({
   description: 'Stored-forage season forecast: on-hand DM today minus remaining planned stored DM to the period end (surplus or deficit), the last day on-hand covers, carry-over days past the period end, and count-staleness gating',
   formula: 'forecast = Σ live batches remaining × kg/unit × DM% − Σ planned stored DM(d) for d = tomorrow..period end; planned(d) = pct × need(today, held flat) or the entered kg DM/day, 0 if no line; covers through = last d with balance − planned(d) ≥ 0 walking from tomorrow; carry-over days = floor(leftover ÷ last-day planned DM, else today\'s need)',
   source: 'session_briefs/STORED_FORAGE_REST_377_2026-11-28.md (Fh1, Hc1, J1; LOCK t1752s6901)',
-  notes: 'Pure. Unknown weight or DM% is unknown, never 1 kg. Hidden (no number) when the last count is over 60 days old or never, any live batch has an unknown weight or DM, or remaining disagrees with located balances. No plan returns no result. Uses the #436 plannedStoredDmKg / needOnDate helpers.',
+  notes: 'Pure. Unknown weight or DM% on a stocked (remaining > 0) live batch is unknown, never 1 kg. Empty stock (remaining ≤ 0) does not hide the forecast, is not a location mismatch, and its purchase date is not a count; adjustments on any live batch still count. Hidden (no number) when there is no live stock, the last count is over 60 days old or never, a stocked batch has an unknown weight or DM, or a stocked batch remaining disagrees with located balances. No plan returns no result. Uses the #436 plannedStoredDmKg / needOnDate helpers.',
   inputs: [
     { name: 'plan', type: 'object', unit: '{ periodStart, periodEnd } (#436 stored_feed_plans)' },
     { name: 'rows', type: 'array', unit: 'stored_feed_plan_rows (pct or kg DM/day lines)' },

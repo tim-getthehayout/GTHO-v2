@@ -17,7 +17,7 @@
  */
 
 import { getAll } from '../../data/store.js';
-import { getLocalTodayStr, addDays } from '../../utils/date-utils.js';
+import { getLocalTodayStr } from '../../utils/date-utils.js';
 import { inMetricsPass, memoByStoreVersion } from '../../calcs/metrics-memo.js';
 import { groupWindowsDailyDemand, dmiBasisNote } from '../../calcs/window-helpers.js';
 import {
@@ -27,6 +27,13 @@ import { winterHistoryTotals } from '../events/rotation-calendar/winter-history-
 
 /** Calendar days per period pill, ending today (24h = today only). */
 export const HOME_PERIOD_DAYS = Object.freeze({ '24h': 1, '3d': 3, '7d': 7, '30d': 30 });
+
+// #486: kept (not addDays): throws RangeError on an invalid date where addDays returns 'NaN-NaN-NaN'; #486 is strictly behavior-preserving.
+function shiftDate(ymd, days) {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 /**
  * Date range (inclusive YYYY-MM-DD) for a Home period pill.
@@ -42,7 +49,7 @@ export function homePeriodRange(period, {
 } = {}) {
   if (period !== 'All') {
     const n = HOME_PERIOD_DAYS[period] ?? HOME_PERIOD_DAYS['7d'];
-    return { start: addDays(today, -(n - 1)), end: today };
+    return { start: shiftDate(today, -(n - 1)), end: today };
   }
   let start = null;
   for (const e of events || []) {

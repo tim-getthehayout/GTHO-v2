@@ -3,8 +3,9 @@
  *  1. feed/index.js split: same public exports, < 500 lines, every module-level
  *     `let` has exactly one owner module, no circular imports among the feed
  *     screen modules, and the screen's sheet backdrops still close their sheets.
- *  2. shiftDate → addDays parity (date format, ± offsets, month / year ends,
- *     leap day, DST edges) across several time zones.
+ *  2. All three shiftDate copies kept for strict parity (they throw RangeError
+ *     on an invalid date; addDays returns 'NaN-NaN-NaN'). Valid-range parity
+ *     vs addDays (date format, ± offsets, month / year ends, leap day, DST).
  *  3. unitLabel: the feed-package pluralizers in check.js / delivery.js are not
  *     the units-core API, so they are kept (documented).
  */
@@ -176,23 +177,25 @@ describe('#486 shiftDate → addDays parity', () => {
     expect(addDays('2026-01-01', 0)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('milk-calcs shiftDate is now the shared addDays; home-dmi period start uses it', () => {
-    expect(milkShiftDate).toBe(addDays);
+  it('home-dmi period starts still match the UTC copy (valid range)', () => {
     expect(homePeriodRange('7d', { today: '2026-03-10' })).toEqual({ start: '2026-03-04', end: '2026-03-10' });
     expect(homePeriodRange('30d', { today: '2026-11-15' })).toEqual({ start: '2026-10-17', end: '2026-11-15' });
     expect(homePeriodRange('24h', { today: '2026-11-01' })).toEqual({ start: '2026-11-01', end: '2026-11-01' });
   });
 
-  it('feed-run-rate keeps its copy: it throws on a bad date (stops its `date <= today` loop); addDays does not', () => {
-    expect(runRateShiftDate('2026-03-08', 1)).toBe(addDays('2026-03-08', 1));
-    expect(() => runRateShiftDate('not-a-date', 1)).toThrow(RangeError);
+  it('all three kept copies throw RangeError on an invalid date (addDays returns NaN-NaN-NaN)', () => {
+    const homeSrc = read('src/features/dashboard/home-dmi.js');
+    const homeFn = homeSrc.match(/function shiftDate\(ymd, days\) \{[\s\S]*?\n\}/)[0];
+    const homeShiftDate = new Function(`${homeFn}; return shiftDate;`)();
+    for (const fn of [runRateShiftDate, milkShiftDate, homeShiftDate]) {
+      expect(() => fn('not-a-date', 1)).toThrow(RangeError);
+      expect(fn('2026-03-08', 1)).toBe(addDays('2026-03-08', 1));
+    }
     expect(addDays('not-a-date', 1)).toBe('NaN-NaN-NaN');
-    expect(read('src/calcs/feed-run-rate.js')).toMatch(/#486: kept \(not addDays\)/);
-  });
-
-  it('no other shiftDate implementation is left in the three files', () => {
-    expect(read('src/features/dashboard/home-dmi.js')).not.toMatch(/function shiftDate/);
-    expect(read('src/features/milk/milk-calcs.js')).not.toMatch(/function shiftDate/);
+    expect(() => homePeriodRange('7d', { today: 'not-a-date' })).toThrow(RangeError);
+    for (const f of ['src/calcs/feed-run-rate.js', 'src/features/dashboard/home-dmi.js', 'src/features/milk/milk-calcs.js']) {
+      expect(read(f)).toMatch(/#486: kept \(not addDays\)/);
+    }
   });
 });
 
